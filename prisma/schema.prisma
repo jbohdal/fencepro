@@ -1,0 +1,228 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  name      String
+  role      Role     @default(SALES)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quotesCreated Quote[]    @relation("QuoteCreator")
+  jobsAssigned  Job[]      @relation("AssignedCrew")
+  customers     Customer[] @relation("CustomerCreator")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  SALES
+  INSTALLER
+  ACCOUNTING
+}
+
+model Customer {
+  id           String       @id @default(cuid())
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String?
+  address      String
+  city         String
+  state        String
+  zip          String
+  propertyType PropertyType @default(RESIDENTIAL)
+  leadSource   String?
+  qualifiedBy  String?
+  qualifiedAt  DateTime?
+  notes        String?
+
+  files       CustomerFile[]
+  quotes      Quote[]
+  createdBy   User           @relation("CustomerCreator", fields: [createdById], references: [id])
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+enum PropertyType {
+  RESIDENTIAL
+  COMMERCIAL
+  HOA
+  GOVERNMENT
+}
+
+model CustomerFile {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  fileName   String
+  fileType   String
+  s3Key      String
+  uploadedAt DateTime @default(now())
+}
+
+model FenceStyle {
+  id            String        @id @default(cuid())
+  name          String        @unique
+  category      FenceCategory
+  margin        Decimal       @db.Decimal(5, 4)
+  sectionsPerMH Decimal       @db.Decimal(5, 3)
+  mhPerWalkGate Decimal       @db.Decimal(5, 3) @default(2.400)
+  mhPerDblGate  Decimal       @db.Decimal(5, 3) @default(4.800)
+  isNoDig       Boolean       @default(false)
+  isActive      Boolean       @default(true)
+
+  quotes Quote[]
+}
+
+enum FenceCategory {
+  VINYL
+  CHAINLINK
+  ALUMINUM
+  COMMERCIAL
+  OTHER
+}
+
+model InventoryItem {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  cost      Decimal  @db.Decimal(10, 4)
+  unit      String   @default("each")
+  category  String
+  isActive  Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  quoteLines QuoteLineItem[]
+}
+
+model Quote {
+  id          String      @id @default(cuid())
+  quoteNumber String      @unique
+  customerId  String
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  createdById String
+  createdBy   User        @relation("QuoteCreator", fields: [createdById], references: [id])
+  status      QuoteStatus @default(DRAFT)
+  version     Int         @default(1)
+  parentQuoteId String?
+
+  jobSiteAddress String?
+  jobSiteCity    String?
+  jobSiteState   String?
+  jobSiteZip     String?
+
+  fenceStyleId    String
+  fenceStyle      FenceStyle @relation(fields: [fenceStyleId], references: [id])
+  sectionCount    Int
+  gateCount       Int        @default(0)
+  cornerCount     Int        @default(0)
+  endCount        Int        @default(0)
+  tearOutSections Int        @default(0)
+  tearOutGates    Int        @default(0)
+  runLengths      Json
+
+  baseMH     Decimal @db.Decimal(8, 2)
+  adjustedMH Decimal @db.Decimal(8, 2)
+  laborCost  Decimal @db.Decimal(10, 2)
+
+  materialCost Decimal         @db.Decimal(10, 2)
+  lineItems    QuoteLineItem[]
+
+  basePrice       Decimal @db.Decimal(10, 2)
+  priceAdjust     Decimal @db.Decimal(5, 4) @default(0)
+  adjustedPrice   Decimal @db.Decimal(10, 2)
+  margin          Decimal @db.Decimal(5, 4)
+  tearOutCost     Decimal @db.Decimal(10, 2) @default(0)
+  grossMargin     Decimal @db.Decimal(10, 2)
+  grossMarginPct  Decimal @db.Decimal(5, 4)
+
+  hasSalesman    Boolean @default(false)
+  commissionPct  Decimal @db.Decimal(5, 4) @default(0)
+  commissionAmt  Decimal @db.Decimal(10, 2) @default(0)
+
+  addOns QuoteAddOn[]
+  notes  String?
+
+  job       Job?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  SOLD
+  LOST
+  EXPIRED
+}
+
+model QuoteLineItem {
+  id          String        @id @default(cuid())
+  quoteId     String
+  quote       Quote         @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  inventoryId String
+  inventory   InventoryItem @relation(fields: [inventoryId], references: [id])
+  quantity    Decimal       @db.Decimal(10, 3)
+  unitCost    Decimal       @db.Decimal(10, 4)
+  totalCost   Decimal       @db.Decimal(10, 2)
+}
+
+model QuoteAddOn {
+  id       String  @id @default(cuid())
+  quoteId  String
+  quote    Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  name     String
+  qty      Int     @default(1)
+  unitCost Decimal @db.Decimal(10, 2)
+}
+
+model Job {
+  id        String    @id @default(cuid())
+  jobNumber String    @unique
+  quoteId   String    @unique
+  quote     Quote     @relation(fields: [quoteId], references: [id])
+  status    JobStatus @default(SOLD)
+
+  materialsOrdered    Boolean   @default(false)
+  materialsOrderedAt  DateTime?
+  materialsReceived   Boolean   @default(false)
+  materialsReceivedAt DateTime?
+
+  scheduledDate DateTime?
+  crew          User[]    @relation("AssignedCrew")
+  crewNotes     String?
+
+  actualMH    Decimal?  @db.Decimal(8, 2)
+  goodDig     Boolean?
+  siteNotes   String?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum JobStatus {
+  SOLD
+  MATERIALS_ORDERED
+  MATERIALS_RECEIVED
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model SystemConfig {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}

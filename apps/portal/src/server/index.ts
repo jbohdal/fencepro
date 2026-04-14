@@ -1,0 +1,115 @@
+import 'dotenv/config'
+import express from 'express'
+import cors from 'cors'
+import helmet from 'helmet'
+import rateLimit from 'express-rate-limit'
+import { ensureUploadDir } from './lib/storage/index.js'
+
+// Route imports
+import authRoutes from './routes/auth.js'
+import dashboardRoutes from './routes/dashboard.js'
+import ticketRoutes from './routes/tickets.js'
+import invoiceRoutes from './routes/invoices.js'
+import documentRoutes from './routes/documents.js'
+import contractRoutes from './routes/contracts.js'
+import adminRoutes from './routes/admin.js'
+import syncRoutes from './routes/sync.js'
+import chatRoutes from './routes/chat.js'
+import leadRoutes from './routes/leads.js'
+import appointmentRoutes from './routes/appointments.js'
+import pricingRoutes from './routes/pricing.js'
+import quoteApiRoutes from './routes/quotes-api.js'
+import leadChatRoutes from './routes/lead-chat.js'
+import knowledgeRoutes from './routes/knowledge.js'
+import googleCalendarRoutes from './routes/google-calendar.js'
+import ezBudgetRoutes, { ezBudgetPublicRoutes } from './routes/ez-budget.js'
+import { processFollowUps } from './lib/followUpScheduler.js'
+
+const app = express()
+const PORT = parseInt(process.env.PORT || '4000')
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
+
+// ── Security ──
+app.use(helmet())
+app.use(cors({
+  origin: process.env.NODE_ENV === 'development'
+    ? (_origin: any, cb: any) => cb(null, true)  // allow all origins in dev
+    : CLIENT_URL,
+  credentials: true,
+}))
+app.use(express.json({ limit: '10mb' }))
+
+// ── Rate Limiting ──
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { success: false, error: 'Too many login attempts. Try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { success: false, error: 'Upload limit reached. Try again in an hour.' },
+})
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+
+// ── Apply rate limits ──
+app.use('/api', apiLimiter)
+app.use('/api/auth/login', loginLimiter)
+app.use('/api/documents', uploadLimiter)
+
+// ── Routes ──
+app.use('/api/auth', authRoutes)
+app.use('/api/dashboard', dashboardRoutes)
+app.use('/api/tickets', ticketRoutes)
+app.use('/api/invoices', invoiceRoutes)
+app.use('/api/documents', documentRoutes)
+app.use('/api/contracts', contractRoutes)
+app.use('/api/admin', adminRoutes)
+app.use('/api/sync', syncRoutes)
+app.use('/api/chat', chatRoutes)
+app.use('/api/leads', leadRoutes)
+app.use('/api/appointments', appointmentRoutes)
+app.use('/api/pricing-rules', pricingRoutes)
+app.use('/api/quotes', quoteApiRoutes)
+app.use('/api/lead-chat', leadChatRoutes)
+app.use('/api/knowledge', knowledgeRoutes)
+app.use('/api/google-calendar', googleCalendarRoutes)
+app.use('/api/ez-budget', ezBudgetPublicRoutes) // Public widget endpoints (no auth)
+app.use('/api/ez-budget', ezBudgetRoutes)       // Admin endpoints (auth required)
+
+// ── Health check ──
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+// ── Error handler ──
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('Unhandled error:', err)
+  res.status(500).json({ success: false, error: 'Internal server error' })
+})
+
+// ── Start ──
+ensureUploadDir()
+
+app.listen(PORT, () => {
+  console.log(`🚀 FencePro Portal API running on port ${PORT}`)
+  console.log(`   CORS origin: ${CLIENT_URL}`)
+  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`)
+
+  // Process follow-up messages every 5 minutes
+  setInterval(() => {
+    processFollowUps().catch(err => console.error('[FollowUp] Timer error:', err))
+  }, 5 * 60 * 1000)
+  console.log('   Follow-up processor: active (5 min interval)')
+})
+
+export default app
