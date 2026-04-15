@@ -23,7 +23,7 @@ import leadChatRoutes from './routes/lead-chat.js'
 import knowledgeRoutes from './routes/knowledge.js'
 import googleCalendarRoutes from './routes/google-calendar.js'
 import ezBudgetRoutes, { ezBudgetPublicRoutes } from './routes/ez-budget.js'
-import { processFollowUps } from './lib/followUpScheduler.js'
+import cronRoutes from './routes/cron.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
@@ -31,10 +31,23 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
 
 // ── Security ──
 app.use(helmet())
+
+// Build allowed origins list: CLIENT_URL + optional CORS_ORIGINS (comma-separated)
+const allowedOrigins: string[] = [CLIENT_URL]
+if (process.env.CORS_ORIGINS) {
+  process.env.CORS_ORIGINS.split(',').forEach(o => allowedOrigins.push(o.trim()))
+}
+
 app.use(cors({
   origin: process.env.NODE_ENV === 'development'
     ? (_origin: any, cb: any) => cb(null, true)  // allow all origins in dev
-    : CLIENT_URL,
+    : (origin, cb) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+          cb(null, true)
+        } else {
+          cb(new Error(`CORS: origin ${origin} not allowed`))
+        }
+      },
   credentials: true,
 }))
 app.use(express.json({ limit: '10mb' }))
@@ -85,6 +98,7 @@ app.use('/api/knowledge', knowledgeRoutes)
 app.use('/api/google-calendar', googleCalendarRoutes)
 app.use('/api/ez-budget', ezBudgetPublicRoutes) // Public widget endpoints (no auth)
 app.use('/api/ez-budget', ezBudgetRoutes)       // Admin endpoints (auth required)
+app.use('/api/cron', cronRoutes)                // Vercel cron jobs
 
 // ── Health check ──
 app.get('/api/health', (_req, res) => {
@@ -100,16 +114,16 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // ── Start ──
 ensureUploadDir()
 
-app.listen(PORT, () => {
-  console.log(`🚀 FencePro Portal API running on port ${PORT}`)
-  console.log(`   CORS origin: ${CLIENT_URL}`)
-  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`)
-
-  // Process follow-up messages every 5 minutes
-  setInterval(() => {
-    processFollowUps().catch(err => console.error('[FollowUp] Timer error:', err))
-  }, 5 * 60 * 1000)
-  console.log('   Follow-up processor: active (5 min interval)')
-})
+// Only start the HTTP server when run directly (local dev / Docker).
+// On Vercel, the app is exported and Vercel manages the serverless lifecycle.
+const isVercel = process.env.VERCEL === '1'
+if (!isVercel) {
+  app.listen(PORT, () => {
+    console.log(`🚀 FencePro Portal API running on port ${PORT}`)
+    console.log(`   CORS origin: ${CLIENT_URL}`)
+    console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`)
+    console.log('   Follow-up cron: use /api/cron/follow-ups endpoint (or setInterval for local dev)')
+  })
+}
 
 export default app
