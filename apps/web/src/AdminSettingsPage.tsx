@@ -87,7 +87,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
             <label className="text-xs text-gray-500 mb-1 block">Man-Hour Rate</label>
             <div className="flex items-center">
               <span className="text-gray-400 mr-1">$</span>
-              <input type="number" step="0.50" min="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={p.manHourRate} onChange={e => setP('manHourRate', parseFloat(e.target.value) || 0)} />
+              <input type="number" step="0.50" min="0" max="500" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={p.manHourRate} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= 500) setP('manHourRate', Math.round(v * 100) / 100) }} />
               <span className="text-gray-400 text-sm ml-2 whitespace-nowrap">/ hr</span>
             </div>
           </div>
@@ -100,14 +100,14 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Salesman Commission</label>
             <div className="flex items-center">
-              <input type="number" step="0.5" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={(p.commissionSalesman * 100)} onChange={e => setP('commissionSalesman', (parseFloat(e.target.value) || 0) / 100)} />
+              <input type="number" step="0.5" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={Math.round(p.commissionSalesman * 1000) / 10} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= 100) setP('commissionSalesman', Math.round(v * 10) / 1000) }} />
               <span className="text-gray-400 text-sm ml-2">%</span>
             </div>
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Non-Salesman Commission</label>
             <div className="flex items-center">
-              <input type="number" step="0.5" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={(p.commissionNonSalesman * 100)} onChange={e => setP('commissionNonSalesman', (parseFloat(e.target.value) || 0) / 100)} />
+              <input type="number" step="0.5" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={Math.round(p.commissionNonSalesman * 1000) / 10} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= 100) setP('commissionNonSalesman', Math.round(v * 10) / 1000) }} />
               <span className="text-gray-400 text-sm ml-2">%</span>
             </div>
           </div>
@@ -121,14 +121,14 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
             <label className="text-xs text-gray-500 mb-1 block">Per Fence Section</label>
             <div className="flex items-center">
               <span className="text-gray-400 mr-1">$</span>
-              <input type="number" step="0.50" min="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={p.tearOutFence} onChange={e => setP('tearOutFence', parseFloat(e.target.value) || 0)} />
+              <input type="number" step="0.50" min="0" max="200" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={p.tearOutFence} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= 200) setP('tearOutFence', Math.round(v * 100) / 100) }} />
             </div>
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Per Gate</label>
             <div className="flex items-center">
               <span className="text-gray-400 mr-1">$</span>
-              <input type="number" step="0.50" min="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={p.tearOutGate} onChange={e => setP('tearOutGate', parseFloat(e.target.value) || 0)} />
+              <input type="number" step="0.50" min="0" max="200" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={p.tearOutGate} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= 200) setP('tearOutGate', Math.round(v * 100) / 100) }} />
             </div>
           </div>
         </div>
@@ -143,7 +143,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
               Good <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
             </label>
             <div className="flex items-center">
-              <input type="number" step="0.5" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={(m.good * 100)} onChange={e => setM('good', (parseFloat(e.target.value) || 0) / 100)} />
+              <input type="number" step="0.5" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={Math.round(m.good * 1000) / 10} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= 100) setM('good', Math.round(v * 10) / 1000) }} />
               <span className="text-gray-400 text-sm ml-2">%+</span>
             </div>
           </div>
@@ -152,7 +152,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
               Warning <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block" />
             </label>
             <div className="flex items-center">
-              <input type="number" step="0.5" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={(m.warning * 100)} onChange={e => setM('warning', (parseFloat(e.target.value) || 0) / 100)} />
+              <input type="number" step="0.5" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={Math.round(m.warning * 1000) / 10} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= 100) setM('warning', Math.round(v * 10) / 1000) }} />
               <span className="text-gray-400 text-sm ml-2">%+</span>
             </div>
           </div>
@@ -244,19 +244,19 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
                   </select>
                 </td>
                 <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="0.01" min="0" max="1" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.margin} onChange={e => update(style.id, { margin: parseFloat(e.target.value) || 0 })} />
+                  <input type="number" step="0.01" min="0.01" max="0.99" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.margin} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0 && v < 1) update(style.id, { margin: Math.round(v * 1000) / 1000 }) }} />
                 </td>
                 <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="0.1" min="0" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.sectionsPerMH} onChange={e => update(style.id, { sectionsPerMH: parseFloat(e.target.value) || 0 })} />
+                  <input type="number" step="0.1" min="0.1" max="20" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.sectionsPerMH} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) update(style.id, { sectionsPerMH: Math.round(v * 10) / 10 }) }} />
                 </td>
                 <td className="px-3 py-2.5 text-right">
                   <input type="number" step="1" min="1" className="w-14 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.panelWidth} onChange={e => update(style.id, { panelWidth: parseInt(e.target.value) || 6 })} />
                 </td>
                 <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="0.1" min="0" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.mhPerWalkGate} onChange={e => update(style.id, { mhPerWalkGate: parseFloat(e.target.value) || 0 })} />
+                  <input type="number" step="0.1" min="0" max="20" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.mhPerWalkGate} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) update(style.id, { mhPerWalkGate: Math.round(v * 10) / 10 }) }} />
                 </td>
                 <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="0.1" min="0" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.mhPerDblGate} onChange={e => update(style.id, { mhPerDblGate: parseFloat(e.target.value) || 0 })} />
+                  <input type="number" step="0.1" min="0" max="20" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.mhPerDblGate} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) update(style.id, { mhPerDblGate: Math.round(v * 10) / 10 }) }} />
                 </td>
                 <td className="px-3 py-2.5 text-center">
                   <button onClick={() => update(style.id, { isActive: !style.isActive })} className={`w-8 h-5 rounded-full transition-colors relative ${style.isActive ? 'bg-orange-500' : 'bg-gray-300'}`}>

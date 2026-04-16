@@ -1,4 +1,6 @@
 import type { SavedQuote } from './QuotesPage'
+import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
+import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
 
 /* ═══════════════════════════════════════════════
    JOB ENTITY — unified lifecycle from quote to paid
@@ -156,6 +158,20 @@ export function createJobFromQuote(quote: SavedQuote): Job {
 
   const jobs = getJobs()
   saveJobs([job, ...jobs])
+
+  // Fire automation trigger
+  fireJobCreated(job.id, {
+    jobName: job.customerName,
+    jobAddress: job.customerAddress,
+    fenceType: job.fenceStyle,
+    assignedRep: job.salesRep,
+    customerName: job.customerName,
+    customerEmail: job.customerEmail,
+    customerPhone: job.customerPhone,
+    contractValue: job.contractValue,
+    quotePrice: job.quotePrice,
+  })
+
   return job
 }
 
@@ -166,9 +182,37 @@ export function updateJob(id: string, updates: Partial<Job>): Job | null {
   const idx = jobs.findIndex(j => j.id === id)
   if (idx < 0) return null
 
-  jobs[idx] = { ...jobs[idx], ...updates, updatedAt: new Date().toISOString() }
+  const prev = jobs[idx]
+  jobs[idx] = { ...prev, ...updates, updatedAt: new Date().toISOString() }
   saveJobs(jobs)
-  return jobs[idx]
+
+  // Auto-create PO when materials status changes to 'ordered'
+  const job = jobs[idx]
+  if (updates.materialsStatus === 'ordered' && prev.materialsStatus !== 'ordered') {
+    // Only create if no existing PO for this job
+    const existingPOs = getPOsForJob(job.id)
+    if (existingPOs.length === 0) {
+      try {
+        // Pull the quote's pull sheet for line items
+        const quotesRaw = localStorage.getItem('fencepro_quotes')
+        const quotes = quotesRaw ? JSON.parse(quotesRaw) : []
+        const quote = quotes.find((q: any) => q.id === job.quoteId)
+        if (quote?.pullSheet?.length > 0) {
+          createDraftPO(
+            job.id,
+            job.customerName,
+            job.customerAddress,
+            quote.pullSheet.map((li: any) => ({
+              itemName: li.item, quantity: li.qty, unitCost: li.unitCost,
+            })),
+          )
+          console.log(`[AutoPO] Draft PO created for job ${job.customerName}`)
+        }
+      } catch (err) { console.warn('[AutoPO] Failed:', err) }
+    }
+  }
+
+  return job
 }
 
 /* ───────── status transitions ───────── */
@@ -206,7 +250,28 @@ export function advanceJob(id: string): Job | null {
     updates.completedDate = new Date().toISOString().slice(0, 10)
   }
 
-  return updateJob(id, updates)
+  const result = updateJob(id, updates)
+
+  // Fire automation trigger
+  if (result) {
+    fireOpsStageChange(id, job.status, nextStatus, {
+      jobName: job.customerName,
+      jobAddress: job.customerAddress,
+      fenceType: job.fenceStyle,
+      assignedRep: job.salesRep,
+      crewAssigned: job.crewAssigned,
+      customerName: job.customerName,
+      customerEmail: job.customerEmail,
+      customerPhone: job.customerPhone,
+      scheduledDate: job.scheduledDate,
+      contractValue: job.contractValue,
+    })
+    if (nextStatus === 'paid') {
+      firePaymentReceived(id, { jobName: job.customerName, customerName: job.customerName })
+    }
+  }
+
+  return result
 }
 
 export function holdJob(id: string, reason: string): Job | null {

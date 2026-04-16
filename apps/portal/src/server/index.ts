@@ -23,6 +23,8 @@ import leadChatRoutes from './routes/lead-chat.js'
 import knowledgeRoutes from './routes/knowledge.js'
 import googleCalendarRoutes from './routes/google-calendar.js'
 import ezBudgetRoutes, { ezBudgetPublicRoutes } from './routes/ez-budget.js'
+import automationRoutes from './routes/automations.js'
+import integrationRoutes from './routes/integrations.js'
 import cronRoutes from './routes/cron.js'
 
 const app = express()
@@ -98,6 +100,8 @@ app.use('/api/knowledge', knowledgeRoutes)
 app.use('/api/google-calendar', googleCalendarRoutes)
 app.use('/api/ez-budget', ezBudgetPublicRoutes) // Public widget endpoints (no auth)
 app.use('/api/ez-budget', ezBudgetRoutes)       // Admin endpoints (auth required)
+app.use('/api/automations', automationRoutes)
+app.use('/api/integrations', integrationRoutes)
 app.use('/api/cron', cronRoutes)                // Vercel cron jobs
 
 // ── Health check ──

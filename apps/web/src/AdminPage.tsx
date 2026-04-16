@@ -10,6 +10,7 @@ import {
   getInventorySummary,
   reverseTransaction,
 } from './inventoryStore'
+import BulkImportModal from './BulkImportModal'
 import type {
   InventoryItem, Bundle, BundleItem,
   InventoryLocation, StockLevel,
@@ -158,6 +159,7 @@ function CatalogTab() {
   const [category, setCategory]   = useState('All')
   const [saved, setSaved]         = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [showBulkImport, setShowBulkImport] = useState(false)
   const locations = useMemo(() => getLocations(), [])
   const defaultLoc = locations[0]?.id || 'loc-yard'
 
@@ -231,6 +233,7 @@ function CatalogTab() {
         </div>
         <div className="flex gap-2">
           <button onClick={handleReset} className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50">Reset defaults</button>
+          <button onClick={() => setShowBulkImport(true)} className="text-sm text-blue-600 border border-blue-300 rounded-lg px-3 py-2 hover:bg-blue-50">📥 Bulk Import</button>
           <button onClick={addItem} className="text-sm text-orange-500 border border-orange-300 rounded-lg px-3 py-2 hover:bg-orange-50">+ Add item</button>
           <button onClick={handleSave} className={`text-sm font-semibold px-4 py-2 rounded-lg transition-colors ${saved ? 'bg-green-500 text-white' : 'bg-orange-500 hover:bg-orange-600 text-white'}`}>
             {saved ? '✓ Saved' : 'Save Changes'}
@@ -312,6 +315,12 @@ function CatalogTab() {
         {filtered.length === 0 && <div className="text-center py-12 text-gray-400 text-sm">No items match your search</div>}
       </div>
       <p className="text-xs text-gray-400 mt-2">{filtered.length} of {items.length} items</p>
+      {showBulkImport && (
+        <BulkImportModal
+          onClose={() => setShowBulkImport(false)}
+          onComplete={() => { setItems(getInventory()); setLevels(getStockLevels()) }}
+        />
+      )}
     </div>
   )
 }

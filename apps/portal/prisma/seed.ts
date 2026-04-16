@@ -156,6 +156,85 @@ async function main() {
   }
   console.log(`  Pricing rules: ${pricingRules.length} seeded`)
 
+  // ── Seed Default Automation: Signed Contract → Create Job ──
+  await prisma.automation.upsert({
+    where: { id: 'default-signed-contract' },
+    update: {},
+    create: {
+      id: 'default-signed-contract',
+      name: 'Signed Contract → Create Job & Notify',
+      description: 'When a deal moves to Signed Contract, create a job, set it to Awaiting Locates, notify the rep, and log an activity note.',
+      triggerType: 'sales_stage_change',
+      triggerConfig: { toStage: 'Signed Contract' },
+      actions: [
+        {
+          type: 'move_ops_stage',
+          targetStage: 'staging',
+        },
+        {
+          type: 'send_notification',
+          notifyTo: 'rep',
+          notifyTitle: 'New Job: {{customer_name}}',
+          notifyBody: 'Contract signed for {{job_address}}. Job created and set to Awaiting Locates.',
+        },
+        {
+          type: 'post_activity_note',
+          noteText: 'Job created from signed contract — awaiting locates. Customer: {{customer_name}}, Address: {{job_address}}',
+        },
+        {
+          type: 'create_task',
+          taskTitle: 'Call locates for {{customer_name}}',
+          taskDescription: 'New signed contract at {{job_address}}. Call 811 for utility locates.',
+          taskAssignTo: 'role:ops_manager',
+          taskDueDaysOffset: 1,
+          taskPriority: 'high',
+        },
+      ],
+      isActive: true,
+      createdBy: 'system',
+    },
+  })
+  console.log('  Default automation seeded: Signed Contract → Create Job')
+
+  // ── Suggested Rain Day Automations (inactive examples) ──
+  await prisma.automation.upsert({
+    where: { id: 'rain-day-notify' },
+    update: {},
+    create: {
+      id: 'rain-day-notify',
+      name: 'Rain Day → Notify Customer & Crew',
+      description: 'When a job is flagged as rain day, send reschedule email to customer, notify crew, and post activity note.',
+      triggerType: 'rain_day_flagged',
+      triggerConfig: {},
+      actions: [
+        { type: 'send_email', emailTo: 'customer', emailSubject: 'Schedule Update — {{company_name}}', emailBody: 'Hi {{customer_name}}, due to weather conditions your fence installation originally scheduled for the affected date has been rescheduled. We will confirm your new date shortly. Thank you for your patience! — {{company_name}}' },
+        { type: 'send_notification', notifyTo: 'rep', notifyTitle: 'Rain Day: {{customer_name}}', notifyBody: 'Job at {{job_address}} has been flagged as a rain day and needs rescheduling.' },
+        { type: 'post_activity_note', noteText: 'Job flagged as rain day. Customer and crew notified.' },
+      ],
+      isActive: false,
+      createdBy: 'system',
+    },
+  })
+
+  await prisma.automation.upsert({
+    where: { id: 'rain-day-reminder' },
+    update: {},
+    create: {
+      id: 'rain-day-reminder',
+      name: 'Rain Day — No Reschedule Reminder',
+      description: 'If a rain day job has no reschedule date set, remind the rep after 1 day.',
+      triggerType: 'rain_day_flagged',
+      triggerConfig: {},
+      actions: [
+        { type: 'schedule_reminder', reminderDaysOffset: 1, reminderMessage: 'Rain day job for {{customer_name}} at {{job_address}} still needs a reschedule date. Please update the schedule.', reminderTo: 'rep' },
+      ],
+      isActive: false,
+      createdBy: 'system',
+    },
+  })
+
+  console.log('  Rain day automations seeded (inactive examples)')
+
   console.log('\nSeed complete!')
   console.log('─'.repeat(40))
   console.log('Demo login:  demo@customer.com / demo1234')

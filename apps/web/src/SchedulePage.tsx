@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { fireRainDayFlagged } from './automationTrigger'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,48 @@ export interface Crew {
 export interface ScheduleSettings {
   workDays: number[]
   crews: Crew[]
+}
+
+// ── Rain Day Log ──
+export interface RainDayEntry {
+  id: string
+  jobId: string
+  clientName: string
+  originalDate: string
+  rescheduleDate: string   // '' = TBD
+  reason: string
+  flaggedAt: string
+}
+
+function loadRainLog(): RainDayEntry[] {
+  try { const r = localStorage.getItem('fencepro_rainlog'); return r ? JSON.parse(r) : [] }
+  catch { return [] }
+}
+function saveRainLog(log: RainDayEntry[]) { localStorage.setItem('fencepro_rainlog', JSON.stringify(log)) }
+
+// ── Weather (OpenWeatherMap free tier) ──
+interface WeatherDay { date: string; temp: number; description: string; icon: string; rain: boolean }
+const OWM_KEY = typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_OPENWEATHER_API_KEY || '' : ''
+
+async function fetchForecast(lat = 28.538, lon = -81.379): Promise<WeatherDay[]> {
+  if (!OWM_KEY) return []
+  try {
+    const res = await fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&units=imperial&appid=${OWM_KEY}`)
+    if (!res.ok) return []
+    const data = await res.json()
+    const days: WeatherDay[] = []
+    const seen = new Set<string>()
+    for (const entry of data.list) {
+      const d = entry.dt_txt.slice(0, 10)
+      if (seen.has(d)) continue
+      seen.add(d)
+      const desc = entry.weather?.[0]?.description || ''
+      const icon = entry.weather?.[0]?.icon || '01d'
+      const isRain = desc.includes('rain') || desc.includes('storm') || desc.includes('drizzle')
+      days.push({ date: d, temp: Math.round(entry.main.temp), description: desc, icon, rain: isRain })
+    }
+    return days
+  } catch { return [] }
 }
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -216,6 +259,16 @@ export default function SchedulePage() {
   const [showSettings, setShowSettings] = useState(false)
   const [viewMonth, setViewMonth] = useState(() => new Date())
   const [dragJob, setDragJob] = useState<ScheduledJob | null>(null)
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null)
+  const [rainDayJob, setRainDayJob] = useState<ScheduledJob | null>(null)
+  const [rainReason, setRainReason] = useState('Weather — rain')
+  const [rainReschedule, setRainReschedule] = useState('')
+  const [showRainLog, setShowRainLog] = useState(false)
+  const [rainLog, setRainLog] = useState<RainDayEntry[]>(() => loadRainLog())
+  const [forecast, setForecast] = useState<WeatherDay[]>([])
+
+  // Load weather forecast
+  useEffect(() => { fetchForecast().then(setForecast) }, [])
 
   const { jobs, settings } = data
   const stagingJobs = loadStagingJobs()
@@ -263,6 +316,104 @@ export default function SchedulePage() {
   function prevMonth() { setViewMonth(new Date(year, month - 1, 1)) }
   function nextMonth() { setViewMonth(new Date(year, month + 1, 1)) }
 
+  // ── Cascading reschedule state ──
+  const [showCascade, setShowCascade] = useState(false)
+  const [cascadeShiftDays, setCascadeShiftDays] = useState(1)
+  const [cascadeSelections, setCascadeSelections] = useState<Set<string>>(new Set())
+
+  // Find next available workday from a date, skipping non-work days
+  function nextWorkday(from: string, daysToShift: number): string {
+    let d = new Date(from + 'T12:00:00')
+    let shifted = 0
+    while (shifted < daysToShift) {
+      d.setDate(d.getDate() + 1)
+      if (settings.workDays.includes(d.getDay())) shifted++
+    }
+    return toDateStr(d)
+  }
+
+  // Get all jobs affected by a rain day on a specific date (same date + downstream)
+  function getAffectedJobs(): { job: ScheduledJob; newDate: string }[] {
+    if (!rainDayJob) return []
+    const rainDate = rainDayJob.date
+    // All jobs on or after the rain date that are scheduled
+    const affected = jobs
+      .filter(j => j.date >= rainDate && j.id !== rainDayJob.id && (j.status === 'Scheduled' || j.status === 'In Progress'))
+      .sort((a, b) => a.date.localeCompare(b.date))
+    return affected.map(j => ({
+      job: j,
+      newDate: nextWorkday(j.date, cascadeShiftDays),
+    }))
+  }
+
+  function flagRainDay() {
+    if (!rainDayJob) return
+    const entry: RainDayEntry = {
+      id: uid(),
+      jobId: rainDayJob.id,
+      clientName: rainDayJob.clientName,
+      originalDate: rainDayJob.date,
+      rescheduleDate: rainReschedule,
+      reason: rainReason,
+      flaggedAt: new Date().toISOString(),
+    }
+    const newLog = [entry, ...rainLog]
+    setRainLog(newLog)
+    saveRainLog(newLog)
+
+    // Update the rained-out job
+    let updated = jobs.map(j => {
+      if (j.id !== rainDayJob.id) return j
+      return {
+        ...j,
+        status: (rainReschedule ? 'Scheduled' : 'Rain Day') as ScheduledJob['status'],
+        ...(rainReschedule ? { date: rainReschedule } : {}),
+      }
+    })
+
+    // Apply cascade selections
+    if (showCascade && cascadeSelections.size > 0) {
+      const affected = getAffectedJobs()
+      for (const { job, newDate } of affected) {
+        if (!cascadeSelections.has(job.id)) continue
+        // Log each cascaded job
+        const cascadeEntry: RainDayEntry = {
+          id: uid(),
+          jobId: job.id,
+          clientName: job.clientName,
+          originalDate: job.date,
+          rescheduleDate: newDate,
+          reason: `Cascaded from ${rainDayJob.clientName} rain day`,
+          flaggedAt: new Date().toISOString(),
+        }
+        newLog.push(cascadeEntry)
+
+        updated = updated.map(j => j.id === job.id ? { ...j, date: newDate } : j)
+      }
+      saveRainLog(newLog)
+      setRainLog(newLog)
+    }
+
+    updateData(updated)
+
+    // Fire automation
+    fireRainDayFlagged(rainDayJob.id, {
+      jobName: rainDayJob.clientName,
+      scheduledDate: rainDayJob.date,
+      extraData: {
+        reason: rainReason,
+        rescheduleDate: rainReschedule,
+        cascadedJobs: showCascade ? cascadeSelections.size : 0,
+      },
+    })
+
+    setRainDayJob(null)
+    setRainReason('Weather — rain')
+    setRainReschedule('')
+    setShowCascade(false)
+    setCascadeSelections(new Set())
+  }
+
   const unscheduled = stagingJobs.filter(
     (s: any) => !jobs.some(j => j.stagingJobId === s.id)
   )
@@ -309,11 +460,18 @@ export default function SchedulePage() {
                   return (
                     <td
                       key={dateStr}
-                      className={`align-top px-3 py-2 border-r border-gray-100 ${isThisMonth ? '' : 'bg-gray-50'}`}
+                      className={`align-top px-3 py-2 border-r border-gray-100 transition-colors ${
+                        dragOverDate === dateStr
+                          ? (dayJobs.length >= 3 ? 'bg-red-50 border-2 border-red-300' : 'bg-orange-50 border-2 border-orange-400')
+                          : (isThisMonth ? '' : 'bg-gray-50')
+                      }`}
                       style={{ minHeight: 80, width: `${100 / settings.workDays.length}%` }}
-                      onDragOver={e => e.preventDefault()}
+                      onDragOver={e => { e.preventDefault(); setDragOverDate(dateStr) }}
+                      onDragEnter={e => { e.preventDefault(); setDragOverDate(dateStr) }}
+                      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDate(null) }}
                       onDrop={e => {
                         e.preventDefault()
+                        setDragOverDate(null)
                         const crewId = settings.crews[0]?.id || 'crew1'
                         const stagingData = e.dataTransfer.getData('staging')
                         if (stagingData) {
@@ -323,9 +481,25 @@ export default function SchedulePage() {
                         }
                       }}
                     >
-                      <p className={`text-xs font-medium mb-1 ${isThisMonth ? 'text-gray-900' : 'text-gray-400'}`}>
-                        {day.getDate()}
-                      </p>
+                      {dragOverDate === dateStr && (
+                        <div className={`text-center text-xs font-medium mb-1 ${dayJobs.length >= 3 ? 'text-red-500' : 'text-orange-500'}`}>
+                          {dayJobs.length >= 3 ? '⚠ Full day' : '↓ Drop here'}
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between mb-1">
+                        <p className={`text-xs font-medium ${isThisMonth ? 'text-gray-900' : 'text-gray-400'}`}>
+                          {day.getDate()}
+                        </p>
+                        {(() => {
+                          const wx = forecast.find(f => f.date === dateStr)
+                          if (!wx) return null
+                          return (
+                            <span title={wx.description} className={`text-xs ${wx.rain ? 'text-blue-500 font-semibold' : 'text-gray-400'}`}>
+                              {wx.rain ? '🌧' : '☀'} {wx.temp}°
+                            </span>
+                          )
+                        })()}
+                      </div>
                       <div className="space-y-1">
                         {dayJobs.map(j => {
                           const crew = settings.crews.find(c => c.id === j.crewId)
@@ -339,10 +513,16 @@ export default function SchedulePage() {
                             >
                               <div className="flex items-start justify-between">
                                 <div>
-                                  <p className="text-xs font-semibold text-gray-900 truncate">{j.clientName}</p>
+                                  <p className="text-xs font-semibold text-gray-900 truncate">
+                                    {j.status === 'Rain Day' && <span title="Rain Day">🌧 </span>}
+                                    {j.clientName}
+                                  </p>
                                   <p className="text-xs text-gray-500">{j.fenceType} &middot; {j.sections}sec &middot; {fmt(j.jobPrice)}</p>
                                 </div>
-                                <button onClick={() => removeJob(j.id)} className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 text-sm leading-none ml-1">&times;</button>
+                                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                                  <button onClick={() => { setRainDayJob(j); setRainReschedule('') }} title="Flag Rain Day" className="text-gray-300 hover:text-blue-500 text-sm leading-none">🌧</button>
+                                  <button onClick={() => removeJob(j.id)} className="text-gray-300 hover:text-red-400 text-sm leading-none ml-0.5">&times;</button>
+                                </div>
                               </div>
                             </div>
                           )
@@ -359,21 +539,196 @@ export default function SchedulePage() {
 
       {unscheduled.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <h3 className="font-semibold text-gray-900 mb-3">Unscheduled Jobs</h3>
-          <p className="text-xs text-gray-400 mb-3">Drag onto the calendar to schedule</p>
-          <div className="grid grid-cols-3 gap-2">
-            {unscheduled.map((s: any) => (
-              <div
-                key={s.id}
-                draggable
-                onDragStart={e => e.dataTransfer.setData('staging', JSON.stringify(s))}
-                className="border border-gray-200 rounded-xl p-3 cursor-grab hover:border-orange-300 transition-colors"
-              >
-                <p className="text-sm font-semibold text-gray-900">{s.clientName || s.name}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{s.fenceType || s.type} &middot; {s.sections || 0} sec</p>
-                <p className="text-xs font-semibold text-gray-700 mt-1">{fmt(s.jobPrice || s.price || 0)}</p>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-gray-900">Unscheduled Jobs ({unscheduled.length})</h3>
+            <p className="text-xs text-gray-400">Drag onto the calendar to schedule</p>
+          </div>
+          <div className="grid grid-cols-4 lg:grid-cols-6 gap-1.5">
+            {unscheduled.map((s: any) => {
+              const name = s.clientName || s.name || 'Unknown'
+              const city = (s.area || s.address || '').split(',')[0] || ''
+              const phone = s.phone || s.customerPhone || ''
+              return (
+                <div
+                  key={s.id}
+                  draggable
+                  onDragStart={e => e.dataTransfer.setData('staging', JSON.stringify(s))}
+                  className="border border-gray-200 rounded-lg px-2.5 py-2 cursor-grab hover:border-orange-400 hover:shadow-sm transition-all group relative"
+                  title={`${name}\n${s.fenceType || s.type} · ${s.sections || 0} sections\n${city}\n${phone}\n${fmt(s.jobPrice || s.price || 0)}`}
+                >
+                  <p className="text-xs font-semibold text-gray-900 truncate">{name}</p>
+                  <p className="text-[10px] text-gray-500 truncate">{city || s.fenceType || s.type}</p>
+                  {phone && <p className="text-[10px] text-gray-400 truncate">{phone}</p>}
+                  <div className="flex items-center justify-between mt-0.5">
+                    <span className="text-[10px] font-medium text-gray-700">{fmt(s.jobPrice || s.price || 0)}</span>
+                    <span className="px-1 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px] font-medium">{s.status || 'Ready'}</span>
+                  </div>
+                  {/* Hover tooltip with full details */}
+                  <div className="absolute left-0 bottom-full mb-1 z-40 bg-gray-900 text-white rounded-lg p-3 text-xs w-56 opacity-0 group-hover:opacity-100 pointer-events-none transition shadow-lg">
+                    <p className="font-semibold">{name}</p>
+                    <p className="text-gray-300">{s.fenceType || s.type} · {s.sections || 0} sections</p>
+                    {city && <p className="text-gray-300">{city}</p>}
+                    {phone && <p className="text-gray-300">{phone}</p>}
+                    <p className="text-gray-300 mt-1">{fmt(s.jobPrice || s.price || 0)}</p>
+                    {s.tearout && <p className="text-amber-400 mt-0.5">⚠ Has tear-out</p>}
+                    {s.notes && <p className="text-gray-400 mt-1 truncate">{s.notes}</p>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Weather Forecast Strip */}
+      {forecast.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">5-Day Forecast</h3>
+          <div className="flex gap-3">
+            {forecast.slice(0, 5).map(wx => (
+              <div key={wx.date} className={`flex-1 rounded-xl p-3 text-center ${wx.rain ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50'}`}>
+                <p className="text-xs font-medium text-gray-500">{new Date(wx.date + 'T12:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
+                <p className="text-2xl my-1">{wx.rain ? '🌧' : wx.description.includes('cloud') ? '⛅' : '☀️'}</p>
+                <p className="text-sm font-bold text-gray-900">{wx.temp}°F</p>
+                <p className="text-xs text-gray-500 capitalize">{wx.description}</p>
+                {wx.rain && <p className="text-xs font-semibold text-blue-600 mt-1">Rain Expected</p>}
               </div>
             ))}
+          </div>
+          {!OWM_KEY && <p className="text-xs text-gray-400 mt-2">Set VITE_OPENWEATHER_API_KEY for live weather data</p>}
+        </div>
+      )}
+
+      {/* Rain Day Log */}
+      <div className="bg-white rounded-2xl border border-gray-200">
+        <button onClick={() => setShowRainLog(!showRainLog)} className="w-full px-5 py-3 flex items-center justify-between hover:bg-gray-50 transition">
+          <h3 className="text-sm font-semibold text-gray-700">🌧 Rain Day Log ({rainLog.length})</h3>
+          <span className="text-xs text-gray-400">{showRainLog ? '▲ Hide' : '▼ Show'}</span>
+        </button>
+        {showRainLog && (
+          <div className="border-t border-gray-100">
+            {rainLog.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">No rain days logged yet</p>
+            ) : (
+              <div className="divide-y divide-gray-50">
+                {rainLog.map(entry => (
+                  <div key={entry.id} className="px-5 py-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{entry.clientName}</p>
+                      <p className="text-xs text-gray-500">
+                        Original: {entry.originalDate} • Reason: {entry.reason}
+                        {entry.rescheduleDate ? ` • Rescheduled: ${entry.rescheduleDate}` : ' • TBD'}
+                      </p>
+                    </div>
+                    <span className="text-xs text-gray-400">{new Date(entry.flaggedAt).toLocaleDateString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Rain Day Modal with Cascade */}
+      {rainDayJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-[560px] max-h-[85vh] overflow-y-auto p-6 space-y-4">
+            <h2 className="font-bold text-gray-900 text-lg">🌧 Flag Rain Day</h2>
+            <p className="text-sm text-gray-500">
+              <span className="font-medium text-gray-900">{rainDayJob.clientName}</span> — scheduled for {rainDayJob.date}
+            </p>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Reason</label>
+              <select value={rainReason} onChange={e => setRainReason(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                <option>Weather — rain</option>
+                <option>Weather — storm</option>
+                <option>Weather — extreme heat</option>
+                <option>Weather — cold/freeze</option>
+                <option>Ground conditions — too wet</option>
+                <option>Other weather delay</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Reschedule to</label>
+              <div className="flex gap-2">
+                <input type="date" value={rainReschedule} onChange={e => setRainReschedule(e.target.value)}
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                <button onClick={() => setRainReschedule('')}
+                  className="text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50">
+                  TBD
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">{rainReschedule ? `Will move to ${rainReschedule}` : 'No reschedule date — marked as TBD'}</p>
+            </div>
+
+            {/* Cascade Reschedule */}
+            <div className="border-t border-gray-100 pt-4">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-900 cursor-pointer">
+                <input type="checkbox" checked={showCascade} onChange={e => {
+                  setShowCascade(e.target.checked)
+                  if (e.target.checked) {
+                    const affected = getAffectedJobs()
+                    setCascadeSelections(new Set(affected.map(a => a.job.id)))
+                  }
+                }} className="w-4 h-4 accent-orange-500" />
+                Cascade Reschedule — shift other affected jobs
+              </label>
+
+              {showCascade && (() => {
+                const affected = getAffectedJobs()
+                return (
+                  <div className="mt-3 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-500">Shift by:</label>
+                      <input type="number" min={1} max={7} value={cascadeShiftDays} onChange={e => setCascadeShiftDays(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-sm text-center" />
+                      <span className="text-xs text-gray-500">work day{cascadeShiftDays > 1 ? 's' : ''}</span>
+                      <button onClick={() => setCascadeSelections(new Set(affected.map(a => a.job.id)))} className="text-xs text-orange-600 ml-auto">Select all</button>
+                      <button onClick={() => setCascadeSelections(new Set())} className="text-xs text-gray-500">Clear</button>
+                    </div>
+
+                    {affected.length === 0 ? (
+                      <p className="text-xs text-gray-400 text-center py-2">No other jobs affected on or after this date.</p>
+                    ) : (
+                      <div className="border border-gray-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+                        <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 grid grid-cols-12 text-xs font-medium text-gray-500">
+                          <div className="col-span-1"></div><div className="col-span-4">Job</div><div className="col-span-3">Current</div><div className="col-span-1">→</div><div className="col-span-3">New Date</div>
+                        </div>
+                        {affected.map(({ job, newDate }) => (
+                          <div key={job.id} className="px-3 py-2 border-b border-gray-50 grid grid-cols-12 items-center text-sm">
+                            <div className="col-span-1">
+                              <input type="checkbox" checked={cascadeSelections.has(job.id)}
+                                onChange={e => {
+                                  const s = new Set(cascadeSelections)
+                                  e.target.checked ? s.add(job.id) : s.delete(job.id)
+                                  setCascadeSelections(s)
+                                }} className="w-3.5 h-3.5 accent-orange-500" />
+                            </div>
+                            <div className="col-span-4 truncate font-medium text-gray-900">{job.clientName}</div>
+                            <div className="col-span-3 text-gray-500">{job.date}</div>
+                            <div className="col-span-1 text-gray-400">→</div>
+                            <div className="col-span-3 font-medium text-orange-600">{newDate}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-400">{cascadeSelections.size} job{cascadeSelections.size !== 1 ? 's' : ''} will be moved</p>
+                  </div>
+                )
+              })()}
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => { setRainDayJob(null); setShowCascade(false); setCascadeSelections(new Set()) }}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={flagRainDay}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2.5 rounded-xl">
+                Flag Rain Day{showCascade && cascadeSelections.size > 0 ? ` + Move ${cascadeSelections.size} Jobs` : ''}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -17,6 +17,9 @@ import PortalInbox from './PortalInbox'
 import SmartSchedule from './SmartSchedule'
 import DispatchPage from './DispatchPage'
 import EZBudgetPage from './EZBudgetPage'
+import AutomationsPage from './AutomationsPage'
+import IntegrationsPage from './IntegrationsPage'
+import OperationsPage from './OperationsPage'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import { syncQuote } from './portalSync'
 
@@ -48,8 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Operations',
     items: [
-      { name: 'Jobs',       icon: '📋', roles: ['owner', 'admin', 'ops_manager'] },
-      { name: 'Staging',    icon: '🏗', roles: ['owner', 'admin', 'ops_manager', 'shop'] },
+      { name: 'Operations', icon: '🔧', roles: ['owner', 'admin', 'ops_manager', 'shop'] },
       { name: 'Schedule',   icon: '📅', roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Dispatch',   icon: '📍', roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Site Plans',  icon: '🗺', roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
@@ -66,9 +68,11 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Admin',
     items: [
-      { name: 'EZ Budget', icon: '💲', roles: ['owner', 'admin'] },
-      { name: 'Portal',   icon: '🌐', roles: ['owner', 'admin'] },
-      { name: 'Settings', icon: '⚙️', roles: ['owner', 'admin'] },
+      { name: 'EZ Budget',     icon: '💲', roles: ['owner', 'admin'] },
+      { name: 'Automations',   icon: '⚡', roles: ['owner', 'admin'] },
+      { name: 'Integrations', icon: '🔌', roles: ['owner', 'admin'] },
+      { name: 'Portal',       icon: '🌐', roles: ['owner', 'admin'] },
+      { name: 'Settings',     icon: '⚙️', roles: ['owner', 'admin'] },
     ],
   },
 ]
@@ -485,7 +489,7 @@ export default function App() {
             </button>
 
             {/* Action buttons */}
-            {(active === 'Schedule' || active === 'Jobs' || active === 'Dispatch') && (
+            {(active === 'Schedule' || active === 'Operations' || active === 'Jobs' || active === 'Dispatch') && (
               <button
                 onClick={() => setShowSmartSchedule(true)}
                 className="bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
@@ -515,6 +519,8 @@ export default function App() {
         {/* Page content */}
         <div className="flex-1 overflow-y-auto px-8 py-6">
           {active === 'EZ Budget' && <EZBudgetPage />}
+          {active === 'Automations' && <AutomationsPage />}
+          {active === 'Integrations' && <IntegrationsPage />}
           {active === 'Portal'    && <PortalInbox />}
           {active === 'Settings'  && <AdminSettingsPage />}
           {active === 'Inventory' && <AdminPage />}
@@ -522,8 +528,9 @@ export default function App() {
           {active === 'Customers' && <CustomersPage onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
           {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={handleOpenQuote} onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
           {active === 'Sales Pipeline' && <JobsPage />}
-          {active === 'Jobs'           && <JobsPipeline />}
-          {active === 'Staging'   && <StagingPage />}
+          {active === 'Operations'     && <OperationsPage />}
+          {active === 'Jobs'           && <OperationsPage />}
+          {active === 'Staging'        && <OperationsPage />}
           {active === 'Schedule'  && <SchedulePage />}
           {active === 'Dispatch'  && <DispatchPage />}
           {active === 'Reports'   && <ReportsPage quotes={quotes} />}

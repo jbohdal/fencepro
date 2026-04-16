@@ -307,6 +307,79 @@ function CustomerForm({
   )
 }
 
+// ── Customer Job Costing Tab ──────────────────────────────────────────────────
+
+function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
+  const costEntries: any[] = (() => {
+    try { const r = localStorage.getItem('fencepro_jobcosting'); return r ? JSON.parse(r) : [] } catch { return [] }
+  })()
+
+  const soldQuotes = quotes.filter((q: any) => q.status === 'SOLD')
+  const costedJobs = soldQuotes.map((q: any) => {
+    const entry = costEntries.find((e: any) => e.quoteId === q.id)
+    if (!entry) return null
+    const estLabor = (q.adjLaborHrs || 0) * 22
+    const actLabor = entry.actualLaborHrs * 22
+    const estCOGS = q.totalCOGS || 0
+    const actCOGS = actLabor + entry.actualMaterialCost + (entry.actualOtherCosts || 0)
+    const variance = actCOGS - estCOGS
+    const estGM = q.gmPct || 0
+    const actGM = q.finalPrice > 0 ? (q.finalPrice - actCOGS) / q.finalPrice : 0
+    return { quote: q, entry, estCOGS, actCOGS, variance, estGM, actGM }
+  }).filter(Boolean) as any[]
+
+  const totalEst = costedJobs.reduce((s: number, j: any) => s + j.estCOGS, 0)
+  const totalAct = costedJobs.reduce((s: number, j: any) => s + j.actCOGS, 0)
+  const totalVariance = totalAct - totalEst
+
+  const fmtD = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+  const fmtP = (n: number) => `${(n * 100).toFixed(1)}%`
+  const varColor = (v: number) => v > 0 ? 'text-red-600' : v < 0 ? 'text-green-600' : 'text-gray-600'
+
+  if (costedJobs.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-400">
+        <p className="font-medium">No job costing data</p>
+        <p className="text-sm mt-1">Complete jobs and enter actual costs in Budget → Job Costing to see data here.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Summary */}
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Jobs Costed</p><p className="text-lg font-bold text-gray-900">{costedJobs.length}</p></div>
+        <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Est. COGS</p><p className="text-lg font-bold text-gray-900">{fmtD(totalEst)}</p></div>
+        <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Actual COGS</p><p className="text-lg font-bold text-gray-900">{fmtD(totalAct)}</p></div>
+        <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Variance</p><p className={`text-lg font-bold ${varColor(totalVariance)}`}>{totalVariance > 0 ? '+' : ''}{fmtD(totalVariance)}</p></div>
+      </div>
+
+      {/* Job list */}
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 grid grid-cols-7 gap-2 text-xs font-medium text-gray-500 uppercase">
+          <div className="col-span-2">Job</div><div>Est. COGS</div><div>Actual</div><div>Variance</div><div>Est. GM</div><div>Actual GM</div>
+        </div>
+        <div className="divide-y divide-gray-50">
+          {costedJobs.map((j: any) => (
+            <div key={j.quote.id} className="px-4 py-3 grid grid-cols-7 gap-2 items-center text-sm hover:bg-gray-50">
+              <div className="col-span-2">
+                <p className="font-medium text-gray-900">{j.quote.customerName}</p>
+                <p className="text-xs text-gray-400">{j.quote.fenceStyle} • {j.entry.completionDate}</p>
+              </div>
+              <div className="text-gray-700">{fmtD(j.estCOGS)}</div>
+              <div className="text-gray-700">{fmtD(j.actCOGS)}</div>
+              <div className={`font-medium ${varColor(j.variance)}`}>{j.variance > 0 ? '+' : ''}{fmtD(j.variance)}</div>
+              <div className="text-gray-700">{fmtP(j.estGM)}</div>
+              <div className={`font-medium ${j.actGM >= j.estGM ? 'text-green-600' : 'text-red-600'}`}>{fmtP(j.actGM)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Customer Detail ───────────────────────────────────────────────────────────
 
 function CustomerDetail({
@@ -323,7 +396,7 @@ function CustomerDetail({
   onFileUpload: (f: CustomerFile) => void
   onDeleteFile: (id: string) => void
 }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'quotes' | 'jobs' | 'files'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'quotes' | 'jobs' | 'costing' | 'files'>('overview')
 
   const totalRevenue = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.price, 0)
     + importedQuotes.reduce((s, q) => s + q.quotedPrice, 0)
@@ -396,7 +469,7 @@ function CustomerDetail({
         </div>
 
         <div className="flex gap-1 mt-5 bg-gray-100 rounded-xl p-1 w-fit">
-          {(['overview', 'quotes', 'jobs', 'files'] as const).map(t => (
+          {(['overview', 'quotes', 'jobs', 'costing', 'files'] as const).map(t => (
             <button
               key={t}
               onClick={() => setActiveTab(t)}
@@ -564,6 +637,10 @@ function CustomerDetail({
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'costing' && (
+          <CustomerJobCostingTab quotes={quotes} />
         )}
 
         {activeTab === 'files' && (

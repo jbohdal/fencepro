@@ -507,3 +507,242 @@ model EzBudgetSettings {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
+
+// ── Automation Engine ──
+
+enum AutomationTriggerType {
+  sales_stage_change
+  ops_stage_change
+  job_created
+  job_assigned
+  job_scheduled
+  job_rescheduled
+  stale_job              // no status update for X days
+  deadline_approaching   // X days before a due date
+  form_submitted
+  payment_received
+  customer_no_response
+  rain_day_flagged
+}
+
+enum AutomationActionType {
+  move_ops_stage
+  move_sales_stage
+  send_email
+  send_notification
+  create_task
+  schedule_reminder
+  post_activity_note
+  fire_webhook
+  require_checklist_gate
+}
+
+enum AutomationRunStatus {
+  success
+  partial
+  failed
+}
+
+model Automation {
+  id             String                @id @default(uuid())
+  name           String
+  description    String?
+  triggerType    AutomationTriggerType
+  triggerConfig  Json                  // { fromStage?, toStage?, daysOffset?, stageKey? }
+  actions        Json                  // [{ type, config }] — ordered action array
+  conditions     Json?                 // optional filters: { assignedRep?, fenceType?, businessHoursOnly? }
+  isActive       Boolean               @default(true)
+  createdBy      String?
+  lastFiredAt    DateTime?
+  fireCount      Int                   @default(0)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  runLogs AutomationRunLog[]
+
+  @@index([isActive])
+  @@index([triggerType])
+}
+
+model AutomationRunLog {
+  id              String              @id @default(uuid())
+  automationId    String
+  automationName  String              // snapshot in case automation is later deleted
+  jobId           String?             // the job that triggered it (localStorage ID or external ref)
+  jobName         String?             // snapshot: customer name or job label
+  triggerType     String
+  actionsExecuted Json                // [{ type, config, result, error? }]
+  status          AutomationRunStatus
+  errorMessage    String?
+  firedAt         DateTime            @default(now())
+
+  automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@index([automationId])
+  @@index([jobId])
+  @@index([firedAt])
+}
+
+// ── Tasks (created by automations or manually) ──
+
+enum TaskStatus {
+  pending
+  in_progress
+  completed
+  cancelled
+}
+
+enum TaskPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+model Task {
+  id            String       @id @default(uuid())
+  title         String
+  description   String?
+  assignedTo    String?      // user name or role
+  assignedRole  String?      // owner, admin, salesman, ops_manager, shop
+  jobId         String?      // linked job ID
+  jobName       String?      // snapshot
+  status        TaskStatus   @default(pending)
+  priority      TaskPriority @default(normal)
+  dueDate       DateTime?
+  completedAt   DateTime?
+  createdBy     String?      // "automation:ID" or user name
+  automationId  String?      // if created by automation
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([status])
+  @@index([assignedTo])
+  @@index([assignedRole])
+  @@index([dueDate])
+  @@index([jobId])
+}
+
+// ── In-App Notifications ──
+
+model Notification {
+  id          String   @id @default(uuid())
+  recipientId String?  // user name or ID
+  recipientRole String? // broadcast to role
+  title       String
+  body        String
+  type        String   @default("info") // info, warning, success, error, automation
+  link        String?  // deep link within app (e.g., "/jobs/123")
+  jobId       String?
+  read        Boolean  @default(false)
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([recipientId, read])
+  @@index([recipientRole, read])
+  @@index([createdAt])
+}
+
+// ── Integration Framework ──
+
+enum IntegrationStatus {
+  connected
+  disconnected
+  error
+}
+
+model Integration {
+  id            String            @id @default(uuid())
+  name          String
+  slug          String            @unique // twilio, google_calendar, stripe, etc.
+  category      String            // Communication, Payments, Scheduling, etc.
+  description   String?
+  logoUrl       String?
+  isActive      Boolean           @default(false)
+  config        Json?             // encrypted credentials + settings
+  capabilities  String[]          @default([]) // send_sms, sync_calendar, etc.
+  connectedBy   String?
+  connectedAt   DateTime?
+  lastSyncedAt  DateTime?
+  status        IntegrationStatus @default(disconnected)
+  errorLog      String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  activityLogs IntegrationLog[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@index([category])
+}
+
+model IntegrationLog {
+  id            String   @id @default(uuid())
+  integrationId String
+  action        String   // connect, disconnect, sync, webhook_in, webhook_out, error
+  details       String?
+  payload       Json?
+  status        String   @default("success") // success, error
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([integrationId])
+  @@index([createdAt])
+}
+
+// ── API Keys ──
+
+model ApiKey {
+  id            String    @id @default(uuid())
+  name          String
+  keyHash       String    @unique  // bcrypt hash of the actual key
+  keyPrefix     String             // first 8 chars for display (e.g., "fp_live_a3b2...")
+  scope         String    @default("read") // read, read_write, admin
+  createdBy     String
+  lastUsedAt    DateTime?
+  requestCount  Int       @default(0)
+  isActive      Boolean   @default(true)
+  revokedAt     DateTime?
+  revokedBy     String?
+  createdAt     DateTime  @default(now())
+
+  usageLogs ApiKeyUsageLog[]
+
+  @@index([keyHash])
+  @@index([isActive])
+}
+
+model ApiKeyUsageLog {
+  id          String   @id @default(uuid())
+  apiKeyId    String
+  endpoint    String
+  method      String
+  statusCode  Int
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  @@index([apiKeyId])
+  @@index([createdAt])
+}
+
+// ── Inbound Webhook Log ──
+
+model WebhookInboundLog {
+  id            String   @id @default(uuid())
+  source        String   // stripe, companycam, zapier, etc.
+  endpoint      String
+  payload       Json?
+  headers       Json?
+  status        String   @default("received") // received, processed, failed, queued
+  errorMessage  String?
+  processedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([source])
+  @@index([status])
+  @@index([createdAt])
+}
