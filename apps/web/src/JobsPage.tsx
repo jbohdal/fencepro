@@ -277,7 +277,7 @@ function LeadDrawer({
   return (
     <div className="fixed inset-0 z-40 flex">
       <div className="flex-1 bg-black/30" onClick={onClose} />
-      <div className="w-[480px] bg-white shadow-2xl flex flex-col overflow-y-auto">
+      <div className="w-full lg:w-[480px] bg-white shadow-2xl flex flex-col overflow-y-auto">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900 text-lg">{lead.firstName} {lead.lastName}</h2>

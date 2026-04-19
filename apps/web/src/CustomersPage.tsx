@@ -1,4 +1,11 @@
-import { useState } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+import {
+  getInvoicesForCustomer, createInvoice, updateInvoice, recordPayment,
+  getPaymentsForCustomer, getBillingSummary, getNotesForCustomer,
+  createNote, updateNote, deleteNote, getPullSheetsForCustomer,
+  nextInvoiceNumber,
+  type Invoice, type InvoiceLineItem, type InvoiceStatus, type Payment, type CustomerNote,
+} from './billingStore'
 
 interface Customer {
   id: string
@@ -307,6 +314,375 @@ function CustomerForm({
   )
 }
 
+// ── Customer Billing Tab ─────────────────────────────────────────────────────
+
+function CustomerBillingTab({ customerId, customerName, customerEmail }: { customerId: string; customerName: string; customerEmail: string }) {
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [showCreateInvoice, setShowCreateInvoice] = useState(false)
+  const [showPayment, setShowPayment] = useState<string | null>(null) // invoiceId
+  const [sub, setSub] = useState<'overview' | 'invoices' | 'payments'>('overview')
+
+  const load = useCallback(() => {
+    setInvoices(getInvoicesForCustomer(customerId))
+    setPayments(getPaymentsForCustomer(customerId))
+  }, [customerId])
+  useEffect(() => { load() }, [load])
+
+  const summary = getBillingSummary(customerId)
+  const fmtD = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })
+
+  const statusColors: Record<string, string> = {
+    draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700', viewed: 'bg-sky-100 text-sky-700',
+    partially_paid: 'bg-yellow-100 text-yellow-700', paid: 'bg-green-100 text-green-700',
+    overdue: 'bg-red-100 text-red-700', void: 'bg-gray-100 text-gray-400',
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Sub-nav */}
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 w-fit">
+        {(['overview', 'invoices', 'payments'] as const).map(t => (
+          <button key={t} onClick={() => setSub(t)} className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition ${sub === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>{t}</button>
+        ))}
+      </div>
+
+      {sub === 'overview' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Total Billed</p><p className="text-lg font-bold text-gray-900">{fmtD(summary.totalBilledCents)}</p></div>
+            <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Paid</p><p className="text-lg font-bold text-green-600">{fmtD(summary.totalPaidCents)}</p></div>
+            <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Outstanding</p><p className="text-lg font-bold text-orange-600">{fmtD(summary.outstandingCents)}</p></div>
+            <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Overdue</p><p className="text-lg font-bold text-red-600">{fmtD(summary.overdueCents)}</p></div>
+            <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Invoices</p><p className="text-lg font-bold text-gray-900">{summary.invoiceCount}</p></div>
+          </div>
+          {/* Aging */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-4">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase mb-3">Aging Summary</h3>
+            <div className="grid grid-cols-5 gap-2 text-center text-sm">
+              <div><p className="text-xs text-gray-400">Current</p><p className="font-semibold text-green-600">{fmtD(summary.agingCurrent)}</p></div>
+              <div><p className="text-xs text-gray-400">1-30d</p><p className="font-semibold text-yellow-600">{fmtD(summary.aging1to30)}</p></div>
+              <div><p className="text-xs text-gray-400">31-60d</p><p className="font-semibold text-orange-600">{fmtD(summary.aging31to60)}</p></div>
+              <div><p className="text-xs text-gray-400">61-90d</p><p className="font-semibold text-red-600">{fmtD(summary.aging61to90)}</p></div>
+              <div><p className="text-xs text-gray-400">90+</p><p className="font-semibold text-red-700">{fmtD(summary.aging90plus)}</p></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sub === 'invoices' && (
+        <div className="space-y-3">
+          <div className="flex justify-between">
+            <p className="text-sm text-gray-500">{invoices.length} invoice{invoices.length !== 1 ? 's' : ''}</p>
+            <button onClick={() => setShowCreateInvoice(true)} className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium">+ Create Invoice</button>
+          </div>
+          {invoices.length === 0 ? (
+            <div className="text-center py-8 text-gray-400 text-sm">No invoices yet</div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-200 divide-y divide-gray-50">
+              {invoices.map(inv => (
+                <div key={inv.id} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{inv.invoiceNumber} — {inv.title}</p>
+                    <p className="text-xs text-gray-500">Due: {inv.dueDate} {inv.jobName ? `· Job: ${inv.jobName}` : ''}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-gray-900">{fmtD(inv.totalCents)}</p>
+                      {inv.balanceDueCents > 0 && <p className="text-xs text-red-600">Due: {fmtD(inv.balanceDueCents)}</p>}
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[inv.status] || 'bg-gray-100 text-gray-600'}`}>{inv.status}</span>
+                    {inv.balanceDueCents > 0 && inv.status !== 'void' && (
+                      <button onClick={() => setShowPayment(inv.id)} className="text-xs text-blue-600 hover:text-blue-800">Record Payment</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {sub === 'payments' && (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">{payments.length} payment{payments.length !== 1 ? 's' : ''}</p>
+          {payments.length === 0 ? (
+            <div className="text-center py-8 text-gray-400 text-sm">No payments recorded yet</div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-200 divide-y divide-gray-50">
+              {payments.map(pay => (
+                <div key={pay.id} className="px-4 py-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{fmtD(pay.amountCents)}</p>
+                    <p className="text-xs text-gray-500">{pay.paymentDate} · {pay.paymentMethod} · Inv: {pay.invoiceNumber}</p>
+                  </div>
+                  {pay.referenceNumber && <span className="text-xs text-gray-400">Ref: {pay.referenceNumber}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Create Invoice Modal */}
+      {showCreateInvoice && (
+        <CreateInvoiceModal customerId={customerId} customerName={customerName} onClose={() => setShowCreateInvoice(false)} onCreated={() => { setShowCreateInvoice(false); load() }} />
+      )}
+
+      {/* Record Payment Modal */}
+      {showPayment && (
+        <RecordPaymentModal invoiceId={showPayment} customerId={customerId} customerName={customerName} onClose={() => setShowPayment(null)} onRecorded={() => { setShowPayment(null); load() }} />
+      )}
+    </div>
+  )
+}
+
+function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { customerId: string; customerName: string; onClose: () => void; onCreated: () => void }) {
+  const [title, setTitle] = useState('')
+  const [invoiceNumber] = useState(nextInvoiceNumber())
+  const [dueDate, setDueDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0, 10) })
+  const [lineItems, setLineItems] = useState<{ desc: string; qty: number; price: number }[]>([{ desc: '', qty: 1, price: 0 }])
+  const [taxRate, setTaxRate] = useState(0)
+  const [discountCents, setDiscountCents] = useState(0)
+  const [notes, setNotes] = useState('')
+
+  const subtotal = lineItems.reduce((s, li) => s + Math.round(li.qty * li.price * 100), 0)
+  const tax = Math.round(subtotal * taxRate / 100)
+  const total = subtotal + tax - discountCents
+
+  function addLine() { setLineItems([...lineItems, { desc: '', qty: 1, price: 0 }]) }
+  function removeLine(i: number) { setLineItems(lineItems.filter((_, idx) => idx !== i)) }
+  function updateLine(i: number, field: string, val: any) { setLineItems(lineItems.map((li, idx) => idx === i ? { ...li, [field]: val } : li)) }
+
+  function save() {
+    createInvoice({
+      customerId, customerName, invoiceNumber, title: title || `Invoice ${invoiceNumber}`,
+      status: 'draft',
+      lineItems: lineItems.map((li, i) => ({ id: Math.random().toString(36).slice(2), description: li.desc, quantity: li.qty, unitPriceCents: Math.round(li.price * 100), totalCents: Math.round(li.qty * li.price * 100), sortOrder: i })),
+      subtotalCents: subtotal, taxRate, taxCents: tax, discountCents, totalCents: total,
+      amountPaidCents: 0, dueDate, issuedDate: new Date().toISOString().slice(0, 10),
+      notes, createdBy: 'admin',
+    })
+    onCreated()
+  }
+
+  const fmtD = (c: number) => '$' + (c / 100).toFixed(2)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[600px] max-h-[90vh] overflow-y-auto p-5 mx-4 space-y-4">
+        <div className="flex justify-between"><h2 className="font-bold text-gray-900 text-lg">Create Invoice</h2><button onClick={onClose} className="text-gray-400 text-xl">×</button></div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="block text-xs text-gray-500 mb-1">Invoice #</label><input value={invoiceNumber} readOnly className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50" /></div>
+          <div><label className="block text-xs text-gray-500 mb-1">Due Date</label><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
+        </div>
+        <div><label className="block text-xs text-gray-500 mb-1">Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g., Fence Installation" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
+
+        <div>
+          <div className="flex justify-between mb-2"><label className="text-xs text-gray-500 font-semibold">Line Items</label><button onClick={addLine} className="text-xs text-orange-600">+ Add</button></div>
+          {lineItems.map((li, i) => (
+            <div key={i} className="flex gap-2 mb-1.5">
+              <input value={li.desc} onChange={e => updateLine(i, 'desc', e.target.value)} placeholder="Description" className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+              <input type="number" value={li.qty} onChange={e => updateLine(i, 'qty', parseFloat(e.target.value) || 0)} className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center" />
+              <input type="number" step="0.01" value={li.price} onChange={e => updateLine(i, 'price', parseFloat(e.target.value) || 0)} placeholder="$" className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+              <span className="text-sm text-gray-600 w-20 text-right self-center">{fmtD(Math.round(li.qty * li.price * 100))}</span>
+              {lineItems.length > 1 && <button onClick={() => removeLine(i)} className="text-gray-300 hover:text-red-500">×</button>}
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div><label className="block text-xs text-gray-500 mb-1">Tax %</label><input type="number" step="0.1" value={taxRate * 100} onChange={e => setTaxRate((parseFloat(e.target.value) || 0) / 100)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></div>
+          <div><label className="block text-xs text-gray-500 mb-1">Discount $</label><input type="number" step="0.01" value={discountCents / 100} onChange={e => setDiscountCents(Math.round((parseFloat(e.target.value) || 0) * 100))} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></div>
+          <div className="text-right pt-5"><p className="text-lg font-bold text-gray-900">{fmtD(total)}</p><p className="text-xs text-gray-400">Total</p></div>
+        </div>
+
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Internal notes..." rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
+          <button onClick={save} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl">Create Invoice</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RecordPaymentModal({ invoiceId, customerId, customerName, onClose, onRecorded }: { invoiceId: string; customerId: string; customerName: string; onClose: () => void; onRecorded: () => void }) {
+  const inv = getInvoicesForCustomer(customerId).find(i => i.id === invoiceId)
+  const [amount, setAmount] = useState(inv ? inv.balanceDueCents / 100 : 0)
+  const [method, setMethod] = useState<string>('check')
+  const [ref, setRef] = useState('')
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [notes, setNotes] = useState('')
+
+  if (!inv) return null
+
+  function save() {
+    recordPayment({
+      invoiceId, invoiceNumber: inv!.invoiceNumber, customerId, customerName,
+      amountCents: Math.round(amount * 100), paymentMethod: method as any,
+      referenceNumber: ref, paymentDate: date, recordedBy: 'admin', notes,
+    })
+    onRecorded()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[400px] p-5 mx-4 space-y-4">
+        <h2 className="font-bold text-gray-900">Record Payment — {inv.invoiceNumber}</h2>
+        <p className="text-sm text-gray-500">Balance due: ${(inv.balanceDueCents / 100).toFixed(2)}</p>
+        <div><label className="block text-xs text-gray-500 mb-1">Amount</label><input type="number" step="0.01" value={amount} onChange={e => setAmount(parseFloat(e.target.value) || 0)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
+        <div><label className="block text-xs text-gray-500 mb-1">Method</label><select value={method} onChange={e => setMethod(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"><option value="cash">Cash</option><option value="check">Check</option><option value="credit_card">Credit Card</option><option value="bank_transfer">Bank Transfer</option><option value="other">Other</option></select></div>
+        <div><label className="block text-xs text-gray-500 mb-1">Reference #</label><input value={ref} onChange={e => setRef(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="Check # or transaction ID" /></div>
+        <div><label className="block text-xs text-gray-500 mb-1">Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
+          <button onClick={save} className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold py-2.5 rounded-xl">Record Payment</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Customer Notes Tab ──────────────────────────────────────────────────────
+
+function CustomerNotesTab({ customerId }: { customerId: string }) {
+  const [notes, setNotes] = useState<CustomerNote[]>([])
+  const [newNote, setNewNote] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editBody, setEditBody] = useState('')
+  const [search, setSearch] = useState('')
+
+  const load = useCallback(() => { setNotes(getNotesForCustomer(customerId)) }, [customerId])
+  useEffect(() => { load() }, [load])
+
+  function handleCreate() {
+    if (!newNote.trim()) return
+    createNote({ customerId, body: newNote.trim(), isPinned: false, visibility: 'all_staff', createdBy: 'Admin' })
+    setNewNote('')
+    load()
+  }
+
+  function handlePin(id: string, pinned: boolean) { updateNote(id, { isPinned: !pinned }); load() }
+  function handleDelete(id: string) { if (confirm('Delete this note?')) { deleteNote(id); load() } }
+  function startEdit(n: CustomerNote) { setEditingId(n.id); setEditBody(n.body) }
+  function saveEdit() { if (editingId) { updateNote(editingId, { body: editBody }); setEditingId(null); load() } }
+
+  const filtered = search ? notes.filter(n => n.body.toLowerCase().includes(search.toLowerCase())) : notes
+
+  return (
+    <div className="space-y-4">
+      {/* Add note */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-4">
+        <textarea value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Add a note..." rows={3}
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-orange-400 outline-none" />
+        <div className="flex justify-end mt-2">
+          <button onClick={handleCreate} disabled={!newNote.trim()} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium disabled:opacity-40">Add Note</button>
+        </div>
+      </div>
+
+      {/* Search */}
+      {notes.length > 3 && (
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search notes..."
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+      )}
+
+      {/* Notes list */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-8 text-gray-400 text-sm">No notes yet</div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(n => (
+            <div key={n.id} className={`bg-white rounded-xl border ${n.isPinned ? 'border-orange-300 bg-orange-50' : 'border-gray-200'} p-4`}>
+              {editingId === n.id ? (
+                <div>
+                  <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={3} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={saveEdit} className="text-xs bg-orange-500 text-white px-3 py-1 rounded-lg">Save</button>
+                    <button onClick={() => setEditingId(null)} className="text-xs text-gray-500">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      {n.isPinned && <span className="text-xs text-orange-600 font-semibold mr-2">📌 Pinned</span>}
+                      {n.visibility === 'internal' && <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded mr-2">Internal</span>}
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap mt-1">{n.body}</p>
+                    </div>
+                    <div className="flex gap-1 shrink-0 ml-2">
+                      <button onClick={() => handlePin(n.id, n.isPinned)} className="text-xs text-gray-400 hover:text-orange-600">{n.isPinned ? 'Unpin' : 'Pin'}</button>
+                      <button onClick={() => startEdit(n)} className="text-xs text-gray-400 hover:text-blue-600">Edit</button>
+                      <button onClick={() => handleDelete(n.id)} className="text-xs text-gray-400 hover:text-red-600">Delete</button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">{n.createdBy} · {new Date(n.createdAt).toLocaleString()}</p>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Customer Pull Sheets Tab ─────────────────────────────────────────────────
+
+function CustomerPullSheetsTab({ customerId }: { customerId: string }) {
+  const pullSheets = getPullSheetsForCustomer(customerId)
+  const [viewingId, setViewingId] = useState<string | null>(null)
+  const viewing = pullSheets.find(ps => ps.id === viewingId)
+
+  const fmtD = (n: number) => '$' + n.toFixed(2)
+
+  return (
+    <div className="space-y-4">
+      {pullSheets.length === 0 ? (
+        <div className="text-center py-8 text-gray-400">
+          <p className="font-medium">No pull sheets linked</p>
+          <p className="text-sm mt-1">Pull sheets will appear here automatically when quotes are created for this customer.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-200 divide-y divide-gray-50">
+          {pullSheets.map(ps => (
+            <div key={ps.id} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer" onClick={() => setViewingId(ps.id === viewingId ? null : ps.id)}>
+              <div>
+                <p className="text-sm font-medium text-gray-900">{ps.quoteName}</p>
+                <p className="text-xs text-gray-500">v{ps.versionNumber} · {new Date(ps.linkedAt).toLocaleDateString()}{ps.jobName ? ` · Job: ${ps.jobName}` : ''}</p>
+              </div>
+              <span className="text-xs text-gray-400">{ps.versionSnapshot?.length || 0} items</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pull Sheet Viewer */}
+      {viewing && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-4">
+          <div className="flex justify-between mb-3">
+            <h3 className="font-semibold text-gray-900">{viewing.quoteName} — Pull Sheet v{viewing.versionNumber}</h3>
+            <button onClick={() => setViewingId(null)} className="text-xs text-gray-400">Close</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr><th className="text-left px-3 py-2 text-xs text-gray-500">#</th><th className="text-left px-3 py-2 text-xs text-gray-500">Material</th><th className="text-right px-3 py-2 text-xs text-gray-500">Qty</th><th className="text-right px-3 py-2 text-xs text-gray-500">Unit Cost</th><th className="text-right px-3 py-2 text-xs text-gray-500">Total</th></tr>
+              </thead>
+              <tbody>
+                {(viewing.versionSnapshot || []).map((li: any, i: number) => (
+                  <tr key={i} className="border-b border-gray-50"><td className="px-3 py-1.5 text-gray-400">{i + 1}</td><td className="px-3 py-1.5">{li.item}</td><td className="px-3 py-1.5 text-right">{li.qty}</td><td className="px-3 py-1.5 text-right">{fmtD(li.unitCost)}</td><td className="px-3 py-1.5 text-right font-medium">{fmtD(li.total)}</td></tr>
+                ))}
+              </tbody>
+              <tfoot><tr className="font-semibold"><td colSpan={4} className="px-3 py-2 text-right">Total</td><td className="px-3 py-2 text-right">{fmtD((viewing.versionSnapshot || []).reduce((s: number, li: any) => s + li.total, 0))}</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Customer Job Costing Tab ──────────────────────────────────────────────────
 
 function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
@@ -396,7 +772,7 @@ function CustomerDetail({
   onFileUpload: (f: CustomerFile) => void
   onDeleteFile: (id: string) => void
 }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'quotes' | 'jobs' | 'costing' | 'files'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files'>('overview')
 
   const totalRevenue = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.price, 0)
     + importedQuotes.reduce((s, q) => s + q.quotedPrice, 0)
@@ -469,7 +845,7 @@ function CustomerDetail({
         </div>
 
         <div className="flex gap-1 mt-5 bg-gray-100 rounded-xl p-1 w-fit">
-          {(['overview', 'quotes', 'jobs', 'costing', 'files'] as const).map(t => (
+          {(['overview', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files'] as const).map(t => (
             <button
               key={t}
               onClick={() => setActiveTab(t)}
@@ -641,6 +1017,18 @@ function CustomerDetail({
 
         {activeTab === 'costing' && (
           <CustomerJobCostingTab quotes={quotes} />
+        )}
+
+        {activeTab === 'billing' && (
+          <CustomerBillingTab customerId={customer.id} customerName={`${customer.firstName} ${customer.lastName}`} customerEmail={customer.email} />
+        )}
+
+        {activeTab === 'notes' && (
+          <CustomerNotesTab customerId={customer.id} />
+        )}
+
+        {activeTab === 'pullsheets' && (
+          <CustomerPullSheetsTab customerId={customer.id} />
         )}
 
         {activeTab === 'files' && (

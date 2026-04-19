@@ -235,6 +235,23 @@ async function main() {
 
   console.log('  Rain day automations seeded (inactive examples)')
 
+  // ── Seed CRM Super Admin User ──
+  const superAdminHash = await bcrypt.hash('admin1234', 12)
+  await prisma.crmUser.upsert({
+    where: { email: 'jbohdal@gdfencepro.com' },
+    update: {},
+    create: {
+      email: 'jbohdal@gdfencepro.com',
+      passwordHash: superAdminHash,
+      firstName: 'Jonathan',
+      lastName: 'Bohdal',
+      role: 'super_admin',
+      status: 'active',
+      mustChangePassword: false,
+    },
+  })
+  console.log('  CRM Super Admin: jbohdal@gdfencepro.com / admin1234')
+
   console.log('\nSeed complete!')
   console.log('─'.repeat(40))
   console.log('Demo login:  demo@customer.com / demo1234')

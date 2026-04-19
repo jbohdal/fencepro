@@ -150,7 +150,7 @@ function CostAJobModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-[640px] max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[640px] max-h-[80vh] overflow-y-auto mx-4 lg:mx-0" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900 text-lg">{editEntry ? 'Edit Job Cost' : 'Cost a Completed Job'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>

@@ -269,7 +269,7 @@ export default function OperationsPage() {
   return (
     <div className="space-y-5">
       {/* KPI strip */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
           <p className="text-xs text-gray-400 uppercase">Active Jobs</p>
           <p className="text-2xl font-bold text-gray-900">{active.length}</p>
@@ -397,7 +397,7 @@ function BoardView({ jobs, onSelect, onMoveStage }: { jobs: UnifiedJob[]; onSele
 function ListView({ jobs, onSelect, onAdvance }: { jobs: UnifiedJob[]; onSelect: (j: UnifiedJob) => void; onAdvance: (j: UnifiedJob) => void }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4 text-xs font-medium text-gray-500 uppercase tracking-wide">
+      <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 hidden lg:grid grid-cols-12 gap-4 text-xs font-medium text-gray-500 uppercase tracking-wide">
         <div className="col-span-3">Customer</div>
         <div className="col-span-2">Fence Type</div>
         <div className="col-span-2">Stage</div>
@@ -413,7 +413,7 @@ function ListView({ jobs, onSelect, onAdvance }: { jobs: UnifiedJob[]; onSelect:
           const stage = OPS_STAGES.find(s => s.key === j.opsStage)
           return (
             <div key={j.id} onClick={() => onSelect(j)}
-              className="px-6 py-3 grid grid-cols-12 gap-4 items-center hover:bg-gray-50 cursor-pointer text-sm group">
+              className="px-4 lg:px-6 py-3 flex flex-col lg:grid lg:grid-cols-12 gap-1 lg:gap-4 lg:items-center hover:bg-gray-50 cursor-pointer text-sm group">
               <div className="col-span-3">
                 <p className="font-medium text-gray-900">{j.customerName}</p>
                 <p className="text-xs text-gray-400 truncate">{j.address}</p>
@@ -458,7 +458,7 @@ function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveStage, o
   const isJobSource = job.source === 'job'
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[480px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col overflow-hidden">
+    <div className="fixed inset-y-0 right-0 w-full lg:w-[480px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
         <div>

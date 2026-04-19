@@ -7,8 +7,14 @@
 
 import { useState, useEffect, useCallback } from 'react'
 
-const API = 'http://localhost:4000/api/integrations'
-const hdrs: Record<string, string> = { 'Content-Type': 'application/json', 'X-API-Key': 'dev-sync-key' }
+const API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/integrations'
+const hdrs: Record<string, string> = (() => {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = localStorage.getItem('crm_access_token')
+  if (token) h['Authorization'] = `Bearer ${token}`
+  else h['X-API-Key'] = 'dev-sync-key'
+  return h
+})()
 
 async function api(path: string, opts?: RequestInit) {
   const res = await fetch(`${API}${path}`, { headers: hdrs, ...opts })
@@ -161,7 +167,7 @@ export default function IntegrationsPage() {
         if (!integ) return null
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-white rounded-2xl shadow-2xl w-[480px] p-6 space-y-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] p-4 lg:p-6 mx-4 lg:mx-0 space-y-4">
               <h2 className="font-bold text-gray-900 text-lg">Connect {integ.name}</h2>
               {integ.configFields?.map((field: any) => (
                 <div key={field.key}>
@@ -291,7 +297,7 @@ function ApiKeysSection() {
       {/* Create modal */}
       {creating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-2xl shadow-2xl w-[400px] p-6 space-y-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[400px] p-4 lg:p-6 mx-4 lg:mx-0 space-y-4">
             <h2 className="font-bold text-gray-900">Generate API Key</h2>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Key Name</label>

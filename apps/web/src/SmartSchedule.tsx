@@ -166,16 +166,26 @@ function getJobTags(job: SchedulableJob): Tag[] {
 
 /* ───────── Geocode ───────── */
 
-async function geocodeAddress(address: string): Promise<LatLng | null> {
-  if (!address) return null
+async function geocodeAddress(address: string): Promise<{ coords: LatLng | null; error?: string }> {
+  if (!address || address.trim().length < 5) return { coords: null, error: 'Address too short or empty' }
   try {
-    const geocoder = new google.maps.Geocoder()
-    const result = await geocoder.geocode({ address })
-    if (result.results[0]?.geometry?.location) {
-      return { lat: result.results[0].geometry.location.lat(), lng: result.results[0].geometry.location.lng() }
+    // Ensure Google Maps is loaded
+    if (typeof google === 'undefined' || !google.maps?.Geocoder) {
+      return { coords: null, error: 'Google Maps not loaded' }
     }
-  } catch {}
-  return null
+    const geocoder = new google.maps.Geocoder()
+    // Append state if address looks incomplete (no state/zip)
+    const fullAddress = /\b(FL|florida)\b/i.test(address) ? address : `${address}, FL`
+    const result = await geocoder.geocode({ address: fullAddress })
+    if (result.results[0]?.geometry?.location) {
+      return {
+        coords: { lat: result.results[0].geometry.location.lat(), lng: result.results[0].geometry.location.lng() },
+      }
+    }
+    return { coords: null, error: 'No results found for this address' }
+  } catch (err) {
+    return { coords: null, error: `Geocoding failed: ${err instanceof Error ? err.message : 'unknown error'}` }
+  }
 }
 
 /* ═══════════════════════════════════════════════
@@ -225,24 +235,48 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
     return () => { markersRef.current.forEach(m => { m.map = null }) }
   }, [])
 
+  const [geocodeErrors, setGeocodeErrors] = useState<Record<string, string>>({})
+  const [geocodeProgress, setGeocodeProgress] = useState({ current: 0, total: 0 })
+
   // Geocode
   async function geocodeAll() {
     setGeocoding(true)
     await loadPlaces()
     const updated = [...allJobs]
+    const errors: Record<string, string> = {}
+    const needsGeo = updated.filter(j => (!j.lat || !j.lng) && j.address)
+    setGeocodeProgress({ current: 0, total: needsGeo.length })
+
+    let completed = 0
     for (let i = 0; i < updated.length; i++) {
       if (updated[i].lat && updated[i].lng) continue
-      if (!updated[i].address) continue
-      const coords = await geocodeAddress(updated[i].address)
-      if (coords) {
-        updated[i] = { ...updated[i], lat: coords.lat, lng: coords.lng }
-        if (updated[i].source === 'jobs') updateJob(updated[i].id, { lat: coords.lat, lng: coords.lng })
+      if (!updated[i].address) {
+        errors[updated[i].id] = 'No address on record'
+        continue
       }
+      const result = await geocodeAddress(updated[i].address)
+      if (result.coords) {
+        updated[i] = { ...updated[i], lat: result.coords.lat, lng: result.coords.lng }
+        if (updated[i].source === 'jobs') updateJob(updated[i].id, { lat: result.coords.lat, lng: result.coords.lng })
+      } else {
+        errors[updated[i].id] = result.error || 'Unknown error'
+      }
+      completed++
+      setGeocodeProgress({ current: completed, total: needsGeo.length })
       if (i < updated.length - 1) await new Promise(r => setTimeout(r, 200))
     }
     setAllJobs(updated)
+    setGeocodeErrors(errors)
     setGeocoding(false)
   }
+
+  // Auto-geocode when map is ready and there are unplotted jobs with addresses
+  useEffect(() => {
+    if (mapReady && allJobs.length > 0 && !geocoding) {
+      const needsGeo = allJobs.filter(j => (!j.lat || !j.lng) && j.address && j.address.trim().length >= 5)
+      if (needsGeo.length > 0) geocodeAll()
+    }
+  }, [mapReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const geoJobs = useMemo(() => allJobs.filter(j => j.lat && j.lng), [allJobs])
   const noGeoJobs = allJobs.filter(j => !j.lat || !j.lng)
@@ -332,7 +366,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
       box-shadow:0 1px 4px rgba(0,0,0,0.3);cursor:pointer;
       ${isSelected ? 'outline:3px solid ' + color + ';outline-offset:2px;' : ''}
     `
-    el.title = `${job.customerName}\n${job.address}\n${job.fenceType} · ${job.sections} sec`
+    el.title = `${job.customerName} — ${job.address}\n${job.fenceType} · ${job.sections} sections\nStage: ${job.stagingStatus || 'staging'}${job.scheduledDate ? '\nScheduled: ' + job.scheduledDate : ''}`
     el.onclick = () => setSelectedJobId(job.id === selectedJobId ? null : job.id)
 
     const marker = new google.maps.marker.AdvancedMarkerElement({
@@ -426,10 +460,26 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
           {/* Geocode + cluster controls */}
           <div className="p-3 border-b border-gray-100 space-y-2">
             {noGeoJobs.length > 0 && (
-              <button onClick={geocodeAll} disabled={geocoding}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 text-white font-semibold text-xs py-1.5 rounded-lg">
-                {geocoding ? `Locating... (${geoJobs.length}/${allJobs.length})` : `Locate ${noGeoJobs.length} jobs on map`}
-              </button>
+              <div className="space-y-1.5">
+                <button onClick={geocodeAll} disabled={geocoding}
+                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white font-semibold text-xs py-1.5 rounded-lg">
+                  {geocoding
+                    ? `Locating... ${geocodeProgress.current}/${geocodeProgress.total}`
+                    : `📍 Locate ${noGeoJobs.length} jobs on map`}
+                </button>
+                {Object.keys(geocodeErrors).length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-2 text-xs">
+                    <p className="font-semibold text-red-700 mb-1">{Object.keys(geocodeErrors).length} jobs couldn't be located:</p>
+                    <div className="max-h-24 overflow-y-auto space-y-0.5">
+                      {noGeoJobs.filter(j => geocodeErrors[j.id]).map(j => (
+                        <p key={j.id} className="text-red-600 truncate">
+                          <span className="font-medium">{j.customerName}</span>: {geocodeErrors[j.id]}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
             <div className="flex items-center gap-2">
               <button onClick={() => setShowClusters(!showClusters)}

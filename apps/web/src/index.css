@@ -1,1 +1,122 @@
 @import "tailwindcss";
+
+/* ═══════════════════════════════════════════════
+   MOBILE RESPONSIVE LAYER
+   All rules scoped below 1024px — desktop untouched
+   ═══════════════════════════════════════════════ */
+
+/* ── Mobile Nav Drawer ── */
+@media (max-width: 1023px) {
+  .sidebar-desktop { display: none !important; }
+  .mobile-nav-backdrop {
+    position: fixed; inset: 0; z-index: 40;
+    background: rgba(0,0,0,0.5);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .mobile-nav-backdrop.open { opacity: 1; pointer-events: auto; }
+  .mobile-nav-drawer {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 50;
+    width: 280px; transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .mobile-nav-drawer.open { transform: translateX(0); }
+  .mobile-header { display: flex !important; }
+  .main-content-area { padding-left: 16px !important; padding-right: 16px !important; }
+}
+@media (min-width: 1024px) {
+  .mobile-nav-backdrop { display: none !important; }
+  .mobile-nav-drawer { display: none !important; }
+  .mobile-header { display: none !important; }
+  .mobile-only { display: none !important; }
+}
+
+/* ── Modal Full-Screen on Mobile ── */
+@media (max-width: 1023px) {
+  .modal-responsive {
+    width: 100% !important; max-width: 100% !important;
+    height: 100% !important; max-height: 100% !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+  .slideover-responsive {
+    width: 100% !important; max-width: 100% !important;
+  }
+}
+
+/* ── Grid Responsive Overrides ── */
+@media (max-width: 639px) {
+  .grid-mobile-1 { grid-template-columns: 1fr !important; }
+  .grid-mobile-2 { grid-template-columns: repeat(2, 1fr) !important; }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  .grid-tablet-2 { grid-template-columns: repeat(2, 1fr) !important; }
+  .grid-tablet-3 { grid-template-columns: repeat(3, 1fr) !important; }
+}
+
+/* ── Table Card Layout on Mobile ── */
+@media (max-width: 1023px) {
+  .table-responsive-cards thead { display: none; }
+  .table-responsive-cards tbody tr {
+    display: block; margin-bottom: 8px;
+    border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 12px;
+  }
+  .table-responsive-cards tbody td {
+    display: flex; justify-content: space-between;
+    padding: 4px 0; border: none;
+  }
+  .table-responsive-cards tbody td::before {
+    content: attr(data-label);
+    font-weight: 600; color: #64748b; font-size: 12px;
+  }
+}
+
+/* ── Touch Targets ── */
+@media (max-width: 1023px) {
+  .touch-target { min-height: 44px; min-width: 44px; }
+  button, a, select, [role="button"] { min-height: 44px; }
+  input, textarea, select { font-size: 16px !important; }
+}
+
+/* ── Padding Reduction ── */
+@media (max-width: 1023px) {
+  .px-8 { padding-left: 16px !important; padding-right: 16px !important; }
+  .px-6 { padding-left: 12px !important; padding-right: 12px !important; }
+  .py-6 { padding-top: 16px !important; padding-bottom: 16px !important; }
+}
+
+/* ── Fixed Action Bar on Mobile ── */
+@media (max-width: 1023px) {
+  .mobile-action-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: white; border-top: 1px solid #e2e8f0;
+    padding: 12px 16px; z-index: 30;
+    display: flex; gap: 8px;
+  }
+}
+@media (min-width: 1024px) {
+  .mobile-action-bar { position: static; border: none; padding: 0; }
+}
+
+/* ── Kanban Horizontal Scroll ── */
+@media (max-width: 1023px) {
+  .kanban-scroll {
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+  }
+  .kanban-scroll > * { scroll-snap-align: start; min-width: 260px; }
+}
+
+/* ── Calendar Single Day View ── */
+@media (max-width: 639px) {
+  .calendar-table { display: block; }
+  .calendar-table thead { display: none; }
+  .calendar-table tbody { display: flex; flex-direction: column; }
+  .calendar-table tbody tr { display: flex; flex-direction: column; }
+  .calendar-table tbody td {
+    display: block; width: 100% !important;
+    border-right: none !important; border-bottom: 1px solid #e2e8f0;
+    padding: 12px !important; min-height: auto !important;
+  }
+}

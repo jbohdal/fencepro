@@ -19,7 +19,18 @@ import DispatchPage from './DispatchPage'
 import EZBudgetPage from './EZBudgetPage'
 import AutomationsPage from './AutomationsPage'
 import IntegrationsPage from './IntegrationsPage'
+import TeamManagementPage from './TeamManagementPage'
+import BillingPage from './BillingPage'
 import OperationsPage from './OperationsPage'
+import LoginPage from './LoginPage'
+import PLStatementPage from './PLStatementPage'
+import BalanceSheetPage from './BalanceSheetPage'
+import VendorsPage from './VendorsPage'
+import AccountsPayablePage from './AccountsPayablePage'
+import BundlesPage from './BundlesPage'
+import PublicPresentationPage from './PublicPresentationPage'
+import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, type CrmUser } from './crmAuth'
+import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import { syncQuote } from './portalSync'
 
@@ -61,13 +72,21 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Finance',
     items: [
-      { name: 'Reports', icon: '📈', roles: ['owner', 'admin'] },
-      { name: 'Budget',  icon: '💰', roles: ['owner'] },
+      { name: 'P&L Statement',     icon: '📊', roles: ['owner', 'admin'] },
+      { name: 'Balance Sheet',     icon: '📑', roles: ['owner', 'admin'] },
+      { name: 'Cash Flow',         icon: '💸', roles: ['owner', 'admin'] },
+      { name: 'Billing',           icon: '💳', roles: ['owner', 'admin'] },
+      { name: 'Accounts Payable',  icon: '🧾', roles: ['owner', 'admin', 'ops_manager'] },
+      { name: 'Vendors',           icon: '🏢', roles: ['owner', 'admin', 'ops_manager'] },
+      { name: 'Reports',           icon: '📈', roles: ['owner', 'admin'] },
+      { name: 'Budget',            icon: '💰', roles: ['owner'] },
     ],
   },
   {
     label: 'Admin',
     items: [
+      { name: 'Team',          icon: '👥', roles: ['owner', 'admin'] },
+      { name: 'Bundles',       icon: '📦', roles: ['owner', 'admin'] },
       { name: 'EZ Budget',     icon: '💲', roles: ['owner', 'admin'] },
       { name: 'Automations',   icon: '⚡', roles: ['owner', 'admin'] },
       { name: 'Integrations', icon: '🔌', roles: ['owner', 'admin'] },
@@ -167,12 +186,79 @@ interface SearchResult {
    APP SHELL
    ═══════════════════════════════════════════════ */
 
+function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: () => void) => React.ReactNode; onLogout?: () => void }) {
+  const [authChecked, setAuthChecked] = useState(false)
+  const [crmUser, setCrmUser] = useState<CrmUser | null>(null)
+
+  useEffect(() => {
+    if (isAuthenticated()) {
+      fetchCurrentUser().then(user => {
+        setCrmUser(user)
+        if (user) {
+          const mapped: Record<string, UserRole> = {
+            super_admin: 'owner', admin: 'admin', manager: 'admin',
+            sales_rep: 'salesman', field_crew: 'shop', office_staff: 'ops_manager',
+          }
+          saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: mapped[user.role] || 'salesman' })
+        }
+        setAuthChecked(true)
+      })
+    } else {
+      setAuthChecked(true)
+    }
+  }, [])
+
+  function handleLogin(user: CrmUser) {
+    setCrmUser(user)
+    const mapped: Record<string, UserRole> = {
+      super_admin: 'owner', admin: 'admin', manager: 'admin',
+      sales_rep: 'salesman', field_crew: 'shop', office_staff: 'ops_manager',
+    }
+    saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: mapped[user.role] || 'salesman' })
+  }
+
+  function handleLogout() {
+    crmLogout()
+    setCrmUser(null)
+  }
+
+  if (!authChecked) {
+    return <div className="min-h-screen bg-gray-900 flex items-center justify-center"><div className="text-gray-500">Loading...</div></div>
+  }
+  if (!crmUser) {
+    return <LoginPage onLogin={handleLogin} />
+  }
+
+  return <>{children(crmUser, handleLogout)}</>
+}
+
 export default function App() {
+  // Public presentation route: /#/present/:token — no auth required
+  const [hash, setHash] = useState(typeof window !== 'undefined' ? window.location.hash : '')
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash)
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+  const presentMatch = hash.match(/^#\/present\/([a-zA-Z0-9_-]+)/)
+  if (presentMatch) {
+    return <PublicPresentationPage token={presentMatch[1]} />
+  }
+
+  return (
+    <AuthGate>
+      {(crmUser, logout) => <AppShell crmUser={crmUser} onLogout={logout} />}
+    </AuthGate>
+  )
+}
+
+function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => void }) {
   const [active, setActive]             = useState('Dashboard')
   const [showQuote, setShowQuote]       = useState(false)
   const [editingQuote, setEditingQuote] = useState<SavedQuote | null>(null)
   const [quotes, setQuotes]             = useState<SavedQuote[]>(loadQuotes)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userProfile, setUserProfile]   = useState(loadUserProfile)
   const [showMapQuote, setShowMapQuote] = useState(false)
   const [showSitePlan, setShowSitePlan] = useState(false)
@@ -233,6 +319,27 @@ export default function App() {
     // Auto-create a Job when quote is first saved as SOLD
     if (q.status === 'SOLD' && !wasSold && !getJobByQuoteId(q.id)) {
       createJobFromQuote(q)
+    }
+
+    // Auto-link pull sheet to customer file
+    if (q.pullSheet?.length > 0 && q.customerId) {
+      try {
+        const existing = getPullSheetsForCustomer(q.customerId)
+        const versionNumber = existing.filter(ps => ps.quoteId === q.id).length + 1
+        const job = q.status === 'SOLD' ? getJobByQuoteId(q.id) : null
+        linkPullSheetToCustomer({
+          customerId: q.customerId,
+          customerName: q.customerName,
+          jobId: job?.id,
+          jobName: job ? q.customerName : undefined,
+          quoteId: q.id,
+          quoteName: `${q.fenceStyle} — ${q.customerName}`,
+          versionSnapshot: JSON.parse(JSON.stringify(q.pullSheet)),
+          versionNumber,
+          linkedAt: new Date().toISOString(),
+          linkedBy: 'auto',
+        })
+      } catch { /* silent — pull sheet link is non-critical */ }
     }
 
     // Sync to customer portal (fire and forget)
@@ -384,8 +491,63 @@ export default function App() {
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
 
-      {/* ═══ SIDEBAR ═══ */}
-      <div className={`${sidebarW} bg-gray-900 flex flex-col transition-all duration-200 shrink-0`}>
+      {/* ═══ MOBILE NAV OVERLAY + DRAWER (hidden on desktop via CSS) ═══ */}
+      <div className={`mobile-nav-backdrop ${mobileMenuOpen ? 'open' : ''}`} onClick={() => setMobileMenuOpen(false)} />
+      <div className={`mobile-nav-drawer bg-gray-900 flex flex-col ${mobileMenuOpen ? 'open' : ''}`}>
+        <div className="border-b border-gray-700 px-5 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-white text-lg font-bold tracking-tight">{companyName}</h1>
+            <p className="text-gray-500 text-xs mt-0.5">Management Platform</p>
+          </div>
+          <button onClick={() => setMobileMenuOpen(false)} className="text-gray-400 hover:text-white text-2xl leading-none p-1">×</button>
+        </div>
+        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+          {visibleGroups.map(group => (
+            <div key={group.label}>
+              <p className="px-3 mb-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-widest">{group.label}</p>
+              <div className="space-y-0.5">
+                {group.items.map(item => (
+                  <button
+                    key={item.name}
+                    onClick={() => { setActive(item.name); setMobileMenuOpen(false) }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                      active === item.name ? 'bg-orange-500 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                    }`}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+        <div className="border-t border-gray-700 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-orange-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
+              {userProfile.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-medium truncate">{userProfile.name}</p>
+              <select
+                value={role}
+                onChange={e => handleRoleChange(e.target.value as UserRole)}
+                className="bg-transparent text-gray-400 text-xs outline-none cursor-pointer hover:text-gray-300 -ml-0.5"
+              >
+                {(Object.entries(ROLE_LABELS) as [UserRole, string][]).map(([k, v]) => (
+                  <option key={k} value={k} className="bg-gray-900 text-gray-300">{v}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <button onClick={onLogout} className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
+            Sign out
+          </button>
+        </div>
+      </div>
+
+      {/* ═══ SIDEBAR (desktop only — hidden on mobile via CSS) ═══ */}
+      <div className={`sidebar-desktop ${sidebarW} bg-gray-900 flex flex-col transition-all duration-200 shrink-0`}>
 
         {/* Brand */}
         <div className={`border-b border-gray-700 flex items-center ${sidebarCollapsed ? 'px-3 py-4 justify-center' : 'px-5 py-4'}`}>
@@ -465,6 +627,11 @@ export default function App() {
               </div>
             </div>
           )}
+          {!sidebarCollapsed && (
+            <button onClick={onLogout} className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
+              Sign out
+            </button>
+          )}
         </div>
       </div>
 
@@ -474,6 +641,12 @@ export default function App() {
         {/* Top header bar */}
         <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-4">
+            {/* Hamburger — mobile only (hidden on desktop via CSS) */}
+            <button onClick={() => setMobileMenuOpen(true)} className="mobile-only text-gray-600 hover:text-gray-900 p-1 -ml-2">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+              </svg>
+            </button>
             <h2 className="text-lg font-semibold text-gray-900">{active}</h2>
           </div>
 
@@ -518,6 +691,7 @@ export default function App() {
 
         {/* Page content */}
         <div className="flex-1 overflow-y-auto px-8 py-6">
+          {active === 'Team' && <TeamManagementPage />}
           {active === 'EZ Budget' && <EZBudgetPage />}
           {active === 'Automations' && <AutomationsPage />}
           {active === 'Integrations' && <IntegrationsPage />}
@@ -525,6 +699,13 @@ export default function App() {
           {active === 'Settings'  && <AdminSettingsPage />}
           {active === 'Inventory' && <AdminPage />}
           {active === 'Budget'    && <BudgetPage />}
+          {active === 'Billing'   && <BillingPage />}
+          {active === 'P&L Statement' && <PLStatementPage />}
+          {active === 'Balance Sheet' && <BalanceSheetPage />}
+          {active === 'Accounts Payable' && <AccountsPayablePage />}
+          {active === 'Vendors'   && <VendorsPage />}
+          {active === 'Bundles'   && <BundlesPage />}
+          {active === 'Cash Flow' && <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center"><p className="text-4xl mb-3">💸</p><h2 className="text-lg font-bold text-gray-900">Cash Flow</h2><p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">Cash Flow statement coming soon. For now, check the P&amp;L Statement and Accounts Receivable/Payable dashboards.</p></div>}
           {active === 'Customers' && <CustomersPage onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
           {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={handleOpenQuote} onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
           {active === 'Sales Pipeline' && <JobsPage />}
@@ -579,7 +760,7 @@ export default function App() {
           {active === 'Dashboard' && (
             <div className="space-y-6">
               {/* KPI strip */}
-              <div className="grid grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                 {kpis.map(kpi => (
                   <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
                     <div className="flex items-center justify-between mb-2">

@@ -5,8 +5,8 @@
  * Fires events to the portal backend which evaluates all active automations.
  */
 
-const AUTOMATION_API = 'http://localhost:4000/api/automations/trigger'
-const SYNC_KEY = 'dev-sync-key'
+const AUTOMATION_API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/automations/trigger'
+const SYNC_KEY = typeof localStorage !== 'undefined' ? (localStorage.getItem('crm_access_token') || 'dev-sync-key') : 'dev-sync-key'
 
 export interface TriggerEvent {
   jobId?: string
@@ -31,9 +31,13 @@ export interface TriggerEvent {
  * Fire an automation trigger. Non-blocking — errors are silently logged.
  */
 export function fireTrigger(triggerType: string, event: TriggerEvent): void {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('crm_access_token') : null
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  else headers['X-API-Key'] = SYNC_KEY
   fetch(AUTOMATION_API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': SYNC_KEY },
+    headers,
     body: JSON.stringify({ triggerType, event }),
   }).catch(err => console.warn('[Automation] Trigger failed:', err))
 }

@@ -6,8 +6,8 @@
  * Failures are silent — the CRM works offline, portal syncs when available.
  */
 
-const PORTAL_API = 'http://localhost:4000/api/sync'
-const SYNC_KEY = 'dev-sync-key'
+const PORTAL_API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/sync'
+const SYNC_KEY = localStorage.getItem('crm_access_token') ? '' : 'dev-sync-key' // Uses JWT auth when logged in
 
 // Default account for this CRM instance
 const ACCOUNT_EXTERNAL_ID = 'gdf-001'

@@ -256,7 +256,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
   return (
     <div className="fixed inset-0 z-40 flex">
       <div className="flex-1 bg-black/30" onClick={onClose} />
-      <div className="w-[560px] bg-white shadow-2xl flex flex-col overflow-y-auto">
+      <div className="w-full lg:w-[560px] bg-white shadow-2xl flex flex-col overflow-y-auto">
         {/* Header */}
         <div className="px-6 py-5 border-b border-gray-200">
           <div className="flex items-center justify-between mb-2">

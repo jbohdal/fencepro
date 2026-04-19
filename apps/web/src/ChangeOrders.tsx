@@ -118,7 +118,7 @@ export function QuickChangeOrderModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-12 bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-[560px] max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[560px] max-h-[85vh] overflow-y-auto mx-4 lg:mx-0" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900">Change Order #{existingCount + 1}</h2>

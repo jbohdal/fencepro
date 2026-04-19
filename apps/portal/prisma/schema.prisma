@@ -746,3 +746,390 @@ model WebhookInboundLog {
   @@index([status])
   @@index([createdAt])
 }
+
+// ── CRM Users & Auth ──
+
+enum CrmUserRole {
+  super_admin
+  admin
+  manager
+  sales_rep
+  field_crew
+  office_staff
+  customer
+}
+
+enum CrmUserStatus {
+  active
+  invited
+  suspended
+  deactivated
+}
+
+model CrmUser {
+  id                  String        @id @default(uuid())
+  email               String        @unique
+  passwordHash        String?
+  firstName           String
+  lastName            String
+  phone               String?
+  avatarUrl           String?
+  role                CrmUserRole   @default(office_staff)
+  status              CrmUserStatus @default(invited)
+  invitedById         String?
+  inviteTokenHash     String?       @unique
+  inviteTokenExpiresAt DateTime?
+  mustChangePassword  Boolean       @default(true)
+  failedLoginAttempts Int           @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  customerId          String?       // for customer portal users
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  invitedBy   CrmUser?       @relation("UserInvites", fields: [invitedById], references: [id])
+  invitees    CrmUser[]      @relation("UserInvites")
+  sessions    CrmUserSession[]
+  activityLog CrmUserActivity[]
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+  @@index([inviteTokenHash])
+}
+
+model CrmUserSession {
+  id          String    @id @default(uuid())
+  userId      String
+  tokenHash   String    @unique
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  user CrmUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+}
+
+model CrmUserActivity {
+  id          String   @id @default(uuid())
+  userId      String
+  action      String   // login, logout, invite_sent, role_changed, job_created, etc.
+  entityType  String?  // job, quote, customer, user, etc.
+  entityId    String?
+  metadata    Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  user CrmUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ── Finance: Vendor Management & Accounts Payable ──
+
+enum VendorPaymentTerms {
+  net_15
+  net_30
+  net_45
+  net_60
+  due_on_receipt
+  custom
+}
+
+enum VendorBillStatus {
+  draft
+  received
+  approved
+  scheduled
+  paid
+  overdue
+  void
+}
+
+enum VendorBillCategory {
+  materials
+  labor
+  equipment
+  overhead
+  subcontractor
+  utilities
+  insurance
+  other
+}
+
+enum VendorPaymentMethod {
+  check
+  ach
+  wire
+  credit_card
+  cash
+  other
+}
+
+model VendorContact {
+  id            String             @id @default(uuid())
+  companyId     String?            // multi-tenant readiness
+  name          String
+  contactName   String?
+  phone         String?
+  email         String?
+  address       String?
+  city          String?
+  state         String?
+  zip           String?
+  paymentTerms  VendorPaymentTerms @default(net_30)
+  accountNumber String?
+  notes         String?
+  isActive      Boolean            @default(true)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  bills    VendorBill[]
+  payments VendorPayment[]
+
+  @@index([companyId])
+  @@index([isActive])
+  @@index([name])
+}
+
+model VendorBill {
+  id               String             @id @default(uuid())
+  vendorId         String
+  billNumber       String
+  description      String?
+  status           VendorBillStatus   @default(received)
+  subtotalCents    Int                @default(0)
+  taxCents         Int                @default(0)
+  totalCents       Int                @default(0)
+  amountPaidCents  Int                @default(0)
+  balanceDueCents  Int                @default(0)
+  billDate         DateTime
+  dueDate          DateTime
+  paidAt           DateTime?
+  paymentMethod    VendorPaymentMethod?
+  referenceNumber  String?
+  category         VendorBillCategory @default(other)
+  jobId            String?            // link to a job for job costing
+  notes            String?
+  createdBy        String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  vendor    VendorContact         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  lineItems VendorBillLineItem[]
+  payments  VendorPayment[]
+
+  @@index([vendorId])
+  @@index([status])
+  @@index([category])
+  @@index([jobId])
+  @@index([billDate])
+  @@index([dueDate])
+}
+
+model VendorBillLineItem {
+  id            String   @id @default(uuid())
+  billId        String
+  description   String
+  quantity      Float    @default(1)
+  unitCostCents Int      @default(0)
+  totalCents    Int      @default(0)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  bill VendorBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+}
+
+model VendorPayment {
+  id              String               @id @default(uuid())
+  billId          String
+  vendorId        String
+  amountCents     Int
+  paymentMethod   VendorPaymentMethod
+  referenceNumber String?
+  paymentDate     DateTime
+  recordedBy      String?
+  notes           String?
+  createdAt       DateTime             @default(now())
+
+  bill   VendorBill    @relation(fields: [billId], references: [id], onDelete: Cascade)
+  vendor VendorContact @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@index([vendorId])
+  @@index([paymentDate])
+}
+
+// ── Finance: Manual P&L Entries ──
+
+enum PlEntryCategory {
+  revenue
+  cogs
+  gross_profit
+  operating_expense
+  ebitda_adjustment
+  depreciation
+  amortization
+  interest
+  tax
+  other
+}
+
+model PlManualEntry {
+  id           String          @id @default(uuid())
+  periodMonth  Int             // 1-12
+  periodYear   Int
+  category     PlEntryCategory
+  label        String
+  amountCents  Int
+  isRecurring  Boolean         @default(false)
+  notes        String?
+  createdBy    String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([periodYear, periodMonth])
+  @@index([category])
+}
+
+// ── Finance: Balance Sheet ──
+
+enum BalanceSheetCategory {
+  current_asset
+  fixed_asset
+  other_asset
+  current_liability
+  long_term_liability
+  equity
+}
+
+model BalanceSheetEntry {
+  id          String               @id @default(uuid())
+  category    BalanceSheetCategory
+  label       String
+  amountCents Int
+  asOfDate    DateTime
+  notes       String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([category])
+  @@index([asOfDate])
+}
+
+// ── Quoting: Good / Better / Best Bundles ──
+
+enum BundleTier {
+  good
+  better
+  best
+  custom
+}
+
+enum BundlePricingMethod {
+  calculated
+  price_per_foot
+  markup_percent
+}
+
+model QuoteBundle {
+  id                     String              @id @default(uuid())
+  name                   String
+  description            String?
+  tier                   BundleTier          @default(better)
+  tierLabel              String?             // custom label when tier=custom
+  fenceStyleId           String              // references configStore fence style ID
+  groupName              String?             // bundle group identifier (ties trio/duo together)
+  pricingMethod          BundlePricingMethod @default(calculated)
+  marginOverride         Float?              // decimal, e.g. 0.64
+  laborRateOverride      Float?              // $/hr
+  pricePerFootOverride   Int?                // cents per linear foot
+  materialMarkupPercent  Float?              // decimal, e.g. 0.15 = 15%
+  isActive               Boolean             @default(true)
+  sortOrder              Int                 @default(0)
+  highlightBadge         String?             // "Most Popular", "Best Value", etc.
+  isRecommended          Boolean             @default(false)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  inclusions QuoteBundleInclusion[]
+  addons     QuoteBundleAddon[]
+  options    QuoteOption[]
+
+  @@index([fenceStyleId])
+  @@index([groupName])
+  @@index([tier])
+  @@index([isActive])
+}
+
+model QuoteBundleInclusion {
+  id          String   @id @default(uuid())
+  bundleId    String
+  label       String
+  description String?
+  isFeatured  Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  bundle QuoteBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+
+  @@index([bundleId])
+}
+
+model QuoteBundleAddon {
+  id                 String   @id @default(uuid())
+  bundleId           String
+  addonName          String
+  addonPriceCents    Int
+  isIncludedByDefault Boolean @default(false)
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
+
+  bundle QuoteBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+
+  @@index([bundleId])
+}
+
+model QuoteOption {
+  id                 String   @id @default(uuid())
+  quoteId            String   // references localStorage quote ID or server quote ID
+  bundleId           String?
+  tierLabel          String   // good, better, best, or custom
+  fenceStyleId       String
+  sectionCount       Int      @default(0)
+  gateCount          Int      @default(0)
+  footage            Float    @default(0)
+  materialCostCents  Int      @default(0)
+  laborCostCents     Int      @default(0)
+  overheadCents      Int      @default(0)
+  commissionCents    Int      @default(0)
+  quotePriceCents    Int      @default(0)
+  marginPercent      Float    @default(0)
+  netProfitCents     Int      @default(0)
+  pricePerFootCents  Int      @default(0)
+  isRecommended      Boolean  @default(false)
+  presentationOrder  Int      @default(0)
+  status             String   @default("draft") // draft, presented, accepted, declined
+  acceptedAt         DateTime?
+  acceptedBy         String?  // customer email or name who accepted
+  shareToken         String?  @unique // for public customer presentation
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  bundle QuoteBundle? @relation(fields: [bundleId], references: [id], onDelete: SetNull)
+
+  @@index([quoteId])
+  @@index([bundleId])
+  @@index([shareToken])
+  @@index([status])
+}

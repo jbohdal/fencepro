@@ -107,12 +107,8 @@ async function sendViaSendGrid(to: string, subject: string, body: string, replyT
 }
 
 async function sendViaSmtp(to: string, subject: string, body: string, _replyTo?: string): Promise<{ success: boolean; error?: string }> {
-  // Basic SMTP via raw socket is complex — for SMTP we'd need nodemailer.
-  // Since the project avoids extra deps, we log a warning and fallback.
-  console.log(`[Email SMTP] Would send to ${to} via ${SMTP_HOST}:${SMTP_PORT} — install nodemailer for SMTP support`)
-  console.log(`[Email SMTP] Subject: ${subject}`)
-  console.log(`[Email SMTP] Body: ${body.slice(0, 200)}...`)
-  return { success: true }
+  console.warn(`[Email] SMTP not implemented — email to ${to} NOT sent. Subject: "${subject}". Configure SENDGRID_API_KEY for email delivery.`)
+  return { success: false, error: 'SMTP not configured — install nodemailer or use SendGrid' }
 }
 
 /** Build a simple branded HTML email */

@@ -183,7 +183,7 @@ function SettingsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-[480px] max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto mx-4 lg:mx-0">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900">Schedule Settings</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
@@ -440,7 +440,7 @@ export default function SchedulePage() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm calendar-table">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               {settings.workDays.map(d => (
@@ -632,7 +632,7 @@ export default function SchedulePage() {
       {/* Rain Day Modal with Cascade */}
       {rainDayJob && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-2xl shadow-2xl w-[560px] max-h-[85vh] overflow-y-auto p-6 space-y-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[560px] max-h-[85vh] overflow-y-auto p-4 lg:p-6 mx-4 lg:mx-0 space-y-4">
             <h2 className="font-bold text-gray-900 text-lg">🌧 Flag Rain Day</h2>
             <p className="text-sm text-gray-500">
               <span className="font-medium text-gray-900">{rainDayJob.clientName}</span> — scheduled for {rainDayJob.date}

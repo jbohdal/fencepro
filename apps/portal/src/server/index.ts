@@ -25,11 +25,15 @@ import googleCalendarRoutes from './routes/google-calendar.js'
 import ezBudgetRoutes, { ezBudgetPublicRoutes } from './routes/ez-budget.js'
 import automationRoutes from './routes/automations.js'
 import integrationRoutes from './routes/integrations.js'
+import crmAuthRoutes from './routes/crm-auth.js'
 import cronRoutes from './routes/cron.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
+
+// ── Trust proxy (behind Nginx) ──
+app.set('trust proxy', 1)
 
 // ── Security ──
 app.use(helmet())
@@ -102,6 +106,7 @@ app.use('/api/ez-budget', ezBudgetPublicRoutes) // Public widget endpoints (no a
 app.use('/api/ez-budget', ezBudgetRoutes)       // Admin endpoints (auth required)
 app.use('/api/automations', automationRoutes)
 app.use('/api/integrations', integrationRoutes)
+app.use('/api/crm-auth', crmAuthRoutes)
 app.use('/api/cron', cronRoutes)                // Vercel cron jobs
 
 // ── Health check ──

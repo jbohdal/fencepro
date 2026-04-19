@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import type { SavedQuote } from './QuotesPage'
+import { getOptions } from './bundleStore'
 
 /* ───────── helpers ───────── */
 
@@ -580,6 +581,8 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
 
   return (
     <div className="space-y-6">
+
+      <OptionConversionReport />
 
       {/* ── Header controls ── */}
       <div className="flex items-center justify-between">
@@ -2105,6 +2108,74 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               )
             })()}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ───────── Option Conversion Report ───────── */
+
+function OptionConversionReport() {
+  const options = useMemo(() => getOptions(), [])
+  if (options.length === 0) return null
+
+  // Group by quoteId
+  const byQuote = new Map<string, typeof options>()
+  for (const o of options) {
+    if (!byQuote.has(o.quoteId)) byQuote.set(o.quoteId, [])
+    byQuote.get(o.quoteId)!.push(o)
+  }
+
+  const multiOptionQuotes = Array.from(byQuote.values()).filter(opts => opts.length > 1)
+  const acceptedByTier = new Map<string, number>()
+  const revenueByTier = new Map<string, number>()
+  let totalPresented = 0
+  let totalAccepted = 0
+
+  for (const opts of multiOptionQuotes) {
+    totalPresented++
+    const accepted = opts.find(o => o.status === 'accepted')
+    if (accepted) {
+      totalAccepted++
+      const tier = accepted.tierLabel.toLowerCase()
+      acceptedByTier.set(tier, (acceptedByTier.get(tier) || 0) + 1)
+      revenueByTier.set(tier, (revenueByTier.get(tier) || 0) + accepted.quotePriceCents)
+    }
+  }
+
+  const conversionRate = totalPresented > 0 ? totalAccepted / totalPresented : 0
+  const avgTier = totalAccepted > 0
+    ? Array.from(acceptedByTier.entries()).sort((a, b) => b[1] - a[1])[0][0]
+    : '—'
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-semibold text-gray-900">Good / Better / Best — Option Conversion</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Of quotes where multiple options were presented, conversion rate and tier preference.</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs uppercase text-gray-500 font-semibold">Quotes w/ Options</p><p className="text-2xl font-bold text-gray-900 mt-1">{totalPresented}</p></div>
+        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs uppercase text-gray-500 font-semibold">Accepted</p><p className="text-2xl font-bold text-green-700 mt-1">{totalAccepted}</p></div>
+        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs uppercase text-gray-500 font-semibold">Conversion</p><p className="text-2xl font-bold text-orange-600 mt-1">{(conversionRate * 100).toFixed(1)}%</p></div>
+        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs uppercase text-gray-500 font-semibold">Top Tier</p><p className="text-2xl font-bold text-gray-900 mt-1 capitalize">{avgTier}</p></div>
+      </div>
+      {totalAccepted > 0 && (
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {(['good', 'better', 'best'] as const).map(tier => {
+            const count = acceptedByTier.get(tier) || 0
+            const rev = revenueByTier.get(tier) || 0
+            return (
+              <div key={tier} className="border border-gray-200 rounded-xl p-4">
+                <p className="text-xs uppercase font-bold text-gray-500 tracking-widest">{tier}</p>
+                <p className="text-lg font-bold text-gray-900 mt-1">{count} sold</p>
+                <p className="text-xs text-gray-500">{fmt(rev / 100)} revenue</p>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

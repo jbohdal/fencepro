@@ -60,7 +60,7 @@ interface EZBudgetWidgetProps {
 }
 
 export default function EZBudgetWidget({ apiBase }: EZBudgetWidgetProps) {
-  const api = apiBase || (window as any).__EZ_BUDGET_API__ || 'http://localhost:4000/api/ez-budget'
+  const api = apiBase || (window as any).__EZ_BUDGET_API__ || ((window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/ez-budget')
 
   const [services, setServices] = useState<Service[]>([])
   const [config, setConfig] = useState<WidgetConfig>({ companyName: 'EZ Budget', primaryColor: '#16a34a', taxRate: 0, quoteExpiryDays: 30 })

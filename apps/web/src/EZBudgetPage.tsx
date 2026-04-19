@@ -7,8 +7,14 @@
 
 import { useState, useEffect, useCallback } from 'react'
 
-const API = 'http://localhost:4000/api/ez-budget'
-const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-API-Key': 'dev-sync-key' }
+const API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/ez-budget'
+const headers: Record<string, string> = (() => {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = localStorage.getItem('crm_access_token')
+  if (token) h['Authorization'] = `Bearer ${token}`
+  else h['X-API-Key'] = 'dev-sync-key'
+  return h
+})()
 
 async function api(path: string, opts?: RequestInit) {
   const res = await fetch(`${API}${path}`, { headers, ...opts })

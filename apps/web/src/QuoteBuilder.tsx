@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { calculateMaterials, totalMaterialCost } from './materialCalculator'
 import type { LineItem } from './materialCalculator'
 import type { SavedQuote } from './QuotesPage'
+import QuoteOptionsPanel from './QuoteOptionsPanel'
 
 const FENCE_STYLES = [
   { id: '1',  name: "WV-ND 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6  },
@@ -174,7 +175,7 @@ function SaveModal({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-[480px] max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto mx-4 lg:mx-0">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900">Save Quote</h2>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
@@ -362,6 +363,7 @@ export default function QuoteBuilder({
   const [hasSalesman, setHasSalesman]   = useState(init?.hasSalesman ?? false)
   const [showPullSheet, setShowPullSheet] = useState(true)
   const [showSaveModal, setShowSaveModal] = useState(false)
+  const quoteIdRef = useRef<string>(init?.id ?? uid())
 
   const style = FENCE_STYLES.find(s => s.id === styleId)
 
@@ -425,7 +427,7 @@ export default function QuoteBuilder({
     leadTemp: number
   }) {
     const quote: SavedQuote = {
-      id: init?.id ?? uid(),
+      id: quoteIdRef.current,
       customerName: data.customerName,
       customerPhone: data.customerPhone,
       customerEmail: data.customerEmail,
@@ -600,6 +602,16 @@ export default function QuoteBuilder({
                 <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${hasSalesman ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </button>
             </div>
+
+            <QuoteOptionsPanel inputs={{
+              quoteId: quoteIdRef.current,
+              runs: runs.map(r => parseFloat(r.ft) || 0).filter(f => f > 0),
+              corners, ends, walkGates, dblGates,
+              tearOutSections: tearOutSec, tearOutGates,
+              adjLaborHrs: parseFloat(adjLaborHrs) || 0,
+              hasSalesman, priceAdjust,
+              fenceStyleId: styleId,
+            }} />
           </div>
 
           <div className="w-80 flex flex-col bg-gray-50 rounded-r-2xl">
