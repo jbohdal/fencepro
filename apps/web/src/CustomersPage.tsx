@@ -11,6 +11,8 @@ import { toast } from './toast'
 import { addLeadForNewCustomer } from './pipelineSeeder'
 import CustomerPhotosTab from './CustomerPhotosTab'
 import { fireCustomerCreated } from './automationTrigger'
+import QuoteDetailDrawer from './QuoteDetailDrawer'
+import type { SavedQuote } from './QuotesPage'
 
 interface Customer {
   id: string
@@ -775,7 +777,7 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
 
 function CustomerDetail({
   customer, quotes, importedQuotes, jobs, files,
-  onEdit, onNewQuote, onFileUpload, onDeleteFile,
+  onEdit, onNewQuote, onFileUpload, onDeleteFile, onQuoteClick,
 }: {
   customer: Customer
   quotes: Quote[]
@@ -786,6 +788,7 @@ function CustomerDetail({
   onNewQuote: (customer: Customer) => void
   onFileUpload: (f: CustomerFile) => void
   onDeleteFile: (id: string) => void
+  onQuoteClick?: (quoteId: string) => void
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files' | 'photos'>('overview')
 
@@ -824,7 +827,15 @@ function CustomerDetail({
               {customer.firstName?.[0] ?? ''}{customer.lastName?.[0] ?? ''}
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-900">{customer.firstName} {customer.lastName}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold text-gray-900">{customer.firstName} {customer.lastName}</h2>
+                {quotes.some(q => q.status === 'SOLD') && (
+                  <span className="text-[10px] font-bold uppercase tracking-widest bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Signed / Sold</span>
+                )}
+                {!quotes.some(q => q.status === 'SOLD') && quotes.some(q => q.status === 'SENT') && (
+                  <span className="text-[10px] font-bold uppercase tracking-widest bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Quote Sent</span>
+                )}
+              </div>
               <div className="flex items-center gap-3 mt-1">
                 {customer.phone && <span className="text-sm text-gray-500">📞 {customer.phone}</span>}
                 {customer.email && <span className="text-sm text-gray-500">✉️ {customer.email}</span>}
@@ -964,7 +975,7 @@ function CustomerDetail({
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {quotes.map(q => (
-                      <tr key={q.id} className="hover:bg-gray-50">
+                      <tr key={q.id} className="hover:bg-orange-50 cursor-pointer transition-colors" onClick={() => onQuoteClick?.(q.id)}>
                         <td className="px-5 py-3 font-medium text-gray-800">{q.type}</td>
                         <td className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
                         <td className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
@@ -995,7 +1006,9 @@ function CustomerDetail({
           <div className="space-y-3">
             {jobs.length === 0 ? (
               <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
-                <p className="text-gray-400 text-sm">No jobs yet</p>
+                <p className="text-4xl mb-2">🏗</p>
+                <p className="text-gray-700 font-medium">No jobs yet</p>
+                <p className="text-gray-400 text-xs mt-1 max-w-sm mx-auto">Jobs are created automatically when a quote is marked as Sold — either by dragging a pipeline card to Signed Contract or clicking Mark as Sold on a quote.</p>
               </div>
             ) : (
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -1120,7 +1133,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
     } catch { return SAMPLE_CUSTOMERS }
   })
   // Pull real quotes + jobs from localStorage; fall back to samples when empty
-  const [quotes] = useState<Quote[]>(() => {
+  const readQuotes = (): Quote[] => {
     try {
       const raw = localStorage.getItem('fencepro_quotes')
       if (!raw) return SAMPLE_QUOTES
@@ -1137,24 +1150,39 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
         date: q.date || '',
       })) as Quote[]
     } catch { return SAMPLE_QUOTES }
-  })
-  const [jobs] = useState<Job[]>(() => {
+  }
+  const readJobs = (): Job[] => {
     try {
       const raw = localStorage.getItem('fencepro_jobs')
       if (!raw) return SAMPLE_JOBS
       const all = JSON.parse(raw) as any[]
       if (!Array.isArray(all) || all.length === 0) return SAMPLE_JOBS
       return all.map(j => ({
-        id: j.id,
-        customerId: j.customerId || '',
+        id: j.id, customerId: j.customerId || '',
         type: j.fenceStyle || j.type || '',
         sections: j.sections || 0,
         value: j.value || j.finalPrice || 0,
-        stage: j.stage || 'SCHEDULED',
+        stage: j.stage || j.status || 'SCHEDULED',
         scheduledDate: j.scheduledDate || '',
       })) as Job[]
     } catch { return SAMPLE_JOBS }
-  })
+  }
+  const [quotes, setQuotes] = useState<Quote[]>(() => readQuotes())
+  const [jobs, setJobs] = useState<Job[]>(() => readJobs())
+
+  // Listen for quote/job/customer updates to keep the profile in sync without refresh
+  useEffect(() => {
+    const reload = () => { setQuotes(readQuotes()); setJobs(readJobs()) }
+    window.addEventListener('fencepro:quotes:updated', reload)
+    window.addEventListener('fencepro:jobs:updated', reload)
+    window.addEventListener('fencepro:customers:updated', reload)
+    return () => {
+      window.removeEventListener('fencepro:quotes:updated', reload)
+      window.removeEventListener('fencepro:jobs:updated', reload)
+      window.removeEventListener('fencepro:customers:updated', reload)
+    }
+  }, [])
+
   const [files, setFiles] = useState<CustomerFile[]>(() => {
     try {
       const raw = localStorage.getItem('fencepro_files')
@@ -1164,6 +1192,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [mode, setMode] = useState<'view' | 'new' | 'edit'>('view')
   const [search, setSearch] = useState('')
+  const [drawerQuote, setDrawerQuote] = useState<SavedQuote | null>(null)
 
   const filtered = customers.filter(c => {
     const q = search.toLowerCase()
@@ -1488,6 +1517,32 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
             localStorage.setItem('fencepro_files', JSON.stringify(updated))
             return updated
           })}
+          onQuoteClick={(quoteId) => {
+            try {
+              const raw = localStorage.getItem('fencepro_quotes')
+              const all: SavedQuote[] = raw ? JSON.parse(raw) : []
+              const full = all.find(q => q.id === quoteId) || null
+              setDrawerQuote(full)
+            } catch {}
+          }}
+        />
+      )}
+
+      {drawerQuote && (
+        <QuoteDetailDrawer
+          quote={drawerQuote}
+          onClose={() => setDrawerQuote(null)}
+          onChange={() => {
+            // Re-read quote from storage in case status changed
+            try {
+              const raw = localStorage.getItem('fencepro_quotes')
+              const all: SavedQuote[] = raw ? JSON.parse(raw) : []
+              const updated = all.find(q => q.id === drawerQuote.id) || null
+              setDrawerQuote(updated)
+              setQuotes(readQuotes())
+              setJobs(readJobs())
+            } catch {}
+          }}
         />
       )}
     </div>

@@ -1,10 +1,14 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { fireSalesStageChange } from './automationTrigger'
+import { upsertCustomer, logCustomerActivity } from './customerStore'
+import { toast } from './toast'
+import { applySignedContractTransition } from './signedContractFlow'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface PipelineLead {
   id: string
+  customerId?: string
   firstName: string
   lastName: string
   phone: string
@@ -24,6 +28,7 @@ export interface PipelineLead {
   stage: string
   createdAt: string
   lastMoved: string
+  assignedRep?: string
 }
 
 const DEFAULT_STAGES = [
@@ -76,10 +81,26 @@ function FlameDisplay({ value }: { value: number }) {
   )
 }
 
+function loadConfiguredStages(): string[] | null {
+  try {
+    const raw = localStorage.getItem('fencepro_config')
+    if (!raw) return null
+    const cfg = JSON.parse(raw)
+    if (Array.isArray(cfg.pipelineStages) && cfg.pipelineStages.length > 0) return cfg.pipelineStages
+  } catch {}
+  return null
+}
+
 function loadPipeline(): { leads: PipelineLead[], stages: string[] } {
+  const configured = loadConfiguredStages()
   try {
     const raw = localStorage.getItem('fencepro_pipeline')
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      // Prefer configured stages if available (keeps pipeline board in sync with Settings)
+      if (configured) return { leads: parsed.leads || [], stages: configured }
+      return parsed
+    }
 
     // First load — seed from existing customers
     const customerRaw = localStorage.getItem('fencepro_customers')
@@ -138,19 +159,35 @@ function QuickAddModal({
 
   function handleAdd() {
     if (!firstName.trim()) return
-    const lead: PipelineLead = {
-      id: uid(),
+    // Always create a matching customer row — no lead-without-customer.
+    const { customer, created } = upsertCustomer({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      phone, email, address, leadSource, notes,
+      phone, email,
+      serviceAddress: address,
+      leadSource, notes,
+    })
+    const lead: PipelineLead = {
+      id: uid(),
+      customerId: customer.id,
+      firstName: customer.firstName,
+      lastName: customer.lastName,
+      phone: customer.phone, email: customer.email,
+      address: customer.serviceAddress,
+      leadSource: customer.leadSource, notes: customer.notes,
       leadTemp: 0, fenceType: '', sections: 0,
       quotePrice: 0, crew: '', scheduledDate: '',
       jobValue: 0, paymentStatus: '', balanceDue: 0,
       stage,
-      createdAt: new Date().toISOString().slice(0, 10),
+      createdAt: customer.createdAt,
       lastMoved: new Date().toISOString().slice(0, 10),
     }
+    if (created) {
+      logCustomerActivity(customer.id, `Lead added to pipeline at ${stage}`, { kind: 'stage_change' })
+    }
     onAdd(lead)
+    toast.success(created ? 'Lead added' : 'Lead linked to existing customer',
+      created ? 'Also created a customer record.' : undefined)
   }
 
   return (
@@ -662,6 +699,21 @@ export default function JobsPage() {
   const [search, setSearch] = useState('')
   const dragId = useRef<string | null>(null)
 
+  // Re-read when settings update
+  useEffect(() => {
+    const reload = () => {
+      const next = loadPipeline()
+      setLeads(next.leads)
+      setStages(next.stages)
+    }
+    window.addEventListener('fencepro:settings:updated', reload)
+    window.addEventListener('fencepro:pipeline:updated', reload)
+    return () => {
+      window.removeEventListener('fencepro:settings:updated', reload)
+      window.removeEventListener('fencepro:pipeline:updated', reload)
+    }
+  }, [])
+
   function persist(nextLeads: PipelineLead[], nextStages: string[]) {
     savePipeline(nextLeads, nextStages)
     setLeads(nextLeads)
@@ -690,6 +742,25 @@ export default function JobsPage() {
         fenceType: updated.fenceType,
         quotePrice: updated.quotePrice,
       })
+      handleSignedContractIfNeeded(updated, prev.stage)
+    }
+  }
+
+  function handleSignedContractIfNeeded(lead: PipelineLead, fromStage: string) {
+    if (lead.stage !== 'Signed Contract') return
+    try {
+      const result = applySignedContractTransition({
+        id: lead.id, customerId: lead.customerId,
+        firstName: lead.firstName, lastName: lead.lastName,
+        stage: lead.stage, fromStage,
+      })
+      if (result) {
+        toast.success('Deal closed — job created', `${result.job.customerName} · quote marked SOLD · job on Operations board`)
+      } else if (lead.customerId) {
+        toast.info('Moved to Signed Contract', 'No quote linked yet — create a quote to auto-generate a job.')
+      }
+    } catch (err: any) {
+      toast.error('Could not complete signed-contract cascade', err?.message || 'Unknown error.')
     }
   }
 
@@ -725,6 +796,7 @@ export default function JobsPage() {
         fenceType: prev.fenceType,
         quotePrice: prev.quotePrice,
       })
+      handleSignedContractIfNeeded({ ...prev, stage }, prev.stage)
     }
   }
 

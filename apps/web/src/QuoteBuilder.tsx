@@ -5,6 +5,7 @@ import type { SavedQuote } from './QuotesPage'
 import QuoteOptionsPanel from './QuoteOptionsPanel'
 import { addLeadForNewCustomer } from './pipelineSeeder'
 import AddressAutocomplete from './AddressAutocomplete'
+import { getConfig } from './configStore'
 
 const FENCE_STYLES = [
   { id: '1',  name: "WV-ND 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6  },
@@ -35,10 +36,12 @@ const FENCE_STYLES = [
   { id: '26', name: "Durafence",                category: 'Other',      margin: 0.64, sectionsPerMH: 1.0,  panelWidth: 8  },
 ]
 
-const LEAD_SOURCES = ['Google', 'Facebook', 'Instagram', 'Yard Sign', 'Referral', 'Door Hanger', 'Repeat Customer', 'Nextdoor', 'Other']
-const MAN_HOUR_RATE  = 22
-const TEAR_OUT_FENCE = 9.50
-const TEAR_OUT_GATE  = 27.00
+// Pull live values from Settings → Pricing so changes in admin propagate here
+const CFG = getConfig()
+const LEAD_SOURCES = CFG.leadSources?.length ? CFG.leadSources : ['Google', 'Facebook', 'Instagram', 'Yard Sign', 'Referral', 'Door Hanger', 'Repeat Customer', 'Nextdoor', 'Other']
+const MAN_HOUR_RATE  = CFG.pricing?.manHourRate ?? 22
+const TEAR_OUT_FENCE = CFG.pricing?.tearOutFence ?? 9.50
+const TEAR_OUT_GATE  = CFG.pricing?.tearOutGate ?? 27.00
 const FLAME_COLORS   = ['text-blue-400','text-cyan-400','text-yellow-400','text-orange-500','text-red-500']
 const FLAME_LABELS   = ['Cold','Cool','Warm','Hot','On Fire']
 

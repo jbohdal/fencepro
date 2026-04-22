@@ -31,6 +31,7 @@ import BundlesPage from './BundlesPage'
 import PublicPresentationPage from './PublicPresentationPage'
 import PendingOrdersPage from './PendingOrdersPage'
 import NotificationBell from './NotificationBell'
+import PublicQuotePage from './PublicQuotePage'
 import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
 import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
@@ -254,6 +255,10 @@ export default function App() {
   if (presentMatch) {
     return <PublicPresentationPage token={presentMatch[1]} />
   }
+  const quoteMatch = hash.match(/^#\/quote\/([a-zA-Z0-9_-]+)/)
+  if (quoteMatch) {
+    return <PublicQuotePage token={quoteMatch[1]} />
+  }
 
   return (
     <>
@@ -325,6 +330,7 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
           ? prev.map(x => x.id === q.id ? q : x)
           : [q, ...prev]
         localStorage.setItem('fencepro_quotes', JSON.stringify(updated))
+        try { window.dispatchEvent(new CustomEvent('fencepro:quotes:updated')) } catch {}
         return updated
       })
       setShowQuote(false)

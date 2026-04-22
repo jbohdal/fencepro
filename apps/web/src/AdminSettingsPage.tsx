@@ -3,8 +3,13 @@ import {
   getConfig, saveConfig, resetConfig, getDefaultConfig,
   type AppConfig, type FenceStyle, type CompanyInfo, type PricingConfig, type MarginThresholds,
 } from './configStore'
+import OperationsStagesSettings from './OperationsStagesSettings'
+import EmailTemplatesSettings from './EmailTemplatesSettings'
+import { toast } from './toast'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates'
+
+export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
 const STYLE_CATEGORIES = ['Vinyl', 'Chainlink', 'Commercial', 'Aluminum', 'Other'] as const
 
@@ -375,12 +380,14 @@ function EditableListTab({
 // ── Main Admin Settings Page ─────────────────────────────────────────────────
 
 const TABS: { key: AdminTab; label: string }[] = [
-  { key: 'company',  label: 'Company' },
-  { key: 'pricing',  label: 'Pricing' },
-  { key: 'styles',   label: 'Fence Styles' },
-  { key: 'leads',    label: 'Lead Sources' },
-  { key: 'tags',     label: 'Tags' },
-  { key: 'pipeline', label: 'Pipeline' },
+  { key: 'company',         label: 'Company' },
+  { key: 'pricing',         label: 'Pricing' },
+  { key: 'styles',          label: 'Fence Styles' },
+  { key: 'leads',           label: 'Lead Sources' },
+  { key: 'tags',            label: 'Tags' },
+  { key: 'pipeline',        label: 'Pipeline Stages' },
+  { key: 'ops_stages',      label: 'Operations Stages' },
+  { key: 'email_templates', label: 'Email Templates' },
 ]
 
 export default function AdminSettingsPage() {
@@ -399,10 +406,16 @@ export default function AdminSettingsPage() {
   }
 
   function handleSave() {
-    saveConfig(config)
-    setSaved(true)
-    setDirty(false)
-    setTimeout(() => setSaved(false), 2000)
+    try {
+      saveConfig(config)
+      setSaved(true)
+      setDirty(false)
+      setTimeout(() => setSaved(false), 2000)
+      try { window.dispatchEvent(new CustomEvent(SETTINGS_UPDATED_EVENT, { detail: config })) } catch {}
+      toast.success('Settings saved', 'Live pages will update immediately.')
+    } catch (err: any) {
+      toast.error('Could not save settings', err?.message || 'Unknown error.')
+    }
   }
 
   function handleReset() {
@@ -468,6 +481,8 @@ export default function AdminSettingsPage() {
               placeholder="e.g. Follow-up Call..."
             />
           )}
+          {tab === 'ops_stages' && <OperationsStagesSettings />}
+          {tab === 'email_templates' && <EmailTemplatesSettings />}
         </div>
       </div>
     </div>

@@ -4,6 +4,7 @@ import { ChangeOrderPanel } from './ChangeOrders'
 import { POButton } from './PurchaseOrder'
 import { pullFromInventory, getLocations } from './inventoryStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
+import QuoteDetailDrawer from './QuoteDetailDrawer'
 
 export interface SavedQuote {
   id: string
@@ -457,6 +458,7 @@ export default function QuotesPage({
   function persist(updated: SavedQuote[]) {
     localStorage.setItem('fencepro_quotes', JSON.stringify(updated))
     setLocalQuotes(updated)
+    try { window.dispatchEvent(new CustomEvent('fencepro:quotes:updated')) } catch {}
   }
 
   const allIds = quotes.map(q => q.id).join(',')
@@ -465,6 +467,18 @@ export default function QuotesPage({
     const newOnes = quotes.filter(q => !localIds.has(q.id))
     if (newOnes.length > 0) persist([...newOnes, ...localQuotes])
   }, [allIds])
+
+  // Live-refresh when quotes are saved from anywhere else
+  useEffect(() => {
+    const reload = () => {
+      try {
+        const raw = localStorage.getItem('fencepro_quotes')
+        if (raw) setLocalQuotes(JSON.parse(raw))
+      } catch {}
+    }
+    window.addEventListener('fencepro:quotes:updated', reload)
+    return () => window.removeEventListener('fencepro:quotes:updated', reload)
+  }, [])
 
   function handleStatusChange(id: string, status: SavedQuote['status']) {
     const quote = localQuotes.find(q => q.id === id)
@@ -609,12 +623,21 @@ export default function QuotesPage({
       </div>
 
       {selectedQuote && (
-        <QuoteDrawer
+        <QuoteDetailDrawer
           quote={selectedQuote}
           onClose={() => setSelectedQuote(null)}
           onEdit={() => { onOpenQuote(selectedQuote); setSelectedQuote(null) }}
-          onStatusChange={handleStatusChange}
-          onTempChange={handleTempChange}
+          onChange={() => {
+            try {
+              const raw = localStorage.getItem('fencepro_quotes')
+              if (raw) {
+                const all: SavedQuote[] = JSON.parse(raw)
+                setLocalQuotes(all)
+                const refreshed = all.find(q => q.id === selectedQuote.id) || null
+                setSelectedQuote(refreshed)
+              }
+            } catch {}
+          }}
         />
       )}
 
