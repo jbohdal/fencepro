@@ -398,7 +398,9 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
     setShowMapQuote(false)
     // Pre-fill the QuoteBuilder with map data: runs become run lengths, corners/ends are set
     setEditingQuote({
-      id: '',
+      // intentionally missing id — QuoteBuilder will mint a fresh one on save.
+      // Cast below to SavedQuote; the `|| uid()` in QuoteBuilder handles it.
+      id: undefined as unknown as string,
       customerName: '',
       customerPhone: '',
       customerEmail: '',
@@ -753,8 +755,13 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
           {active === 'Cash Flow' && <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center"><p className="text-4xl mb-3">💸</p><h2 className="text-lg font-bold text-gray-900">Cash Flow</h2><p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">Cash Flow statement coming soon. For now, check the P&amp;L Statement and Accounts Receivable/Payable dashboards.</p></div>}
           {active === 'Customers' && <CustomersPage onNewQuote={(c) => {
             if (c) {
+              // NOTE: leave `id` undefined so QuoteBuilder generates a fresh one
+              // per quote. Previously `id: ''` caused every new-for-customer
+              // quote to share the same empty string id and overwrite prior
+              // quotes. Keep this as undefined.
               setEditingQuote({
-                id: '', customerId: c.id,
+                id: undefined as unknown as string,
+                customerId: c.id,
                 customerName: `${c.firstName} ${c.lastName}`.trim(),
                 customerPhone: c.phone || '',
                 customerEmail: c.email || '',

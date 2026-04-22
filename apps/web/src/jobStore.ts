@@ -1,5 +1,6 @@
 import type { SavedQuote } from './QuotesPage'
 import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
+import { ensureChecklistForJob } from './checklistStore'
 import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
 
 /* ═══════════════════════════════════════════════
@@ -158,6 +159,9 @@ export function createJobFromQuote(quote: SavedQuote): Job {
 
   const jobs = getJobs()
   saveJobs([job, ...jobs])
+
+  // Seed default milestone checklist so the Operations detail panel has items
+  try { ensureChecklistForJob(job.id) } catch {}
 
   // Fire automation trigger
   fireJobCreated(job.id, {

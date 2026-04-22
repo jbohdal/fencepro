@@ -15,7 +15,7 @@
  */
 
 import type { SavedQuote } from './QuotesPage'
-import { getCustomerById, logCustomerActivity } from './customerStore'
+import { getCustomerById, logCustomerActivity, getCustomers, upsertCustomer, type Customer } from './customerStore'
 import { createJobFromQuote, getJobByQuoteId, type Job } from './jobStore'
 import { createPendingOrderFromQuote } from './pendingOrderStore'
 import { fireQuoteSold, fireSalesStageChange } from './automationTrigger'
@@ -34,12 +34,40 @@ function saveQuotes(list: SavedQuote[]) {
   try { window.dispatchEvent(new CustomEvent(QUOTES_UPDATED_EVENT)) } catch {}
 }
 
-/** Find the best quote to associate with a deal: the most recent non-LOST quote. */
-export function findActiveQuoteForCustomer(customerId: string): SavedQuote | null {
+/**
+ * Find the best quote to associate with a deal: the most recent non-LOST quote.
+ * Matches by customerId first; falls back to name + phone/email match so
+ * legacy pipeline cards that lack a customerId still cascade correctly.
+ */
+export function findActiveQuoteForCustomer(customer: Customer | string): SavedQuote | null {
   const all = loadQuotes()
-  return all
-    .filter(q => q.customerId === customerId && q.status !== 'LOST')
-    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0] || null
+  if (typeof customer === 'string') {
+    return all
+      .filter(q => q.customerId === customer && q.status !== 'LOST' && q.status !== 'SOLD')
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0]
+      || all
+        .filter(q => q.customerId === customer && q.status !== 'LOST')
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0]
+      || null
+  }
+  const c = customer
+  const name = `${c.firstName} ${c.lastName}`.trim().toLowerCase()
+  const phone = (c.phone || '').replace(/\D/g, '')
+  const email = (c.email || '').toLowerCase()
+  // Prefer a quote with exact customerId; else fall back to name/phone/email match.
+  const byId = all.filter(q => q.customerId === c.id && q.status !== 'LOST')
+  const byFallback = all.filter(q => {
+    if (q.status === 'LOST') return false
+    if (!q.customerName) return false
+    if (name && q.customerName.toLowerCase() === name) return true
+    if (phone && (q.customerPhone || '').replace(/\D/g, '') === phone) return true
+    if (email && (q.customerEmail || '').toLowerCase() === email) return true
+    return false
+  })
+  const candidates = [...byId, ...byFallback]
+  // Prefer not-already-SOLD so each pipeline drop picks a fresh quote
+  const openFirst = candidates.find(q => q.status !== 'SOLD')
+  return openFirst || candidates[0] || null
 }
 
 export interface SignedContractResult {
@@ -101,27 +129,64 @@ export function markQuoteSold(quoteId: string, opts?: { actor?: string }): Signe
  * pipeline. Finds the most recent active quote for the customer and runs the
  * full cascade. If no quote exists a helpful error is thrown.
  */
-export function applySignedContractTransition(lead: { id: string; customerId?: string; firstName: string; lastName: string; stage: string; fromStage?: string }): SignedContractResult | null {
+export function applySignedContractTransition(lead: { id: string; customerId?: string; firstName: string; lastName: string; phone?: string; email?: string; address?: string; stage: string; fromStage?: string }): SignedContractResult | null {
+  // Normalize stage comparison — trim whitespace, case-insensitive.
+  const normalized = (lead.stage || '').trim().toLowerCase()
+  const fromNormalized = (lead.fromStage || '').trim().toLowerCase()
+
   // Fire automation trigger regardless (engine can match conditions)
   try {
     fireSalesStageChange(lead.customerId || lead.id, lead.fromStage || '', lead.stage, {
       customerName: `${lead.firstName} ${lead.lastName}`.trim(),
+      customerPhone: lead.phone, customerEmail: lead.email, jobAddress: lead.address,
     })
   } catch {}
 
-  if (lead.stage !== 'Signed Contract') return null
+  if (normalized !== 'signed contract') return null
+  if (fromNormalized === 'signed contract') return null // same-to-same no-op
 
-  const customer = lead.customerId ? getCustomerById(lead.customerId) : null
-  // If no customer link or no quote, we bail quietly — the pipeline card stays
-  // at Signed Contract but no job is auto-created.
+  // Step 1: resolve (or create) the customer.
+  let customer: Customer | null = lead.customerId ? getCustomerById(lead.customerId) : null
+  if (!customer) {
+    // Fallback 1: match any existing customer by name/phone/email
+    const all = getCustomers()
+    const leadName = `${lead.firstName} ${lead.lastName}`.trim().toLowerCase()
+    const leadPhone = (lead.phone || '').replace(/\D/g, '')
+    const leadEmail = (lead.email || '').toLowerCase()
+    customer = all.find(c => {
+      const cName = `${c.firstName} ${c.lastName}`.trim().toLowerCase()
+      const cPhone = (c.phone || '').replace(/\D/g, '')
+      const cEmail = (c.email || '').toLowerCase()
+      if (leadName && cName === leadName) return true
+      if (leadPhone && cPhone === leadPhone) return true
+      if (leadEmail && cEmail === leadEmail) return true
+      return false
+    }) || null
+  }
+  if (!customer) {
+    // Fallback 2: create a customer so the cascade can proceed
+    try {
+      const { customer: created } = upsertCustomer({
+        firstName: lead.firstName || 'Pipeline',
+        lastName: lead.lastName || 'Lead',
+        phone: lead.phone || '',
+        email: lead.email || '',
+        serviceAddress: lead.address || '',
+      })
+      customer = created
+    } catch { customer = null }
+  }
   if (!customer) return null
 
-  const quote = findActiveQuoteForCustomer(customer.id)
+  // Step 2: find a quote. customer-object version (fallback by name/phone/email).
+  const quote = findActiveQuoteForCustomer(customer)
   if (!quote) {
     logCustomerActivity(customer.id, 'Moved to Signed Contract — no quote on file to mark sold automatically', { kind: 'stage_change' })
     return null
   }
 
+  // Step 3: run the cascade. markQuoteSold is per-quote idempotent, so
+  // dropping multiple customers/quotes on Signed Contract each gets its own job.
   return markQuoteSold(quote.id, { actor: 'pipeline' })
 }
 

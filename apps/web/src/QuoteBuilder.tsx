@@ -382,7 +382,9 @@ export default function QuoteBuilder({
   const [hasSalesman, setHasSalesman]   = useState(init?.hasSalesman ?? false)
   const [showPullSheet, setShowPullSheet] = useState(true)
   const [showSaveModal, setShowSaveModal] = useState(false)
-  const quoteIdRef = useRef<string>(init?.id ?? uid())
+  // Use `||` instead of `??` so an empty-string id (from callers that
+  // preseed a "new quote" with id: '') also falls through to a fresh uid.
+  const quoteIdRef = useRef<string>(init?.id || uid())
 
   const style = FENCE_STYLES.find(s => s.id === styleId)
 

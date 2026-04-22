@@ -3,6 +3,7 @@ import { fireSalesStageChange } from './automationTrigger'
 import { upsertCustomer, logCustomerActivity } from './customerStore'
 import { toast } from './toast'
 import { applySignedContractTransition } from './signedContractFlow'
+import AddressAutocomplete from './AddressAutocomplete'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -240,11 +241,9 @@ function QuickAddModal({
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Address</label>
-            <input
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              value={address}
-              onChange={e => setAddress(e.target.value)}
-            />
+            <AddressAutocomplete value={address} onChange={setAddress}
+              onSelect={p => setAddress(p.formatted)}
+              placeholder="Start typing the address…" />
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Lead Source</label>
@@ -505,9 +504,16 @@ function PipelineCard({
     >
       {/* Name + flame */}
       <div className="flex items-start justify-between mb-2">
-        <p className="font-semibold text-gray-900 text-sm leading-tight">
-          {lead.firstName} {lead.lastName}
-        </p>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-gray-900 text-sm leading-tight">
+            {lead.firstName} {lead.lastName}
+          </p>
+          {(lead.stage === 'Job Complete' || (lead as any).isCompleted) && (
+            <span className="inline-block mt-1 text-[10px] font-bold uppercase tracking-widest bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+              ✓ Completed
+            </span>
+          )}
+        </div>
         {lead.leadTemp > 0 && <FlameDisplay value={lead.leadTemp} />}
       </div>
 
@@ -697,6 +703,7 @@ export default function JobsPage() {
   const [addingToStage, setAddingToStage] = useState<string | null>(null)
   const [selectedLead, setSelectedLead]   = useState<PipelineLead | null>(null)
   const [search, setSearch] = useState('')
+  const [showCompleted, setShowCompleted] = useState(true)
   const dragId = useRef<string | null>(null)
 
   // Re-read when settings update
@@ -747,17 +754,18 @@ export default function JobsPage() {
   }
 
   function handleSignedContractIfNeeded(lead: PipelineLead, fromStage: string) {
-    if (lead.stage !== 'Signed Contract') return
+    if ((lead.stage || '').trim().toLowerCase() !== 'signed contract') return
     try {
       const result = applySignedContractTransition({
         id: lead.id, customerId: lead.customerId,
         firstName: lead.firstName, lastName: lead.lastName,
+        phone: lead.phone, email: lead.email, address: lead.address,
         stage: lead.stage, fromStage,
       })
       if (result) {
         toast.success('Deal closed — job created', `${result.job.customerName} · quote marked SOLD · job on Operations board`)
-      } else if (lead.customerId) {
-        toast.info('Moved to Signed Contract', 'No quote linked yet — create a quote to auto-generate a job.')
+      } else {
+        toast.info('Moved to Signed Contract', 'No quote linked yet — create a quote for this customer and drop again to auto-generate a job.')
       }
     } catch (err: any) {
       toast.error('Could not complete signed-contract cascade', err?.message || 'Unknown error.')
@@ -820,6 +828,9 @@ export default function JobsPage() {
   }
 
   const filtered = leads.filter(l => {
+    if (!showCompleted) {
+      if (l.stage === 'Job Complete' || (l as any).isCompleted) return false
+    }
     const q = search.toLowerCase()
     return !q ||
       `${l.firstName} ${l.lastName}`.toLowerCase().includes(q) ||
@@ -859,6 +870,10 @@ export default function JobsPage() {
               </span>
             </span>
             <span className="text-gray-400 text-xs">{leads.length} total leads</span>
+            <label className="flex items-center gap-1.5 text-xs text-gray-500 ml-3">
+              <input type="checkbox" checked={showCompleted} onChange={e => setShowCompleted(e.target.checked)} className="accent-orange-500" />
+              <span>Show completed</span>
+            </label>
           </div>
         </div>
         <button

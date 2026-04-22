@@ -549,6 +549,22 @@ enum AutomationRunStatus {
 
 // ── Entity Activity Log (customer / job / deal activity feed) ──
 
+// ── Job Checklist (operations milestones) ──
+
+model JobChecklistItem {
+  id            String   @id @default(uuid())
+  jobId         String
+  label         String
+  isComplete    Boolean  @default(false)
+  completedBy   String?
+  completedAt   DateTime?
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([jobId])
+}
+
 model ActivityLog {
   id          String   @id @default(uuid())
   entityType  String   // 'customer' | 'job' | 'deal' | 'invoice' | 'quote'

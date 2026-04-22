@@ -5,9 +5,10 @@
  * Kanban board + list view with full detail panel.
  */
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { getJobs, updateJob, advanceJob, holdJob, unholdJob, type Job, type JobStatus } from './jobStore'
 import { fireOpsStageChange } from './automationTrigger'
+import { onJobCompleted } from './jobCompleteFlow'
 
 // ── Unified operations stages ──
 
@@ -216,7 +217,19 @@ export default function OperationsPage() {
   // Handle advancing a job from the unified view
   function handleAdvance(uj: UnifiedJob) {
     if (uj.source !== 'job' || !uj.rawJob) return
-    advanceJob(uj.id)
+    const fromStatus = uj.rawJob.status
+    const result = advanceJob(uj.id)
+    if (result && (result.status === 'completed' || result.status === 'paid')) {
+      onJobCompleted({
+        jobId: uj.id,
+        customerId: uj.rawJob.customerId,
+        customerName: uj.customerName,
+        customerPhone: uj.rawJob.customerPhone,
+        customerEmail: uj.rawJob.customerEmail,
+        stageName: 'Complete',
+        fromStage: fromStatus,
+      })
+    }
     refresh()
   }
 
@@ -262,6 +275,20 @@ export default function OperationsPage() {
       crewAssigned: uj.crewAssigned,
       customerName: uj.customerName,
     })
+
+    // If moving to any completion stage, cascade back into the sales pipeline
+    const completionKeys = new Set(['completed', 'complete', 'paid'])
+    if (completionKeys.has(targetStage)) {
+      onJobCompleted({
+        jobId: uj.id,
+        customerId: uj.rawJob?.customerId,
+        customerName: uj.customerName,
+        customerPhone: uj.rawJob?.customerPhone,
+        customerEmail: uj.rawJob?.customerEmail,
+        stageName: 'Complete',
+        fromStage,
+      })
+    }
 
     refresh()
   }
@@ -348,46 +375,153 @@ export default function OperationsPage() {
 // ── Board View (Kanban) ──
 
 function BoardView({ jobs, onSelect, onMoveStage }: { jobs: UnifiedJob[]; onSelect: (j: UnifiedJob) => void; onMoveStage: (j: UnifiedJob, stage: string) => void }) {
-  // Only show stages that have jobs or are in the active workflow
-  const activeStages = OPS_STAGES.filter(s => !['paid', 'invoiced'].includes(s.key) || jobs.some(j => j.opsStage === s.key))
+  // Render ALL stages — empty columns still show so jobs can be dragged into them
+  const activeStages = OPS_STAGES
+  const dragId = useRef<string | null>(null)
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null)
+
+  function onDragStart(e: React.DragEvent, j: UnifiedJob) {
+    if (j.source !== 'job') { e.preventDefault(); return }
+    dragId.current = j.id
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', j.id)
+  }
+  function onDragOverCol(e: React.DragEvent, stageKey: string) {
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move'
+    setDragOverStage(stageKey)
+  }
+  function onDropCol(e: React.DragEvent, stageKey: string) {
+    e.preventDefault()
+    const id = dragId.current || e.dataTransfer.getData('text/plain')
+    setDragOverStage(null)
+    dragId.current = null
+    if (!id) return
+    const j = jobs.find(x => x.id === id)
+    if (!j || j.opsStage === stageKey) return
+    onMoveStage(j, stageKey)
+  }
 
   return (
     <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
       {activeStages.map(stage => {
         const stageJobs = jobs.filter(j => j.opsStage === stage.key)
+        const isHot = dragOverStage === stage.key
         return (
-          <div key={stage.key} className="flex-shrink-0 w-64">
+          <div key={stage.key} className="flex-shrink-0 w-72"
+            onDragOver={(e) => onDragOverCol(e, stage.key)}
+            onDragLeave={() => setDragOverStage(null)}
+            onDrop={(e) => onDropCol(e, stage.key)}>
             <div className="flex items-center gap-2 mb-2 px-1">
               <div className={`w-2.5 h-2.5 rounded-full ${stage.color}`} />
               <span className="text-sm font-semibold text-gray-700">{stage.label}</span>
               <span className="text-xs text-gray-400 ml-auto">{stageJobs.length}</span>
             </div>
-            <div className="space-y-2">
+            <div className={`space-y-2 rounded-xl transition-colors p-1 ${isHot ? 'bg-orange-50 ring-2 ring-orange-300' : ''}`}>
               {stageJobs.map(j => (
-                <div key={j.id} onClick={() => onSelect(j)}
-                  className={`${stage.bg} border border-gray-200 rounded-xl p-3 cursor-pointer hover:shadow-md transition group`}>
-                  <p className="font-medium text-gray-900 text-sm">{j.customerName}</p>
-                  <p className="text-xs text-gray-500 truncate">{j.fenceType} • {j.sections} sections</p>
-                  {j.crewAssigned && <p className="text-xs text-gray-500 mt-1">Crew: {j.crewAssigned}</p>}
-                  {j.scheduledDate && <p className="text-xs text-gray-400 mt-0.5">{j.scheduledDate}</p>}
-                  <div className="flex items-center justify-between mt-2">
-                    <span className="text-xs font-medium text-gray-700">{fmt(j.contractValue)}</span>
-                    {j.source === 'job' && stage.key !== 'paid' && (
-                      <button onClick={(e) => { e.stopPropagation(); const nextIdx = OPS_STAGES.findIndex(s => s.key === stage.key) + 1; if (nextIdx < OPS_STAGES.length) onMoveStage(j, OPS_STAGES[nextIdx].key) }}
-                        className="text-xs text-orange-600 opacity-0 group-hover:opacity-100 transition font-medium">
-                        Advance →
-                      </button>
-                    )}
-                  </div>
-                </div>
+                <OpsCard key={j.id} job={j} stage={stage}
+                  onSelect={() => onSelect(j)}
+                  onAdvance={() => {
+                    const idx = OPS_STAGES.findIndex(s => s.key === stage.key)
+                    const next = OPS_STAGES[idx + 1]
+                    if (next) onMoveStage(j, next.key)
+                  }}
+                  onDragStart={(e) => onDragStart(e, j)}
+                />
               ))}
               {stageJobs.length === 0 && (
-                <div className="text-center py-6 text-xs text-gray-300">No jobs</div>
+                <div className="text-center py-8 text-xs text-gray-300 border-2 border-dashed border-gray-200 rounded-lg">
+                  Drop jobs here
+                </div>
               )}
             </div>
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function OpsCard({ job, stage, onSelect, onAdvance, onDragStart }: {
+  job: UnifiedJob
+  stage: { key: string; color: string; bg: string; text: string; label: string }
+  onSelect: () => void
+  onAdvance: () => void
+  onDragStart: (e: React.DragEvent) => void
+}) {
+  // Pull checklist progress from the checklist store (inline require to avoid circular import)
+  const [progress, setProgress] = useState<{ total: number; complete: number }>({ total: 0, complete: 0 })
+  useEffect(() => {
+    let cancelled = false
+    import('./checklistStore').then(m => {
+      if (cancelled) return
+      if (job.source === 'job') setProgress(m.getChecklistProgress(job.id))
+    })
+    const reload = () => {
+      if (cancelled || job.source !== 'job') return
+      import('./checklistStore').then(m => { if (!cancelled) setProgress(m.getChecklistProgress(job.id)) })
+    }
+    window.addEventListener('fencepro:checklist:updated', reload)
+    return () => { cancelled = true; window.removeEventListener('fencepro:checklist:updated', reload) }
+  }, [job.id, job.source])
+
+  const draggable = job.source === 'job'
+  const pct = progress.total > 0 ? (progress.complete / progress.total) * 100 : 0
+  const stageColorHex: Record<string, string> = {
+    'bg-blue-500': '#3b82f6', 'bg-yellow-500': '#eab308', 'bg-orange-500': '#f97316',
+    'bg-purple-500': '#a855f7', 'bg-green-500': '#10b981', 'bg-teal-500': '#14b8a6',
+    'bg-gray-500': '#6b7280', 'bg-blue-400': '#60a5fa', 'bg-green-400': '#34d399',
+    'bg-red-500': '#ef4444', 'bg-rose-500': '#f43f5e', 'bg-amber-500': '#f59e0b',
+  }
+
+  return (
+    <div
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onClick={onSelect}
+      className={`bg-white border border-gray-200 rounded-xl p-3 cursor-pointer hover:shadow-md transition group relative ${draggable ? 'active:scale-[0.99]' : ''}`}
+      style={{ borderLeft: `4px solid ${stageColorHex[stage.color] || '#94a3b8'}` }}
+    >
+      <div className="flex items-start justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-gray-900 text-sm truncate">{job.customerName}</p>
+          <p className="text-xs text-gray-400 truncate">{job.address || 'No address'}</p>
+        </div>
+        <span className="text-xs font-bold text-gray-700 shrink-0 ml-2">{fmt(job.contractValue)}</span>
+      </div>
+      <p className="text-xs text-gray-500 mt-1 truncate">{job.fenceType} · {job.sections} sec</p>
+
+      <div className="flex items-center gap-2 mt-2 flex-wrap">
+        {job.scheduledDate ? (
+          <span className="text-[10px] bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">📅 {job.scheduledDate}</span>
+        ) : (
+          <span className="text-[10px] bg-orange-100 text-orange-700 rounded-full px-2 py-0.5 font-semibold">Unscheduled</span>
+        )}
+        {job.crewAssigned && (
+          <span className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5">👷 {job.crewAssigned}</span>
+        )}
+        {(job.rawJob as any)?.isRainDay && (
+          <span className="text-[10px] bg-cyan-100 text-cyan-700 rounded-full px-2 py-0.5">🌧 Rain</span>
+        )}
+      </div>
+
+      {job.source === 'job' && progress.total > 0 && (
+        <div className="mt-2">
+          <div className="flex items-center justify-between text-[10px] text-gray-500 mb-0.5">
+            <span>Milestones</span>
+            <span>{progress.complete} of {progress.total}</span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-1">
+            <div className="h-1 rounded-full bg-orange-500 transition-all" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      )}
+
+      {job.source === 'job' && stage.key !== 'paid' && (
+        <button onClick={(e) => { e.stopPropagation(); onAdvance() }}
+          className="absolute top-2 right-2 text-[10px] text-orange-600 bg-white rounded-full px-2 py-0.5 border border-orange-200 opacity-0 group-hover:opacity-100 transition font-medium">
+          Next →
+        </button>
+      )}
     </div>
   )
 }
@@ -502,7 +636,12 @@ function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveStage, o
         </Section>
 
         {/* Readiness Checklist */}
-        <Section title="Readiness">
+        <Section title="Milestone Checklist">
+          {isJobSource ? <MilestoneChecklist jobId={job.id} /> : <p className="text-xs text-gray-400">Only available for Job records.</p>}
+        </Section>
+
+        {/* Derived readiness hints (from legacy job fields) */}
+        <Section title="Readiness Signals">
           <CheckItem label="Locates" done={!!job.locatesDate} detail={job.locatesDate ? `Good: ${job.locatesDate} • Exp: ${job.locatesExpDate}` : 'Not called'} />
           <CheckItem label="Drawing" done={job.drawingComplete} />
           <CheckItem label="Materials" done={job.materialsStatus === 'received' || job.materialsStatus === 'loaded'} detail={job.materialsStatus} />
@@ -613,6 +752,66 @@ function CheckItem({ label, done, detail }: { label: string; done: boolean; deta
       </div>
       <span className={`text-sm ${done ? 'text-gray-900' : 'text-gray-400'}`}>{label}</span>
       {detail && <span className="text-xs text-gray-400 ml-auto">{detail}</span>}
+    </div>
+  )
+}
+
+import { getChecklistForJob, toggleChecklistItem, type ChecklistItem } from './checklistStore'
+import { toast } from './toast'
+
+function MilestoneChecklist({ jobId }: { jobId: string }) {
+  const [items, setItems] = useState<ChecklistItem[]>([])
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  function reload() { setItems(getChecklistForJob(jobId)) }
+  useEffect(() => {
+    reload()
+    const onUpdate = () => reload()
+    window.addEventListener('fencepro:checklist:updated', onUpdate)
+    return () => window.removeEventListener('fencepro:checklist:updated', onUpdate)
+  }, [jobId])
+
+  function handleToggle(item: ChecklistItem) {
+    setBusyId(item.id)
+    // Optimistic
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, isComplete: !i.isComplete } : i))
+    try {
+      const updated = toggleChecklistItem(jobId, item.id, 'user')
+      if (!updated) throw new Error('Item not found')
+    } catch (err: any) {
+      // Revert
+      setItems(prev => prev.map(i => i.id === item.id ? { ...i, isComplete: item.isComplete } : i))
+      toast.error('Could not update milestone', err?.message || 'Unknown error')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const complete = items.filter(i => i.isComplete).length
+  const pct = items.length > 0 ? (complete / items.length) * 100 : 0
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className="text-gray-500">{complete} of {items.length} complete</span>
+        <div className="flex-1 mx-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-orange-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        <span className="text-gray-500">{Math.round(pct)}%</span>
+      </div>
+      {items.map(item => (
+        <label key={item.id}
+          className={`flex items-center gap-3 px-2 py-2 rounded-lg cursor-pointer transition-colors ${item.isComplete ? 'bg-green-50' : 'hover:bg-gray-50'} ${busyId === item.id ? 'opacity-60' : ''}`}>
+          <input type="checkbox" checked={item.isComplete}
+            onChange={() => handleToggle(item)}
+            disabled={busyId === item.id}
+            className="w-4 h-4 accent-orange-500 cursor-pointer" />
+          <span className={`text-sm flex-1 ${item.isComplete ? 'text-gray-900 line-through' : 'text-gray-700'}`}>{item.label}</span>
+          {item.isComplete && item.completedAt && (
+            <span className="text-[10px] text-gray-400">{new Date(item.completedAt).toLocaleDateString()}</span>
+          )}
+        </label>
+      ))}
     </div>
   )
 }
