@@ -9,9 +9,9 @@
  */
 
 import prisma from './prisma.js'
-import { sendEmail, applyMergeTags, buildEmailHtml, type MergeData } from './emailService.js'
+import { sendEmail, applyMergeTags, buildEmailHtml, type MergeData, isEmailServiceConfigured } from './emailService.js'
 import { createNotification } from './notificationService.js'
-import { sendSms } from './sms.js'
+import { sendSms, isSmsServiceConfigured } from './sms.js'
 
 export interface TriggerEvent {
   // Job context
@@ -26,6 +26,7 @@ export interface TriggerEvent {
   assignedRep?: string
   assignedRepEmail?: string
   crewAssigned?: string
+  customerId?: string
   customerName?: string
   customerEmail?: string
   customerPhone?: string
@@ -34,8 +35,16 @@ export interface TriggerEvent {
   // Pricing
   quotePrice?: number
   contractValue?: number
+  invoiceAmount?: number
+  // Payment
+  paymentMethod?: string
+  invoiceId?: string
+  quoteId?: string
+  dealId?: string
   // Extra
   extraData?: Record<string, unknown>
+  // Cycle-prevention depth counter
+  _chainDepth?: number
 }
 
 interface ActionConfig {
@@ -46,6 +55,9 @@ interface ActionConfig {
   emailTo?: string        // 'customer' | 'rep' | 'role:admin' | 'custom:email@example.com'
   emailSubject?: string
   emailBody?: string
+  // send_sms
+  smsTo?: string          // 'customer' | 'rep' | 'custom:+13215550100'
+  smsBody?: string
   // send_notification
   notifyTo?: string       // 'rep' | 'role:admin' | 'role:ops_manager' | user name
   notifyTitle?: string
@@ -58,6 +70,7 @@ interface ActionConfig {
   taskPriority?: string
   // post_activity_note
   noteText?: string
+  noteEntityType?: string // 'customer' | 'job' | 'deal' (defaults based on trigger)
   // fire_webhook
   webhookUrl?: string
   webhookMethod?: string
@@ -76,87 +89,104 @@ interface ActionResult {
   success: boolean
   result?: string
   error?: string
+  reason?: string   // machine-readable failure code
+}
+
+const MAX_CHAIN_DEPTH = 5
+
+/** Alias map so callers can use newer / more descriptive names. */
+const TRIGGER_ALIASES: Record<string, string> = {
+  job_stage_changed: 'ops_stage_change',
+  deal_stage_changed: 'sales_stage_change',
+  job_rain_day: 'rain_day_flagged',
+}
+
+function canonicalTriggerType(t: string): string {
+  return TRIGGER_ALIASES[t] || t
 }
 
 /**
  * Fire all matching automations for a trigger event.
  * This is the main entry point — call this from any place that changes job/deal state.
+ * Always resolves; never throws.
  */
 export async function fireAutomations(
   triggerType: string,
   event: TriggerEvent,
 ): Promise<void> {
-  try {
-    // Load all active automations for this trigger type
-    const automations = await prisma.automation.findMany({
-      where: { isActive: true, triggerType: triggerType as any },
-    })
+  const canonical = canonicalTriggerType(triggerType)
 
+  // Cycle prevention
+  const depth = event._chainDepth ?? 0
+  if (depth > MAX_CHAIN_DEPTH) {
+    console.warn(`[Automation] Chain depth ${depth} exceeded for ${canonical} — aborting to prevent loop.`)
+    return
+  }
+
+  try {
+    const automations = await prisma.automation.findMany({
+      where: { isActive: true, triggerType: canonical as any },
+    })
     if (automations.length === 0) return
 
-    // Build merge data for templates
     const mergeData: MergeData = {
       customer_name: event.customerName || event.jobName || '',
       job_address: event.jobAddress || '',
       scheduled_date: event.scheduledDate || '',
       rep_name: event.assignedRep || '',
       job_stage: event.toStage || '',
+      deal_stage: event.toStage || '',
       job_id: event.jobId || '',
       company_name: process.env.COMPANY_NAME || 'GD Fence Pro',
       quote_price: event.quotePrice ? `$${event.quotePrice.toLocaleString()}` : '',
+      quote_total: event.quotePrice ? `$${event.quotePrice.toLocaleString()}` : '',
+      invoice_amount: event.invoiceAmount != null ? `$${event.invoiceAmount.toLocaleString()}` : '',
+      payment_method: event.paymentMethod || '',
     }
 
-    // Evaluate each automation
     for (const automation of automations) {
       try {
-        // Check if trigger conditions match
         if (!matchesTrigger(automation, event)) continue
-
-        // Check optional conditions
         if (automation.conditions && !matchesConditions(automation.conditions as any, event)) continue
 
-        // Execute actions
         const actions = automation.actions as unknown as ActionConfig[]
         const results: ActionResult[] = []
         let allSuccess = true
 
         for (const action of actions) {
-          const result = await executeAction(action, event, mergeData)
+          const result = await executeAction(action, event, mergeData, depth)
           results.push(result)
           if (!result.success) allSuccess = false
         }
 
-        // Log the run
         await prisma.automationRunLog.create({
           data: {
             automationId: automation.id,
             automationName: automation.name,
             jobId: event.jobId || null,
             jobName: event.jobName || null,
-            triggerType,
+            triggerType: canonical,
             actionsExecuted: JSON.parse(JSON.stringify(results)),
             status: allSuccess ? 'success' : results.some(r => r.success) ? 'partial' : 'failed',
-            errorMessage: results.filter(r => r.error).map(r => r.error).join('; ') || null,
+            errorMessage: results.filter(r => r.error || r.reason).map(r => r.reason ? `${r.reason}: ${r.error || ''}` : r.error).join('; ') || null,
           },
         })
 
-        // Update automation stats
         await prisma.automation.update({
           where: { id: automation.id },
           data: { lastFiredAt: new Date(), fireCount: { increment: 1 } },
         })
 
-        console.log(`[Automation] "${automation.name}" fired for ${event.jobName || event.jobId || 'unknown'} — ${allSuccess ? 'success' : 'partial'}`)
+        console.log(`[Automation] "${automation.name}" fired for ${event.jobName || event.jobId || 'unknown'} — ${allSuccess ? 'success' : 'partial/failed'}`)
       } catch (err) {
         console.error(`[Automation] "${automation.name}" error:`, err)
-        // Log failure but don't break
         await prisma.automationRunLog.create({
           data: {
             automationId: automation.id,
             automationName: automation.name,
             jobId: event.jobId || null,
             jobName: event.jobName || null,
-            triggerType,
+            triggerType: canonical,
             actionsExecuted: JSON.parse(JSON.stringify([])),
             status: 'failed',
             errorMessage: err instanceof Error ? err.message : String(err),
@@ -165,7 +195,6 @@ export async function fireAutomations(
       }
     }
   } catch (err) {
-    // Engine-level failure must never break the caller
     console.error('[Automation Engine] Fatal error:', err)
   }
 }
@@ -174,14 +203,11 @@ export async function fireAutomations(
 function matchesTrigger(automation: any, event: TriggerEvent): boolean {
   const config = automation.triggerConfig as Record<string, unknown> || {}
 
-  // Stage-change triggers: check fromStage and/or toStage
   if (automation.triggerType === 'sales_stage_change' || automation.triggerType === 'ops_stage_change') {
     if (config.toStage && config.toStage !== event.toStage) return false
     if (config.fromStage && config.fromStage !== event.fromStage) return false
     return true
   }
-
-  // Simple triggers: job_created, job_assigned, job_scheduled, etc. — always match if active
   return true
 }
 
@@ -197,7 +223,7 @@ function matchesConditions(conditions: Record<string, unknown>, event: TriggerEv
 }
 
 /** Execute a single action */
-async function executeAction(action: ActionConfig, event: TriggerEvent, mergeData: MergeData): Promise<ActionResult> {
+async function executeAction(action: ActionConfig, event: TriggerEvent, mergeData: MergeData, chainDepth: number): Promise<ActionResult> {
   const result: ActionResult = { type: action.type, config: action, success: false }
 
   try {
@@ -207,7 +233,6 @@ async function executeAction(action: ActionConfig, event: TriggerEvent, mergeDat
         if (action.emailTo === 'customer') toEmail = event.customerEmail || ''
         else if (action.emailTo === 'rep') toEmail = event.assignedRepEmail || ''
         else if (action.emailTo?.startsWith('role:')) {
-          // For role-based emails, create notification instead (no email DB for CRM users)
           const role = action.emailTo.replace('role:', '')
           await createNotification({
             recipientRole: role,
@@ -217,7 +242,7 @@ async function executeAction(action: ActionConfig, event: TriggerEvent, mergeDat
             jobId: event.jobId,
           })
           result.success = true
-          result.result = `Notification sent to role: ${role}`
+          result.result = `Notification sent to role: ${role} (email service bypassed for role broadcasts)`
           return result
         } else if (action.emailTo?.startsWith('custom:')) {
           toEmail = action.emailTo.replace('custom:', '')
@@ -225,6 +250,15 @@ async function executeAction(action: ActionConfig, event: TriggerEvent, mergeDat
 
         if (!toEmail) {
           result.error = 'No email address available'
+          result.reason = 'EMAIL_RECIPIENT_MISSING'
+          return result
+        }
+
+        if (!isEmailServiceConfigured()) {
+          result.error = 'Email service not configured — set SENDGRID_API_KEY or SMTP_* env vars.'
+          result.reason = 'EMAIL_SERVICE_NOT_CONFIGURED'
+          // Still log a placeholder so we see the attempt
+          console.warn(`[Automation Email] Service not configured. Would send to ${toEmail}: "${action.emailSubject}"`)
           return result
         }
 
@@ -233,7 +267,34 @@ async function executeAction(action: ActionConfig, event: TriggerEvent, mergeDat
         const emailResult = await sendEmail({ to: toEmail, subject, body })
         result.success = emailResult.success
         result.result = `Email sent to ${toEmail}`
-        if (emailResult.error) result.error = emailResult.error
+        if (emailResult.error) { result.error = emailResult.error; result.reason = 'EMAIL_SEND_ERROR' }
+        break
+      }
+
+      case 'send_sms': {
+        let toPhone = ''
+        if (action.smsTo === 'customer') toPhone = event.customerPhone || ''
+        else if (action.smsTo?.startsWith('custom:')) toPhone = action.smsTo.replace('custom:', '')
+        else toPhone = action.smsTo || ''
+
+        if (!toPhone) {
+          result.error = 'No phone number available'
+          result.reason = 'SMS_RECIPIENT_MISSING'
+          return result
+        }
+
+        if (!isSmsServiceConfigured()) {
+          result.error = 'SMS service not configured — set TWILIO_* env vars.'
+          result.reason = 'SMS_SERVICE_NOT_CONFIGURED'
+          console.warn(`[Automation SMS] Service not configured. Would send to ${toPhone}: "${action.smsBody}"`)
+          return result
+        }
+
+        const msg = applyMergeTags(action.smsBody || '', mergeData)
+        const smsResult = await sendSms(toPhone, msg)
+        result.success = smsResult.success
+        result.result = `SMS sent to ${toPhone}`
+        if (smsResult.error) { result.error = smsResult.error; result.reason = 'SMS_SEND_ERROR' }
         break
       }
 
@@ -283,52 +344,120 @@ async function executeAction(action: ActionConfig, event: TriggerEvent, mergeDat
       }
 
       case 'post_activity_note': {
-        // Store as a notification that acts as an activity log entry
-        await createNotification({
-          title: 'Activity',
-          body: applyMergeTags(action.noteText || '', mergeData),
-          type: 'info',
-          jobId: event.jobId,
+        const entityType = action.noteEntityType
+          || (event.jobId ? 'job'
+              : event.customerId ? 'customer'
+              : event.dealId ? 'deal'
+              : event.invoiceId ? 'invoice'
+              : event.quoteId ? 'quote'
+              : 'job')
+        const entityId = event.jobId || event.customerId || event.dealId || event.invoiceId || event.quoteId || ''
+        if (!entityId) {
+          result.error = 'No entity to attach activity note to'
+          result.reason = 'ACTIVITY_TARGET_MISSING'
+          return result
+        }
+        await prisma.activityLog.create({
+          data: {
+            entityType,
+            entityId,
+            actor: 'automation',
+            body: applyMergeTags(action.noteText || '', mergeData),
+            metadata: { triggerStage: event.toStage, jobName: event.jobName } as any,
+          },
         })
         result.success = true
-        result.result = 'Activity note posted'
+        result.result = `Activity note posted on ${entityType} ${entityId}`
         break
       }
 
       case 'fire_webhook': {
         if (!action.webhookUrl) {
           result.error = 'No webhook URL configured'
+          result.reason = 'WEBHOOK_URL_MISSING'
           return result
         }
 
-        const webhookBody = {
-          event: event,
-          automation: { type: action.type },
+        const payload = {
+          event_type: event.toStage ? `stage_change` : 'automation_event',
+          entity_type: event.jobId ? 'job' : event.customerId ? 'customer' : 'unknown',
+          entity_id: event.jobId || event.customerId || event.dealId || null,
           timestamp: new Date().toISOString(),
+          event,
         }
 
-        const webhookRes = await fetch(action.webhookUrl, {
-          method: action.webhookMethod || 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...action.webhookHeaders,
-          },
-          body: JSON.stringify(webhookBody),
-        })
-
-        result.success = webhookRes.ok
-        result.result = `Webhook ${webhookRes.status}: ${action.webhookUrl}`
-        if (!webhookRes.ok) result.error = `Webhook returned ${webhookRes.status}`
+        const MAX_ATTEMPTS = 3
+        const DELAY_MS = 5000
+        let lastStatus = 0
+        let lastErr = ''
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          try {
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 15000)
+            const res = await fetch(action.webhookUrl, {
+              method: action.webhookMethod || 'POST',
+              headers: { 'Content-Type': 'application/json', ...action.webhookHeaders },
+              body: JSON.stringify(payload),
+              signal: controller.signal,
+            })
+            clearTimeout(timer)
+            lastStatus = res.status
+            if (res.ok) {
+              result.success = true
+              result.result = `Webhook ${res.status} on attempt ${attempt}: ${action.webhookUrl}`
+              return result
+            }
+            lastErr = `HTTP ${res.status}`
+          } catch (err: any) {
+            lastErr = err?.message || String(err)
+          }
+          if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, DELAY_MS))
+        }
+        result.success = false
+        result.error = `Webhook failed after ${MAX_ATTEMPTS} attempts (last: ${lastStatus || lastErr})`
+        result.reason = 'WEBHOOK_FAILED'
         break
       }
 
       case 'move_ops_stage':
       case 'move_sales_stage': {
-        // These return data for the caller to apply — the engine doesn't directly
-        // modify localStorage (that's frontend). It logs the intent.
+        if (!action.targetStage) {
+          result.error = 'targetStage missing'
+          result.reason = 'STAGE_TARGET_MISSING'
+          return result
+        }
+        if (chainDepth >= MAX_CHAIN_DEPTH) {
+          result.error = `Chain depth ${chainDepth} would exceed max ${MAX_CHAIN_DEPTH}`
+          result.reason = 'CYCLE_PREVENTION'
+          return result
+        }
+        // Emit a follow-up event so chained automations run. Because the CRM's job/deal
+        // storage is client-side (localStorage), the engine cannot directly update a job
+        // row; instead, it writes to ActivityLog and fires the follow-up trigger. Clients
+        // polling for changes (via the run log) can apply the move client-side.
+        await prisma.activityLog.create({
+          data: {
+            entityType: action.type === 'move_ops_stage' ? 'job' : 'deal',
+            entityId: event.jobId || event.dealId || '',
+            actor: 'automation',
+            body: `Stage moved: ${event.toStage || 'unknown'} → ${action.targetStage}`,
+            metadata: { from: event.toStage, to: action.targetStage } as any,
+          },
+        })
+        // Fire chained stage-change trigger with incremented depth
+        const chainedType = action.type === 'move_ops_stage' ? 'ops_stage_change' : 'sales_stage_change'
+        if (event.toStage !== action.targetStage) {
+          setImmediate(() => {
+            fireAutomations(chainedType, {
+              ...event,
+              fromStage: event.toStage,
+              toStage: action.targetStage,
+              _chainDepth: chainDepth + 1,
+            }).catch(err => console.error('[Automation chain] fire error', err))
+          })
+        }
         result.success = true
-        result.result = `Stage move requested: → ${action.targetStage}`
-        // The frontend will read the run log and apply stage changes
+        result.result = `Stage move applied: → ${action.targetStage} (chained)`
         break
       }
 
@@ -355,7 +484,6 @@ async function executeAction(action: ActionConfig, event: TriggerEvent, mergeDat
       }
 
       case 'require_checklist_gate': {
-        // Store as metadata — the frontend checks this before allowing transition
         result.success = true
         result.result = `Gate set: "${action.checklistItem}" required`
         break
@@ -363,9 +491,11 @@ async function executeAction(action: ActionConfig, event: TriggerEvent, mergeDat
 
       default:
         result.error = `Unknown action type: ${action.type}`
+        result.reason = 'UNKNOWN_ACTION_TYPE'
     }
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err)
+    result.reason = result.reason || 'ACTION_EXCEPTION'
     console.error(`[Automation Action] ${action.type} error:`, err)
   }
 

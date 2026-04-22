@@ -186,6 +186,35 @@ export function updateJob(id: string, updates: Partial<Job>): Job | null {
   jobs[idx] = { ...prev, ...updates, updatedAt: new Date().toISOString() }
   saveJobs(jobs)
 
+  // Fire job_assigned when crew changes
+  if (updates.crewAssigned !== undefined && updates.crewAssigned !== prev.crewAssigned) {
+    try {
+      fireJobAssigned(id, updates.crewAssigned || '', {
+        jobName: jobs[idx].customerName, customerName: jobs[idx].customerName,
+        jobAddress: jobs[idx].customerAddress,
+        assignedRep: jobs[idx].salesRep,
+      })
+    } catch { /* noop */ }
+  }
+  // Fire job_scheduled when scheduledDate changes
+  if (updates.scheduledDate !== undefined && updates.scheduledDate !== prev.scheduledDate) {
+    try {
+      const wasScheduled = !!prev.scheduledDate
+      fireJobScheduled(id, updates.scheduledDate || '', {
+        jobName: jobs[idx].customerName, customerName: jobs[idx].customerName,
+        jobAddress: jobs[idx].customerAddress,
+        assignedRep: jobs[idx].salesRep,
+        crewAssigned: jobs[idx].crewAssigned,
+      })
+      // Treat a change in an existing schedule as a reschedule too
+      if (wasScheduled) {
+        import('./automationTrigger').then(m => m.fireJobRescheduled(id, updates.scheduledDate || '', {
+          jobName: jobs[idx].customerName, customerName: jobs[idx].customerName,
+        })).catch(() => {})
+      }
+    } catch { /* noop */ }
+  }
+
   // Auto-create PO when materials status changes to 'ordered'
   const job = jobs[idx]
   if (updates.materialsStatus === 'ordered' && prev.materialsStatus !== 'ordered') {

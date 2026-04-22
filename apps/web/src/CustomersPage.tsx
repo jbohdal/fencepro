@@ -10,6 +10,7 @@ import AddressAutocomplete from './AddressAutocomplete'
 import { toast } from './toast'
 import { addLeadForNewCustomer } from './pipelineSeeder'
 import CustomerPhotosTab from './CustomerPhotosTab'
+import { fireCustomerCreated } from './automationTrigger'
 
 interface Customer {
   id: string
@@ -1198,6 +1199,11 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
           phone: c.phone, email: c.email, serviceAddress: c.serviceAddress,
           leadSource: c.leadSource, notes: c.notes, salesRep: c.salesRep,
           createdAt: c.createdAt,
+        })
+        fireCustomerCreated(c.id, {
+          customerName: `${c.firstName} ${c.lastName}`.trim(),
+          customerEmail: c.email, customerPhone: c.phone,
+          jobAddress: c.serviceAddress, assignedRep: c.salesRep,
         })
         toast.success('Customer added', 'Also placed on Sales Pipeline under First Contact.')
       } else {

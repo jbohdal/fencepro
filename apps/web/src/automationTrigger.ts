@@ -71,3 +71,25 @@ export function fireRainDayFlagged(jobId: string, jobData?: Partial<TriggerEvent
 export function firePaymentReceived(jobId: string, jobData?: Partial<TriggerEvent>): void {
   fireTrigger('payment_received', { jobId, ...jobData })
 }
+
+export function fireCustomerCreated(customerId: string, data?: Partial<TriggerEvent>): void {
+  fireTrigger('customer_created', { ...data, extraData: { ...data?.extraData, customerId } })
+}
+
+export function fireInvoiceCreated(invoiceId: string, customerId?: string, totalCents?: number, data?: Partial<TriggerEvent>): void {
+  fireTrigger('invoice_created', {
+    jobId: invoiceId, ...data,
+    extraData: { ...data?.extraData, invoiceId, customerId, totalCents },
+  })
+}
+
+export function fireQuoteSold(quoteId: string, customerId?: string, totalCents?: number, data?: Partial<TriggerEvent>): void {
+  fireTrigger('quote_sold', {
+    jobId: quoteId, ...data,
+    extraData: { ...data?.extraData, quoteId, customerId, totalCents },
+  })
+}
+
+export function fireJobRescheduled(jobId: string, scheduledDate: string, data?: Partial<TriggerEvent>): void {
+  fireTrigger('job_rescheduled', { jobId, scheduledDate, ...data })
+}

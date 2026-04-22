@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { fireSalesStageChange } from './automationTrigger'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -673,9 +674,23 @@ export default function JobsPage() {
   }
 
   function handleUpdate(updated: PipelineLead) {
+    const prev = leads.find(l => l.id === updated.id)
     const next = leads.map(l => l.id === updated.id ? updated : l)
     persist(next, stages)
     if (selectedLead?.id === updated.id) setSelectedLead(updated)
+
+    // Fire sales_stage_change on stage transitions
+    if (prev && prev.stage !== updated.stage) {
+      fireSalesStageChange(updated.id, prev.stage, updated.stage, {
+        jobName: `${updated.firstName} ${updated.lastName}`.trim(),
+        jobAddress: updated.address,
+        customerName: `${updated.firstName} ${updated.lastName}`.trim(),
+        customerEmail: updated.email,
+        customerPhone: updated.phone,
+        fenceType: updated.fenceType,
+        quotePrice: updated.quotePrice,
+      })
+    }
   }
 
   function handleDelete(id: string) {
@@ -690,13 +705,27 @@ export default function JobsPage() {
   function handleDrop(e: React.DragEvent, stage: string) {
     e.preventDefault()
     if (!dragId.current) return
+    const draggedId = dragId.current
+    const prev = leads.find(l => l.id === draggedId)
     const next = leads.map(l =>
-      l.id === dragId.current
+      l.id === draggedId
         ? { ...l, stage, lastMoved: new Date().toISOString().slice(0, 10) }
         : l
     )
     persist(next, stages)
     dragId.current = null
+
+    if (prev && prev.stage !== stage) {
+      fireSalesStageChange(draggedId, prev.stage, stage, {
+        jobName: `${prev.firstName} ${prev.lastName}`.trim(),
+        jobAddress: prev.address,
+        customerName: `${prev.firstName} ${prev.lastName}`.trim(),
+        customerEmail: prev.email,
+        customerPhone: prev.phone,
+        fenceType: prev.fenceType,
+        quotePrice: prev.quotePrice,
+      })
+    }
   }
 
   function handleRename(oldName: string, newName: string) {

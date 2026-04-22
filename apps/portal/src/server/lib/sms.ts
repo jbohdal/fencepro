@@ -10,6 +10,11 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || ''
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || ''
 const COMPANY_NAME = process.env.COMPANY_NAME || 'FencePro'
 
+/** True if Twilio is fully configured. */
+export function isSmsServiceConfigured(): boolean {
+  return !!TWILIO_ACCOUNT_SID && !!TWILIO_AUTH_TOKEN && !!TWILIO_FROM_NUMBER
+}
+
 interface SmsResult {
   success: boolean
   sid?: string

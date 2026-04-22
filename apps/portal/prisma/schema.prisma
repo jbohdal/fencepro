@@ -523,12 +523,16 @@ enum AutomationTriggerType {
   payment_received
   customer_no_response
   rain_day_flagged
+  customer_created
+  invoice_created
+  quote_sold
 }
 
 enum AutomationActionType {
   move_ops_stage
   move_sales_stage
   send_email
+  send_sms
   send_notification
   create_task
   schedule_reminder
@@ -541,6 +545,20 @@ enum AutomationRunStatus {
   success
   partial
   failed
+}
+
+// ── Entity Activity Log (customer / job / deal activity feed) ──
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  entityType  String   // 'customer' | 'job' | 'deal' | 'invoice' | 'quote'
+  entityId    String
+  actor       String   // 'system' | 'automation' | user name
+  body        String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
 }
 
 model Automation {

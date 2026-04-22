@@ -4,6 +4,8 @@
  * All amounts in cents (integer). localStorage-backed.
  */
 
+import { fireInvoiceCreated, firePaymentReceived } from './automationTrigger'
+
 const INV_KEY = 'fencepro_invoices'
 const PAY_KEY = 'fencepro_payments'
 const STMT_KEY = 'fencepro_statements'
@@ -88,6 +90,10 @@ export function createInvoice(data: Omit<Invoice, 'id' | 'createdAt' | 'updatedA
   const all = getInvoices()
   all.unshift(inv)
   saveInvoices(all)
+  fireInvoiceCreated(inv.id, inv.customerId, inv.totalCents, {
+    customerName: inv.customerName,
+    jobId: inv.jobId, jobName: inv.jobName,
+  })
   return inv
 }
 
@@ -153,6 +159,14 @@ export function recordPayment(data: Omit<Payment, 'id' | 'createdAt'>): Payment 
     updateInvoice(inv.id, { amountPaidCents: inv.amountPaidCents + data.amountCents })
   }
 
+  firePaymentReceived(inv?.jobId || data.invoiceId, {
+    customerName: data.customerName,
+    jobId: inv?.jobId, jobName: inv?.jobName,
+    extraData: {
+      invoiceId: data.invoiceId, customerId: data.customerId,
+      amountCents: data.amountCents, paymentMethod: data.paymentMethod,
+    },
+  })
   return pay
 }
 

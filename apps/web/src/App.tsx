@@ -30,12 +30,14 @@ import AccountsPayablePage from './AccountsPayablePage'
 import BundlesPage from './BundlesPage'
 import PublicPresentationPage from './PublicPresentationPage'
 import PendingOrdersPage from './PendingOrdersPage'
+import NotificationBell from './NotificationBell'
 import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
 import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import { syncQuote } from './portalSync'
 import { createPendingOrderFromQuote, checkStockForOrder } from './pendingOrderStore'
+import { fireQuoteSold } from './automationTrigger'
 
 /* ───────── role system ───────── */
 
@@ -56,10 +58,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Sales',
     items: [
+      { name: 'Sales Pipeline', icon: '🔨', roles: ['owner', 'admin', 'salesman'] },
       { name: 'Dashboard',      icon: '📊', roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
       { name: 'Customers',      icon: '👥', roles: ['owner', 'admin', 'salesman'] },
       { name: 'Quotes',         icon: '📋', roles: ['owner', 'admin', 'salesman'] },
-      { name: 'Sales Pipeline', icon: '🔨', roles: ['owner', 'admin', 'salesman'] },
     ],
   },
   {
@@ -331,6 +333,13 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
       // Auto-create a Job + pending order when quote is first saved as SOLD
       if (q.status === 'SOLD' && !wasSold && !getJobByQuoteId(q.id)) {
         createJobFromQuote(q)
+        fireQuoteSold(q.id, q.customerId, Math.round(q.finalPrice * 100), {
+          jobName: q.customerName, customerName: q.customerName,
+          customerEmail: q.customerEmail, customerPhone: q.customerPhone,
+          jobAddress: q.customerAddress, fenceType: q.fenceStyle,
+          assignedRep: q.salesRep, quotePrice: q.finalPrice,
+          contractValue: q.finalPrice,
+        })
         const order = createPendingOrderFromQuote(q)
         if (order) {
           const warnings = checkStockForOrder(order)
@@ -679,6 +688,7 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
           </div>
 
           <div className="flex items-center gap-3">
+            <NotificationBell />
             {/* Command search */}
             <button
               onClick={() => { setSearchOpen(true); setTimeout(() => searchRef.current?.focus(), 50) }}

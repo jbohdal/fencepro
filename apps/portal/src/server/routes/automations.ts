@@ -58,10 +58,14 @@ router.post('/trigger', async (req, res) => {
   try {
     const { triggerType, event } = triggerSchema.parse(req.body)
 
-    // Fire automations in background (non-blocking)
-    fireAutomations(triggerType, event as TriggerEvent).catch(err =>
-      console.error('[Automations] Trigger error:', err)
-    )
+    // Fire automations in background (non-blocking) — setImmediate guarantees
+    // the HTTP response returns before the engine starts, isolating any
+    // engine latency from the caller.
+    setImmediate(() => {
+      fireAutomations(triggerType, event as TriggerEvent).catch(err =>
+        console.error('[Automations] Trigger error:', err)
+      )
+    })
 
     res.json({ success: true, data: { triggered: triggerType } })
   } catch (err) {

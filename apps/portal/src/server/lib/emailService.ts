@@ -19,6 +19,11 @@ const COMPANY_NAME = process.env.COMPANY_NAME || 'GD Fence Pro'
 // Sendgrid API as primary (simpler than raw SMTP via fetch)
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || ''
 
+/** True if any email backend is wired up. */
+export function isEmailServiceConfigured(): boolean {
+  return !!SENDGRID_API_KEY || (!!SMTP_HOST && !!SMTP_USER && !!SMTP_PASS)
+}
+
 export interface EmailOptions {
   to: string
   subject: string
