@@ -1099,6 +1099,55 @@ model QuoteBundleAddon {
   @@index([bundleId])
 }
 
+// ── Inventory Pending Orders ──
+
+enum PendingOrderStatus {
+  pending
+  ordered
+  received
+  cancelled
+}
+
+model InventoryPendingOrder {
+  id              String              @id @default(uuid())
+  quoteId         String
+  jobId           String?
+  customerId      String?
+  customerName    String?
+  quoteName       String?
+  status          PendingOrderStatus  @default(pending)
+  totalCostCents  Int                 @default(0)
+  notes           String?
+  orderedAt       DateTime?
+  receivedAt      DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  items InventoryPendingOrderItem[]
+
+  @@index([quoteId])
+  @@index([customerId])
+  @@index([status])
+}
+
+model InventoryPendingOrderItem {
+  id               String   @id @default(uuid())
+  pendingOrderId   String
+  inventoryItemId  String?
+  itemName         String
+  requiredQuantity Float
+  unitCostCents    Int
+  totalCostCents   Int
+  quantityReceived Float    @default(0)
+  receivedAt       DateTime?
+  createdAt        DateTime @default(now())
+
+  order InventoryPendingOrder @relation(fields: [pendingOrderId], references: [id], onDelete: Cascade)
+
+  @@index([pendingOrderId])
+}
+
 model QuoteOption {
   id                 String   @id @default(uuid())
   quoteId            String   // references localStorage quote ID or server quote ID

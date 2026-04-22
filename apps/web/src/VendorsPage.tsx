@@ -12,6 +12,8 @@ import {
   type PaymentTerms, type VendorBillCategory, type VendorBillStatus,
   type VendorPaymentMethod, type VendorBillLineItem,
 } from './vendorStore'
+import AddressAutocomplete from './AddressAutocomplete'
+import { toast } from './toast'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(c / 100)
@@ -339,7 +341,11 @@ function VendorForm({ initial, onCancel, onSaved }: { initial: VendorContact | n
             <Field label="Phone"><input value={phone} onChange={e => setPhone(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>
           </div>
           <Field label="Email"><input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>
-          <Field label="Address"><input value={address} onChange={e => setAddress(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>
+          <Field label="Address">
+            <AddressAutocomplete value={address} onChange={setAddress}
+              onSelect={p => { setAddress(p.line1 || p.formatted); if (p.city) setCity(p.city); if (p.state) setState(p.state); if (p.zip) setZip(p.zip) }}
+              placeholder="Street address…" />
+          </Field>
           <div className="grid grid-cols-3 gap-3">
             <Field label="City"><input value={city} onChange={e => setCity(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>
             <Field label="State"><input value={state} onChange={e => setState(e.target.value)} maxLength={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>

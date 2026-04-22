@@ -6,6 +6,10 @@ import {
   nextInvoiceNumber,
   type Invoice, type InvoiceLineItem, type InvoiceStatus, type Payment, type CustomerNote,
 } from './billingStore'
+import AddressAutocomplete from './AddressAutocomplete'
+import { toast } from './toast'
+import { addLeadForNewCustomer } from './pipelineSeeder'
+import CustomerPhotosTab from './CustomerPhotosTab'
 
 interface Customer {
   id: string
@@ -258,7 +262,12 @@ function CustomerForm({
           <div className="space-y-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Service Address</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="Where the fence is being installed" value={form.serviceAddress} onChange={e => setForm(f => ({ ...f, serviceAddress: e.target.value }))} />
+              <AddressAutocomplete
+                value={form.serviceAddress}
+                onChange={v => setForm(f => ({ ...f, serviceAddress: v }))}
+                onSelect={p => setForm(f => ({ ...f, serviceAddress: p.formatted }))}
+                placeholder="Where the fence is being installed"
+              />
             </div>
             <div className="flex items-center gap-2">
               <input type="checkbox" id="billingDiff" checked={form.billingDifferent} onChange={e => setForm(f => ({ ...f, billingDifferent: e.target.checked }))} className="accent-orange-500" />
@@ -267,7 +276,12 @@ function CustomerForm({
             {form.billingDifferent && (
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Billing Address</label>
-                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="Billing address" value={form.billingAddress} onChange={e => setForm(f => ({ ...f, billingAddress: e.target.value }))} />
+                <AddressAutocomplete
+                  value={form.billingAddress}
+                  onChange={v => setForm(f => ({ ...f, billingAddress: v }))}
+                  onSelect={p => setForm(f => ({ ...f, billingAddress: p.formatted }))}
+                  placeholder="Billing address"
+                />
               </div>
             )}
           </div>
@@ -768,11 +782,11 @@ function CustomerDetail({
   jobs: Job[]
   files: CustomerFile[]
   onEdit: () => void
-  onNewQuote: () => void
+  onNewQuote: (customer: Customer) => void
   onFileUpload: (f: CustomerFile) => void
   onDeleteFile: (id: string) => void
 }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files' | 'photos'>('overview')
 
   const totalRevenue = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.price, 0)
     + importedQuotes.reduce((s, q) => s + q.quotedPrice, 0)
@@ -825,7 +839,7 @@ function CustomerDetail({
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={onNewQuote} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg">+ New Quote</button>
+            <button onClick={() => onNewQuote(customer)} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg">+ New Quote</button>
             <button onClick={onEdit} className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50">Edit</button>
           </div>
         </div>
@@ -845,7 +859,7 @@ function CustomerDetail({
         </div>
 
         <div className="flex gap-1 mt-5 bg-gray-100 rounded-xl p-1 w-fit">
-          {(['overview', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files'] as const).map(t => (
+          {(['overview', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files', 'photos'] as const).map(t => (
             <button
               key={t}
               onClick={() => setActiveTab(t)}
@@ -970,7 +984,7 @@ function CustomerDetail({
             {quotes.length === 0 && importedQuotes.length === 0 && (
               <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
                 <p className="text-gray-400 text-sm mb-3">No quotes yet</p>
-                <button onClick={onNewQuote} className="text-orange-500 text-sm hover:underline">Create first quote</button>
+                <button onClick={() => onNewQuote(customer)} className="text-orange-500 text-sm hover:underline">Create first quote</button>
               </div>
             )}
           </div>
@@ -1031,6 +1045,10 @@ function CustomerDetail({
           <CustomerPullSheetsTab customerId={customer.id} />
         )}
 
+        {activeTab === 'photos' && (
+          <CustomerPhotosTab customerId={customer.id} uploadedBy="user" />
+        )}
+
         {activeTab === 'files' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -1087,7 +1105,7 @@ function CustomerDetail({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function CustomersPage({ onNewQuote }: { onNewQuote?: () => void }) {
+export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?: Customer) => void }) {
   const [importedQuotes, setImportedQuotes] = useState<ImportedQuote[]>(() => {
     try {
       const raw = localStorage.getItem('fencepro_imported_quotes')
@@ -1100,8 +1118,42 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: () => void 
       return raw ? JSON.parse(raw) : SAMPLE_CUSTOMERS
     } catch { return SAMPLE_CUSTOMERS }
   })
-  const [quotes] = useState<Quote[]>(SAMPLE_QUOTES)
-  const [jobs] = useState<Job[]>(SAMPLE_JOBS)
+  // Pull real quotes + jobs from localStorage; fall back to samples when empty
+  const [quotes] = useState<Quote[]>(() => {
+    try {
+      const raw = localStorage.getItem('fencepro_quotes')
+      if (!raw) return SAMPLE_QUOTES
+      const all = JSON.parse(raw) as any[]
+      if (!Array.isArray(all) || all.length === 0) return SAMPLE_QUOTES
+      return all.map(q => ({
+        id: q.id,
+        customerId: q.customerId || '',
+        type: q.fenceStyle || '',
+        sections: q.sections || 0,
+        price: q.finalPrice || 0,
+        margin: q.gmPct || 0,
+        status: q.status || 'DRAFT',
+        date: q.date || '',
+      })) as Quote[]
+    } catch { return SAMPLE_QUOTES }
+  })
+  const [jobs] = useState<Job[]>(() => {
+    try {
+      const raw = localStorage.getItem('fencepro_jobs')
+      if (!raw) return SAMPLE_JOBS
+      const all = JSON.parse(raw) as any[]
+      if (!Array.isArray(all) || all.length === 0) return SAMPLE_JOBS
+      return all.map(j => ({
+        id: j.id,
+        customerId: j.customerId || '',
+        type: j.fenceStyle || j.type || '',
+        sections: j.sections || 0,
+        value: j.value || j.finalPrice || 0,
+        stage: j.stage || 'SCHEDULED',
+        scheduledDate: j.scheduledDate || '',
+      })) as Job[]
+    } catch { return SAMPLE_JOBS }
+  })
   const [files, setFiles] = useState<CustomerFile[]>(() => {
     try {
       const raw = localStorage.getItem('fencepro_files')
@@ -1129,15 +1181,31 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: () => void 
   const customerFiles = files.filter(f => f.customerId === selectedId)
 
   function handleSave(c: Customer) {
-    setCustomers(prev => {
-      const updated = prev.find(x => x.id === c.id)
-        ? prev.map(x => x.id === c.id ? c : x)
-        : [c, ...prev]
-      localStorage.setItem('fencepro_customers', JSON.stringify(updated))
-      return updated
-    })
-    setSelectedId(c.id)
-    setMode('view')
+    try {
+      const isNew = !customers.find(x => x.id === c.id)
+      setCustomers(prev => {
+        const updated = prev.find(x => x.id === c.id)
+          ? prev.map(x => x.id === c.id ? c : x)
+          : [c, ...prev]
+        localStorage.setItem('fencepro_customers', JSON.stringify(updated))
+        return updated
+      })
+      setSelectedId(c.id)
+      setMode('view')
+      if (isNew) {
+        addLeadForNewCustomer({
+          id: c.id, firstName: c.firstName, lastName: c.lastName,
+          phone: c.phone, email: c.email, serviceAddress: c.serviceAddress,
+          leadSource: c.leadSource, notes: c.notes, salesRep: c.salesRep,
+          createdAt: c.createdAt,
+        })
+        toast.success('Customer added', 'Also placed on Sales Pipeline under First Contact.')
+      } else {
+        toast.success('Customer updated')
+      }
+    } catch (err: any) {
+      toast.error('Could not save customer', err?.message || 'Unknown error.')
+    }
   }
 
   function handleDelete(id: string) {
@@ -1295,6 +1363,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: () => void 
         return
       }
 
+      let freshCount = 0
       setCustomers(prev => {
         const existingPhones = new Set(prev.map(c => c.phone).filter(Boolean))
         const existingEmails = new Set(prev.map(c => c.email).filter(Boolean))
@@ -1302,6 +1371,16 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: () => void 
           (!c.phone || !existingPhones.has(c.phone)) &&
           (!c.email || !existingEmails.has(c.email))
         )
+        freshCount = fresh.length
+        // Add each fresh import to the sales pipeline
+        for (const f of fresh) {
+          addLeadForNewCustomer({
+            id: f.id, firstName: f.firstName, lastName: f.lastName,
+            phone: f.phone, email: f.email, serviceAddress: f.serviceAddress,
+            leadSource: f.leadSource, notes: f.notes, salesRep: f.salesRep,
+            createdAt: f.createdAt,
+          })
+        }
         const updated = [...fresh, ...prev]
         localStorage.setItem('fencepro_customers', JSON.stringify(updated))
         return updated
@@ -1313,7 +1392,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: () => void 
         return updated
       })
 
-      alert(`Imported ${importedCustomers.length} customers and ${importedQuotesList.length} quote records.`)
+      toast.success(`Imported ${freshCount} customers`, `${importedQuotesList.length} quote records attached · all added to pipeline.`)
     }
     reader.readAsText(file)
     e.target.value = ''
@@ -1392,7 +1471,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: () => void 
           jobs={customerJobs}
           files={customerFiles}
           onEdit={() => setMode('edit')}
-          onNewQuote={() => onNewQuote?.()}
+          onNewQuote={(c) => onNewQuote?.(c)}
           onFileUpload={f => setFiles(prev => {
             const updated = [...prev, f]
             localStorage.setItem('fencepro_files', JSON.stringify(updated))

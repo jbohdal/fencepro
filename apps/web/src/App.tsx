@@ -29,10 +29,13 @@ import VendorsPage from './VendorsPage'
 import AccountsPayablePage from './AccountsPayablePage'
 import BundlesPage from './BundlesPage'
 import PublicPresentationPage from './PublicPresentationPage'
-import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, type CrmUser } from './crmAuth'
+import PendingOrdersPage from './PendingOrdersPage'
+import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
+import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import { syncQuote } from './portalSync'
+import { createPendingOrderFromQuote, checkStockForOrder } from './pendingOrderStore'
 
 /* ───────── role system ───────── */
 
@@ -67,6 +70,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Dispatch',   icon: '📍', roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Site Plans',  icon: '🗺', roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
       { name: 'Inventory',  icon: '📦', roles: ['owner', 'admin', 'ops_manager', 'shop'] },
+      { name: 'Pending Orders', icon: '📋', roles: ['owner', 'admin', 'ops_manager', 'shop'] },
     ],
   },
   {
@@ -191,6 +195,10 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
   const [crmUser, setCrmUser] = useState<CrmUser | null>(null)
 
   useEffect(() => {
+    setSessionExpiredHandler(() => {
+      setCrmUser(null)
+      toast.warning('Your session has expired', 'Please log in again — your local work has been preserved.')
+    })
     if (isAuthenticated()) {
       fetchCurrentUser().then(user => {
         setCrmUser(user)
@@ -246,9 +254,12 @@ export default function App() {
   }
 
   return (
-    <AuthGate>
-      {(crmUser, logout) => <AppShell crmUser={crmUser} onLogout={logout} />}
-    </AuthGate>
+    <>
+      <ToastContainer />
+      <AuthGate>
+        {(crmUser, logout) => <AppShell crmUser={crmUser} onLogout={logout} />}
+      </AuthGate>
+    </>
   )
 }
 
@@ -304,46 +315,63 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
   /* ── Quote handlers ── */
 
   function handleSaveQuote(q: SavedQuote) {
-    const wasSold = quotes.find(x => x.id === q.id)?.status === 'SOLD'
+    try {
+      const wasSold = quotes.find(x => x.id === q.id)?.status === 'SOLD'
 
-    setQuotes(prev => {
-      const updated = prev.find(x => x.id === q.id)
-        ? prev.map(x => x.id === q.id ? q : x)
-        : [q, ...prev]
-      localStorage.setItem('fencepro_quotes', JSON.stringify(updated))
-      return updated
-    })
-    setShowQuote(false)
-    setEditingQuote(null)
+      setQuotes(prev => {
+        const updated = prev.find(x => x.id === q.id)
+          ? prev.map(x => x.id === q.id ? q : x)
+          : [q, ...prev]
+        localStorage.setItem('fencepro_quotes', JSON.stringify(updated))
+        return updated
+      })
+      setShowQuote(false)
+      setEditingQuote(null)
 
-    // Auto-create a Job when quote is first saved as SOLD
-    if (q.status === 'SOLD' && !wasSold && !getJobByQuoteId(q.id)) {
-      createJobFromQuote(q)
+      // Auto-create a Job + pending order when quote is first saved as SOLD
+      if (q.status === 'SOLD' && !wasSold && !getJobByQuoteId(q.id)) {
+        createJobFromQuote(q)
+        const order = createPendingOrderFromQuote(q)
+        if (order) {
+          const warnings = checkStockForOrder(order)
+          if (warnings.length > 0) {
+            toast.warning('Low stock on some materials',
+              warnings.slice(0, 3).map(w => `${w.itemName}: need ${w.required}, have ${w.available}`).join('\n')
+            )
+          }
+        }
+      }
+
+      // Auto-link pull sheet to customer file
+      if (q.pullSheet?.length > 0 && q.customerId) {
+        try {
+          const existing = getPullSheetsForCustomer(q.customerId)
+          const versionNumber = existing.filter(ps => ps.quoteId === q.id).length + 1
+          const job = q.status === 'SOLD' ? getJobByQuoteId(q.id) : null
+          linkPullSheetToCustomer({
+            customerId: q.customerId,
+            customerName: q.customerName,
+            jobId: job?.id,
+            jobName: job ? q.customerName : undefined,
+            quoteId: q.id,
+            quoteName: `${q.fenceStyle} — ${q.customerName}`,
+            versionSnapshot: JSON.parse(JSON.stringify(q.pullSheet)),
+            versionNumber,
+            linkedAt: new Date().toISOString(),
+            linkedBy: 'auto',
+          })
+        } catch { /* silent — pull sheet link is non-critical */ }
+      }
+
+      toast.success('Quote saved', q.status === 'SOLD' ? 'Job created and pending order queued.' : undefined)
+
+      // Sync to customer portal — surface errors
+      syncQuote(q).catch((err: any) => {
+        toast.warning('Portal sync failed', 'Saved locally — will retry on next save. ' + (err?.message || ''))
+      })
+    } catch (err: any) {
+      toast.error('Could not save quote', err?.message || 'Unknown error. Your data may be at risk — try again.')
     }
-
-    // Auto-link pull sheet to customer file
-    if (q.pullSheet?.length > 0 && q.customerId) {
-      try {
-        const existing = getPullSheetsForCustomer(q.customerId)
-        const versionNumber = existing.filter(ps => ps.quoteId === q.id).length + 1
-        const job = q.status === 'SOLD' ? getJobByQuoteId(q.id) : null
-        linkPullSheetToCustomer({
-          customerId: q.customerId,
-          customerName: q.customerName,
-          jobId: job?.id,
-          jobName: job ? q.customerName : undefined,
-          quoteId: q.id,
-          quoteName: `${q.fenceStyle} — ${q.customerName}`,
-          versionSnapshot: JSON.parse(JSON.stringify(q.pullSheet)),
-          versionNumber,
-          linkedAt: new Date().toISOString(),
-          linkedBy: 'auto',
-        })
-      } catch { /* silent — pull sheet link is non-critical */ }
-    }
-
-    // Sync to customer portal (fire and forget)
-    syncQuote(q).catch(() => {})
   }
 
   function handleOpenQuote(q: SavedQuote) {
@@ -670,7 +698,7 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
                 <span>🗺</span> Smart Schedule
               </button>
             )}
-            {(active === 'Customers' || active === 'Quotes' || active === 'Dashboard') && (
+            {active === 'Quotes' && (
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowMapQuote(true)}
@@ -698,6 +726,7 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
           {active === 'Portal'    && <PortalInbox />}
           {active === 'Settings'  && <AdminSettingsPage />}
           {active === 'Inventory' && <AdminPage />}
+          {active === 'Pending Orders' && <PendingOrdersPage />}
           {active === 'Budget'    && <BudgetPage />}
           {active === 'Billing'   && <BillingPage />}
           {active === 'P&L Statement' && <PLStatementPage />}
@@ -706,7 +735,29 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
           {active === 'Vendors'   && <VendorsPage />}
           {active === 'Bundles'   && <BundlesPage />}
           {active === 'Cash Flow' && <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center"><p className="text-4xl mb-3">💸</p><h2 className="text-lg font-bold text-gray-900">Cash Flow</h2><p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">Cash Flow statement coming soon. For now, check the P&amp;L Statement and Accounts Receivable/Payable dashboards.</p></div>}
-          {active === 'Customers' && <CustomersPage onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
+          {active === 'Customers' && <CustomersPage onNewQuote={(c) => {
+            if (c) {
+              setEditingQuote({
+                id: '', customerId: c.id,
+                customerName: `${c.firstName} ${c.lastName}`.trim(),
+                customerPhone: c.phone || '',
+                customerEmail: c.email || '',
+                customerAddress: c.serviceAddress || '',
+                leadSource: c.leadSource || '',
+                salesRep: c.salesRep || '',
+                fenceStyle: '', runs: [], corners: 0, ends: 0,
+                walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0,
+                adjLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
+                sections: 0, materialCost: 0, laborCost: 0, tearOutCost: 0,
+                totalCOGS: 0, finalPrice: 0, gmPct: 0, pullSheet: [],
+                status: 'DRAFT', date: new Date().toISOString().slice(0, 10),
+                notes: '', leadTemp: 0,
+              } as SavedQuote)
+            } else {
+              setEditingQuote(null)
+            }
+            setShowQuote(true)
+          }} />}
           {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={handleOpenQuote} onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
           {active === 'Sales Pipeline' && <JobsPage />}
           {active === 'Operations'     && <OperationsPage />}

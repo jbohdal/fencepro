@@ -3,6 +3,8 @@ import { calculateMaterials, totalMaterialCost } from './materialCalculator'
 import type { LineItem } from './materialCalculator'
 import type { SavedQuote } from './QuotesPage'
 import QuoteOptionsPanel from './QuoteOptionsPanel'
+import { addLeadForNewCustomer } from './pipelineSeeder'
+import AddressAutocomplete from './AddressAutocomplete'
 
 const FENCE_STYLES = [
   { id: '1',  name: "WV-ND 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6  },
@@ -71,8 +73,10 @@ function SaveModal({
   onSave,
   onCancel,
   initialCustomerName,
+  initialCustomerId,
 }: {
   onSave: (data: {
+    customerId: string
     customerName: string
     customerPhone: string
     customerEmail: string
@@ -85,10 +89,18 @@ function SaveModal({
   }) => void
   onCancel: () => void
   initialCustomerName: string
+  initialCustomerId?: string
 }) {
   const [mode, setMode]           = useState<'search' | 'new'>('search')
   const [search, setSearch]       = useState(initialCustomerName)
-  const [selectedCustomer, setSelectedCustomer] = useState<SavedCustomer | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<SavedCustomer | null>(() => {
+    if (!initialCustomerId) return null
+    try {
+      const raw = localStorage.getItem('fencepro_customers')
+      const all = raw ? JSON.parse(raw) : []
+      return all.find((c: SavedCustomer) => c.id === initialCustomerId) ?? null
+    } catch { return null }
+  })
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName]   = useState('')
   const [phone, setPhone]         = useState('')
@@ -123,6 +135,7 @@ function SaveModal({
   function handleSubmit() {
     if (mode === 'search' && selectedCustomer) {
       onSave({
+        customerId: selectedCustomer.id,
         customerName: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`,
         customerPhone: selectedCustomer.phone,
         customerEmail: selectedCustomer.email,
@@ -157,7 +170,10 @@ function SaveModal({
         const existing = JSON.parse(localStorage.getItem('fencepro_customers') || '[]')
         localStorage.setItem('fencepro_customers', JSON.stringify([newCustomer, ...existing]))
       } catch {}
+      // Also add to sales pipeline under First Contact
+      addLeadForNewCustomer(newCustomer)
       onSave({
+        customerId: newCustomer.id,
         customerName: `${firstName.trim()} ${lastName.trim()}`.trim(),
         customerPhone: phone,
         customerEmail: email,
@@ -251,7 +267,7 @@ function SaveModal({
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Service Address</label>
-                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={address} onChange={e => setAddress(e.target.value)} />
+                <AddressAutocomplete value={address} onChange={setAddress} onSelect={p => setAddress(p.formatted)} placeholder="Address..." />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -416,6 +432,7 @@ export default function QuoteBuilder({
   const canSave = styleId && sections > 0
 
   function handleSave(data: {
+    customerId: string
     customerName: string
     customerPhone: string
     customerEmail: string
@@ -428,6 +445,7 @@ export default function QuoteBuilder({
   }) {
     const quote: SavedQuote = {
       id: quoteIdRef.current,
+      customerId: data.customerId,
       customerName: data.customerName,
       customerPhone: data.customerPhone,
       customerEmail: data.customerEmail,
@@ -724,6 +742,7 @@ export default function QuoteBuilder({
       {showSaveModal && (
         <SaveModal
           initialCustomerName={customerName}
+          initialCustomerId={init?.customerId}
           onCancel={() => setShowSaveModal(false)}
           onSave={handleSave}
         />

@@ -1,7 +1,47 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { loadMaps, loadPlaces, loadMarker } from './mapsLoader'
 import { distanceFeet } from './geoUtils'
 import type { LatLng } from './geoUtils'
+import { toast } from './toast'
+
+interface CustomerLite { id: string; firstName: string; lastName: string; phone?: string }
+function loadCustomers(): CustomerLite[] {
+  try { const r = localStorage.getItem('fencepro_customers'); return r ? JSON.parse(r) : [] } catch { return [] }
+}
+
+interface CustomerFileLite {
+  id: string
+  customerId: string
+  name: string
+  type: string
+  size: string
+  url?: string
+  siteplanId?: string
+  uploadedAt: string
+  uploadedBy?: string
+}
+
+function linkSitePlanToCustomerFiles(plan: SitePlan) {
+  if (!plan.customerId) return
+  try {
+    const raw = localStorage.getItem('fencepro_files')
+    const files: CustomerFileLite[] = raw ? JSON.parse(raw) : []
+    const existingIdx = files.findIndex(f => f.siteplanId === plan.id)
+    const entry: CustomerFileLite = {
+      id: existingIdx >= 0 ? files[existingIdx].id : Math.random().toString(36).slice(2, 10),
+      customerId: plan.customerId,
+      name: plan.name || 'Site Plan',
+      type: 'Site Plan',
+      size: `${plan.lines.length} lines · ${plan.markers.length} markers`,
+      siteplanId: plan.id,
+      uploadedAt: new Date().toISOString().slice(0, 10),
+      uploadedBy: 'site plan tool',
+    }
+    if (existingIdx >= 0) files[existingIdx] = entry
+    else files.unshift(entry)
+    localStorage.setItem('fencepro_files', JSON.stringify(files))
+  } catch { /* noop */ }
+}
 
 /* ───────── types ───────── */
 
@@ -33,6 +73,8 @@ interface SitePlan {
   createdAt: string
   updatedAt: string
   quoteId?: string
+  customerId?: string
+  customerName?: string
 }
 
 const STORAGE_KEY = 'fencepro_siteplans'
@@ -114,6 +156,9 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [showPlanList, setShowPlanList] = useState(false)
   const [savedPlans, setSavedPlans] = useState<SitePlan[]>(loadPlans)
+  const [selectedCustomerId, setSelectedCustomerId] = useState('')
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
+  const customers = useMemo(() => loadCustomers(), [showSaveModal])
 
   // Google Maps objects for rendering
   const polylinesRef = useRef<google.maps.Polyline[]>([])
@@ -376,21 +421,36 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
 
   // ── Save plan ──
   function handleSave() {
-    const plan: SitePlan = {
-      id: uid(),
-      name: planName,
-      address,
-      coordinates: center,
-      lines,
-      markers,
-      notes,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+    try {
+      const customer = customers.find(c => c.id === selectedCustomerId)
+      const customerName = customer ? `${customer.firstName} ${customer.lastName}`.trim() : undefined
+      const existingPlan = editingPlanId ? savedPlans.find(p => p.id === editingPlanId) : null
+
+      const plan: SitePlan = {
+        id: existingPlan?.id || uid(),
+        name: planName,
+        address,
+        coordinates: center,
+        lines,
+        markers,
+        notes,
+        createdAt: existingPlan?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        customerId: selectedCustomerId || existingPlan?.customerId,
+        customerName: customerName || existingPlan?.customerName,
+      }
+      const updated = existingPlan
+        ? savedPlans.map(p => p.id === plan.id ? plan : p)
+        : [...savedPlans, plan]
+      savePlans(updated)
+      setSavedPlans(updated)
+      setEditingPlanId(plan.id)
+      linkSitePlanToCustomerFiles(plan)
+      setShowSaveModal(false)
+      toast.success('Site plan saved', plan.customerId ? 'Also linked to customer Files tab.' : 'Tip: link to a customer to show on their Files tab.')
+    } catch (err: any) {
+      toast.error('Could not save site plan', err?.message || 'Unknown error.')
     }
-    const updated = [...savedPlans, plan]
-    savePlans(updated)
-    setSavedPlans(updated)
-    setShowSaveModal(false)
   }
 
   // ── Load plan ──
@@ -401,6 +461,8 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
     setMarkers(plan.markers)
     setPlanName(plan.name)
     setNotes(plan.notes)
+    setSelectedCustomerId(plan.customerId || '')
+    setEditingPlanId(plan.id)
     setShowPlanList(false)
     activePtsRef.current = []
     setActivePoints([])
@@ -585,12 +647,22 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
       {/* ── Save modal ── */}
       {showSaveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowSaveModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-96 p-6 space-y-4" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-gray-900">Save Site Plan</h3>
+          <div className="bg-white rounded-2xl shadow-2xl w-[420px] p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-gray-900">{editingPlanId ? 'Update' : 'Save'} Site Plan</h3>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Plan Name</label>
               <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 value={planName} onChange={e => setPlanName(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Link to Customer (optional — adds to their Files tab)</label>
+              <select value={selectedCustomerId} onChange={e => setSelectedCustomerId(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                <option value="">— Not linked to a customer —</option>
+                {customers.map(c => (
+                  <option key={c.id} value={c.id}>{c.firstName} {c.lastName}{c.phone ? ` · ${c.phone}` : ''}</option>
+                ))}
+              </select>
             </div>
             <div className="flex gap-2">
               <button onClick={() => setShowSaveModal(false)} className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-xl text-sm">Cancel</button>

@@ -60,23 +60,48 @@ async function tryRefresh(): Promise<boolean> {
   } catch { return false }
 }
 
-/** Authenticated fetch — auto-refreshes on 401 */
+type SessionExpiredHandler = () => void
+let sessionExpiredHandler: SessionExpiredHandler | null = null
+export function setSessionExpiredHandler(h: SessionExpiredHandler): void {
+  sessionExpiredHandler = h
+}
+
+/** Authenticated fetch — auto-refreshes on 401, fires sessionExpiredHandler on refresh failure. */
 export async function authFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { ...(options.headers as Record<string, string> || {}) }
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
   if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json'
 
-  let res = await fetch(path, { ...options, headers })
+  let res: Response
+  try {
+    res = await fetch(path, { ...options, headers })
+  } catch (err) {
+    throw new Error('Network error — check your connection and try again.')
+  }
 
-  if (res.status === 401 && refreshToken) {
-    const refreshed = await tryRefresh()
-    if (refreshed) {
-      headers['Authorization'] = `Bearer ${accessToken}`
-      res = await fetch(path, { ...options, headers })
+  if (res.status === 401) {
+    if (refreshToken) {
+      const refreshed = await tryRefresh()
+      if (refreshed) {
+        headers['Authorization'] = `Bearer ${accessToken}`
+        res = await fetch(path, { ...options, headers })
+      } else {
+        clearTokens()
+        sessionExpiredHandler?.()
+        throw new Error('Your session has expired. Please log in again.')
+      }
+    } else {
+      sessionExpiredHandler?.()
+      throw new Error('Not authenticated — please log in.')
     }
   }
 
-  const json = await res.json()
+  let json: any
+  try {
+    json = await res.json()
+  } catch {
+    throw new Error(`Server returned non-JSON (status ${res.status})`)
+  }
   if (!res.ok || !json.success) {
     throw new Error(json.error || `API error: ${res.status}`)
   }
