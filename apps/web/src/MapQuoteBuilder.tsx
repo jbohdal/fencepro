@@ -66,9 +66,11 @@ function AddressSearch({ onPlaceSelected }: { onPlaceSelected: (place: { address
 
 function FenceMapCanvas({
   center,
+  propertyMarker,
   onPointsChange,
 }: {
   center: LatLng
+  propertyMarker?: { location: LatLng; address: string }
   onPointsChange: (points: LatLng[]) => void
 }) {
   const mapRef = useRef<HTMLDivElement>(null)
@@ -76,6 +78,7 @@ function FenceMapCanvas({
   const polylinesRef = useRef<google.maps.Polyline[]>([])
   const vertexMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
   const labelMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  const propertyMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
   const pointsRef = useRef<LatLng[]>([])
   const [isLoaded, setIsLoaded] = useState(false)
   const [points, setPoints] = useState<LatLng[]>([])
@@ -217,6 +220,36 @@ function FenceMapCanvas({
     }
   }, [center])
 
+  // Render the property marker whenever `propertyMarker` changes
+  useEffect(() => {
+    const map = mapInstanceRef.current
+    if (!map) return
+    // Remove existing
+    if (propertyMarkerRef.current) { propertyMarkerRef.current.map = null; propertyMarkerRef.current = null }
+    if (!propertyMarker) return
+
+    const el = document.createElement('div')
+    el.title = propertyMarker.address
+    el.style.cssText = 'position:relative;width:32px;height:40px;'
+    el.innerHTML = `
+      <svg width="32" height="40" viewBox="0 0 32 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));">
+        <path d="M16 2C9 2 3 7 3 14c0 9 13 24 13 24s13-15 13-24c0-7-6-12-13-12z" fill="#f97316" stroke="#fff" stroke-width="2"/>
+        <circle cx="16" cy="14" r="5" fill="#fff"/>
+      </svg>`
+    import('@googlemaps/js-api-loader')
+    import('./mapsLoader').then(async ({ loadMarker }) => {
+      await loadMarker()
+      if (!mapInstanceRef.current) return
+      const m = new google.maps.marker.AdvancedMarkerElement({
+        map: mapInstanceRef.current,
+        position: propertyMarker.location,
+        content: el,
+        title: propertyMarker.address,
+      })
+      propertyMarkerRef.current = m
+    }).catch(() => {})
+  }, [propertyMarker?.location.lat, propertyMarker?.location.lng, propertyMarker?.address])
+
   function undoLastPoint() {
     if (pointsRef.current.length === 0) return
     pointsRef.current = pointsRef.current.slice(0, -1)
@@ -297,11 +330,19 @@ function FenceMapCanvas({
 export default function MapQuoteBuilder({ onUseData, onClose }: MapQuoteBuilderProps) {
   const [address, setAddress] = useState('')
   const [center, setCenter] = useState<LatLng>({ lat: 29.1872, lng: -82.1401 }) // Ocala, FL default
+  const [hasSelection, setHasSelection] = useState(false)
   const [mapPoints, setMapPoints] = useState<LatLng[]>([])
 
   function handlePlaceSelected(place: { address: string; location: LatLng }) {
     setAddress(place.address)
     setCenter(place.location)
+    setHasSelection(true)
+  }
+
+  function handleClearSelection() {
+    setAddress('')
+    setHasSelection(false)
+    setMapPoints([])
   }
 
   function handlePointsChange(pts: LatLng[]) {
@@ -369,14 +410,23 @@ export default function MapQuoteBuilder({ onUseData, onClose }: MapQuoteBuilderP
                 <AddressSearch onPlaceSelected={handlePlaceSelected} />
               </div>
             </div>
-            {address && (
-              <p className="text-sm text-gray-600 mt-2 ml-9">{address}</p>
+            {hasSelection && address && (
+              <div className="mt-3 flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2.5">
+                <span className="text-orange-500 text-lg shrink-0">🏠</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase font-bold text-orange-600 tracking-widest">Selected Property</p>
+                  <p className="text-sm font-medium text-gray-900 truncate" title={address}>{address}</p>
+                </div>
+                <button onClick={handleClearSelection}
+                  className="text-gray-400 hover:text-red-500 text-xl leading-none px-2"
+                  title="Clear selection">×</button>
+              </div>
             )}
           </div>
 
           {/* Map */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <FenceMapCanvas center={center} onPointsChange={handlePointsChange} />
+            <FenceMapCanvas center={center} propertyMarker={hasSelection ? { location: center, address } : undefined} onPointsChange={handlePointsChange} />
           </div>
 
           {/* Run details */}

@@ -18,6 +18,7 @@ import type { SavedQuote } from './QuotesPage'
 import { getCustomerById, logCustomerActivity, getCustomers, upsertCustomer, type Customer } from './customerStore'
 import { createJobFromQuote, getJobByQuoteId, type Job } from './jobStore'
 import { createPendingOrderFromQuote } from './pendingOrderStore'
+import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { fireQuoteSold, fireSalesStageChange } from './automationTrigger'
 
 const QUOTES_KEY = 'fencepro_quotes'
@@ -99,6 +100,32 @@ export function markQuoteSold(quoteId: string, opts?: { actor?: string }): Signe
   }
 
   try { createPendingOrderFromQuote(updatedQuote) } catch {}
+
+  // Auto-generate pull sheet for customer profile if the quote has one and
+  // it isn't already linked.
+  if (updatedQuote.customerId && updatedQuote.pullSheet && updatedQuote.pullSheet.length > 0) {
+    try {
+      const existing = getPullSheetsForCustomer(updatedQuote.customerId)
+      const already = existing.some(ps => ps.quoteId === updatedQuote.id)
+      if (!already) {
+        linkPullSheetToCustomer({
+          customerId: updatedQuote.customerId,
+          customerName: updatedQuote.customerName,
+          jobId: job?.id,
+          jobName: job ? updatedQuote.customerName : undefined,
+          quoteId: updatedQuote.id,
+          quoteName: `${updatedQuote.fenceStyle} — ${updatedQuote.customerName}`,
+          versionSnapshot: JSON.parse(JSON.stringify(updatedQuote.pullSheet)),
+          versionNumber: existing.filter(ps => ps.quoteId === updatedQuote.id).length + 1,
+          linkedAt: new Date().toISOString(),
+          linkedBy: opts?.actor || 'system',
+        })
+        logCustomerActivity(updatedQuote.customerId,
+          `Pull sheet generated automatically from sold quote #${quoteId.slice(-6).toUpperCase()}`,
+          { actor: opts?.actor || 'system', kind: 'job' })
+      }
+    } catch {}
+  }
 
   if (updatedQuote.customerId) {
     logCustomerActivity(updatedQuote.customerId,

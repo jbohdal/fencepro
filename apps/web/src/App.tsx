@@ -30,6 +30,8 @@ import AccountsPayablePage from './AccountsPayablePage'
 import BundlesPage from './BundlesPage'
 import PublicPresentationPage from './PublicPresentationPage'
 import PendingOrdersPage from './PendingOrdersPage'
+import SitePlansPage from './SitePlansPage'
+import InventoryPage from './InventoryPage'
 import NotificationBell from './NotificationBell'
 import PublicQuotePage from './PublicQuotePage'
 import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
@@ -73,7 +75,6 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Dispatch',   icon: '📍', roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Site Plans',  icon: '🗺', roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
       { name: 'Inventory',  icon: '📦', roles: ['owner', 'admin', 'ops_manager', 'shop'] },
-      { name: 'Pending Orders', icon: '📋', roles: ['owner', 'admin', 'ops_manager', 'shop'] },
     ],
   },
   {
@@ -743,7 +744,7 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
           {active === 'Integrations' && <IntegrationsPage />}
           {active === 'Portal'    && <PortalInbox />}
           {active === 'Settings'  && <AdminSettingsPage />}
-          {active === 'Inventory' && <AdminPage />}
+          {active === 'Inventory' && <InventoryPage />}
           {active === 'Pending Orders' && <PendingOrdersPage />}
           {active === 'Budget'    && <BudgetPage />}
           {active === 'Billing'   && <BillingPage />}
@@ -789,47 +790,7 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
           {active === 'Schedule'  && <SchedulePage />}
           {active === 'Dispatch'  && <DispatchPage />}
           {active === 'Reports'   && <ReportsPage quotes={quotes} />}
-          {active === 'Site Plans' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900">Site Plans</h2>
-                  <p className="text-sm text-gray-400 mt-0.5">Create construction site plans with satellite imagery, fence lines, gates, and annotations.</p>
-                </div>
-                <button onClick={() => setShowSitePlan(true)}
-                  className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm px-5 py-2.5 rounded-xl">
-                  + New Site Plan
-                </button>
-              </div>
-              {(() => {
-                let plans: { id: string; name: string; address: string; createdAt: string; lines: unknown[]; markers: unknown[] }[] = []
-                try { const raw = localStorage.getItem('fencepro_siteplans'); if (raw) plans = JSON.parse(raw) } catch {}
-                return plans.length === 0 ? (
-                  <div className="text-center py-24 border border-dashed border-gray-200 rounded-2xl">
-                    <p className="text-4xl mb-3">🗺</p>
-                    <p className="text-gray-500 text-lg font-medium">No site plans yet</p>
-                    <p className="text-gray-400 text-sm mt-1 mb-4">Draw fence lines on satellite imagery for your crew</p>
-                    <button onClick={() => setShowSitePlan(true)} className="text-orange-500 hover:underline text-sm font-semibold">Create your first site plan</button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-3 gap-4">
-                    {plans.map(p => (
-                      <div key={p.id} onClick={() => setShowSitePlan(true)}
-                        className="bg-white rounded-2xl border border-gray-200 p-5 hover:border-orange-300 cursor-pointer transition-colors">
-                        <h3 className="font-semibold text-gray-900">{p.name}</h3>
-                        <p className="text-xs text-gray-400 mt-0.5">{p.address || 'No address'}</p>
-                        <div className="flex gap-3 mt-2 text-xs text-gray-500">
-                          <span>{p.lines?.length || 0} lines</span>
-                          <span>{p.markers?.length || 0} markers</span>
-                          <span>{new Date(p.createdAt).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )
-              })()}
-            </div>
-          )}
+          {active === 'Site Plans' && <SitePlansPage />}
 
           {active === 'Dashboard' && (
             <div className="space-y-6">

@@ -27,6 +27,9 @@ export interface PendingOrderItem {
   totalCostCents: number
   quantityReceived: number
   receivedAt?: string
+  // Stock sufficiency snapshot at time of order
+  quantityOnHandAtTimeOfOrder?: number
+  isSufficientStock?: boolean
 }
 
 export interface PendingOrder {
@@ -70,14 +73,21 @@ export function createPendingOrderFromQuote(quote: SavedQuote): PendingOrder | n
   const existing = getPendingOrdersForQuote(quote.id)
   if (existing.length > 0) return existing[0]
 
-  const items: PendingOrderItem[] = quote.pullSheet.map((li: LineItem) => ({
-    id: uid(),
-    itemName: li.item,
-    requiredQuantity: li.qty,
-    unitCostCents: Math.round(li.unitCost * 100),
-    totalCostCents: Math.round(li.total * 100),
-    quantityReceived: 0,
-  }))
+  const inv = getInventory()
+  const items: PendingOrderItem[] = quote.pullSheet.map((li: LineItem) => {
+    const match = inv.find(i => i.name?.toLowerCase() === li.item?.toLowerCase())
+    const onHand = match?.quantity ?? 0
+    return {
+      id: uid(),
+      itemName: li.item,
+      requiredQuantity: li.qty,
+      unitCostCents: Math.round(li.unitCost * 100),
+      totalCostCents: Math.round(li.total * 100),
+      quantityReceived: 0,
+      quantityOnHandAtTimeOfOrder: onHand,
+      isSufficientStock: onHand >= li.qty,
+    }
+  })
   const totalCostCents = items.reduce((s, i) => s + i.totalCostCents, 0)
 
   const order: PendingOrder = {

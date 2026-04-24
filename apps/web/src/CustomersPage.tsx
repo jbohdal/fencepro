@@ -13,6 +13,7 @@ import CustomerPhotosTab from './CustomerPhotosTab'
 import { fireCustomerCreated } from './automationTrigger'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import type { SavedQuote } from './QuotesPage'
+import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
 
 interface Customer {
   id: string
@@ -777,7 +778,7 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
 
 function CustomerDetail({
   customer, quotes, importedQuotes, jobs, files,
-  onEdit, onNewQuote, onFileUpload, onDeleteFile, onQuoteClick,
+  onEdit, onNewQuote, onFileUpload, onDeleteFile, onQuoteClick, onFileClick,
 }: {
   customer: Customer
   quotes: Quote[]
@@ -789,6 +790,7 @@ function CustomerDetail({
   onFileUpload: (f: CustomerFile) => void
   onDeleteFile: (id: string) => void
   onQuoteClick?: (quoteId: string) => void
+  onFileClick?: (f: CustomerFile) => void
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files' | 'photos'>('overview')
 
@@ -1092,17 +1094,26 @@ function CustomerDetail({
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {files.map(f => (
-                      <tr key={f.id} className="hover:bg-gray-50 group">
+                      <tr key={f.id} className="hover:bg-orange-50 group cursor-pointer transition-colors"
+                        onClick={() => onFileClick?.(f)}>
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-2">
                             <span className="text-lg">{fileIcon(f.type)}</span>
                             <span className="font-medium text-gray-800">{f.name}</span>
+                            {f.type === 'Site Plan' && (
+                              <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Site Plan</span>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-right text-gray-400 text-xs">{f.size}</td>
                         <td className="px-4 py-3 text-right text-gray-400 text-xs">{f.uploadedAt}</td>
-                        <td className="px-3 py-3">
-                          <button onClick={() => onDeleteFile(f.id)} className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
+                        <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => onFileClick?.(f)} className="text-xs text-blue-600 hover:underline mr-3">View</button>
+                          <button onClick={() => {
+                            const url = (f as any).url || (f as any).dataUrl
+                            if (url) { const a = document.createElement('a'); a.href = url; a.download = f.name; a.click() }
+                          }} className="text-xs text-gray-500 hover:underline mr-3">Download</button>
+                          <button onClick={() => onDeleteFile(f.id)} className="text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
                         </td>
                       </tr>
                     ))}
@@ -1193,6 +1204,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
   const [mode, setMode] = useState<'view' | 'new' | 'edit'>('view')
   const [search, setSearch] = useState('')
   const [drawerQuote, setDrawerQuote] = useState<SavedQuote | null>(null)
+  const [viewerFile, setViewerFile] = useState<CustomerFile | null>(null)
 
   const filtered = customers.filter(c => {
     const q = search.toLowerCase()
@@ -1524,6 +1536,22 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
               const full = all.find(q => q.id === quoteId) || null
               setDrawerQuote(full)
             } catch {}
+          }}
+          onFileClick={(f) => setViewerFile(f)}
+        />
+      )}
+
+      {viewerFile && (
+        <FileViewerModal
+          file={viewerFile as unknown as CustomerFileShape}
+          siblingImages={files.filter(f => /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name)) as unknown as CustomerFileShape[]}
+          onClose={() => setViewerFile(null)}
+          onDelete={(id) => {
+            setFiles(prev => {
+              const next = prev.filter(f => f.id !== id)
+              localStorage.setItem('fencepro_files', JSON.stringify(next))
+              return next
+            })
           }}
         />
       )}

@@ -52,6 +52,8 @@ interface DrawnLine {
   type: 'fence' | 'property' | 'utility' | 'tearout'
   points: LatLng[]
   label?: string
+  color?: string        // overrides default LINE_COLORS for this line
+  utilityKind?: string  // for utility lines: 'electric' | 'gas' | 'water' | 'sewer' | 'telecom' | 'irrigation' | 'custom'
 }
 
 interface DrawnMarker {
@@ -60,6 +62,7 @@ interface DrawnMarker {
   position: LatLng
   label: string
   rotation?: number
+  color?: string        // overrides default marker color
 }
 
 interface SitePlan {
@@ -98,6 +101,31 @@ const LINE_COLORS: Record<string, { stroke: string; dash?: number[] }> = {
   utility:  { stroke: '#dc2626', dash: [6, 4] },
   tearout:  { stroke: '#9333ea', dash: [4, 4] },
 }
+
+// Preset colors for the global palette
+const PALETTE_COLORS: { name: string; value: string }[] = [
+  { name: 'Black',  value: '#111827' },
+  { name: 'White',  value: '#ffffff' },
+  { name: 'Red',    value: '#dc2626' },
+  { name: 'Orange', value: '#f97316' },
+  { name: 'Yellow', value: '#eab308' },
+  { name: 'Green',  value: '#16a34a' },
+  { name: 'Blue',   value: '#2563eb' },
+  { name: 'Purple', value: '#9333ea' },
+  { name: 'Brown',  value: '#78350f' },
+  { name: 'Gray',   value: '#6b7280' },
+]
+
+// Utility kinds + their default colors
+const UTILITY_KINDS: { kind: string; label: string; color: string }[] = [
+  { kind: 'electric',   label: 'Electric',         color: '#dc2626' },
+  { kind: 'gas',        label: 'Gas',              color: '#eab308' },
+  { kind: 'water',      label: 'Water',            color: '#2563eb' },
+  { kind: 'sewer',      label: 'Sewer',            color: '#16a34a' },
+  { kind: 'telecom',    label: 'Telecommunications', color: '#f97316' },
+  { kind: 'irrigation', label: 'Irrigation',       color: '#9333ea' },
+  { kind: 'custom',     label: 'Other',            color: '#ffffff' },
+]
 
 /* ───────── persistence ───────── */
 
@@ -159,6 +187,14 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
   const customers = useMemo(() => loadCustomers(), [showSaveModal])
+  // Global color palette
+  const [paletteColor, setPaletteColor] = useState<string>('')  // '' = use mode default
+  // Utility kind (applies only while drawing utility lines)
+  const [utilityKind, setUtilityKind] = useState<string>('electric')
+  // Element selection + edit popover
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null)
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null)
+  const [showEditPopover, setShowEditPopover] = useState(false)
 
   // Google Maps objects for rendering
   const polylinesRef = useRef<google.maps.Polyline[]>([])
@@ -230,6 +266,7 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
       const marker: DrawnMarker = {
         id: uid(), type: m, position: pt,
         label: m === 'gate_walk' ? 'Walk Gate' : 'Double Gate',
+        color: paletteColor || undefined,
       }
       setMarkers(prev => [...prev, marker])
       renderAllObjects([...lines], [...markers, marker])
@@ -239,7 +276,7 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
     if (m === 'text') {
       const text = prompt('Enter label text:')
       if (!text) return
-      const marker: DrawnMarker = { id: uid(), type: 'text', position: pt, label: text }
+      const marker: DrawnMarker = { id: uid(), type: 'text', position: pt, label: text, color: paletteColor || undefined }
       setMarkers(prev => [...prev, marker])
       renderAllObjects([...lines], [...markers, marker])
       return
@@ -247,7 +284,7 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
 
     if (m === 'arrow') {
       const text = prompt('Enter note for arrow:') || ''
-      const marker: DrawnMarker = { id: uid(), type: 'arrow', position: pt, label: text || 'Access' }
+      const marker: DrawnMarker = { id: uid(), type: 'arrow', position: pt, label: text || 'Access', color: paletteColor || undefined }
       setMarkers(prev => [...prev, marker])
       renderAllObjects([...lines], [...markers, marker])
       return
@@ -266,11 +303,25 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
     let totalFt = 0
     for (let i = 0; i < pts.length - 1; i++) totalFt += distanceFeet(pts[i], pts[i + 1])
 
+    // Resolve color: for utility lines prefer utilityKind color unless user
+    // has an explicit palette color override; otherwise use palette or mode default.
+    let resolvedColor: string | undefined = paletteColor || undefined
+    let resolvedKind: string | undefined
+    if (lineType === 'utility') {
+      resolvedKind = utilityKind
+      if (!resolvedColor) {
+        const kd = UTILITY_KINDS.find(k => k.kind === utilityKind)
+        if (kd) resolvedColor = kd.color
+      }
+    }
+
     const newLine: DrawnLine = {
       id: uid(),
       type: lineType,
       points: [...pts],
       label: `${totalFt.toFixed(1)} ft`,
+      color: resolvedColor,
+      utilityKind: resolvedKind,
     }
 
     const updatedLines = [...lines, newLine]
@@ -315,11 +366,12 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
     // Draw lines
     for (const line of allLines) {
       const cfg = LINE_COLORS[line.type] || LINE_COLORS.fence
+      const stroke = line.color || cfg.stroke
 
       const polyline = new google.maps.Polyline({
         map,
         path: line.points,
-        strokeColor: cfg.stroke,
+        strokeColor: stroke,
         strokeWeight: line.type === 'fence' ? 4 : 3,
         strokeOpacity: 0.9,
       })
@@ -328,9 +380,16 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
       if (cfg.dash) {
         polyline.setOptions({
           strokeOpacity: 0,
-          icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, strokeColor: cfg.stroke, scale: 3 }, offset: '0', repeat: `${cfg.dash[0] + cfg.dash[1]}px` }],
+          icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, strokeColor: stroke, scale: 3 }, offset: '0', repeat: `${cfg.dash[0] + cfg.dash[1]}px` }],
         })
       }
+
+      // Click handler to select this element
+      polyline.addListener('click', () => {
+        setSelectedLineId(line.id)
+        setSelectedMarkerId(null)
+        setShowEditPopover(true)
+      })
 
       polylinesRef.current.push(polyline)
 
@@ -340,7 +399,7 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
           const a = line.points[i], b = line.points[i + 1]
           const ft = distanceFeet(a, b)
           const el = document.createElement('div')
-          el.style.cssText = `background:${cfg.stroke};color:white;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.3);`
+          el.style.cssText = `background:${stroke};color:white;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.3);`
           el.textContent = `${ft.toFixed(1)} ft`
           const lm = new google.maps.marker.AdvancedMarkerElement({
             map, position: { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 }, content: el,
@@ -353,8 +412,9 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
       if (line.type !== 'fence' && line.points.length >= 2) {
         const a = line.points[0], b = line.points[1]
         const el = document.createElement('div')
-        el.style.cssText = `background:${cfg.stroke};color:white;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.3);`
-        el.textContent = MODE_CONFIG[line.type]?.label || line.type
+        el.style.cssText = `background:${stroke};color:white;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.3);`
+        const kindLabel = line.utilityKind ? UTILITY_KINDS.find(k => k.kind === line.utilityKind)?.label : undefined
+        el.textContent = kindLabel || MODE_CONFIG[line.type]?.label || line.type
         const lm = new google.maps.marker.AdvancedMarkerElement({
           map, position: { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 }, content: el,
         })
@@ -365,20 +425,30 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
     // Draw markers
     for (const mk of allMarkers) {
       const el = document.createElement('div')
+      el.style.cursor = 'pointer'
 
       if (mk.type === 'gate_walk' || mk.type === 'gate_double') {
-        el.style.cssText = `background:${mk.type === 'gate_walk' ? '#16a34a' : '#2563eb'};color:white;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);border:2px solid white;`
+        const bg = mk.color || (mk.type === 'gate_walk' ? '#16a34a' : '#2563eb')
+        el.style.cssText = `background:${bg};color:white;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);border:2px solid white;cursor:pointer;`
         el.textContent = mk.type === 'gate_walk' ? '🚪 Walk Gate' : '🚗 Dbl Gate'
       } else if (mk.type === 'text') {
-        el.style.cssText = 'background:white;color:#111;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,0.2);border:1px solid #ddd;white-space:nowrap;'
+        const bg = mk.color || 'white'
+        const fg = bg === 'white' || /^#(fff|ffffff|eee|eeeeee)$/i.test(bg) ? '#111' : 'white'
+        el.style.cssText = `background:${bg};color:${fg};padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,0.2);border:1px solid #ddd;white-space:nowrap;cursor:pointer;`
         el.textContent = mk.label
       } else if (mk.type === 'arrow') {
-        el.style.cssText = 'background:#374151;color:white;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,0.3);white-space:nowrap;'
+        const bg = mk.color || '#374151'
+        el.style.cssText = `background:${bg};color:white;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,0.3);white-space:nowrap;cursor:pointer;`
         el.textContent = `➡ ${mk.label}`
       }
 
       const gm = new google.maps.marker.AdvancedMarkerElement({
         map, position: mk.position, content: el,
+      })
+      gm.addListener('click', () => {
+        setSelectedMarkerId(mk.id)
+        setSelectedLineId(null)
+        setShowEditPopover(true)
       })
       gmMarkersRef.current.push(gm)
     }
@@ -591,6 +661,44 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
             </div>
           </div>
 
+          {/* Color palette */}
+          <div className="p-3 border-b border-gray-100">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Color</p>
+            <div className="grid grid-cols-5 gap-1.5">
+              <button onClick={() => setPaletteColor('')}
+                className={`h-7 rounded-lg border-2 transition-all flex items-center justify-center text-[10px] font-bold ${paletteColor === '' ? 'border-orange-500 ring-2 ring-orange-200' : 'border-gray-200'}`}
+                title="Use tool default color">
+                <span className="text-gray-400">auto</span>
+              </button>
+              {PALETTE_COLORS.map(c => (
+                <button key={c.value} onClick={() => setPaletteColor(c.value)}
+                  title={c.name}
+                  style={{ backgroundColor: c.value }}
+                  className={`h-7 rounded-lg border-2 transition-all ${paletteColor === c.value ? 'border-orange-500 ring-2 ring-orange-200' : c.value === '#ffffff' ? 'border-gray-300' : 'border-white'}`} />
+              ))}
+              <label className="h-7 rounded-lg border-2 border-gray-200 flex items-center justify-center cursor-pointer relative overflow-hidden bg-gradient-to-br from-pink-400 via-yellow-400 to-blue-500">
+                <input type="color" value={paletteColor || '#000000'}
+                  onChange={e => setPaletteColor(e.target.value)}
+                  className="absolute inset-0 opacity-0 cursor-pointer" />
+              </label>
+            </div>
+            {mode === 'utility' && (
+              <div className="mt-3">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Utility Type</p>
+                <div className="grid grid-cols-2 gap-1">
+                  {UTILITY_KINDS.map(k => (
+                    <button key={k.kind} onClick={() => { setUtilityKind(k.kind); setPaletteColor('') }}
+                      title={k.label}
+                      className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[10px] transition-colors ${utilityKind === k.kind ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                      <span className="w-2.5 h-2.5 rounded-full border border-white/50" style={{ backgroundColor: k.color }} />
+                      <span className="truncate">{k.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Actions */}
           <div className="p-3 border-b border-gray-100 space-y-1">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Actions</p>
@@ -628,6 +736,34 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
               {MODE_CONFIG[mode].hint}
             </p>
           </div>
+
+          {/* Element edit popover */}
+          {showEditPopover && (selectedLineId || selectedMarkerId) && (
+            <div className="absolute top-3 right-3 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-64 z-50">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-gray-700 uppercase tracking-widest">Edit Element</p>
+                <button onClick={() => { setShowEditPopover(false); setSelectedLineId(null); setSelectedMarkerId(null) }}
+                  className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              </div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Change Color</p>
+              <div className="grid grid-cols-5 gap-1 mb-2">
+                {PALETTE_COLORS.map(c => (
+                  <button key={c.value} onClick={() => {
+                    if (selectedLineId) setLines(prev => prev.map(l => l.id === selectedLineId ? { ...l, color: c.value } : l))
+                    if (selectedMarkerId) setMarkers(prev => prev.map(m => m.id === selectedMarkerId ? { ...m, color: c.value } : m))
+                  }}
+                    title={c.name}
+                    style={{ backgroundColor: c.value }}
+                    className={`h-6 rounded border ${c.value === '#ffffff' ? 'border-gray-300' : 'border-white'}`} />
+                ))}
+              </div>
+              <button onClick={() => {
+                if (selectedLineId) setLines(prev => prev.filter(l => l.id !== selectedLineId))
+                if (selectedMarkerId) setMarkers(prev => prev.filter(m => m.id !== selectedMarkerId))
+                setShowEditPopover(false); setSelectedLineId(null); setSelectedMarkerId(null)
+              }} className="w-full text-xs text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg text-left">✕ Delete</button>
+            </div>
+          )}
 
           {/* Active drawing indicator */}
           {activePoints.length > 0 && (
