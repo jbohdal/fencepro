@@ -7,8 +7,7 @@
 
 import { fireCustomerCreated } from './automationTrigger'
 import { addLeadForNewCustomer } from './pipelineSeeder'
-import { ensurePortalAccount, buildActivationLink } from './portalAccountStore'
-import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
+import { ensurePortalAccount } from './portalAccountStore'
 
 const KEY = 'fencepro_customers'
 const EVT = 'fencepro:customers:updated'
@@ -136,29 +135,18 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
     })
   } catch {}
 
-  // Auto-create a customer portal account if we have an email
+  // Auto-create a customer portal account (token only — the actual email
+  // is sent when the user clicks "Send Portal Invite" on the profile,
+  // which opens their mail client with the invite prefilled. Creating the
+  // token up front means the link is ready to send instantly.
   try {
     if (fresh.email && fresh.email.trim()) {
       const result = ensurePortalAccount({
         id: fresh.id, firstName: fresh.firstName, lastName: fresh.lastName, email: fresh.email,
       })
       if (result && result.created && result.rawToken) {
-        // Render the invite email using the configured portal_welcome template
-        // and log it locally (the real send goes via the portal backend when
-        // that is configured — here we log it to the activity feed).
-        const tpl = getEmailTemplate('portal_welcome')
-        const companyName = (() => {
-          try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.name || 'FencePro' } catch {}
-          return 'FencePro'
-        })()
-        const rendered = renderTemplate(tpl, {
-          customer_first_name: fresh.firstName || 'there',
-          customer_name: `${fresh.firstName} ${fresh.lastName}`.trim(),
-          company_name: companyName,
-          portal_link: buildActivationLink(result.rawToken),
-        })
         logCustomerActivity(fresh.id,
-          `Portal invite emailed · subject "${rendered.subject}"`,
+          `Portal account created — invite ready to send`,
           { actor: 'system', kind: 'info' })
       }
     }

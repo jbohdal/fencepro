@@ -15,6 +15,8 @@ import QuoteDetailDrawer from './QuoteDetailDrawer'
 import type { SavedQuote } from './QuotesPage'
 import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
 import { getPortalAccessStatus, resendInvite, ensurePortalAccount, buildActivationLink } from './portalAccountStore'
+import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
+import { logCustomerActivity } from './customerStore'
 
 interface Customer {
   id: string
@@ -1248,7 +1250,11 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
           customerEmail: c.email, customerPhone: c.phone,
           jobAddress: c.serviceAddress, assignedRep: c.salesRep,
         })
-        toast.success('Customer added', 'Also placed on Sales Pipeline under First Contact.')
+        if (c.email) {
+          toast.success('Customer added', 'On Sales Pipeline at First Contact · portal account ready — click "Send Portal Invite" on their profile to deliver the link.')
+        } else {
+          toast.success('Customer added', 'Also placed on Sales Pipeline under First Contact.')
+        }
       } else {
         toast.success('Customer updated')
       }
@@ -1582,17 +1588,61 @@ function PortalAccessBadge({ customer }: { customer: Customer }) {
   const [bump, setBump] = useState(0)
   const status = getPortalAccessStatus(customer.id)
 
+  function composeInviteEmail(rawToken: string) {
+    const link = buildActivationLink(rawToken)
+    const tpl = getEmailTemplate('portal_welcome')
+    const companyName = (() => {
+      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.name || 'FencePro' } catch {}
+      return 'FencePro'
+    })()
+    const companyPhone = (() => {
+      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.phone || '' } catch {}
+      return ''
+    })()
+    const rendered = renderTemplate(tpl, {
+      customer_first_name: customer.firstName || 'there',
+      customer_name: `${customer.firstName} ${customer.lastName}`.trim(),
+      company_name: companyName,
+      company_phone: companyPhone,
+      portal_link: link,
+    })
+    // Strip HTML for mailto body; keep the link on its own line so clients render it
+    const plainBody = rendered.body
+      .replace(/<a[^>]*href="([^"]+)"[^>]*>[^<]*<\/a>/g, '$1')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+    const mailto = `mailto:${encodeURIComponent(customer.email)}?subject=${encodeURIComponent(rendered.subject)}&body=${encodeURIComponent(plainBody)}`
+    // Copy link to clipboard as a fallback
+    navigator.clipboard?.writeText(link).catch(() => {})
+    // Open the user's email client
+    window.open(mailto, '_blank')
+    // Log on the customer so there's a record
+    logCustomerActivity(customer.id,
+      `Portal invite opened in email client · expires in 7 days`,
+      { actor: 'user', kind: 'info' })
+  }
+
   function sendInvite() {
-    if (!customer.email) { toast.warning('No email on file', 'Add an email to the customer to send a portal invite.'); return }
+    if (!customer.email) {
+      toast.warning('No email on file', 'Add an email to this customer to send a portal invite.')
+      return
+    }
     const r = ensurePortalAccount({
       id: customer.id, firstName: customer.firstName, lastName: customer.lastName, email: customer.email,
     })
     if (r?.rawToken) {
-      const link = buildActivationLink(r.rawToken)
-      navigator.clipboard?.writeText(link).catch(() => {})
-      toast.success('Portal invite sent', `Activation link copied to clipboard · expires in 7 days`)
-    } else {
-      toast.info('Portal already exists for this customer')
+      composeInviteEmail(r.rawToken)
+      toast.success('Opening your email client', 'Invite is prefilled — click Send to deliver. Link also copied to clipboard.')
+    } else if (r) {
+      // Account already exists but has no active token — force a fresh invite
+      const resent = resendInvite(customer.id)
+      if (resent) {
+        composeInviteEmail(resent.rawToken)
+        toast.success('Opening your email client', 'Fresh invite prefilled — click Send.')
+      } else {
+        toast.info('Portal already active for this customer', 'Use Resend to issue a new invite.')
+      }
     }
     setBump(b => b + 1)
   }
@@ -1600,9 +1650,8 @@ function PortalAccessBadge({ customer }: { customer: Customer }) {
   function handleResend() {
     const r = resendInvite(customer.id)
     if (r) {
-      const link = buildActivationLink(r.rawToken)
-      navigator.clipboard?.writeText(link).catch(() => {})
-      toast.success('New invite issued', 'Activation link copied to clipboard')
+      composeInviteEmail(r.rawToken)
+      toast.success('New invite ready', 'Your email client opened with the fresh link prefilled. Click Send.')
       setBump(b => b + 1)
     }
   }
