@@ -14,6 +14,8 @@ import { ensureShareForQuote, stampSent, getShareByQuoteId } from './quoteShareS
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { getOptionsForQuote } from './bundleStore'
 import { toast } from './toast'
+import { TEMPLATES, getDefaultTemplateKey, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
+import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -215,6 +217,11 @@ export default function QuoteDetailDrawer({
           )}
         </div>
 
+        {/* Template picker + preview */}
+        <div className="px-8 py-3 border-t border-gray-100 bg-gray-50">
+          <TemplatePicker quote={quote} onChange={onChange} />
+        </div>
+
         {/* Actions */}
         <div className="sticky bottom-0 bg-white border-t border-gray-100 px-8 py-4 flex flex-wrap gap-2 justify-end">
           {onEdit && (
@@ -238,6 +245,75 @@ export default function QuoteDetailDrawer({
         )}
       </div>
     </div>
+  )
+}
+
+// ── Template picker + preview ──
+
+function TemplatePicker({ quote, onChange }: { quote: SavedQuote & QuotePresentation; onChange?: () => void }) {
+  const [active, setActive] = useState<TemplateKey>(((quote as any).templateKey as TemplateKey) || getDefaultTemplateKey())
+  const [previewOpen, setPreviewOpen] = useState(false)
+
+  function saveTemplate(key: TemplateKey) {
+    setActive(key)
+    try {
+      const raw = localStorage.getItem('fencepro_quotes')
+      if (raw) {
+        const all = JSON.parse(raw)
+        const idx = all.findIndex((q: any) => q.id === quote.id)
+        if (idx >= 0) {
+          all[idx] = { ...all[idx], templateKey: key }
+          localStorage.setItem('fencepro_quotes', JSON.stringify(all))
+          window.dispatchEvent(new CustomEvent('fencepro:quotes:updated'))
+          onChange?.()
+        }
+      }
+    } catch {}
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex-1">
+          <p className="text-[10px] font-bold uppercase text-gray-500 tracking-widest mb-1.5">Quote Template</p>
+          <div className="flex gap-1.5 flex-wrap">
+            {(Object.values(TEMPLATES)).map(t => (
+              <button key={t.key} onClick={() => saveTemplate(t.key)}
+                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${active === t.key ? 'bg-gray-900 text-white border-gray-900' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}
+                title={t.description}>
+                {t.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button onClick={() => setPreviewOpen(true)}
+          className="text-sm border border-gray-300 text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded-lg h-fit">
+          Preview Quote
+        </button>
+      </div>
+
+      {previewOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex flex-col" onClick={() => setPreviewOpen(false)}>
+          <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-900">Preview — {TEMPLATES[active].name}</p>
+            <div className="flex gap-2">
+              {(Object.values(TEMPLATES)).map(t => (
+                <button key={t.key} onClick={() => saveTemplate(t.key)}
+                  className={`text-xs px-3 py-1.5 rounded-lg ${active === t.key ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                  {t.name}
+                </button>
+              ))}
+              <button onClick={() => setPreviewOpen(false)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto bg-gray-200" onClick={e => e.stopPropagation()}>
+            <div className="bg-white my-4 mx-auto max-w-4xl shadow-xl">
+              <QuoteTemplateRenderer quote={quote as any} template={TEMPLATES[active]} interactive={false} />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

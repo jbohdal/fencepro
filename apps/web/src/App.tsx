@@ -32,6 +32,7 @@ import PublicPresentationPage from './PublicPresentationPage'
 import PendingOrdersPage from './PendingOrdersPage'
 import SitePlansPage from './SitePlansPage'
 import InventoryPage from './InventoryPage'
+import CustomerPortalApp from './CustomerPortalApp'
 import NotificationBell from './NotificationBell'
 import PublicQuotePage from './PublicQuotePage'
 import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
@@ -199,6 +200,22 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
   const [crmUser, setCrmUser] = useState<CrmUser | null>(null)
 
   useEffect(() => {
+    function onFirstView(e: any) {
+      const quoteId = e?.detail?.quoteId
+      if (!quoteId) return
+      try {
+        const raw = localStorage.getItem('fencepro_quotes')
+        const all = raw ? JSON.parse(raw) : []
+        const q = all.find((x: any) => x.id === quoteId)
+        if (!q) return
+        toast.success('Quote viewed', `${q.customerName || 'Customer'} just opened their quote — great time to follow up!`)
+      } catch {}
+    }
+    window.addEventListener('fencepro:quote_first_viewed', onFirstView)
+    return () => window.removeEventListener('fencepro:quote_first_viewed', onFirstView)
+  }, [])
+
+  useEffect(() => {
     setSessionExpiredHandler(() => {
       setCrmUser(null)
       toast.warning('Your session has expired', 'Please log in again — your local work has been preserved.')
@@ -259,6 +276,10 @@ export default function App() {
   const quoteMatch = hash.match(/^#\/quote\/([a-zA-Z0-9_-]+)/)
   if (quoteMatch) {
     return <PublicQuotePage token={quoteMatch[1]} />
+  }
+  const portalMatch = hash.match(/^#\/portal\/([a-zA-Z]+)(?:\?.*)?$/)
+  if (portalMatch) {
+    return <CustomerPortalApp route={portalMatch[1]} />
   }
 
   return (

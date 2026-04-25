@@ -610,6 +610,7 @@ export default function QuotesPage({
                   <td className="px-4 py-3 text-right text-gray-400 text-xs">{q.date}</td>
                   <td className="px-4 py-3 text-right">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[q.status]}`}>{q.status}</span>
+                    <EngagementIndicator quote={q} />
                   </td>
                 </tr>
               ))}
@@ -703,4 +704,19 @@ export default function QuotesPage({
       )}
     </div>
   )
+}
+function EngagementIndicator({ quote }: { quote: SavedQuote & { viewCount?: number; viewedAt?: string; acceptedAt?: string } }) {
+  if (quote.acceptedAt || quote.status === 'SOLD') {
+    return <span className="ml-2 text-xs text-green-600" title={`Accepted${quote.acceptedAt ? ' ' + new Date(quote.acceptedAt).toLocaleDateString() : ''}`}>✓</span>
+  }
+  if ((quote.viewCount || 0) > 0) {
+    return <span className="ml-2 text-[10px] text-gray-500" title={`${quote.viewCount} view${quote.viewCount === 1 ? '' : 's'}${quote.viewedAt ? ' · first ' + new Date(quote.viewedAt).toLocaleDateString() : ''}`}>👁 {quote.viewCount}</span>
+  }
+  if (quote.status === 'SENT' && quote.date) {
+    const days = Math.floor((Date.now() - new Date(quote.date).getTime()) / 864e5)
+    if (days >= 0) {
+      return <span className="ml-2 text-[10px] text-gray-400" title={`Sent ${days} day${days === 1 ? '' : 's'} ago, not yet viewed`}>⌛ {days}d</span>
+    }
+  }
+  return null
 }

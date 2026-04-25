@@ -7,6 +7,8 @@
 
 import { fireCustomerCreated } from './automationTrigger'
 import { addLeadForNewCustomer } from './pipelineSeeder'
+import { ensurePortalAccount, buildActivationLink } from './portalAccountStore'
+import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 
 const KEY = 'fencepro_customers'
 const EVT = 'fencepro:customers:updated'
@@ -134,6 +136,34 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
     })
   } catch {}
 
+  // Auto-create a customer portal account if we have an email
+  try {
+    if (fresh.email && fresh.email.trim()) {
+      const result = ensurePortalAccount({
+        id: fresh.id, firstName: fresh.firstName, lastName: fresh.lastName, email: fresh.email,
+      })
+      if (result && result.created && result.rawToken) {
+        // Render the invite email using the configured portal_welcome template
+        // and log it locally (the real send goes via the portal backend when
+        // that is configured — here we log it to the activity feed).
+        const tpl = getEmailTemplate('portal_welcome')
+        const companyName = (() => {
+          try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.name || 'FencePro' } catch {}
+          return 'FencePro'
+        })()
+        const rendered = renderTemplate(tpl, {
+          customer_first_name: fresh.firstName || 'there',
+          customer_name: `${fresh.firstName} ${fresh.lastName}`.trim(),
+          company_name: companyName,
+          portal_link: buildActivationLink(result.rawToken),
+        })
+        logCustomerActivity(fresh.id,
+          `Portal invite emailed · subject "${rendered.subject}"`,
+          { actor: 'system', kind: 'info' })
+      }
+    }
+  } catch {}
+
   return { customer: fresh, created: true }
 }
 
@@ -141,8 +171,23 @@ export function updateCustomer(id: string, updates: Partial<Customer>): Customer
   const all = getCustomers()
   const idx = all.findIndex(c => c.id === id)
   if (idx < 0) return null
-  all[idx] = { ...all[idx], ...updates }
+  const prev = all[idx]
+  all[idx] = { ...prev, ...updates }
   saveAll(all)
+
+  // If email was just added (or changed from empty), auto-issue a portal invite
+  const hadEmail = !!(prev.email || '').trim()
+  const hasEmail = !!(all[idx].email || '').trim()
+  if (!hadEmail && hasEmail) {
+    try {
+      const result = ensurePortalAccount({
+        id: all[idx].id, firstName: all[idx].firstName, lastName: all[idx].lastName, email: all[idx].email,
+      })
+      if (result?.created && result.rawToken) {
+        logCustomerActivity(all[idx].id, `Portal invite emailed (email added)`, { actor: 'system', kind: 'info' })
+      }
+    } catch {}
+  }
   return all[idx]
 }
 

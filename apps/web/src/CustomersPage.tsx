@@ -14,6 +14,7 @@ import { fireCustomerCreated } from './automationTrigger'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import type { SavedQuote } from './QuotesPage'
 import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
+import { getPortalAccessStatus, resendInvite, ensurePortalAccount, buildActivationLink } from './portalAccountStore'
 
 interface Customer {
   id: string
@@ -853,6 +854,7 @@ function CustomerDetail({
             </div>
           </div>
           <div className="flex gap-2">
+            <PortalAccessBadge customer={customer} />
             <button onClick={() => onNewQuote(customer)} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg">+ New Quote</button>
             <button onClick={onEdit} className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50">Edit</button>
           </div>
@@ -1574,5 +1576,60 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
         />
       )}
     </div>
+  )
+}
+function PortalAccessBadge({ customer }: { customer: Customer }) {
+  const [bump, setBump] = useState(0)
+  const status = getPortalAccessStatus(customer.id)
+
+  function sendInvite() {
+    if (!customer.email) { toast.warning('No email on file', 'Add an email to the customer to send a portal invite.'); return }
+    const r = ensurePortalAccount({
+      id: customer.id, firstName: customer.firstName, lastName: customer.lastName, email: customer.email,
+    })
+    if (r?.rawToken) {
+      const link = buildActivationLink(r.rawToken)
+      navigator.clipboard?.writeText(link).catch(() => {})
+      toast.success('Portal invite sent', `Activation link copied to clipboard · expires in 7 days`)
+    } else {
+      toast.info('Portal already exists for this customer')
+    }
+    setBump(b => b + 1)
+  }
+
+  function handleResend() {
+    const r = resendInvite(customer.id)
+    if (r) {
+      const link = buildActivationLink(r.rawToken)
+      navigator.clipboard?.writeText(link).catch(() => {})
+      toast.success('New invite issued', 'Activation link copied to clipboard')
+      setBump(b => b + 1)
+    }
+  }
+
+  // Re-render on bump
+  void bump
+
+  if (status.state === 'active') {
+    return (
+      <span className="text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-medium" title={`Last login ${status.lastLogin ? new Date(status.lastLogin).toLocaleDateString() : '—'}`}>
+        ✓ Portal Active
+      </span>
+    )
+  }
+  if (status.state === 'invited') {
+    return (
+      <button onClick={handleResend}
+        className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg font-medium"
+        title={`Invited ${status.invitedAt ? new Date(status.invitedAt).toLocaleDateString() : ''} — click to resend`}>
+        Invite Sent · Resend
+      </button>
+    )
+  }
+  return (
+    <button onClick={sendInvite}
+      className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg font-medium">
+      Send Portal Invite
+    </button>
   )
 }

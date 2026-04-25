@@ -24,6 +24,7 @@ export type TemplateKey =
   | 'rain_day'
   | 'welcome_customer'
   | 'overdue_invoice'
+  | 'portal_welcome'
 
 export const ALL_MERGE_TAGS = [
   '{{customer_name}}', '{{customer_first_name}}',
@@ -104,6 +105,16 @@ export const DEFAULT_TEMPLATES: EmailTemplate[] = [
     body: `<p>Hi {{customer_first_name}},</p>
 <p>Welcome to {{company_name}}! We're excited to work with you. You'll hear from {{rep_name}} soon with next steps.</p>
 <p>— The {{company_name}} team</p>`,
+  },
+  {
+    key: 'portal_welcome',
+    name: 'Customer Portal Welcome',
+    subject: 'Your {{company_name}} customer portal is ready',
+    body: `<p>Hi {{customer_first_name}},</p>
+<p>Your {{company_name}} customer portal is ready. You can view your quotes, track your project, see invoices, and upload documents — all in one place.</p>
+<p><a href="{{portal_link}}" style="background:#f97316;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:600;">Access Your Portal</a></p>
+<p style="font-size:12px;color:#666;">This link expires in 7 days. If it expires, contact us and we'll send a new one.</p>
+<p>— {{company_name}} · {{company_phone}}</p>`,
   },
   {
     key: 'overdue_invoice',

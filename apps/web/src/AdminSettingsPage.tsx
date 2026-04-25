@@ -5,9 +5,11 @@ import {
 } from './configStore'
 import OperationsStagesSettings from './OperationsStagesSettings'
 import EmailTemplatesSettings from './EmailTemplatesSettings'
+import ContractTemplatesSettings from './ContractTemplatesSettings'
+import PortalQuoteSettings from './PortalQuoteSettings'
 import { toast } from './toast'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -386,8 +388,10 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'leads',           label: 'Lead Sources' },
   { key: 'tags',            label: 'Tags' },
   { key: 'pipeline',        label: 'Pipeline Stages' },
-  { key: 'ops_stages',      label: 'Operations Stages' },
-  { key: 'email_templates', label: 'Email Templates' },
+  { key: 'ops_stages',         label: 'Operations Stages' },
+  { key: 'email_templates',    label: 'Email Templates' },
+  { key: 'contract_templates', label: 'Contract Templates' },
+  { key: 'portal_quote',       label: 'Portal & Quotes' },
 ]
 
 export default function AdminSettingsPage() {
@@ -483,6 +487,8 @@ export default function AdminSettingsPage() {
           )}
           {tab === 'ops_stages' && <OperationsStagesSettings />}
           {tab === 'email_templates' && <EmailTemplatesSettings />}
+          {tab === 'contract_templates' && <ContractTemplatesSettings />}
+          {tab === 'portal_quote' && <PortalQuoteSettings />}
         </div>
       </div>
     </div>
