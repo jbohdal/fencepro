@@ -14,7 +14,7 @@ import { fireCustomerCreated } from './automationTrigger'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import type { SavedQuote } from './QuotesPage'
 import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
-import { getPortalAccessStatus, resendInvite, ensurePortalAccount, buildActivationLink } from './portalAccountStore'
+import { getPortalAccessStatus, loadAccountsSoon, sendPortalInvite, resendPortalInvite, buildActivationLink } from './portalAccountStore'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity } from './customerStore'
 
@@ -1586,100 +1586,19 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
     </div>
   )
 }
-function PortalAccessBadge({ customer }: { customer: Customer }) {
-  const [bump, setBump] = useState(0)
-  const status = getPortalAccessStatus(customer.id)
-
-  function composeInviteEmail(rawToken: string) {
-    const link = buildActivationLink(rawToken)
-    const tpl = getEmailTemplate('portal_welcome')
-    const companyName = (() => {
-      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.name || 'FencePro' } catch {}
-      return 'FencePro'
-    })()
-    const companyPhone = (() => {
-      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.phone || '' } catch {}
-      return ''
-    })()
-    const rendered = renderTemplate(tpl, {
-      customer_first_name: customer.firstName || 'there',
-      customer_name: `${customer.firstName} ${customer.lastName}`.trim(),
-      company_name: companyName,
-      company_phone: companyPhone,
-      portal_link: link,
-    })
-    // Strip HTML for mailto body; keep the link on its own line so clients render it
-    const plainBody = rendered.body
-      .replace(/<a[^>]*href="([^"]+)"[^>]*>[^<]*<\/a>/g, '$1')
-      .replace(/<[^>]+>/g, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
-    const mailto = `mailto:${encodeURIComponent(customer.email)}?subject=${encodeURIComponent(rendered.subject)}&body=${encodeURIComponent(plainBody)}`
-    // Copy link to clipboard as a fallback
-    navigator.clipboard?.writeText(link).catch(() => {})
-    // Open the user's email client
-    window.open(mailto, '_blank')
-    // Log on the customer so there's a record
-    logCustomerActivity(customer.id,
-      `Portal invite opened in email client · expires in 7 days`,
-      { actor: 'user', kind: 'info' })
-  }
-
-  function sendInvite() {
-    if (!customer.email) {
-      toast.warning('No email on file', 'Add an email to this customer to send a portal invite.')
-      return
-    }
-    const r = ensurePortalAccount({
-      id: customer.id, firstName: customer.firstName, lastName: customer.lastName, email: customer.email,
-    })
-    if (r?.rawToken) {
-      composeInviteEmail(r.rawToken)
-      toast.success('Opening your email client', 'Invite is prefilled — click Send to deliver. Link also copied to clipboard.')
-    } else if (r) {
-      // Account already exists but has no active token — force a fresh invite
-      const resent = resendInvite(customer.id)
-      if (resent) {
-        composeInviteEmail(resent.rawToken)
-        toast.success('Opening your email client', 'Fresh invite prefilled — click Send.')
-      } else {
-        toast.info('Portal already active for this customer', 'Use Resend to issue a new invite.')
-      }
-    }
-    setBump(b => b + 1)
-  }
-
-  function handleResend() {
-    const r = resendInvite(customer.id)
-    if (r) {
-      composeInviteEmail(r.rawToken)
-      toast.success('New invite ready', 'Your email client opened with the fresh link prefilled. Click Send.')
-      setBump(b => b + 1)
-    }
-  }
-
-  // Re-render on bump
-  void bump
-
-  // Badge-style compact rendering (kept for any other place that still wants
-  // the inline badge; not used in the main header anymore).
-  if (status.state === 'active') {
-    return <span className="text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-medium">✓ Portal Active</span>
-  }
-  if (status.state === 'invited') {
-    return <button onClick={handleResend} className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg font-medium">Invite Sent · Resend</button>
-  }
-  return <button onClick={sendInvite} className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg font-medium">Send Portal Invite</button>
-}
-
 // Full-width, prominent Portal Access panel rendered in the customer profile
 // header area below the stats row.
 function PortalAccessSection({ customer }: { customer: Customer }) {
   const [bump, setBump] = useState(0)
+  const [busy, setBusy] = useState(false)
+
+  // Kick off a backend refresh on mount so the cached status is fresh
+  useEffect(() => { loadAccountsSoon().then(() => setBump(b => b + 1)).catch(() => {}) }, [customer.id])
   void bump
   const status = getPortalAccessStatus(customer.id)
 
-  function composeInviteEmail(rawToken: string) {
+  function composeFallbackMailto(rawToken: string) {
+    // Fallback used when the server couldn't send the email itself
     const link = buildActivationLink(rawToken)
     const tpl = getEmailTemplate('portal_welcome')
     const companyName = (() => {
@@ -1705,45 +1624,71 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
     const mailto = `mailto:${encodeURIComponent(customer.email)}?subject=${encodeURIComponent(rendered.subject)}&body=${encodeURIComponent(plainBody)}`
     navigator.clipboard?.writeText(link).catch(() => {})
     window.open(mailto, '_blank')
-    logCustomerActivity(customer.id, `Portal invite opened in email client · expires in 7 days`, { actor: 'user', kind: 'info' })
-    return link
   }
 
-  function handleSend() {
+  async function handleSend() {
     if (!customer.email) {
       toast.warning('No email on file', 'Add an email to this customer to send a portal invite.')
       return
     }
-    const r = ensurePortalAccount({ id: customer.id, firstName: customer.firstName, lastName: customer.lastName, email: customer.email })
-    if (r?.rawToken) {
-      composeInviteEmail(r.rawToken)
-      toast.success('Opening your email client', 'Invite is prefilled — click Send to deliver. Link also copied to clipboard.')
-    } else if (r) {
-      const resent = resendInvite(customer.id)
-      if (resent) {
-        composeInviteEmail(resent.rawToken)
-        toast.success('Fresh invite prefilled', 'Click Send in your email client to deliver.')
-      }
+    setBusy(true)
+    const r = await sendPortalInvite({
+      id: customer.id, email: customer.email,
+      firstName: customer.firstName, lastName: customer.lastName,
+    })
+    setBusy(false)
+    if (!r.ok) {
+      toast.error('Could not send portal invite', r.error || 'Unknown error')
+      return
     }
+    const { data } = r
+    if (!data) return
+    // Always copy link to clipboard as a safety net
+    try { navigator.clipboard?.writeText(data.activationUrl) } catch {}
+    if (data.emailSent) {
+      toast.success('Portal invite sent', `Email delivered to ${customer.email}. Link also copied to clipboard.`)
+      logCustomerActivity(customer.id, `Portal invite emailed to ${customer.email}`, { actor: 'user', kind: 'info' })
+    } else {
+      // Email service not configured on the backend — hand off to the staff's email client
+      // Extract raw token from the URL and open mailto
+      const tok = (data.activationUrl.match(/token=([a-f0-9]+)/i) || [])[1]
+      if (tok) composeFallbackMailto(tok)
+      toast.warning('Email service offline — using your email client',
+        'The server could not send directly. Your email client opened with the invite prefilled. Click Send there.')
+      logCustomerActivity(customer.id, `Portal invite opened in email client (server send disabled)`, { actor: 'user', kind: 'info' })
+    }
+    await loadAccountsSoon()
     setBump(b => b + 1)
   }
 
-  function handleResend() {
-    const r = resendInvite(customer.id)
-    if (r) {
-      composeInviteEmail(r.rawToken)
-      toast.success('New invite ready', 'Email client opened with a fresh link prefilled.')
+  async function handleResend() {
+    setBusy(true)
+    const r = await resendPortalInvite(customer.email)
+    setBusy(false)
+    if (r.ok) {
+      toast.success('New invite requested', 'Customer will receive a fresh activation link.')
+      await loadAccountsSoon()
       setBump(b => b + 1)
+    } else if (r.error === 'RATE_LIMITED') {
+      toast.warning('Too many requests', 'Resend limit reached for this email — try again in an hour.')
+    } else {
+      toast.error('Could not resend', r.error)
     }
   }
 
-  function handleCopyLink() {
-    const r = ensurePortalAccount({ id: customer.id, firstName: customer.firstName, lastName: customer.lastName, email: customer.email || '' })
-      || { rawToken: resendInvite(customer.id)?.rawToken }
-    if (r?.rawToken) {
-      const link = buildActivationLink(r.rawToken)
-      navigator.clipboard?.writeText(link).catch(() => {})
-      toast.success('Activation link copied to clipboard')
+  async function handleCopyLink() {
+    // Re-issue an invite to get a fresh token we can copy.
+    setBusy(true)
+    const r = await sendPortalInvite({
+      id: customer.id, email: customer.email || '',
+      firstName: customer.firstName, lastName: customer.lastName,
+    })
+    setBusy(false)
+    if (r.ok && r.data) {
+      try { await navigator.clipboard?.writeText(r.data.activationUrl) } catch {}
+      toast.success('Activation link copied', 'A fresh link was issued and copied to your clipboard.')
+    } else {
+      toast.error('Could not issue a link', r.error)
     }
   }
 

@@ -1,206 +1,169 @@
 /**
- * Customer Portal Accounts — auto-created when a customer has an email.
+ * Customer portal client — talks to the portal backend `/api/portal/*`.
  *
- * Stores invite tokens + hashed passwords + portal sessions in localStorage.
- * In a future server migration these fields correspond 1:1 to Prisma
- * `PortalUser` + `PortalInvite` tables.
+ * The backend owns the source of truth for portal accounts and invite tokens.
+ * This module wraps the HTTP calls and keeps a local-session cache for the
+ * currently logged-in portal user.
  */
 
-const ACCOUNTS_KEY = 'fencepro_portal_accounts'
 const SESSION_KEY = 'fencepro_portal_session'
 const EVT = 'fencepro:portal:updated'
 
-const uid = () => Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10)
-
-// Cheap non-crypto hash for password storage in the browser — NOT suitable
-// for real security, but we're running against a localStorage data plane and
-// the whole portal is non-authoritative (the real auth system is in the
-// portal sub-app). When a server migration lands, this hashing is replaced
-// with bcrypt on the portal backend.
-function weakHash(s: string): string {
-  let h = 5381
-  for (let i = 0; i < s.length; i++) { h = ((h << 5) + h) + s.charCodeAt(i); h = h >>> 0 }
-  return `wh_${h.toString(16)}_${s.length}`
+function apiBase(): string {
+  if (typeof window === 'undefined') return ''
+  return window.location.hostname === 'localhost' ? 'http://localhost:4000' : ''
 }
+
+function staffAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  try {
+    const token = localStorage.getItem('crm_access_token')
+    const key = token || 'dev-sync-key'
+    headers['X-API-Key'] = key
+    if (token) headers['Authorization'] = `Bearer ${token}`
+  } catch {}
+  return headers
+}
+
+function portalAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  try {
+    const raw = localStorage.getItem(SESSION_KEY)
+    if (raw) {
+      const s = JSON.parse(raw)
+      if (s.accessToken) headers['Authorization'] = `Bearer ${s.accessToken}`
+    }
+  } catch {}
+  return headers
+}
+
+// ── Public types ──
+
+export type PortalStatus = 'invited' | 'active' | 'suspended'
 
 export interface PortalAccount {
   id: string
-  customerId: string
+  crmCustomerId: string
   email: string
-  firstName: string
-  lastName: string
-  status: 'invited' | 'active' | 'disabled'
-  passwordHash?: string
-  mustChangePassword: boolean
-  inviteTokenHash?: string
-  inviteTokenExpiresAt?: string
+  firstName: string | null
+  lastName: string | null
+  status: PortalStatus
   invitedAt?: string
+  inviteTokenExpiresAt?: string
   activatedAt?: string
   lastLoginAt?: string
-  createdAt: string
-  updatedAt: string
 }
 
-export interface PortalInviteLog {
-  id: string
+export interface InviteResult {
   accountId: string
-  customerId: string
-  email: string
-  sentAt: string
+  status: PortalStatus
   expiresAt: string
+  activationUrl: string
+  emailSent: boolean
+  emailError?: string
 }
 
-export function getAccounts(): PortalAccount[] {
-  try { const r = localStorage.getItem(ACCOUNTS_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
-}
-function saveAccounts(list: PortalAccount[]) {
-  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list))
-  try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
-}
-
-export function getAccountByCustomerId(customerId: string): PortalAccount | null {
-  return getAccounts().find(a => a.customerId === customerId) || null
-}
-export function getAccountByEmail(email: string): PortalAccount | null {
-  const e = (email || '').toLowerCase()
-  return getAccounts().find(a => a.email.toLowerCase() === e) || null
-}
-export function getAccountByTokenHash(tokenHash: string): PortalAccount | null {
-  return getAccounts().find(a => a.inviteTokenHash === tokenHash) || null
-}
-
-function issueToken(): { raw: string; hash: string } {
-  const raw = uid() + uid() + uid()  // ~48 chars
-  return { raw, hash: weakHash(raw) }
-}
-
-function addInviteLog(account: PortalAccount): void {
-  try {
-    const key = 'fencepro_portal_invites'
-    const raw = localStorage.getItem(key)
-    const list: PortalInviteLog[] = raw ? JSON.parse(raw) : []
-    list.unshift({
-      id: uid(), accountId: account.id, customerId: account.customerId,
-      email: account.email,
-      sentAt: new Date().toISOString(),
-      expiresAt: account.inviteTokenExpiresAt || new Date(Date.now() + 7 * 864e5).toISOString(),
-    })
-    localStorage.setItem(key, JSON.stringify(list.slice(0, 500)))
-  } catch {}
-}
+// ── Invite management (staff-initiated) ──
 
 /**
- * Ensure a portal account exists for this customer. If one exists, it is
- * returned unchanged. If the customer has no email, returns null. Returns
- * the account and the raw invite token so the caller can produce a link.
+ * Create or refresh an invite for the given CRM customer. Always returns the
+ * activation URL so the UI can optionally copy it to the clipboard or open an
+ * email client as a fallback. Sends an email server-side if SendGrid is
+ * configured.
  */
-export function ensurePortalAccount(customer: { id: string; firstName?: string; lastName?: string; email?: string }): { account: PortalAccount; rawToken?: string; created: boolean } | null {
-  const email = (customer.email || '').trim()
-  if (!email) return null
+export async function sendPortalInvite(customer: { id: string; email: string; firstName?: string; lastName?: string }): Promise<{ ok: boolean; data?: InviteResult; error?: string }> {
+  try {
+    const res = await fetch(`${apiBase()}/api/portal/invite`, {
+      method: 'POST',
+      headers: staffAuthHeaders(),
+      body: JSON.stringify({
+        crmCustomerId: customer.id,
+        email: customer.email,
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
+    try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
+    return { ok: true, data: json.data as InviteResult }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Network error' }
+  }
+}
 
-  const existing = getAccountByCustomerId(customer.id) || getAccountByEmail(email)
-  if (existing) {
-    // Link to this customer id if we matched by email only
-    if (existing.customerId !== customer.id) {
-      const all = getAccounts()
-      const idx = all.findIndex(a => a.id === existing.id)
-      if (idx >= 0) {
-        all[idx] = { ...all[idx], customerId: customer.id, updatedAt: new Date().toISOString() }
-        saveAccounts(all)
-        return { account: all[idx], created: false }
-      }
+export async function resendPortalInvite(email: string): Promise<{ ok: boolean; status?: string; error?: string }> {
+  try {
+    const res = await fetch(`${apiBase()}/api/portal/resend-invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+    const json = await res.json()
+    if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
+    return { ok: true, status: json.data?.status }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Network error' }
+  }
+}
+
+// ── Activation + login + session ──
+
+export interface ActivateResult {
+  ok: boolean
+  error?: string
+  user?: { id: string; email: string; firstName: string | null; lastName: string | null; crmCustomerId: string }
+}
+
+export async function verifyAndActivate(rawToken: string, password: string, confirmPassword?: string): Promise<ActivateResult> {
+  try {
+    const res = await fetch(`${apiBase()}/api/portal/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: rawToken, password, confirmPassword: confirmPassword ?? password }),
+    })
+    const json = await res.json()
+    if (!res.ok || !json.success) {
+      return { ok: false, error: json?.error || `HTTP ${res.status}` }
     }
-    return { account: existing, created: false }
+    // Persist session so the user lands on the dashboard logged in.
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      accountId: json.data.user.id,
+      accessToken: json.data.accessToken,
+      refreshToken: json.data.refreshToken,
+      user: json.data.user,
+      at: new Date().toISOString(),
+    }))
+    try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
+    return { ok: true, user: json.data.user }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Network error' }
   }
-
-  const now = new Date().toISOString()
-  const expires = new Date(Date.now() + 7 * 864e5).toISOString()
-  const { raw, hash } = issueToken()
-  const account: PortalAccount = {
-    id: uid(),
-    customerId: customer.id,
-    email,
-    firstName: customer.firstName || '',
-    lastName: customer.lastName || '',
-    status: 'invited',
-    mustChangePassword: true,
-    inviteTokenHash: hash,
-    inviteTokenExpiresAt: expires,
-    invitedAt: now,
-    createdAt: now,
-    updatedAt: now,
-  }
-  const all = getAccounts()
-  all.unshift(account)
-  saveAccounts(all)
-  addInviteLog(account)
-  return { account, rawToken: raw, created: true }
 }
 
-export function resendInvite(customerId: string): { account: PortalAccount; rawToken: string } | null {
-  const all = getAccounts()
-  const idx = all.findIndex(a => a.customerId === customerId)
-  if (idx < 0) return null
-  const { raw, hash } = issueToken()
-  const now = new Date().toISOString()
-  const expires = new Date(Date.now() + 7 * 864e5).toISOString()
-  all[idx] = {
-    ...all[idx],
-    inviteTokenHash: hash,
-    inviteTokenExpiresAt: expires,
-    invitedAt: now,
-    updatedAt: now,
-    status: all[idx].status === 'active' ? 'active' : 'invited',
+export async function login(email: string, password: string): Promise<ActivateResult> {
+  try {
+    const res = await fetch(`${apiBase()}/api/portal/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
+    const json = await res.json()
+    if (!res.ok || !json.success) {
+      return { ok: false, error: json?.error || 'INVALID_CREDENTIALS' }
+    }
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      accountId: json.data.user.id,
+      accessToken: json.data.accessToken,
+      refreshToken: json.data.refreshToken,
+      user: json.data.user,
+      at: new Date().toISOString(),
+    }))
+    try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
+    return { ok: true, user: json.data.user }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Network error' }
   }
-  saveAccounts(all)
-  addInviteLog(all[idx])
-  return { account: all[idx], rawToken: raw }
-}
-
-export function verifyAndActivate(rawToken: string, password: string): { ok: boolean; account?: PortalAccount; error?: string } {
-  const hash = weakHash(rawToken)
-  const account = getAccountByTokenHash(hash)
-  if (!account) return { ok: false, error: 'Invalid activation link.' }
-  if (account.inviteTokenExpiresAt && new Date(account.inviteTokenExpiresAt) < new Date()) {
-    return { ok: false, error: 'This activation link has expired.' }
-  }
-  if (password.length < 8) return { ok: false, error: 'Password must be at least 8 characters.' }
-
-  const all = getAccounts()
-  const idx = all.findIndex(a => a.id === account.id)
-  if (idx < 0) return { ok: false, error: 'Account not found.' }
-  const now = new Date().toISOString()
-  all[idx] = {
-    ...all[idx],
-    status: 'active',
-    passwordHash: weakHash(password),
-    mustChangePassword: false,
-    inviteTokenHash: undefined,
-    inviteTokenExpiresAt: undefined,
-    activatedAt: now,
-    lastLoginAt: now,
-    updatedAt: now,
-  }
-  saveAccounts(all)
-  setSession(all[idx])
-  return { ok: true, account: all[idx] }
-}
-
-export function login(email: string, password: string): { ok: boolean; account?: PortalAccount; error?: string } {
-  const account = getAccountByEmail(email)
-  if (!account) return { ok: false, error: 'Invalid email or password.' }
-  if (account.status === 'disabled') return { ok: false, error: 'Account disabled — please contact us.' }
-  if (!account.passwordHash) return { ok: false, error: 'Your account is pending activation. Check your email for the invite link.' }
-  if (weakHash(password) !== account.passwordHash) return { ok: false, error: 'Invalid email or password.' }
-  const all = getAccounts()
-  const idx = all.findIndex(a => a.id === account.id)
-  if (idx >= 0) {
-    all[idx] = { ...all[idx], lastLoginAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-    saveAccounts(all)
-    setSession(all[idx])
-    return { ok: true, account: all[idx] }
-  }
-  return { ok: false, error: 'Account not found.' }
 }
 
 export function logout(): void {
@@ -208,55 +171,148 @@ export function logout(): void {
   try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
 }
 
-function setSession(account: PortalAccount) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ accountId: account.id, at: new Date().toISOString() }))
-  try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
+export interface CurrentSession {
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+  crmCustomerId: string
+  customerId: string  // alias for crmCustomerId — maintains compatibility with the legacy localStorage shape
+  status: 'active'
 }
 
-export function getCurrentSession(): PortalAccount | null {
+export function getCurrentSession(): CurrentSession | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY)
     if (!raw) return null
-    const { accountId } = JSON.parse(raw)
-    return getAccounts().find(a => a.id === accountId && a.status === 'active') || null
+    const { user } = JSON.parse(raw)
+    if (!user?.id) return null
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      crmCustomerId: user.crmCustomerId,
+      customerId: user.crmCustomerId,  // the portal pages read .customerId
+      status: 'active',
+    }
   } catch { return null }
 }
 
-export function setPassword(accountId: string, newPassword: string): boolean {
-  if (newPassword.length < 8) return false
-  const all = getAccounts()
-  const idx = all.findIndex(a => a.id === accountId)
-  if (idx < 0) return false
-  all[idx] = { ...all[idx], passwordHash: weakHash(newPassword), mustChangePassword: false, updatedAt: new Date().toISOString() }
-  saveAccounts(all)
-  return true
-}
+// ── Customer-profile badge helpers ──
 
-/** For the internal CRM customer profile Portal Access section. */
 export interface PortalAccessStatus {
-  state: 'none' | 'invited' | 'active'
+  state: 'none' | 'invited' | 'active' | 'suspended'
   account?: PortalAccount
   lastLogin?: string
   invitedAt?: string
+  expiresAt?: string
 }
 
+// Staff-side list cache so we don't have to re-fetch on every badge render
+const ACCOUNTS_CACHE_KEY = 'fencepro_portal_accounts_cache'
+const CACHE_TTL_MS = 30_000
+let cacheLoadedAt = 0
+let cachePromise: Promise<PortalAccount[]> | null = null
+
+async function fetchAccounts(): Promise<PortalAccount[]> {
+  if (cachePromise && Date.now() - cacheLoadedAt < CACHE_TTL_MS) return cachePromise
+  cacheLoadedAt = Date.now()
+  cachePromise = (async () => {
+    try {
+      const res = await fetch(`${apiBase()}/api/portal/accounts`, { headers: staffAuthHeaders() })
+      const json = await res.json()
+      if (res.ok && json.success) {
+        const list = json.data as PortalAccount[]
+        try { localStorage.setItem(ACCOUNTS_CACHE_KEY, JSON.stringify(list)) } catch {}
+        return list
+      }
+    } catch {}
+    // Fall back to last-good cache
+    try { const r = localStorage.getItem(ACCOUNTS_CACHE_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  })()
+  return cachePromise
+}
+
+/**
+ * Synchronous lookup for the customer profile badge. Reads from the cache
+ * populated by loadAccountsSoon(). Returns 'none' when the cache is empty.
+ */
 export function getPortalAccessStatus(customerId: string): PortalAccessStatus {
-  const account = getAccountByCustomerId(customerId)
-  if (!account) return { state: 'none' }
-  if (account.status === 'active') return { state: 'active', account, lastLogin: account.lastLoginAt }
-  return { state: 'invited', account, invitedAt: account.invitedAt }
+  try {
+    const r = localStorage.getItem(ACCOUNTS_CACHE_KEY)
+    const list: PortalAccount[] = r ? JSON.parse(r) : []
+    const a = list.find(x => x.crmCustomerId === customerId)
+    if (!a) return { state: 'none' }
+    if (a.status === 'active') return { state: 'active', account: a, lastLogin: a.lastLoginAt }
+    if (a.status === 'suspended') return { state: 'suspended', account: a }
+    return { state: 'invited', account: a, invitedAt: a.invitedAt, expiresAt: a.inviteTokenExpiresAt }
+  } catch { return { state: 'none' } }
 }
 
-/** Build the activation link. */
+/** Kick off a background refresh of the accounts cache. Safe to call frequently. */
+export function loadAccountsSoon(): Promise<PortalAccount[]> {
+  return fetchAccounts()
+}
+
+export async function adminListAccounts(): Promise<PortalAccount[]> {
+  cacheLoadedAt = 0
+  cachePromise = null
+  return fetchAccounts()
+}
+
+export async function adminForceActivate(accountId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${apiBase()}/api/portal/accounts/${accountId}/force-activate`, {
+      method: 'POST', headers: staffAuthHeaders(),
+    })
+    const json = await res.json()
+    cacheLoadedAt = 0; cachePromise = null
+    return res.ok && json.success ? { ok: true } : { ok: false, error: json?.error }
+  } catch (err: any) { return { ok: false, error: err?.message } }
+}
+
+export async function adminRevokeAccount(accountId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${apiBase()}/api/portal/accounts/${accountId}/revoke`, {
+      method: 'POST', headers: staffAuthHeaders(),
+    })
+    const json = await res.json()
+    cacheLoadedAt = 0; cachePromise = null
+    return res.ok && json.success ? { ok: true } : { ok: false, error: json?.error }
+  } catch (err: any) { return { ok: false, error: err?.message } }
+}
+
+// ── Legacy shims (maintain old imports) ──
+
+export function ensurePortalAccount(_customer: { id: string; firstName?: string; lastName?: string; email?: string }):
+  { account: PortalAccount; rawToken?: string; created: boolean } | null {
+  // Legacy synchronous entry-point. The new backend-backed flow is async, so
+  // this shim is retained only so older imports don't break. Real callers
+  // should use sendPortalInvite() directly.
+  return null
+}
+
+export function resendInvite(_customerId: string): { account: PortalAccount; rawToken: string } | null {
+  return null
+}
+
 export function buildActivationLink(rawToken: string): string {
   if (typeof window === 'undefined') return `/#/portal/activate?token=${rawToken}`
   return `${window.location.origin}/#/portal/activate?token=${rawToken}`
 }
 
-/** Build the login link. */
 export function buildLoginLink(): string {
   if (typeof window === 'undefined') return `/#/portal/login`
   return `${window.location.origin}/#/portal/login`
+}
+
+// ── Session helpers ──
+
+export function setPassword(_accountId: string, _password: string): boolean {
+  // TODO: add /api/portal/me/password endpoint. Returns false for now so the
+  // Account page shows a friendly "Use Forgot Password" prompt.
+  return false
 }
 
 export const PORTAL_UPDATED_EVENT = EVT

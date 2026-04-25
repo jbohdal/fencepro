@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   getCurrentSession, login, verifyAndActivate, setPassword, logout,
-  type PortalAccount,
+  type CurrentSession as PortalAccount,
 } from './portalAccountStore'
 import { getCustomerById } from './customerStore'
 
@@ -187,12 +187,39 @@ function LoginPage({ company, accent }: { company: any; accent: string }) {
   const [err, setErr] = useState<string | null>(null)
   const [showForgot, setShowForgot] = useState(false)
 
-  function handleSubmit(e: React.FormEvent) {
+  const [busy, setBusy] = useState(false)
+  const [needsActivation, setNeedsActivation] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setErr(null)
-    const r = login(email, password)
-    if (!r.ok) { setErr(r.error || 'Sign-in failed'); return }
+    setErr(null); setBusy(true); setNeedsActivation(false)
+    const r = await login(email, password)
+    setBusy(false)
+    if (!r.ok) {
+      const code = r.error || 'INVALID_CREDENTIALS'
+      if (code === 'ACCOUNT_NOT_ACTIVATED') {
+        setNeedsActivation(true)
+        setErr('Your account has not been activated yet. Check your email for the activation link or click Resend below.')
+        return
+      }
+      if (code === 'ACCOUNT_SUSPENDED') {
+        setErr('This account has been suspended. Please contact us for help.'); return
+      }
+      setErr('Invalid email or password. Please try again or contact us for help.')
+      return
+    }
     window.location.hash = '#/portal/dashboard'
+  }
+
+  async function handleResendInvite() {
+    if (!email) { setErr('Enter your email first.'); return }
+    try {
+      const mod = await import('./portalAccountStore')
+      const r = await mod.resendPortalInvite(email)
+      if (r.ok) setErr('If an account exists for that email, a fresh activation link has been sent.')
+      else if (r.error === 'RATE_LIMITED') setErr('Too many resend requests — please wait an hour and try again.')
+      else setErr('Could not resend activation email — please contact us.')
+    } catch { setErr('Could not resend. Please contact us.') }
   }
 
   return (
@@ -222,9 +249,15 @@ function LoginPage({ company, accent }: { company: any; accent: string }) {
               style={{ ['--tw-ring-color' as any]: accent }} />
           </div>
           {err && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
-          <button type="submit"
-            className="w-full text-white font-semibold py-2.5 rounded-lg transition-opacity hover:opacity-90"
-            style={{ backgroundColor: accent }}>Sign In</button>
+          <button type="submit" disabled={busy}
+            className="w-full text-white font-semibold py-2.5 rounded-lg transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ backgroundColor: accent }}>{busy ? 'Signing in…' : 'Sign In'}</button>
+          {needsActivation && (
+            <button type="button" onClick={handleResendInvite}
+              className="w-full text-xs border border-orange-300 text-orange-700 rounded-lg py-2 hover:bg-orange-50">
+              Resend Activation Email
+            </button>
+          )}
           <div className="text-center">
             <button type="button" onClick={() => setShowForgot(true)} className="text-xs text-gray-500 hover:underline">Forgot password?</button>
           </div>
@@ -248,14 +281,51 @@ function ActivatePage({ company, accent, onActivated }: { company: any; accent: 
   const [password, setPasswordValue] = useState('')
   const [confirm, setConfirm] = useState('')
   const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [resent, setResent] = useState(false)
 
-  function handleSubmit(e: React.FormEvent) {
+  const tokenLooksValid = /^[0-9a-f]{64}$/.test(token)
+  const invalidFormatNote = !tokenLooksValid
+    ? 'This activation link appears to be corrupted. Please click the link directly from your email or contact us.'
+    : null
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setErr(null)
-    if (password !== confirm) { setErr('Passwords do not match.'); return }
-    const r = verifyAndActivate(token, password)
-    if (!r.ok) { setErr(r.error || 'Activation failed.'); return }
+    setErr(null); setBusy(true)
+    if (password !== confirm) { setErr('Passwords do not match. Please try again.'); setBusy(false); return }
+    if (password.length < 8) { setErr('Your password must be at least 8 characters.'); setBusy(false); return }
+    const r = await verifyAndActivate(token, password, confirm)
+    setBusy(false)
+    if (!r.ok) {
+      const code = r.error || 'ACTIVATION_FAILED'
+      const friendly: Record<string, string> = {
+        INVALID_TOKEN_FORMAT: 'This activation link appears to be corrupted. Please click the link directly from your email or contact us.',
+        INVALID_TOKEN: 'This activation link is not valid. It may have already been used. Please contact us for a new link.',
+        EXPIRED_TOKEN: 'This activation link has expired. Please contact us and we will send you a new one.',
+        PASSWORD_TOO_SHORT: 'Your password must be at least 8 characters.',
+        PASSWORDS_DO_NOT_MATCH: 'Passwords do not match. Please try again.',
+      }
+      setErr(friendly[code] || 'Activation failed — please contact us for a new link.')
+      return
+    }
     onActivated()
+  }
+
+  async function requestResend() {
+    if (resent) return
+    try {
+      const mod = await import('./portalAccountStore')
+      // We don't know the email at this point, so ask the backend to resend
+      // by prompting the user to type their email. Keep UX simple with a prompt.
+      const email = prompt('Enter your email to get a fresh activation link:')
+      if (!email) return
+      const r = await mod.resendPortalInvite(email.trim())
+      if (r.ok) { setResent(true); setErr('If an account exists for that email, a fresh link has been sent.') }
+      else if (r.error === 'RATE_LIMITED') setErr('Too many resend requests — please wait an hour and try again.')
+      else setErr('Could not send a new link — please contact us directly.')
+    } catch {
+      setErr('Could not reach the server — please contact us directly.')
+    }
   }
 
   return (
@@ -268,6 +338,15 @@ function ActivatePage({ company, accent, onActivated }: { company: any; accent: 
           <h1 className="text-2xl font-bold text-gray-900">Welcome to your portal</h1>
           <p className="text-sm text-gray-500 mt-1">Set a password and you're in.</p>
         </div>
+        {invalidFormatNote ? (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center">
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-3 mb-4">{invalidFormatNote}</p>
+            <button type="button" onClick={requestResend}
+              className="w-full text-white font-semibold py-2.5 rounded-lg hover:opacity-90" style={{ backgroundColor: accent }}>
+              Send me a new link
+            </button>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4 shadow-sm">
           <div>
             <label className="text-xs text-gray-500 font-semibold uppercase mb-1 block">Password</label>
@@ -280,11 +359,21 @@ function ActivatePage({ company, accent, onActivated }: { company: any; accent: 
             <input type="password" minLength={8} value={confirm} onChange={e => setConfirm(e.target.value)} required
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2" />
           </div>
-          {err && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
-          <button type="submit" className="w-full text-white font-semibold py-2.5 rounded-lg hover:opacity-90" style={{ backgroundColor: accent }}>
-            Set Password and Access Portal
+          {err && (
+            <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 space-y-2">
+              <p>{err}</p>
+              <button type="button" onClick={requestResend}
+                className="text-red-700 font-medium underline hover:no-underline">
+                Send me a new activation link
+              </button>
+            </div>
+          )}
+          <button type="submit" disabled={busy}
+            className="w-full text-white font-semibold py-2.5 rounded-lg hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: accent }}>
+            {busy ? 'Activating…' : 'Set Password and Access Portal'}
           </button>
         </form>
+        )}
       </div>
     </div>
   )

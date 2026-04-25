@@ -549,6 +549,52 @@ enum AutomationRunStatus {
 
 // ── Entity Activity Log (customer / job / deal activity feed) ──
 
+// ── Customer Portal Accounts (CRM-owned) ──
+
+enum PortalAccountStatus {
+  invited
+  active
+  suspended
+}
+
+model PortalAccount {
+  id                    String                @id @default(uuid())
+  crmCustomerId         String                // references CRM-side fencepro_customers id (external string)
+  email                 String                @unique
+  firstName             String?
+  lastName              String?
+  status                PortalAccountStatus   @default(invited)
+  passwordHash          String?
+  mustChangePassword    Boolean               @default(true)
+  inviteToken           String?               @unique   // SHA-256 hash of the raw token, never the raw
+  inviteTokenExpiresAt  DateTime?
+  invitedAt             DateTime?
+  activatedAt           DateTime?
+  lastLoginAt           DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  invites PortalInvite[]
+
+  @@index([crmCustomerId])
+  @@index([inviteToken])
+  @@index([status])
+}
+
+model PortalInvite {
+  id          String         @id @default(uuid())
+  accountId   String
+  email       String
+  sentAt      DateTime       @default(now())
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+
+  account PortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([sentAt])
+}
+
 // ── Job Checklist (operations milestones) ──
 
 model JobChecklistItem {

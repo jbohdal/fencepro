@@ -7,7 +7,6 @@
 
 import { fireCustomerCreated } from './automationTrigger'
 import { addLeadForNewCustomer } from './pipelineSeeder'
-import { ensurePortalAccount } from './portalAccountStore'
 
 const KEY = 'fencepro_customers'
 const EVT = 'fencepro:customers:updated'
@@ -135,22 +134,9 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
     })
   } catch {}
 
-  // Auto-create a customer portal account (token only — the actual email
-  // is sent when the user clicks "Send Portal Invite" on the profile,
-  // which opens their mail client with the invite prefilled. Creating the
-  // token up front means the link is ready to send instantly.
-  try {
-    if (fresh.email && fresh.email.trim()) {
-      const result = ensurePortalAccount({
-        id: fresh.id, firstName: fresh.firstName, lastName: fresh.lastName, email: fresh.email,
-      })
-      if (result && result.created && result.rawToken) {
-        logCustomerActivity(fresh.id,
-          `Portal account created — invite ready to send`,
-          { actor: 'system', kind: 'info' })
-      }
-    }
-  } catch {}
+  // Portal invite is now created by the server when the user clicks
+  // "Send Portal Invite" on the customer profile. Auto-creation at save time
+  // is skipped here to avoid sending unsolicited emails.
 
   return { customer: fresh, created: true }
 }
@@ -163,19 +149,8 @@ export function updateCustomer(id: string, updates: Partial<Customer>): Customer
   all[idx] = { ...prev, ...updates }
   saveAll(all)
 
-  // If email was just added (or changed from empty), auto-issue a portal invite
-  const hadEmail = !!(prev.email || '').trim()
-  const hasEmail = !!(all[idx].email || '').trim()
-  if (!hadEmail && hasEmail) {
-    try {
-      const result = ensurePortalAccount({
-        id: all[idx].id, firstName: all[idx].firstName, lastName: all[idx].lastName, email: all[idx].email,
-      })
-      if (result?.created && result.rawToken) {
-        logCustomerActivity(all[idx].id, `Portal invite emailed (email added)`, { actor: 'system', kind: 'info' })
-      }
-    } catch {}
-  }
+  // NOTE: portal invites are issued manually by staff via the profile's
+  // "Send Portal Invite" button, which calls the backend to generate + send.
   return all[idx]
 }
 

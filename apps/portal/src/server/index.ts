@@ -27,6 +27,7 @@ import automationRoutes from './routes/automations.js'
 import integrationRoutes from './routes/integrations.js'
 import crmAuthRoutes from './routes/crm-auth.js'
 import cronRoutes from './routes/cron.js'
+import portalRoutes from './routes/portal.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
@@ -108,6 +109,7 @@ app.use('/api/automations', automationRoutes)
 app.use('/api/integrations', integrationRoutes)
 app.use('/api/crm-auth', crmAuthRoutes)
 app.use('/api/cron', cronRoutes)                // Vercel cron jobs
+app.use('/api/portal', portalRoutes)            // Customer portal accounts + activation
 
 // ── Health check ──
 app.get('/api/health', (_req, res) => {
