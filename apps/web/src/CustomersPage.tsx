@@ -856,7 +856,6 @@ function CustomerDetail({
             </div>
           </div>
           <div className="flex gap-2">
-            <PortalAccessBadge customer={customer} />
             <button onClick={() => onNewQuote(customer)} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg">+ New Quote</button>
             <button onClick={onEdit} className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50">Edit</button>
           </div>
@@ -875,6 +874,9 @@ function CustomerDetail({
             </div>
           ))}
         </div>
+
+        {/* Portal Access section — prominent, dedicated row */}
+        <PortalAccessSection customer={customer} />
 
         <div className="flex gap-1 mt-5 bg-gray-100 rounded-xl p-1 w-fit">
           {(['overview', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files', 'photos'] as const).map(t => (
@@ -1659,26 +1661,150 @@ function PortalAccessBadge({ customer }: { customer: Customer }) {
   // Re-render on bump
   void bump
 
+  // Badge-style compact rendering (kept for any other place that still wants
+  // the inline badge; not used in the main header anymore).
   if (status.state === 'active') {
-    return (
-      <span className="text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-medium" title={`Last login ${status.lastLogin ? new Date(status.lastLogin).toLocaleDateString() : '—'}`}>
-        ✓ Portal Active
-      </span>
-    )
+    return <span className="text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-medium">✓ Portal Active</span>
   }
   if (status.state === 'invited') {
-    return (
-      <button onClick={handleResend}
-        className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg font-medium"
-        title={`Invited ${status.invitedAt ? new Date(status.invitedAt).toLocaleDateString() : ''} — click to resend`}>
-        Invite Sent · Resend
-      </button>
-    )
+    return <button onClick={handleResend} className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg font-medium">Invite Sent · Resend</button>
   }
+  return <button onClick={sendInvite} className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg font-medium">Send Portal Invite</button>
+}
+
+// Full-width, prominent Portal Access panel rendered in the customer profile
+// header area below the stats row.
+function PortalAccessSection({ customer }: { customer: Customer }) {
+  const [bump, setBump] = useState(0)
+  void bump
+  const status = getPortalAccessStatus(customer.id)
+
+  function composeInviteEmail(rawToken: string) {
+    const link = buildActivationLink(rawToken)
+    const tpl = getEmailTemplate('portal_welcome')
+    const companyName = (() => {
+      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.name || 'FencePro' } catch {}
+      return 'FencePro'
+    })()
+    const companyPhone = (() => {
+      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.phone || '' } catch {}
+      return ''
+    })()
+    const rendered = renderTemplate(tpl, {
+      customer_first_name: customer.firstName || 'there',
+      customer_name: `${customer.firstName} ${customer.lastName}`.trim(),
+      company_name: companyName,
+      company_phone: companyPhone,
+      portal_link: link,
+    })
+    const plainBody = rendered.body
+      .replace(/<a[^>]*href="([^"]+)"[^>]*>[^<]*<\/a>/g, '$1')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+    const mailto = `mailto:${encodeURIComponent(customer.email)}?subject=${encodeURIComponent(rendered.subject)}&body=${encodeURIComponent(plainBody)}`
+    navigator.clipboard?.writeText(link).catch(() => {})
+    window.open(mailto, '_blank')
+    logCustomerActivity(customer.id, `Portal invite opened in email client · expires in 7 days`, { actor: 'user', kind: 'info' })
+    return link
+  }
+
+  function handleSend() {
+    if (!customer.email) {
+      toast.warning('No email on file', 'Add an email to this customer to send a portal invite.')
+      return
+    }
+    const r = ensurePortalAccount({ id: customer.id, firstName: customer.firstName, lastName: customer.lastName, email: customer.email })
+    if (r?.rawToken) {
+      composeInviteEmail(r.rawToken)
+      toast.success('Opening your email client', 'Invite is prefilled — click Send to deliver. Link also copied to clipboard.')
+    } else if (r) {
+      const resent = resendInvite(customer.id)
+      if (resent) {
+        composeInviteEmail(resent.rawToken)
+        toast.success('Fresh invite prefilled', 'Click Send in your email client to deliver.')
+      }
+    }
+    setBump(b => b + 1)
+  }
+
+  function handleResend() {
+    const r = resendInvite(customer.id)
+    if (r) {
+      composeInviteEmail(r.rawToken)
+      toast.success('New invite ready', 'Email client opened with a fresh link prefilled.')
+      setBump(b => b + 1)
+    }
+  }
+
+  function handleCopyLink() {
+    const r = ensurePortalAccount({ id: customer.id, firstName: customer.firstName, lastName: customer.lastName, email: customer.email || '' })
+      || { rawToken: resendInvite(customer.id)?.rawToken }
+    if (r?.rawToken) {
+      const link = buildActivationLink(r.rawToken)
+      navigator.clipboard?.writeText(link).catch(() => {})
+      toast.success('Activation link copied to clipboard')
+    }
+  }
+
+  // Colors + copy vary by state
+  let stateIcon = '👤', stateLabel = 'No Portal Access', bodyText = '', chipClass = 'bg-gray-100 text-gray-600'
+  if (status.state === 'active') {
+    stateIcon = '✓'; stateLabel = 'Portal Active'; chipClass = 'bg-green-100 text-green-700'
+    bodyText = status.lastLogin
+      ? `Last login ${new Date(status.lastLogin).toLocaleDateString()}.`
+      : `Activated. Customer can sign in anytime.`
+  } else if (status.state === 'invited') {
+    stateIcon = '✉'; stateLabel = 'Invite Sent'; chipClass = 'bg-blue-100 text-blue-700'
+    bodyText = status.invitedAt
+      ? `Invited ${new Date(status.invitedAt).toLocaleDateString()}. Customer hasn't activated yet.`
+      : `Customer hasn't activated yet.`
+  } else {
+    bodyText = customer.email
+      ? `Portal account is ready — click Send Invite to email the activation link.`
+      : `Add an email address to enable the customer portal.`
+  }
+
   return (
-    <button onClick={sendInvite}
-      className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg font-medium">
-      Send Portal Invite
-    </button>
+    <div className="mt-4 bg-gradient-to-r from-orange-50 to-white border border-orange-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="w-10 h-10 rounded-xl bg-white border border-orange-200 flex items-center justify-center text-orange-500 text-xl shrink-0">
+          {stateIcon}
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-gray-900">Customer Portal</p>
+            <span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full ${chipClass}`}>{stateLabel}</span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">{bodyText}</p>
+        </div>
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        {status.state === 'none' && (
+          <button onClick={handleSend} disabled={!customer.email}
+            className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold px-4 py-2 rounded-lg whitespace-nowrap">
+            Send Portal Invite
+          </button>
+        )}
+        {status.state === 'invited' && (
+          <>
+            <button onClick={handleResend}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg whitespace-nowrap">
+              Resend Invite
+            </button>
+            <button onClick={handleCopyLink}
+              className="border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm px-3 py-2 rounded-lg whitespace-nowrap">
+              Copy Link
+            </button>
+          </>
+        )}
+        {status.state === 'active' && (
+          <a href={`${window.location.origin}/#/portal/login`} target="_blank" rel="noreferrer"
+            className="border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm px-3 py-2 rounded-lg whitespace-nowrap">
+            Open Portal
+          </a>
+        )}
+      </div>
+    </div>
   )
 }
