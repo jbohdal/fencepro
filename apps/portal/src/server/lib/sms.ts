@@ -8,7 +8,7 @@
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || ''
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || ''
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || ''
-const COMPANY_NAME = process.env.COMPANY_NAME || 'FencePro'
+const COMPANY_NAME = process.env.COMPANY_NAME || 'EZBiz'
 
 /** True if Twilio is fully configured. */
 export function isSmsServiceConfigured(): boolean {

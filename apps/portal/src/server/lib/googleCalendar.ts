@@ -159,7 +159,7 @@ export async function pushAppointmentToCalendar(params: {
   if (params.customerPhone) descParts.push(`Phone: ${params.customerPhone}`)
   if (params.customerEmail) descParts.push(`Email: ${params.customerEmail}`)
   if (params.notes) descParts.push(`\nNotes: ${params.notes}`)
-  descParts.push('\n---\nCreated by FencePro CRM')
+  descParts.push('\n---\nCreated by EZBiz')
 
   try {
     const event = await calendar.events.insert({

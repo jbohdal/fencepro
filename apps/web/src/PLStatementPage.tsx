@@ -559,9 +559,9 @@ function exportPlPdf(pl: PlStatement) {
   const company = (() => {
     try {
       const raw = localStorage.getItem('fencepro_config')
-      if (raw) { const c = JSON.parse(raw); return c.company?.name || 'FencePro' }
+      if (raw) { const c = JSON.parse(raw); return c.company?.name || 'EZBiz' }
     } catch {}
-    return 'FencePro'
+    return 'EZBiz'
   })()
 
   const html = `

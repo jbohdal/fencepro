@@ -17,10 +17,10 @@ import { logCustomerActivity } from './customerStore'
 function loadCompanyInfo() {
   try {
     const r = localStorage.getItem('fencepro_config')
-    if (!r) return { name: 'FencePro', phone: '', email: '' }
+    if (!r) return { name: 'EZBiz', phone: '', email: '' }
     const cfg = JSON.parse(r)
-    return cfg.company || { name: 'FencePro' }
-  } catch { return { name: 'FencePro' } }
+    return cfg.company || { name: 'EZBiz' }
+  } catch { return { name: 'EZBiz' } }
 }
 
 function loadQuote(quoteId: string): (SavedQuote & QuotePresentation) | null {

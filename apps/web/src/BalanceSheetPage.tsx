@@ -361,8 +361,8 @@ function exportBsPdf(ctx: {
   totalEquity: number; totalLiabEquity: number; diff: number; balanced: boolean;
 }) {
   const company = (() => {
-    try { const raw = localStorage.getItem('fencepro_config'); if (raw) { const c = JSON.parse(raw); return c.company?.name || 'FencePro' } } catch {}
-    return 'FencePro'
+    try { const raw = localStorage.getItem('fencepro_config'); if (raw) { const c = JSON.parse(raw); return c.company?.name || 'EZBiz' } } catch {}
+    return 'EZBiz'
   })()
   const rows = (items: BalanceSheetEntry[]) => items.map(e => `<tr><td>${e.label}</td><td class="amt">${fmt(e.amountCents)}</td></tr>`).join('')
 

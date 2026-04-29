@@ -1,49 +1,26 @@
 /**
- * Photos tab for a customer profile.
+ * Photos tab for a customer profile (staff side).
  *
- * Storage: when the portal /api/documents endpoint is configured + authenticated,
- *   uploads go there (persistent). If not available, falls back to local blob URLs
- *   persisted via IndexedDB-style base64 in localStorage with a clear warning.
- *
- * Formats: JPG, PNG, HEIC, WebP. Max 20MB each.
- * CompanyCam integration: if `fencepro_integrations` has companycam connected AND
- *   the customer has a linked companycam project id, show a CompanyCam sub-tab.
+ * Uses the server-backed portal data plane via portalApiClient. Customer-uploaded
+ * photos appear here with a "Customer" source badge; staff uploads appear with a
+ * "Staff" badge. CompanyCam sub-tab is preserved when the integration is linked.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from './toast'
+import {
+  listCustomerPhotos,
+  uploadStaffPhotoForCustomer,
+  deletePortalPhoto,
+  resolveFileUrl,
+  type PortalPhotoRow,
+} from './portalApiClient'
 
-const STORAGE_KEY = 'fencepro_customer_photos'
+const ACCEPTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif']
+const ACCEPT_ATTR = 'image/jpeg,image/png,image/webp,image/heic,image/heif,image/gif'
+
 const ACTIVITY_KEY = 'fencepro_customer_activity'
-
-const MAX_BYTES = 20 * 1024 * 1024
-const ACCEPTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
-const ACCEPT_ATTR = 'image/jpeg,image/png,image/webp,image/heic,image/heif'
-
-interface CustomerPhoto {
-  id: string
-  customerId: string
-  name: string
-  contentType: string
-  sizeBytes: number
-  dataUrl?: string    // if local-only (base64)
-  remoteUrl?: string  // if uploaded to backend
-  uploadedAt: string
-  uploadedBy: string
-}
-
 const uid = () => Math.random().toString(36).slice(2, 10)
-
-function getAllPhotos(): CustomerPhoto[] {
-  try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
-}
-function setAllPhotos(p: CustomerPhoto[]) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(p)) }
-  catch (err) {
-    toast.warning('Browser storage full', 'Could not save photo locally — configure object storage for reliable uploads.')
-    throw err
-  }
-}
 
 function logActivity(customerId: string, action: string, meta?: any) {
   try {
@@ -52,21 +29,6 @@ function logActivity(customerId: string, action: string, meta?: any) {
     all.unshift({ id: uid(), customerId, action, meta, at: new Date().toISOString() })
     localStorage.setItem(ACTIVITY_KEY, JSON.stringify(all.slice(0, 1000)))
   } catch {}
-}
-
-function isObjectStorageConfigured(): boolean {
-  // In this codebase, the portal handles uploads via /api/documents. We only consider
-  // "configured" when the backend URL is reachable — approximated here by presence of a token.
-  return !!localStorage.getItem('crm_access_token')
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
 }
 
 function companyCamProjectForCustomer(customerId: string): string | null {
@@ -80,21 +42,40 @@ function companyCamProjectForCustomer(customerId: string): string | null {
   } catch { return null }
 }
 
+function sourceBadge(source: PortalPhotoRow['source']) {
+  switch (source) {
+    case 'portal_customer':
+      return { text: 'Customer', cls: 'bg-blue-100 text-blue-700 border-blue-200' }
+    case 'crm_staff':
+      return { text: 'Staff', cls: 'bg-gray-100 text-gray-700 border-gray-200' }
+    case 'companycam':
+      return { text: 'CompanyCam', cls: 'bg-orange-100 text-orange-700 border-orange-200' }
+    case 'system_generated':
+      return { text: 'System', cls: 'bg-purple-100 text-purple-700 border-purple-200' }
+    default:
+      return { text: source, cls: 'bg-gray-100 text-gray-700 border-gray-200' }
+  }
+}
+
 export default function CustomerPhotosTab({ customerId, uploadedBy }: { customerId: string; uploadedBy: string }) {
-  const [photos, setPhotos] = useState<CustomerPhoto[]>(() => getAllPhotos().filter(p => p.customerId === customerId))
+  const [photos, setPhotos] = useState<PortalPhotoRow[]>([])
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [subTab, setSubTab] = useState<'uploaded' | 'companycam'>('uploaded')
+  const [loading, setLoading] = useState(true)
+  const [subTab, setSubTab] = useState<'all' | 'companycam'>('all')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragRef = useRef<HTMLDivElement>(null)
 
   const ccProjectId = useMemo(() => companyCamProjectForCustomer(customerId), [customerId])
 
-  const refresh = useCallback(() => {
-    setPhotos(getAllPhotos().filter(p => p.customerId === customerId))
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    const rows = await listCustomerPhotos(customerId)
+    setPhotos(rows)
+    setLoading(false)
   }, [customerId])
 
-  useEffect(() => { refresh() }, [customerId, refresh])
+  useEffect(() => { refresh() }, [refresh])
 
   async function handleFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList)
@@ -103,9 +84,9 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
     const rejected: string[] = []
     const accepted: File[] = []
     for (const f of files) {
-      if (!ACCEPTED.includes(f.type) && !/\.(heic|heif)$/i.test(f.name)) {
+      if (!ACCEPTED.includes(f.type) && !/\.(heic|heif|jpe?g|png|webp|gif)$/i.test(f.name)) {
         rejected.push(`${f.name}: unsupported type`)
-      } else if (f.size > MAX_BYTES) {
+      } else if (f.size > 20 * 1024 * 1024) {
         rejected.push(`${f.name}: over 20MB`)
       } else {
         accepted.push(f)
@@ -116,37 +97,21 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
     }
     if (accepted.length === 0) { setUploading(false); return }
 
-    try {
-      const toStore: CustomerPhoto[] = []
-      for (const f of accepted) {
-        const dataUrl = await fileToDataUrl(f)
-        const photo: CustomerPhoto = {
-          id: uid(),
-          customerId,
-          name: f.name,
-          contentType: f.type || 'image/jpeg',
-          sizeBytes: f.size,
-          dataUrl,
-          uploadedAt: new Date().toISOString(),
-          uploadedBy,
-        }
-        toStore.push(photo)
-      }
-      const all = getAllPhotos()
-      setAllPhotos([...toStore, ...all])
-      refresh()
-      for (const p of toStore) logActivity(customerId, 'photo_uploaded', { name: p.name })
-      if (!isObjectStorageConfigured()) {
-        toast.warning('Photo saved locally only',
-          'Object storage not configured — photos persist on this device only. Ask an admin to configure S3 / object storage for reliable uploads.')
+    let okCount = 0
+    for (const f of accepted) {
+      const r = await uploadStaffPhotoForCustomer(customerId, f, undefined, uploadedBy)
+      if (r.ok) {
+        okCount++
+        logActivity(customerId, 'photo_uploaded', { name: f.name, by: uploadedBy })
       } else {
-        toast.success(`${accepted.length} photo${accepted.length === 1 ? '' : 's'} added`)
+        toast.error(`Upload failed: ${f.name}`, r.error)
       }
-    } catch (err: any) {
-      toast.error('Photo upload failed', err?.message || 'Unknown error.')
-    } finally {
-      setUploading(false)
     }
+    if (okCount > 0) {
+      toast.success(`${okCount} photo${okCount === 1 ? '' : 's'} uploaded`)
+      await refresh()
+    }
+    setUploading(false)
   }
 
   function onFilePick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -161,32 +126,36 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
     if (e.dataTransfer.files) handleFiles(e.dataTransfer.files)
   }
 
-  function handleDelete(photo: CustomerPhoto) {
+  async function handleDelete(photo: PortalPhotoRow) {
     if (!confirm(`Delete "${photo.name}"?`)) return
-    const remaining = getAllPhotos().filter(p => p.id !== photo.id)
-    setAllPhotos(remaining)
-    refresh()
+    const ok = await deletePortalPhoto(photo.id)
+    if (!ok) { toast.error('Delete failed'); return }
     logActivity(customerId, 'photo_deleted', { name: photo.name })
     toast.success('Photo deleted')
+    refresh()
   }
 
-  function handleDownload(photo: CustomerPhoto) {
-    const url = photo.remoteUrl || photo.dataUrl
+  function handleDownload(photo: PortalPhotoRow) {
+    const url = resolveFileUrl(photo.fileUrl)
     if (!url) return
     const a = document.createElement('a')
     a.href = url
     a.download = photo.name
+    a.target = '_blank'
+    a.rel = 'noopener'
     a.click()
   }
 
-  const visible = subTab === 'uploaded' ? photos : []
+  const visible = subTab === 'all' ? photos : []
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-semibold text-gray-900">Photos</h3>
-          <p className="text-xs text-gray-500 mt-0.5">{photos.length} photo{photos.length === 1 ? '' : 's'} for this customer</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {loading ? 'Loading…' : `${photos.length} photo${photos.length === 1 ? '' : 's'} for this customer`}
+          </p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
@@ -200,16 +169,16 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
 
       {ccProjectId && (
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-          {(['uploaded', 'companycam'] as const).map(t => (
+          {(['all', 'companycam'] as const).map(t => (
             <button key={t} onClick={() => setSubTab(t)}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium transition capitalize ${subTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
-              {t === 'companycam' ? 'CompanyCam' : 'Uploaded'}
+              {t === 'companycam' ? 'CompanyCam' : 'All Photos'}
             </button>
           ))}
         </div>
       )}
 
-      {subTab === 'uploaded' && (
+      {subTab === 'all' && (
         <div
           ref={dragRef}
           onDragOver={onDragOver}
@@ -219,7 +188,7 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
           {visible.length === 0 ? (
             <div className="py-16 text-center">
               <p className="text-5xl mb-2">📷</p>
-              <p className="text-gray-500 font-medium">No photos yet</p>
+              <p className="text-gray-500 font-medium">{loading ? 'Loading photos…' : 'No photos yet'}</p>
               <p className="text-xs text-gray-400 mt-1">Drag photos here or click Upload Photos · JPG, PNG, HEIC, WebP up to 20MB each</p>
             </div>
           ) : (
@@ -257,20 +226,24 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
 }
 
 function PhotoCard({ photo, onOpen, onDelete, onDownload }: {
-  photo: CustomerPhoto; onOpen: () => void; onDelete: () => void; onDownload: () => void;
+  photo: PortalPhotoRow; onOpen: () => void; onDelete: () => void; onDownload: () => void;
 }) {
   const [menu, setMenu] = useState(false)
-  const src = photo.remoteUrl || photo.dataUrl
+  const src = resolveFileUrl(photo.fileUrl)
+  const badge = sourceBadge(photo.source)
   return (
     <div className="relative group rounded-xl overflow-hidden bg-gray-100 border border-gray-200">
       <button onClick={onOpen} className="block w-full aspect-square">
         {src ? <img src={src} alt={photo.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
           : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">No preview</div>}
       </button>
+      <div className="absolute top-2 left-2">
+        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badge.cls}`}>{badge.text}</span>
+      </div>
       <div className="px-3 py-2 flex items-center justify-between">
         <div className="min-w-0">
           <p className="text-xs font-medium text-gray-900 truncate">{photo.name}</p>
-          <p className="text-[10px] text-gray-400">{photo.uploadedBy} · {new Date(photo.uploadedAt).toLocaleDateString()}</p>
+          <p className="text-[10px] text-gray-400">{new Date(photo.uploadedAt).toLocaleDateString()}</p>
         </div>
         <button onClick={() => setMenu(!menu)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">⋮</button>
       </div>
@@ -286,10 +259,10 @@ function PhotoCard({ photo, onOpen, onDelete, onDownload }: {
 }
 
 function Lightbox({ photos, index, onClose, onPrev, onNext }: {
-  photos: CustomerPhoto[]; index: number; onClose: () => void; onPrev: () => void; onNext: () => void;
+  photos: PortalPhotoRow[]; index: number; onClose: () => void; onPrev: () => void; onNext: () => void;
 }) {
   const p = photos[index]
-  const src = p.remoteUrl || p.dataUrl
+  const src = resolveFileUrl(p.fileUrl)
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()

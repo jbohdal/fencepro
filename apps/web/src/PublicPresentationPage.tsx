@@ -12,9 +12,9 @@ import { CustomerPresentationContent } from './QuoteOptionsPanel'
 function loadCompanyName(): string {
   try {
     const raw = localStorage.getItem('fencepro_config')
-    if (raw) { const c = JSON.parse(raw); return c.company?.name || 'FencePro' }
+    if (raw) { const c = JSON.parse(raw); return c.company?.name || 'EZBiz' }
   } catch {}
-  return 'FencePro'
+  return 'EZBiz'
 }
 
 export default function PublicPresentationPage({ token }: { token: string }) {
@@ -56,7 +56,7 @@ export default function PublicPresentationPage({ token }: { token: string }) {
         <CustomerPresentationContent options={options} quoteId={quoteId} />
       </div>
       <footer className="max-w-6xl mx-auto px-8 py-8 text-center text-xs text-gray-400 border-t border-gray-100 mt-12">
-        Powered by FencePro · Questions? Contact {companyName}.
+        Powered by EZBiz · Questions? Contact {companyName}.
       </footer>
     </div>
   )

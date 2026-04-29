@@ -1,13 +1,13 @@
-# FencePro Customer Portal
+# EZBiz Customer Portal
 
-Full-stack customer-facing portal that integrates with the FencePro CRM system.
+Full-stack customer-facing portal that integrates with the EZBiz CRM system.
 
 ## Tech Stack
 - **Backend**: Node.js + Express + TypeScript
 - **Database**: PostgreSQL + Prisma ORM
 - **Auth**: JWT access + refresh tokens with bcrypt password hashing
 - **File Storage**: Local filesystem (swappable to S3)
-- **CRM**: Adapter pattern — swap between FencePro, HubSpot, Salesforce, Zoho
+- **CRM**: Adapter pattern — swap between EZBiz, HubSpot, Salesforce, Zoho
 
 ## Quick Start
 

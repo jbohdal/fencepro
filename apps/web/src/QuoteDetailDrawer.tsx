@@ -337,7 +337,7 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
     quote_link: shareUrl,
     fence_style: quote.fenceStyle,
     rep_name: quote.salesRep || '',
-    company_name: (company as any).name || 'FencePro',
+    company_name: (company as any).name || 'EZBiz',
     company_phone: (company as any).phone || '',
   }
   const rendered = renderTemplate(tpl, mergeData)

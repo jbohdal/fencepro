@@ -19,10 +19,10 @@ const fmt2 = (n: number) =>
 function readCompany() {
   try {
     const r = localStorage.getItem('fencepro_config')
-    if (!r) return { name: 'FencePro', phone: '', email: '', address: '' }
+    if (!r) return { name: 'EZBiz', phone: '', email: '', address: '' }
     const cfg = JSON.parse(r)
-    return cfg.company || { name: 'FencePro' }
-  } catch { return { name: 'FencePro' } }
+    return cfg.company || { name: 'EZBiz' }
+  } catch { return { name: 'EZBiz' } }
 }
 
 function readContract() {
@@ -140,7 +140,7 @@ function PremiumTemplate({ quote, template, interactive, onAccept, accepted, exp
     <div style={{ fontFamily: template.fontFamily, color: '#1f2937', background: '#fff' }}>
       {/* Cover */}
       <section style={{ background: `linear-gradient(135deg, ${template.primaryColor} 0%, #0a1530 100%)`, color: '#fff', padding: '80px 48px', textAlign: 'center' }}>
-        <p style={{ color: template.accentColor, letterSpacing: 5, fontSize: 11, textTransform: 'uppercase', fontWeight: 700, marginBottom: 16 }}>{company.name || 'FencePro'}</p>
+        <p style={{ color: template.accentColor, letterSpacing: 5, fontSize: 11, textTransform: 'uppercase', fontWeight: 700, marginBottom: 16 }}>{company.name || 'EZBiz'}</p>
         <h1 style={{ fontSize: 42, fontWeight: 400, margin: 0, lineHeight: 1.2 }}>Fencing Proposal</h1>
         <h2 style={{ fontSize: 22, fontWeight: 300, marginTop: 8, color: '#cbd5e1' }}>for {quote.customerName}</h2>
         <div style={{ height: 2, width: 60, background: template.accentColor, margin: '32px auto' }} />
@@ -312,7 +312,7 @@ function ModernTemplate({ quote, template, interactive, onAccept, accepted, expi
       <section style={{ position: 'relative', padding: '64px 48px', background: '#fff', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: -80, right: -80, width: 400, height: 400, background: template.accentColor, transform: 'rotate(-25deg)', opacity: 0.9 }} />
         <div style={{ position: 'relative' }}>
-          <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 3, color: '#6b7280', fontWeight: 700 }}>{company.name || 'FencePro'}</p>
+          <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 3, color: '#6b7280', fontWeight: 700 }}>{company.name || 'EZBiz'}</p>
           <h1 style={{ fontSize: 56, fontWeight: 900, lineHeight: 1.05, marginTop: 16, color: template.primaryColor }}>Project Proposal<br /><span style={{ color: template.accentColor }}>for {quote.customerName}</span></h1>
           <p style={{ fontSize: 14, color: '#6b7280', marginTop: 16 }}>{quote.customerAddress || ''}</p>
           <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 24 }}>Quote {quoteNumber} · {quote.date}</p>
@@ -417,7 +417,7 @@ function ClassicTemplate({ quote, template, interactive, onAccept, accepted, exp
       {/* Letterhead */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: `3px double ${template.primaryColor}`, paddingBottom: 20, marginBottom: 32 }}>
         <div>
-          <h1 style={{ fontSize: 30, fontWeight: 700, color: template.primaryColor, margin: 0, fontFamily: template.fontFamily }}>{company.name || 'FencePro'}</h1>
+          <h1 style={{ fontSize: 30, fontWeight: 700, color: template.primaryColor, margin: 0, fontFamily: template.fontFamily }}>{company.name || 'EZBiz'}</h1>
           <p style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Licensed &amp; Insured Fence Contractors</p>
         </div>
         <div style={{ textAlign: 'right', fontSize: 11, color: '#374151', lineHeight: 1.6 }}>

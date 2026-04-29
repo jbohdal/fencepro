@@ -27,10 +27,10 @@ import { getCustomerById } from './customerStore'
 function readCompanyInfo() {
   try {
     const r = localStorage.getItem('fencepro_config')
-    if (!r) return { name: 'FencePro', phone: '', email: '', address: '', portal: {} as any }
+    if (!r) return { name: 'EZBiz', phone: '', email: '', address: '', portal: {} as any }
     const cfg = JSON.parse(r)
     return { ...cfg.company, portal: cfg.portal || {} }
-  } catch { return { name: 'FencePro', phone: '', email: '', address: '', portal: {} as any } }
+  } catch { return { name: 'EZBiz', phone: '', email: '', address: '', portal: {} as any } }
 }
 
 function accentColor() {
@@ -107,7 +107,7 @@ export default function CustomerPortalApp({ route }: { route: string }) {
       </main>
       <footer className="border-t border-gray-200 bg-white">
         <div className="max-w-6xl mx-auto px-6 py-4 text-xs text-gray-500 flex flex-wrap gap-4 justify-between">
-          <span>© {new Date().getFullYear()} {company.name || 'FencePro'}</span>
+          <span>© {new Date().getFullYear()} {company.name || 'EZBiz'}</span>
           <span>
             {company.portal?.supportEmail && <a href={`mailto:${company.portal.supportEmail}`} className="hover:underline">{company.portal.supportEmail}</a>}
             {company.portal?.supportPhone && <span className="ml-3">{company.portal.supportPhone}</span>}
@@ -630,38 +630,39 @@ function InvoicesPage({ session, accent }: { session: PortalAccount; customer: a
 
 // ─────── Documents ───────
 
-function DocumentsPage({ session, accent }: { session: PortalAccount; customer: any; accent: string }) {
-  const [files, setFiles] = useState(() => readFilesFor(session.customerId))
+function DocumentsPage({ accent }: { session: PortalAccount; customer: any; accent: string }) {
+  const [files, setFiles] = useState<import('./portalApiClient').PortalFileRow[]>([])
+  const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [label, setLabel] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
-  function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function reload() {
+    setLoading(true)
+    const mod = await import('./portalApiClient')
+    setFiles(await mod.listPortalDocuments())
+    setLoading(false)
+  }
+
+  useEffect(() => { reload() }, [])
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
-    const reader = new FileReader()
-    reader.onload = () => {
-      try {
-        const raw = localStorage.getItem('fencepro_files')
-        const all = raw ? JSON.parse(raw) : []
-        all.unshift({
-          id: Math.random().toString(36).slice(2, 10),
-          customerId: session.customerId,
-          name: (label ? `${label} — ` : '') + file.name,
-          type: file.type,
-          size: `${(file.size / 1024).toFixed(1)} KB`,
-          dataUrl: reader.result,
-          uploadedAt: new Date().toISOString().slice(0, 10),
-          uploadedBy: 'customer portal',
-        })
-        localStorage.setItem('fencepro_files', JSON.stringify(all))
-        setFiles(readFilesFor(session.customerId))
-        setLabel('')
-      } catch {}
-      setUploading(false)
-    }
-    reader.readAsDataURL(file)
     e.target.value = ''
+    if (!file) return
+    setError(null); setUploading(true)
+    const mod = await import('./portalApiClient')
+    const r = await mod.uploadPortalDocument(file, label.trim() || undefined)
+    setUploading(false)
+    if (!r.ok) {
+      const code = r.error
+      let msg = 'Upload failed. Please try again or contact us.'
+      if (code === 'FILE_TOO_LARGE') msg = 'Document must be under 25MB.'
+      else if (code === 'UNSUPPORTED_TYPE') msg = 'Allowed types: PDF, DOCX, PNG, JPG.'
+      setError(msg); return
+    }
+    setLabel('')
+    await reload()
   }
 
   return (
@@ -669,30 +670,34 @@ function DocumentsPage({ session, accent }: { session: PortalAccount; customer: 
       <h1 className="text-2xl font-bold text-gray-900">Documents</h1>
       <div className="bg-white border border-gray-200 rounded-2xl p-5">
         <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Upload a Document</p>
-        <p className="text-xs text-gray-500 mb-3">HOA approvals, property surveys, or anything else you'd like to share with us.</p>
+        <p className="text-xs text-gray-500 mb-3">HOA approvals, property surveys, or anything else you'd like to share with us. PDF / DOCX / PNG / JPG up to 25MB.</p>
         <div className="flex gap-2">
           <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (optional)"
             className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           <label className="text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer hover:opacity-90"
             style={{ backgroundColor: accent }}>
             {uploading ? 'Uploading…' : '+ Upload'}
-            <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
+            <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.txt"
+              className="hidden" onChange={handleUpload} disabled={uploading} />
           </label>
         </div>
+        {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
       </div>
-      {files.length === 0 ? (
+      {loading ? (
+        <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
+      ) : files.length === 0 ? (
         <EmptyState emoji="📄" title="No documents yet" body="Your contracts, permits, and other documents will appear here." />
       ) : (
         <div className="space-y-1">
           {files.map(f => (
-            <a key={f.id} href={f.url || f.dataUrl || '#'} target="_blank" rel="noreferrer"
+            <a key={f.id} href={resolveFileUrlSync(f.fileUrl)} target="_blank" rel="noreferrer"
               className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-3 hover:shadow-md transition-all">
               <span className="text-xl">📄</span>
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 truncate">{f.name}</p>
-                <p className="text-xs text-gray-500">{f.uploadedAt} · {f.uploadedBy || 'company'}</p>
+                <p className="font-medium text-gray-900 truncate">{f.label ? `${f.label} — ` : ''}{f.name}</p>
+                <p className="text-xs text-gray-500">{new Date(f.uploadedAt).toLocaleDateString()} · {f.source === 'portal_customer' ? 'You' : (f.uploadedBy || 'company')}</p>
               </div>
-              <span className="text-xs text-gray-400">{f.size}</span>
+              <span className="text-xs text-gray-400">{(f.size / 1024).toFixed(1)} KB</span>
             </a>
           ))}
         </div>
@@ -703,26 +708,72 @@ function DocumentsPage({ session, accent }: { session: PortalAccount; customer: 
 
 // ─────── Photos ───────
 
-function PhotosPage({ session }: { session: PortalAccount; customer: any; accent: string }) {
-  const photos = useMemo(() => {
-    try {
-      const r = localStorage.getItem('fencepro_customer_photos')
-      const all = r ? JSON.parse(r) : []
-      return all.filter((p: any) => p.customerId === session.customerId)
-    } catch { return [] }
-  }, [session.customerId])
+function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent: string }) {
+  const [photos, setPhotos] = useState<import('./portalApiClient').PortalPhotoRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
+
+  async function reload() {
+    setLoading(true)
+    const mod = await import('./portalApiClient')
+    const list = await mod.listPortalPhotos()
+    setPhotos(list)
+    setLoading(false)
+  }
+
+  useEffect(() => { reload() }, [])
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (files.length === 0) return
+    setUploading(true); setError(null)
+    const mod = await import('./portalApiClient')
+    let okCount = 0
+    let lastErr: string | null = null
+    for (const f of files) {
+      const r = await mod.uploadPortalPhoto(f)
+      if (r.ok) okCount++
+      else lastErr = errorMessage(r.error)
+    }
+    setUploading(false)
+    if (lastErr) setError(lastErr)
+    if (okCount > 0) await reload()
+  }
+
+  function errorMessage(code?: string): string {
+    if (!code) return 'Upload failed. Please try again.'
+    if (code === 'FILE_TOO_LARGE') return 'Photo must be under 20MB.'
+    if (code === 'UNSUPPORTED_TYPE') return 'Allowed types: JPEG, PNG, HEIC, WebP, GIF.'
+    if (code === 'NO_FILE') return 'No file was selected.'
+    return 'Upload failed. Please try again or contact us.'
+  }
+
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold text-gray-900">Photos</h1>
-      {photos.length === 0 ? (
-        <EmptyState emoji="📷" title="No photos yet" body="Photos from your project will appear here once uploaded." />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-2xl font-bold text-gray-900">Photos</h1>
+        <label className="text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer hover:opacity-90"
+          style={{ backgroundColor: accent }}>
+          {uploading ? 'Uploading…' : '+ Upload Photo'}
+          <input type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/gif" className="hidden" onChange={handleUpload} disabled={uploading} />
+        </label>
+      </div>
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">{error}</div>
+      )}
+      {loading ? (
+        <p className="text-sm text-gray-400 text-center py-10">Loading…</p>
+      ) : photos.length === 0 ? (
+        <EmptyState emoji="📷" title="No photos yet" body="Tap Upload Photo above to share photos with us." />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {photos.map((p: any, i: number) => (
+          {photos.map((p, i) => (
             <button key={p.id} onClick={() => setLightboxIdx(i)}
               className="aspect-square bg-gray-100 rounded-xl overflow-hidden group">
-              <img src={p.dataUrl || p.url} alt={p.name}
+              <img src={resolveFileUrlSync(p.fileUrl)} alt={p.name}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
             </button>
           ))}
@@ -730,8 +781,7 @@ function PhotosPage({ session }: { session: PortalAccount; customer: any; accent
       )}
       {lightboxIdx !== null && photos[lightboxIdx] && (
         <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-6" onClick={() => setLightboxIdx(null)}>
-          <img src={photos[lightboxIdx].dataUrl || photos[lightboxIdx].url}
-            alt={photos[lightboxIdx].name}
+          <img src={resolveFileUrlSync(photos[lightboxIdx].fileUrl)} alt={photos[lightboxIdx].name}
             className="max-w-full max-h-full object-contain" />
           <button onClick={() => setLightboxIdx(null)} className="absolute top-4 right-4 text-white text-3xl">×</button>
         </div>
@@ -740,47 +790,59 @@ function PhotosPage({ session }: { session: PortalAccount; customer: any; accent
   )
 }
 
+function resolveFileUrlSync(fileUrl: string): string {
+  if (!fileUrl) return ''
+  if (/^https?:\/\//i.test(fileUrl)) return fileUrl
+  const base = window.location.hostname === 'localhost' ? 'http://localhost:4000' : ''
+  return `${base}${fileUrl}`
+}
+
 // ─────── Messages ───────
 
-const MSG_KEY = 'fencepro_portal_messages'
-
-function MessagesPage({ session, accent }: { session: PortalAccount; customer: any; accent: string }) {
-  const [messages, setMessages] = useState(() => readMessagesFor(session.customerId))
+function MessagesPage({ accent }: { session: PortalAccount; customer: any; accent: string }) {
+  const [messages, setMessages] = useState<import('./portalApiClient').PortalMessage[]>([])
   const [draft, setDraft] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
 
-  function send() {
+  async function reload() {
+    setLoading(true)
+    const mod = await import('./portalApiClient')
+    const data = await mod.listPortalMessages()
+    setMessages(data.messages || [])
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    reload()
+    const t = setInterval(reload, 30_000)
+    return () => clearInterval(t)
+  }, [])
+
+  async function send() {
     if (!draft.trim()) return
-    try {
-      const raw = localStorage.getItem(MSG_KEY)
-      const all = raw ? JSON.parse(raw) : []
-      all.push({
-        id: Math.random().toString(36).slice(2, 10),
-        customerId: session.customerId,
-        direction: 'inbound',
-        from: `${session.firstName} ${session.lastName}`.trim() || session.email,
-        body: draft.trim(),
-        at: new Date().toISOString(),
-        read: false,
-      })
-      localStorage.setItem(MSG_KEY, JSON.stringify(all))
-      setMessages(readMessagesFor(session.customerId))
-      setDraft('')
-    } catch {}
+    setSending(true)
+    const mod = await import('./portalApiClient')
+    const r = await mod.sendPortalMessage(draft.trim())
+    setSending(false)
+    if (r.ok) { setDraft(''); await reload() }
   }
 
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
-      <div className="bg-white border border-gray-200 rounded-2xl p-4 min-h-[300px] space-y-2">
-        {messages.length === 0 ? (
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 min-h-[320px] max-h-[60vh] overflow-y-auto space-y-2">
+        {loading ? (
+          <p className="text-sm text-gray-400 text-center py-10">Loading…</p>
+        ) : messages.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-10">No messages yet — send one below.</p>
-        ) : messages.map((m: any) => (
-          <div key={m.id} className={`flex ${m.direction === 'inbound' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[70%] rounded-2xl px-4 py-2 text-sm ${m.direction === 'inbound' ? 'text-white' : 'bg-gray-100 text-gray-900'}`}
-              style={m.direction === 'inbound' ? { backgroundColor: accent } : {}}>
+        ) : messages.map(m => (
+          <div key={m.id} className={`flex ${m.senderType === 'customer' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[70%] rounded-2xl px-4 py-2 text-sm ${m.senderType === 'customer' ? 'text-white' : 'bg-gray-100 text-gray-900'}`}
+              style={m.senderType === 'customer' ? { backgroundColor: accent } : {}}>
               <p className="whitespace-pre-wrap">{m.body}</p>
-              <p className={`text-[10px] mt-0.5 ${m.direction === 'inbound' ? 'text-white/70' : 'text-gray-400'}`}>
-                {new Date(m.at).toLocaleString()}
+              <p className={`text-[10px] mt-0.5 ${m.senderType === 'customer' ? 'text-white/70' : 'text-gray-400'}`}>
+                {new Date(m.createdAt).toLocaleString()}
               </p>
             </div>
           </div>
@@ -789,20 +851,14 @@ function MessagesPage({ session, accent }: { session: PortalAccount; customer: a
       <div className="bg-white border border-gray-200 rounded-2xl p-3 flex gap-2">
         <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={2}
           placeholder="Type your message…"
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
           className="flex-1 border-0 resize-none text-sm focus:outline-none focus:ring-0 placeholder:text-gray-400" />
-        <button onClick={send} className="text-white text-sm font-semibold px-4 py-2 rounded-lg h-fit self-center hover:opacity-90"
-          style={{ backgroundColor: accent }}>Send</button>
+        <button onClick={send} disabled={sending || !draft.trim()}
+          className="text-white text-sm font-semibold px-4 py-2 rounded-lg h-fit self-center hover:opacity-90 disabled:opacity-50"
+          style={{ backgroundColor: accent }}>{sending ? 'Sending…' : 'Send'}</button>
       </div>
     </div>
   )
-}
-
-export function readMessagesFor(customerId: string) {
-  try {
-    const r = localStorage.getItem(MSG_KEY)
-    const all = r ? JSON.parse(r) : []
-    return all.filter((m: any) => m.customerId === customerId).sort((a: any, b: any) => a.at.localeCompare(b.at))
-  } catch { return [] }
 }
 
 // ─────── Account ───────

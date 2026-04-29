@@ -40,7 +40,7 @@ const adapter: IntegrationAdapter = {
         event: 'test',
         source: 'fencepro_crm',
         timestamp: new Date().toISOString(),
-        data: { message: 'This is a test webhook from FencePro CRM' },
+        data: { message: 'This is a test webhook from EZBiz' },
       }
 
       const res = await fetch(webhookUrl, {
