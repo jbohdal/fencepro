@@ -29,6 +29,10 @@ import automationRoutes from './routes/automations.js'
 import integrationRoutes from './routes/integrations.js'
 import crmAuthRoutes from './routes/crm-auth.js'
 import crmContactRoutes from './routes/crm-contacts.js'
+import adminAuditRoutes from './routes/admin-audit.js'
+import { promises as fsp } from 'fs'
+import path from 'path'
+import { startDataIntegrityCron } from './lib/dataIntegrityCron.js'
 import cronRoutes from './routes/cron.js'
 import portalRoutes from './routes/portal.js'
 
@@ -121,16 +125,72 @@ app.use('/api/automations', automationRoutes)
 app.use('/api/integrations', integrationRoutes)
 app.use('/api/crm-auth', crmAuthRoutes)
 app.use('/api/crm-contacts', crmContactRoutes)
+app.use('/api/admin', adminAuditRoutes)
 app.use('/api/cron', cronRoutes)                // Vercel cron jobs
 app.use('/api/portal', portalRoutes)            // Customer portal accounts + activation
 
-// ── Health check ──
+// ── Health check (expanded) ──
+//
+// Returns:
+//   {
+//     status: 'ok' | 'degraded',
+//     timestamp,
+//     database: { status, responseTimeMs, customerCount, contactCount, invoiceCount, ... },
+//     storage:  { status, lastBackupAt, lastBackupSizeBytes },
+//     email:    { status }
+//   }
 app.get('/api/health', async (_req, res) => {
+  const out: Record<string, any> = { status: 'ok', timestamp: new Date().toISOString() }
+  // DB
   try {
+    const t0 = Date.now()
     await prisma.$queryRaw`SELECT 1`
-    res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() })
+    const dt = Date.now() - t0
+    const [customerCount, contactCount, invoiceCount, portalAccountCount] = await Promise.all([
+      prisma.customer.count().catch(() => -1),
+      prisma.crmContact.count({ where: { archivedAt: null } }).catch(() => -1),
+      prisma.invoice.count().catch(() => -1),
+      prisma.portalAccount.count().catch(() => -1),
+    ])
+    out.database = { status: 'ok', responseTimeMs: dt, customerCount, contactCount, invoiceCount, portalAccountCount }
+  } catch (err) {
+    out.status = 'degraded'
+    out.database = { status: 'error', error: (err as Error).message }
+  }
+  // Storage
+  try {
+    const lastBackup = await prisma.backupLog.findFirst({
+      where: { status: 'success' },
+      orderBy: { completedAt: 'desc' },
+    })
+    out.storage = lastBackup
+      ? { status: 'ok', lastBackupAt: lastBackup.completedAt, lastBackupSizeBytes: Number(lastBackup.fileSizeBytes), lastBackupType: lastBackup.backupType }
+      : { status: 'unknown', lastBackupAt: null }
   } catch {
-    res.status(503).json({ status: 'degraded', db: 'failed', timestamp: new Date().toISOString() })
+    out.storage = { status: 'unknown' }
+  }
+  // Email
+  out.email = { status: process.env.SENDGRID_API_KEY ? 'ok' : 'not_configured' }
+  // Version (from package.json best-effort)
+  try {
+    out.version = (await import('../../package.json', { with: { type: 'json' } })).default.version
+  } catch { /* ignore */ }
+  res.status(out.status === 'ok' ? 200 : 503).json(out)
+})
+
+// ── Storage health: write/read/delete a 12-byte test object ──
+app.get('/api/health/storage', async (_req, res) => {
+  const dir = process.env.UPLOAD_DIR || './uploads'
+  const testFile = path.join(dir, `.health-${Date.now()}.txt`)
+  try {
+    await fsp.mkdir(dir, { recursive: true })
+    await fsp.writeFile(testFile, 'health-check')
+    const back = await fsp.readFile(testFile, 'utf8')
+    if (back !== 'health-check') throw new Error('read content mismatch')
+    await fsp.unlink(testFile)
+    res.json({ status: 'ok', driver: process.env.STORAGE_DRIVER || 'local', path: dir })
+  } catch (err) {
+    res.status(503).json({ status: 'error', message: (err as Error).message, driver: process.env.STORAGE_DRIVER || 'local', path: dir })
   }
 })
 
@@ -152,12 +212,42 @@ printEnvValidation()
 // On Vercel, the app is exported and Vercel manages the serverless lifecycle.
 const isVercel = process.env.VERCEL === '1'
 if (!isVercel) {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`🚀 EZBiz Portal API running on port ${PORT}`)
     console.log(`   CORS origin: ${CLIENT_URL}`)
     console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`)
     console.log('   Follow-up cron: use /api/cron/follow-ups endpoint (or setInterval for local dev)')
+
+    // Start in-process data-integrity cron (snapshot + backup-staleness)
+    try { startDataIntegrityCron() } catch (err) {
+      console.warn('[startup] data-integrity cron failed to start:', (err as Error).message)
+    }
   })
+
+  // ── Graceful shutdown ──
+  // pm2 sends SIGINT (default kill_signal) or SIGTERM (--update-env restarts).
+  // Stop accepting new connections, finish in-flight requests, close prisma,
+  // then exit. This prevents users mid-save from getting an EOF on a deploy.
+  const SHUTDOWN_TIMEOUT_MS = 30_000
+  let shuttingDown = false
+  function gracefulShutdown(signal: string) {
+    if (shuttingDown) return
+    shuttingDown = true
+    console.log(`[shutdown] ${signal} received — closing HTTP listener…`)
+    const force = setTimeout(() => {
+      console.error(`[shutdown] forced exit after ${SHUTDOWN_TIMEOUT_MS}ms`)
+      process.exit(1)
+    }, SHUTDOWN_TIMEOUT_MS)
+    force.unref()
+    server.close(async (err) => {
+      if (err) console.error('[shutdown] server.close error:', err)
+      try { await prisma.$disconnect() } catch (e) { console.warn('[shutdown] prisma disconnect:', (e as Error).message) }
+      console.log('[shutdown] clean exit')
+      process.exit(0)
+    })
+  }
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'))
 }
 
 export default app

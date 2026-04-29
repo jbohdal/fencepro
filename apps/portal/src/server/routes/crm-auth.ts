@@ -13,6 +13,7 @@ import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
 import { buildFrontendUrl } from '../lib/urls.js'
+import { audit } from '../lib/auditLog.js'
 
 const router = Router()
 
@@ -321,6 +322,7 @@ router.post('/invite', async (req, res) => {
       data: { userId: payload.sub, action: 'invite_sent', entityType: 'user', entityId: user.id, metadata: JSON.parse(JSON.stringify({ invitedEmail: email, role: data.role })) },
     }).catch(() => {})
 
+    await audit(req, 'invite_sent', 'CrmUser', user.id, { newValues: { email, role: data.role, firstName: data.firstName, lastName: data.lastName } })
     res.status(201).json({ success: true, data: { id: user.id, email, status: 'invited' } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }

@@ -1385,3 +1385,68 @@ model CrmContact {
   @@index([archivedAt])
   @@index([jobStatus])
 }
+
+// ── CRM Audit Log — every CRUD op on important CRM-side entities ──
+//
+// Distinct from the existing AuditLog model (which is tied to the customer-
+// portal Customer table). This is the staff-side / CRM-side audit log.
+// Records what changed, who did it, and the before/after JSON so accidental
+// changes can be precisely reversed. Hooked from the new audit() helper in
+// apps/portal/src/server/lib/auditLog.ts. Emit-only by default; the Admin
+// Audit Log page reads it via /api/admin/audit-log.
+model CrmAuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  userEmail   String?
+  action      String   // 'create' | 'update' | 'delete' | 'soft_delete' | 'login' | 'logout' | 'invite_sent' | 'invite_accepted' | 'role_changed' | 'settings_changed' | etc.
+  entityType  String   // 'CrmContact' | 'Quote' | 'Job' | 'Invoice' | ...
+  entityId    String?
+  oldValues   Json?
+  newValues   Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+// ── Backup Log — every backup attempt (daily, pre-deploy, restore) ──
+model BackupLog {
+  id            String   @id @default(uuid())
+  backupType    String   // 'daily' | 'pre-deploy' | 'restore' | 'manual'
+  filePath      String
+  remoteUrl     String?  // s3:// path if uploaded
+  fileSizeBytes BigInt   @default(0)
+  status        String   // 'success' | 'failed' | 'partial'
+  startedAt     DateTime
+  completedAt   DateTime
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+
+  @@index([backupType, createdAt])
+  @@index([status])
+}
+
+// ── Monitoring Snapshots — daily count of key entities ──
+//
+// One row per day per company-tenant. Drives the /api/health endpoint's
+// `database.counts` field and the daily-anomaly alert that fires when any
+// count drops by more than 5 records day-over-day.
+model MonitoringSnapshot {
+  id              String   @id @default(uuid())
+  snapshotDate    DateTime @unique  // truncated to YYYY-MM-DD UTC
+  customerCount   Int      @default(0)
+  contactCount    Int      @default(0)
+  quoteCount      Int      @default(0)
+  jobCount        Int      @default(0)
+  invoiceCount    Int      @default(0)
+  paymentCount    Int      @default(0)
+  documentCount   Int      @default(0)
+  portalAccountCount Int   @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([snapshotDate])
+}

@@ -8,6 +8,7 @@ import QuotesPage, { type SavedQuote } from './QuotesPage'
 import JobsPage from './JobsPage'
 import SalesPipelineBoard from './SalesPipelineBoard'
 import OperationsBoard from './OperationsBoard'
+import AuditLogPage from './AuditLogPage'
 import StagingPage from './StagingPage'
 import SchedulePage from './SchedulePage'
 import ReportsPage from './ReportsPage'
@@ -103,6 +104,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Automations',   icon: '⚡', roles: ['owner', 'admin'] },
       { name: 'Integrations', icon: '🔌', roles: ['owner', 'admin'] },
       { name: 'Portal',       icon: '🌐', roles: ['owner', 'admin'] },
+      { name: 'Audit Log',    icon: '🛡️', roles: ['owner', 'admin'] },
       { name: 'Settings',     icon: '⚙️', roles: ['owner', 'admin'] },
     ],
   },
@@ -773,6 +775,7 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
           {active === 'Automations' && <AutomationsPage />}
           {active === 'Integrations' && <IntegrationsPage />}
           {active === 'Portal'    && <PortalInbox />}
+          {active === 'Audit Log' && <AuditLogPage />}
           {active === 'Settings'  && <AdminSettingsPage />}
           {active === 'Inventory' && <InventoryPage />}
           {active === 'Pending Orders' && <PendingOrdersPage />}

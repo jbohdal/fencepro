@@ -73,7 +73,7 @@ export function validateProductionEnv(): { critical: string[]; warnings: string[
   return { critical, warnings }
 }
 
-/** Print env-validation results at startup. */
+/** Print env-validation results at startup, and alert by email on critical issues. */
 export function printEnvValidation(): void {
   const { critical, warnings } = validateProductionEnv()
   if (critical.length === 0 && warnings.length === 0) {
@@ -87,6 +87,27 @@ export function printEnvValidation(): void {
   if (warnings.length > 0) {
     console.warn('[env] ⚠️  Warnings:')
     for (const msg of warnings) console.warn('       ' + msg)
+  }
+  // Best-effort alert email when critical issues are detected. Wrapped in
+  // try/catch and fired-and-forgot — we MUST NOT block startup on email.
+  if (critical.length > 0) {
+    const adminEmail = process.env.ADMIN_ALERT_EMAIL || process.env.SMTP_FROM_EMAIL
+    if (adminEmail && process.env.SENDGRID_API_KEY) {
+      // Lazy-load to avoid pulling email service when env validation fails before setup
+      import('./emailService.js').then(({ sendEmail, buildEmailHtml }) => {
+        sendEmail({
+          to: adminEmail,
+          subject: 'ALERT — EZBiz API failed env validation at startup',
+          body: buildEmailHtml(`
+            <p>The EZBiz API process detected critical environment issues at startup:</p>
+            <ul>${critical.map(m => `<li>${m}</li>`).join('')}</ul>
+            ${warnings.length > 0 ? `<p>Warnings:</p><ul>${warnings.map(m => `<li>${m}</li>`).join('')}</ul>` : ''}
+            <p>${process.env.NODE_ENV === 'production' ? 'In production the process refuses to start with critical errors.' : 'In development the process started anyway. Fix before promoting to production.'}</p>
+          `),
+          disableClickTracking: true,
+        }).catch(() => {})
+      }).catch(() => {})
+    }
   }
   if (critical.length > 0 && process.env.NODE_ENV === 'production' && process.env.STRICT_ENV_VALIDATION !== 'false') {
     console.error('[env] Refusing to start in production with critical env errors. Set STRICT_ENV_VALIDATION=false to bypass (not recommended).')

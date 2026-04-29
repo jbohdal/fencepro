@@ -19,6 +19,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { audit } from '../lib/auditLog.js'
 
 const router = Router()
 
@@ -101,6 +102,7 @@ router.post('/', async (req: any, res) => {
       },
     })
     console.log(`[crm-contacts] created ${created.id} (${created.firstName} ${created.lastName}) for user ${req.user.id}`)
+    await audit(req, 'create', 'CrmContact', created.id, { newValues: created })
     res.status(201).json({ success: true, data: created })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
@@ -140,6 +142,7 @@ router.patch('/:id', async (req: any, res) => {
         isCompleted: data.isCompleted,
       },
     })
+    await audit(req, 'update', 'CrmContact', updated.id, { oldValues: existing, newValues: updated })
     res.json({ success: true, data: updated })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
@@ -157,6 +160,7 @@ router.delete('/:id', async (req: any, res) => {
       res.status(403).json({ success: false, error: 'Cannot delete another user\'s contact' }); return
     }
     await prisma.crmContact.update({ where: { id: req.params.id }, data: { archivedAt: new Date() } })
+    await audit(req, 'soft_delete', 'CrmContact', existing.id, { oldValues: existing })
     res.json({ success: true })
   } catch (err) {
     console.error('[crm-contacts] delete error:', err)
