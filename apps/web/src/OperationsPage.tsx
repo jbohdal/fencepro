@@ -12,7 +12,7 @@ import { onJobCompleted } from './jobCompleteFlow'
 
 // ── Unified operations stages ──
 
-const OPS_STAGES = [
+export const OPS_STAGES = [
   { key: 'awaiting_locates', label: 'Awaiting Locates',   color: 'bg-blue-500',   bg: 'bg-blue-50',   text: 'text-blue-700'   },
   { key: 'need_drawing',     label: 'Need Drawing',       color: 'bg-yellow-500', bg: 'bg-yellow-50', text: 'text-yellow-700' },
   { key: 'materials_ordered',label: 'Materials Ordered',   color: 'bg-orange-500', bg: 'bg-orange-50', text: 'text-orange-700' },
@@ -28,7 +28,7 @@ const OPS_STAGES = [
 ]
 
 // Map old JobStatus values to unified stage keys
-function mapJobStatusToOps(job: Job): string {
+export function mapJobStatusToOps(job: Job): string {
   // Use the staging fields to determine finer-grained status
   if (job.status === 'on_hold') return 'on_hold'
   if (job.status === 'staging') {
@@ -78,7 +78,7 @@ function mapStagingStatus(status: string): string {
 }
 
 // Unified job type for display
-interface UnifiedJob {
+export interface UnifiedJob {
   id: string
   source: 'job' | 'staging'
   customerName: string
@@ -104,7 +104,7 @@ interface UnifiedJob {
   rawStaging?: StagingJob
 }
 
-function buildUnifiedList(): UnifiedJob[] {
+export function buildUnifiedList(): UnifiedJob[] {
   const jobs = getJobs()
   const staging = loadStaging()
   const result: UnifiedJob[] = []
@@ -579,7 +579,7 @@ function ListView({ jobs, onSelect, onAdvance }: { jobs: UnifiedJob[]; onSelect:
 
 // ── Detail Panel (Slide-over) ──
 
-function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveStage, onUpdate }: {
+export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveStage, onUpdate }: {
   job: UnifiedJob
   onClose: () => void
   onAdvance: () => void

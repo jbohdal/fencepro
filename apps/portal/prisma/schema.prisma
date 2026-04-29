@@ -581,6 +581,89 @@ model PortalAccount {
   @@index([status])
 }
 
+enum PortalFileSource {
+  portal_customer
+  crm_staff
+  system_generated
+  companycam
+}
+
+enum PortalFileKind {
+  photo
+  document
+  site_plan
+  contract
+  permit
+  warranty
+  other
+}
+
+enum PortalMessageSender {
+  customer
+  staff
+}
+
+model PortalPhoto {
+  id                  String              @id @default(uuid())
+  crmCustomerId       String
+  uploadedByAccountId String?             // PortalAccount id when customer-uploaded
+  uploadedByUser      String?             // staff user identifier when staff-uploaded
+  fileKey             String              // storage path
+  fileUrl             String?             // public URL if available
+  originalFilename    String
+  fileSizeBytes       Int
+  mimeType            String
+  caption             String?
+  source              PortalFileSource    @default(portal_customer)
+  isVisibleToCustomer Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  deletedAt           DateTime?
+
+  @@index([crmCustomerId])
+  @@index([source])
+}
+
+model PortalFile {
+  id                  String              @id @default(uuid())
+  crmCustomerId       String
+  uploadedByAccountId String?
+  uploadedByUser      String?
+  fileKey             String
+  fileUrl             String?
+  originalFilename    String
+  fileSizeBytes       Int
+  mimeType            String
+  fileKind            PortalFileKind      @default(document)
+  source              PortalFileSource    @default(portal_customer)
+  label               String?
+  isVisibleToCustomer Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  deletedAt           DateTime?
+
+  @@index([crmCustomerId])
+  @@index([fileKind])
+  @@index([source])
+}
+
+model PortalMessage {
+  id                String              @id @default(uuid())
+  crmCustomerId     String
+  senderAccountId   String?             // PortalAccount id when from customer
+  senderUser        String?             // staff user identifier when from staff
+  senderType        PortalMessageSender
+  body              String              @db.Text
+  isReadByStaff     Boolean             @default(false)
+  isReadByCustomer  Boolean             @default(false)
+  readByStaffAt     DateTime?
+  readByCustomerAt  DateTime?
+  createdAt         DateTime            @default(now())
+  deletedAt         DateTime?
+
+  @@index([crmCustomerId, createdAt])
+  @@index([senderType])
+  @@index([isReadByStaff])
+}
+
 model PortalInvite {
   id          String         @id @default(uuid())
   accountId   String
@@ -1261,4 +1344,44 @@ model QuoteOption {
   @@index([bundleId])
   @@index([shareToken])
   @@index([status])
+}
+
+// ── CRM Contacts (database-backed customers used by the CRM web app) ──
+//
+// Distinct from `Customer` (which is the customer-portal login account).
+// A CrmContact may have an attached `Customer` once portal access is granted,
+// but most CrmContacts never use the customer portal — they are simply leads /
+// jobsite contacts that the CRM operator wants persisted in the database
+// instead of localStorage. Every field is optional after first/last name so
+// new fields can be added without breaking existing rows.
+model CrmContact {
+  id            String   @id @default(uuid())
+  ownerId       String?  // CrmUser.id of the owner (multi-tenancy hook for later)
+  firstName     String
+  lastName      String
+  email         String?
+  phone         String?
+  serviceAddress    String?
+  billingAddress    String?
+  billingDifferent  Boolean  @default(false)
+  city          String?
+  state         String?
+  zip           String?
+  leadSource    String?
+  salesRep      String?
+  firstApptDate String?
+  tags          Json?    // string[] of tags
+  notes         String?
+  jobStatus     String?  // First Contact / Appointment / ...  mirrors pipeline stage if known
+  isCompleted   Boolean  @default(false)
+  // Linkage back to the customer-portal account, if one exists
+  portalCustomerId String?
+  archivedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([email])
+  @@index([archivedAt])
+  @@index([jobStatus])
 }

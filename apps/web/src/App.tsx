@@ -6,6 +6,8 @@ import BudgetPage from './BudgetPage'
 import CustomersPage from './CustomersPage'
 import QuotesPage, { type SavedQuote } from './QuotesPage'
 import JobsPage from './JobsPage'
+import SalesPipelineBoard from './SalesPipelineBoard'
+import OperationsBoard from './OperationsBoard'
 import StagingPage from './StagingPage'
 import SchedulePage from './SchedulePage'
 import ReportsPage from './ReportsPage'
@@ -34,6 +36,7 @@ import SitePlansPage from './SitePlansPage'
 import InventoryPage from './InventoryPage'
 import CustomerPortalApp from './CustomerPortalApp'
 import NotificationBell from './NotificationBell'
+import MessagesInbox from './MessagesInbox'
 import PublicQuotePage from './PublicQuotePage'
 import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
 import { ToastContainer, toast } from './toast'
@@ -167,7 +170,7 @@ function loadCompanyName(): string {
       if (cfg.company?.name) return cfg.company.name
     }
   } catch { /* fall through */ }
-  return 'FencePro'
+  return 'EZBiz'
 }
 
 function loadUserProfile(): { name: string; role: UserRole } {
@@ -718,6 +721,12 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
           </div>
 
           <div className="flex items-center gap-3">
+            <MessagesInbox onNavigateToCustomer={(customerId) => {
+              setActive('Customers')
+              setTimeout(() => {
+                try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { customerId, tab: 'messages' } })) } catch {}
+              }, 50)
+            }} />
             <NotificationBell />
             {/* Command search */}
             <button
@@ -804,10 +813,10 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
             setShowQuote(true)
           }} />}
           {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={handleOpenQuote} onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
-          {active === 'Sales Pipeline' && <JobsPage />}
-          {active === 'Operations'     && <OperationsPage />}
-          {active === 'Jobs'           && <OperationsPage />}
-          {active === 'Staging'        && <OperationsPage />}
+          {active === 'Sales Pipeline' && <SalesPipelineBoard />}
+          {active === 'Operations'     && <OperationsBoard />}
+          {active === 'Jobs'           && <OperationsBoard />}
+          {active === 'Staging'        && <OperationsBoard />}
           {active === 'Schedule'  && <SchedulePage />}
           {active === 'Dispatch'  && <DispatchPage />}
           {active === 'Reports'   && <ReportsPage quotes={quotes} />}

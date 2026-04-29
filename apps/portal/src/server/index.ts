@@ -4,6 +4,8 @@ import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 import { ensureUploadDir } from './lib/storage/index.js'
+import prisma from './lib/prisma.js'
+import { printEnvValidation } from './lib/urls.js'
 
 // Route imports
 import authRoutes from './routes/auth.js'
@@ -26,6 +28,7 @@ import ezBudgetRoutes, { ezBudgetPublicRoutes } from './routes/ez-budget.js'
 import automationRoutes from './routes/automations.js'
 import integrationRoutes from './routes/integrations.js'
 import crmAuthRoutes from './routes/crm-auth.js'
+import crmContactRoutes from './routes/crm-contacts.js'
 import cronRoutes from './routes/cron.js'
 import portalRoutes from './routes/portal.js'
 
@@ -37,7 +40,12 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
 app.set('trust proxy', 1)
 
 // ── Security ──
-app.use(helmet())
+app.use(helmet({
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  contentSecurityPolicy: false, // Disabled for now: app uses inline styles + CDN sources; tighten later.
+}))
+app.disable('x-powered-by')
 
 // Build allowed origins list: CLIENT_URL + optional CORS_ORIGINS (comma-separated)
 const allowedOrigins: string[] = [CLIENT_URL]
@@ -84,6 +92,10 @@ const apiLimiter = rateLimit({
 // ── Apply rate limits ──
 app.use('/api', apiLimiter)
 app.use('/api/auth/login', loginLimiter)
+app.use('/api/crm-auth/login', loginLimiter)
+app.use('/api/crm-auth/forgot-password', loginLimiter)
+app.use('/api/portal/login', loginLimiter)
+app.use('/api/portal/activate', loginLimiter)
 app.use('/api/documents', uploadLimiter)
 
 // ── Routes ──
@@ -108,12 +120,18 @@ app.use('/api/ez-budget', ezBudgetRoutes)       // Admin endpoints (auth require
 app.use('/api/automations', automationRoutes)
 app.use('/api/integrations', integrationRoutes)
 app.use('/api/crm-auth', crmAuthRoutes)
+app.use('/api/crm-contacts', crmContactRoutes)
 app.use('/api/cron', cronRoutes)                // Vercel cron jobs
 app.use('/api/portal', portalRoutes)            // Customer portal accounts + activation
 
 // ── Health check ──
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+app.get('/api/health', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`
+    res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() })
+  } catch {
+    res.status(503).json({ status: 'degraded', db: 'failed', timestamp: new Date().toISOString() })
+  }
 })
 
 // ── Error handler ──
@@ -125,12 +143,17 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // ── Start ──
 ensureUploadDir()
 
+// Validate critical env vars. In production this exits the process if APP_URL,
+// DATABASE_URL, JWT_SECRET, or JWT_REFRESH_SECRET are missing or look like
+// dev placeholders. Set STRICT_ENV_VALIDATION=false to bypass.
+printEnvValidation()
+
 // Only start the HTTP server when run directly (local dev / Docker).
 // On Vercel, the app is exported and Vercel manages the serverless lifecycle.
 const isVercel = process.env.VERCEL === '1'
 if (!isVercel) {
   app.listen(PORT, () => {
-    console.log(`🚀 FencePro Portal API running on port ${PORT}`)
+    console.log(`🚀 EZBiz Portal API running on port ${PORT}`)
     console.log(`   CORS origin: ${CLIENT_URL}`)
     console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`)
     console.log('   Follow-up cron: use /api/cron/follow-ups endpoint (or setInterval for local dev)')

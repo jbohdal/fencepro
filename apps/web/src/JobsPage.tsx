@@ -32,7 +32,7 @@ export interface PipelineLead {
   assignedRep?: string
 }
 
-const DEFAULT_STAGES = [
+export const DEFAULT_STAGES = [
   'First Contact',
   'Appointment',
   'Estimating',
@@ -48,12 +48,12 @@ const DEFAULT_STAGES = [
   'No Answer',
 ]
 
-const PRE_SALE_STAGES   = new Set(['First Contact', 'Appointment', 'Estimating', 'Pending Signature'])
-const PRODUCTION_STAGES = new Set(['Signed Contract', 'Job Prep', 'Pending Start', 'Jobs In Progress'])
-const CLOSING_STAGES    = new Set(['Job Complete', 'Pending Payment', 'Paid & Closed'])
-const DEAD_STAGES       = new Set(['Lost Sale', 'No Answer'])
+export const PRE_SALE_STAGES   = new Set(['First Contact', 'Appointment', 'Estimating', 'Pending Signature'])
+export const PRODUCTION_STAGES = new Set(['Signed Contract', 'Job Prep', 'Pending Start', 'Jobs In Progress'])
+export const CLOSING_STAGES    = new Set(['Job Complete', 'Pending Payment', 'Paid & Closed'])
+export const DEAD_STAGES       = new Set(['Lost Sale', 'No Answer'])
 
-const STAGE_COLORS: Record<string, string> = {
+export const STAGE_COLORS: Record<string, string> = {
   'First Contact':     'bg-gray-500',
   'Appointment':       'bg-blue-500',
   'Estimating':        'bg-indigo-500',
@@ -92,7 +92,7 @@ function loadConfiguredStages(): string[] | null {
   return null
 }
 
-function loadPipeline(): { leads: PipelineLead[], stages: string[] } {
+export function loadPipeline(): { leads: PipelineLead[], stages: string[] } {
   const configured = loadConfiguredStages()
   try {
     const raw = localStorage.getItem('fencepro_pipeline')
@@ -135,13 +135,13 @@ function loadPipeline(): { leads: PipelineLead[], stages: string[] } {
   } catch { return { leads: [], stages: DEFAULT_STAGES } }
 }
 
-function savePipeline(leads: PipelineLead[], stages: string[]) {
+export function savePipeline(leads: PipelineLead[], stages: string[]) {
   localStorage.setItem('fencepro_pipeline', JSON.stringify({ leads, stages }))
 }
 
 // ── Quick Add Modal ───────────────────────────────────────────────────────────
 
-function QuickAddModal({
+export function QuickAddModal({
   stage,
   onAdd,
   onClose,
@@ -287,7 +287,7 @@ function QuickAddModal({
 
 // ── Lead Detail Drawer ────────────────────────────────────────────────────────
 
-function LeadDrawer({
+export function LeadDrawer({
   lead,
   stages,
   onClose,

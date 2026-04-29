@@ -10,6 +10,8 @@ import AddressAutocomplete from './AddressAutocomplete'
 import { toast } from './toast'
 import { addLeadForNewCustomer } from './pipelineSeeder'
 import CustomerPhotosTab from './CustomerPhotosTab'
+import CustomerFilesTab from './CustomerFilesTab'
+import CustomerMessagesTab from './CustomerMessagesTab'
 import { fireCustomerCreated } from './automationTrigger'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import type { SavedQuote } from './QuotesPage'
@@ -17,6 +19,7 @@ import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
 import { getPortalAccessStatus, loadAccountsSoon, sendPortalInvite, resendPortalInvite, buildActivationLink } from './portalAccountStore'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity } from './customerStore'
+import { createContact as apiCreateContact, updateContact as apiUpdateContact, archiveContact as apiArchiveContact, migrateLocalContactsOnce } from './crmContactsApi'
 
 interface Customer {
   id: string
@@ -468,7 +471,7 @@ function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { 
   const [notes, setNotes] = useState('')
 
   const subtotal = lineItems.reduce((s, li) => s + Math.round(li.qty * li.price * 100), 0)
-  const tax = Math.round(subtotal * taxRate / 100)
+  const tax = Math.round(subtotal * taxRate)
   const total = subtotal + tax - discountCents
 
   function addLine() { setLineItems([...lineItems, { desc: '', qty: 1, price: 0 }]) }
@@ -781,7 +784,7 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
 
 function CustomerDetail({
   customer, quotes, importedQuotes, jobs, files,
-  onEdit, onNewQuote, onFileUpload, onDeleteFile, onQuoteClick, onFileClick,
+  onEdit, onNewQuote, onDeleteFile, onQuoteClick, onFileClick, initialTab, onTabConsumed,
 }: {
   customer: Customer
   quotes: Quote[]
@@ -790,38 +793,24 @@ function CustomerDetail({
   files: CustomerFile[]
   onEdit: () => void
   onNewQuote: (customer: Customer) => void
-  onFileUpload: (f: CustomerFile) => void
   onDeleteFile: (id: string) => void
   onQuoteClick?: (quoteId: string) => void
   onFileClick?: (f: CustomerFile) => void
+  initialTab?: string | null
+  onTabConsumed?: () => void
 }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files' | 'photos'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files' | 'photos' | 'messages'>('overview')
+
+  useEffect(() => {
+    if (initialTab && ['overview','quotes','jobs','costing','billing','notes','pullsheets','files','photos','messages'].includes(initialTab)) {
+      setActiveTab(initialTab as any)
+      onTabConsumed?.()
+    }
+  }, [initialTab, customer.id, onTabConsumed])
 
   const totalRevenue = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.price, 0)
     + importedQuotes.reduce((s, q) => s + q.quotedPrice, 0)
   const allQuoteCount = quotes.length + importedQuotes.length
-
-  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    onFileUpload({
-      id: uid(),
-      customerId: customer.id,
-      name: file.name,
-      size: file.size > 1024 * 1024 ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : `${(file.size / 1024).toFixed(0)} KB`,
-      type: file.type,
-      uploadedAt: new Date().toISOString().slice(0, 10),
-    })
-    e.target.value = ''
-  }
-
-  function fileIcon(type: string) {
-    if (type.includes('pdf')) return '📄'
-    if (type.includes('image')) return '🖼️'
-    if (type.includes('word') || type.includes('document')) return '📝'
-    if (type.includes('sheet') || type.includes('excel')) return '📊'
-    return '📎'
-  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -879,7 +868,7 @@ function CustomerDetail({
         <PortalAccessSection customer={customer} />
 
         <div className="flex gap-1 mt-5 bg-gray-100 rounded-xl p-1 w-fit">
-          {(['overview', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files', 'photos'] as const).map(t => (
+          {(['overview', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files', 'photos', 'messages'] as const).map(t => (
             <button
               key={t}
               onClick={() => setActiveTab(t)}
@@ -968,7 +957,7 @@ function CustomerDetail({
             {quotes.length > 0 && (
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                 <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quotes from FencePro</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quotes from EZBiz</p>
                 </div>
                 <table className="w-full text-sm">
                   <thead className="border-b border-gray-100">
@@ -1072,62 +1061,17 @@ function CustomerDetail({
         )}
 
         {activeTab === 'files' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">{files.length} file{files.length !== 1 ? 's' : ''} uploaded</p>
-              <label className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer">
-                + Upload File
-                <input type="file" className="hidden" onChange={handleFileInput} />
-              </label>
-            </div>
-            {files.length === 0 ? (
-              <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-12 text-center cursor-pointer hover:border-orange-300 transition-colors">
-                <p className="text-4xl mb-3">📎</p>
-                <p className="text-gray-500 font-medium">Drop files here or click to upload</p>
-                <p className="text-gray-400 text-sm mt-1">Contracts, HOA approvals, site photos, anything relevant</p>
-                <input type="file" className="hidden" onChange={handleFileInput} />
-              </label>
-            ) : (
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">File</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Size</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Uploaded</th>
-                      <th className="w-10" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {files.map(f => (
-                      <tr key={f.id} className="hover:bg-orange-50 group cursor-pointer transition-colors"
-                        onClick={() => onFileClick?.(f)}>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-lg">{fileIcon(f.type)}</span>
-                            <span className="font-medium text-gray-800">{f.name}</span>
-                            {f.type === 'Site Plan' && (
-                              <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Site Plan</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-right text-gray-400 text-xs">{f.size}</td>
-                        <td className="px-4 py-3 text-right text-gray-400 text-xs">{f.uploadedAt}</td>
-                        <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => onFileClick?.(f)} className="text-xs text-blue-600 hover:underline mr-3">View</button>
-                          <button onClick={() => {
-                            const url = (f as any).url || (f as any).dataUrl
-                            if (url) { const a = document.createElement('a'); a.href = url; a.download = f.name; a.click() }
-                          }} className="text-xs text-gray-500 hover:underline mr-3">Download</button>
-                          <button onClick={() => onDeleteFile(f.id)} className="text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          <CustomerFilesTab
+            customerId={customer.id}
+            uploadedBy="user"
+            legacyFiles={files as any}
+            onLegacyFileClick={(f) => onFileClick?.(f as any)}
+            onLegacyFileDelete={(id) => onDeleteFile(id)}
+          />
+        )}
+
+        {activeTab === 'messages' && (
+          <CustomerMessagesTab customerId={customer.id} sender="user" />
         )}
       </div>
     </div>
@@ -1149,6 +1093,13 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
       return raw ? JSON.parse(raw) : SAMPLE_CUSTOMERS
     } catch { return SAMPLE_CUSTOMERS }
   })
+  // One-time bulk migration of existing localStorage customers into the
+  // database. The API endpoint upserts, so this is idempotent. Flag stored in
+  // localStorage so it only runs once per browser.
+  useEffect(() => {
+    migrateLocalContactsOnce(customers).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // Pull real quotes + jobs from localStorage; fall back to samples when empty
   const readQuotes = (): Quote[] => {
     try {
@@ -1211,6 +1162,21 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
   const [search, setSearch] = useState('')
   const [drawerQuote, setDrawerQuote] = useState<SavedQuote | null>(null)
   const [viewerFile, setViewerFile] = useState<CustomerFile | null>(null)
+  const [forcedTab, setForcedTab] = useState<string | null>(null)
+
+  useEffect(() => {
+    function onSelect(e: any) {
+      const id = e?.detail?.customerId
+      const tab = e?.detail?.tab
+      if (typeof id === 'string') {
+        setSelectedId(id)
+        setMode('view')
+        if (typeof tab === 'string') setForcedTab(tab)
+      }
+    }
+    window.addEventListener('fencepro:select-customer', onSelect as any)
+    return () => window.removeEventListener('fencepro:select-customer', onSelect as any)
+  }, [])
 
   const filtered = customers.filter(c => {
     const q = search.toLowerCase()
@@ -1240,6 +1206,31 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
       })
       setSelectedId(c.id)
       setMode('view')
+
+      // Database-backed persistence (dual-write). Local UI is already updated;
+      // this fires-and-forgets the API call so the contact survives browser
+      // clears, device switches, and deploys. Errors surface via toast in
+      // crmContactsApi.ts but never block the user.
+      const apiPayload = {
+        firstName: c.firstName, lastName: c.lastName,
+        email: c.email || undefined, phone: c.phone || undefined,
+        serviceAddress: c.serviceAddress || undefined,
+        billingAddress: c.billingAddress || undefined,
+        billingDifferent: !!c.billingDifferent,
+        leadSource: c.leadSource || undefined,
+        salesRep: c.salesRep || undefined,
+        firstApptDate: c.firstApptDate || undefined,
+        tags: Array.isArray(c.tags) ? c.tags : undefined,
+        notes: c.notes || undefined,
+        jobStatus: c.jobStatus || undefined,
+        isCompleted: !!(c as Customer & { isCompleted?: boolean }).isCompleted,
+      }
+      if (isNew) {
+        apiCreateContact(apiPayload).catch(() => {})
+      } else {
+        apiUpdateContact(c.id, apiPayload).catch(() => {})
+      }
+
       if (isNew) {
         addLeadForNewCustomer({
           id: c.id, firstName: c.firstName, lastName: c.lastName,
@@ -1272,6 +1263,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
       localStorage.setItem('fencepro_customers', JSON.stringify(updated))
       return updated
     })
+    apiArchiveContact(id).catch(() => {})
     if (selectedId === id) { setSelectedId(null); setMode('view') }
   }
 
@@ -1529,11 +1521,6 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
           files={customerFiles}
           onEdit={() => setMode('edit')}
           onNewQuote={(c) => onNewQuote?.(c)}
-          onFileUpload={f => setFiles(prev => {
-            const updated = [...prev, f]
-            localStorage.setItem('fencepro_files', JSON.stringify(updated))
-            return updated
-          })}
           onDeleteFile={id => setFiles(prev => {
             const updated = prev.filter(f => f.id !== id)
             localStorage.setItem('fencepro_files', JSON.stringify(updated))
@@ -1548,6 +1535,8 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
             } catch {}
           }}
           onFileClick={(f) => setViewerFile(f)}
+          initialTab={forcedTab}
+          onTabConsumed={() => setForcedTab(null)}
         />
       )}
 
@@ -1602,8 +1591,8 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
     const link = buildActivationLink(rawToken)
     const tpl = getEmailTemplate('portal_welcome')
     const companyName = (() => {
-      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.name || 'FencePro' } catch {}
-      return 'FencePro'
+      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.name || 'EZBiz' } catch {}
+      return 'EZBiz'
     })()
     const companyPhone = (() => {
       try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.phone || '' } catch {}

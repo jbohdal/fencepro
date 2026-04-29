@@ -12,12 +12,12 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
+import { buildFrontendUrl } from '../lib/urls.js'
 
 const router = Router()
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-crm-jwt-secret-change-me'
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev-crm-refresh-secret-change-me'
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
 const BCRYPT_ROUNDS = 12
 const ACCESS_EXPIRY = '15m'
 const REFRESH_EXPIRY_DAYS = 7
@@ -37,6 +37,10 @@ function generateRefreshToken(): string {
 
 function verifyAccess(token: string): any {
   return jwt.verify(token, JWT_SECRET)
+}
+
+function payloadFirstName(payload: any): string {
+  return payload?.firstName || payload?.email || 'A teammate'
 }
 
 // ── Login ──
@@ -293,17 +297,24 @@ router.post('/invite', async (req, res) => {
       },
     })
 
-    // Send invite email
-    const inviteUrl = `${CLIENT_URL}/accept-invite?token=${rawToken}&email=${encodeURIComponent(email)}`
+    // Send invite email — click tracking disabled by default in sendEmail() so
+    // the recipient sees the original https://yourdomain.com URL instead of
+    // SendGrid's `urlNNNN.www.yourdomain.com` rewrite (which can SSL-fail).
+    const inviteUrl = buildFrontendUrl(`/accept-invite?token=${rawToken}&email=${encodeURIComponent(email)}`)
+    const companyName = process.env.COMPANY_NAME || 'EZBiz'
+    const inviterName = `${payloadFirstName(payload)}`.trim() || 'A teammate'
+    const roleLabel = data.role.replace(/_/g, ' ')
     await sendEmail({
       to: email,
-      subject: `You're invited to ${process.env.COMPANY_NAME || 'FencePro CRM'}`,
+      subject: `You've been invited to join ${companyName} on EZBiz`,
       body: buildEmailHtml(`
         <p>Hi ${data.firstName},</p>
-        <p>You've been invited to join ${process.env.COMPANY_NAME || 'FencePro CRM'} as <strong>${data.role.replace('_', ' ')}</strong>.</p>
-        <p><a href="${inviteUrl}" style="display:inline-block;background:#f97316;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Accept Invite & Set Password</a></p>
-        <p style="color:#94a3b8;font-size:13px;">This link expires in ${INVITE_EXPIRY_HOURS} hours.</p>
+        <p>${inviterName} has invited you to join <strong>${companyName}</strong> on EZBiz as <strong>${roleLabel}</strong>.</p>
+        <p style="margin: 24px 0;"><a href="${inviteUrl}" style="display:inline-block;background:#f97316;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;">Accept Invitation &amp; Set Password</a></p>
+        <p style="color:#64748b;font-size:13px;">If the button doesn't work, copy and paste this link into your browser:<br><span style="color:#475569;word-break:break-all;">${inviteUrl}</span></p>
+        <p style="color:#94a3b8;font-size:13px;">This invitation expires in ${INVITE_EXPIRY_HOURS} hours.</p>
       `),
+      disableClickTracking: true,
     })
 
     await prisma.crmUserActivity.create({
@@ -315,6 +326,119 @@ router.post('/invite', async (req, res) => {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
     console.error('[CRM Auth] Invite error:', err)
     res.status(500).json({ success: false, error: 'Failed to send invite' })
+  }
+})
+
+// ── Resend Invite (admin) ──
+//
+// Used after the click-tracking outage to re-send activation emails to anyone
+// whose previous invite contained a broken SendGrid-rewritten URL. Generates a
+// fresh raw token, rotates the hash, refreshes the expiry, and sends the email
+// through the new (click-tracking-disabled) sendEmail() path.
+router.post('/invite/:userId/resend', async (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
+  try {
+    const payload = verifyAccess(auth.slice(7))
+    if (!['super_admin', 'admin'].includes(payload.role)) {
+      res.status(403).json({ success: false, error: 'Admin access required' })
+      return
+    }
+
+    const user = await prisma.crmUser.findUnique({ where: { id: req.params.userId } })
+    if (!user) { res.status(404).json({ success: false, error: 'User not found' }); return }
+    if (user.status !== 'invited') {
+      res.status(400).json({ success: false, error: `Cannot resend invite — user status is "${user.status}".` })
+      return
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex')
+    const tokenHash = await bcrypt.hash(rawToken, 10)
+    await prisma.crmUser.update({
+      where: { id: user.id },
+      data: {
+        inviteTokenHash: tokenHash,
+        inviteTokenExpiresAt: new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000),
+      },
+    })
+
+    const inviteUrl = buildFrontendUrl(`/accept-invite?token=${rawToken}&email=${encodeURIComponent(user.email)}`)
+    const companyName = process.env.COMPANY_NAME || 'EZBiz'
+    const inviterName = `${payloadFirstName(payload)}`.trim()
+    const roleLabel = (user.role || '').replace(/_/g, ' ')
+    await sendEmail({
+      to: user.email,
+      subject: `Reissued: your invitation to ${companyName} on EZBiz`,
+      body: buildEmailHtml(`
+        <p>Hi ${user.firstName},</p>
+        <p>${inviterName} has resent your invitation to join <strong>${companyName}</strong> on EZBiz as <strong>${roleLabel}</strong>.</p>
+        <p style="margin: 24px 0;"><a href="${inviteUrl}" style="display:inline-block;background:#f97316;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;">Accept Invitation &amp; Set Password</a></p>
+        <p style="color:#64748b;font-size:13px;">If the button doesn't work, copy this link into your browser:<br><span style="color:#475569;word-break:break-all;">${inviteUrl}</span></p>
+        <p style="color:#94a3b8;font-size:13px;">This invitation expires in ${INVITE_EXPIRY_HOURS} hours.</p>
+      `),
+      disableClickTracking: true,
+    })
+    console.log(`[CRM Auth] ✉️  Resent invite to ${user.email}`)
+
+    res.json({ success: true, data: { id: user.id, email: user.email } })
+  } catch (err) {
+    console.error('[CRM Auth] resend error:', err)
+    res.status(500).json({ success: false, error: 'Failed to resend invite' })
+  }
+})
+
+// ── Resend ALL pending invites (admin batch) ──
+//
+// Useful right after the click-tracking fix lands: rotates and resends every
+// outstanding (status='invited') invite so any users whose previous link landed
+// at url4845.www.systemssyndicate.com get a working one.
+router.post('/invites/resend-all-pending', async (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
+  try {
+    const payload = verifyAccess(auth.slice(7))
+    if (!['super_admin', 'admin'].includes(payload.role)) {
+      res.status(403).json({ success: false, error: 'Admin access required' })
+      return
+    }
+    const pending = await prisma.crmUser.findMany({ where: { status: 'invited' } })
+    let sent = 0, failed = 0
+    for (const user of pending) {
+      try {
+        const rawToken = crypto.randomBytes(32).toString('hex')
+        const tokenHash = await bcrypt.hash(rawToken, 10)
+        await prisma.crmUser.update({
+          where: { id: user.id },
+          data: {
+            inviteTokenHash: tokenHash,
+            inviteTokenExpiresAt: new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000),
+          },
+        })
+        const inviteUrl = buildFrontendUrl(`/accept-invite?token=${rawToken}&email=${encodeURIComponent(user.email)}`)
+        const companyName = process.env.COMPANY_NAME || 'EZBiz'
+        await sendEmail({
+          to: user.email,
+          subject: `Reissued: your invitation to ${companyName} on EZBiz`,
+          body: buildEmailHtml(`
+            <p>Hi ${user.firstName},</p>
+            <p>We've reissued your invitation to <strong>${companyName}</strong> on EZBiz. The previous link may not have worked due to a temporary delivery issue.</p>
+            <p style="margin: 24px 0;"><a href="${inviteUrl}" style="display:inline-block;background:#f97316;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;">Accept Invitation &amp; Set Password</a></p>
+            <p style="color:#64748b;font-size:13px;">If the button doesn't work, copy this link:<br><span style="color:#475569;word-break:break-all;">${inviteUrl}</span></p>
+            <p style="color:#94a3b8;font-size:13px;">This invitation expires in ${INVITE_EXPIRY_HOURS} hours.</p>
+          `),
+          disableClickTracking: true,
+        })
+        console.log(`[CRM Auth] ✉️  Reissued invite to ${user.email}`)
+        sent++
+      } catch (err) {
+        console.error(`[CRM Auth] Failed to reissue invite for ${user.email}:`, err)
+        failed++
+      }
+    }
+    res.json({ success: true, data: { totalPending: pending.length, sent, failed } })
+  } catch (err) {
+    console.error('[CRM Auth] batch resend error:', err)
+    res.status(500).json({ success: false, error: 'Failed to resend pending invites' })
   }
 })
 
@@ -417,7 +541,7 @@ router.post('/forgot-password', async (req, res) => {
       },
     })
 
-    const resetUrl = `${CLIENT_URL}/reset-password?token=${rawToken}&email=${encodeURIComponent(email)}`
+    const resetUrl = buildFrontendUrl(`/reset-password?token=${rawToken}&email=${encodeURIComponent(email)}`)
     await sendEmail({
       to: email,
       subject: 'Password Reset',
@@ -425,8 +549,10 @@ router.post('/forgot-password', async (req, res) => {
         <p>Hi ${user.firstName},</p>
         <p>Click below to reset your password:</p>
         <p><a href="${resetUrl}" style="display:inline-block;background:#f97316;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Reset Password</a></p>
+        <p style="color:#64748b;font-size:13px;">If the button doesn't work, copy this link into your browser:<br><span style="color:#475569;word-break:break-all;">${resetUrl}</span></p>
         <p style="color:#94a3b8;font-size:13px;">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
       `),
+      disableClickTracking: true,
     })
 
     res.json({ success: true, data: { message: 'If an account exists, a reset link has been sent.' } })

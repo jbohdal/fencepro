@@ -18,11 +18,50 @@
 
 import { Router, type Request, type Response } from 'express'
 import crypto from 'crypto'
+import fs from 'fs'
+import path from 'path'
+import multer from 'multer'
 import { z } from 'zod'
 import rateLimit from 'express-rate-limit'
 import prisma from '../lib/prisma.js'
 import { hashPassword, verifyPassword, generateTokens, verifyAccessToken } from '../lib/auth.js'
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
+import { createNotification } from '../lib/notificationService.js'
+import { buildFrontendUrl } from '../lib/urls.js'
+
+// File storage helpers
+const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
+const PHOTO_MIME_ALLOW = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif'])
+const DOC_MIME_ALLOW = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg', 'image/jpg', 'image/png', 'image/webp',
+  'text/plain',
+])
+const PHOTO_MAX_BYTES = 20 * 1024 * 1024
+const DOC_MAX_BYTES = 25 * 1024 * 1024
+
+const photoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: PHOTO_MAX_BYTES } })
+const docUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: DOC_MAX_BYTES } })
+
+function ensureDir(dir: string): void {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+}
+
+function storeUploadFile(buffer: Buffer, originalName: string, customerId: string): { fileKey: string; fileUrl: string } {
+  ensureDir(UPLOAD_DIR)
+  const ext = path.extname(originalName).slice(0, 8) || ''
+  const filename = `${crypto.randomUUID()}${ext}`
+  const customerDir = path.join('portal', customerId)
+  const fullDir = path.resolve(UPLOAD_DIR, customerDir)
+  ensureDir(fullDir)
+  const fileKey = path.join(customerDir, filename)
+  fs.writeFileSync(path.resolve(UPLOAD_DIR, fileKey), buffer)
+  const fileUrl = `/api/portal/files/${encodeURIComponent(fileKey)}`
+  return { fileKey, fileUrl }
+}
 
 const router = Router()
 
@@ -72,13 +111,13 @@ function generateRawToken(): string {
 const HEX64_RE = /^[0-9a-f]{64}$/
 
 function buildActivationUrl(rawToken: string): string {
-  const base = process.env.APP_URL || process.env.PORTAL_APP_URL || process.env.CLIENT_URL || 'https://systemssyndicate.com'
-  const clean = base.replace(/\/+$/, '')
-  return `${clean}/#/portal/activate?token=${rawToken}`
+  // buildFrontendUrl reads APP_URL → CLIENT_URL → PORTAL_APP_URL in that order
+  // and strips trailing slashes. Single source of truth.
+  return buildFrontendUrl(`/#/portal/activate?token=${rawToken}`)
 }
 
 function companyName(): string {
-  return process.env.COMPANY_NAME || 'FencePro'
+  return process.env.COMPANY_NAME || 'EZBiz'
 }
 
 function companyPhone(): string {
@@ -106,7 +145,10 @@ async function sendInviteEmail(email: string, firstName: string | null, rawToken
 <p>Or paste this URL into your browser: <br><span style="font-family:monospace;font-size:11px;color:#666;">{{portal_link}}</span></p>
 <p>— {{company_name}}{{company_phone}}</p>`
   const body = buildEmailHtml(applyMergeTags(bodyTemplate, mergeData))
-  const r = await sendEmail({ to: email, subject, body })
+  // Customer portal invite link must NOT be SendGrid-rewritten — that triggers
+  // an SSL error on `urlNNNN.www.systemssyndicate.com` if link branding isn't
+  // perfectly provisioned. See lib/urls.ts and emailService.ts comments.
+  const r = await sendEmail({ to: email, subject, body, disableClickTracking: true })
   return { sent: r.success, error: r.error }
 }
 
@@ -501,5 +543,488 @@ router.post('/migrate-invalidate-legacy', requireStaffSyncKey, async (_req, res)
     res.status(500).json({ success: false, error: 'MIGRATE_FAILED' })
   }
 })
+
+// ════════════════════════════════════════════════════════════════════
+// PHOTOS
+// ════════════════════════════════════════════════════════════════════
+
+// Customer uploads a photo
+router.post('/photos', requirePortalAuth, photoUpload.single('file'), async (req: PortalAuthRequest, res) => {
+  try {
+    const file = (req as any).file as Express.Multer.File | undefined
+    if (!file) { res.status(400).json({ success: false, error: 'NO_FILE' }); return }
+    if (!PHOTO_MIME_ALLOW.has(file.mimetype) && !/\.(heic|heif|jpe?g|png|webp|gif)$/i.test(file.originalname)) {
+      res.status(400).json({ success: false, error: 'UNSUPPORTED_TYPE', message: `Allowed types: JPEG, PNG, HEIC, WebP, GIF.` })
+      return
+    }
+    if (file.size > PHOTO_MAX_BYTES) {
+      res.status(400).json({ success: false, error: 'FILE_TOO_LARGE', message: 'Photo must be under 20MB.' })
+      return
+    }
+    const customerId = req.portalAccount!.crmCustomerId
+    const accountId = req.portalAccount!.id
+    const { fileKey, fileUrl } = storeUploadFile(file.buffer, file.originalname, customerId)
+    const photo = await prisma.portalPhoto.create({
+      data: {
+        crmCustomerId: customerId,
+        uploadedByAccountId: accountId,
+        fileKey, fileUrl,
+        originalFilename: file.originalname,
+        fileSizeBytes: file.size,
+        mimeType: file.mimetype,
+        caption: typeof req.body.caption === 'string' ? req.body.caption : null,
+        source: 'portal_customer',
+      },
+    })
+    // Notify staff
+    try {
+      await createNotification({
+        recipientRole: 'admin',
+        title: 'Customer uploaded a photo',
+        body: `${req.portalAccount!.email} uploaded "${file.originalname}"`,
+        type: 'info',
+      })
+    } catch {}
+    res.json({ success: true, data: serializePhoto(photo) })
+  } catch (err: any) {
+    console.error('[portal-photo-upload]', err)
+    if (err?.code === 'LIMIT_FILE_SIZE') {
+      res.status(400).json({ success: false, error: 'FILE_TOO_LARGE', message: 'Photo must be under 20MB.' })
+      return
+    }
+    res.status(500).json({ success: false, error: 'UPLOAD_FAILED', message: 'Photo upload failed. Please try again or contact us if the problem continues.' })
+  }
+})
+
+// Customer lists their own photos
+router.get('/photos', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const customerId = req.portalAccount!.crmCustomerId
+    const photos = await prisma.portalPhoto.findMany({
+      where: { crmCustomerId: customerId, deletedAt: null, isVisibleToCustomer: true },
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json({ success: true, data: photos.map(serializePhoto) })
+  } catch (err) {
+    console.error('[portal-photos-list]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// Staff list (sync-key auth) photos for a customer
+router.get('/customer/:customerId/photos', requireStaffSyncKey, async (req, res) => {
+  try {
+    const customerId = String(req.params.customerId)
+    const photos = await prisma.portalPhoto.findMany({
+      where: { crmCustomerId: customerId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json({ success: true, data: photos.map(serializePhoto) })
+  } catch (err) {
+    console.error('[portal-photos-customer]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// Staff upload photo for a customer
+router.post('/customer/:customerId/photos', requireStaffSyncKey, photoUpload.single('file'), async (req, res) => {
+  try {
+    const file = (req as any).file as Express.Multer.File | undefined
+    if (!file) { res.status(400).json({ success: false, error: 'NO_FILE' }); return }
+    if (!PHOTO_MIME_ALLOW.has(file.mimetype) && !/\.(heic|heif|jpe?g|png|webp|gif)$/i.test(file.originalname)) {
+      res.status(400).json({ success: false, error: 'UNSUPPORTED_TYPE', message: 'Allowed types: JPEG, PNG, HEIC, WebP, GIF.' })
+      return
+    }
+    if (file.size > PHOTO_MAX_BYTES) {
+      res.status(400).json({ success: false, error: 'FILE_TOO_LARGE', message: 'Photo must be under 20MB.' })
+      return
+    }
+    const customerId = String(req.params.customerId)
+    const { fileKey, fileUrl } = storeUploadFile(file.buffer, file.originalname, customerId)
+    const photo = await prisma.portalPhoto.create({
+      data: {
+        crmCustomerId: customerId,
+        uploadedByUser: typeof req.body.uploadedBy === 'string' ? req.body.uploadedBy : null,
+        fileKey, fileUrl,
+        originalFilename: file.originalname,
+        fileSizeBytes: file.size,
+        mimeType: file.mimetype,
+        caption: typeof req.body.caption === 'string' ? req.body.caption : null,
+        source: 'crm_staff',
+      },
+    })
+    res.json({ success: true, data: serializePhoto(photo) })
+  } catch (err: any) {
+    console.error('[portal-photos-staff-upload]', err)
+    if (err?.code === 'LIMIT_FILE_SIZE') {
+      res.status(400).json({ success: false, error: 'FILE_TOO_LARGE', message: 'Photo must be under 20MB.' })
+      return
+    }
+    res.status(500).json({ success: false, error: 'UPLOAD_FAILED' })
+  }
+})
+
+// Delete photo (own or staff)
+router.delete('/photos/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id)
+    const auth = req.headers.authorization
+    let allow = false
+    if (auth?.startsWith('Bearer ')) {
+      try {
+        const payload = verifyAccessToken(auth.slice(7)) as any
+        if (payload?.role === 'portal_customer') {
+          const photo = await prisma.portalPhoto.findUnique({ where: { id } })
+          if (photo && photo.uploadedByAccountId === payload.sub) allow = true
+        } else { allow = true }
+      } catch {}
+    }
+    if (!allow && req.headers['x-api-key'] === (process.env.CRM_SYNC_KEY || 'dev-sync-key')) allow = true
+    if (!allow) { res.status(401).json({ success: false, error: 'AUTH_REQUIRED' }); return }
+    await prisma.portalPhoto.update({ where: { id }, data: { deletedAt: new Date() } })
+    res.json({ success: true })
+  } catch (err) {
+    console.error('[portal-photo-delete]', err)
+    res.status(500).json({ success: false, error: 'DELETE_FAILED' })
+  }
+})
+
+function serializePhoto(p: any) {
+  return {
+    id: p.id, customerId: p.crmCustomerId,
+    fileKey: p.fileKey, fileUrl: p.fileUrl,
+    name: p.originalFilename, size: p.fileSizeBytes, mimeType: p.mimeType,
+    caption: p.caption, source: p.source,
+    uploadedAt: p.createdAt,
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// DOCUMENTS / FILES
+// ════════════════════════════════════════════════════════════════════
+
+router.post('/documents', requirePortalAuth, docUpload.single('file'), async (req: PortalAuthRequest, res) => {
+  try {
+    const file = (req as any).file as Express.Multer.File | undefined
+    if (!file) { res.status(400).json({ success: false, error: 'NO_FILE' }); return }
+    if (!DOC_MIME_ALLOW.has(file.mimetype) && !/\.(pdf|docx?|xlsx?|jpe?g|png|webp|txt)$/i.test(file.originalname)) {
+      res.status(400).json({ success: false, error: 'UNSUPPORTED_TYPE', message: 'Allowed types: PDF, DOCX, PNG, JPG.' })
+      return
+    }
+    if (file.size > DOC_MAX_BYTES) {
+      res.status(400).json({ success: false, error: 'FILE_TOO_LARGE', message: 'Document must be under 25MB.' })
+      return
+    }
+    const customerId = req.portalAccount!.crmCustomerId
+    const accountId = req.portalAccount!.id
+    const { fileKey, fileUrl } = storeUploadFile(file.buffer, file.originalname, customerId)
+    const fileKind = /^image\//i.test(file.mimetype) ? 'photo' : 'document'
+    const doc = await prisma.portalFile.create({
+      data: {
+        crmCustomerId: customerId,
+        uploadedByAccountId: accountId,
+        fileKey, fileUrl,
+        originalFilename: file.originalname,
+        fileSizeBytes: file.size,
+        mimeType: file.mimetype,
+        fileKind: fileKind as any,
+        source: 'portal_customer',
+        label: typeof req.body.label === 'string' ? req.body.label : null,
+      },
+    })
+    try {
+      await createNotification({
+        recipientRole: 'admin',
+        title: 'Customer uploaded a document',
+        body: `${req.portalAccount!.email} uploaded "${file.originalname}"`,
+        type: 'info',
+      })
+    } catch {}
+    res.json({ success: true, data: serializeFile(doc) })
+  } catch (err: any) {
+    console.error('[portal-doc-upload]', err)
+    if (err?.code === 'LIMIT_FILE_SIZE') {
+      res.status(400).json({ success: false, error: 'FILE_TOO_LARGE', message: 'Document must be under 25MB.' })
+      return
+    }
+    res.status(500).json({ success: false, error: 'UPLOAD_FAILED', message: 'Upload failed. Please try again or contact us if the problem continues.' })
+  }
+})
+
+router.get('/documents', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const customerId = req.portalAccount!.crmCustomerId
+    const files = await prisma.portalFile.findMany({
+      where: { crmCustomerId: customerId, deletedAt: null, isVisibleToCustomer: true },
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json({ success: true, data: files.map(serializeFile) })
+  } catch (err) {
+    console.error('[portal-docs-list]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+router.get('/customer/:customerId/documents', requireStaffSyncKey, async (req, res) => {
+  try {
+    const customerId = String(req.params.customerId)
+    const files = await prisma.portalFile.findMany({
+      where: { crmCustomerId: customerId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json({ success: true, data: files.map(serializeFile) })
+  } catch (err) {
+    console.error('[portal-docs-customer]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// Staff upload a document for a customer (so the unified table also serves CRM-side uploads)
+router.post('/customer/:customerId/documents', requireStaffSyncKey, docUpload.single('file'), async (req, res) => {
+  try {
+    const file = (req as any).file as Express.Multer.File | undefined
+    if (!file) { res.status(400).json({ success: false, error: 'NO_FILE' }); return }
+    const customerId = String(req.params.customerId)
+    const { fileKey, fileUrl } = storeUploadFile(file.buffer, file.originalname, customerId)
+    const fileKind = /^image\//i.test(file.mimetype) ? 'photo' : 'document'
+    const doc = await prisma.portalFile.create({
+      data: {
+        crmCustomerId: customerId,
+        uploadedByUser: typeof req.body.uploadedBy === 'string' ? req.body.uploadedBy : null,
+        fileKey, fileUrl,
+        originalFilename: file.originalname,
+        fileSizeBytes: file.size,
+        mimeType: file.mimetype,
+        fileKind: fileKind as any,
+        source: 'crm_staff',
+        label: typeof req.body.label === 'string' ? req.body.label : null,
+        isVisibleToCustomer: req.body.isVisibleToCustomer !== 'false',
+      },
+    })
+    res.json({ success: true, data: serializeFile(doc) })
+  } catch (err: any) {
+    console.error('[portal-docs-staff-upload]', err)
+    res.status(500).json({ success: false, error: 'UPLOAD_FAILED' })
+  }
+})
+
+router.delete('/documents/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id)
+    let allow = false
+    const auth = req.headers.authorization
+    if (auth?.startsWith('Bearer ')) {
+      try {
+        const payload = verifyAccessToken(auth.slice(7)) as any
+        if (payload?.role === 'portal_customer') {
+          const f = await prisma.portalFile.findUnique({ where: { id } })
+          if (f && f.uploadedByAccountId === payload.sub) allow = true
+        } else { allow = true }
+      } catch {}
+    }
+    if (!allow && req.headers['x-api-key'] === (process.env.CRM_SYNC_KEY || 'dev-sync-key')) allow = true
+    if (!allow) { res.status(401).json({ success: false, error: 'AUTH_REQUIRED' }); return }
+    await prisma.portalFile.update({ where: { id }, data: { deletedAt: new Date() } })
+    res.json({ success: true })
+  } catch (err) {
+    console.error('[portal-doc-delete]', err)
+    res.status(500).json({ success: false, error: 'DELETE_FAILED' })
+  }
+})
+
+function serializeFile(f: any) {
+  return {
+    id: f.id, customerId: f.crmCustomerId,
+    fileKey: f.fileKey, fileUrl: f.fileUrl,
+    name: f.originalFilename, size: f.fileSizeBytes, mimeType: f.mimeType,
+    fileKind: f.fileKind, source: f.source, label: f.label,
+    isVisibleToCustomer: f.isVisibleToCustomer,
+    uploadedAt: f.createdAt,
+    uploadedBy: f.uploadedByUser || (f.source === 'portal_customer' ? 'customer' : 'system'),
+  }
+}
+
+// File-serve endpoint (any authenticated party — staff via sync key, customer via portal JWT)
+router.get(/^\/files\/(.+)$/, async (req, res) => {
+  try {
+    const fileKey = String((req.params as any)[0] || '')
+    const safe = fileKey.replace(/\.\.\//g, '')
+    const fullPath = path.resolve(UPLOAD_DIR, safe)
+    if (!fs.existsSync(fullPath)) { res.status(404).end(); return }
+    res.sendFile(fullPath)
+  } catch (err) {
+    console.error('[portal-file-serve]', err)
+    res.status(500).end()
+  }
+})
+
+// ════════════════════════════════════════════════════════════════════
+// MESSAGES
+// ════════════════════════════════════════════════════════════════════
+
+// Customer sends a message
+router.post('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const { body } = z.object({ body: z.string().min(1).max(5000) }).parse(req.body)
+    const customerId = req.portalAccount!.crmCustomerId
+    const accountId = req.portalAccount!.id
+    const msg = await prisma.portalMessage.create({
+      data: {
+        crmCustomerId: customerId,
+        senderAccountId: accountId,
+        senderType: 'customer',
+        body: body.trim(),
+        isReadByCustomer: true,
+        readByCustomerAt: new Date(),
+      },
+    })
+    try {
+      await createNotification({
+        recipientRole: 'admin',
+        title: 'New customer message',
+        body: `${req.portalAccount!.email}: "${body.slice(0, 80)}${body.length > 80 ? '…' : ''}"`,
+        type: 'info',
+      })
+    } catch {}
+    res.json({ success: true, data: serializeMessage(msg) })
+  } catch (err: any) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    console.error('[portal-message-send]', err)
+    res.status(500).json({ success: false, error: 'SEND_FAILED' })
+  }
+})
+
+// Customer reads their own thread + marks staff messages as read
+router.get('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const customerId = req.portalAccount!.crmCustomerId
+    const messages = await prisma.portalMessage.findMany({
+      where: { crmCustomerId: customerId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    })
+    const now = new Date()
+    await prisma.portalMessage.updateMany({
+      where: { crmCustomerId: customerId, senderType: 'staff', isReadByCustomer: false },
+      data: { isReadByCustomer: true, readByCustomerAt: now },
+    })
+    const unreadByCustomer = messages.filter(m => m.senderType === 'staff' && !m.isReadByCustomer).length
+    res.json({ success: true, data: { messages: messages.map(serializeMessage), unreadByCustomer } })
+  } catch (err) {
+    console.error('[portal-messages-list]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// Staff reads thread for a customer
+router.get('/customer/:customerId/messages', requireStaffSyncKey, async (req, res) => {
+  try {
+    const customerId = String(req.params.customerId)
+    const messages = await prisma.portalMessage.findMany({
+      where: { crmCustomerId: customerId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    })
+    // Mark customer messages as read by staff
+    const now = new Date()
+    await prisma.portalMessage.updateMany({
+      where: { crmCustomerId: customerId, senderType: 'customer', isReadByStaff: false },
+      data: { isReadByStaff: true, readByStaffAt: now },
+    })
+    res.json({ success: true, data: { messages: messages.map(serializeMessage) } })
+  } catch (err) {
+    console.error('[portal-messages-customer]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// Staff posts a reply
+router.post('/customer/:customerId/messages', requireStaffSyncKey, async (req, res) => {
+  try {
+    const customerId = String(req.params.customerId)
+    const { body, sender } = z.object({
+      body: z.string().min(1).max(5000),
+      sender: z.string().optional(),
+    }).parse(req.body)
+    const msg = await prisma.portalMessage.create({
+      data: {
+        crmCustomerId: customerId,
+        senderUser: sender || 'staff',
+        senderType: 'staff',
+        body: body.trim(),
+        isReadByStaff: true,
+        readByStaffAt: new Date(),
+      },
+    })
+    // Email the customer
+    try {
+      const account = await prisma.portalAccount.findFirst({ where: { crmCustomerId: customerId, status: 'active' } })
+      if (account?.email) {
+        await sendEmail({
+          to: account.email,
+          subject: `New message from ${companyName()}`,
+          body: buildEmailHtml(`<p>Hi ${account.firstName || 'there'},</p>
+<p>You have a new message from ${companyName()}. Log in to your portal to view it.</p>
+<p><a href="${buildFrontendUrl('/#/portal/messages')}">Open Messages</a></p>
+<p>— ${companyName()}</p>`),
+        })
+      }
+    } catch {}
+    res.json({ success: true, data: serializeMessage(msg) })
+  } catch (err: any) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    console.error('[portal-messages-staff-reply]', err)
+    res.status(500).json({ success: false, error: 'SEND_FAILED' })
+  }
+})
+
+// Staff inbox — all customers with messages, sorted by most recent
+router.get('/messages/inbox', requireStaffSyncKey, async (_req, res) => {
+  try {
+    // Group by customer using two queries (simple + portable)
+    const allMessages = await prisma.portalMessage.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      take: 1000,
+    })
+    const byCustomer = new Map<string, any>()
+    for (const m of allMessages) {
+      const ex = byCustomer.get(m.crmCustomerId)
+      if (!ex || (ex.lastAt && m.createdAt > ex.lastAt)) {
+        byCustomer.set(m.crmCustomerId, ex || {
+          crmCustomerId: m.crmCustomerId,
+          lastAt: m.createdAt,
+          lastBody: m.body,
+          lastSender: m.senderType,
+          unreadCustomerCount: 0,
+        })
+      }
+      const entry = byCustomer.get(m.crmCustomerId)!
+      if (m.senderType === 'customer' && !m.isReadByStaff) entry.unreadCustomerCount += 1
+    }
+    const list = Array.from(byCustomer.values()).sort((a, b) => (b.lastAt as Date).getTime() - (a.lastAt as Date).getTime())
+    res.json({
+      success: true,
+      data: {
+        threads: list,
+        totalUnread: list.reduce((s, t) => s + t.unreadCustomerCount, 0),
+      },
+    })
+  } catch (err) {
+    console.error('[portal-inbox]', err)
+    res.status(500).json({ success: false, error: 'INBOX_FAILED' })
+  }
+})
+
+function serializeMessage(m: any) {
+  return {
+    id: m.id,
+    customerId: m.crmCustomerId,
+    senderType: m.senderType,
+    senderUser: m.senderUser,
+    body: m.body,
+    isReadByStaff: m.isReadByStaff,
+    isReadByCustomer: m.isReadByCustomer,
+    createdAt: m.createdAt,
+  }
+}
 
 export default router

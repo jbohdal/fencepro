@@ -12,8 +12,9 @@ const SMTP_HOST = process.env.SMTP_HOST || ''
 const SMTP_PORT = process.env.SMTP_PORT || '587'
 const SMTP_USER = process.env.SMTP_USER || ''
 const SMTP_PASS = process.env.SMTP_PASS || ''
-const SMTP_FROM = process.env.SMTP_FROM || process.env.COMPANY_NAME || 'FencePro'
-const SMTP_FROM_EMAIL = process.env.SMTP_FROM_EMAIL || 'noreply@fencepro.com'
+const SMTP_FROM = process.env.SMTP_FROM || process.env.COMPANY_NAME || 'EZBiz'
+const SMTP_FROM_EMAIL = process.env.SMTP_FROM_EMAIL || 'noreply@ezbiz.app'
+const SMTP_REPLY_TO = process.env.SMTP_REPLY_TO || ''
 const COMPANY_NAME = process.env.COMPANY_NAME || 'GD Fence Pro'
 
 // Sendgrid API as primary (simpler than raw SMTP via fetch)
@@ -29,6 +30,17 @@ export interface EmailOptions {
   subject: string
   body: string       // HTML or plain text
   replyTo?: string
+  /**
+   * Set true for security-critical / transactional emails that contain action
+   * links (invite, activation, password reset, magic-link login). When true the
+   * SendGrid click-tracking rewrite is suppressed so the recipient gets the
+   * original https://yourdomain.com URL instead of the SendGrid
+   * `urlNNNN.www.yourdomain.com` wrapper, which can break with SSL errors when
+   * SendGrid's link-branding subdomain isn't fully provisioned.
+   *
+   * Default: true (safe default — prevents the outage).
+   */
+  disableClickTracking?: boolean
 }
 
 export interface MergeData {
@@ -61,10 +73,12 @@ export function applyMergeTags(text: string, data: MergeData): string {
 /** Send an email */
 export async function sendEmail(options: EmailOptions): Promise<{ success: boolean; error?: string }> {
   const { to, subject, body, replyTo } = options
+  // Default to disabling click tracking — see EmailOptions.disableClickTracking comment.
+  const disableClickTracking = options.disableClickTracking !== false
 
   // Try SendGrid first
   if (SENDGRID_API_KEY) {
-    return sendViaSendGrid(to, subject, body, replyTo)
+    return sendViaSendGrid(to, subject, body, replyTo, disableClickTracking)
   }
 
   // Try SMTP
@@ -78,7 +92,7 @@ export async function sendEmail(options: EmailOptions): Promise<{ success: boole
   return { success: true }
 }
 
-async function sendViaSendGrid(to: string, subject: string, body: string, replyTo?: string): Promise<{ success: boolean; error?: string }> {
+async function sendViaSendGrid(to: string, subject: string, body: string, replyTo?: string, disableClickTracking = true): Promise<{ success: boolean; error?: string }> {
   try {
     const payload: any = {
       personalizations: [{ to: [{ email: to }] }],
@@ -86,7 +100,20 @@ async function sendViaSendGrid(to: string, subject: string, body: string, replyT
       subject,
       content: [{ type: body.includes('<') ? 'text/html' : 'text/plain', value: body }],
     }
-    if (replyTo) payload.reply_to = { email: replyTo }
+    const effectiveReplyTo = replyTo || SMTP_REPLY_TO
+    if (effectiveReplyTo) payload.reply_to = { email: effectiveReplyTo }
+
+    // Disable click tracking + open tracking for transactional links so the
+    // recipient gets our real URL (e.g. https://systemssyndicate.com/accept-invite?...)
+    // instead of SendGrid's rewritten `urlNNNN.www.systemssyndicate.com/...` which
+    // can break with SSL errors when link-branding DNS isn't fully provisioned.
+    if (disableClickTracking) {
+      payload.tracking_settings = {
+        click_tracking: { enable: false, enable_text: false },
+        open_tracking:  { enable: false },
+        subscription_tracking: { enable: false },
+      }
+    }
 
     const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
