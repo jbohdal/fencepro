@@ -90,6 +90,14 @@ export async function dumpDatabase(
   // --no-owner / --no-privileges avoid restoring ownership grants from prod.
   const args = [
     '--format=plain',
+    // --clean + --if-exists make the dump cleanly RESTORABLE on top of an
+    // existing database. Without these, restoring against a non-empty DB
+    // errors on the first CREATE TYPE / CREATE TABLE because the object
+    // already exists. With them, each object is DROPped first (and the DROP
+    // is suppressed if the target doesn't exist yet, so it also works on a
+    // fresh empty DB).
+    '--clean',
+    '--if-exists',
     '--no-owner',
     '--no-privileges',
     '--no-acl',
