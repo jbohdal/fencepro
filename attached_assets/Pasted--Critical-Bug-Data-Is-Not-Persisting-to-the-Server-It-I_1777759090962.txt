@@ -1,0 +1,105 @@
+# Critical Bug: Data Is Not Persisting to the Server, It Is Only Living in Local Browser Storage
+
+## The Problem
+
+EZ Biz is exhibiting a critical data persistence failure that makes the application unusable across devices and users. The symptom is unmistakable:
+
+* When I log in with my admin credentials on Device A, I see customer data, jobs, quotes, and other records.
+* When I log in with the exact same admin credentials on Device B, all of that data is gone. The account looks empty.
+* When I return to Device A, the data is still there.
+
+This means the data is not actually being saved to the server database. It is being written to local storage, session storage, IndexedDB, or some other browser side persistence layer on the device where it was entered. Each device is operating on its own isolated copy of the data, with no sync, no shared source of truth, and no real backend persistence happening for the affected records.
+
+This is a complete blocker. The application is a CRM. A CRM that does not share data across devices and across users under the same organization is broken at the foundation. This must be fixed before anything else.
+
+## The Intended Behavior
+
+EZ Biz is a multi user CRM. Every user logged in under the same organization (in this case, the admin account and any sub users) should see the exact same data set. The PostgreSQL database with Prisma ORM is the single source of truth. Every create, update, and delete must be persisted to that database through the backend API. The frontend should read from the backend on every load, not from a local cache that drifts per device.
+
+Specifically:
+
+1. Logging in on any device with the same credentials should show identical data.
+2. Logging in as any user belonging to the same organization should show the same shared data set (subject to role based access control restrictions on what each role can see, but the underlying data set must be the same shared records).
+3. Creating a customer on Device A should make that customer visible immediately to anyone logged into the same organization on any other device, after a normal page load or refetch.
+4. The database must be the only place data is stored. Local storage, session storage, and IndexedDB should hold only ephemeral UI state (filters, sidebar collapsed state, draft form values, last viewed tab) and never the canonical record data.
+
+## What I Need You to Do
+
+Run this as a single continuous autonomous investigation and fix. Do not pause. Do not ask for confirmation. Do not present a plan. Execute the steps below from start to finish.
+
+### Step 1: Confirm the Diagnosis
+
+1. Open the running app and create a test customer with a distinctive name. Note the device.
+2. Open the browser dev tools. Inspect Application or Storage. Check Local Storage, Session Storage, and IndexedDB for the test customer record. If it is there, that confirms data is being written client side.
+3. Inspect the Network tab during the create action. Look for an outbound POST or PUT to the backend API. If there is no network call, that confirms the create is never reaching the server. If there is a call, check the response. A 200 with a real database ID means the backend is saving and the read path is broken. A non 200, a CORS error, an auth error, or a silently swallowed failure means the write path is broken.
+4. Open the database directly through Prisma Studio or a SQL query. Look for the test customer. If it is not in the database, the write path is broken. If it is in the database but does not show up on Device B, the read path is broken.
+5. Document which path is broken (write, read, or both) before continuing.
+
+### Step 2: Find the Root Cause
+
+The problem will fall into one of these categories. Diagnose which one applies and fix it. Do not patch symptoms.
+
+**Category A: Writes never reach the backend.** The frontend is calling a local store (Zustand, Redux Toolkit, React Query optimistic update, a custom hook) but never firing the actual API request. The state library is being used as if it were a database. Common signs: create handlers that only call `setState` or a store action with no `fetch` or `axios` call alongside it.
+
+**Category B: Writes reach the backend but the backend is writing somewhere ephemeral.** The Express routes exist but they write to an in memory array, a JSON file in the container, or a Prisma instance pointed at a database that gets reset on every container restart. Common signs: Replit ephemeral filesystem being used, SQLite file in the container, or Prisma pointed at a database URL that is not actually persistent.
+
+**Category C: Writes persist correctly but reads are served from local cache, not the backend.** Every device boots with an empty cache and the read endpoint either does not exist, returns empty, or is never called. Common signs: data fetching that reads from local storage on mount and only falls back to the API when local storage is empty, or a hydration step that overwrites server data with stale local data.
+
+**Category D: Multi tenant scoping is broken.** Writes and reads both work, but the records are being scoped to a per device session ID, a browser fingerprint, or a client generated user ID instead of the actual organization ID from the JWT. Each device generates its own scope key, so each device sees its own isolated bucket. Common signs: a `userId` or `tenantId` that is generated client side and stored in local storage, then sent to the backend as the scope key.
+
+**Category E: Auth token is wrong and the backend silently returns the wrong user's data.** The JWT does not actually identify the organization, or the backend ignores the JWT and uses a header that the frontend sets differently per device.
+
+### Step 3: Fix the Root Cause
+
+Once you have identified the category, fix it properly:
+
+* If Category A: every create, update, and delete handler must call the backend API. State libraries are for caching the response, not for storing the canonical record. Wire every mutation through the API and update the cache from the API response, not from the optimistic value alone.
+* If Category B: confirm the Postgres database URL points at a real persistent Postgres instance, not an ephemeral container file. If Replit's database is being used, confirm it is the persistent one. Run `prisma migrate deploy` and confirm tables exist. Remove any in memory or JSON file persistence and replace with Prisma queries.
+* If Category C: remove the local storage read path for canonical record data. The frontend should fetch from the backend on every mount, with React Query or equivalent handling caching, refetching, and invalidation. Local storage stays for UI state only.
+* If Category D: every record must be scoped by the organization ID extracted from the verified JWT on the backend, never by a client supplied identifier. Remove any client side tenant ID generation. The backend middleware should pull the organization ID off the verified token and inject it into every query and every insert.
+* If Category E: fix the JWT payload to include a stable organization ID. Confirm the backend verifies the token signature on every request and uses the verified payload as the source of truth for scoping.
+
+### Step 4: Audit Every Module for the Same Bug
+
+This same root cause is almost certainly affecting more than just customers. Check every entity in the application: customers, quotes, jobs, schedules, inventory items, vendors, invoices, payments, notes, automations, documents, users, and anything else. For each one, confirm:
+
+1. Create writes to the database through the backend.
+2. Read fetches from the database through the backend.
+3. Update and delete also go through the backend.
+4. Scoping uses the verified organization ID from the JWT.
+5. Two devices logged in as the same user, and two different users in the same organization, both see the same data after a refresh.
+
+Fix every entity that has the same problem.
+
+### Step 5: Verify the Fix
+
+1. Boot the app fresh in two browser sessions, two different devices if possible, or two different incognito windows in different browsers.
+2. Log in on Session A. Create a customer named "Sync Test One." Confirm it appears in Prisma Studio in the database.
+3. Log in on Session B with the same credentials. Confirm "Sync Test One" appears immediately on load.
+4. Create "Sync Test Two" on Session B. Refresh Session A. Confirm it appears.
+5. Repeat for quotes, jobs, inventory items, and at least three other entity types.
+6. Create a second user under the same admin organization. Log in as that user on a third session. Confirm the same shared data is visible (subject to that user's role permissions).
+7. Clear all browser storage on Session A. Log in again. Confirm all data is still there because it loads from the backend, not from local storage.
+
+### Step 6: Document and Report
+
+When the fix is complete, write `/DATA_PERSISTENCE_FIX.md` at the repo root containing:
+
+1. Which category the root cause fell into.
+2. Exactly what was broken and where.
+3. What was changed to fix it.
+4. Every entity that was affected and is now fixed.
+5. The verification steps run and their results.
+6. Any remaining concerns or follow ups.
+
+Then output a final summary in the chat confirming the bug is resolved and the data layer now treats the Postgres database as the single source of truth.
+
+## Hard Rules
+
+* Do not introduce a new state management library or data fetching library. Use what is already in the codebase.
+* Do not store canonical record data in local storage, session storage, or IndexedDB. Those are for UI state only.
+* Do not generate tenant IDs or user IDs on the client. Scope must come from the verified JWT on the backend.
+* Do not stop until two different devices logged in as the same user see identical data, and two different users in the same organization see identical data.
+* Do not ask for confirmation between steps. Run the entire sequence autonomously.
+
+Begin now.
