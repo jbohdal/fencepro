@@ -22,13 +22,13 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd apps/portal && pnpm dev:server & cd apps/web && pnpm dev"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd apps/portal && COREPACK_ENABLE_STRICT=0 pnpm dev:server & cd apps/web && COREPACK_ENABLE_STRICT=0 pnpm dev"
+waitForPort = 5000
 
 [[ports]]
 localPort = 4000
@@ -37,3 +37,7 @@ externalPort = 3000
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000
