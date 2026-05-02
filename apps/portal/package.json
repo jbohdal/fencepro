@@ -54,5 +54,8 @@
     "typescript": "^5.9.3",
     "vite": "^8.0.1",
     "vitest": "^3.2.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "esbuild", "prisma"]
   }
 }

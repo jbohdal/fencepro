@@ -1,0 +1,62 @@
+modules = ["web", "bash", "nodejs-20"]
+[agent]
+expertMode = true
+stack = "BEST_EFFORT_FALLBACK"
+
+[nix]
+channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+NODE_ENV = "development"
+PORT = "4000"
+CLIENT_URL = "http://localhost:5000"
+JWT_SECRET = "e34a6edcb5fc77b5daa6bdb7e4ba290f6b28b37e5578bb5ff598f2838a99e9c8"
+JWT_REFRESH_SECRET = "2a4055df327400b2930f8432cd64ca812007a8864fd7578f5983128a3e94e310"
+JWT_ACCESS_EXPIRY = "15m"
+JWT_REFRESH_EXPIRY = "7d"
+STORAGE_DRIVER = "local"
+UPLOAD_DIR = "./uploads"
+MAX_FILE_SIZE_MB = "25"
+SMTP_FROM = "noreply@fencepro.com"
+RATE_LIMIT_LOGIN = "5/15m"
+RATE_LIMIT_UPLOAD = "10/1h"
+RATE_LIMIT_API = "100/1m"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd apps/portal && COREPACK_ENABLE_STRICT=0 pnpm dev"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 4000
+externalPort = 3000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "cd apps/portal && node dist/server/index.js"]
+build = ["bash", "-c", "cd apps/portal && COREPACK_ENABLE_STRICT=0 pnpm install && pnpm build"]
