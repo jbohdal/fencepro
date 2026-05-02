@@ -37,6 +37,12 @@ export interface MarginThresholds {
   warning: number
 }
 
+export interface PortalBrandConfig {
+  accentColor?: string
+  supportEmail?: string
+  supportPhone?: string
+}
+
 export interface CompanyInfo {
   name: string
   phone: string
@@ -45,6 +51,13 @@ export interface CompanyInfo {
   city: string
   state: string
   zip: string
+  logoUrl?: string
+  primaryColor?: string
+  secondaryColor?: string
+  legalName?: string
+  supportEmail?: string
+  supportPhone?: string
+  portal?: PortalBrandConfig
 }
 
 export interface RailOptimizerConfig {

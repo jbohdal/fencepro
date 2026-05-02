@@ -7,12 +7,12 @@ const BASE_URL = process.env.CRM_BASE_URL || 'http://localhost:3000/api'
 const API_KEY = process.env.CRM_API_KEY || ''
 
 /**
- * FencePro CRM Adapter
- * Connects to the FencePro REST API. For the localStorage-based CRM,
+ * EZ Biz CRM Adapter
+ * Connects to the EZ Biz CRM REST API. For the localStorage-based CRM,
  * this adapter reads from the local data layer directly.
  * Swap this out for HubSpot, Salesforce, etc. by implementing the same interface.
  */
-export class FenceProCrmAdapter implements CrmAdapter {
+export class EzBizCrmAdapter implements CrmAdapter {
   private headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),

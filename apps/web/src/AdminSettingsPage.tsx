@@ -66,7 +66,53 @@ function CompanyTab({ config, onChange }: { config: AppConfig; onChange: (c: App
               <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={co.zip} onChange={e => set('zip', e.target.value)} />
             </div>
           </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Legal Name (for contracts)</label>
+            <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="Acme Fence Company, LLC" value={co.legalName ?? ''} onChange={e => set('legalName', e.target.value)} />
+          </div>
         </div>
+      </div>
+
+      <div>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Branding</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Logo URL</label>
+            <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="https://yourdomain.com/logo.png" value={co.logoUrl ?? ''} onChange={e => set('logoUrl', e.target.value)} />
+            {co.logoUrl && <img src={co.logoUrl} alt="Logo preview" className="mt-2 h-10 object-contain rounded border border-gray-200 p-1" />}
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Primary Color</label>
+              <div className="flex items-center gap-2">
+                <input type="color" className="w-10 h-9 border border-gray-300 rounded cursor-pointer" value={co.primaryColor ?? '#f97316'} onChange={e => set('primaryColor', e.target.value)} />
+                <input className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="#f97316" value={co.primaryColor ?? ''} onChange={e => set('primaryColor', e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Secondary Color</label>
+              <div className="flex items-center gap-2">
+                <input type="color" className="w-10 h-9 border border-gray-300 rounded cursor-pointer" value={co.secondaryColor ?? '#ea580c'} onChange={e => set('secondaryColor', e.target.value)} />
+                <input className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="#ea580c" value={co.secondaryColor ?? ''} onChange={e => set('secondaryColor', e.target.value)} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Customer Support Contact</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Support Email</label>
+            <input type="email" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="support@company.com" value={co.supportEmail ?? ''} onChange={e => set('supportEmail', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Support Phone</label>
+            <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="(555) 123-4567" value={co.supportPhone ?? ''} onChange={e => set('supportPhone', e.target.value)} />
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">Shown to customers in the portal footer and public-facing pages. Defaults to the main phone/email above if not set.</p>
       </div>
     </div>
   )

@@ -230,7 +230,8 @@ router.post('/invite', requireStaffSyncKey, async (req, res) => {
 const resendLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,
-  keyGenerator: (req) => req.body?.email ? req.body.email.toString().toLowerCase() : ipKeyGenerator(req),
+  keyGenerator: (req) => (req.body?.email || req.ip || 'unknown').toString().toLowerCase(),
+  validate: false,
   message: { success: false, error: 'RATE_LIMITED', message: 'Too many resend requests. Please wait an hour.' },
   standardHeaders: true,
   legacyHeaders: false,

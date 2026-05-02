@@ -1,8 +1,8 @@
 import type { CrmAdapter } from '../../../types/index.js'
-import { FenceProCrmAdapter } from './adapters/fencepro.js'
+import { EzBizCrmAdapter } from './adapters/fencepro.js'
 import { cacheGet, cacheSet } from '../cache.js'
 
-const CRM_PROVIDER = process.env.CRM_PROVIDER || 'fencepro'
+const CRM_PROVIDER = process.env.CRM_PROVIDER || 'ezbiz'
 
 let adapter: CrmAdapter | null = null
 
@@ -11,8 +11,9 @@ export function getCrmAdapter(): CrmAdapter {
   if (adapter) return adapter
 
   switch (CRM_PROVIDER) {
+    case 'ezbiz':
     case 'fencepro':
-      adapter = new FenceProCrmAdapter()
+      adapter = new EzBizCrmAdapter()
       break
     // Add more adapters here:
     // case 'hubspot':
@@ -22,7 +23,7 @@ export function getCrmAdapter(): CrmAdapter {
     //   adapter = new SalesforceCrmAdapter()
     //   break
     default:
-      adapter = new FenceProCrmAdapter()
+      adapter = new EzBizCrmAdapter()
   }
 
   return adapter

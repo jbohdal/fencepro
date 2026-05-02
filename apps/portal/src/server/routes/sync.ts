@@ -1,5 +1,5 @@
 /**
- * Sync API — receives data from the FencePro CRM app
+ * Sync API — receives data from the EZ Biz CRM app
  *
  * These endpoints are called by the CRM frontend when data changes.
  * They upsert into the portal's PostgreSQL database so customers

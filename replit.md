@@ -1,85 +1,92 @@
-# FencePro / EZBiz Portal
+# EZ Biz — Platform Overview
 
-## Overview
-
-A full-stack fence contractor CRM and customer portal built with Express (backend) and React/Vite (frontend). The main app is in `apps/portal`.
-
-## Project Structure
-
-```
-apps/
-  portal/           # Main full-stack app (Express + React/Vite)
-    src/
-      client/       # React frontend (Vite dev server on port 5000)
-      server/       # Express backend (port 4000)
-    prisma/         # Database schema & seed
-    vite.config.ts  # Vite config (port 5000, proxies /api to 4000)
-  web/              # Separate public-facing quote/customer website
-packages/
-  api/              # Shared API package
-  shared/           # Shared utilities
-prisma/             # Root-level prisma schema (legacy)
-```
+EZ Biz is a complete field service and sales platform for fence contracting companies. It includes a CRM, quoting engine, operations board, inventory management, billing, customer portal, and automation engine.
 
 ## Architecture
 
-- **Frontend**: React 19 + Vite 8 + TailwindCSS 4, runs on port 5000
-- **Backend**: Express 5 + TypeScript, runs on port 4000
-- **Database**: PostgreSQL (Replit managed), accessed via Prisma ORM v6
-- **Auth**: JWT (access + refresh tokens), bcryptjs password hashing
-- **Package Manager**: pnpm (workspace monorepo managed with turbo)
-- **Node Version**: Node.js 20
+**Monorepo:** pnpm workspaces
+
+```
+ezbiz/                           ← root (package name: ezbiz)
+├── apps/
+│   ├── web/                     ← React/Vite SPA — main CRM (port 5000)
+│   └── portal/                  ← Express API + customer portal (port 4000)
+├── packages/
+│   ├── api/                     ← @ezbiz/api shared package
+│   └── shared/                  ← @ezbiz/shared (quote engine utils)
+├── AUDIT_REPORT.md              ← full module inventory
+├── DATA_FLOW_MAP.md             ← cross-module data flows
+├── REBRAND_AUDIT.md             ← FencePro → EZ Biz categorized rebrand log
+├── SETUP.md                     ← external services setup guide
+├── WHITELABEL.md                ← whitelabeling and branding guide
+└── README.md                    ← developer quickstart
+```
 
 ## Running the App
 
-The workflow `Start application` runs:
-```
-cd apps/portal && pnpm dev
-```
-which uses `concurrently` to run:
-- `tsx watch src/server/index.ts` (backend, port 4000)
-- `vite` (frontend, port 5000)
+**Workflow:** "Start application" — runs both services simultaneously
+- Web app (Vite) on port 5000 (webview)
+- Portal server (Express) on port 4000 (console)
 
-Vite proxies `/api/*` requests to the backend.
+**Manual start:**
+```bash
+# Terminal 1 — portal server
+pnpm --filter ezbiz-portal dev:server
+
+# Terminal 2 — web app
+pnpm --filter web dev
+```
+
+## Technology Stack
+
+- **Web app:** React 19, Vite 8, TailwindCSS 4, TypeScript 5.9
+- **Portal server:** Express 5, Prisma 6, PostgreSQL, tsx (watch mode)
+- **Node.js:** 20+ (required for Vite 8)
+- **Package manager:** pnpm with workspaces + Turborepo
+
+## Data Storage
+
+- **CRM data** (quotes, jobs, customers, inventory, billing, pipeline) → browser `localStorage`, keys prefixed `fencepro_*`
+- **Portal data** (auth, portal accounts, automations, integrations, leads) → PostgreSQL via Prisma
+- **Sync:** CRM posts changes to `/api/sync/*` which upserts to portal DB
+
+## Branding / Config
+
+All branding lives in `apps/web/src/configStore.ts` → `CompanyInfo` interface.
+
+New branding fields added (2026-05-02):
+- `logoUrl` — hosted logo image URL
+- `primaryColor` / `secondaryColor` — hex brand colors
+- `legalName` — formal name for contracts
+- `supportEmail` / `supportPhone` — customer-facing contact
+- `portal.accentColor` / `portal.supportEmail` / `portal.supportPhone` — portal-specific overrides
+
+These are all configurable via Settings → Company Info in the UI.
+
+## Key Files
+
+- `apps/web/src/App.tsx` — root shell, sidebar, routing, role switching
+- `apps/web/src/configStore.ts` — centralized branding + app config
+- `apps/web/src/QuoteBuilder.tsx` — quoting engine
+- `apps/portal/src/server/index.ts` — Express entry point (port 4000)
+- `apps/portal/src/server/lib/automationEngine.ts` — automation rule engine
+- `apps/portal/prisma/schema.prisma` — full PostgreSQL schema
 
 ## Environment Variables
 
-Key env vars (set in Replit Secrets/Env):
-- `DATABASE_URL` — PostgreSQL connection string (managed by Replit)
-- `JWT_SECRET` — 64-char random string for JWT signing
-- `JWT_REFRESH_SECRET` — 64-char random string for refresh tokens
-- `CLIENT_URL` — Frontend URL (http://localhost:5000 in dev)
-- `NODE_ENV` — "development" or "production"
-- `PORT` — Backend port (4000)
-- `STRICT_ENV_VALIDATION` — Set to "false" to bypass strict env checks
+Minimum required (for `apps/portal/.env`):
+- `DATABASE_URL` — PostgreSQL connection string
+- `JWT_SECRET` — 64+ char random string
+- `JWT_REFRESH_SECRET` — separate 64+ char random string
 
-Optional services:
-- `SENDGRID_API_KEY` — Email sending
-- `TWILIO_ACCOUNT_SID/AUTH_TOKEN/FROM_NUMBER` — SMS
-- `GOOGLE_CLIENT_ID/CLIENT_SECRET` — Google Calendar sync
-- `STRIPE_SECRET_KEY/PUBLISHABLE_KEY` — Payments
+See `SETUP.md` for full setup guide for all external services.
 
-## Database
+## Rebrand Notes
 
-- Managed PostgreSQL via Replit
-- Prisma schema: `apps/portal/prisma/schema.prisma`
-- Push schema changes: `cd apps/portal && pnpm db:push`
-- Seed: `cd apps/portal && pnpm db:seed`
-
-## Deployment
-
-- Target: autoscale
-- Build: `cd apps/portal && pnpm install && pnpm build`
-- Run: `cd apps/portal && node dist/server/index.js`
-- In production, the Express server serves the built React app from `dist/client`
-
-## Key Features
-
-- CRM for fence contractors (quotes, jobs, customers, invoices)
-- Customer portal with ticket management, invoices, documents
-- Rail optimizer for fence material calculations
-- EZBudget widget for budget estimating
-- Lead chat and automation engine
-- Google Calendar integration
-- Backup/restore functionality
-- Botpress chatbot integration
+The app was originally "FencePro" and has been rebranded to "EZ Biz":
+- All user-facing strings updated to "EZ Biz" / "EZBiz"
+- Package names updated: `ezbiz`, `ezbiz-portal`, `@ezbiz/api`, `@ezbiz/shared`
+- CRM adapter class renamed: `FenceProCrmAdapter` → `EzBizCrmAdapter`
+- `localStorage` keys (`fencepro_*`) and CustomEvents (`fencepro:*`) are **internal identifiers** — intentionally unchanged to preserve user data
+- See `REBRAND_AUDIT.md` for complete categorized rebrand log
+>>>>>>> 06cd044 (rebrand FencePro → EZ Biz, extend branding config, add docs, fix workflow)
