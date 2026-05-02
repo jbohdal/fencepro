@@ -805,10 +805,13 @@ export default function QuoteBuilder({
                 <p className="text-xs text-gray-400">Adds 10% commission</p>
               </div>
               <button
+                type="button"
+                role="switch"
+                aria-checked={hasSalesman}
                 onClick={() => setHasSalesman(h => !h)}
-                className={`relative w-11 h-6 rounded-full transition-colors ${hasSalesman ? 'bg-orange-500' : 'bg-gray-300'}`}
+                className={`relative inline-flex flex-shrink-0 w-11 h-6 p-0 rounded-full border-0 cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-orange-300 ${hasSalesman ? 'bg-orange-500' : 'bg-gray-300'}`}
               >
-                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${hasSalesman ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${hasSalesman ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </div>
 
