@@ -6,7 +6,6 @@ import {
   nextInvoiceNumber,
   type Invoice, type InvoiceLineItem, type InvoiceStatus, type Payment, type CustomerNote,
 } from './billingStore'
-import AddressAutocomplete from './AddressAutocomplete'
 import { toast } from './toast'
 import { addLeadForNewCustomer } from './pipelineSeeder'
 import CustomerPhotosTab from './CustomerPhotosTab'
@@ -271,12 +270,12 @@ function CustomerForm({
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Addresses</h3>
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">Service Address</label>
-              <AddressAutocomplete
+              <label className="text-xs text-gray-500 mb-1 block">Service Address — where the fence is being installed</label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="1349 SE 32nd St, Ocala, FL 34470"
                 value={form.serviceAddress}
-                onChange={v => setForm(f => ({ ...f, serviceAddress: v }))}
-                onSelect={p => setForm(f => ({ ...f, serviceAddress: p.formatted }))}
-                placeholder="Where the fence is being installed"
+                onChange={e => setForm(f => ({ ...f, serviceAddress: e.target.value }))}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -286,11 +285,11 @@ function CustomerForm({
             {form.billingDifferent && (
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Billing Address</label>
-                <AddressAutocomplete
+                <input
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  placeholder="Billing address (street, city, state zip)"
                   value={form.billingAddress}
-                  onChange={v => setForm(f => ({ ...f, billingAddress: v }))}
-                  onSelect={p => setForm(f => ({ ...f, billingAddress: p.formatted }))}
-                  placeholder="Billing address"
+                  onChange={e => setForm(f => ({ ...f, billingAddress: e.target.value }))}
                 />
               </div>
             )}

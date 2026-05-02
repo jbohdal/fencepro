@@ -3,7 +3,6 @@ import { fireSalesStageChange } from './automationTrigger'
 import { upsertCustomer, logCustomerActivity } from './customerStore'
 import { toast } from './toast'
 import { applySignedContractTransition } from './signedContractFlow'
-import AddressAutocomplete from './AddressAutocomplete'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -154,12 +153,22 @@ export function QuickAddModal({
   const [lastName, setLastName]   = useState('')
   const [phone, setPhone]         = useState('')
   const [email, setEmail]         = useState('')
-  const [address, setAddress]     = useState('')
+  const [street, setStreet]       = useState('')
+  const [city, setCity]           = useState('')
+  const [state, setState]         = useState('')
+  const [zip, setZip]             = useState('')
   const [leadSource, setLeadSource] = useState('')
   const [notes, setNotes]         = useState('')
 
+  // Combine the four address fields into the single string the data layer expects.
+  function composedAddress(): string {
+    const cityStateZip = [city, state].filter(Boolean).join(', ') + (zip ? ` ${zip}` : '')
+    return [street, cityStateZip].filter(s => s.trim()).join(', ').trim()
+  }
+
   function handleAdd() {
     if (!firstName.trim()) return
+    const address = composedAddress()
     // Always create a matching customer row — no lead-without-customer.
     const { customer, created } = upsertCustomer({
       firstName: firstName.trim(),
@@ -240,10 +249,45 @@ export function QuickAddModal({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Address</label>
-            <AddressAutocomplete value={address} onChange={setAddress}
-              onSelect={p => setAddress(p.formatted)}
-              placeholder="Start typing the address…" />
+            <label className="text-xs text-gray-500 mb-1 block">Street Address</label>
+            <input
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              placeholder="1349 SE 32nd St"
+              value={street}
+              onChange={e => setStreet(e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">City</label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="Ocala"
+                value={city}
+                onChange={e => setCity(e.target.value)}
+              />
+            </div>
+            <div className="w-20">
+              <label className="text-xs text-gray-500 mb-1 block">State</label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="FL"
+                maxLength={2}
+                value={state}
+                onChange={e => setState(e.target.value.toUpperCase())}
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-xs text-gray-500 mb-1 block">Zip</label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="34470"
+                inputMode="numeric"
+                maxLength={10}
+                value={zip}
+                onChange={e => setZip(e.target.value)}
+              />
+            </div>
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Lead Source</label>
