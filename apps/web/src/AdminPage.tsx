@@ -296,8 +296,8 @@ function CatalogTab() {
               const isBarcodesEditing = barcodesEditId === item.id
 
               return (
-                <>
-                  <tr key={item.id} className="hover:bg-gray-50 group">
+                <React.Fragment key={item.id}>
+                  <tr className="hover:bg-gray-50 group">
                     <td className="px-4 py-2.5">
                       {editingId === item.id ? (
                         <input autoFocus className="w-full border border-orange-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
@@ -379,7 +379,7 @@ function CatalogTab() {
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               )
             })}
           </tbody>
