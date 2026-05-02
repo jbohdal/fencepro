@@ -269,3 +269,49 @@ export async function listConnectedCalendars(): Promise<{ email: string; connect
   })
   return tokens.map(t => ({ email: t.email, connectedAt: t.createdAt }))
 }
+
+/**
+ * Pull upcoming events from a rep's Google Calendar.
+ * Returns events within the next `daysAhead` days.
+ */
+export async function pullCalendarEvents(params: {
+  repEmail: string
+  daysAhead?: number
+}): Promise<Array<{
+  eventId: string
+  summary: string
+  start: Date
+  end: Date
+  cancelled: boolean
+  description?: string
+}>> {
+  const calendar = await getCalendarClient(params.repEmail)
+  if (!calendar) return []
+
+  const now = new Date()
+  const maxTime = new Date(now.getTime() + (params.daysAhead ?? 30) * 24 * 60 * 60 * 1000)
+
+  try {
+    const res = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: now.toISOString(),
+      timeMax: maxTime.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: 200,
+      showDeleted: true, // include cancelled events so we can sync deletions
+    })
+
+    return (res.data.items || []).map(ev => ({
+      eventId: ev.id || '',
+      summary: ev.summary || '',
+      start: ev.start?.dateTime ? new Date(ev.start.dateTime) : new Date(),
+      end: ev.end?.dateTime ? new Date(ev.end.dateTime) : new Date(),
+      cancelled: ev.status === 'cancelled',
+      description: ev.description || undefined,
+    })).filter(ev => ev.eventId)
+  } catch (err) {
+    console.error(`[GCal] Failed to list events for ${params.repEmail}:`, err)
+    return []
+  }
+}

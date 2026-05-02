@@ -33,6 +33,7 @@ router.post('/webhooks/inbound/:source', async (req, res) => {
       headers: JSON.parse(JSON.stringify({
         'content-type': req.headers['content-type'],
         'x-webhook-signature': req.headers['x-webhook-signature'],
+        'stripe-signature': req.headers['stripe-signature'],
       })),
     },
   })
@@ -60,8 +61,14 @@ router.post('/webhooks/inbound/:source', async (req, res) => {
       return
     }
 
+    // Build headers map for adapter (string values only)
+    const headersForAdapter: Record<string, string> = {}
+    for (const [k, v] of Object.entries(req.headers)) {
+      if (typeof v === 'string') headersForAdapter[k] = v
+    }
+
     // Process through adapter
-    const result = await adapter.handleInbound(req.body, req.headers as Record<string, string>)
+    const result = await adapter.handleInbound(req.body, headersForAdapter)
 
     await prisma.webhookInboundLog.update({
       where: { id: logEntry.id },

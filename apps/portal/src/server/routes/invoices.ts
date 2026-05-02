@@ -18,7 +18,7 @@ router.get('/', requireAuth, async (req, res) => {
 
     const where = {
       accountId,
-      ...(status && status !== 'all' ? { status: status as any } : {}),
+      ...(status && status !== 'all' ? { status: status as 'pending' | 'paid' | 'overdue' | 'cancelled' | 'refunded' } : {}),
     }
 
     const [invoices, total] = await Promise.all([
@@ -81,5 +81,8 @@ router.get('/:id/pdf', requireAuth, auditLog('invoice_download'), async (req, re
     res.status(500).json({ success: false, error: 'Failed to download invoice' })
   }
 })
+
+// NOTE: Stripe payment-link generation route was removed. The Stripe adapter still
+// exists on disk and can be re-wired later by the user from the integrations UI.
 
 export default router
