@@ -209,14 +209,26 @@ router.post('/jobs', async (req, res) => {
 })
 
 // ── Sync Invoice ──
+const lineItemSchema = z.object({
+  id: z.string().optional(),
+  description: z.string(),
+  quantity: z.number(),
+  unitPriceCents: z.number(),
+  totalCents: z.number(),
+  sortOrder: z.number().optional(),
+})
+
 const invoiceSchema = z.object({
   externalId: z.string(),
   accountExternalId: z.string(),
   invoiceNumber: z.string(),
   amountCents: z.number(),
+  taxCents: z.number().optional(),
   dueDate: z.string(),
   status: z.enum(['pending', 'paid', 'overdue', 'cancelled', 'refunded']),
   paidAt: z.string().optional(),
+  lineItems: z.array(lineItemSchema).optional(),
+  notes: z.string().optional(),
 })
 
 router.post('/invoices', async (req, res) => {
@@ -233,18 +245,24 @@ router.post('/invoices', async (req, res) => {
       update: {
         invoiceNumber: data.invoiceNumber,
         amountCents: data.amountCents,
+        taxCents: data.taxCents ?? 0,
         dueDate: new Date(data.dueDate),
         status: data.status,
         paidAt: data.paidAt ? new Date(data.paidAt) : null,
+        ...(data.lineItems !== undefined ? { lineItems: data.lineItems } : {}),
+        ...(data.notes !== undefined ? { notes: data.notes } : {}),
       },
       create: {
         externalCrmId: data.externalId,
         accountId: account.id,
         invoiceNumber: data.invoiceNumber,
         amountCents: data.amountCents,
+        taxCents: data.taxCents ?? 0,
         dueDate: new Date(data.dueDate),
         status: data.status,
         paidAt: data.paidAt ? new Date(data.paidAt) : null,
+        lineItems: data.lineItems ?? [],
+        notes: data.notes,
       },
     })
 

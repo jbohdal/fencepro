@@ -148,10 +148,13 @@ model Invoice {
   accountId     String
   invoiceNumber String
   amountCents   Int
+  taxCents      Int           @default(0)
   currency      String        @default("USD")
   dueDate       DateTime
   paidAt        DateTime?
   status        InvoiceStatus @default(pending)
+  lineItems     Json?
+  notes         String?
   pdfPath       String?
   createdAt     DateTime      @default(now())
 
