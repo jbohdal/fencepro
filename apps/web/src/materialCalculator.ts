@@ -546,3 +546,207 @@ export function totalMaterialCost(items: LineItem[]): number {
 function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Mixed-rail material calculator (Milestone B)
+//
+// For auto-mix umbrella styles ("WV-Auto ND Privacy", "WV-Auto DS Privacy").
+// Each run independently uses 6ft or 8ft rails per the optimizer (or override).
+// Panel goods (rails, u-trim, pickets, stiffener) are computed per-run with
+// the matching 6x6 or 6x8 unit cost; post / hardware / gate counts come from
+// total post counts and don't change with the mix.
+// ════════════════════════════════════════════════════════════════════════════
+
+export type RailWidth = '6ft' | '8ft'
+
+export interface MixedRunInput {
+  ft: number
+  rail: RailWidth
+}
+
+export interface MixedJobInputs {
+  installMethod: 'no-dig' | 'dig-set'
+  colorFamily: 'white' | 'tan'
+  runs: MixedRunInput[]
+  corners: number
+  ends: number
+  walkGates: number
+  dblGates: number
+  tearOutSections: number
+  tearOutGates: number
+}
+
+/** Section count for a single run at the chosen rail width. */
+function sectionsForMixedRun(ft: number, rail: RailWidth): number {
+  const panel = rail === '8ft' ? 8 : 6
+  if (ft <= 0) return 0
+  return ft % panel === 0 ? ft / panel : Math.ceil(ft / panel)
+}
+
+export function calculateMixedMaterials(input: MixedJobInputs): LineItem[] {
+  const { installMethod, colorFamily, runs, corners, ends,
+          walkGates, dblGates, tearOutSections, tearOutGates } = input
+
+  // Per-run + aggregate section counts split by rail width.
+  let sections6 = 0
+  let sections8 = 0
+  let linePosts = 0
+  for (const r of runs) {
+    const sec = sectionsForMixedRun(r.ft, r.rail)
+    if (r.rail === '8ft') sections8 += sec
+    else sections6 += sec
+    if (sec > 1) linePosts += sec - 1
+  }
+  const totalSections = sections6 + sections8
+  const totalPostCount = corners + ends + linePosts
+  const blankPosts = dblGates
+  const allPosts = totalPostCount + blankPosts
+  const isWhite = colorFamily === 'white'
+  const isTan = colorFamily === 'tan'
+  const isND = installMethod === 'no-dig'
+  const isDS = installMethod === 'dig-set'
+
+  const items: LineItem[] = []
+  function add(item: string, qty: number, unitCost: number) {
+    if (qty > 0 && unitCost > 0) {
+      items.push({ item, qty: round2(qty), unitCost, total: round2(qty * unitCost) })
+    }
+  }
+
+  // ── Tear-out (same as existing branches) ──
+  add('Tear Out Haul-Away Fence', tearOutSections, 9.50)
+  add('Tear Out Haul-Away Gate', tearOutGates, 27.00)
+
+  // ── Posts ──
+  if (isWhite && isND) {
+    add('*Vinyl, White, Post, Corner, 5" x 5" x 78"', corners, 11.17)
+    add('*Vinyl, White, Post, End, 5" x 5" x 78"', ends, 11.17)
+    add('*Vinyl, White, Post, Line, 5" x 5" x 78"', linePosts, 11.17)
+    add('*Vinyl, White, Post, Blank, 5" x 5" x 102"', blankPosts, 13.64)
+    add('ND, Donut', totalPostCount * 2, 3.19)
+    add('Pipe, PT40, Galv, 2-1/2" x 8\'', totalPostCount, 19.50)
+  } else if (isWhite && isDS) {
+    add('*Vinyl, White, Post, Corner, 5" x 5" x 102"', corners, 13.64)
+    add('*Vinyl, White, Post, End, 5" x 5" x 102"', ends, 13.64)
+    add('*Vinyl, White, Post, Line, 5" x 5" x 102"', linePosts, 17.49)
+    add('*Vinyl, White, Post, Blank, 5" x 5" x 102"', blankPosts, 13.64)
+    add('Misc, Concrete', Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2), 6.25)
+  } else if (isTan && isND) {
+    add('*Vinyl, Tan, Post, Corner, 5" x 5" x 78"', corners, 12.90)
+    add('*Vinyl, Tan, Post, End, 5" x 5" x 78"', ends, 12.90)
+    add('*Vinyl, Tan, Post, Line, 5" x 5" x 78"', linePosts, 12.90)
+    add('*Vinyl, Tan, Post, Blank, 5" x 5" x 102"', blankPosts, 16.38)
+    add('ND, Donut', totalPostCount * 2 - blankPosts * 2, 3.19)
+    add('Pipe, PT40, Galv, 2-1/2" x 8\'', corners + ends + linePosts, 19.50)
+  }
+
+  // ── Panel goods, split by rail width ──
+  // 6'x6' panels: 11 pickets, 2 × 6' rails, 2 × u-trim. No stiffener.
+  // 6'x8' panels: 15 pickets, 2 × 8' rails, 2 × u-trim, 1 stiffener.
+  // U-trim is the same SKU; quantity proportional to (sections × 2).
+  if (isWhite) {
+    if (sections6 > 0) {
+      add('*Vinyl, White, Picket, 62-1/4"', sections6 * 11, 2.71)
+      add("*Vinyl, White, Rail, 6'", sections6 * 2, 5.98)
+    }
+    if (sections8 > 0) {
+      add('*Vinyl, White, Picket, 62-1/4"', sections8 * 15, 2.71)
+      add("*Vinyl, White, Rail, 8'", sections8 * 2, 9.26)
+      add("Vinyl, Rail Insert, 8'", sections8, 8.00)
+    }
+    add('*Vinyl, White, U-Trim, 59-1/4"', totalSections * 2, 1.62)
+  } else if (isTan) {
+    if (sections6 > 0) {
+      add('*Vinyl, Tan, Picket, 62-1/4"', sections6 * 11, 3.22)
+      add("*Vinyl, Tan, Rail, 6'", sections6 * 2, 7.98)
+    }
+    if (sections8 > 0) {
+      add('*Vinyl, Tan, Picket, 62-1/4"', sections8 * 16, 3.22)
+      add("*Vinyl, Tan, Rail, 8'", sections8 * 2, 10.18)
+      add("Vinyl, Rail Insert, 8'", sections8, 8.00)
+    }
+    add('*Vinyl, Tan, U-Trim, 59-1/4"', totalSections * 2, 1.85)
+  }
+
+  // ── Hardware (post-count derived; same across rail widths) ──
+  if (isWhite && isND) {
+    add('*Vinyl, Hex, 1/4 x 3" (Rail Ties/Bottom)', allPosts * 3, 0.123)
+    add('**Vinyl, Donut Pin', allPosts * 4, 0.10)
+    add('*Vinyl, Truss, 8 x 3/4" (U-Trim)', totalSections * 6, 0.03)
+    add('*Vinyl, White, Cap, 5"x5"', allPosts, 1.00)
+    add('Misc, Concrete', dblGates, 6.25) // ND uses concrete only at double-gate posts
+  } else if (isWhite && isDS) {
+    add('*Vinyl, Hex, 1/4 x 3" (Rail Ties/Bottom)', totalPostCount * 2, 0.123)
+    add('*Vinyl, Truss, 8 x 3/4" (U-Trim)', totalSections * 6, 0.03)
+    add('*Vinyl, White, Cap, 5"x5"', totalPostCount, 1.00)
+  } else if (isTan && isND) {
+    add('*Vinyl, Hex, 1/4 x 3" (Rail Ties/Bottom)', totalPostCount * 3, 0.123)
+    add('**Vinyl, Donut Pin', totalPostCount * 4, 0.10)
+    add('*Vinyl, Truss, 8 x 3/4" (U-Trim)', totalSections * 6, 0.03)
+    add('Vinyl, Tan, Cap, 5"x5"', totalPostCount, 1.00)
+  }
+
+  // ── Gate hardware (style-name agnostic; uses installMethod + color) ──
+  const gateOpenings = walkGates + dblGates * 2
+  if (isWhite && isND && gateOpenings > 0) {
+    add('*Vinyl, Gate, Handle', gateOpenings * 2, 5.98)
+  }
+  if (isWhite) {
+    if (walkGates > 0) {
+      add("*Vinyl, Gate, H-Beam, 6'", walkGates * 2, 22.80)
+      add('*Vinyl, Gate, Brace', walkGates, 36.37)
+      add('*Vinyl, Gate, Hinge', walkGates, 29.03)
+      add('*Vinyl, Gate, Latch', walkGates, 20.46)
+      add('*Vinyl, White, Cap, Gate', walkGates * 2, 1.00)
+      add('*Vinyl, White, Upright', walkGates * (isND ? 2 : 1), 8.75)
+      add("*Vinyl, Gate, P-Channel, 6'", walkGates, 12.30)
+      if (isND) add('*Vinyl, Hex, 1/4 x 3/4" (H-Beam)', walkGates * 6, 0.05)
+      add('*Vinyl, White, Rivet, 1"', walkGates * 50, 0.12)
+    }
+    if (dblGates > 0) {
+      if (isND) {
+        add("*Vinyl, Gate, H-Beam, 6'", dblGates * 2, 22.80)
+        add("*Vinyl, Gate, H-Beam, 8'", dblGates, 29.60)
+      } else {
+        add("*Vinyl, Gate, H-Beam, 8'", dblGates * 3, 29.60)
+      }
+      add('*Vinyl, Gate, Brace', dblGates * 2, 36.37)
+      add('*Vinyl, Gate, Hinge', dblGates * 2, 29.03)
+      add('*Vinyl, Gate, Latch', dblGates * (isND ? 2 : 1), 20.46)
+      add('*Vinyl, White, Cap, Gate', dblGates * 4, 1.00)
+      add('*Vinyl, White, Upright', dblGates * (isND ? 4 : 2), 8.75)
+      if (isND) {
+        add("*Vinyl, Gate, P-Channel, 6'", dblGates * 2, 12.30)
+        add('*Vinyl, Hex, 1/4 x 3/4" (H-Beam)', dblGates * 12, 0.05)
+      }
+      add('*Vinyl, White, Rivet, 1"', dblGates * 100, 0.12)
+    }
+  } else if (isTan && isND) {
+    if (walkGates > 0) {
+      add("*Vinyl, Gate, H-Beam, 6'", walkGates * 2, 22.80)
+      add('*Vinyl, Gate, Brace', walkGates, 36.37)
+      add('*Vinyl, Gate, Hinge', walkGates, 29.03)
+      add('*Vinyl, Gate, Latch', walkGates, 20.46)
+      add('Vinyl, Tan, Cap, Gate', walkGates * 2, 1.00)
+      add('*Vinyl, Tan, Upright', walkGates, 9.69)
+      add("*Vinyl, Gate, P-Channel, 6'", walkGates, 12.30)
+      add('*Vinyl, Tan, Rivet, 1"', walkGates * 50, 0.20)
+    }
+    if (dblGates > 0) {
+      add("*Vinyl, Gate, H-Beam, 8'", dblGates, 29.60)
+      add('*Vinyl, Gate, Brace', dblGates * 2, 36.37)
+      add('*Vinyl, Gate, Hinge', dblGates * 2, 29.03)
+      add('*Vinyl, Gate, Latch', dblGates, 20.46)
+      add('Vinyl, Tan, Cap, Gate', dblGates * 4, 1.00)
+      add('*Vinyl, Tan, Upright', dblGates * 2, 9.69)
+      add('*Vinyl, Tan, Rivet, 1"', dblGates * 100, 0.20)
+    }
+  }
+
+  return items
+}
+
+/** Helper: total section count (per-run sum) for a mixed-rail job. */
+export function mixedTotalSections(runs: MixedRunInput[]): number {
+  return runs.reduce((sum, r) => sum + sectionsForMixedRun(r.ft, r.rail), 0)
+}

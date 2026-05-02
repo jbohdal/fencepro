@@ -78,6 +78,8 @@ interface FenceStyle {
 }
 
 const FENCE_STYLES: FenceStyle[] = [
+  { id: 'auto-wv-nd', name: "WV-Auto ND Privacy", category: 'Vinyl', margin: 0.64, sectionsPerMH: 1.2, panelWidth: 6, mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
+  { id: 'auto-wv-ds', name: "WV-Auto DS Privacy", category: 'Vinyl', margin: 0.64, sectionsPerMH: 0.8, panelWidth: 6, mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '1',  name: "WV-ND 6'x6' Privacy",    category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '2',  name: "WV-ND 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '3',  name: "WV-ND 8'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },

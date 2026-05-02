@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from 'react'
-import { calculateMaterials, totalMaterialCost } from './materialCalculator'
-import type { LineItem } from './materialCalculator'
+import { calculateMaterials, calculateMixedMaterials, mixedTotalSections, totalMaterialCost } from './materialCalculator'
+import type { LineItem, RailWidth } from './materialCalculator'
 import type { SavedQuote } from './QuotesPage'
 import QuoteOptionsPanel from './QuoteOptionsPanel'
 import { addLeadForNewCustomer } from './pipelineSeeder'
@@ -15,6 +15,8 @@ import {
 } from './railOptimizer'
 
 const FENCE_STYLES = [
+  { id: 'auto-wv-nd', name: "WV-Auto ND Privacy", category: 'Vinyl',    margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6, autoRailMix: true,  installMethod: 'no-dig'  as const, colorFamily: 'white' as const },
+  { id: 'auto-wv-ds', name: "WV-Auto DS Privacy", category: 'Vinyl',    margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 6, autoRailMix: true,  installMethod: 'dig-set' as const, colorFamily: 'white' as const },
   { id: '1',  name: "WV-ND 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6  },
   { id: '2',  name: "WV-ND 6'x8' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6  },
   { id: '3',  name: "WV-ND 8'x6' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 8  },
@@ -52,7 +54,11 @@ const TEAR_OUT_GATE  = CFG.pricing?.tearOutGate ?? 27.00
 const FLAME_COLORS   = ['text-blue-400','text-cyan-400','text-yellow-400','text-orange-500','text-red-500']
 const FLAME_LABELS   = ['Cold','Cool','Warm','Hot','On Fire']
 
-interface RunLength { ft: string }
+interface RunLength {
+  ft: string
+  /** Auto-mix only: per-run rail-width override or 'auto' (let optimizer decide). */
+  rail?: 'auto' | '6ft' | '8ft'
+}
 
 interface SavedCustomer {
   id: string
@@ -371,7 +377,9 @@ export default function QuoteBuilder({
     return found?.id ?? ''
   })
   const [runs, setRuns]                 = useState<RunLength[]>(
-    init?.runs.length ? init.runs.map(ft => ({ ft: String(ft) })) : [{ ft: '' }]
+    init?.runs.length
+      ? init.runs.map((ft, i) => ({ ft: String(ft), rail: init.runRails?.[i] ?? 'auto' }))
+      : [{ ft: '', rail: 'auto' }]
   )
   const [corners, setCorners]           = useState(init?.corners ?? 0)
   const [ends, setEnds]                 = useState(init?.ends ?? 0)
@@ -389,14 +397,56 @@ export default function QuoteBuilder({
   const quoteIdRef = useRef<string>(init?.id || uid())
 
   const style = FENCE_STYLES.find(s => s.id === styleId)
+  const cfgStyle = style ? getConfig().fenceStyles.find(s => s.id === style.id) : undefined
+  const isAutoMix = !!cfgStyle?.autoRailMix
 
-  const sections = runs.reduce((sum, r) => {
-    const ft = parseFloat(r.ft) || 0
-    return sum + (style ? sectionsForRun(ft, style.panelWidth) : 0)
-  }, 0)
+  // ── Auto-mix: resolve per-run rail width via the optimizer ──
+  // For each run, look up the override; if 'auto', call the optimizer with
+  // the configured cutoff + threshold; otherwise honor the user's lock.
+  const optSettingsLive = getRailOptimizerConfig()
+  const resolvedRunRails: RailWidth[] = useMemo(() => {
+    if (!isAutoMix) return []
+    return runs.map(r => {
+      const ft = parseFloat(r.ft) || 0
+      if (ft <= 0) return '6ft'
+      if (r.rail === '6ft' || r.rail === '8ft') return r.rail
+      // Optimizer decision (matches railOptimizer.ts logic)
+      if (!optSettingsLive.enabled || ft <= optSettingsLive.shortRunCutoffFt) return '6ft'
+      const cost6 = sectionsForRun(ft, 6) * (11 * 2.71 + 2 * 5.98 + 2 * 1.62)
+      const cost8 = sectionsForRun(ft, 8) * (15 * 2.71 + 2 * 9.26 + 2 * 1.62 + 8.0)
+      if (cost8 < cost6) return '8ft'
+      const pctDiff = cost6 > 0 ? (cost6 - cost8) / cost6 : 0
+      if (-pctDiff <= optSettingsLive.costPreferenceThreshold) return '8ft'
+      return '6ft'
+    })
+  }, [isAutoMix, runs, optSettingsLive.enabled, optSettingsLive.shortRunCutoffFt, optSettingsLive.costPreferenceThreshold])
+
+  const sections = useMemo(() => {
+    if (isAutoMix) {
+      const mixed = runs.map((r, i) => ({ ft: parseFloat(r.ft) || 0, rail: resolvedRunRails[i] || ('6ft' as RailWidth) }))
+                        .filter(r => r.ft > 0)
+      return mixedTotalSections(mixed)
+    }
+    return runs.reduce((sum, r) => {
+      const ft = parseFloat(r.ft) || 0
+      return sum + (style ? sectionsForRun(ft, style.panelWidth) : 0)
+    }, 0)
+  }, [isAutoMix, runs, resolvedRunRails, style])
 
   const materialItems: LineItem[] = useMemo(() => {
     if (!style || sections === 0) return []
+    if (isAutoMix && cfgStyle?.installMethod && cfgStyle?.colorFamily) {
+      const mixed = runs
+        .map((r, i) => ({ ft: parseFloat(r.ft) || 0, rail: resolvedRunRails[i] || ('6ft' as RailWidth) }))
+        .filter(r => r.ft > 0)
+      return calculateMixedMaterials({
+        installMethod: cfgStyle.installMethod,
+        colorFamily: cfgStyle.colorFamily,
+        runs: mixed,
+        corners, ends, walkGates, dblGates,
+        tearOutSections: tearOutSec, tearOutGates,
+      })
+    }
     return calculateMaterials({
       fenceStyle:      style.name,
       runs:            runs.map(r => parseFloat(r.ft) || 0).filter(f => f > 0),
@@ -407,7 +457,7 @@ export default function QuoteBuilder({
       tearOutSections: tearOutSec,
       tearOutGates,
     })
-  }, [style, runs, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates])
+  }, [style, isAutoMix, cfgStyle, sections, runs, resolvedRunRails, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates])
 
   const materialCost = useMemo(() => totalMaterialCost(materialItems), [materialItems])
 
@@ -429,10 +479,13 @@ export default function QuoteBuilder({
   const gmPct       = adjPrice > 0 ? grossMargin / adjPrice : 0
   const gmColor     = gmPct >= 0.34 ? 'text-green-600' : gmPct >= 0.27 ? 'text-yellow-500' : 'text-red-500'
 
-  function addRun() { setRuns(r => [...r, { ft: '' }]) }
+  function addRun() { setRuns(r => [...r, { ft: '', rail: 'auto' }]) }
   function removeRun(i: number) { setRuns(r => r.filter((_, idx) => idx !== i)) }
   function updateRun(i: number, val: string) {
-    setRuns(r => r.map((run, idx) => idx === i ? { ft: val } : run))
+    setRuns(r => r.map((run, idx) => idx === i ? { ...run, ft: val } : run))
+  }
+  function updateRunRail(i: number, rail: 'auto' | '6ft' | '8ft') {
+    setRuns(r => r.map((run, idx) => idx === i ? { ...run, rail } : run))
   }
 
   const categories = [...new Set(FENCE_STYLES.map(s => s.category))]
@@ -440,8 +493,8 @@ export default function QuoteBuilder({
 
   // Smart-rail optimizer (advisory: recommends 6ft / 8ft per run for vinyl jobs)
   const optSettings = getRailOptimizerConfig()
-  const isWhiteVinyl = !!style && (style.name.startsWith('WV-ND') || style.name.startsWith('WV-DS'))
-  const showOptimizer = optSettings.enabled && optSettings.showDetailsInBuilder && isWhiteVinyl
+  const isWhiteVinyl = !!style && (style.name.startsWith('WV-ND') || style.name.startsWith('WV-DS') || style.name.startsWith('WV-Auto'))
+  const showOptimizer = optSettings.enabled && optSettings.showDetailsInBuilder && (isWhiteVinyl || isAutoMix)
   const optimizerResult = useMemo(() => {
     if (!showOptimizer) return null
     const runFootages = runs.map(r => parseFloat(r.ft) || 0).filter(f => f > 0)
@@ -481,6 +534,13 @@ export default function QuoteBuilder({
       salesRep: data.salesRep,
       fenceStyle: style?.name ?? '',
       runs: runs.map(r => parseFloat(r.ft) || 0).filter(f => f > 0),
+      // Persist per-run rail decisions for auto-mix quotes so reload reproduces
+      // the exact pull sheet (and so user overrides survive).
+      runRails: isAutoMix
+        ? runs
+            .filter(r => (parseFloat(r.ft) || 0) > 0)
+            .map(r => r.rail ?? 'auto')
+        : undefined,
       corners,
       ends,
       walkGates,
@@ -547,13 +607,29 @@ export default function QuoteBuilder({
                 onChange={e => setStyleId(e.target.value)}
               >
                 <option value="">Select a fence style...</option>
-                {categories.map(cat => (
-                  <optgroup key={cat} label={cat}>
-                    {FENCE_STYLES.filter(s => s.category === cat).map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </optgroup>
-                ))}
+                {/* Auto-mix styles surface first — optimizer picks 6'/8' per run */}
+                {(() => {
+                  const autoStyles = FENCE_STYLES.filter(s => (s as any).autoRailMix)
+                  return autoStyles.length > 0 ? (
+                    <optgroup label="Vinyl Privacy — Auto-mix (recommended)">
+                      {autoStyles.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </optgroup>
+                  ) : null
+                })()}
+                {categories.map(cat => {
+                  const styles = FENCE_STYLES.filter(s => s.category === cat && !(s as any).autoRailMix)
+                  if (styles.length === 0) return null
+                  const label = cat === 'Vinyl' ? 'Vinyl — Locked width' : cat
+                  return (
+                    <optgroup key={cat} label={label}>
+                      {styles.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </optgroup>
+                  )
+                })}
               </select>
             </div>
 
@@ -563,24 +639,55 @@ export default function QuoteBuilder({
                 <button onClick={addRun} className="text-orange-500 text-xs hover:underline">+ Add run</button>
               </div>
               <div className="space-y-2">
-                {runs.map((run, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 w-10">Run {i + 1}</span>
-                    <input
-                      type="number"
-                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                      placeholder="Length in feet"
-                      value={run.ft}
-                      onChange={e => updateRun(i, e.target.value)}
-                    />
-                    <span className="text-xs text-orange-500 font-medium w-20 text-right">
-                      {style && (parseFloat(run.ft) || 0) > 0 ? `= ${sectionsForRun(parseFloat(run.ft), style.panelWidth)} sec` : ''}
-                    </span>
-                    {runs.length > 1 && (
-                      <button onClick={() => removeRun(i)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
-                    )}
-                  </div>
-                ))}
+                {runs.map((run, i) => {
+                  const ft = parseFloat(run.ft) || 0
+                  const resolvedRail = isAutoMix ? (resolvedRunRails[i] ?? '6ft') : null
+                  const sectionsThisRun = isAutoMix
+                    ? (resolvedRail ? sectionsForRun(ft, resolvedRail === '8ft' ? 8 : 6) : 0)
+                    : (style ? sectionsForRun(ft, style.panelWidth) : 0)
+                  const isOverridden = isAutoMix && (run.rail === '6ft' || run.rail === '8ft')
+                  return (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 w-10">Run {i + 1}</span>
+                      <input
+                        type="number"
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                        placeholder="Length in feet"
+                        value={run.ft}
+                        onChange={e => updateRun(i, e.target.value)}
+                      />
+                      {isAutoMix && optSettings.allowOverrides && (
+                        <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
+                          {(['auto', '6ft', '8ft'] as const).map(opt => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => updateRunRail(i, opt)}
+                              className={`text-[10px] font-semibold px-1.5 py-1 rounded ${
+                                (run.rail ?? 'auto') === opt
+                                  ? 'bg-white text-orange-600 shadow-sm'
+                                  : 'text-gray-500 hover:text-gray-800'
+                              }`}
+                              title={opt === 'auto' ? 'Optimizer chooses' : `Force ${opt} rails`}
+                            >
+                              {opt === 'auto' ? 'Auto' : opt}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <span className={`text-xs font-medium w-24 text-right ${isOverridden ? 'text-blue-600' : 'text-orange-500'}`}>
+                        {ft > 0
+                          ? isAutoMix
+                            ? `${resolvedRail} · ${sectionsThisRun} sec`
+                            : `= ${sectionsThisRun} sec`
+                          : ''}
+                      </span>
+                      {runs.length > 1 && (
+                        <button onClick={() => removeRun(i)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
 
               {/* Smart Rail Optimizer (advisory) */}

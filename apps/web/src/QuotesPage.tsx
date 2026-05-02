@@ -17,6 +17,11 @@ export interface SavedQuote {
   customerId?: string
   fenceStyle: string
   runs: number[]
+  /** Per-run rail-width decision parallel to `runs`. Only populated for
+   *  auto-mix vinyl styles (WV-Auto ND / DS). 'auto' means "let the optimizer
+   *  decide on render"; '6ft' / '8ft' is a user lock or resolved snapshot.
+   *  Absent on quotes saved before Milestone B. */
+  runRails?: Array<'auto' | '6ft' | '8ft'>
   corners: number
   ends: number
   walkGates: number

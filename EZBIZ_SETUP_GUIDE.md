@@ -89,7 +89,9 @@ cd /var/www/fencepro/portal && npx prisma generate    # regen client at runtime 
 
 cd /var/www/fencepro/repo/apps/web
 npx vite build
-rsync -a --delete dist/ /var/www/fencepro/web/dist/
+# IMPORTANT: nginx is configured with `root /var/www/fencepro/web;` — NOT /web/dist.
+# Sync the build OUTPUT (dist/) directly into web/, replacing index.html + assets/.
+rsync -a --delete --exclude=dist dist/ /var/www/fencepro/web/
 
 pm2 restart fencepro
 curl -s https://systemssyndicate.com/api/health  # smoke test

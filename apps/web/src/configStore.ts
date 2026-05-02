@@ -10,6 +10,18 @@ export interface FenceStyle {
   mhPerWalkGate: number
   mhPerDblGate: number
   isActive: boolean
+  /** When true, the rail width (6ft vs 8ft) is decided per run by the
+   *  smart-rail optimizer instead of being fixed by the style. The
+   *  panelWidth field acts as a display fallback only. Currently only
+   *  set for the WV-Auto ND / WV-Auto DS umbrella styles. */
+  autoRailMix?: boolean
+  /** Installation method — drives post / concrete / pipe selection. Used by
+   *  the mixed-rail material calculator. 'no-dig' = steel pipe + donuts;
+   *  'dig-set' = posts in concrete. */
+  installMethod?: 'no-dig' | 'dig-set'
+  /** Color family for the mixed-rail calculator. Used to pick the right
+   *  picket / rail / u-trim SKUs (white vs tan). */
+  colorFamily?: 'white' | 'tan'
 }
 
 export interface PricingConfig {
@@ -62,6 +74,10 @@ export interface AppConfig {
 // ── Defaults ──────────────────────────────────────────────────────────────────
 
 const DEFAULT_FENCE_STYLES: FenceStyle[] = [
+  // ── Auto-mix umbrella styles (Milestone B) — optimizer picks 6'/8' per run ──
+  { id: 'auto-wv-nd', name: "WV-Auto ND Privacy",  category: 'Vinyl', margin: 0.64, sectionsPerMH: 1.2, panelWidth: 6, mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true, autoRailMix: true, installMethod: 'no-dig',  colorFamily: 'white' },
+  { id: 'auto-wv-ds', name: "WV-Auto DS Privacy",  category: 'Vinyl', margin: 0.64, sectionsPerMH: 0.8, panelWidth: 6, mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true, autoRailMix: true, installMethod: 'dig-set', colorFamily: 'white' },
+  // ── Locked-width styles ──
   { id: '1',  name: "WV-ND 6'x6' Privacy",    category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '2',  name: "WV-ND 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '3',  name: "WV-ND 8'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
