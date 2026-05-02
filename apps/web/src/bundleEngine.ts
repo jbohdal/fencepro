@@ -10,6 +10,7 @@
 import { calculateMaterials, totalMaterialCost } from './materialCalculator'
 import { getConfig, type FenceStyle } from './configStore'
 import type { QuoteBundle, QuoteOption, BundleInclusion, BundleAddon } from './bundleStore'
+import { sectionsForRun } from './sectionCount'
 
 export interface BundleJobInputs {
   quoteId: string
@@ -25,11 +26,6 @@ export interface BundleJobInputs {
   hasSalesman: boolean
   priceAdjust: number
   presentationOrder: number
-}
-
-function sectionsForRun(ft: number, panelWidth: number): number {
-  if (ft <= 0) return 0
-  return ft % panelWidth === 0 ? ft / panelWidth : Math.ceil(ft / panelWidth)
 }
 
 export function calculateBundleOption(

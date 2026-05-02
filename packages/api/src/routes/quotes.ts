@@ -78,7 +78,13 @@ router.post('/', async (req: Request, res: Response) => {
     getSystemConfig(),
   ]);
 
-  const sectionCount = calculateSections(body.runLengths);
+  // Legacy schema (root prisma) has no panelWidth column on FenceStyle, so we
+  // derive it from category. Active code path uses style.panelWidth directly.
+  const panelLength =
+    fenceStyle.category === 'CHAINLINK' ? 10
+    : /8'?/.test(fenceStyle.name) ? 8
+    : 6;
+  const sectionCount = calculateSections(body.runLengths, panelLength);
   const addonMaterialCost = body.addOns.reduce(
     (sum, a) => sum + a.qty * a.unitCost, 0
   );

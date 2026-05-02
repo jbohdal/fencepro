@@ -8,6 +8,11 @@
  * MagicNumber = 1 - overhead% - profit% (stored as style.margin)
  */
 
+import {
+  sectionsForRun as sharedSectionsForRun,
+  calculateLinePostsPerRun as sharedLinePostsPerRun,
+} from './sectionCount.js'
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface QuoteInput {
@@ -128,24 +133,23 @@ function is8Wide(s: string) { return s.includes("8'x6'") || s.includes("8'x8'") 
 function isDurafence(s: string) { return s === "Durafence" }
 function clHeight(s: string): 4 | 5 | 6 { if (s.includes("4'")) return 4; if (s.includes("5'")) return 5; return 6 }
 
+function panelLengthForStyle(style: string): number {
+  if (isChainlink(style)) return 10
+  if (is8Wide(style) || isDurafence(style)) return 8
+  return 6
+}
+
 function sectionsPerRun(ft: number, style: string): number {
-  if (ft <= 0) return 0
-  if (isChainlink(style)) return ft % 10 === 0 ? ft / 10 : Math.ceil(ft / 10)
-  if (is8Wide(style) || isDurafence(style)) return ft % 8 === 0 ? ft / 8 : Math.ceil(ft / 8)
-  return ft % 6 === 0 ? ft / 6 : Math.ceil(ft / 6)
+  return sharedSectionsForRun(ft, panelLengthForStyle(style))
 }
 
 function totalSections(runs: number[], style: string): number {
   return runs.reduce((sum, ft) => sum + sectionsPerRun(ft, style), 0)
 }
 
-function linePostsPerRun(ft: number, style: string): number {
-  const secs = sectionsPerRun(ft, style)
-  return secs > 1 ? secs - 1 : 0
-}
-
 function totalLinePosts(runs: number[], style: string): number {
-  return runs.reduce((sum, ft) => sum + linePostsPerRun(ft, style), 0)
+  const perRun = runs.map(ft => sectionsPerRun(ft, style))
+  return sharedLinePostsPerRun(perRun).reduce((s, n) => s + n, 0)
 }
 
 function fabricRolls(totalFt: number): number { return Math.ceil(totalFt / 50) }

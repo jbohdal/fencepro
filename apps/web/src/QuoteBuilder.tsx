@@ -6,6 +6,13 @@ import QuoteOptionsPanel from './QuoteOptionsPanel'
 import { addLeadForNewCustomer } from './pipelineSeeder'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
+import { sectionsForRun } from './sectionCount'
+import { getRailOptimizerConfig } from './configStore'
+import {
+  optimizeJob,
+  WHITE_VINYL_6X6_COSTS,
+  WHITE_VINYL_6X8_COSTS,
+} from './railOptimizer'
 
 const FENCE_STYLES = [
   { id: '1',  name: "WV-ND 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6  },
@@ -56,11 +63,6 @@ interface SavedCustomer {
   serviceAddress: string
   leadSource: string
   salesRep: string
-}
-
-function sectionsForRun(ft: number, panelWidth: number) {
-  if (ft <= 0) return 0
-  return ft % panelWidth === 0 ? ft / panelWidth : Math.ceil(ft / panelWidth)
 }
 
 function r2(n: number) { return n }
@@ -436,6 +438,26 @@ export default function QuoteBuilder({
   const categories = [...new Set(FENCE_STYLES.map(s => s.category))]
   const canSave = styleId && sections > 0
 
+  // Smart-rail optimizer (advisory: recommends 6ft / 8ft per run for vinyl jobs)
+  const optSettings = getRailOptimizerConfig()
+  const isWhiteVinyl = !!style && (style.name.startsWith('WV-ND') || style.name.startsWith('WV-DS'))
+  const showOptimizer = optSettings.enabled && optSettings.showDetailsInBuilder && isWhiteVinyl
+  const optimizerResult = useMemo(() => {
+    if (!showOptimizer) return null
+    const runFootages = runs.map(r => parseFloat(r.ft) || 0).filter(f => f > 0)
+    if (runFootages.length === 0) return null
+    return optimizeJob({
+      runs: runFootages.map(f => ({ footage: f })),
+      costs6ft: WHITE_VINYL_6X6_COSTS,
+      costs8ft: WHITE_VINYL_6X8_COSTS,
+      settings: {
+        enabled: optSettings.enabled,
+        shortRunCutoffFt: optSettings.shortRunCutoffFt,
+        costPreferenceThreshold: optSettings.costPreferenceThreshold,
+      },
+    })
+  }, [showOptimizer, runs, optSettings.enabled, optSettings.shortRunCutoffFt, optSettings.costPreferenceThreshold])
+
   function handleSave(data: {
     customerId: string
     customerName: string
@@ -551,8 +573,8 @@ export default function QuoteBuilder({
                       value={run.ft}
                       onChange={e => updateRun(i, e.target.value)}
                     />
-                    <span className="text-xs text-gray-400 w-16 text-right">
-                      {style && (parseFloat(run.ft) || 0) > 0 ? `${sectionsForRun(parseFloat(run.ft), style.panelWidth)} sec` : ''}
+                    <span className="text-xs text-orange-500 font-medium w-20 text-right">
+                      {style && (parseFloat(run.ft) || 0) > 0 ? `= ${sectionsForRun(parseFloat(run.ft), style.panelWidth)} sec` : ''}
                     </span>
                     {runs.length > 1 && (
                       <button onClick={() => removeRun(i)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
@@ -560,6 +582,63 @@ export default function QuoteBuilder({
                   </div>
                 ))}
               </div>
+
+              {/* Smart Rail Optimizer (advisory) */}
+              {showOptimizer && optimizerResult && (
+                <div className="mt-4 bg-orange-50 border border-orange-200 rounded-xl p-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-orange-700 uppercase tracking-wide">Smart Rail Recommendation</h4>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Per-run rail-width suggestion. Currently advisory — does not yet drive the pull sheet.
+                      </p>
+                    </div>
+                    <span className="text-[10px] bg-orange-200 text-orange-700 px-2 py-0.5 rounded-full font-semibold">PREVIEW</span>
+                  </div>
+
+                  <div className="space-y-1.5 mb-3">
+                    {optimizerResult.perRun.map(r => (
+                      <div key={r.index} className="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 border border-orange-100">
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-500 w-12">Run {r.index + 1}</span>
+                          <span className="text-gray-700 font-medium w-16">{r.footage} ft</span>
+                          <span className={`px-2 py-0.5 rounded font-semibold ${r.railType === '8ft' ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                            {r.railType} rails
+                          </span>
+                          <span className="text-gray-500">{r.sectionCount} sections</span>
+                        </div>
+                        <span className="text-gray-400 text-[11px] truncate ml-2">{r.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-orange-200">
+                    <div>
+                      <p className="text-[10px] text-gray-500 uppercase">Mix</p>
+                      <p className="text-sm font-bold text-gray-900">
+                        {optimizerResult.totals.runs6ft} × 6ft / {optimizerResult.totals.runs8ft} × 8ft
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {optimizerResult.totals.sections6ft} + {optimizerResult.totals.sections8ft} = {optimizerResult.totals.totalSections} sections
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-500 uppercase">Material vs all-6ft</p>
+                      <p className={`text-sm font-bold ${optimizerResult.totals.materialSavings > 0 ? 'text-green-600' : 'text-gray-700'}`}>
+                        {optimizerResult.totals.materialSavings > 0 ? `-$${optimizerResult.totals.materialSavings.toFixed(2)}` : '$0.00'}
+                      </p>
+                      <p className="text-[10px] text-gray-400">{optimizerResult.totals.materialSavings > 0 ? 'savings' : 'no change'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-500 uppercase">Sections vs all-6ft</p>
+                      <p className={`text-sm font-bold ${optimizerResult.totals.sectionsSavedVsAll6ft > 0 ? 'text-green-600' : 'text-gray-700'}`}>
+                        {optimizerResult.totals.sectionsSavedVsAll6ft > 0 ? `-${optimizerResult.totals.sectionsSavedVsAll6ft}` : '0'}
+                      </p>
+                      <p className="text-[10px] text-gray-400">fewer sections (productivity)</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
@@ -643,8 +722,14 @@ export default function QuoteBuilder({
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs text-gray-500">Sections</span>
+                  <span className="text-xs text-gray-500">Total Sections</span>
                   <span className="text-xl font-bold text-gray-900">{sections}</span>
+                </div>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs text-gray-500">Total Footage</span>
+                  <span className="text-sm font-semibold text-gray-700">
+                    {runs.reduce((s, r) => s + (parseFloat(r.ft) || 0), 0)} ft
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-gray-500">Projected MH</span>

@@ -103,9 +103,41 @@ export function calculateQuote(inputs: QuoteInputs): QuoteResult {
   };
 }
 
-export function calculateSections(runLengthsFt: number[]): number {
-  const totalFt = runLengthsFt.reduce((sum, len) => sum + len, 0);
-  return Math.ceil(totalFt / 8);
+/**
+ * Per-run section count.
+ *
+ * Each physical run of fence starts and ends with a post; partial panels
+ * can't be shared between runs. So sections are counted per run with
+ * Math.ceil and summed. Never divide total footage by panel width.
+ *
+ * Returns the per-run array so callers can use it for line-post counting,
+ * pull sheets, etc.
+ */
+export function calculateSectionCount(
+  runLengthsFt: number[],
+  panelLength: number,
+): { perRun: number[]; total: number } {
+  if (!Number.isFinite(panelLength) || panelLength <= 0) {
+    return { perRun: runLengthsFt.map(() => 0), total: 0 };
+  }
+  const perRun = runLengthsFt.map(ft => {
+    if (!Number.isFinite(ft) || ft <= 0) return 0;
+    return ft % panelLength === 0 ? ft / panelLength : Math.ceil(ft / panelLength);
+  });
+  return { perRun, total: perRun.reduce((s, n) => s + n, 0) };
+}
+
+/** Line posts per run = sectionCount - 1, floor 0. */
+export function calculateLinePostsPerRun(perRunSections: number[]): number[] {
+  return perRunSections.map(n => Math.max(0, n - 1));
+}
+
+/**
+ * Back-compat wrapper. Old callers passed only the run array. Now they must
+ * supply the panel width — derive it from the fence-style record and pass it.
+ */
+export function calculateSections(runLengthsFt: number[], panelLength: number): number {
+  return calculateSectionCount(runLengthsFt, panelLength).total;
 }
 
 export function formatCurrency(amount: number): string {

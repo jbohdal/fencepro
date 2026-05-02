@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   getConfig, saveConfig, resetConfig, getDefaultConfig,
   type AppConfig, type FenceStyle, type CompanyInfo, type PricingConfig, type MarginThresholds,
+  type RailOptimizerConfig,
 } from './configStore'
 import OperationsStagesSettings from './OperationsStagesSettings'
 import EmailTemplatesSettings from './EmailTemplatesSettings'
@@ -9,7 +10,7 @@ import ContractTemplatesSettings from './ContractTemplatesSettings'
 import PortalQuoteSettings from './PortalQuoteSettings'
 import { toast } from './toast'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -379,12 +380,93 @@ function EditableListTab({
   )
 }
 
+// ── Quote Optimizer Tab ──────────────────────────────────────────────────────
+
+const DEFAULT_OPTIMIZER: RailOptimizerConfig = {
+  enabled: true,
+  shortRunCutoffFt: 6,
+  costPreferenceThreshold: 0.02,
+  showDetailsInBuilder: true,
+  allowOverrides: true,
+}
+
+function OptimizerTab({ config, onChange }: { config: AppConfig; onChange: (c: AppConfig) => void }) {
+  const opt = config.railOptimizer ?? DEFAULT_OPTIMIZER
+
+  function set<K extends keyof RailOptimizerConfig>(field: K, value: RailOptimizerConfig[K]) {
+    onChange({ ...config, railOptimizer: { ...opt, [field]: value } })
+  }
+
+  return (
+    <div className="space-y-8 max-w-2xl">
+      <div>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Smart Rail Optimization</h3>
+        <p className="text-sm text-gray-500 mb-6">
+          For vinyl jobs, recommends 6ft or 8ft rails per run to minimize material cost and maximize productivity.
+          Recommendation only — does not yet drive the pull-sheet quantities (Milestone B will land that).
+        </p>
+
+        <div className="space-y-5">
+          <label className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 cursor-pointer hover:bg-gray-100">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Enable smart rail optimization</p>
+              <p className="text-xs text-gray-500 mt-0.5">When off, the optimizer recommendation is hidden and 6ft is the default.</p>
+            </div>
+            <input type="checkbox" checked={opt.enabled} onChange={e => set('enabled', e.target.checked)} className="w-5 h-5 accent-orange-500" />
+          </label>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-900 mb-1">Short-run cutoff (feet)</label>
+            <p className="text-xs text-gray-500 mb-2">Runs at or below this footage are always 6ft. Useful for short runs beside gates or houses.</p>
+            <input
+              type="number" min={1} max={12}
+              value={opt.shortRunCutoffFt}
+              onChange={e => set('shortRunCutoffFt', Math.max(1, Math.min(12, Number(e.target.value) || 0)))}
+              className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+            <p className="text-xs text-gray-400 mt-1">Range: 1–12 ft. Default: 6 ft.</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-900 mb-1">Cost preference threshold (%)</label>
+            <p className="text-xs text-gray-500 mb-2">When 8ft cost is within this % of 6ft cost, prefer 8ft for the productivity gain (fewer sections).</p>
+            <input
+              type="number" min={0} max={10} step={0.5}
+              value={(opt.costPreferenceThreshold * 100).toFixed(1)}
+              onChange={e => set('costPreferenceThreshold', Math.max(0, Math.min(10, Number(e.target.value) || 0)) / 100)}
+              className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+            <p className="text-xs text-gray-400 mt-1">Range: 0–10 %. Default: 2 %.</p>
+          </div>
+
+          <label className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 cursor-pointer hover:bg-gray-100">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Show optimization details in quote builder</p>
+              <p className="text-xs text-gray-500 mt-0.5">Per-run recommendation table with savings and reasoning.</p>
+            </div>
+            <input type="checkbox" checked={opt.showDetailsInBuilder} onChange={e => set('showDetailsInBuilder', e.target.checked)} className="w-5 h-5 accent-orange-500" />
+          </label>
+
+          <label className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 cursor-pointer hover:bg-gray-100">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Allow estimator overrides</p>
+              <p className="text-xs text-gray-500 mt-0.5">When on, the estimator can manually choose 6ft or 8ft per run.</p>
+            </div>
+            <input type="checkbox" checked={opt.allowOverrides} onChange={e => set('allowOverrides', e.target.checked)} className="w-5 h-5 accent-orange-500" />
+          </label>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Admin Settings Page ─────────────────────────────────────────────────
 
 const TABS: { key: AdminTab; label: string }[] = [
   { key: 'company',         label: 'Company' },
   { key: 'pricing',         label: 'Pricing' },
   { key: 'styles',          label: 'Fence Styles' },
+  { key: 'optimizer',       label: 'Quote Optimizer' },
   { key: 'leads',           label: 'Lead Sources' },
   { key: 'tags',            label: 'Tags' },
   { key: 'pipeline',        label: 'Pipeline Stages' },
@@ -485,6 +567,7 @@ export default function AdminSettingsPage() {
               placeholder="e.g. Follow-up Call..."
             />
           )}
+          {tab === 'optimizer' && <OptimizerTab config={config} onChange={handleChange} />}
           {tab === 'ops_stages' && <OperationsStagesSettings />}
           {tab === 'email_templates' && <EmailTemplatesSettings />}
           {tab === 'contract_templates' && <ContractTemplatesSettings />}

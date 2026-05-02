@@ -16,6 +16,8 @@ import { getOptionsForQuote } from './bundleStore'
 import { toast } from './toast'
 import { TEMPLATES, getDefaultTemplateKey, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
 import QuoteTemplateRenderer from './QuoteTemplateRenderer'
+import { getConfig } from './configStore'
+import { sectionsForRun } from './sectionCount'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -138,31 +140,42 @@ export default function QuoteDetailDrawer({
           )}
 
           {/* Runs */}
-          {(quote.runs || []).length > 0 && (
-            <section>
-              <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Run Breakdown</p>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-[10px] uppercase font-semibold text-gray-400 tracking-widest border-b border-gray-100">
-                    <th className="text-left py-2">Run</th>
-                    <th className="text-right py-2">Footage</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {(quote.runs || []).map((ft, i) => (
-                    <tr key={i}>
-                      <td className="py-2 text-gray-700">Run {i + 1}</td>
-                      <td className="py-2 text-right font-medium">{ft} ft</td>
+          {(quote.runs || []).length > 0 && (() => {
+            // Look up the panel width from configStore by style name. Falls back
+            // to 6 if the style is missing from the config (legacy quotes).
+            const styleCfg = getConfig().fenceStyles.find(s => s.name === quote.fenceStyle)
+            const panelWidth = styleCfg?.panelWidth ?? 6
+            const perRunSections = (quote.runs || []).map(ft => sectionsForRun(ft, panelWidth))
+            const totalSections = perRunSections.reduce((s, n) => s + n, 0)
+            return (
+              <section>
+                <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Run Breakdown</p>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] uppercase font-semibold text-gray-400 tracking-widest border-b border-gray-100">
+                      <th className="text-left py-2">Run</th>
+                      <th className="text-right py-2">Footage</th>
+                      <th className="text-right py-2">Sections</th>
                     </tr>
-                  ))}
-                  <tr className="font-bold border-t-2 border-gray-200">
-                    <td className="py-2 text-gray-900">Total</td>
-                    <td className="py-2 text-right">{totalFootage} ft</td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-          )}
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {(quote.runs || []).map((ft, i) => (
+                      <tr key={i}>
+                        <td className="py-2 text-gray-700">Run {i + 1}</td>
+                        <td className="py-2 text-right font-medium">{ft} ft</td>
+                        <td className="py-2 text-right text-orange-600 font-medium">{perRunSections[i]}</td>
+                      </tr>
+                    ))}
+                    <tr className="font-bold border-t-2 border-gray-200">
+                      <td className="py-2 text-gray-900">Total</td>
+                      <td className="py-2 text-right">{totalFootage} ft</td>
+                      <td className="py-2 text-right text-orange-700">{totalSections}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </section>
+            )
+          })()}
 
           {/* Gates + corners */}
           <section className="grid grid-cols-4 gap-3 text-sm">

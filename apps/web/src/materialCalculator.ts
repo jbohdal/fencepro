@@ -2,6 +2,8 @@
 // Replicates the exact logic from EZ-Quote Hidden sheet and EZ-Quote Form
 // Calculates a full bill of materials for any fence job
 
+import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
+
 export interface JobInputs {
   fenceStyle: string
   runs: number[]          // individual run lengths in feet
@@ -21,17 +23,16 @@ export interface LineItem {
 }
 
 // ── Section count per run ─────────────────────────────────────────────────────
-// Matches EZ-Quote Form C10:C24 formulas exactly
+// Matches EZ-Quote Form C10:C24 formulas exactly. Per-run, never total/panel.
+function panelLengthForStyle(style: string): number {
+  if (isChainlink(style)) return 10
+  if (is8Wide(style) || isDurafence(style)) return 8
+  // 6ft wide: vinyl 6x6, 6x8, Bell, Aluminum Emily (6x6 panel)
+  return 6
+}
+
 function sectionsPerRun(ft: number, style: string): number {
-  if (ft <= 0) return 0
-  if (isChainlink(style)) {
-    return ft % 10 === 0 ? ft / 10 : Math.ceil(ft / 10)
-  }
-  if (is8Wide(style) || isDurafence(style)) {
-    return ft % 8 === 0 ? ft / 8 : Math.ceil(ft / 8)
-  }
-  // 6ft wide: vinyl 6x6, 6x8, Bell, Aluminum Emily, 8x6 panel width is 6
-  return ft % 6 === 0 ? ft / 6 : Math.ceil(ft / 6)
+  return sectionsForRun(ft, panelLengthForStyle(style))
 }
 
 function totalSections(runs: number[], style: string): number {
@@ -40,13 +41,9 @@ function totalSections(runs: number[], style: string): number {
 
 // ── Line posts per run ────────────────────────────────────────────────────────
 // Matches Hidden!H32:H46 — each run contributes (sections - 1) line posts
-function linePostsPerRun(ft: number, style: string): number {
-  const secs = sectionsPerRun(ft, style)
-  return secs > 1 ? secs - 1 : 0
-}
-
 function totalLinePosts(runs: number[], style: string): number {
-  return runs.reduce((sum, ft) => sum + linePostsPerRun(ft, style), 0)
+  const perRun = runs.map(ft => sectionsPerRun(ft, style))
+  return calculateLinePostsPerRun(perRun).reduce((s, n) => s + n, 0)
 }
 
 // ── Style classification helpers ──────────────────────────────────────────────

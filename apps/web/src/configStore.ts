@@ -35,6 +35,19 @@ export interface CompanyInfo {
   zip: string
 }
 
+export interface RailOptimizerConfig {
+  /** Master switch for the smart-rail recommendation engine. */
+  enabled: boolean
+  /** Runs at or below this footage are forced to 6ft sections. Default 6. */
+  shortRunCutoffFt: number
+  /** When 8ft cost is within this fraction of 6ft cost, prefer 8ft for productivity. Default 0.02 (2%). */
+  costPreferenceThreshold: number
+  /** When true the per-run optimization table is rendered in the QuoteBuilder. Default true. */
+  showDetailsInBuilder: boolean
+  /** When true the estimator can manually override the optimizer per run. Default true. */
+  allowOverrides: boolean
+}
+
 export interface AppConfig {
   company: CompanyInfo
   pricing: PricingConfig
@@ -43,6 +56,7 @@ export interface AppConfig {
   leadSources: string[]
   customerTags: string[]
   pipelineStages: string[]
+  railOptimizer?: RailOptimizerConfig
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -114,6 +128,18 @@ const DEFAULT_CONFIG: AppConfig = {
     'Job Complete', 'Pending Payment', 'Paid & Closed',
     'Lost Sale', 'No Answer',
   ],
+  railOptimizer: {
+    enabled: true,
+    shortRunCutoffFt: 6,
+    costPreferenceThreshold: 0.02,
+    showDetailsInBuilder: true,
+    allowOverrides: true,
+  },
+}
+
+/** Always returns a populated optimizer config — falls back to defaults if missing. */
+export function getRailOptimizerConfig(cfg: AppConfig = getConfig()): RailOptimizerConfig {
+  return cfg.railOptimizer ?? DEFAULT_CONFIG.railOptimizer!
 }
 
 // ── Storage ───────────────────────────────────────────────────────────────────
