@@ -2,6 +2,7 @@ export interface InventoryItem {
   id: string
   name: string
   sku?: string
+  barcodes?: string[]
   unitCost: number
   category: string
   supplier?: string
@@ -590,6 +591,18 @@ export function reverseTransaction(txnId: string, notes: string): InventoryTrans
   return reversal
 }
 
+/** Find an inventory item by any of its barcodes (or by SKU as fallback) */
+export function findItemByBarcode(barcode: string, items?: InventoryItem[]): InventoryItem | null {
+  const list = items ?? getInventory()
+  const code = barcode.trim()
+  if (!code) return null
+  for (const item of list) {
+    if (item.barcodes && item.barcodes.some(b => b.trim() === code)) return item
+    if (item.sku && item.sku.trim() === code) return item
+  }
+  return null
+}
+
 // ── Suppliers ──
 
 export interface Supplier {
@@ -638,9 +651,10 @@ export function getInventorySummary(): {
     totalValue += totalQty * item.unitCost
     categoryCounts[item.category] = (categoryCounts[item.category] || 0) + 1
 
-    const reorder = levels.find(s => s.itemId === item.id && s.reorderPoint > 0)
-    if (reorder && totalQty <= reorder.reorderPoint) lowStockCount++
-    if (levels.some(s => s.itemId === item.id) && totalQty === 0) outOfStockCount++
+    // Per-location check: an item is low-stock if ANY location is at or below its own reorder point
+    const itemLevels = levels.filter(s => s.itemId === item.id)
+    if (itemLevels.some(s => s.reorderPoint > 0 && s.quantity <= s.reorderPoint)) lowStockCount++
+    if (itemLevels.length > 0 && totalQty === 0) outOfStockCount++
   }
 
   return {
