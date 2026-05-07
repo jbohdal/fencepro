@@ -9,10 +9,7 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "test": "turbo run test",
-    "db:migrate": "cd packages/api && npx prisma migrate dev",
-    "db:seed": "cd packages/api && npx ts-node prisma/seed.ts",
-    "db:studio": "cd packages/api && npx prisma studio"
+    "test": "turbo run test"
   },
   "devDependencies": {
     "turbo": "^1.13.0",
