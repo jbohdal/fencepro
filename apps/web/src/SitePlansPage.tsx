@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from './toast'
 import SitePlanTool from './SitePlanTool'
+import { getCustomers } from './customerStore'
 
 interface SavedPlan {
   id: string
@@ -57,10 +58,9 @@ export default function SitePlansPage() {
 
   function handleLinkToCustomer(plan: SavedPlan) {
     try {
-      const raw = localStorage.getItem('fencepro_customers')
-      const customers = raw ? JSON.parse(raw) : []
+      const customers = getCustomers()
       if (customers.length === 0) { toast.warning('No customers yet'); return }
-      const options = customers.slice(0, 20).map((c: any, i: number) => `${i + 1}. ${c.firstName} ${c.lastName}`).join('\n')
+      const options = customers.slice(0, 20).map((c, i) => `${i + 1}. ${c.firstName} ${c.lastName}`).join('\n')
       const pick = prompt(`Link "${plan.name}" to which customer?\n\n${options}\n\nType the number:`)
       if (!pick) return
       const idx = parseInt(pick.trim(), 10) - 1

@@ -40,6 +40,7 @@ import NotificationBell from './NotificationBell'
 import MessagesInbox from './MessagesInbox'
 import PublicQuotePage from './PublicQuotePage'
 import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
+import { initCustomers, getCustomers } from './customerStore'
 import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
@@ -234,6 +235,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
             sales_rep: 'salesman', field_crew: 'shop', office_staff: 'ops_manager',
           }
           saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: mapped[user.role] || 'salesman' })
+          initCustomers().catch(() => {})
         }
         setAuthChecked(true)
       })
@@ -249,6 +251,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
       sales_rep: 'salesman', field_crew: 'shop', office_staff: 'ops_manager',
     }
     saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: mapped[user.role] || 'salesman' })
+    initCustomers().catch(() => {})
   }
 
   function handleLogout() {
@@ -488,23 +491,17 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
     })
 
     // Customers
-    try {
-      const raw = localStorage.getItem('fencepro_customers')
-      if (raw) {
-        const custs = JSON.parse(raw)
-        custs.forEach((c: any) => {
-          const name = `${c.firstName || ''} ${c.lastName || ''}`.trim()
-          if (name.toLowerCase().includes(q) || (c.phone || '').includes(q)) {
-            results.push({
-              type: 'customer',
-              label: name,
-              sub: c.phone || c.email || 'Customer',
-              action: () => { setActive('Customers'); setSearchOpen(false); setSearchQuery('') },
-            })
-          }
+    getCustomers().forEach(c => {
+      const name = `${c.firstName || ''} ${c.lastName || ''}`.trim()
+      if (name.toLowerCase().includes(q) || (c.phone || '').includes(q)) {
+        results.push({
+          type: 'customer',
+          label: name,
+          sub: c.phone || c.email || 'Customer',
+          action: () => { setActive('Customers'); setSearchOpen(false); setSearchQuery('') },
         })
       }
-    } catch { /* ignore */ }
+    })
 
     return results.slice(0, 12)
   }, [searchQuery, quotes, role])

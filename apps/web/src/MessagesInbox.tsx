@@ -6,25 +6,14 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { getMessagesInbox, type InboxThread } from './portalApiClient'
+import { getCustomerById } from './customerStore'
 
 const POLL_MS = 30_000
-const CUSTOMERS_KEY = 'fencepro_customers'
-
-interface CustomerLite {
-  id: string
-  firstName?: string
-  lastName?: string
-}
 
 function lookupCustomerName(id: string): string {
-  try {
-    const raw = localStorage.getItem(CUSTOMERS_KEY)
-    if (!raw) return id.slice(0, 8)
-    const all: CustomerLite[] = JSON.parse(raw)
-    const c = all.find(x => x.id === id)
-    if (!c) return id.slice(0, 8)
-    return `${c.firstName || ''} ${c.lastName || ''}`.trim() || id.slice(0, 8)
-  } catch { return id.slice(0, 8) }
+  const c = getCustomerById(id)
+  if (!c) return id.slice(0, 8)
+  return `${c.firstName || ''} ${c.lastName || ''}`.trim() || id.slice(0, 8)
 }
 
 export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCustomer: (customerId: string) => void }) {

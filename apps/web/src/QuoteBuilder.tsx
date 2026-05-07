@@ -3,7 +3,7 @@ import { calculateMaterials, calculateMixedMaterials, mixedTotalSections, totalM
 import type { LineItem, RailWidth } from './materialCalculator'
 import type { SavedQuote } from './QuotesPage'
 import QuoteOptionsPanel from './QuoteOptionsPanel'
-import { addLeadForNewCustomer } from './pipelineSeeder'
+import { getCustomers, getCustomerById, upsertCustomer } from './customerStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
 import { sectionsForRun } from './sectionCount'
@@ -106,11 +106,7 @@ function SaveModal({
   const [search, setSearch]       = useState(initialCustomerName)
   const [selectedCustomer, setSelectedCustomer] = useState<SavedCustomer | null>(() => {
     if (!initialCustomerId) return null
-    try {
-      const raw = localStorage.getItem('fencepro_customers')
-      const all = raw ? JSON.parse(raw) : []
-      return all.find((c: SavedCustomer) => c.id === initialCustomerId) ?? null
-    } catch { return null }
+    return (getCustomerById(initialCustomerId) as SavedCustomer | null) ?? null
   })
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName]   = useState('')
@@ -124,10 +120,7 @@ function SaveModal({
   const [leadTemp, setLeadTemp]   = useState(0)
 
   const allCustomers: SavedCustomer[] = useMemo(() => {
-    try {
-      const raw = localStorage.getItem('fencepro_customers')
-      return raw ? JSON.parse(raw) : []
-    } catch { return [] }
+    return getCustomers() as SavedCustomer[]
   }, [])
 
   const filtered = allCustomers.filter(c => {
@@ -161,36 +154,23 @@ function SaveModal({
     }
     if (mode === 'new') {
       if (!firstName.trim()) return
-      const newCustomer = {
-        id: uid(),
+      const { customer } = upsertCustomer({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         phone,
         email,
         serviceAddress: address,
-        billingAddress: '',
-        billingDifferent: false,
         leadSource,
-        notes: '',
-        tags: [],
-        createdAt: new Date().toISOString().slice(0, 10),
         salesRep,
-        firstApptDate: '',
-      }
-      try {
-        const existing = JSON.parse(localStorage.getItem('fencepro_customers') || '[]')
-        localStorage.setItem('fencepro_customers', JSON.stringify([newCustomer, ...existing]))
-      } catch {}
-      // Also add to sales pipeline under First Contact
-      addLeadForNewCustomer(newCustomer)
+      })
       onSave({
-        customerId: newCustomer.id,
-        customerName: `${firstName.trim()} ${lastName.trim()}`.trim(),
-        customerPhone: phone,
-        customerEmail: email,
-        customerAddress: address,
-        leadSource,
-        salesRep,
+        customerId: customer.id,
+        customerName: `${customer.firstName} ${customer.lastName}`.trim(),
+        customerPhone: customer.phone,
+        customerEmail: customer.email,
+        customerAddress: customer.serviceAddress,
+        leadSource: customer.leadSource,
+        salesRep: customer.salesRep,
         status,
         notes,
         leadTemp,

@@ -3,10 +3,11 @@ import { loadMaps, loadPlaces, loadMarker } from './mapsLoader'
 import { distanceFeet } from './geoUtils'
 import type { LatLng } from './geoUtils'
 import { toast } from './toast'
+import { getCustomers } from './customerStore'
 
 interface CustomerLite { id: string; firstName: string; lastName: string; phone?: string }
 function loadCustomers(): CustomerLite[] {
-  try { const r = localStorage.getItem('fencepro_customers'); return r ? JSON.parse(r) : [] } catch { return [] }
+  return getCustomers().map(c => ({ id: c.id, firstName: c.firstName, lastName: c.lastName, phone: c.phone }))
 }
 
 interface CustomerFileLite {

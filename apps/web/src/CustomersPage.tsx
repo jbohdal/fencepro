@@ -7,18 +7,15 @@ import {
   type Invoice, type InvoiceLineItem, type InvoiceStatus, type Payment, type CustomerNote,
 } from './billingStore'
 import { toast } from './toast'
-import { addLeadForNewCustomer } from './pipelineSeeder'
 import CustomerPhotosTab from './CustomerPhotosTab'
 import CustomerFilesTab from './CustomerFilesTab'
 import CustomerMessagesTab from './CustomerMessagesTab'
-import { fireCustomerCreated } from './automationTrigger'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import type { SavedQuote } from './QuotesPage'
 import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
 import { getPortalAccessStatus, loadAccountsSoon, sendPortalInvite, resendPortalInvite, buildActivationLink } from './portalAccountStore'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
-import { logCustomerActivity } from './customerStore'
-import { createContact as apiCreateContact, updateContact as apiUpdateContact, archiveContact as apiArchiveContact, migrateLocalContactsOnce } from './crmContactsApi'
+import { logCustomerActivity, getCustomers, upsertCustomer, deleteCustomer as storeDeleteCustomer, bulkImportCustomers } from './customerStore'
 
 interface Customer {
   id: string
@@ -122,37 +119,6 @@ const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
 const uid = () => Math.random().toString(36).slice(2, 9)
-
-const SAMPLE_CUSTOMERS: Customer[] = [
-  {
-    id: 'c1', firstName: 'Maria', lastName: 'Blyth',
-    phone: '(352) 555-0101', email: 'maria.blyth@email.com',
-    serviceAddress: '4821 NW 34th St, Gainesville, FL 32605',
-    billingAddress: '', billingDifferent: false,
-    leadSource: 'Google', notes: 'HOA requires white vinyl only. Gate must swing inward.',
-    tags: ['Residential', 'HOA'], createdAt: '2025-01-14',
-    salesRep: '', firstApptDate: '',
-  },
-  {
-    id: 'c2', firstName: 'Ricardo', lastName: 'Lopez',
-    phone: '(352) 555-0182', email: 'r.lopez@gmail.com',
-    serviceAddress: '1203 SW 75th St, Gainesville, FL 32607',
-    billingAddress: '', billingDifferent: false,
-    leadSource: 'Referral', notes: 'Dog fence — must be at least 6ft. Has two large dogs.',
-    tags: ['Residential'], createdAt: '2025-02-03',
-    salesRep: '', firstApptDate: '',
-  },
-  {
-    id: 'c3', firstName: 'Greg', lastName: 'Festivan',
-    phone: '(352) 555-0244', email: 'gfestivan@company.com',
-    serviceAddress: '8901 NW 39th Ave, Gainesville, FL 32606',
-    billingAddress: '200 SW 13th St Suite 400, Gainesville, FL 32601',
-    billingDifferent: true,
-    leadSource: 'Google', notes: 'Commercial property. Needs invoice for net-30 terms.',
-    tags: ['Commercial', 'VIP'], createdAt: '2025-02-18',
-    salesRep: '', firstApptDate: '',
-  },
-]
 
 const SAMPLE_QUOTES: Quote[] = [
   { id: 'q1', customerId: 'c1', type: "CL - 6' Black", sections: 23, price: 6025, margin: 0.64, status: 'SENT', date: '2025-03-01' },
@@ -783,7 +749,7 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
 
 function CustomerDetail({
   customer, quotes, importedQuotes, jobs, files,
-  onEdit, onNewQuote, onDeleteFile, onQuoteClick, onFileClick, initialTab, onTabConsumed,
+  onEdit, onNewQuote, onDelete, onDeleteFile, onQuoteClick, onFileClick, initialTab, onTabConsumed,
 }: {
   customer: Customer
   quotes: Quote[]
@@ -792,6 +758,7 @@ function CustomerDetail({
   files: CustomerFile[]
   onEdit: () => void
   onNewQuote: (customer: Customer) => void
+  onDelete: (id: string) => void
   onDeleteFile: (id: string) => void
   onQuoteClick?: (quoteId: string) => void
   onFileClick?: (f: CustomerFile) => void
@@ -846,6 +813,7 @@ function CustomerDetail({
           <div className="flex gap-2">
             <button onClick={() => onNewQuote(customer)} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg">+ New Quote</button>
             <button onClick={onEdit} className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50">Edit</button>
+            <button onClick={() => onDelete(customer.id)} className="border border-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-red-50">Delete</button>
           </div>
         </div>
 
@@ -1086,19 +1054,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
       return raw ? JSON.parse(raw) : []
     } catch { return [] }
   })
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    try {
-      const raw = localStorage.getItem('fencepro_customers')
-      return raw ? JSON.parse(raw) : SAMPLE_CUSTOMERS
-    } catch { return SAMPLE_CUSTOMERS }
-  })
-  // One-time bulk migration of existing localStorage customers into the
-  // database. The API endpoint upserts, so this is idempotent. Flag stored in
-  // localStorage so it only runs once per browser.
-  useEffect(() => {
-    migrateLocalContactsOnce(customers).catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers())
   // Pull real quotes + jobs from localStorage; fall back to samples when empty
   const readQuotes = (): Quote[] => {
     try {
@@ -1140,13 +1096,18 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
   // Listen for quote/job/customer updates to keep the profile in sync without refresh
   useEffect(() => {
     const reload = () => { setQuotes(readQuotes()); setJobs(readJobs()) }
+    const reloadCustomers = () => {
+      // Always trust the cache once a store mutation has fired the event
+      // (covers delete-last-customer where the new list is legitimately empty).
+      setCustomers(getCustomers())
+    }
     window.addEventListener('fencepro:quotes:updated', reload)
     window.addEventListener('fencepro:jobs:updated', reload)
-    window.addEventListener('fencepro:customers:updated', reload)
+    window.addEventListener('fencepro:customers:updated', reloadCustomers)
     return () => {
       window.removeEventListener('fencepro:quotes:updated', reload)
       window.removeEventListener('fencepro:jobs:updated', reload)
-      window.removeEventListener('fencepro:customers:updated', reload)
+      window.removeEventListener('fencepro:customers:updated', reloadCustomers)
     }
   }, [])
 
@@ -1196,52 +1157,16 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
   function handleSave(c: Customer) {
     try {
       const isNew = !customers.find(x => x.id === c.id)
-      setCustomers(prev => {
-        const updated = prev.find(x => x.id === c.id)
-          ? prev.map(x => x.id === c.id ? c : x)
-          : [c, ...prev]
-        localStorage.setItem('fencepro_customers', JSON.stringify(updated))
-        return updated
-      })
-      setSelectedId(c.id)
+      // Route through the store: it dual writes to /api/crm-contacts, updates
+      // the in memory cache, and fires `fencepro:customers:updated` (which
+      // our reloadCustomers handler picks up to refresh local state).
+      // For new customers the store also seeds the pipeline + fires the
+      // customer_created automation, so we skip those here on the new path.
+      const { customer } = upsertCustomer(c)
+      setSelectedId(customer.id)
       setMode('view')
 
-      // Database-backed persistence (dual-write). Local UI is already updated;
-      // this fires-and-forgets the API call so the contact survives browser
-      // clears, device switches, and deploys. Errors surface via toast in
-      // crmContactsApi.ts but never block the user.
-      const apiPayload = {
-        firstName: c.firstName, lastName: c.lastName,
-        email: c.email || undefined, phone: c.phone || undefined,
-        serviceAddress: c.serviceAddress || undefined,
-        billingAddress: c.billingAddress || undefined,
-        billingDifferent: !!c.billingDifferent,
-        leadSource: c.leadSource || undefined,
-        salesRep: c.salesRep || undefined,
-        firstApptDate: c.firstApptDate || undefined,
-        tags: Array.isArray(c.tags) ? c.tags : undefined,
-        notes: c.notes || undefined,
-        jobStatus: c.jobStatus || undefined,
-        isCompleted: !!(c as Customer & { isCompleted?: boolean }).isCompleted,
-      }
       if (isNew) {
-        apiCreateContact(apiPayload).catch(() => {})
-      } else {
-        apiUpdateContact(c.id, apiPayload).catch(() => {})
-      }
-
-      if (isNew) {
-        addLeadForNewCustomer({
-          id: c.id, firstName: c.firstName, lastName: c.lastName,
-          phone: c.phone, email: c.email, serviceAddress: c.serviceAddress,
-          leadSource: c.leadSource, notes: c.notes, salesRep: c.salesRep,
-          createdAt: c.createdAt,
-        })
-        fireCustomerCreated(c.id, {
-          customerName: `${c.firstName} ${c.lastName}`.trim(),
-          customerEmail: c.email, customerPhone: c.phone,
-          jobAddress: c.serviceAddress, assignedRep: c.salesRep,
-        })
         if (c.email) {
           toast.success('Customer added', 'On Sales Pipeline at First Contact · portal account ready — click "Send Portal Invite" on their profile to deliver the link.')
         } else {
@@ -1257,12 +1182,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
 
   function handleDelete(id: string) {
     if (!confirm('Delete this customer?')) return
-    setCustomers(prev => {
-      const updated = prev.filter(c => c.id !== id)
-      localStorage.setItem('fencepro_customers', JSON.stringify(updated))
-      return updated
-    })
-    apiArchiveContact(id).catch(() => {})
+    storeDeleteCustomer(id)
     if (selectedId === id) { setSelectedId(null); setMode('view') }
   }
 
@@ -1270,7 +1190,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = ev => {
+    reader.onload = async ev => {
       const text = ev.target?.result as string
       if (!text) return
 
@@ -1411,28 +1331,11 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
         return
       }
 
-      let freshCount = 0
-      setCustomers(prev => {
-        const existingPhones = new Set(prev.map(c => c.phone).filter(Boolean))
-        const existingEmails = new Set(prev.map(c => c.email).filter(Boolean))
-        const fresh = importedCustomers.filter(c =>
-          (!c.phone || !existingPhones.has(c.phone)) &&
-          (!c.email || !existingEmails.has(c.email))
-        )
-        freshCount = fresh.length
-        // Add each fresh import to the sales pipeline
-        for (const f of fresh) {
-          addLeadForNewCustomer({
-            id: f.id, firstName: f.firstName, lastName: f.lastName,
-            phone: f.phone, email: f.email, serviceAddress: f.serviceAddress,
-            leadSource: f.leadSource, notes: f.notes, salesRep: f.salesRep,
-            createdAt: f.createdAt,
-          })
-        }
-        const updated = [...fresh, ...prev]
-        localStorage.setItem('fencepro_customers', JSON.stringify(updated))
-        return updated
-      })
+      // Push fresh records to the API via the store. Existing rows are
+      // matched by phone/email and skipped; new ones get pipeline lead +
+      // automation seeded inside upsertCustomer.
+      const result = await bulkImportCustomers(importedCustomers)
+      const freshCount = result.created
 
       setImportedQuotes(prev => {
         const updated = [...importedQuotesList, ...prev]
@@ -1497,7 +1400,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
                     {c.tags.length > 2 && <span className="text-xs text-gray-400">+{c.tags.length - 2}</span>}
                   </div>
                 )}
-                <button onClick={e => { e.stopPropagation(); handleDelete(c.id) }} className="absolute right-3 top-3 text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
+                <button onClick={e => { e.stopPropagation(); handleDelete(c.id) }} title="Delete customer" className="absolute right-3 top-3 text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
               </div>
             )
           })}
@@ -1520,6 +1423,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
           files={customerFiles}
           onEdit={() => setMode('edit')}
           onNewQuote={(c) => onNewQuote?.(c)}
+          onDelete={handleDelete}
           onDeleteFile={id => setFiles(prev => {
             const updated = prev.filter(f => f.id !== id)
             localStorage.setItem('fencepro_files', JSON.stringify(updated))

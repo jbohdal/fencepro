@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { fireSalesStageChange } from './automationTrigger'
-import { upsertCustomer, logCustomerActivity } from './customerStore'
+import { upsertCustomer, logCustomerActivity, getCustomers } from './customerStore'
 import { toast } from './toast'
 import { applySignedContractTransition } from './signedContractFlow'
 
@@ -103,9 +103,8 @@ export function loadPipeline(): { leads: PipelineLead[], stages: string[] } {
     }
 
     // First load — seed from existing customers
-    const customerRaw = localStorage.getItem('fencepro_customers')
-    const customers = customerRaw ? JSON.parse(customerRaw) : []
-    const leads: PipelineLead[] = customers.map((c: any) => ({
+    const customers = getCustomers()
+    const leads: PipelineLead[] = customers.map((c) => ({
       id: uid(),
       firstName: c.firstName ?? '',
       lastName:  c.lastName ?? '',
