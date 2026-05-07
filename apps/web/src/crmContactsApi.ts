@@ -73,7 +73,11 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
 
 export async function listContacts(): Promise<CrmContactRecord[] | null> {
   const r = await call<CrmContactRecord[]>('GET', '/')
-  return r.ok ? (r.data || []) : null
+  if (!r.ok) {
+    toast.error('Could not load customers from cloud', `${r.error || 'Network error'} — showing local cache only.`)
+    return null
+  }
+  return r.data || []
 }
 
 export async function createContact(payload: CrmContactPayload): Promise<CrmContactRecord | null> {
@@ -96,6 +100,9 @@ export async function updateContact(id: string, payload: Partial<CrmContactPaylo
 
 export async function archiveContact(id: string): Promise<boolean> {
   const r = await call('DELETE', `/${id}`)
+  if (!r.ok) {
+    toast.error('Customer not deleted from cloud', `${r.error || 'Network error'} — it will reappear on next reload.`)
+  }
   return r.ok
 }
 
