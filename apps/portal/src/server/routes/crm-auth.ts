@@ -28,8 +28,12 @@ const LOCKOUT_MINUTES = 15
 
 // ── Helpers ──
 
-function generateAccessToken(user: { id: string; email: string; role: string; firstName: string; lastName: string }): string {
-  return jwt.sign({ sub: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName }, JWT_SECRET, { expiresIn: ACCESS_EXPIRY })
+function generateAccessToken(user: { id: string; email: string; role: string; firstName: string; lastName: string; crmAccountId: string | null }): string {
+  return jwt.sign(
+    { sub: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName, crmAccountId: user.crmAccountId },
+    JWT_SECRET,
+    { expiresIn: ACCESS_EXPIRY }
+  )
 }
 
 function generateRefreshToken(): string {
@@ -280,6 +284,17 @@ router.post('/invite', async (req, res) => {
       return
     }
 
+    // Resolve inviter's crmAccountId — the new teammate inherits the inviter's
+    // tenant so they share the same customer / job / quote visibility.
+    const inviter = await prisma.crmUser.findUnique({
+      where: { id: payload.sub },
+      select: { crmAccountId: true },
+    })
+    if (!inviter?.crmAccountId) {
+      res.status(409).json({ success: false, error: 'Your account is not linked to a company; cannot invite teammates until that is resolved.' })
+      return
+    }
+
     // Generate invite token
     const rawToken = crypto.randomBytes(32).toString('hex')
     const tokenHash = await bcrypt.hash(rawToken, 10)
@@ -293,6 +308,7 @@ router.post('/invite', async (req, res) => {
         role: data.role as any,
         status: 'invited',
         invitedById: payload.sub,
+        crmAccountId: inviter.crmAccountId,
         inviteTokenHash: tokenHash,
         inviteTokenExpiresAt: new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000),
       },

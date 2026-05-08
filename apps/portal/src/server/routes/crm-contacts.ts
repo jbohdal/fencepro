@@ -25,16 +25,43 @@ const router = Router()
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-crm-jwt-secret-change-me'
 
-function requireUser(req: any, res: any, next: any) {
+async function requireUser(req: any, res: any, next: any) {
   const auth = req.headers.authorization
   if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
   try {
     const payload = jwt.verify(auth.slice(7), JWT_SECRET) as any
-    req.user = { id: payload.sub, email: payload.email, role: payload.role }
+    let crmAccountId: string | null = payload.crmAccountId ?? null
+    // Backfill for tokens issued before Phase 1.5: the JWT did not include
+    // crmAccountId, so look it up from the user record. One extra query the
+    // first time per session; subsequent refreshes will carry the claim.
+    if (!crmAccountId) {
+      const u = await prisma.crmUser.findUnique({
+        where: { id: payload.sub },
+        select: { crmAccountId: true },
+      })
+      crmAccountId = u?.crmAccountId ?? null
+    }
+    req.user = {
+      id: payload.sub,
+      email: payload.email,
+      role: payload.role,
+      crmAccountId,
+    }
     next()
   } catch {
     res.status(401).json({ success: false, error: 'Invalid token' })
   }
+}
+
+// Refuse access from any session whose user is not linked to a CrmAccount.
+// Without it we have no visibility scope and would either leak across tenants
+// or silently see nothing.
+function requireAccount(req: any, res: any, next: any) {
+  if (!req.user?.crmAccountId) {
+    res.status(403).json({ success: false, error: 'Your user is not linked to a company; ask an admin to assign you to one.' })
+    return
+  }
+  next()
 }
 
 router.use(requireUser)
@@ -62,10 +89,13 @@ const contactSchema = z.object({
 const updateSchema = contactSchema.partial()
 
 // ── List ──
-router.get('/', async (req: any, res) => {
+// Visibility model: any authenticated CrmUser sees every contact in their
+// CrmAccount. ownerId is preserved on the row as an audit trail of the
+// original creator only (it does not gate visibility).
+router.get('/', requireAccount, async (req: any, res) => {
   try {
     const contacts = await prisma.crmContact.findMany({
-      where: { ownerId: req.user.id, archivedAt: null },
+      where: { accountId: req.user.crmAccountId, archivedAt: null },
       orderBy: { updatedAt: 'desc' },
     })
     res.json({ success: true, data: contacts })
@@ -76,11 +106,12 @@ router.get('/', async (req: any, res) => {
 })
 
 // ── Create ──
-router.post('/', async (req: any, res) => {
+router.post('/', requireAccount, async (req: any, res) => {
   try {
     const data = contactSchema.parse(req.body)
     const created = await prisma.crmContact.create({
       data: {
+        accountId: req.user.crmAccountId,
         ownerId: req.user.id,
         firstName: data.firstName,
         lastName: data.lastName,
@@ -112,13 +143,15 @@ router.post('/', async (req: any, res) => {
 })
 
 // ── Update ──
-router.patch('/:id', async (req: any, res) => {
+// Any authenticated CrmUser in the same CrmAccount can edit any contact.
+// ownerId is retained on the row as an audit trail of the original creator only.
+router.patch('/:id', requireAccount, async (req: any, res) => {
   try {
     const data = updateSchema.parse(req.body)
     const existing = await prisma.crmContact.findUnique({ where: { id: req.params.id } })
     if (!existing) { res.status(404).json({ success: false, error: 'Contact not found' }); return }
-    if (existing.ownerId && existing.ownerId !== req.user.id && req.user.role !== 'super_admin' && req.user.role !== 'admin') {
-      res.status(403).json({ success: false, error: 'Cannot edit another user\'s contact' }); return
+    if (existing.accountId !== req.user.crmAccountId) {
+      res.status(404).json({ success: false, error: 'Contact not found' }); return
     }
     const updated = await prisma.crmContact.update({
       where: { id: req.params.id },
@@ -152,12 +185,12 @@ router.patch('/:id', async (req: any, res) => {
 })
 
 // ── Delete (soft) ──
-router.delete('/:id', async (req: any, res) => {
+router.delete('/:id', requireAccount, async (req: any, res) => {
   try {
     const existing = await prisma.crmContact.findUnique({ where: { id: req.params.id } })
     if (!existing) { res.status(404).json({ success: false, error: 'Contact not found' }); return }
-    if (existing.ownerId && existing.ownerId !== req.user.id && req.user.role !== 'super_admin' && req.user.role !== 'admin') {
-      res.status(403).json({ success: false, error: 'Cannot delete another user\'s contact' }); return
+    if (existing.accountId !== req.user.crmAccountId) {
+      res.status(404).json({ success: false, error: 'Contact not found' }); return
     }
     await prisma.crmContact.update({ where: { id: req.params.id }, data: { archivedAt: new Date() } })
     await audit(req, 'soft_delete', 'CrmContact', existing.id, { oldValues: existing })
@@ -170,19 +203,18 @@ router.delete('/:id', async (req: any, res) => {
 
 // ── Bulk sync (one-time migration helper) ──
 //
-// Accepts an array of localStorage-shaped customers. Upserts by client-side id
-// stored in `notes` is unreliable — instead we match on (ownerId, email) and
-// fall back to (ownerId, firstName, lastName, phone). This is best-effort: it
-// is meant to be triggered once when a user with existing localStorage data
-// first signs in to the database-backed flow.
-router.post('/sync', async (req: any, res) => {
+// Accepts an array of localStorage-shaped customers. Matches on (accountId, email)
+// and falls back to (accountId, firstName, lastName, phone) so legacy records
+// from any user in the company merge into the shared account view. ownerId is
+// set to the syncing user only on insert (audit trail for the migrator).
+router.post('/sync', requireAccount, async (req: any, res) => {
   try {
     const items = z.array(contactSchema).parse(req.body?.contacts || [])
     let created = 0, updated = 0
     for (const item of items) {
       const matchKey = item.email
-        ? { email: item.email, ownerId: req.user.id, archivedAt: null as any }
-        : { firstName: item.firstName, lastName: item.lastName, phone: item.phone || '', ownerId: req.user.id, archivedAt: null as any }
+        ? { email: item.email, accountId: req.user.crmAccountId, archivedAt: null as any }
+        : { firstName: item.firstName, lastName: item.lastName, phone: item.phone || '', accountId: req.user.crmAccountId, archivedAt: null as any }
       const existing = await prisma.crmContact.findFirst({ where: matchKey })
       if (existing) {
         await prisma.crmContact.update({
@@ -193,6 +225,7 @@ router.post('/sync', async (req: any, res) => {
       } else {
         await prisma.crmContact.create({
           data: {
+            accountId: req.user.crmAccountId,
             ownerId: req.user.id,
             ...item,
             tags: item.tags ? JSON.parse(JSON.stringify(item.tags)) : null,
@@ -203,7 +236,7 @@ router.post('/sync', async (req: any, res) => {
         created++
       }
     }
-    console.log(`[crm-contacts] sync: ${created} created, ${updated} updated for user ${req.user.id}`)
+    console.log(`[crm-contacts] sync: ${created} created, ${updated} updated for account ${req.user.crmAccountId}`)
     res.json({ success: true, data: { created, updated, total: items.length } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }

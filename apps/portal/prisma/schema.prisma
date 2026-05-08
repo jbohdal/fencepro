@@ -60,7 +60,7 @@ model Customer {
   updatedAt     DateTime  @updatedAt
   lastLoginAt   DateTime?
 
-  account       CrmAccount  @relation(fields: [accountId], references: [id])
+  account       CrmAccount         @relation(fields: [accountId], references: [id])
   documents     Document[]
   auditLogs     AuditLog[]
   refreshTokens RefreshToken[]
@@ -85,6 +85,8 @@ model CrmAccount {
   tickets    Ticket[]
   invoices   Invoice[]
   contracts  Contract[]
+  staffUsers CrmUser[]    @relation("StaffOfCrmAccount")
+  contacts   CrmContact[] @relation("ContactsOfCrmAccount")
 
   @@index([externalCrmId])
 }
@@ -98,7 +100,7 @@ model Document {
   storagePath    String
   mimeType       String
   sizeBytes      Int
-  linkedEntity   String?   // 'ticket', 'contract', 'invoice'
+  linkedEntity   String? // 'ticket', 'contract', 'invoice'
   linkedEntityId String?
   uploadedAt     DateTime  @default(now())
   deletedAt      DateTime?
@@ -122,7 +124,7 @@ model Ticket {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  account  CrmAccount     @relation(fields: [accountId], references: [id])
+  account  CrmAccount      @relation(fields: [accountId], references: [id])
   comments TicketComment[]
 
   @@index([accountId])
@@ -162,15 +164,15 @@ model Invoice {
 }
 
 model Contract {
-  id            String   @id @default(uuid())
-  externalCrmId String?  @unique
+  id            String    @id @default(uuid())
+  externalCrmId String?   @unique
   accountId     String
   name          String
   description   String?
   startDate     DateTime
   endDate       DateTime?
-  status        String   @default("active") // active, expired, cancelled
-  createdAt     DateTime @default(now())
+  status        String    @default("active") // active, expired, cancelled
+  createdAt     DateTime  @default(now())
 
   account CrmAccount @relation(fields: [accountId], references: [id])
 
@@ -180,7 +182,7 @@ model Contract {
 model AuditLog {
   id         String   @id @default(uuid())
   customerId String?
-  action     String   // login, logout, upload, download, ticket_create, ticket_reply, etc.
+  action     String // login, logout, upload, download, ticket_create, ticket_reply, etc.
   metadata   Json?
   ipAddress  String?
   userAgent  String?
@@ -220,7 +222,7 @@ model ChatConversation {
   accountId  String
   status     ChatStatus @default(active)
   summary    String?
-  ticketId   String?    // set when escalated to a ticket
+  ticketId   String? // set when escalated to a ticket
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
@@ -235,7 +237,7 @@ model ChatConversation {
 model ChatMessage {
   id             String   @id @default(uuid())
   conversationId String
-  role           String   // 'customer', 'assistant', 'agent'
+  role           String // 'customer', 'assistant', 'agent'
   body           String
   createdAt      DateTime @default(now())
 
@@ -271,41 +273,41 @@ enum FollowUpStatus {
 }
 
 model Lead {
-  id              String       @id @default(uuid())
+  id                     String       @id @default(uuid())
   // Contact info
-  firstName       String?
-  lastName        String?
-  email           String?
-  phone           String?
-  address         String?
-  city            String?
-  state           String?
-  zipCode         String?
+  firstName              String?
+  lastName               String?
+  email                  String?
+  phone                  String?
+  address                String?
+  city                   String?
+  state                  String?
+  zipCode                String?
   // Project details
-  fenceType       String?      // vinyl, aluminum, wood, chain_link, etc.
-  linearFootage   Int?
-  propertyType    String?      // residential, commercial
-  timeline        LeadUrgency?
-  budgetMin       Int?         // cents
-  budgetMax       Int?         // cents
-  notes           String?
+  fenceType              String? // vinyl, aluminum, wood, chain_link, etc.
+  linearFootage          Int?
+  propertyType           String? // residential, commercial
+  timeline               LeadUrgency?
+  budgetMin              Int? // cents
+  budgetMax              Int? // cents
+  notes                  String?
   // Qualification
-  stage           LeadStage    @default(new_lead)
-  score           Int          @default(0)  // 0-100
-  scoringDetails  Json?        // breakdown of how score was calculated
-  tags            String[]     @default([])
+  stage                  LeadStage    @default(new_lead)
+  score                  Int          @default(0) // 0-100
+  scoringDetails         Json? // breakdown of how score was calculated
+  tags                   String[]     @default([])
   // Botpress
-  botpressConversationId String? @unique
-  transcript      Json?        // full chat transcript from Botpress
+  botpressConversationId String?      @unique
+  transcript             Json? // full chat transcript from Botpress
   // Assignment
-  assignedRepName  String?
-  assignedRepEmail String?
+  assignedRepName        String?
+  assignedRepEmail       String?
   // Lifecycle
-  source          String       @default("website_chat")
-  convertedAt     DateTime?
-  lostReason      String?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  source                 String       @default("website_chat")
+  convertedAt            DateTime?
+  lostReason             String?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
 
   appointments Appointment[]
   followUps    FollowUp[]
@@ -318,22 +320,22 @@ model Lead {
 }
 
 model Appointment {
-  id            String    @id @default(uuid())
-  leadId        String
-  scheduledAt   DateTime
-  duration      Int       @default(60) // minutes
-  type          String    @default("estimate") // estimate, follow_up, consultation
-  location      String?   // address for the estimate visit
-  notes         String?
-  confirmed     Boolean   @default(false)
-  cancelledAt   DateTime?
-  completedAt   DateTime?
-  reminderSent  Boolean   @default(false)
+  id                    String    @id @default(uuid())
+  leadId                String
+  scheduledAt           DateTime
+  duration              Int       @default(60) // minutes
+  type                  String    @default("estimate") // estimate, follow_up, consultation
+  location              String? // address for the estimate visit
+  notes                 String?
+  confirmed             Boolean   @default(false)
+  cancelledAt           DateTime?
+  completedAt           DateTime?
+  reminderSent          Boolean   @default(false)
   // Google Calendar sync
-  googleCalendarEventId String?  // GCal event ID for sync
-  assignedRepEmail      String?  // salesman's email whose calendar gets the event
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  googleCalendarEventId String? // GCal event ID for sync
+  assignedRepEmail      String? // salesman's email whose calendar gets the event
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
@@ -345,7 +347,7 @@ model Appointment {
 
 model GoogleCalendarToken {
   id           String   @id @default(uuid())
-  email        String   @unique  // the Google account email
+  email        String   @unique // the Google account email
   accessToken  String
   refreshToken String
   expiresAt    DateTime
@@ -359,7 +361,7 @@ model GoogleCalendarToken {
 model FollowUp {
   id           String         @id @default(uuid())
   leadId       String
-  type         String         // sms, email
+  type         String // sms, email
   channel      String         @default("sms") // sms, email
   message      String
   scheduledFor DateTime
@@ -375,30 +377,30 @@ model FollowUp {
 }
 
 model PricingRule {
-  id            String   @id @default(uuid())
-  fenceType     String   @unique
-  displayName   String
-  minPerFoot    Int      // cents per linear foot (low end)
-  maxPerFoot    Int      // cents per linear foot (high end)
-  description   String?
-  active        Boolean  @default(true)
-  sortOrder     Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String   @id @default(uuid())
+  fenceType   String   @unique
+  displayName String
+  minPerFoot  Int // cents per linear foot (low end)
+  maxPerFoot  Int // cents per linear foot (high end)
+  description String?
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // ── Chatbot Knowledge Base ──
 
 model KnowledgeEntry {
-  id          String   @id @default(uuid())
-  category    String   // faq, policy, materials, process, warranty, financing, etc.
-  title       String
-  content     String   // the actual knowledge — markdown supported
-  keywords    String[] @default([]) // help the bot match relevant entries
-  active      Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid())
+  category  String // faq, policy, materials, process, warranty, financing, etc.
+  title     String
+  content   String // the actual knowledge — markdown supported
+  keywords  String[] @default([]) // help the bot match relevant entries
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([category])
   @@index([active])
@@ -416,20 +418,20 @@ enum EzBudgetQuoteStatus {
 }
 
 model EzBudgetService {
-  id            String   @id @default(uuid())
-  name          String
-  description   String?
-  category      String?              // grouping label (e.g., "Vinyl", "Chain Link")
-  unitLabel     String   @default("per linear foot") // display unit
-  basePriceCents Int                 // default price in cents
-  minQty        Int?                 // optional minimum quantity
-  maxQty        Int?                 // optional maximum quantity
-  imageUrl      String?
-  active        Boolean  @default(true)
-  sortOrder     Int      @default(0)
-  metadata      Json?                // flexible extra fields
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  category       String? // grouping label (e.g., "Vinyl", "Chain Link")
+  unitLabel      String   @default("per linear foot") // display unit
+  basePriceCents Int // default price in cents
+  minQty         Int? // optional minimum quantity
+  maxQty         Int? // optional maximum quantity
+  imageUrl       String?
+  active         Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  metadata       Json? // flexible extra fields
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   lineItems EzBudgetLineItem[]
 
@@ -438,9 +440,9 @@ model EzBudgetService {
 }
 
 model EzBudgetQuote {
-  id              String               @id @default(uuid())
-  quoteNumber     String               @unique @default(uuid())
-  status          EzBudgetQuoteStatus  @default(draft)
+  id              String              @id @default(uuid())
+  quoteNumber     String              @unique @default(uuid())
+  status          EzBudgetQuoteStatus @default(draft)
   // Customer info (captured by widget)
   customerName    String?
   customerEmail   String?
@@ -450,29 +452,29 @@ model EzBudgetQuote {
   customerState   String?
   customerZip     String?
   // Totals
-  subtotalCents   Int       @default(0)
-  discountCents   Int       @default(0)
-  taxCents        Int       @default(0)
-  totalCents      Int       @default(0)
+  subtotalCents   Int                 @default(0)
+  discountCents   Int                 @default(0)
+  taxCents        Int                 @default(0)
+  totalCents      Int                 @default(0)
   // Fence map data
-  mapData         Json?                // { coordinates, fenceLine, runs, layout, gateConfig }
-  material        String?              // vinyl, aluminum, etc.
-  style           String?              // vinyl-full-privacy, etc.
-  height          String?              // 4ft, 5ft, 6ft, 8ft
+  mapData         Json? // { coordinates, fenceLine, runs, layout, gateConfig }
+  material        String? // vinyl, aluminum, etc.
+  style           String? // vinyl-full-privacy, etc.
+  height          String? // 4ft, 5ft, 6ft, 8ft
   color           String?
   linearFeet      Float?
-  requestOnSite   Boolean   @default(false)
-  photos          String[]  @default([])
+  requestOnSite   Boolean             @default(false)
+  photos          String[]            @default([])
   // Metadata
   notes           String?
   internalNotes   String?
-  source          String    @default("widget")  // widget, manual, api
+  source          String              @default("widget") // widget, manual, api
   expiresAt       DateTime?
   viewedAt        DateTime?
   respondedAt     DateTime?
   // Lifecycle
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
   lineItems EzBudgetLineItem[]
 
@@ -482,15 +484,15 @@ model EzBudgetQuote {
 }
 
 model EzBudgetLineItem {
-  id            String   @id @default(uuid())
-  quoteId       String
-  serviceId     String?
-  label         String               // display name (snapshot from service or custom)
-  quantity      Float    @default(1)
+  id             String   @id @default(uuid())
+  quoteId        String
+  serviceId      String?
+  label          String // display name (snapshot from service or custom)
+  quantity       Float    @default(1)
   unitPriceCents Int
-  totalCents    Int
-  sortOrder     Int      @default(0)
-  createdAt     DateTime @default(now())
+  totalCents     Int
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
 
   quote   EzBudgetQuote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   service EzBudgetService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
@@ -500,12 +502,12 @@ model EzBudgetLineItem {
 }
 
 model EzBudgetSettings {
-  id              String   @id @default(uuid())
-  key             String   @unique
-  value           Json
-  description     String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // ── Automation Engine ──
@@ -517,8 +519,8 @@ enum AutomationTriggerType {
   job_assigned
   job_scheduled
   job_rescheduled
-  stale_job              // no status update for X days
-  deadline_approaching   // X days before a due date
+  stale_job // no status update for X days
+  deadline_approaching // X days before a due date
   form_submitted
   payment_received
   customer_no_response
@@ -558,21 +560,21 @@ enum PortalAccountStatus {
 }
 
 model PortalAccount {
-  id                    String                @id @default(uuid())
-  crmCustomerId         String                // references CRM-side fencepro_customers id (external string)
-  email                 String                @unique
-  firstName             String?
-  lastName              String?
-  status                PortalAccountStatus   @default(invited)
-  passwordHash          String?
-  mustChangePassword    Boolean               @default(true)
-  inviteToken           String?               @unique   // SHA-256 hash of the raw token, never the raw
-  inviteTokenExpiresAt  DateTime?
-  invitedAt             DateTime?
-  activatedAt           DateTime?
-  lastLoginAt           DateTime?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  id                   String              @id @default(uuid())
+  crmCustomerId        String // references CRM-side fencepro_customers id (external string)
+  email                String              @unique
+  firstName            String?
+  lastName             String?
+  status               PortalAccountStatus @default(invited)
+  passwordHash         String?
+  mustChangePassword   Boolean             @default(true)
+  inviteToken          String?             @unique // SHA-256 hash of the raw token, never the raw
+  inviteTokenExpiresAt DateTime?
+  invitedAt            DateTime?
+  activatedAt          DateTime?
+  lastLoginAt          DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   invites PortalInvite[]
 
@@ -604,19 +606,19 @@ enum PortalMessageSender {
 }
 
 model PortalPhoto {
-  id                  String              @id @default(uuid())
+  id                  String           @id @default(uuid())
   crmCustomerId       String
-  uploadedByAccountId String?             // PortalAccount id when customer-uploaded
-  uploadedByUser      String?             // staff user identifier when staff-uploaded
-  fileKey             String              // storage path
-  fileUrl             String?             // public URL if available
+  uploadedByAccountId String? // PortalAccount id when customer-uploaded
+  uploadedByUser      String? // staff user identifier when staff-uploaded
+  fileKey             String // storage path
+  fileUrl             String? // public URL if available
   originalFilename    String
   fileSizeBytes       Int
   mimeType            String
   caption             String?
-  source              PortalFileSource    @default(portal_customer)
-  isVisibleToCustomer Boolean             @default(true)
-  createdAt           DateTime            @default(now())
+  source              PortalFileSource @default(portal_customer)
+  isVisibleToCustomer Boolean          @default(true)
+  createdAt           DateTime         @default(now())
   deletedAt           DateTime?
 
   @@index([crmCustomerId])
@@ -624,7 +626,7 @@ model PortalPhoto {
 }
 
 model PortalFile {
-  id                  String              @id @default(uuid())
+  id                  String           @id @default(uuid())
   crmCustomerId       String
   uploadedByAccountId String?
   uploadedByUser      String?
@@ -633,11 +635,11 @@ model PortalFile {
   originalFilename    String
   fileSizeBytes       Int
   mimeType            String
-  fileKind            PortalFileKind      @default(document)
-  source              PortalFileSource    @default(portal_customer)
+  fileKind            PortalFileKind   @default(document)
+  source              PortalFileSource @default(portal_customer)
   label               String?
-  isVisibleToCustomer Boolean             @default(true)
-  createdAt           DateTime            @default(now())
+  isVisibleToCustomer Boolean          @default(true)
+  createdAt           DateTime         @default(now())
   deletedAt           DateTime?
 
   @@index([crmCustomerId])
@@ -646,18 +648,18 @@ model PortalFile {
 }
 
 model PortalMessage {
-  id                String              @id @default(uuid())
-  crmCustomerId     String
-  senderAccountId   String?             // PortalAccount id when from customer
-  senderUser        String?             // staff user identifier when from staff
-  senderType        PortalMessageSender
-  body              String              @db.Text
-  isReadByStaff     Boolean             @default(false)
-  isReadByCustomer  Boolean             @default(false)
-  readByStaffAt     DateTime?
-  readByCustomerAt  DateTime?
-  createdAt         DateTime            @default(now())
-  deletedAt         DateTime?
+  id               String              @id @default(uuid())
+  crmCustomerId    String
+  senderAccountId  String? // PortalAccount id when from customer
+  senderUser       String? // staff user identifier when from staff
+  senderType       PortalMessageSender
+  body             String              @db.Text
+  isReadByStaff    Boolean             @default(false)
+  isReadByCustomer Boolean             @default(false)
+  readByStaffAt    DateTime?
+  readByCustomerAt DateTime?
+  createdAt        DateTime            @default(now())
+  deletedAt        DateTime?
 
   @@index([crmCustomerId, createdAt])
   @@index([senderType])
@@ -665,12 +667,12 @@ model PortalMessage {
 }
 
 model PortalInvite {
-  id          String         @id @default(uuid())
-  accountId   String
-  email       String
-  sentAt      DateTime       @default(now())
-  expiresAt   DateTime
-  acceptedAt  DateTime?
+  id         String    @id @default(uuid())
+  accountId  String
+  email      String
+  sentAt     DateTime  @default(now())
+  expiresAt  DateTime
+  acceptedAt DateTime?
 
   account PortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
@@ -681,45 +683,45 @@ model PortalInvite {
 // ── Job Checklist (operations milestones) ──
 
 model JobChecklistItem {
-  id            String   @id @default(uuid())
-  jobId         String
-  label         String
-  isComplete    Boolean  @default(false)
-  completedBy   String?
-  completedAt   DateTime?
-  sortOrder     Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String    @id @default(uuid())
+  jobId       String
+  label       String
+  isComplete  Boolean   @default(false)
+  completedBy String?
+  completedAt DateTime?
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([jobId])
 }
 
 model ActivityLog {
-  id          String   @id @default(uuid())
-  entityType  String   // 'customer' | 'job' | 'deal' | 'invoice' | 'quote'
-  entityId    String
-  actor       String   // 'system' | 'automation' | user name
-  body        String
-  metadata    Json?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  entityType String // 'customer' | 'job' | 'deal' | 'invoice' | 'quote'
+  entityId   String
+  actor      String // 'system' | 'automation' | user name
+  body       String
+  metadata   Json?
+  createdAt  DateTime @default(now())
 
   @@index([entityType, entityId, createdAt])
 }
 
 model Automation {
-  id             String                @id @default(uuid())
-  name           String
-  description    String?
-  triggerType    AutomationTriggerType
-  triggerConfig  Json                  // { fromStage?, toStage?, daysOffset?, stageKey? }
-  actions        Json                  // [{ type, config }] — ordered action array
-  conditions     Json?                 // optional filters: { assignedRep?, fenceType?, businessHoursOnly? }
-  isActive       Boolean               @default(true)
-  createdBy      String?
-  lastFiredAt    DateTime?
-  fireCount      Int                   @default(0)
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @updatedAt
+  id            String                @id @default(uuid())
+  name          String
+  description   String?
+  triggerType   AutomationTriggerType
+  triggerConfig Json // { fromStage?, toStage?, daysOffset?, stageKey? }
+  actions       Json // [{ type, config }] — ordered action array
+  conditions    Json? // optional filters: { assignedRep?, fenceType?, businessHoursOnly? }
+  isActive      Boolean               @default(true)
+  createdBy     String?
+  lastFiredAt   DateTime?
+  fireCount     Int                   @default(0)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
   runLogs AutomationRunLog[]
 
@@ -730,11 +732,11 @@ model Automation {
 model AutomationRunLog {
   id              String              @id @default(uuid())
   automationId    String
-  automationName  String              // snapshot in case automation is later deleted
-  jobId           String?             // the job that triggered it (localStorage ID or external ref)
-  jobName         String?             // snapshot: customer name or job label
+  automationName  String // snapshot in case automation is later deleted
+  jobId           String? // the job that triggered it (localStorage ID or external ref)
+  jobName         String? // snapshot: customer name or job label
   triggerType     String
-  actionsExecuted Json                // [{ type, config, result, error? }]
+  actionsExecuted Json // [{ type, config, result, error? }]
   status          AutomationRunStatus
   errorMessage    String?
   firedAt         DateTime            @default(now())
@@ -763,21 +765,21 @@ enum TaskPriority {
 }
 
 model Task {
-  id            String       @id @default(uuid())
-  title         String
-  description   String?
-  assignedTo    String?      // user name or role
-  assignedRole  String?      // owner, admin, salesman, ops_manager, shop
-  jobId         String?      // linked job ID
-  jobName       String?      // snapshot
-  status        TaskStatus   @default(pending)
-  priority      TaskPriority @default(normal)
-  dueDate       DateTime?
-  completedAt   DateTime?
-  createdBy     String?      // "automation:ID" or user name
-  automationId  String?      // if created by automation
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  id           String       @id @default(uuid())
+  title        String
+  description  String?
+  assignedTo   String? // user name or role
+  assignedRole String? // owner, admin, salesman, ops_manager, shop
+  jobId        String? // linked job ID
+  jobName      String? // snapshot
+  status       TaskStatus   @default(pending)
+  priority     TaskPriority @default(normal)
+  dueDate      DateTime?
+  completedAt  DateTime?
+  createdBy    String? // "automation:ID" or user name
+  automationId String? // if created by automation
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   @@index([status])
   @@index([assignedTo])
@@ -789,17 +791,17 @@ model Task {
 // ── In-App Notifications ──
 
 model Notification {
-  id          String   @id @default(uuid())
-  recipientId String?  // user name or ID
+  id            String    @id @default(uuid())
+  recipientId   String? // user name or ID
   recipientRole String? // broadcast to role
-  title       String
-  body        String
-  type        String   @default("info") // info, warning, success, error, automation
-  link        String?  // deep link within app (e.g., "/jobs/123")
-  jobId       String?
-  read        Boolean  @default(false)
-  readAt      DateTime?
-  createdAt   DateTime @default(now())
+  title         String
+  body          String
+  type          String    @default("info") // info, warning, success, error, automation
+  link          String? // deep link within app (e.g., "/jobs/123")
+  jobId         String?
+  read          Boolean   @default(false)
+  readAt        DateTime?
+  createdAt     DateTime  @default(now())
 
   @@index([recipientId, read])
   @@index([recipientRole, read])
@@ -815,22 +817,22 @@ enum IntegrationStatus {
 }
 
 model Integration {
-  id            String            @id @default(uuid())
-  name          String
-  slug          String            @unique // twilio, google_calendar, stripe, etc.
-  category      String            // Communication, Payments, Scheduling, etc.
-  description   String?
-  logoUrl       String?
-  isActive      Boolean           @default(false)
-  config        Json?             // encrypted credentials + settings
-  capabilities  String[]          @default([]) // send_sms, sync_calendar, etc.
-  connectedBy   String?
-  connectedAt   DateTime?
-  lastSyncedAt  DateTime?
-  status        IntegrationStatus @default(disconnected)
-  errorLog      String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  id           String            @id @default(uuid())
+  name         String
+  slug         String            @unique // twilio, google_calendar, stripe, etc.
+  category     String // Communication, Payments, Scheduling, etc.
+  description  String?
+  logoUrl      String?
+  isActive     Boolean           @default(false)
+  config       Json? // encrypted credentials + settings
+  capabilities String[]          @default([]) // send_sms, sync_calendar, etc.
+  connectedBy  String?
+  connectedAt  DateTime?
+  lastSyncedAt DateTime?
+  status       IntegrationStatus @default(disconnected)
+  errorLog     String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   activityLogs IntegrationLog[]
 
@@ -842,7 +844,7 @@ model Integration {
 model IntegrationLog {
   id            String   @id @default(uuid())
   integrationId String
-  action        String   // connect, disconnect, sync, webhook_in, webhook_out, error
+  action        String // connect, disconnect, sync, webhook_in, webhook_out, error
   details       String?
   payload       Json?
   status        String   @default("success") // success, error
@@ -858,18 +860,18 @@ model IntegrationLog {
 // ── API Keys ──
 
 model ApiKey {
-  id            String    @id @default(uuid())
-  name          String
-  keyHash       String    @unique  // bcrypt hash of the actual key
-  keyPrefix     String             // first 8 chars for display (e.g., "fp_live_a3b2...")
-  scope         String    @default("read") // read, read_write, admin
-  createdBy     String
-  lastUsedAt    DateTime?
-  requestCount  Int       @default(0)
-  isActive      Boolean   @default(true)
-  revokedAt     DateTime?
-  revokedBy     String?
-  createdAt     DateTime  @default(now())
+  id           String    @id @default(uuid())
+  name         String
+  keyHash      String    @unique // bcrypt hash of the actual key
+  keyPrefix    String // first 8 chars for display (e.g., "fp_live_a3b2...")
+  scope        String    @default("read") // read, read_write, admin
+  createdBy    String
+  lastUsedAt   DateTime?
+  requestCount Int       @default(0)
+  isActive     Boolean   @default(true)
+  revokedAt    DateTime?
+  revokedBy    String?
+  createdAt    DateTime  @default(now())
 
   usageLogs ApiKeyUsageLog[]
 
@@ -878,13 +880,13 @@ model ApiKey {
 }
 
 model ApiKeyUsageLog {
-  id          String   @id @default(uuid())
-  apiKeyId    String
-  endpoint    String
-  method      String
-  statusCode  Int
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  apiKeyId   String
+  endpoint   String
+  method     String
+  statusCode Int
+  ipAddress  String?
+  createdAt  DateTime @default(now())
 
   apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
 
@@ -895,15 +897,15 @@ model ApiKeyUsageLog {
 // ── Inbound Webhook Log ──
 
 model WebhookInboundLog {
-  id            String   @id @default(uuid())
-  source        String   // stripe, companycam, zapier, etc.
-  endpoint      String
-  payload       Json?
-  headers       Json?
-  status        String   @default("received") // received, processed, failed, queued
-  errorMessage  String?
-  processedAt   DateTime?
-  createdAt     DateTime @default(now())
+  id           String    @id @default(uuid())
+  source       String // stripe, companycam, zapier, etc.
+  endpoint     String
+  payload      Json?
+  headers      Json?
+  status       String    @default("received") // received, processed, failed, queued
+  errorMessage String?
+  processedAt  DateTime?
+  createdAt    DateTime  @default(now())
 
   @@index([source])
   @@index([status])
@@ -930,46 +932,49 @@ enum CrmUserStatus {
 }
 
 model CrmUser {
-  id                  String        @id @default(uuid())
-  email               String        @unique
-  passwordHash        String?
-  firstName           String
-  lastName            String
-  phone               String?
-  avatarUrl           String?
-  role                CrmUserRole   @default(office_staff)
-  status              CrmUserStatus @default(invited)
-  invitedById         String?
-  inviteTokenHash     String?       @unique
+  id                   String        @id @default(uuid())
+  email                String        @unique
+  passwordHash         String?
+  firstName            String
+  lastName             String
+  phone                String?
+  avatarUrl            String?
+  role                 CrmUserRole   @default(office_staff)
+  status               CrmUserStatus @default(invited)
+  invitedById          String?
+  inviteTokenHash      String?       @unique
   inviteTokenExpiresAt DateTime?
-  mustChangePassword  Boolean       @default(true)
-  failedLoginAttempts Int           @default(0)
-  lockedUntil         DateTime?
-  lastLoginAt         DateTime?
-  customerId          String?       // for customer portal users
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  mustChangePassword   Boolean       @default(true)
+  failedLoginAttempts  Int           @default(0)
+  lockedUntil          DateTime?
+  lastLoginAt          DateTime?
+  customerId           String? // for customer portal users
+  crmAccountId         String? // company / tenant this staff user belongs to
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
-  invitedBy   CrmUser?       @relation("UserInvites", fields: [invitedById], references: [id])
-  invitees    CrmUser[]      @relation("UserInvites")
+  invitedBy   CrmUser?          @relation("UserInvites", fields: [invitedById], references: [id])
+  invitees    CrmUser[]         @relation("UserInvites")
   sessions    CrmUserSession[]
   activityLog CrmUserActivity[]
+  crmAccount  CrmAccount?       @relation("StaffOfCrmAccount", fields: [crmAccountId], references: [id])
 
   @@index([email])
   @@index([role])
   @@index([status])
   @@index([inviteTokenHash])
+  @@index([crmAccountId])
 }
 
 model CrmUserSession {
-  id          String    @id @default(uuid())
-  userId      String
-  tokenHash   String    @unique
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime  @default(now())
-  expiresAt   DateTime
-  revokedAt   DateTime?
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
 
   user CrmUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -979,14 +984,14 @@ model CrmUserSession {
 }
 
 model CrmUserActivity {
-  id          String   @id @default(uuid())
-  userId      String
-  action      String   // login, logout, invite_sent, role_changed, job_created, etc.
-  entityType  String?  // job, quote, customer, user, etc.
-  entityId    String?
-  metadata    Json?
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String
+  action     String // login, logout, invite_sent, role_changed, job_created, etc.
+  entityType String? // job, quote, customer, user, etc.
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
 
   user CrmUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1038,7 +1043,7 @@ enum VendorPaymentMethod {
 
 model VendorContact {
   id            String             @id @default(uuid())
-  companyId     String?            // multi-tenant readiness
+  companyId     String? // multi-tenant readiness
   name          String
   contactName   String?
   phone         String?
@@ -1063,29 +1068,29 @@ model VendorContact {
 }
 
 model VendorBill {
-  id               String             @id @default(uuid())
-  vendorId         String
-  billNumber       String
-  description      String?
-  status           VendorBillStatus   @default(received)
-  subtotalCents    Int                @default(0)
-  taxCents         Int                @default(0)
-  totalCents       Int                @default(0)
-  amountPaidCents  Int                @default(0)
-  balanceDueCents  Int                @default(0)
-  billDate         DateTime
-  dueDate          DateTime
-  paidAt           DateTime?
-  paymentMethod    VendorPaymentMethod?
-  referenceNumber  String?
-  category         VendorBillCategory @default(other)
-  jobId            String?            // link to a job for job costing
-  notes            String?
-  createdBy        String?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  id              String               @id @default(uuid())
+  vendorId        String
+  billNumber      String
+  description     String?
+  status          VendorBillStatus     @default(received)
+  subtotalCents   Int                  @default(0)
+  taxCents        Int                  @default(0)
+  totalCents      Int                  @default(0)
+  amountPaidCents Int                  @default(0)
+  balanceDueCents Int                  @default(0)
+  billDate        DateTime
+  dueDate         DateTime
+  paidAt          DateTime?
+  paymentMethod   VendorPaymentMethod?
+  referenceNumber String?
+  category        VendorBillCategory   @default(other)
+  jobId           String? // link to a job for job costing
+  notes           String?
+  createdBy       String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
-  vendor    VendorContact         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor    VendorContact        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   lineItems VendorBillLineItem[]
   payments  VendorPayment[]
 
@@ -1113,7 +1118,7 @@ model VendorBillLineItem {
 }
 
 model VendorPayment {
-  id              String               @id @default(uuid())
+  id              String              @id @default(uuid())
   billId          String
   vendorId        String
   amountCents     Int
@@ -1122,7 +1127,7 @@ model VendorPayment {
   paymentDate     DateTime
   recordedBy      String?
   notes           String?
-  createdAt       DateTime             @default(now())
+  createdAt       DateTime            @default(now())
 
   bill   VendorBill    @relation(fields: [billId], references: [id], onDelete: Cascade)
   vendor VendorContact @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -1148,17 +1153,17 @@ enum PlEntryCategory {
 }
 
 model PlManualEntry {
-  id           String          @id @default(uuid())
-  periodMonth  Int             // 1-12
-  periodYear   Int
-  category     PlEntryCategory
-  label        String
-  amountCents  Int
-  isRecurring  Boolean         @default(false)
-  notes        String?
-  createdBy    String?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  id          String          @id @default(uuid())
+  periodMonth Int // 1-12
+  periodYear  Int
+  category    PlEntryCategory
+  label       String
+  amountCents Int
+  isRecurring Boolean         @default(false)
+  notes       String?
+  createdBy   String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   @@index([periodYear, periodMonth])
   @@index([category])
@@ -1205,24 +1210,24 @@ enum BundlePricingMethod {
 }
 
 model QuoteBundle {
-  id                     String              @id @default(uuid())
-  name                   String
-  description            String?
-  tier                   BundleTier          @default(better)
-  tierLabel              String?             // custom label when tier=custom
-  fenceStyleId           String              // references configStore fence style ID
-  groupName              String?             // bundle group identifier (ties trio/duo together)
-  pricingMethod          BundlePricingMethod @default(calculated)
-  marginOverride         Float?              // decimal, e.g. 0.64
-  laborRateOverride      Float?              // $/hr
-  pricePerFootOverride   Int?                // cents per linear foot
-  materialMarkupPercent  Float?              // decimal, e.g. 0.15 = 15%
-  isActive               Boolean             @default(true)
-  sortOrder              Int                 @default(0)
-  highlightBadge         String?             // "Most Popular", "Best Value", etc.
-  isRecommended          Boolean             @default(false)
-  createdAt              DateTime            @default(now())
-  updatedAt              DateTime            @updatedAt
+  id                    String              @id @default(uuid())
+  name                  String
+  description           String?
+  tier                  BundleTier          @default(better)
+  tierLabel             String? // custom label when tier=custom
+  fenceStyleId          String // references configStore fence style ID
+  groupName             String? // bundle group identifier (ties trio/duo together)
+  pricingMethod         BundlePricingMethod @default(calculated)
+  marginOverride        Float? // decimal, e.g. 0.64
+  laborRateOverride     Float? // $/hr
+  pricePerFootOverride  Int? // cents per linear foot
+  materialMarkupPercent Float? // decimal, e.g. 0.15 = 15%
+  isActive              Boolean             @default(true)
+  sortOrder             Int                 @default(0)
+  highlightBadge        String? // "Most Popular", "Best Value", etc.
+  isRecommended         Boolean             @default(false)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
 
   inclusions QuoteBundleInclusion[]
   addons     QuoteBundleAddon[]
@@ -1249,13 +1254,13 @@ model QuoteBundleInclusion {
 }
 
 model QuoteBundleAddon {
-  id                 String   @id @default(uuid())
-  bundleId           String
-  addonName          String
-  addonPriceCents    Int
-  isIncludedByDefault Boolean @default(false)
-  sortOrder          Int      @default(0)
-  createdAt          DateTime @default(now())
+  id                  String   @id @default(uuid())
+  bundleId            String
+  addonName           String
+  addonPriceCents     Int
+  isIncludedByDefault Boolean  @default(false)
+  sortOrder           Int      @default(0)
+  createdAt           DateTime @default(now())
 
   bundle QuoteBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
 
@@ -1272,20 +1277,20 @@ enum PendingOrderStatus {
 }
 
 model InventoryPendingOrder {
-  id              String              @id @default(uuid())
-  quoteId         String
-  jobId           String?
-  customerId      String?
-  customerName    String?
-  quoteName       String?
-  status          PendingOrderStatus  @default(pending)
-  totalCostCents  Int                 @default(0)
-  notes           String?
-  orderedAt       DateTime?
-  receivedAt      DateTime?
-  cancelledAt     DateTime?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  id             String             @id @default(uuid())
+  quoteId        String
+  jobId          String?
+  customerId     String?
+  customerName   String?
+  quoteName      String?
+  status         PendingOrderStatus @default(pending)
+  totalCostCents Int                @default(0)
+  notes          String?
+  orderedAt      DateTime?
+  receivedAt     DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   items InventoryPendingOrderItem[]
 
@@ -1295,16 +1300,16 @@ model InventoryPendingOrder {
 }
 
 model InventoryPendingOrderItem {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   pendingOrderId   String
   inventoryItemId  String?
   itemName         String
   requiredQuantity Float
   unitCostCents    Int
   totalCostCents   Int
-  quantityReceived Float    @default(0)
+  quantityReceived Float     @default(0)
   receivedAt       DateTime?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
   order InventoryPendingOrder @relation(fields: [pendingOrderId], references: [id], onDelete: Cascade)
 
@@ -1312,31 +1317,31 @@ model InventoryPendingOrderItem {
 }
 
 model QuoteOption {
-  id                 String   @id @default(uuid())
-  quoteId            String   // references localStorage quote ID or server quote ID
-  bundleId           String?
-  tierLabel          String   // good, better, best, or custom
-  fenceStyleId       String
-  sectionCount       Int      @default(0)
-  gateCount          Int      @default(0)
-  footage            Float    @default(0)
-  materialCostCents  Int      @default(0)
-  laborCostCents     Int      @default(0)
-  overheadCents      Int      @default(0)
-  commissionCents    Int      @default(0)
-  quotePriceCents    Int      @default(0)
-  marginPercent      Float    @default(0)
-  netProfitCents     Int      @default(0)
-  pricePerFootCents  Int      @default(0)
-  isRecommended      Boolean  @default(false)
-  presentationOrder  Int      @default(0)
-  status             String   @default("draft") // draft, presented, accepted, declined
-  acceptedAt         DateTime?
-  acceptedBy         String?  // customer email or name who accepted
-  shareToken         String?  @unique // for public customer presentation
-  notes              String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                String    @id @default(uuid())
+  quoteId           String // references localStorage quote ID or server quote ID
+  bundleId          String?
+  tierLabel         String // good, better, best, or custom
+  fenceStyleId      String
+  sectionCount      Int       @default(0)
+  gateCount         Int       @default(0)
+  footage           Float     @default(0)
+  materialCostCents Int       @default(0)
+  laborCostCents    Int       @default(0)
+  overheadCents     Int       @default(0)
+  commissionCents   Int       @default(0)
+  quotePriceCents   Int       @default(0)
+  marginPercent     Float     @default(0)
+  netProfitCents    Int       @default(0)
+  pricePerFootCents Int       @default(0)
+  isRecommended     Boolean   @default(false)
+  presentationOrder Int       @default(0)
+  status            String    @default("draft") // draft, presented, accepted, declined
+  acceptedAt        DateTime?
+  acceptedBy        String? // customer email or name who accepted
+  shareToken        String?   @unique // for public customer presentation
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   bundle QuoteBundle? @relation(fields: [bundleId], references: [id], onDelete: SetNull)
 
@@ -1355,31 +1360,35 @@ model QuoteOption {
 // instead of localStorage. Every field is optional after first/last name so
 // new fields can be added without breaking existing rows.
 model CrmContact {
-  id            String   @id @default(uuid())
-  ownerId       String?  // CrmUser.id of the owner (multi-tenancy hook for later)
-  firstName     String
-  lastName      String
-  email         String?
-  phone         String?
-  serviceAddress    String?
-  billingAddress    String?
-  billingDifferent  Boolean  @default(false)
-  city          String?
-  state         String?
-  zip           String?
-  leadSource    String?
-  salesRep      String?
-  firstApptDate String?
-  tags          Json?    // string[] of tags
-  notes         String?
-  jobStatus     String?  // First Contact / Appointment / ...  mirrors pipeline stage if known
-  isCompleted   Boolean  @default(false)
+  id               String    @id @default(uuid())
+  accountId        String? // CrmAccount this contact belongs to (the visibility scope)
+  ownerId          String? // CrmUser.id of the original creator — audit trail only
+  firstName        String
+  lastName         String
+  email            String?
+  phone            String?
+  serviceAddress   String?
+  billingAddress   String?
+  billingDifferent Boolean   @default(false)
+  city             String?
+  state            String?
+  zip              String?
+  leadSource       String?
+  salesRep         String?
+  firstApptDate    String?
+  tags             Json? // string[] of tags
+  notes            String?
+  jobStatus        String? // First Contact / Appointment / ...  mirrors pipeline stage if known
+  isCompleted      Boolean   @default(false)
   // Linkage back to the customer-portal account, if one exists
   portalCustomerId String?
-  archivedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  archivedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
+  account CrmAccount? @relation("ContactsOfCrmAccount", fields: [accountId], references: [id])
+
+  @@index([accountId])
   @@index([ownerId])
   @@index([email])
   @@index([archivedAt])
@@ -1395,17 +1404,17 @@ model CrmContact {
 // apps/portal/src/server/lib/auditLog.ts. Emit-only by default; the Admin
 // Audit Log page reads it via /api/admin/audit-log.
 model CrmAuditLog {
-  id          String   @id @default(uuid())
-  userId      String?
-  userEmail   String?
-  action      String   // 'create' | 'update' | 'delete' | 'soft_delete' | 'login' | 'logout' | 'invite_sent' | 'invite_accepted' | 'role_changed' | 'settings_changed' | etc.
-  entityType  String   // 'CrmContact' | 'Quote' | 'Job' | 'Invoice' | ...
-  entityId    String?
-  oldValues   Json?
-  newValues   Json?
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String?
+  userEmail  String?
+  action     String // 'create' | 'update' | 'delete' | 'soft_delete' | 'login' | 'logout' | 'invite_sent' | 'invite_accepted' | 'role_changed' | 'settings_changed' | etc.
+  entityType String // 'CrmContact' | 'Quote' | 'Job' | 'Invoice' | ...
+  entityId   String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
 
   @@index([userId])
   @@index([entityType, entityId])
@@ -1416,11 +1425,11 @@ model CrmAuditLog {
 // ── Backup Log — every backup attempt (daily, pre-deploy, restore) ──
 model BackupLog {
   id            String   @id @default(uuid())
-  backupType    String   // 'daily' | 'pre-deploy' | 'restore' | 'manual'
+  backupType    String // 'daily' | 'pre-deploy' | 'restore' | 'manual'
   filePath      String
-  remoteUrl     String?  // s3:// path if uploaded
+  remoteUrl     String? // s3:// path if uploaded
   fileSizeBytes BigInt   @default(0)
-  status        String   // 'success' | 'failed' | 'partial'
+  status        String // 'success' | 'failed' | 'partial'
   startedAt     DateTime
   completedAt   DateTime
   errorMessage  String?
@@ -1436,17 +1445,17 @@ model BackupLog {
 // `database.counts` field and the daily-anomaly alert that fires when any
 // count drops by more than 5 records day-over-day.
 model MonitoringSnapshot {
-  id              String   @id @default(uuid())
-  snapshotDate    DateTime @unique  // truncated to YYYY-MM-DD UTC
-  customerCount   Int      @default(0)
-  contactCount    Int      @default(0)
-  quoteCount      Int      @default(0)
-  jobCount        Int      @default(0)
-  invoiceCount    Int      @default(0)
-  paymentCount    Int      @default(0)
-  documentCount   Int      @default(0)
-  portalAccountCount Int   @default(0)
-  createdAt       DateTime @default(now())
+  id                 String   @id @default(uuid())
+  snapshotDate       DateTime @unique // truncated to YYYY-MM-DD UTC
+  customerCount      Int      @default(0)
+  contactCount       Int      @default(0)
+  quoteCount         Int      @default(0)
+  jobCount           Int      @default(0)
+  invoiceCount       Int      @default(0)
+  paymentCount       Int      @default(0)
+  documentCount      Int      @default(0)
+  portalAccountCount Int      @default(0)
+  createdAt          DateTime @default(now())
 
   @@index([snapshotDate])
 }
