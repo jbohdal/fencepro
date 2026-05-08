@@ -9,6 +9,38 @@ import { login, acceptInvite, forgotPassword, resetPassword, type CrmUser } from
 
 type View = 'login' | 'forgot' | 'accept-invite' | 'reset-password'
 
+function PasswordInput({
+  value, onChange, placeholder, autoFocus,
+}: {
+  value: string
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  placeholder?: string
+  autoFocus?: boolean
+}) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="relative">
+      <input
+        type={show ? 'text' : 'password'}
+        value={value}
+        onChange={onChange}
+        required
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        className="w-full border border-gray-200 rounded-lg pl-3 pr-16 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 outline-none"
+      />
+      <button
+        type="button"
+        onClick={() => setShow(s => !s)}
+        aria-label={show ? 'Hide password' : 'Show password'}
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-500 hover:text-orange-600 px-2 py-1 rounded"
+      >
+        {show ? 'Hide' : 'Show'}
+      </button>
+    </div>
+  )
+}
+
 export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => void }) {
   const [view, setView] = useState<View>('login')
   const [email, setEmail] = useState(() => localStorage.getItem('crm_last_email') || '')
@@ -111,8 +143,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Password</label>
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)} required
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 outline-none" placeholder="••••••••" />
+                <PasswordInput value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
               </div>
               <button type="submit" disabled={loading}
                 className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 rounded-lg text-sm disabled:opacity-50 transition">
@@ -159,13 +190,11 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Password</label>
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)} required autoFocus
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 outline-none" placeholder="Min 8 characters" />
+                <PasswordInput value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters" autoFocus />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Confirm Password</label>
-                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 outline-none" placeholder="••••••••" />
+                <PasswordInput value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="••••••••" />
               </div>
               <button type="submit" disabled={loading}
                 className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 rounded-lg text-sm disabled:opacity-50">
@@ -182,13 +211,11 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
               {success && <div className="bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg p-3">{success}</div>}
               <div>
                 <label className="block text-xs text-gray-500 mb-1">New Password</label>
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)} required autoFocus
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 outline-none" placeholder="Min 8 characters" />
+                <PasswordInput value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters" autoFocus />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Confirm Password</label>
-                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 outline-none" />
+                <PasswordInput value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
               </div>
               <button type="submit" disabled={loading}
                 className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 rounded-lg text-sm disabled:opacity-50">
