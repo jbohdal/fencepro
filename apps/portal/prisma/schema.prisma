@@ -80,13 +80,14 @@ model CrmAccount {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  customers  Customer[]
-  documents  Document[]
-  tickets    Ticket[]
-  invoices   Invoice[]
-  contracts  Contract[]
-  staffUsers CrmUser[]    @relation("StaffOfCrmAccount")
-  contacts   CrmContact[] @relation("ContactsOfCrmAccount")
+  customers   Customer[]
+  documents   Document[]
+  tickets     Ticket[]
+  invoices    Invoice[]
+  contracts   Contract[]
+  staffUsers  CrmUser[]    @relation("StaffOfCrmAccount")
+  contacts    CrmContact[] @relation("ContactsOfCrmAccount")
+  savedQuotes SavedQuote[] @relation("QuotesOfCrmAccount")
 
   @@index([externalCrmId])
 }
@@ -1388,6 +1389,7 @@ model CrmContact {
 
   account      CrmAccount?      @relation("ContactsOfCrmAccount", fields: [accountId], references: [id])
   contactNotes CrmContactNote[]
+  savedQuotes  SavedQuote[]
 
   @@index([accountId])
   @@index([ownerId])
@@ -1490,4 +1492,84 @@ model MonitoringSnapshot {
   createdAt          DateTime @default(now())
 
   @@index([snapshotDate])
+}
+
+// ── Saved Quotes — the user's saved quotes from QuoteBuilder ──
+//
+// Replaces the prior localStorage-backed `fencepro_quotes` blob. Distinct from
+// QuoteOption (per-quote bundle option for Good/Better/Best) and from the
+// stateless `/api/quotes/calculate` chatbot endpoint. Money fields are Float
+// to match the existing client-side calculator chain (cents-integer migration
+// is a separate cross-cutting effort, see EZBIZ_KNOWN_ISSUES.md issue #3).
+enum SavedQuoteStatus {
+  DRAFT
+  SENT
+  SOLD
+  LOST
+}
+
+model SavedQuote {
+  id        String  @id @default(uuid())
+  accountId String // tenant scope
+  ownerId   String? // CrmUser.id of original creator (audit trail)
+
+  // Customer link (preferred) + denormalized snapshot fields so quotes survive
+  // contact deletes and so public share pages don't need to join.
+  crmContactId    String?
+  customerName    String  @default("")
+  customerPhone   String  @default("")
+  customerEmail   String  @default("")
+  customerAddress String  @default("")
+  leadSource      String  @default("")
+  salesRep        String  @default("")
+
+  // Job spec
+  fenceStyle      String  @default("")
+  runs            Json // number[] of run lengths in feet
+  runRails        Json? // ('auto' | '6ft' | '8ft')[] for vinyl auto-mix
+  corners         Int     @default(0)
+  ends            Int     @default(0)
+  walkGates       Int     @default(0)
+  dblGates        Int     @default(0)
+  tearOutSections Int     @default(0)
+  tearOutGates    Int     @default(0)
+  adjLaborHrs     Float   @default(0)
+  hasSalesman     Boolean @default(false)
+  priceAdjust     Float   @default(0)
+
+  // Computed snapshot (frozen at save time)
+  sections     Int   @default(0)
+  materialCost Float @default(0)
+  laborCost    Float @default(0)
+  tearOutCost  Float @default(0)
+  totalCOGS    Float @default(0)
+  finalPrice   Float @default(0)
+  gmPct        Float @default(0)
+  pullSheet    Json // LineItem[] from materialCalculator
+
+  status   SavedQuoteStatus @default(DRAFT)
+  date     String           @default("") // YYYY-MM-DD legacy format
+  notes    String           @default("")
+  leadTemp Int              @default(0)
+
+  // Public sharing token used by #/quote/:token and #/present/:token routes.
+  // Generated server-side on first request to share the quote. Unique so the
+  // link is unguessable.
+  shareToken    String?   @unique
+  // Timestamp of the first time a customer hit the public share page; null
+  // until then. Drives the "viewed" badge + automation trigger.
+  firstViewedAt DateTime?
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  account CrmAccount? @relation("QuotesOfCrmAccount", fields: [accountId], references: [id])
+  contact CrmContact? @relation(fields: [crmContactId], references: [id])
+
+  @@index([accountId])
+  @@index([crmContactId])
+  @@index([status])
+  @@index([shareToken])
+  @@index([archivedAt])
 }
