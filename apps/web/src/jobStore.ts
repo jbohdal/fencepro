@@ -2,6 +2,7 @@ import type { SavedQuote } from './QuotesPage'
 import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
 import { ensureChecklistForJob } from './checklistStore'
 import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
+import { getQuoteById } from './quoteStore'
 
 /* ═══════════════════════════════════════════════
    JOB ENTITY — unified lifecycle from quote to paid
@@ -227,10 +228,8 @@ export function updateJob(id: string, updates: Partial<Job>): Job | null {
     if (existingPOs.length === 0) {
       try {
         // Pull the quote's pull sheet for line items
-        const quotesRaw = localStorage.getItem('fencepro_quotes')
-        const quotes = quotesRaw ? JSON.parse(quotesRaw) : []
-        const quote = quotes.find((q: any) => q.id === job.quoteId)
-        if (quote?.pullSheet?.length > 0) {
+        const quote = getQuoteById(job.quoteId)
+        if (quote?.pullSheet?.length && quote.pullSheet.length > 0) {
           createDraftPO(
             job.id,
             job.customerName,

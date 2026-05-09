@@ -20,20 +20,11 @@ import { createJobFromQuote, getJobByQuoteId, type Job } from './jobStore'
 import { createPendingOrderFromQuote } from './pendingOrderStore'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { fireQuoteSold, fireSalesStageChange } from './automationTrigger'
-
-const QUOTES_KEY = 'fencepro_quotes'
+import { getQuotes, getQuoteById, updateQuote } from './quoteStore'
 
 export const QUOTES_UPDATED_EVENT = 'fencepro:quotes:updated'
 export const JOBS_UPDATED_EVENT = 'fencepro:jobs:updated'
 export const PIPELINE_UPDATED_EVENT = 'fencepro:pipeline:updated'
-
-function loadQuotes(): SavedQuote[] {
-  try { const r = localStorage.getItem(QUOTES_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
-}
-function saveQuotes(list: SavedQuote[]) {
-  localStorage.setItem(QUOTES_KEY, JSON.stringify(list))
-  try { window.dispatchEvent(new CustomEvent(QUOTES_UPDATED_EVENT)) } catch {}
-}
 
 /**
  * Find the best quote to associate with a deal: the most recent non-LOST quote.
@@ -41,7 +32,7 @@ function saveQuotes(list: SavedQuote[]) {
  * legacy pipeline cards that lack a customerId still cascade correctly.
  */
 export function findActiveQuoteForCustomer(customer: Customer | string): SavedQuote | null {
-  const all = loadQuotes()
+  const all = getQuotes()
   if (typeof customer === 'string') {
     return all
       .filter(q => q.customerId === customer && q.status !== 'LOST' && q.status !== 'SOLD')
@@ -82,17 +73,14 @@ export interface SignedContractResult {
  * Idempotent per quote — if the job already exists it is returned unchanged.
  */
 export function markQuoteSold(quoteId: string, opts?: { actor?: string }): SignedContractResult {
-  const quotes = loadQuotes()
-  const idx = quotes.findIndex(q => q.id === quoteId)
-  if (idx < 0) throw new Error(`Quote ${quoteId} not found`)
-  const quote = quotes[idx]
+  const quote = getQuoteById(quoteId)
+  if (!quote) throw new Error(`Quote ${quoteId} not found`)
 
   const alreadySold = quote.status === 'SOLD'
+  let updatedQuote = quote
   if (!alreadySold) {
-    quotes[idx] = { ...quote, status: 'SOLD' }
-    saveQuotes(quotes)
+    updatedQuote = updateQuote(quoteId, { status: 'SOLD' }) || quote
   }
-  const updatedQuote = quotes[idx]
 
   let job = getJobByQuoteId(quoteId)
   if (!job) {
@@ -219,13 +207,14 @@ export function applySignedContractTransition(lead: { id: string; customerId?: s
 
 /** Mark as Lost — keeps the quote in the list but stamps the status. */
 export function markQuoteLost(quoteId: string, reason?: string, actor?: string): SavedQuote | null {
-  const quotes = loadQuotes()
-  const idx = quotes.findIndex(q => q.id === quoteId)
-  if (idx < 0) return null
-  quotes[idx] = { ...quotes[idx], status: 'LOST', notes: reason ? `${quotes[idx].notes || ''}${quotes[idx].notes ? '\n' : ''}Lost: ${reason}` : quotes[idx].notes }
-  saveQuotes(quotes)
-  if (quotes[idx].customerId) {
-    logCustomerActivity(quotes[idx].customerId, `Quote marked LOST${reason ? ` — ${reason}` : ''}`, { actor: actor || 'user', kind: 'quote' })
+  const quote = getQuoteById(quoteId)
+  if (!quote) return null
+  const nextNotes = reason
+    ? `${quote.notes || ''}${quote.notes ? '\n' : ''}Lost: ${reason}`
+    : quote.notes
+  const updated = updateQuote(quoteId, { status: 'LOST', notes: nextNotes })
+  if (updated && updated.customerId) {
+    logCustomerActivity(updated.customerId, `Quote marked LOST${reason ? ` — ${reason}` : ''}`, { actor: actor || 'user', kind: 'quote' })
   }
-  return quotes[idx]
+  return updated
 }

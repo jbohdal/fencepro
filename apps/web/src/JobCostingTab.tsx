@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import type { SavedQuote } from './QuotesPage'
+import { getQuotes } from './quoteStore'
 
 /* ───────── types ───────── */
 
@@ -59,10 +60,7 @@ const uid = () => Math.random().toString(36).slice(2, 9)
 const STORAGE_KEY = 'fencepro_jobcosting'
 
 function loadQuotes(): SavedQuote[] {
-  try {
-    const raw = localStorage.getItem('fencepro_quotes')
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
+  return getQuotes()
 }
 
 function loadEntries(): JobCostEntry[] {

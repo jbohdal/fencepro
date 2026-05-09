@@ -375,8 +375,9 @@ router.post('/:id/share-token', requireUser, requireAccount, async (req: any, re
 
 // ── Public read by share token (no auth) ──
 //
-// Records `firstViewedAt` the first time a token is hit so the staff side can
-// surface a "viewed" badge + fire the quote_first_viewed automation later.
+// Records `firstViewedAt` the first time a token is hit and increments
+// viewCount on every request so the staff side can surface a "viewed" badge
+// and view counter, plus fire the quote_first_viewed automation later.
 router.get('/share/:token', async (req: any, res) => {
   try {
     const q = await prisma.savedQuote.findUnique({ where: { shareToken: req.params.token } })
@@ -384,13 +385,57 @@ router.get('/share/:token', async (req: any, res) => {
       res.status(404).json({ success: false, error: 'Quote not found or no longer available' })
       return
     }
-    if (!q.firstViewedAt) {
-      await prisma.savedQuote.update({ where: { id: q.id }, data: { firstViewedAt: new Date() } })
-    }
+    await prisma.savedQuote.update({
+      where: { id: q.id },
+      data: {
+        firstViewedAt: q.firstViewedAt || new Date(),
+        viewCount: { increment: 1 },
+      },
+    })
     res.json({ success: true, data: q })
   } catch (err) {
     console.error('[saved-quotes] share read error:', err)
     res.status(500).json({ success: false, error: 'Failed to read quote' })
+  }
+})
+
+// ── Public accept by share token (no auth) ──
+//
+// Customer-facing endpoint: the customer signs and clicks Accept on the
+// public share page. Flips status to SOLD, stamps acceptedAt + name + (optional)
+// signature data URL. Idempotent — accepting a quote that is already SOLD
+// returns success but does not double-write.
+const acceptSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(200),
+  signature: z.string().max(1_000_000).optional(),
+})
+router.post('/share/:token/accept', async (req: any, res) => {
+  try {
+    const data = acceptSchema.parse(req.body)
+    const q = await prisma.savedQuote.findUnique({ where: { shareToken: req.params.token } })
+    if (!q || q.archivedAt) {
+      res.status(404).json({ success: false, error: 'Quote not found or no longer available' })
+      return
+    }
+    if (q.acceptedAt) {
+      res.json({ success: true, data: q })
+      return
+    }
+    const updated = await prisma.savedQuote.update({
+      where: { id: q.id },
+      data: {
+        status: 'SOLD',
+        acceptedAt: new Date(),
+        acceptedBy: data.name,
+        acceptedSignature: data.signature || null,
+      },
+    })
+    console.log(`[saved-quotes] customer accepted quote ${q.id} as "${data.name}"`)
+    res.json({ success: true, data: updated })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    console.error('[saved-quotes] accept error:', err)
+    res.status(500).json({ success: false, error: 'Failed to accept quote' })
   }
 })
 

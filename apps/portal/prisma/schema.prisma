@@ -1559,6 +1559,11 @@ model SavedQuote {
   // Timestamp of the first time a customer hit the public share page; null
   // until then. Drives the "viewed" badge + automation trigger.
   firstViewedAt DateTime?
+  viewCount     Int       @default(0)
+  // Customer-side acceptance — recorded by POST /api/saved-quotes/share/:token/accept
+  acceptedAt        DateTime?
+  acceptedBy        String? // typed name or display name from the accept form
+  acceptedSignature String? // base64 data URL of the signature image, if any
 
   archivedAt DateTime?
   createdAt  DateTime  @default(now())

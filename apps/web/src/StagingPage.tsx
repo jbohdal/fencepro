@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import type { SavedQuote } from './QuotesPage'
+import { getQuotes } from './quoteStore'
 
 export interface StagingJob {
   id: string
@@ -67,11 +68,7 @@ function saveStaging(jobs: StagingJob[]) {
 }
 
 function loadSoldQuotes(): SavedQuote[] {
-  try {
-    const raw = localStorage.getItem('fencepro_quotes')
-    const quotes: SavedQuote[] = raw ? JSON.parse(raw) : []
-    return quotes.filter(q => q.status === 'SOLD')
-  } catch { return [] }
+  return getQuotes().filter(q => q.status === 'SOLD')
 }
 
 // ── Job Drawer ────────────────────────────────────────────────────────────────

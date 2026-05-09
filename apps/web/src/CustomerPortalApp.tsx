@@ -23,6 +23,7 @@ import {
   type CurrentSession as PortalAccount,
 } from './portalAccountStore'
 import { getCustomerById } from './customerStore'
+import { getQuotes } from './quoteStore'
 
 function readCompanyInfo() {
   try {
@@ -927,12 +928,9 @@ function readJobsFor(customerId: string): any[] {
 }
 
 function readQuotesFor(customerId: string): any[] {
-  try {
-    const r = localStorage.getItem('fencepro_quotes')
-    const all: any[] = r ? JSON.parse(r) : []
-    return all.filter((q: any) => q.customerId === customerId)
-      .sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''))
-  } catch { return [] }
+  return getQuotes()
+    .filter(q => q.customerId === customerId)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
 }
 
 function readInvoicesFor(customerId: string): any[] {

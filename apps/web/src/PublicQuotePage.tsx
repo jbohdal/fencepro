@@ -2,17 +2,22 @@
  * Public customer-facing quote page at /#/quote/:token.
  *
  * Renders the quote inside the selected template via QuoteTemplateRenderer.
- * Records view events, enforces expiry, handles acceptance → flips the quote
- * to SOLD and triggers the signed-contract cascade.
+ * This page runs in the *customer's* browser, where there is no staff JWT
+ * and no shared localStorage with the CRM. All data comes from the public
+ * share endpoints:
+ *   GET  /api/saved-quotes/share/:token         — fetch the quote
+ *   POST /api/saved-quotes/share/:token/accept  — record acceptance
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
-import { getShareByToken, stampAccepted } from './quoteShareStore'
-import { markQuoteSold } from './signedContractFlow'
 import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import { getTemplate, getDefaultTemplateKey, type QuotePresentation } from './quoteTemplatesStore'
-import { logCustomerActivity } from './customerStore'
+import {
+  fetchPublicQuoteByToken,
+  acceptPublicQuoteByToken,
+  type SavedQuoteRecord,
+} from './savedQuotesApi'
 
 function loadCompanyInfo() {
   try {
@@ -23,65 +28,66 @@ function loadCompanyInfo() {
   } catch { return { name: 'EZBiz' } }
 }
 
-function loadQuote(quoteId: string): (SavedQuote & QuotePresentation) | null {
-  try {
-    const raw = localStorage.getItem('fencepro_quotes')
-    if (!raw) return null
-    const all: (SavedQuote & QuotePresentation)[] = JSON.parse(raw)
-    return all.find(q => q.id === quoteId) || null
-  } catch { return null }
-}
-
-function recordQuoteView(quoteId: string): void {
-  try {
-    const raw = localStorage.getItem('fencepro_quotes')
-    if (!raw) return
-    const all: (SavedQuote & QuotePresentation)[] = JSON.parse(raw)
-    const idx = all.findIndex(q => q.id === quoteId)
-    if (idx < 0) return
-    const q = all[idx]
-    const firstView = !q.viewedAt
-    const now = new Date().toISOString()
-    all[idx] = {
-      ...q,
-      viewedAt: q.viewedAt || now,
-      lastViewedAt: now,
-      viewCount: (q.viewCount || 0) + 1,
-    }
-    localStorage.setItem('fencepro_quotes', JSON.stringify(all))
-    try { window.dispatchEvent(new CustomEvent('fencepro:quotes:updated')) } catch {}
-
-    // On first view, log on customer and fire a rep notification event
-    if (firstView) {
-      if (q.customerId) {
-        logCustomerActivity(q.customerId,
-          `Quote #${(q.id || '').slice(-6).toUpperCase()} viewed by the customer`,
-          { actor: 'system', kind: 'quote' })
-      }
-      try {
-        window.dispatchEvent(new CustomEvent('fencepro:quote_first_viewed', { detail: { quoteId } }))
-      } catch {}
-    }
-  } catch {}
+function recordToSavedQuote(r: SavedQuoteRecord): SavedQuote & QuotePresentation {
+  return {
+    id: r.id,
+    customerId: r.crmContactId || undefined,
+    customerName: r.customerName,
+    customerPhone: r.customerPhone,
+    customerEmail: r.customerEmail,
+    customerAddress: r.customerAddress,
+    leadSource: r.leadSource,
+    salesRep: r.salesRep,
+    fenceStyle: r.fenceStyle,
+    runs: Array.isArray(r.runs) ? r.runs : [],
+    runRails: r.runRails || undefined,
+    corners: r.corners,
+    ends: r.ends,
+    walkGates: r.walkGates,
+    dblGates: r.dblGates,
+    tearOutSections: r.tearOutSections,
+    tearOutGates: r.tearOutGates,
+    adjLaborHrs: r.adjLaborHrs,
+    hasSalesman: r.hasSalesman,
+    priceAdjust: r.priceAdjust,
+    sections: r.sections,
+    materialCost: r.materialCost,
+    laborCost: r.laborCost,
+    tearOutCost: r.tearOutCost,
+    totalCOGS: r.totalCOGS,
+    finalPrice: r.finalPrice,
+    gmPct: r.gmPct,
+    pullSheet: Array.isArray(r.pullSheet) ? r.pullSheet : [],
+    status: r.status,
+    date: r.date,
+    notes: r.notes,
+    leadTemp: r.leadTemp,
+  } as SavedQuote & QuotePresentation
 }
 
 export default function PublicQuotePage({ token }: { token: string }) {
   const [quote, setQuote] = useState<(SavedQuote & QuotePresentation) | null>(null)
+  const [acceptedAt, setAcceptedAt] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
-  const [accepted, setAccepted] = useState(false)
   const company = loadCompanyInfo()
 
   useEffect(() => {
-    const share = getShareByToken(token)
-    if (!share) { setLoaded(false); setLoaded(true); return }
-    const q = loadQuote(share.quoteId)
-    setQuote(q)
-    setAccepted(!!share.acceptedAt)
-    if (q) recordQuoteView(q.id)
-    setLoaded(true)
+    let cancelled = false
+    fetchPublicQuoteByToken(token).then(r => {
+      if (cancelled) return
+      if (r) {
+        setQuote(recordToSavedQuote(r))
+        setAcceptedAt(r.acceptedAt)
+      }
+      setLoaded(true)
+    })
+    return () => { cancelled = true }
   }, [token])
 
-  const template = useMemo(() => getTemplate(quote?.templateKey || getDefaultTemplateKey()), [quote?.templateKey])
+  const template = useMemo(
+    () => getTemplate(quote?.templateKey || getDefaultTemplateKey()),
+    [quote?.templateKey],
+  )
 
   const expired = useMemo(() => {
     if (!quote) return false
@@ -91,35 +97,13 @@ export default function PublicQuotePage({ token }: { token: string }) {
     return new Date().getTime() - issued.getTime() > days * 864e5
   }, [quote])
 
-  function handleAccept(name: string, signature: string) {
+  async function handleAccept(name: string, signature: string) {
     if (!quote) return
-    try {
-      stampAccepted(token, name, signature)
-      const res = markQuoteSold(quote.id, { actor: 'customer-accept' })
-      // Record presentation-level acceptance too
-      try {
-        const raw = localStorage.getItem('fencepro_quotes')
-        if (raw) {
-          const all = JSON.parse(raw)
-          const idx = all.findIndex((x: any) => x.id === quote.id)
-          if (idx >= 0) {
-            all[idx] = { ...all[idx], acceptedAt: new Date().toISOString(), acceptedBy: name, acceptedSignature: signature }
-            localStorage.setItem('fencepro_quotes', JSON.stringify(all))
-            window.dispatchEvent(new CustomEvent('fencepro:quotes:updated'))
-          }
-        }
-      } catch {}
-      setAccepted(true)
-      if (quote.customerId) {
-        logCustomerActivity(quote.customerId,
-          `${name} accepted quote #${(quote.id || '').slice(-6).toUpperCase()} for $${Math.round(quote.finalPrice).toLocaleString()}`,
-          { actor: 'customer', kind: 'quote' })
-      }
-      try {
-        window.dispatchEvent(new CustomEvent('fencepro:quote_accepted', { detail: { quoteId: quote.id, name, signature } }))
-      } catch {}
-      console.log('[Quote] Accepted via hosted page', res.job.id)
-    } catch (err) {
+    const updated = await acceptPublicQuoteByToken(token, { name, signature })
+    if (updated) {
+      setAcceptedAt(updated.acceptedAt)
+      setQuote(recordToSavedQuote(updated))
+    } else {
       alert('Could not accept quote. Please contact us to complete the acceptance.')
     }
   }
@@ -137,6 +121,8 @@ export default function PublicQuotePage({ token }: { token: string }) {
       </div>
     )
   }
+
+  const accepted = !!acceptedAt
 
   return (
     <div className="min-h-screen bg-gray-100">

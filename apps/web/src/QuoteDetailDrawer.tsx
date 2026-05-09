@@ -9,6 +9,7 @@
 
 import { useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
+import { updateQuote, getQuoteById } from './quoteStore'
 import { markQuoteSold, markQuoteLost } from './signedContractFlow'
 import { ensureShareForQuote, stampSent, getShareByQuoteId } from './quoteShareStore'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
@@ -269,19 +270,8 @@ function TemplatePicker({ quote, onChange }: { quote: SavedQuote & QuotePresenta
 
   function saveTemplate(key: TemplateKey) {
     setActive(key)
-    try {
-      const raw = localStorage.getItem('fencepro_quotes')
-      if (raw) {
-        const all = JSON.parse(raw)
-        const idx = all.findIndex((q: any) => q.id === quote.id)
-        if (idx >= 0) {
-          all[idx] = { ...all[idx], templateKey: key }
-          localStorage.setItem('fencepro_quotes', JSON.stringify(all))
-          window.dispatchEvent(new CustomEvent('fencepro:quotes:updated'))
-          onChange?.()
-        }
-      }
-    } catch {}
+    updateQuote(quote.id, { templateKey: key } as any)
+    onChange?.()
   }
 
   return (
@@ -365,16 +355,10 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
     // from the browser. We mark the quote as SENT, stamp the share, and hand
     // off to the user's email client via mailto: if nothing else is configured.
     try {
-      // Mark as SENT
-      const raw = localStorage.getItem('fencepro_quotes')
-      if (raw) {
-        const all: SavedQuote[] = JSON.parse(raw)
-        const idx = all.findIndex(q => q.id === quote.id)
-        if (idx >= 0) {
-          all[idx] = { ...all[idx], status: all[idx].status === 'DRAFT' ? 'SENT' : all[idx].status }
-          localStorage.setItem('fencepro_quotes', JSON.stringify(all))
-          window.dispatchEvent(new CustomEvent('fencepro:quotes:updated'))
-        }
+      // Mark as SENT (only if currently DRAFT)
+      const current = getQuoteById(quote.id)
+      if (current && current.status === 'DRAFT') {
+        updateQuote(quote.id, { status: 'SENT' })
       }
       stampSent(share.token, to)
 

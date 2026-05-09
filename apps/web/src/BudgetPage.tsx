@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import JobCostingTab from './JobCostingTab'
+import { getQuotes } from './quoteStore'
 
 interface Employee {
   id: string
@@ -1372,10 +1373,7 @@ interface QuoteRecord {
 }
 
 function loadQuotes(): QuoteRecord[] {
-  try {
-    const raw = localStorage.getItem('fencepro_quotes')
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
+  return getQuotes() as unknown as QuoteRecord[]
 }
 
 function KPIsTab({ state }: { state: BudgetState }) {

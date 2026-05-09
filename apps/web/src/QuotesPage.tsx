@@ -5,6 +5,7 @@ import { POButton } from './PurchaseOrder'
 import { pullFromInventory, getLocations } from './inventoryStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
+import { getQuotes, updateQuote } from './quoteStore'
 
 export interface SavedQuote {
   id: string
@@ -453,34 +454,11 @@ export default function QuotesPage({
   const [pullConfirm, setPullConfirm]   = useState<SavedQuote | null>(null)
   const [pullLocationId, setPullLocationId] = useState('')
   const [pullResult, setPullResult]     = useState<string | null>(null)
-  const [localQuotes, setLocalQuotes]   = useState<SavedQuote[]>(() => {
-    try {
-      const raw = localStorage.getItem('fencepro_quotes')
-      return raw ? JSON.parse(raw) : []
-    } catch { return [] }
-  })
+  const [localQuotes, setLocalQuotes] = useState<SavedQuote[]>(() => getQuotes())
 
-  function persist(updated: SavedQuote[]) {
-    localStorage.setItem('fencepro_quotes', JSON.stringify(updated))
-    setLocalQuotes(updated)
-    try { window.dispatchEvent(new CustomEvent('fencepro:quotes:updated')) } catch {}
-  }
-
-  const allIds = quotes.map(q => q.id).join(',')
+  // Live-refresh when quotes are saved from anywhere else (in-process or other tab)
   useEffect(() => {
-    const localIds = new Set(localQuotes.map(q => q.id))
-    const newOnes = quotes.filter(q => !localIds.has(q.id))
-    if (newOnes.length > 0) persist([...newOnes, ...localQuotes])
-  }, [allIds])
-
-  // Live-refresh when quotes are saved from anywhere else
-  useEffect(() => {
-    const reload = () => {
-      try {
-        const raw = localStorage.getItem('fencepro_quotes')
-        if (raw) setLocalQuotes(JSON.parse(raw))
-      } catch {}
-    }
+    const reload = () => setLocalQuotes(getQuotes())
     window.addEventListener('fencepro:quotes:updated', reload)
     return () => window.removeEventListener('fencepro:quotes:updated', reload)
   }, [])
@@ -488,8 +466,7 @@ export default function QuotesPage({
   function handleStatusChange(id: string, status: SavedQuote['status']) {
     const quote = localQuotes.find(q => q.id === id)
     const wasSold = quote?.status === 'SOLD'
-    const updated = localQuotes.map(q => q.id === id ? { ...q, status } : q)
-    persist(updated)
+    updateQuote(id, { status })
     if (selectedQuote?.id === id) setSelectedQuote({ ...selectedQuote, status })
 
     // When changing TO sold: create job + offer to pull inventory
@@ -514,8 +491,7 @@ export default function QuotesPage({
   }
 
   function handleTempChange(id: string, leadTemp: number) {
-    const updated = localQuotes.map(q => q.id === id ? { ...q, leadTemp } : q)
-    persist(updated)
+    updateQuote(id, { leadTemp })
     if (selectedQuote?.id === id) setSelectedQuote({ ...selectedQuote, leadTemp })
   }
 
@@ -634,15 +610,9 @@ export default function QuotesPage({
           onClose={() => setSelectedQuote(null)}
           onEdit={() => { onOpenQuote(selectedQuote); setSelectedQuote(null) }}
           onChange={() => {
-            try {
-              const raw = localStorage.getItem('fencepro_quotes')
-              if (raw) {
-                const all: SavedQuote[] = JSON.parse(raw)
-                setLocalQuotes(all)
-                const refreshed = all.find(q => q.id === selectedQuote.id) || null
-                setSelectedQuote(refreshed)
-              }
-            } catch {}
+            const all = getQuotes()
+            setLocalQuotes(all)
+            setSelectedQuote(all.find(q => q.id === selectedQuote.id) || null)
           }}
         />
       )}

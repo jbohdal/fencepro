@@ -15,6 +15,7 @@ import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
 import { getPortalAccessStatus, loadAccountsSoon, sendPortalInvite, resendPortalInvite, buildActivationLink } from './portalAccountStore'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity, getCustomers, upsertCustomer, deleteCustomer as storeDeleteCustomer, bulkImportCustomers } from './customerStore'
+import { getQuotes } from './quoteStore'
 import {
   listContactNotes, createContactNote, updateContactNote, deleteContactNote,
   type CrmContactNoteRecord,
@@ -671,9 +672,6 @@ function CustomerPullSheetsTab({ customerId }: { customerId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
-        Pull sheets are derived from Quotes which are migrating to the cloud (Phase 2). Pull sheet data is stored locally with quotes until the migration completes.
-      </div>
       {pullSheets.length === 0 ? (
         <div className="text-center py-8 text-gray-400">
           <p className="font-medium">No pull sheets linked</p>
@@ -937,9 +935,6 @@ function CustomerDetail({
 
         {activeTab === 'quotes' && (
           <div className="space-y-4">
-            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
-              Quotes are migrating to the cloud in the next push (Phase 2). Quotes you save here are stored locally in this browser only and will not be visible to teammates until the migration completes.
-            </div>
             {importedQuotes.length > 0 && (
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                 <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
@@ -1116,24 +1111,19 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
     } catch { return [] }
   })
   const [customers, setCustomers] = useState<Customer[]>(() => getCustomers())
-  // Pull real quotes + jobs from localStorage; fall back to samples when empty
+  // Pull real quotes from the API-backed cache. Empty state is honest now —
+  // no SAMPLE_QUOTES fallback, fresh accounts simply see "no quotes yet".
   const readQuotes = (): Quote[] => {
-    try {
-      const raw = localStorage.getItem('fencepro_quotes')
-      if (!raw) return SAMPLE_QUOTES
-      const all = JSON.parse(raw) as any[]
-      if (!Array.isArray(all) || all.length === 0) return SAMPLE_QUOTES
-      return all.map(q => ({
-        id: q.id,
-        customerId: q.customerId || '',
-        type: q.fenceStyle || '',
-        sections: q.sections || 0,
-        price: q.finalPrice || 0,
-        margin: q.gmPct || 0,
-        status: q.status || 'DRAFT',
-        date: q.date || '',
-      })) as Quote[]
-    } catch { return SAMPLE_QUOTES }
+    return getQuotes().map(q => ({
+      id: q.id,
+      customerId: q.customerId || '',
+      type: q.fenceStyle || '',
+      sections: q.sections || 0,
+      price: q.finalPrice || 0,
+      margin: q.gmPct || 0,
+      status: q.status || 'DRAFT',
+      date: q.date || '',
+    })) as Quote[]
   }
   const readJobs = (): Job[] => {
     try {
@@ -1491,12 +1481,8 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
             return updated
           })}
           onQuoteClick={(quoteId) => {
-            try {
-              const raw = localStorage.getItem('fencepro_quotes')
-              const all: SavedQuote[] = raw ? JSON.parse(raw) : []
-              const full = all.find(q => q.id === quoteId) || null
-              setDrawerQuote(full)
-            } catch {}
+            const full = getQuotes().find(q => q.id === quoteId) || null
+            setDrawerQuote(full as SavedQuote | null)
           }}
           onFileClick={(f) => setViewerFile(f)}
           initialTab={forcedTab}
@@ -1524,15 +1510,10 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
           quote={drawerQuote}
           onClose={() => setDrawerQuote(null)}
           onChange={() => {
-            // Re-read quote from storage in case status changed
-            try {
-              const raw = localStorage.getItem('fencepro_quotes')
-              const all: SavedQuote[] = raw ? JSON.parse(raw) : []
-              const updated = all.find(q => q.id === drawerQuote.id) || null
-              setDrawerQuote(updated)
-              setQuotes(readQuotes())
-              setJobs(readJobs())
-            } catch {}
+            const updated = getQuotes().find(q => q.id === drawerQuote.id) || null
+            setDrawerQuote(updated as SavedQuote | null)
+            setQuotes(readQuotes())
+            setJobs(readJobs())
           }}
         />
       )}

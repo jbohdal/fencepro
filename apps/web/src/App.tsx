@@ -41,6 +41,7 @@ import MessagesInbox from './MessagesInbox'
 import PublicQuotePage from './PublicQuotePage'
 import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
 import { initCustomers, getCustomers } from './customerStore'
+import { initQuotes, getQuotes, getQuoteById, upsertQuote } from './quoteStore'
 import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
@@ -142,10 +143,7 @@ function marginColor(pct: number) {
 }
 
 function loadQuotes(): SavedQuote[] {
-  try {
-    const raw = localStorage.getItem('fencepro_quotes')
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
+  return getQuotes()
 }
 
 function loadBudget() {
@@ -210,9 +208,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
       const quoteId = e?.detail?.quoteId
       if (!quoteId) return
       try {
-        const raw = localStorage.getItem('fencepro_quotes')
-        const all = raw ? JSON.parse(raw) : []
-        const q = all.find((x: any) => x.id === quoteId)
+        const q = getQuoteById(quoteId)
         if (!q) return
         toast.success('Quote viewed', `${q.customerName || 'Customer'} just opened their quote — great time to follow up!`)
       } catch {}
@@ -236,6 +232,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
           }
           saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: mapped[user.role] || 'salesman' })
           initCustomers().catch(() => {})
+          initQuotes().catch(() => {})
         }
         setAuthChecked(true)
       })
@@ -355,16 +352,18 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
     try {
       const wasSold = quotes.find(x => x.id === q.id)?.status === 'SOLD'
 
+      const saved = upsertQuote(q)
+      // Reflect locally — store will fire fencepro:quotes:updated when the
+      // server response swaps the temp id, but the page also tracks its own
+      // copy of `quotes` so update it now to keep the UI snappy.
       setQuotes(prev => {
-        const updated = prev.find(x => x.id === q.id)
-          ? prev.map(x => x.id === q.id ? q : x)
-          : [q, ...prev]
-        localStorage.setItem('fencepro_quotes', JSON.stringify(updated))
-        try { window.dispatchEvent(new CustomEvent('fencepro:quotes:updated')) } catch {}
-        return updated
+        const exists = prev.find(x => x.id === saved.id)
+        return exists ? prev.map(x => x.id === saved.id ? saved : x) : [saved, ...prev]
       })
       setShowQuote(false)
       setEditingQuote(null)
+      // Use the saved record for downstream side effects so we get the canonical id.
+      q = saved
 
       // Auto-create a Job + pending order when quote is first saved as SOLD
       if (q.status === 'SOLD' && !wasSold && !getJobByQuoteId(q.id)) {
