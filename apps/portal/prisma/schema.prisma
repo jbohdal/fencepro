@@ -80,15 +80,18 @@ model CrmAccount {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  customers   Customer[]
-  documents   Document[]
-  tickets     Ticket[]
-  invoices    Invoice[]
-  contracts   Contract[]
-  staffUsers  CrmUser[]    @relation("StaffOfCrmAccount")
-  contacts    CrmContact[] @relation("ContactsOfCrmAccount")
-  savedQuotes SavedQuote[] @relation("QuotesOfCrmAccount")
-  savedJobs   SavedJob[]   @relation("JobsOfCrmAccount")
+  customers        Customer[]
+  documents        Document[]
+  tickets          Ticket[]
+  invoices         Invoice[]
+  contracts        Contract[]
+  staffUsers       CrmUser[]          @relation("StaffOfCrmAccount")
+  contacts         CrmContact[]       @relation("ContactsOfCrmAccount")
+  savedQuotes      SavedQuote[]       @relation("QuotesOfCrmAccount")
+  savedJobs        SavedJob[]         @relation("JobsOfCrmAccount")
+  scheduleSettings ScheduleSettings?
+  scheduleEntries  ScheduledGridJob[]
+  rainDayLogs      ScheduleRainDay[]
 
   @@index([externalCrmId])
 }
@@ -1689,4 +1692,77 @@ model SavedJob {
   @@index([quoteId])
   @@index([status])
   @@index([archivedAt])
+}
+
+// ── Schedule Settings — account-scoped configurable work days + crews ──
+//
+// Singleton per CrmAccount. workDays is a JSON array of weekday integers
+// (0 = Sunday … 6 = Saturday); crews is a JSON array of {id, name, color}
+// objects. Kept as JSON to match the existing client side shape exactly.
+model ScheduleSettings {
+  id        String   @id @default(uuid())
+  accountId String   @unique
+  workDays  Json // number[] — defaults [1,2,3,4]
+  crews     Json // {id,name,color}[]
+  lat       Float? // optional weather widget centerpoint
+  lng       Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account CrmAccount @relation(fields: [accountId], references: [id])
+}
+
+// ── Scheduled Grid Job — denormalized entries shown on the Schedule grid ──
+//
+// Distinct from SavedJob (which holds the canonical job lifecycle). Each
+// row here is a particular day-and-crew assignment as it appears on the
+// schedule page; can reference a staging job or a SavedJob via stagingJobId.
+enum ScheduledGridJobStatus {
+  Scheduled
+  InProgress
+  Complete
+  RainDay
+  RolledOver
+}
+
+model ScheduledGridJob {
+  id           String                 @id @default(uuid())
+  accountId    String
+  stagingJobId String? // SavedJob.id when applicable
+  clientName   String                 @default("")
+  area         String                 @default("")
+  sections     Int                    @default(0)
+  fenceType    String                 @default("")
+  jobPrice     Float                  @default(0)
+  tearout      Boolean                @default(false)
+  crewId       String                 @default("")
+  date         String                 @default("") // YYYY-MM-DD
+  notes        String                 @default("")
+  status       ScheduledGridJobStatus @default(Scheduled)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  account CrmAccount @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([date])
+  @@index([crewId])
+  @@index([status])
+}
+
+// ── Schedule Rain Day Log — append-only log of rain-day flags ──
+model ScheduleRainDay {
+  id             String   @id @default(uuid())
+  accountId      String
+  jobId          String // ScheduledGridJob.id at the time of flagging
+  clientName     String   @default("")
+  originalDate   String   @default("") // YYYY-MM-DD
+  rescheduleDate String   @default("") // empty = TBD
+  reason         String   @default("")
+  flaggedAt      DateTime @default(now())
+
+  account CrmAccount @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([flaggedAt])
 }

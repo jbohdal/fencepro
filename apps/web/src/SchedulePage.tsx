@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { fireRainDayFlagged } from './automationTrigger'
+import {
+  loadSchedule as storeLoadSchedule,
+  saveSchedule as storeSaveSchedule,
+  loadRainLog as storeLoadRainLog,
+  saveRainLog as storeSaveRainLog,
+} from './scheduleStore'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,11 +46,8 @@ export interface RainDayEntry {
   flaggedAt: string
 }
 
-function loadRainLog(): RainDayEntry[] {
-  try { const r = localStorage.getItem('fencepro_rainlog'); return r ? JSON.parse(r) : [] }
-  catch { return [] }
-}
-function saveRainLog(log: RainDayEntry[]) { localStorage.setItem('fencepro_rainlog', JSON.stringify(log)) }
+const loadRainLog = (): RainDayEntry[] => storeLoadRainLog()
+const saveRainLog = (log: RainDayEntry[]) => storeSaveRainLog(log)
 
 // ── Weather (OpenWeatherMap free tier) ──
 interface WeatherDay { date: string; temp: number; description: string; icon: string; rain: boolean }
@@ -135,16 +138,8 @@ function getMonthWeeks(year: number, month: number, workDays: number[]): Date[][
   return weeks
 }
 
-function loadSchedule(): { jobs: ScheduledJob[], settings: ScheduleSettings } {
-  try {
-    const raw = localStorage.getItem('fencepro_schedule')
-    return raw ? JSON.parse(raw) : { jobs: [], settings: DEFAULT_SETTINGS }
-  } catch { return { jobs: [], settings: DEFAULT_SETTINGS } }
-}
-
-function saveSchedule(jobs: ScheduledJob[], settings: ScheduleSettings) {
-  localStorage.setItem('fencepro_schedule', JSON.stringify({ jobs, settings }))
-}
+const loadSchedule = (): { jobs: ScheduledJob[], settings: ScheduleSettings } => storeLoadSchedule()
+const saveSchedule = (jobs: ScheduledJob[], settings: ScheduleSettings) => storeSaveSchedule(jobs, settings)
 
 function loadStagingJobs() {
   try {

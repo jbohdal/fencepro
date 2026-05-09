@@ -9,6 +9,7 @@ import {
   type Job,
   type JobStatus,
 } from './jobStore'
+import { loadSchedule as storeLoadSchedule } from './scheduleStore'
 
 /* ═══════════════════════════════════════════════
    DISPATCH COMMAND CENTER
@@ -68,18 +69,13 @@ function addDays(d: Date, n: number): Date {
 }
 
 function loadCrews(): Crew[] {
-  try {
-    const raw = localStorage.getItem('fencepro_schedule')
-    if (raw) {
-      const data = JSON.parse(raw)
-      if (data.settings?.crews?.length) {
-        return data.settings.crews.map((c: any) => ({
-          ...c,
-          hexColor: c.hexColor || crewColorToHex(c.color),
-        }))
-      }
-    }
-  } catch { /* use defaults */ }
+  const { settings } = storeLoadSchedule()
+  if (settings?.crews?.length) {
+    return settings.crews.map(c => ({
+      ...c,
+      hexColor: (c as any).hexColor || crewColorToHex(c.color),
+    })) as Crew[]
+  }
   return DEFAULT_CREWS
 }
 
