@@ -245,4 +245,170 @@ router.post('/sync', requireAccount, async (req: any, res) => {
   }
 })
 
+// ── Notes (sub-resource on a contact) ───────────────────────────────────────
+
+const noteSchema = z.object({
+  body: z.string().min(1, 'Note body is required').max(20_000),
+  isPinned: z.boolean().optional(),
+  visibility: z.enum(['internal', 'all_staff']).optional(),
+})
+
+const noteUpdateSchema = noteSchema.partial()
+
+// Helper: confirm the parent contact exists in the caller's account, returns
+// the contact or sends 404 to the response. Returns null when the helper has
+// already sent a response (caller should bail out).
+async function loadContactInAccount(req: any, res: any) {
+  const contact = await prisma.crmContact.findUnique({ where: { id: req.params.id } })
+  if (!contact || contact.accountId !== req.user.crmAccountId) {
+    res.status(404).json({ success: false, error: 'Contact not found' })
+    return null
+  }
+  return contact
+}
+
+// List notes for a contact.
+router.get('/:id/notes', requireAccount, async (req: any, res) => {
+  try {
+    const contact = await loadContactInAccount(req, res)
+    if (!contact) return
+    const notes = await prisma.crmContactNote.findMany({
+      where: { crmContactId: contact.id, deletedAt: null },
+      orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
+    })
+    res.json({ success: true, data: notes })
+  } catch (err) {
+    console.error('[crm-contacts] notes list error:', err)
+    res.status(500).json({ success: false, error: 'Failed to list notes' })
+  }
+})
+
+// Create a note.
+router.post('/:id/notes', requireAccount, async (req: any, res) => {
+  try {
+    const contact = await loadContactInAccount(req, res)
+    if (!contact) return
+    const data = noteSchema.parse(req.body)
+    const created = await prisma.crmContactNote.create({
+      data: {
+        crmContactId: contact.id,
+        accountId: req.user.crmAccountId,
+        body: data.body,
+        isPinned: data.isPinned ?? false,
+        visibility: data.visibility ?? 'all_staff',
+        createdBy: req.user.email || 'staff',
+        createdById: req.user.id,
+      },
+    })
+    await audit(req, 'create', 'CrmContactNote', created.id, { newValues: created })
+    res.status(201).json({ success: true, data: created })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    console.error('[crm-contacts] notes create error:', err)
+    res.status(500).json({ success: false, error: 'Failed to create note' })
+  }
+})
+
+// Update a note (body / pin / visibility).
+router.patch('/:id/notes/:noteId', requireAccount, async (req: any, res) => {
+  try {
+    const contact = await loadContactInAccount(req, res)
+    if (!contact) return
+    const data = noteUpdateSchema.parse(req.body)
+    const existing = await prisma.crmContactNote.findUnique({ where: { id: req.params.noteId } })
+    if (!existing || existing.crmContactId !== contact.id || existing.deletedAt) {
+      res.status(404).json({ success: false, error: 'Note not found' })
+      return
+    }
+    const updated = await prisma.crmContactNote.update({
+      where: { id: existing.id },
+      data: {
+        body: data.body,
+        isPinned: data.isPinned,
+        visibility: data.visibility,
+      },
+    })
+    await audit(req, 'update', 'CrmContactNote', updated.id, { oldValues: existing, newValues: updated })
+    res.json({ success: true, data: updated })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    console.error('[crm-contacts] notes update error:', err)
+    res.status(500).json({ success: false, error: 'Failed to update note' })
+  }
+})
+
+// Soft delete a note.
+router.delete('/:id/notes/:noteId', requireAccount, async (req: any, res) => {
+  try {
+    const contact = await loadContactInAccount(req, res)
+    if (!contact) return
+    const existing = await prisma.crmContactNote.findUnique({ where: { id: req.params.noteId } })
+    if (!existing || existing.crmContactId !== contact.id || existing.deletedAt) {
+      res.status(404).json({ success: false, error: 'Note not found' })
+      return
+    }
+    await prisma.crmContactNote.update({
+      where: { id: existing.id },
+      data: { deletedAt: new Date() },
+    })
+    await audit(req, 'soft_delete', 'CrmContactNote', existing.id, { oldValues: existing })
+    res.json({ success: true })
+  } catch (err) {
+    console.error('[crm-contacts] notes delete error:', err)
+    res.status(500).json({ success: false, error: 'Failed to delete note' })
+  }
+})
+
+// Bulk migration helper for legacy localStorage notes. Idempotent — matches
+// existing notes by (crmContactId, body, createdAt) so re running is safe.
+const noteSyncSchema = z.object({
+  notes: z.array(z.object({
+    crmContactId: z.string(),
+    body: z.string().min(1).max(20_000),
+    isPinned: z.boolean().optional(),
+    visibility: z.enum(['internal', 'all_staff']).optional(),
+    createdBy: z.string().optional(),
+    createdAt: z.string().optional(), // ISO date string from the legacy record
+  })),
+})
+
+router.post('/notes/sync', requireAccount, async (req: any, res) => {
+  try {
+    const { notes } = noteSyncSchema.parse(req.body)
+    let created = 0, skipped = 0
+    for (const n of notes) {
+      // Confirm the contact belongs to the caller's account
+      const contact = await prisma.crmContact.findUnique({ where: { id: n.crmContactId } })
+      if (!contact || contact.accountId !== req.user.crmAccountId) { skipped++; continue }
+      const dupe = await prisma.crmContactNote.findFirst({
+        where: {
+          crmContactId: n.crmContactId,
+          body: n.body,
+          deletedAt: null,
+        },
+      })
+      if (dupe) { skipped++; continue }
+      await prisma.crmContactNote.create({
+        data: {
+          crmContactId: n.crmContactId,
+          accountId: req.user.crmAccountId,
+          body: n.body,
+          isPinned: n.isPinned ?? false,
+          visibility: n.visibility ?? 'all_staff',
+          createdBy: n.createdBy || req.user.email || 'migrated',
+          createdById: req.user.id,
+          createdAt: n.createdAt ? new Date(n.createdAt) : undefined,
+        },
+      })
+      created++
+    }
+    console.log(`[crm-contacts] notes sync: ${created} created, ${skipped} skipped (dupes or out of account) for account ${req.user.crmAccountId}`)
+    res.json({ success: true, data: { created, skipped, total: notes.length } })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    console.error('[crm-contacts] notes sync error:', err)
+    res.status(500).json({ success: false, error: 'Failed to sync notes' })
+  }
+})
+
 export default router

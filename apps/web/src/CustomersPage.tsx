@@ -1,10 +1,9 @@
 import { useState, useCallback, useEffect } from 'react'
 import {
-  getInvoicesForCustomer, createInvoice, updateInvoice, recordPayment,
-  getPaymentsForCustomer, getBillingSummary, getNotesForCustomer,
-  createNote, updateNote, deleteNote, getPullSheetsForCustomer,
+  getInvoicesForCustomer, createInvoice, recordPayment,
+  getPaymentsForCustomer, getBillingSummary, getPullSheetsForCustomer,
   nextInvoiceNumber,
-  type Invoice, type InvoiceLineItem, type InvoiceStatus, type Payment, type CustomerNote,
+  type Invoice, type Payment,
 } from './billingStore'
 import { toast } from './toast'
 import CustomerPhotosTab from './CustomerPhotosTab'
@@ -16,6 +15,10 @@ import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
 import { getPortalAccessStatus, loadAccountsSoon, sendPortalInvite, resendPortalInvite, buildActivationLink } from './portalAccountStore'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity, getCustomers, upsertCustomer, deleteCustomer as storeDeleteCustomer, bulkImportCustomers } from './customerStore'
+import {
+  listContactNotes, createContactNote, updateContactNote, deleteContactNote,
+  type CrmContactNoteRecord,
+} from './crmContactsApi'
 
 interface Customer {
   id: string
@@ -329,6 +332,9 @@ function CustomerBillingTab({ customerId, customerName, customerEmail }: { custo
 
   return (
     <div className="space-y-4">
+      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
+        Billing data (invoices and payments) is migrating to the cloud (Phase 9). Anything you create or record here is stored locally in this browser only and will not be visible to teammates until the migration completes.
+      </div>
       {/* Sub-nav */}
       <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 w-fit">
         {(['overview', 'invoices', 'payments'] as const).map(t => (
@@ -536,26 +542,62 @@ function RecordPaymentModal({ invoiceId, customerId, customerName, onClose, onRe
 // ── Customer Notes Tab ──────────────────────────────────────────────────────
 
 function CustomerNotesTab({ customerId }: { customerId: string }) {
-  const [notes, setNotes] = useState<CustomerNote[]>([])
+  const [notes, setNotes] = useState<CrmContactNoteRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
   const [newNote, setNewNote] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editBody, setEditBody] = useState('')
   const [search, setSearch] = useState('')
 
-  const load = useCallback(() => { setNotes(getNotesForCustomer(customerId)) }, [customerId])
-  useEffect(() => { load() }, [load])
+  const load = useCallback(async () => {
+    const rows = await listContactNotes(customerId)
+    if (rows) setNotes(rows)
+    setLoading(false)
+  }, [customerId])
+  useEffect(() => { setLoading(true); load() }, [load])
 
-  function handleCreate() {
-    if (!newNote.trim()) return
-    createNote({ customerId, body: newNote.trim(), isPinned: false, visibility: 'all_staff', createdBy: 'Admin' })
-    setNewNote('')
-    load()
+  async function handleCreate() {
+    const body = newNote.trim()
+    if (!body || busy) return
+    setBusy(true)
+    const created = await createContactNote(customerId, { body })
+    setBusy(false)
+    if (created) {
+      setNewNote('')
+      load()
+    }
   }
 
-  function handlePin(id: string, pinned: boolean) { updateNote(id, { isPinned: !pinned }); load() }
-  function handleDelete(id: string) { if (confirm('Delete this note?')) { deleteNote(id); load() } }
-  function startEdit(n: CustomerNote) { setEditingId(n.id); setEditBody(n.body) }
-  function saveEdit() { if (editingId) { updateNote(editingId, { body: editBody }); setEditingId(null); load() } }
+  async function handlePin(id: string, pinned: boolean) {
+    setBusy(true)
+    const updated = await updateContactNote(customerId, id, { isPinned: !pinned })
+    setBusy(false)
+    if (updated) load()
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this note?')) return
+    setBusy(true)
+    const ok = await deleteContactNote(customerId, id)
+    setBusy(false)
+    if (ok) load()
+  }
+
+  function startEdit(n: CrmContactNoteRecord) { setEditingId(n.id); setEditBody(n.body) }
+
+  async function saveEdit() {
+    if (!editingId) return
+    const body = editBody.trim()
+    if (!body) return
+    setBusy(true)
+    const updated = await updateContactNote(customerId, editingId, { body })
+    setBusy(false)
+    if (updated) {
+      setEditingId(null)
+      load()
+    }
+  }
 
   const filtered = search ? notes.filter(n => n.body.toLowerCase().includes(search.toLowerCase())) : notes
 
@@ -577,7 +619,9 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
       )}
 
       {/* Notes list */}
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="text-center py-8 text-gray-400 text-sm">Loading notes…</div>
+      ) : filtered.length === 0 ? (
         <div className="text-center py-8 text-gray-400 text-sm">No notes yet</div>
       ) : (
         <div className="space-y-2">
@@ -627,6 +671,9 @@ function CustomerPullSheetsTab({ customerId }: { customerId: string }) {
 
   return (
     <div className="space-y-4">
+      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
+        Pull sheets are derived from Quotes which are migrating to the cloud (Phase 2). Pull sheet data is stored locally with quotes until the migration completes.
+      </div>
       {pullSheets.length === 0 ? (
         <div className="text-center py-8 text-gray-400">
           <p className="font-medium">No pull sheets linked</p>
@@ -703,15 +750,23 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
 
   if (costedJobs.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-400">
-        <p className="font-medium">No job costing data</p>
-        <p className="text-sm mt-1">Complete jobs and enter actual costs in Budget → Job Costing to see data here.</p>
+      <div className="space-y-4">
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
+          Job costing data is migrating to the cloud with Jobs (Phase 3). Entries you make in Budget → Job Costing are stored locally until the migration completes.
+        </div>
+        <div className="text-center py-12 text-gray-400">
+          <p className="font-medium">No job costing data</p>
+          <p className="text-sm mt-1">Complete jobs and enter actual costs in Budget → Job Costing to see data here.</p>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
+      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
+        Job costing data is migrating to the cloud with Jobs (Phase 3). Entries are stored locally until the migration completes.
+      </div>
       {/* Summary */}
       <div className="grid grid-cols-4 gap-3">
         <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Jobs Costed</p><p className="text-lg font-bold text-gray-900">{costedJobs.length}</p></div>
@@ -882,6 +937,9 @@ function CustomerDetail({
 
         {activeTab === 'quotes' && (
           <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
+              Quotes are migrating to the cloud in the next push (Phase 2). Quotes you save here are stored locally in this browser only and will not be visible to teammates until the migration completes.
+            </div>
             {importedQuotes.length > 0 && (
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                 <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
@@ -968,6 +1026,9 @@ function CustomerDetail({
 
         {activeTab === 'jobs' && (
           <div className="space-y-3">
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
+              Jobs are migrating to the cloud in the next push (Phase 3). Jobs and stage changes are stored locally in this browser only until the migration completes; teammates may not see them yet.
+            </div>
             {jobs.length === 0 ? (
               <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
                 <p className="text-4xl mb-2">🏗</p>

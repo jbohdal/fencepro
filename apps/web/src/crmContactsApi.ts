@@ -106,6 +106,113 @@ export async function archiveContact(id: string): Promise<boolean> {
   return r.ok
 }
 
+// ── Notes (sub resource) ──
+
+export interface CrmContactNoteRecord {
+  id: string
+  crmContactId: string
+  accountId: string
+  body: string
+  isPinned: boolean
+  visibility: 'internal' | 'all_staff'
+  createdBy: string
+  createdById?: string | null
+  createdAt: string
+  updatedAt: string
+  deletedAt?: string | null
+}
+
+export interface CrmContactNotePayload {
+  body: string
+  isPinned?: boolean
+  visibility?: 'internal' | 'all_staff'
+}
+
+export async function listContactNotes(contactId: string): Promise<CrmContactNoteRecord[] | null> {
+  const r = await call<CrmContactNoteRecord[]>('GET', `/${contactId}/notes`)
+  if (!r.ok) {
+    toast.error('Could not load notes', `${r.error || 'Network error'}`)
+    return null
+  }
+  return r.data || []
+}
+
+export async function createContactNote(contactId: string, payload: CrmContactNotePayload): Promise<CrmContactNoteRecord | null> {
+  const r = await call<CrmContactNoteRecord>('POST', `/${contactId}/notes`, payload)
+  if (!r.ok) {
+    toast.error('Note not saved', `${r.error || 'Network error'}`)
+    return null
+  }
+  return r.data || null
+}
+
+export async function updateContactNote(contactId: string, noteId: string, payload: Partial<CrmContactNotePayload>): Promise<CrmContactNoteRecord | null> {
+  const r = await call<CrmContactNoteRecord>('PATCH', `/${contactId}/notes/${noteId}`, payload)
+  if (!r.ok) {
+    toast.error('Note not updated', `${r.error || 'Network error'}`)
+    return null
+  }
+  return r.data || null
+}
+
+export async function deleteContactNote(contactId: string, noteId: string): Promise<boolean> {
+  const r = await call('DELETE', `/${contactId}/notes/${noteId}`)
+  if (!r.ok) {
+    toast.error('Note not deleted', `${r.error || 'Network error'} — it will reappear on next reload.`)
+  }
+  return r.ok
+}
+
+/**
+ * One shot push of the legacy `fencepro_customer_notes` localStorage blob into
+ * the database. Idempotent on the server side (matches by contact + body) and
+ * gated by a localStorage flag so we do not retry on every page load.
+ */
+const NOTES_MIGRATION_FLAG = 'fencepro_notes_db_migrated_v1'
+
+interface LegacyLocalNote {
+  id?: string
+  customerId: string
+  body: string
+  isPinned?: boolean
+  visibility?: 'internal' | 'all_staff'
+  createdBy?: string
+  createdAt?: string
+  deletedAt?: string
+}
+
+export async function migrateLocalNotesOnce(): Promise<void> {
+  if (localStorage.getItem(NOTES_MIGRATION_FLAG) === '1') return
+  const token = getAccessToken()
+  if (!token) return
+  try {
+    const raw = localStorage.getItem('fencepro_customer_notes')
+    const all: LegacyLocalNote[] = raw ? JSON.parse(raw) : []
+    const live = (Array.isArray(all) ? all : []).filter(n => n && n.customerId && n.body && !n.deletedAt)
+    if (live.length === 0) {
+      localStorage.setItem(NOTES_MIGRATION_FLAG, '1')
+      return
+    }
+    const payload = {
+      notes: live.map(n => ({
+        crmContactId: n.customerId,
+        body: n.body,
+        isPinned: !!n.isPinned,
+        visibility: (n.visibility === 'internal' ? 'internal' : 'all_staff') as 'internal' | 'all_staff',
+        createdBy: n.createdBy || 'migrated',
+        createdAt: n.createdAt,
+      })),
+    }
+    const r = await call<{ created: number; skipped: number; total: number }>('POST', '/notes/sync', payload)
+    if (r.ok) {
+      localStorage.setItem(NOTES_MIGRATION_FLAG, '1')
+      if (r.data && r.data.created > 0) {
+        toast.info('Customer notes synced to cloud', `${r.data.created} note${r.data.created === 1 ? '' : 's'} migrated.`)
+      }
+    }
+  } catch {}
+}
+
 /**
  * One-time bulk migration: pushes the entire localStorage `fencepro_customers`
  * blob into the database. Safe to call repeatedly — the server upserts by

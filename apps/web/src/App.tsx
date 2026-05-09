@@ -498,7 +498,12 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
           type: 'customer',
           label: name,
           sub: c.phone || c.email || 'Customer',
-          action: () => { setActive('Customers'); setSearchOpen(false); setSearchQuery('') },
+          action: () => {
+            setActive('Customers')
+            setSearchOpen(false)
+            setSearchQuery('')
+            try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { customerId: c.id } })) } catch {}
+          },
         })
       }
     })

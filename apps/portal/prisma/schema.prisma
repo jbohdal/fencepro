@@ -1386,13 +1386,45 @@ model CrmContact {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  account CrmAccount? @relation("ContactsOfCrmAccount", fields: [accountId], references: [id])
+  account      CrmAccount?      @relation("ContactsOfCrmAccount", fields: [accountId], references: [id])
+  contactNotes CrmContactNote[]
 
   @@index([accountId])
   @@index([ownerId])
   @@index([email])
   @@index([archivedAt])
   @@index([jobStatus])
+}
+
+// ── CRM Contact Notes — staff notes attached to a CrmContact ──
+//
+// Replaces the prior localStorage-backed billingStore CustomerNote. Visible to
+// every staff user in the same CrmAccount; survives device switches and
+// browser clears. Notes are soft deleted via deletedAt so accidental deletes
+// can be recovered from the audit log.
+enum CrmContactNoteVisibility {
+  internal // hidden from non-admin staff (future use)
+  all_staff // visible to every staff user in the account
+}
+
+model CrmContactNote {
+  id           String                   @id @default(uuid())
+  crmContactId String
+  accountId    String // denormalized for fast tenant scoping
+  body         String
+  isPinned     Boolean                  @default(false)
+  visibility   CrmContactNoteVisibility @default(all_staff)
+  createdBy    String // display name or user identifier
+  createdById  String? // CrmUser.id of the author, when known
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  deletedAt    DateTime?
+
+  contact CrmContact @relation(fields: [crmContactId], references: [id], onDelete: Cascade)
+
+  @@index([crmContactId])
+  @@index([accountId])
+  @@index([deletedAt])
 }
 
 // ── CRM Audit Log — every CRUD op on important CRM-side entities ──

@@ -20,6 +20,7 @@ import {
   updateContact as apiUpdateContact,
   archiveContact as apiArchiveContact,
   migrateLocalContactsOnce,
+  migrateLocalNotesOnce,
   type CrmContactRecord,
   type CrmContactPayload,
 } from './crmContactsApi'
@@ -114,6 +115,9 @@ export function initCustomers(): Promise<void> {
       emit()
     }
     try { localStorage.removeItem(LEGACY_KEY) } catch {}
+    // After contacts are settled, push any legacy localStorage notes into
+    // the database so the Notes tab is populated from the cloud going forward.
+    try { await migrateLocalNotesOnce() } catch {}
   })()
   return initPromise
 }
