@@ -25,6 +25,7 @@ import savedQuoteRoutes from './routes/saved-quotes.js'
 import savedJobRoutes from './routes/saved-jobs.js'
 import scheduleRoutes from './routes/schedule.js'
 import pipelineRoutes from './routes/pipeline.js'
+import inventoryStateRoutes from './routes/inventory.js'
 import leadChatRoutes from './routes/lead-chat.js'
 import knowledgeRoutes from './routes/knowledge.js'
 import googleCalendarRoutes from './routes/google-calendar.js'
@@ -124,6 +125,7 @@ app.use('/api/saved-quotes', savedQuoteRoutes)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/pipeline', pipelineRoutes)
+app.use('/api/inventory-state', inventoryStateRoutes)
 app.use('/api/lead-chat', leadChatRoutes)
 app.use('/api/knowledge', knowledgeRoutes)
 app.use('/api/google-calendar', googleCalendarRoutes)

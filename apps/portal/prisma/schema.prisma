@@ -93,6 +93,7 @@ model CrmAccount {
   scheduleEntries  ScheduledGridJob[]
   rainDayLogs      ScheduleRainDay[]
   pipelineState    PipelineState?
+  inventoryState   InventoryState?
 
   @@index([externalCrmId])
 }
@@ -1783,6 +1784,27 @@ model PipelineState {
   stages    Json // Stage[] (id, name, color, etc.)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  account CrmAccount @relation(fields: [accountId], references: [id])
+}
+
+// ── Inventory State — singleton per account ──
+//
+// Replaces the prior `localStorage.fencepro_inventory` blob plus the
+// associated bundles, locations, stock levels, and transaction log. Stored
+// as a single JSON document because the inventory page consumes the full
+// catalog in memory; if transaction volume becomes a problem the audit log
+// can be split into its own table later.
+model InventoryState {
+  id           String   @id @default(uuid())
+  accountId    String   @unique
+  items        Json // InventoryItem[]
+  bundles      Json // Bundle[]
+  locations    Json // InventoryLocation[]
+  stockLevels  Json // StockLevel[]
+  transactions Json // InventoryTransaction[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   account CrmAccount @relation(fields: [accountId], references: [id])
 }

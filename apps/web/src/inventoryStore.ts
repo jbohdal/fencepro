@@ -1,3 +1,106 @@
+/**
+ * Inventory store — backed by /api/inventory-state (singleton per account).
+ *
+ * Reads are synchronous off an in-memory cache hydrated by initInventory()
+ * after auth. Writes update the cache and schedule a debounced PUT to the
+ * server, so spam-saves from the inventory page don't hammer the network.
+ */
+
+import { getAccessToken } from './crmAuth'
+
+const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
+const INV_EVT = 'fencepro:inventory:updated'
+const INV_MIGRATION_FLAG = 'fencepro_inventory_db_migrated_v1'
+
+interface InventoryStateBlob {
+  items: any[]
+  bundles: any[]
+  locations: any[]
+  stockLevels: any[]
+  transactions: any[]
+}
+
+let invCache: InventoryStateBlob = { items: [], bundles: [], locations: [], stockLevels: [], transactions: [] }
+let invInitPromise: Promise<void> | null = null
+let invFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+async function invCall<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T }> {
+  const token = getAccessToken()
+  if (!token) return { ok: false }
+  try {
+    const res = await fetch(`${AUTH_API}/api/inventory-state`, {
+      method,
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!res.ok) return { ok: false }
+    const json = await res.json().catch(() => ({}))
+    if (!json?.success) return { ok: false }
+    return { ok: true, data: json.data as T }
+  } catch { return { ok: false } }
+}
+
+function invEmit() { try { window.dispatchEvent(new CustomEvent(INV_EVT)) } catch {} }
+
+function scheduleFlush() {
+  if (invFlushTimer) clearTimeout(invFlushTimer)
+  invFlushTimer = setTimeout(() => {
+    invFlushTimer = null
+    invCall('PUT', invCache).catch(() => {})
+  }, 250)
+}
+
+async function migrateLocalInventoryOnce(): Promise<void> {
+  if (localStorage.getItem(INV_MIGRATION_FLAG) === '1') return
+  const token = getAccessToken()
+  if (!token) return
+  try {
+    const blob: InventoryStateBlob = {
+      items: JSON.parse(localStorage.getItem('fencepro_inventory') || '[]'),
+      bundles: JSON.parse(localStorage.getItem('fencepro_bundles') || '[]'),
+      locations: JSON.parse(localStorage.getItem('fencepro_inv_locations') || '[]'),
+      stockLevels: JSON.parse(localStorage.getItem('fencepro_inv_stock') || '[]'),
+      transactions: JSON.parse(localStorage.getItem('fencepro_inv_transactions') || '[]'),
+    }
+    const hasData = blob.items.length || blob.bundles.length || blob.locations.length || blob.stockLevels.length || blob.transactions.length
+    if (hasData) {
+      const r = await invCall<InventoryStateBlob>('PUT', blob)
+      if (r.ok) localStorage.setItem(INV_MIGRATION_FLAG, '1')
+    } else {
+      localStorage.setItem(INV_MIGRATION_FLAG, '1')
+    }
+  } catch {}
+}
+
+export function initInventory(): Promise<void> {
+  if (invInitPromise) return invInitPromise
+  invInitPromise = (async () => {
+    try { await migrateLocalInventoryOnce() } catch {}
+    const r = await invCall<InventoryStateBlob>('GET')
+    if (r.ok && r.data) {
+      invCache = {
+        items: Array.isArray(r.data.items) ? r.data.items : [],
+        bundles: Array.isArray(r.data.bundles) ? r.data.bundles : [],
+        locations: Array.isArray(r.data.locations) ? r.data.locations : [],
+        stockLevels: Array.isArray(r.data.stockLevels) ? r.data.stockLevels : [],
+        transactions: Array.isArray(r.data.transactions) ? r.data.transactions : [],
+      }
+      invEmit()
+    }
+    // Drop legacy keys after we have the cloud copy.
+    try {
+      localStorage.removeItem('fencepro_inventory')
+      localStorage.removeItem('fencepro_bundles')
+      localStorage.removeItem('fencepro_inv_locations')
+      localStorage.removeItem('fencepro_inv_stock')
+      localStorage.removeItem('fencepro_inv_transactions')
+    } catch {}
+  })()
+  return invInitPromise
+}
+
+export const INVENTORY_UPDATED_EVENT = INV_EVT
+
 export interface InventoryItem {
   id: string
   name: string
@@ -303,33 +406,27 @@ const INV_KEY    = 'fencepro_inventory'
 const BUNDLE_KEY = 'fencepro_bundles'
 
 export function getInventory(): InventoryItem[] {
-  try {
-    const raw = localStorage.getItem(INV_KEY)
-    return raw ? JSON.parse(raw) : DEFAULT_INVENTORY
-  } catch {
-    return DEFAULT_INVENTORY
-  }
+  return invCache.items.length > 0 ? (invCache.items as InventoryItem[]) : DEFAULT_INVENTORY
 }
 
 export function saveInventory(items: InventoryItem[]): void {
-  localStorage.setItem(INV_KEY, JSON.stringify(items))
+  invCache.items = items
+  invEmit()
+  scheduleFlush()
 }
 
 export function resetInventory(): void {
-  localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY))
+  saveInventory(DEFAULT_INVENTORY)
 }
 
 export function getBundles(): Bundle[] {
-  try {
-    const raw = localStorage.getItem(BUNDLE_KEY)
-    return raw ? JSON.parse(raw) : DEFAULT_BUNDLES
-  } catch {
-    return DEFAULT_BUNDLES
-  }
+  return invCache.bundles.length > 0 ? (invCache.bundles as Bundle[]) : DEFAULT_BUNDLES
 }
 
 export function saveBundles(bundles: Bundle[]): void {
-  localStorage.setItem(BUNDLE_KEY, JSON.stringify(bundles))
+  invCache.bundles = bundles
+  invEmit()
+  scheduleFlush()
 }
 
 export function getPriceMap(): Record<string, number> {
@@ -361,14 +458,13 @@ const DEFAULT_LOCATIONS: InventoryLocation[] = [
 ]
 
 export function getLocations(): InventoryLocation[] {
-  try {
-    const raw = localStorage.getItem(LOC_KEY)
-    return raw ? JSON.parse(raw) : DEFAULT_LOCATIONS
-  } catch { return DEFAULT_LOCATIONS }
+  return invCache.locations.length > 0 ? (invCache.locations as InventoryLocation[]) : DEFAULT_LOCATIONS
 }
 
 export function saveLocations(locs: InventoryLocation[]): void {
-  localStorage.setItem(LOC_KEY, JSON.stringify(locs))
+  invCache.locations = locs
+  invEmit()
+  scheduleFlush()
 }
 
 // ── Stock Levels (per item per location) ──
@@ -387,14 +483,13 @@ export interface StockLevel {
 const STOCK_KEY = 'fencepro_inv_stock'
 
 export function getStockLevels(): StockLevel[] {
-  try {
-    const raw = localStorage.getItem(STOCK_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
+  return invCache.stockLevels as StockLevel[]
 }
 
 export function saveStockLevels(levels: StockLevel[]): void {
-  localStorage.setItem(STOCK_KEY, JSON.stringify(levels))
+  invCache.stockLevels = levels
+  invEmit()
+  scheduleFlush()
 }
 
 /** Get stock for a specific item across all locations */
@@ -455,14 +550,13 @@ export interface InventoryTransaction {
 const TXN_KEY = 'fencepro_inv_transactions'
 
 export function getTransactions(): InventoryTransaction[] {
-  try {
-    const raw = localStorage.getItem(TXN_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
+  return invCache.transactions as InventoryTransaction[]
 }
 
 export function saveTransactions(txns: InventoryTransaction[]): void {
-  localStorage.setItem(TXN_KEY, JSON.stringify(txns))
+  invCache.transactions = txns
+  invEmit()
+  scheduleFlush()
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9)
