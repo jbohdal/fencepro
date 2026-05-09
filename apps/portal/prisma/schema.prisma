@@ -94,6 +94,7 @@ model CrmAccount {
   rainDayLogs      ScheduleRainDay[]
   pipelineState    PipelineState?
   inventoryState   InventoryState?
+  vendorState      VendorState?
 
   @@index([externalCrmId])
 }
@@ -1805,6 +1806,27 @@ model InventoryState {
   transactions Json // InventoryTransaction[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  account CrmAccount @relation(fields: [accountId], references: [id])
+}
+
+// ── Vendor State — singleton per account holding AP-side vendor data ──
+//
+// Replaces the prior fencepro_vendors / fencepro_vendor_bills /
+// fencepro_vendor_payments localStorage trio. Note: normalized
+// VendorContact / VendorBill / VendorPayment models also exist on this
+// schema (added in earlier rebrand work) but are not yet wired into the
+// frontend. Phase 7 takes the simpler JSON-blob route to match the
+// existing client; a follow up phase can migrate to those normalized
+// models if and when fine-grained queries are needed.
+model VendorState {
+  id        String   @id @default(uuid())
+  accountId String   @unique
+  vendors   Json // VendorContact[]
+  bills     Json // VendorBill[]
+  payments  Json // VendorPayment[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   account CrmAccount @relation(fields: [accountId], references: [id])
 }
