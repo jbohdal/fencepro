@@ -22,6 +22,7 @@ import appointmentRoutes from './routes/appointments.js'
 import pricingRoutes from './routes/pricing.js'
 import quoteApiRoutes from './routes/quotes-api.js'
 import savedQuoteRoutes from './routes/saved-quotes.js'
+import savedJobRoutes from './routes/saved-jobs.js'
 import leadChatRoutes from './routes/lead-chat.js'
 import knowledgeRoutes from './routes/knowledge.js'
 import googleCalendarRoutes from './routes/google-calendar.js'
@@ -118,6 +119,7 @@ app.use('/api/appointments', appointmentRoutes)
 app.use('/api/pricing-rules', pricingRoutes)
 app.use('/api/quotes', quoteApiRoutes)
 app.use('/api/saved-quotes', savedQuoteRoutes)
+app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/lead-chat', leadChatRoutes)
 app.use('/api/knowledge', knowledgeRoutes)
 app.use('/api/google-calendar', googleCalendarRoutes)

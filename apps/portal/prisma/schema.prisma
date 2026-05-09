@@ -88,6 +88,7 @@ model CrmAccount {
   staffUsers  CrmUser[]    @relation("StaffOfCrmAccount")
   contacts    CrmContact[] @relation("ContactsOfCrmAccount")
   savedQuotes SavedQuote[] @relation("QuotesOfCrmAccount")
+  savedJobs   SavedJob[]   @relation("JobsOfCrmAccount")
 
   @@index([externalCrmId])
 }
@@ -1390,6 +1391,7 @@ model CrmContact {
   account      CrmAccount?      @relation("ContactsOfCrmAccount", fields: [accountId], references: [id])
   contactNotes CrmContactNote[]
   savedQuotes  SavedQuote[]
+  savedJobs    SavedJob[]
 
   @@index([accountId])
   @@index([ownerId])
@@ -1555,11 +1557,11 @@ model SavedQuote {
   // Public sharing token used by #/quote/:token and #/present/:token routes.
   // Generated server-side on first request to share the quote. Unique so the
   // link is unguessable.
-  shareToken    String?   @unique
+  shareToken        String?   @unique
   // Timestamp of the first time a customer hit the public share page; null
   // until then. Drives the "viewed" badge + automation trigger.
-  firstViewedAt DateTime?
-  viewCount     Int       @default(0)
+  firstViewedAt     DateTime?
+  viewCount         Int       @default(0)
   // Customer-side acceptance — recorded by POST /api/saved-quotes/share/:token/accept
   acceptedAt        DateTime?
   acceptedBy        String? // typed name or display name from the accept form
@@ -1576,5 +1578,115 @@ model SavedQuote {
   @@index([crmContactId])
   @@index([status])
   @@index([shareToken])
+  @@index([archivedAt])
+}
+
+// ── Saved Jobs — operational job records spawned from sold quotes ──
+//
+// Replaces the prior localStorage-backed `fencepro_jobs` blob. Named
+// SavedJob to mirror SavedQuote and avoid colliding with any future
+// generic Job model (none today). Money fields are Float to match the
+// existing client side calculator chain.
+enum SavedJobStatus {
+  staging
+  scheduled
+  in_progress
+  completed
+  invoiced
+  paid
+  on_hold
+}
+
+enum SavedJobMaterialsStatus {
+  not_ordered
+  ordered
+  received
+  loaded
+}
+
+enum SavedJobPaymentStatus {
+  not_invoiced
+  invoiced
+  partial
+  paid
+}
+
+model SavedJob {
+  id           String  @id @default(uuid())
+  accountId    String // tenant scope
+  quoteId      String? // SavedQuote.id; optional for legacy / hand created jobs
+  crmContactId String?
+
+  status         SavedJobStatus  @default(staging)
+  previousStatus SavedJobStatus?
+
+  // Customer snapshot
+  customerName    String @default("")
+  customerPhone   String @default("")
+  customerEmail   String @default("")
+  customerAddress String @default("")
+
+  // Scope (snapshot from quote)
+  fenceStyle      String  @default("")
+  sections        Int     @default(0)
+  totalFeet       Int     @default(0)
+  walkGates       Int     @default(0)
+  dblGates        Int     @default(0)
+  tearOutSections Int     @default(0)
+  hasSalesman     Boolean @default(false)
+
+  // Geolocation (for smart scheduling)
+  lat Float?
+  lng Float?
+
+  // Pricing
+  quotePrice       Float @default(0)
+  changeOrderTotal Float @default(0)
+  contractValue    Float @default(0)
+  gmPct            Float @default(0)
+
+  // Operations — staging
+  materialsStatus SavedJobMaterialsStatus @default(not_ordered)
+  pullSheetPulled Boolean                 @default(false)
+  locatesDate     String?
+  locatesExpDate  String?
+  drawingComplete Boolean                 @default(false)
+
+  // Operations — scheduling
+  crewAssigned     String  @default("")
+  scheduledDate    String  @default("")
+  scheduledEndDate String?
+  estimatedDays    Int     @default(0)
+
+  // Operations — completion
+  completedDate String?
+  completedBy   String?
+  actualDays    Int?
+
+  // Payment
+  invoiceNumber String?
+  invoiceDate   String?
+  paymentStatus SavedJobPaymentStatus @default(not_invoiced)
+  amountPaid    Float                 @default(0)
+  paymentDate   String?
+  paymentMethod String?
+
+  // Meta
+  notes      String  @default("")
+  holdReason String?
+  salesRep   String  @default("")
+  leadSource String  @default("")
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  account CrmAccount? @relation("JobsOfCrmAccount", fields: [accountId], references: [id])
+  contact CrmContact? @relation(fields: [crmContactId], references: [id])
+
+  @@index([accountId])
+  @@index([crmContactId])
+  @@index([quoteId])
+  @@index([status])
   @@index([archivedAt])
 }

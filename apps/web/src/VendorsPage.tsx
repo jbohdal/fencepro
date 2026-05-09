@@ -3,6 +3,7 @@
  */
 
 import { useState, useMemo } from 'react'
+import { getJobs } from './jobStore'
 import {
   getVendors, getVendorById, createVendor, updateVendor, deleteVendor,
   getBillsForVendor, getPaymentsForVendor,
@@ -412,11 +413,9 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
   }
   function removeLine(id: string) { setLineItems(prev => prev.filter(li => li.id !== id)) }
 
-  // Job search (pulls from localStorage.fencepro_jobs)
-  const jobs = useMemo(() => {
-    try { const raw = localStorage.getItem('fencepro_jobs'); return raw ? JSON.parse(raw) : [] } catch { return [] }
-  }, [])
-  const jobResults = jobs.filter((j: any) => !jobSearch || (j.customerName || '').toLowerCase().includes(jobSearch.toLowerCase())).slice(0, 8)
+  // Job search reads from the API-backed cache.
+  const jobs = useMemo(() => getJobs(), [])
+  const jobResults = jobs.filter(j => !jobSearch || (j.customerName || '').toLowerCase().includes(jobSearch.toLowerCase())).slice(0, 8)
 
   function handleSave() {
     if (!billNumber.trim() || lineItems.length === 0) return

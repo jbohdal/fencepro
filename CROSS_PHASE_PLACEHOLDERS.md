@@ -17,24 +17,20 @@ The standing rule (per `feedback_no_placeholders.md`): a UI element either works
 
 ## Phase 2 — Quotes + Quote Builder
 
-| File | Element | Banner location | Action when Phase 2 lands |
-|---|---|---|---|
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | Quotes tab on customer profile | Banner at top of `activeTab === 'quotes'` block | Remove banner; tables now read from `/api/quotes/by-customer/:id` instead of `localStorage.fencepro_quotes` |
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | Imported Quotes table on Quotes tab | Same banner covers it | Migrate `localStorage.fencepro_imported_quotes` to a new `ImportedQuote` model or fold into the Quote model |
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | "+ New Quote" button in customer profile header | Implicit (opens QuoteBuilder, no separate banner) | QuoteBuilder save migrates from `localStorage.fencepro_quotes` to API |
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | Pull Sheets tab | Banner at top of `CustomerPullSheetsTab` | Pull sheets travel with quotes; migrate alongside |
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | Customer profile header KPI tiles "Total Revenue" + "Quotes" | None (read only derivation, dependency is implicit) | Recompute from API quotes |
-| [apps/web/src/QuoteDetailDrawer.tsx](apps/web/src/QuoteDetailDrawer.tsx) | Whole drawer | None — drawer surfaces the same data the Quotes tab covers | Re audit during Phase 2; every interactive element gets the same treatment as Phase 1 went through for customers |
+**RESOLVED 2026-05-09 in commits a17f3a1 + 11bc728.** All entries below are
+historical; banners removed, data flows through /api/saved-quotes. The
+remaining open item is `localStorage.fencepro_imported_quotes` which is
+still localStorage backed and will be migrated alongside a future bulk-CSV
+ImportedQuote effort.
 
 ---
 
 ## Phase 3 — Jobs + Operations Board
 
-| File | Element | Banner location | Action when Phase 3 lands |
-|---|---|---|---|
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | Jobs tab on customer profile | Banner at top of `activeTab === 'jobs'` block | Remove banner; table reads from `/api/jobs/by-customer/:id` instead of `localStorage.fencepro_jobs` |
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | Costing tab (`CustomerJobCostingTab`) | Banner at top of the component (both empty and populated states) | Migrate `localStorage.fencepro_jobcosting` to a JobCosting model |
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | Customer profile header KPI tile "Jobs" | None (read only derivation) | Recompute from API jobs |
+**RESOLVED 2026-05-09.** SavedJob model + /api/saved-jobs CRUD shipped;
+jobStore.ts is API backed; banners on Jobs and Costing tabs removed.
+`localStorage.fencepro_jobcosting` remains the home for actual-cost entries
+until a Job Costing API ships (sub-phase under Phase 9 finance work).
 
 ---
 

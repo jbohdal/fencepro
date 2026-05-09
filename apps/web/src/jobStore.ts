@@ -3,6 +3,14 @@ import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, 
 import { ensureChecklistForJob } from './checklistStore'
 import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
 import { getQuoteById } from './quoteStore'
+import {
+  listSavedJobs,
+  createSavedJob,
+  updateSavedJob,
+  archiveSavedJob,
+  migrateLocalJobsOnce,
+  type SavedJobRecord,
+} from './savedJobsApi'
 
 /* ═══════════════════════════════════════════════
    JOB ENTITY — unified lifecycle from quote to paid
@@ -88,26 +96,144 @@ export interface Job {
 
 /* ───────── helpers ───────── */
 
-const STORAGE_KEY = 'fencepro_jobs'
+const LEGACY_KEY = 'fencepro_jobs'
+const EVT = 'fencepro:jobs:updated'
 const uid = () => Math.random().toString(36).slice(2, 9)
 
-export function getJobs(): Job[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
+let cache: Job[] = []
+let initPromise: Promise<void> | null = null
+
+function fromApi(r: SavedJobRecord): Job {
+  return {
+    id: r.id,
+    quoteId: r.quoteId || '',
+    status: r.status,
+    previousStatus: r.previousStatus || undefined,
+    customerName: r.customerName,
+    customerPhone: r.customerPhone,
+    customerEmail: r.customerEmail,
+    customerAddress: r.customerAddress,
+    customerId: r.crmContactId || undefined,
+    fenceStyle: r.fenceStyle,
+    sections: r.sections,
+    totalFeet: r.totalFeet,
+    walkGates: r.walkGates,
+    dblGates: r.dblGates,
+    tearOutSections: r.tearOutSections,
+    hasSalesman: r.hasSalesman,
+    lat: r.lat ?? undefined,
+    lng: r.lng ?? undefined,
+    quotePrice: r.quotePrice,
+    changeOrderTotal: r.changeOrderTotal,
+    contractValue: r.contractValue,
+    gmPct: r.gmPct,
+    materialsStatus: r.materialsStatus,
+    pullSheetPulled: r.pullSheetPulled,
+    locatesDate: r.locatesDate || undefined,
+    locatesExpDate: r.locatesExpDate || undefined,
+    drawingComplete: r.drawingComplete,
+    crewAssigned: r.crewAssigned,
+    scheduledDate: r.scheduledDate,
+    scheduledEndDate: r.scheduledEndDate || undefined,
+    estimatedDays: r.estimatedDays,
+    completedDate: r.completedDate || undefined,
+    completedBy: r.completedBy || undefined,
+    actualDays: r.actualDays ?? undefined,
+    invoiceNumber: r.invoiceNumber || undefined,
+    invoiceDate: r.invoiceDate || undefined,
+    paymentStatus: r.paymentStatus,
+    amountPaid: r.amountPaid,
+    paymentDate: r.paymentDate || undefined,
+    paymentMethod: r.paymentMethod || undefined,
+    notes: r.notes,
+    holdReason: r.holdReason || undefined,
+    salesRep: r.salesRep,
+    leadSource: r.leadSource,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
 }
 
-export function saveJobs(jobs: Job[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(jobs))
+function toApiPayload(j: Partial<Job>) {
+  return {
+    quoteId: j.quoteId || null,
+    crmContactId: j.customerId || null,
+    status: j.status,
+    previousStatus: j.previousStatus ?? null,
+    customerName: j.customerName,
+    customerPhone: j.customerPhone,
+    customerEmail: j.customerEmail,
+    customerAddress: j.customerAddress,
+    fenceStyle: j.fenceStyle,
+    sections: j.sections,
+    totalFeet: j.totalFeet,
+    walkGates: j.walkGates,
+    dblGates: j.dblGates,
+    tearOutSections: j.tearOutSections,
+    hasSalesman: j.hasSalesman,
+    lat: j.lat ?? null,
+    lng: j.lng ?? null,
+    quotePrice: j.quotePrice,
+    changeOrderTotal: j.changeOrderTotal,
+    contractValue: j.contractValue,
+    gmPct: j.gmPct,
+    materialsStatus: j.materialsStatus,
+    pullSheetPulled: j.pullSheetPulled,
+    locatesDate: j.locatesDate ?? null,
+    locatesExpDate: j.locatesExpDate ?? null,
+    drawingComplete: j.drawingComplete,
+    crewAssigned: j.crewAssigned,
+    scheduledDate: j.scheduledDate,
+    scheduledEndDate: j.scheduledEndDate ?? null,
+    estimatedDays: j.estimatedDays,
+    completedDate: j.completedDate ?? null,
+    completedBy: j.completedBy ?? null,
+    actualDays: j.actualDays ?? null,
+    invoiceNumber: j.invoiceNumber ?? null,
+    invoiceDate: j.invoiceDate ?? null,
+    paymentStatus: j.paymentStatus,
+    amountPaid: j.amountPaid,
+    paymentDate: j.paymentDate ?? null,
+    paymentMethod: j.paymentMethod ?? null,
+    notes: j.notes,
+    holdReason: j.holdReason ?? null,
+    salesRep: j.salesRep,
+    leadSource: j.leadSource,
+  }
+}
+
+function emit() { try { window.dispatchEvent(new CustomEvent(EVT)) } catch {} }
+
+export function initJobs(): Promise<void> {
+  if (initPromise) return initPromise
+  initPromise = (async () => {
+    try { await migrateLocalJobsOnce() } catch {}
+    const records = await listSavedJobs()
+    if (records) {
+      cache = records.map(fromApi)
+      emit()
+    }
+    try { localStorage.removeItem(LEGACY_KEY) } catch {}
+  })()
+  return initPromise
+}
+
+export function getJobs(): Job[] {
+  return cache
+}
+
+export function saveJobs(_jobs: Job[]): void {
+  // No op kept for backward compatibility. Writes flow through createSavedJob /
+  // updateSavedJob inside this module; legacy callers that bulk-rewrote the
+  // jobs list are gone after the Phase 3 migration.
 }
 
 export function getJob(id: string): Job | null {
-  return getJobs().find(j => j.id === id) || null
+  return cache.find(j => j.id === id) || null
 }
 
 export function getJobByQuoteId(quoteId: string): Job | null {
-  return getJobs().find(j => j.quoteId === quoteId) || null
+  return cache.find(j => j.quoteId === quoteId) || null
 }
 
 /* ───────── create from quote ───────── */
@@ -158,8 +284,17 @@ export function createJobFromQuote(quote: SavedQuote): Job {
     updatedAt: now,
   }
 
-  const jobs = getJobs()
-  saveJobs([job, ...jobs])
+  cache = [job, ...cache]
+  emit()
+
+  // Fire and forget the API write. The cache holds a temp client uid; once the
+  // server responds, swap the temp id for the server uuid in the cache.
+  createSavedJob(toApiPayload(job)).then(saved => {
+    if (!saved) return
+    const fromServer = fromApi(saved)
+    cache = cache.map(j => j.id === job.id ? fromServer : j)
+    emit()
+  }).catch(() => {})
 
   // Seed default milestone checklist so the Operations detail panel has items
   try { ensureChecklistForJob(job.id) } catch {}
@@ -183,13 +318,25 @@ export function createJobFromQuote(quote: SavedQuote): Job {
 /* ───────── update ───────── */
 
 export function updateJob(id: string, updates: Partial<Job>): Job | null {
-  const jobs = getJobs()
-  const idx = jobs.findIndex(j => j.id === id)
+  const idx = cache.findIndex(j => j.id === id)
   if (idx < 0) return null
 
-  const prev = jobs[idx]
-  jobs[idx] = { ...prev, ...updates, updatedAt: new Date().toISOString() }
-  saveJobs(jobs)
+  const prev = cache[idx]
+  const next: Job = { ...prev, ...updates, updatedAt: new Date().toISOString() }
+  cache = cache.map(j => j.id === id ? next : j)
+  emit()
+  // Fire the API write in the background; cache swap on response so the
+  // server-canonical updatedAt and any computed fields land for next reads.
+  updateSavedJob(id, toApiPayload(next)).then(saved => {
+    if (!saved) return
+    const fromServer = fromApi(saved)
+    cache = cache.map(j => j.id === id ? fromServer : j)
+    emit()
+  }).catch(() => {})
+  // Local view of the rest of this function uses `jobs`/`prev`/`jobs[idx]`
+  // semantics from before; re-bind for minimal further change below.
+  const jobs = cache
+  jobs[idx] = next
 
   // Fire job_assigned when crew changes
   if (updates.crewAssigned !== undefined && updates.crewAssigned !== prev.crewAssigned) {

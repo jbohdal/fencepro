@@ -42,6 +42,7 @@ import PublicQuotePage from './PublicQuotePage'
 import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
 import { initCustomers, getCustomers } from './customerStore'
 import { initQuotes, getQuotes, getQuoteById, upsertQuote } from './quoteStore'
+import { initJobs } from './jobStore'
 import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
@@ -233,6 +234,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
           saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: mapped[user.role] || 'salesman' })
           initCustomers().catch(() => {})
           initQuotes().catch(() => {})
+          initJobs().catch(() => {})
         }
         setAuthChecked(true)
       })

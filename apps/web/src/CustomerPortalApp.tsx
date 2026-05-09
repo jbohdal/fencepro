@@ -24,6 +24,7 @@ import {
 } from './portalAccountStore'
 import { getCustomerById } from './customerStore'
 import { getQuotes } from './quoteStore'
+import { getJobs } from './jobStore'
 
 function readCompanyInfo() {
   try {
@@ -920,11 +921,7 @@ function EmptyState({ emoji, title, body }: { emoji: string; title: string; body
 }
 
 function readJobsFor(customerId: string): any[] {
-  try {
-    const r = localStorage.getItem('fencepro_jobs')
-    const all: any[] = r ? JSON.parse(r) : []
-    return all.filter((j: any) => j.customerId === customerId)
-  } catch { return [] }
+  return getJobs().filter(j => j.customerId === customerId)
 }
 
 function readQuotesFor(customerId: string): any[] {

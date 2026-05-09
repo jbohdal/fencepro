@@ -16,6 +16,7 @@ import { getPortalAccessStatus, loadAccountsSoon, sendPortalInvite, resendPortal
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity, getCustomers, upsertCustomer, deleteCustomer as storeDeleteCustomer, bulkImportCustomers } from './customerStore'
 import { getQuotes } from './quoteStore'
+import { getJobs } from './jobStore'
 import {
   listContactNotes, createContactNote, updateContactNote, deleteContactNote,
   type CrmContactNoteRecord,
@@ -748,23 +749,15 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
 
   if (costedJobs.length === 0) {
     return (
-      <div className="space-y-4">
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
-          Job costing data is migrating to the cloud with Jobs (Phase 3). Entries you make in Budget → Job Costing are stored locally until the migration completes.
-        </div>
-        <div className="text-center py-12 text-gray-400">
-          <p className="font-medium">No job costing data</p>
-          <p className="text-sm mt-1">Complete jobs and enter actual costs in Budget → Job Costing to see data here.</p>
-        </div>
+      <div className="text-center py-12 text-gray-400">
+        <p className="font-medium">No job costing data</p>
+        <p className="text-sm mt-1">Complete jobs and enter actual costs in Budget → Job Costing to see data here.</p>
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
-        Job costing data is migrating to the cloud with Jobs (Phase 3). Entries are stored locally until the migration completes.
-      </div>
       {/* Summary */}
       <div className="grid grid-cols-4 gap-3">
         <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Jobs Costed</p><p className="text-lg font-bold text-gray-900">{costedJobs.length}</p></div>
@@ -1021,9 +1014,6 @@ function CustomerDetail({
 
         {activeTab === 'jobs' && (
           <div className="space-y-3">
-            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
-              Jobs are migrating to the cloud in the next push (Phase 3). Jobs and stage changes are stored locally in this browser only until the migration completes; teammates may not see them yet.
-            </div>
             {jobs.length === 0 ? (
               <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
                 <p className="text-4xl mb-2">🏗</p>
@@ -1126,20 +1116,15 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
     })) as Quote[]
   }
   const readJobs = (): Job[] => {
-    try {
-      const raw = localStorage.getItem('fencepro_jobs')
-      if (!raw) return SAMPLE_JOBS
-      const all = JSON.parse(raw) as any[]
-      if (!Array.isArray(all) || all.length === 0) return SAMPLE_JOBS
-      return all.map(j => ({
-        id: j.id, customerId: j.customerId || '',
-        type: j.fenceStyle || j.type || '',
-        sections: j.sections || 0,
-        value: j.value || j.finalPrice || 0,
-        stage: j.stage || j.status || 'SCHEDULED',
-        scheduledDate: j.scheduledDate || '',
-      })) as Job[]
-    } catch { return SAMPLE_JOBS }
+    return getJobs().map(j => ({
+      id: j.id,
+      customerId: j.customerId || '',
+      type: j.fenceStyle || '',
+      sections: j.sections || 0,
+      value: j.contractValue || j.quotePrice || 0,
+      stage: (j.status || 'staging').toUpperCase(),
+      scheduledDate: j.scheduledDate || '',
+    })) as Job[]
   }
   const [quotes, setQuotes] = useState<Quote[]>(() => readQuotes())
   const [jobs, setJobs] = useState<Job[]>(() => readJobs())
