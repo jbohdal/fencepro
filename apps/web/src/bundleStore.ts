@@ -1,12 +1,13 @@
 /**
  * Bundle & Quote Options Store — Good / Better / Best.
  *
- * All amounts in cents (integer). localStorage-backed.
- * Mirrors Prisma: QuoteBundle, QuoteBundleInclusion, QuoteBundleAddon, QuoteOption.
+ * All amounts in cents (integer). Backed by /api/business-state (bundles +
+ * quoteOptions sub-fields) via businessStateStore. The legacy
+ * fencepro_bundles + fencepro_quote_options localStorage keys are migrated
+ * on first login post Phase 8.
  */
 
-const BUNDLE_KEY = 'fencepro_bundles'
-const OPT_KEY = 'fencepro_quote_options'
+import { getBusinessField, setBusinessField } from './businessStateStore'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -53,9 +54,9 @@ export interface QuoteBundle {
 }
 
 export function getBundles(): QuoteBundle[] {
-  try { const r = localStorage.getItem(BUNDLE_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  return getBusinessField('bundles') as QuoteBundle[]
 }
-function saveBundles(b: QuoteBundle[]) { localStorage.setItem(BUNDLE_KEY, JSON.stringify(b)) }
+function saveBundles(b: QuoteBundle[]) { setBusinessField('bundles', b) }
 
 export function getBundleById(id: string): QuoteBundle | null {
   return getBundles().find(b => b.id === id) || null
@@ -140,9 +141,9 @@ export interface QuoteOption {
 }
 
 export function getOptions(): QuoteOption[] {
-  try { const r = localStorage.getItem(OPT_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  return getBusinessField('quoteOptions') as QuoteOption[]
 }
-function saveOptions(o: QuoteOption[]) { localStorage.setItem(OPT_KEY, JSON.stringify(o)) }
+function saveOptions(o: QuoteOption[]) { setBusinessField('quoteOptions', o) }
 
 export function getOptionsForQuote(quoteId: string): QuoteOption[] {
   return getOptions().filter(o => o.quoteId === quoteId).sort((a, b) => a.presentationOrder - b.presentationOrder)

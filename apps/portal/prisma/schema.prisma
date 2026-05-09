@@ -95,6 +95,7 @@ model CrmAccount {
   pipelineState    PipelineState?
   inventoryState   InventoryState?
   vendorState      VendorState?
+  businessState    BusinessState?
 
   @@index([externalCrmId])
 }
@@ -1827,6 +1828,38 @@ model VendorState {
   payments  Json // VendorPayment[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  account CrmAccount @relation(fields: [accountId], references: [id])
+}
+
+// ── Business State — singleton per account holding Phase 8 + 9 config ──
+//
+// One blob covering bundles + quote options + contract sections + job
+// checklists + default milestones (Phase 8) and the Phase 9 finance and
+// settings stores (P&L manual entries, balance sheet entries, cash flow
+// manual lines, automations, email templates, settings, company config,
+// budget). Each sub-field is JSON. Fields are added incrementally per
+// phase; missing fields default to empty arrays / objects on the client.
+model BusinessState {
+  id                String   @id @default(uuid())
+  accountId         String   @unique
+  // Phase 8
+  bundles           Json     @default("[]") // QuoteBundle[]
+  quoteOptions      Json     @default("[]") // QuoteOption[]
+  contractSections  Json     @default("[]") // ContractSection[]
+  jobChecklists     Json     @default("{}") // Record<jobId, ChecklistItem[]>
+  defaultMilestones Json     @default("[]") // string[]
+  // Phase 9
+  plEntries         Json     @default("[]") // PlManualEntry[]
+  balanceSheet      Json     @default("[]") // BalanceSheetEntry[]
+  cashFlowManual    Json     @default("[]") // CashFlowManualLine[]
+  automations       Json     @default("[]") // Automation[]
+  emailTemplates    Json     @default("{}") // Record<key, EmailTemplate>
+  settings          Json     @default("{}") // catch all UI settings
+  config            Json     @default("{}") // company info, fence styles, pricing, etc.
+  budget            Json     @default("{}") // BudgetState
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   account CrmAccount @relation(fields: [accountId], references: [id])
 }

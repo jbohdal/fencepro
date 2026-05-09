@@ -47,6 +47,7 @@ import { initSchedule } from './scheduleStore'
 import { initPipeline, getPipeline } from './pipelineStore'
 import { initInventory } from './inventoryStore'
 import { initVendors } from './vendorStore'
+import { initBusinessState } from './businessStateStore'
 import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
@@ -238,6 +239,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
           initPipeline().catch(() => {})
           initInventory().catch(() => {})
           initVendors().catch(() => {})
+          initBusinessState().catch(() => {})
         }
         setAuthChecked(true)
       })

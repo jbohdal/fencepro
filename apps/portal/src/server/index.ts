@@ -27,6 +27,7 @@ import scheduleRoutes from './routes/schedule.js'
 import pipelineRoutes from './routes/pipeline.js'
 import inventoryStateRoutes from './routes/inventory.js'
 import vendorStateRoutes from './routes/vendors-state.js'
+import businessStateRoutes from './routes/business-state.js'
 import leadChatRoutes from './routes/lead-chat.js'
 import knowledgeRoutes from './routes/knowledge.js'
 import googleCalendarRoutes from './routes/google-calendar.js'
@@ -128,6 +129,7 @@ app.use('/api/schedule', scheduleRoutes)
 app.use('/api/pipeline', pipelineRoutes)
 app.use('/api/inventory-state', inventoryStateRoutes)
 app.use('/api/vendor-state', vendorStateRoutes)
+app.use('/api/business-state', businessStateRoutes)
 app.use('/api/lead-chat', leadChatRoutes)
 app.use('/api/knowledge', knowledgeRoutes)
 app.use('/api/google-calendar', googleCalendarRoutes)

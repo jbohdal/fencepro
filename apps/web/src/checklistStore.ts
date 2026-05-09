@@ -7,8 +7,8 @@
  * and can be overridden from the Operations Stages settings page.
  */
 
-const KEY = 'fencepro_job_checklists'
-const DEFAULTS_KEY = 'fencepro_default_milestones'
+import { getBusinessField, setBusinessField } from './businessStateStore'
+
 const EVT = 'fencepro:checklist:updated'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
@@ -37,24 +37,32 @@ const DEFAULT_MILESTONES = [
 ]
 
 export function getDefaultMilestones(): string[] {
-  try {
-    const r = localStorage.getItem(DEFAULTS_KEY)
-    if (!r) return DEFAULT_MILESTONES
-    const parsed = JSON.parse(r)
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_MILESTONES
-  } catch { return DEFAULT_MILESTONES }
+  const saved = getBusinessField('defaultMilestones') as string[]
+  return Array.isArray(saved) && saved.length > 0 ? saved : DEFAULT_MILESTONES
 }
 
 export function setDefaultMilestones(labels: string[]): void {
-  localStorage.setItem(DEFAULTS_KEY, JSON.stringify(labels))
+  setBusinessField('defaultMilestones', labels)
   try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
 }
 
 function loadAll(): ChecklistItem[] {
-  try { const r = localStorage.getItem(KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  // The cache stores checklists as a Record<jobId, ChecklistItem[]>; flatten
+  // to a single array to match the legacy on-the-wire shape used below.
+  const map = (getBusinessField('jobChecklists') as Record<string, ChecklistItem[]>) || {}
+  const items: ChecklistItem[] = []
+  for (const jobId of Object.keys(map)) {
+    if (Array.isArray(map[jobId])) items.push(...map[jobId])
+  }
+  return items
 }
 function saveAll(items: ChecklistItem[]) {
-  localStorage.setItem(KEY, JSON.stringify(items))
+  const grouped: Record<string, ChecklistItem[]> = {}
+  for (const it of items) {
+    if (!grouped[it.jobId]) grouped[it.jobId] = []
+    grouped[it.jobId].push(it)
+  }
+  setBusinessField('jobChecklists', grouped)
   try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
 }
 

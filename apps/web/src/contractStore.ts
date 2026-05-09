@@ -1,9 +1,10 @@
 /**
  * Contract Templates — 7 editable sections appearing on every quote.
- * Stored in localStorage and read by QuoteTemplateRenderer at render time.
+ * Backed by /api/business-state.contractSections via businessStateStore.
  */
 
-const KEY = 'fencepro_contract_sections'
+import { getBusinessField, setBusinessField } from './businessStateStore'
+
 const EVT = 'fencepro:contract:updated'
 
 export interface ContractSection {
@@ -59,18 +60,15 @@ export const DEFAULT_CONTRACT_SECTIONS: ContractSection[] = [
 ]
 
 export function getContractSections(): ContractSection[] {
-  try {
-    const r = localStorage.getItem(KEY)
-    if (!r) return DEFAULT_CONTRACT_SECTIONS
-    const saved: ContractSection[] = JSON.parse(r)
-    // Ensure every default key exists (in case new sections added over time)
-    const byKey = new Map(saved.map(s => [s.key, s]))
-    return DEFAULT_CONTRACT_SECTIONS.map(d => byKey.get(d.key) || d)
-  } catch { return DEFAULT_CONTRACT_SECTIONS }
+  const saved = getBusinessField('contractSections') as ContractSection[]
+  if (!saved || saved.length === 0) return DEFAULT_CONTRACT_SECTIONS
+  // Ensure every default key exists (in case new sections were added over time).
+  const byKey = new Map(saved.map(s => [s.key, s]))
+  return DEFAULT_CONTRACT_SECTIONS.map(d => byKey.get(d.key) || d)
 }
 
 export function saveContractSections(sections: ContractSection[]): void {
-  localStorage.setItem(KEY, JSON.stringify(sections))
+  setBusinessField('contractSections', sections)
   try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
 }
 
