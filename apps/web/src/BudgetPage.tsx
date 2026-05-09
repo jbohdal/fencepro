@@ -162,7 +162,13 @@ function getCategoryColor(categories: string[], cat: string): string {
   return CATEGORY_COLOR_OPTIONS[idx % CATEGORY_COLOR_OPTIONS.length]
 }
 
+import { getBusinessField, setBusinessField } from './businessStateStore'
+
 const STORAGE_KEY = 'fencepro_budget'
+
+function mirrorBudget(state: any) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch {}
+}
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -184,13 +190,14 @@ function calcSeasonality(historic: HistoricYear[]): number[] {
 }
 
 function loadState(defaults: BudgetState): BudgetState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return defaults
-    return { ...defaults, ...JSON.parse(raw) }
-  } catch {
-    return defaults
-  }
+  const saved = getBusinessField('budget') as Partial<BudgetState>
+  const merged: BudgetState = (!saved || Object.keys(saved).length === 0)
+    ? defaults
+    : { ...defaults, ...saved }
+  // Mirror so the inline localStorage.getItem('fencepro_budget') reads in
+  // App.tsx + ReportsPage keep returning current values.
+  mirrorBudget(merged)
+  return merged
 }
 
 // ── SVG Bar Chart ─────────────────────────────────────────────────────────────
@@ -1592,7 +1599,8 @@ export default function BudgetPage() {
 
   function handleChange(next: BudgetState) {
     setState(next)
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
+    setBusinessField('budget', next)
+    mirrorBudget(next)
   }
 
   return (

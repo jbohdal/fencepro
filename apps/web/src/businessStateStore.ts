@@ -82,8 +82,7 @@ function scheduleFlush() {
 const LEGACY_KEYS = [
   'fencepro_bundles', 'fencepro_quote_options', 'fencepro_contract_sections',
   'fencepro_job_checklists', 'fencepro_default_milestones', 'fencepro_pl_entries',
-  'fencepro_balance_sheet', 'fencepro_cashflow_manual', 'fencepro_automations',
-  'fencepro_email_templates', 'fencepro_settings', 'fencepro_config', 'fencepro_budget',
+  'fencepro_bs_entries', 'fencepro_email_templates', 'fencepro_config', 'fencepro_budget',
 ]
 
 async function migrateLocalBusinessOnce(): Promise<void> {
@@ -101,11 +100,8 @@ async function migrateLocalBusinessOnce(): Promise<void> {
       jobChecklists: tryParse('fencepro_job_checklists', {}),
       defaultMilestones: tryParse('fencepro_default_milestones', []),
       plEntries: tryParse('fencepro_pl_entries', []),
-      balanceSheet: tryParse('fencepro_balance_sheet', []),
-      cashFlowManual: tryParse('fencepro_cashflow_manual', []),
-      automations: tryParse('fencepro_automations', []),
+      balanceSheet: tryParse('fencepro_bs_entries', []),
       emailTemplates: tryParse('fencepro_email_templates', {}),
-      settings: tryParse('fencepro_settings', {}),
       config: tryParse('fencepro_config', {}),
       budget: tryParse('fencepro_budget', {}),
     }
@@ -127,7 +123,16 @@ export function initBusinessState(): Promise<void> {
       }
       emit()
     }
-    try { for (const k of LEGACY_KEYS) localStorage.removeItem(k) } catch {}
+    // Drop the migrated keys EXCEPT the ones used by inline-localStorage readers
+    // scattered through the codebase (configStore + BudgetPage maintain those
+    // mirrors via their own getters).
+    const KEEP_AS_MIRROR = new Set(['fencepro_config', 'fencepro_budget'])
+    try {
+      for (const k of LEGACY_KEYS) {
+        if (KEEP_AS_MIRROR.has(k)) continue
+        localStorage.removeItem(k)
+      }
+    } catch {}
   })()
   return initPromise
 }

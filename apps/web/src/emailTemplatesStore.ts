@@ -1,10 +1,11 @@
 /**
  * Email Templates — user-configurable email bodies the system uses for
- * customer-facing messages. Stored locally; each template has a subject,
- * body, and a list of supported merge tags.
+ * customer-facing messages. Backed by /api/business-state.emailTemplates
+ * via businessStateStore (account scoped).
  */
 
-const KEY = 'fencepro_email_templates'
+import { getBusinessField, setBusinessField } from './businessStateStore'
+
 const EVT = 'fencepro:email_templates:updated'
 
 export interface EmailTemplate {
@@ -126,15 +127,26 @@ export const DEFAULT_TEMPLATES: EmailTemplate[] = [
   },
 ]
 
+function readSavedAsArray(): EmailTemplate[] {
+  // The businessState field is stored as Record<key, EmailTemplate> for
+  // forward compatibility; flatten to an array keyed by template key.
+  const map = (getBusinessField('emailTemplates') as Record<string, EmailTemplate>) || {}
+  return Object.values(map)
+}
+
+function writeSavedFromArray(arr: EmailTemplate[]): void {
+  const map: Record<string, EmailTemplate> = {}
+  for (const t of arr) if (t?.key) map[t.key] = t
+  setBusinessField('emailTemplates', map)
+  try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
+}
+
 export function getEmailTemplates(): EmailTemplate[] {
-  try {
-    const r = localStorage.getItem(KEY)
-    if (!r) return DEFAULT_TEMPLATES
-    const saved: EmailTemplate[] = JSON.parse(r)
-    // Merge: ensure every default key exists; saved overrides take precedence
-    const byKey = new Map(saved.map(t => [t.key, t]))
-    return DEFAULT_TEMPLATES.map(d => byKey.get(d.key) || d)
-  } catch { return DEFAULT_TEMPLATES }
+  const saved = readSavedAsArray()
+  if (saved.length === 0) return DEFAULT_TEMPLATES
+  // Merge: ensure every default key exists; saved overrides take precedence.
+  const byKey = new Map(saved.map(t => [t.key, t]))
+  return DEFAULT_TEMPLATES.map(d => byKey.get(d.key) || d)
 }
 
 export function getEmailTemplate(key: TemplateKey): EmailTemplate {
@@ -144,16 +156,14 @@ export function getEmailTemplate(key: TemplateKey): EmailTemplate {
 export function saveEmailTemplate(tpl: EmailTemplate): void {
   const all = getEmailTemplates()
   const next = all.map(t => t.key === tpl.key ? { ...tpl, updatedAt: new Date().toISOString() } : t)
-  localStorage.setItem(KEY, JSON.stringify(next))
-  try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
+  writeSavedFromArray(next)
 }
 
 export function resetEmailTemplate(key: TemplateKey): EmailTemplate {
   const all = getEmailTemplates()
   const def = DEFAULT_TEMPLATES.find(d => d.key === key)!
   const next = all.map(t => t.key === key ? def : t)
-  localStorage.setItem(KEY, JSON.stringify(next))
-  try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
+  writeSavedFromArray(next)
   return def
 }
 

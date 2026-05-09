@@ -1,12 +1,11 @@
 /**
  * Finance Store — P&L manual entries + Balance Sheet entries.
  *
- * All amounts in cents (integer). localStorage-backed.
- * Mirrors Prisma: PlManualEntry, BalanceSheetEntry.
+ * All amounts in cents (integer). Backed by /api/business-state.plEntries
+ * and /api/business-state.balanceSheet via businessStateStore.
  */
 
-const PL_KEY = 'fencepro_pl_entries'
-const BS_KEY = 'fencepro_bs_entries'
+import { getBusinessField, setBusinessField } from './businessStateStore'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -39,9 +38,9 @@ export interface PlManualEntry {
 }
 
 export function getPlEntries(): PlManualEntry[] {
-  try { const r = localStorage.getItem(PL_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  return getBusinessField('plEntries') as PlManualEntry[]
 }
-function savePlEntries(e: PlManualEntry[]) { localStorage.setItem(PL_KEY, JSON.stringify(e)) }
+function savePlEntries(e: PlManualEntry[]) { setBusinessField('plEntries', e) }
 
 export function getPlEntriesForPeriod(year: number, month: number): PlManualEntry[] {
   return getPlEntries().filter(e => e.periodYear === year && e.periodMonth === month)
@@ -132,9 +131,9 @@ export interface BalanceSheetEntry {
 }
 
 export function getBsEntries(): BalanceSheetEntry[] {
-  try { const r = localStorage.getItem(BS_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  return getBusinessField('balanceSheet') as BalanceSheetEntry[]
 }
-function saveBsEntries(e: BalanceSheetEntry[]) { localStorage.setItem(BS_KEY, JSON.stringify(e)) }
+function saveBsEntries(e: BalanceSheetEntry[]) { setBusinessField('balanceSheet', e) }
 
 /** Most-recent entry per label, where asOfDate <= target date. */
 export function getBsEntriesAsOf(asOfDate: string): BalanceSheetEntry[] {

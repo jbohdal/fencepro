@@ -159,26 +159,44 @@ export function getRailOptimizerConfig(cfg: AppConfig = getConfig()): RailOptimi
 }
 
 // ── Storage ───────────────────────────────────────────────────────────────────
+//
+// Backed by /api/business-state.config via businessStateStore. The legacy
+// fencepro_config localStorage blob is migrated on first login post Phase 9.
+//
+// We also keep a read-only localStorage mirror at the same key. Many call
+// sites across the codebase still inline `localStorage.getItem('fencepro_config')`
+// to grab company info or fence styles synchronously; mirroring the cached
+// config there means those inline reads keep returning fresh data without
+// needing one-by-one updates. The canonical source of truth is the cloud
+// blob; the mirror is updated on every save and on initBusinessState().
 
-const STORAGE_KEY = 'fencepro_config'
+import { getBusinessField, setBusinessField } from './businessStateStore'
+
+const LEGACY_KEY = 'fencepro_config'
+
+function mirrorToLocalStorage(cfg: AppConfig): void {
+  try { localStorage.setItem(LEGACY_KEY, JSON.stringify(cfg)) } catch {}
+}
 
 export function getConfig(): AppConfig {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return DEFAULT_CONFIG
-    const saved = JSON.parse(raw)
-    return { ...DEFAULT_CONFIG, ...saved }
-  } catch {
-    return DEFAULT_CONFIG
-  }
+  const saved = getBusinessField('config') as Partial<AppConfig>
+  const merged: AppConfig = (!saved || Object.keys(saved).length === 0)
+    ? DEFAULT_CONFIG
+    : { ...DEFAULT_CONFIG, ...saved }
+  // Keep the inline-reader mirror fresh on every read; cheap, idempotent,
+  // and avoids stale defaults during the brief window after auth hydrates.
+  mirrorToLocalStorage(merged)
+  return merged
 }
 
 export function saveConfig(config: AppConfig): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+  setBusinessField('config', config)
+  mirrorToLocalStorage(config)
 }
 
 export function resetConfig(): void {
-  localStorage.removeItem(STORAGE_KEY)
+  setBusinessField('config', {} as any)
+  try { localStorage.removeItem(LEGACY_KEY) } catch {}
 }
 
 export function getDefaultConfig(): AppConfig {
