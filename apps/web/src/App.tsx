@@ -44,6 +44,7 @@ import { initCustomers, getCustomers } from './customerStore'
 import { initQuotes, getQuotes, getQuoteById, upsertQuote } from './quoteStore'
 import { initJobs } from './jobStore'
 import { initSchedule } from './scheduleStore'
+import { initPipeline, getPipeline } from './pipelineStore'
 import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
@@ -156,13 +157,8 @@ function loadBudget() {
 }
 
 function loadPipelineCount(): number {
-  try {
-    const raw = localStorage.getItem('fencepro_pipeline')
-    if (!raw) return 0
-    const data = JSON.parse(raw)
-    const dead = new Set(['Lost Sale', 'No Answer', 'Paid & Closed'])
-    return (data.leads || []).filter((l: any) => !dead.has(l.stage)).length
-  } catch { return 0 }
+  const dead = new Set(['Lost Sale', 'No Answer', 'Paid & Closed'])
+  return (getPipeline().leads || []).filter((l: any) => !dead.has(l.stage)).length
 }
 
 function loadCompanyName(): string {
@@ -237,6 +233,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
           initQuotes().catch(() => {})
           initJobs().catch(() => {})
           initSchedule().catch(() => {})
+          initPipeline().catch(() => {})
         }
         setAuthChecked(true)
       })

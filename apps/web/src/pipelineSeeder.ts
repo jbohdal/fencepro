@@ -1,9 +1,10 @@
 /**
  * Pipeline seeder — when a new customer is created, add a matching lead
- * to the sales pipeline under First Contact.
+ * to the sales pipeline under First Contact. Backed by /api/pipeline via
+ * pipelineStore (account scoped).
  */
 
-const PIPELINE_KEY = 'fencepro_pipeline'
+import { getPipeline, savePipeline } from './pipelineStore'
 
 const uid = () => Math.random().toString(36).slice(2, 9)
 
@@ -22,10 +23,9 @@ export interface NewCustomerForPipeline {
 
 export function addLeadForNewCustomer(customer: NewCustomerForPipeline): void {
   try {
-    const raw = localStorage.getItem(PIPELINE_KEY)
-    const parsed = raw ? JSON.parse(raw) : null
-    const leads = parsed?.leads || []
-    const stages = parsed?.stages || [
+    const cached = getPipeline()
+    const leads = cached.leads || []
+    const stages = (cached.stages && cached.stages.length > 0) ? cached.stages : [
       'First Contact', 'Appointment', 'Estimating', 'Pending Signature',
       'Signed Contract', 'Job Prep', 'Pending Start', 'Jobs In Progress',
       'Job Complete', 'Pending Payment', 'Paid & Closed', 'Lost Sale', 'No Answer',
@@ -66,11 +66,6 @@ export function addLeadForNewCustomer(customer: NewCustomerForPipeline): void {
     }
 
     leads.unshift(newLead)
-    localStorage.setItem(PIPELINE_KEY, JSON.stringify({ leads, stages }))
-
-    // Signal open JobsPage instances to reload
-    try {
-      window.dispatchEvent(new StorageEvent('storage', { key: PIPELINE_KEY }))
-    } catch { /* noop */ }
+    savePipeline(leads, stages)
   } catch { /* noop */ }
 }

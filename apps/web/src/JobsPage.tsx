@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { fireSalesStageChange } from './automationTrigger'
 import { upsertCustomer, logCustomerActivity, getCustomers } from './customerStore'
+import { getPipeline, savePipeline as storeSavePipeline } from './pipelineStore'
 import { toast } from './toast'
 import { applySignedContractTransition } from './signedContractFlow'
 
@@ -93,48 +94,44 @@ function loadConfiguredStages(): string[] | null {
 
 export function loadPipeline(): { leads: PipelineLead[], stages: string[] } {
   const configured = loadConfiguredStages()
-  try {
-    const raw = localStorage.getItem('fencepro_pipeline')
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      // Prefer configured stages if available (keeps pipeline board in sync with Settings)
-      if (configured) return { leads: parsed.leads || [], stages: configured }
-      return parsed
-    }
-
-    // First load — seed from existing customers
-    const customers = getCustomers()
-    const leads: PipelineLead[] = customers.map((c) => ({
-      id: uid(),
-      firstName: c.firstName ?? '',
-      lastName:  c.lastName ?? '',
-      phone:     c.phone ?? '',
-      email:     c.email ?? '',
-      address:   c.serviceAddress ?? '',
-      leadSource: c.leadSource ?? '',
-      leadTemp:  0,
-      fenceType: '',
-      sections:  0,
-      quotePrice: 0,
-      crew: '',
-      scheduledDate: '',
-      jobValue: 0,
-      paymentStatus: '',
-      balanceDue: 0,
-      notes: c.notes ?? '',
-      stage: c.jobStatus === 'Paid & Closed' ? 'Paid & Closed' : c.jobStatus === 'Lost' ? 'Lost Sale' : 'First Contact',
-      createdAt: c.createdAt ?? new Date().toISOString().slice(0, 10),
-      lastMoved: new Date().toISOString().slice(0, 10),
-    }))
-
-    const result = { leads, stages: DEFAULT_STAGES }
-    localStorage.setItem('fencepro_pipeline', JSON.stringify(result))
-    return result
-  } catch { return { leads: [], stages: DEFAULT_STAGES } }
+  const cached = getPipeline()
+  if (cached.leads?.length || cached.stages?.length) {
+    const stages = configured && configured.length > 0
+      ? configured
+      : (Array.isArray(cached.stages) && cached.stages.length > 0 ? cached.stages : DEFAULT_STAGES)
+    return { leads: (cached.leads as PipelineLead[]) || [], stages }
+  }
+  // First time on this account — seed from existing customers.
+  const customers = getCustomers()
+  const leads: PipelineLead[] = customers.map((c) => ({
+    id: uid(),
+    firstName: c.firstName ?? '',
+    lastName:  c.lastName ?? '',
+    phone:     c.phone ?? '',
+    email:     c.email ?? '',
+    address:   c.serviceAddress ?? '',
+    leadSource: c.leadSource ?? '',
+    leadTemp:  0,
+    fenceType: '',
+    sections:  0,
+    quotePrice: 0,
+    crew: '',
+    scheduledDate: '',
+    jobValue: 0,
+    paymentStatus: '',
+    balanceDue: 0,
+    notes: c.notes ?? '',
+    stage: c.jobStatus === 'Paid & Closed' ? 'Paid & Closed' : c.jobStatus === 'Lost' ? 'Lost Sale' : 'First Contact',
+    createdAt: c.createdAt ?? new Date().toISOString().slice(0, 10),
+    lastMoved: new Date().toISOString().slice(0, 10),
+  }))
+  const stages = configured && configured.length > 0 ? configured : DEFAULT_STAGES
+  storeSavePipeline(leads, stages)
+  return { leads, stages }
 }
 
 export function savePipeline(leads: PipelineLead[], stages: string[]) {
-  localStorage.setItem('fencepro_pipeline', JSON.stringify({ leads, stages }))
+  storeSavePipeline(leads, stages)
 }
 
 // ── Quick Add Modal ───────────────────────────────────────────────────────────

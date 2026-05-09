@@ -12,22 +12,18 @@
 
 import { logCustomerActivity } from './customerStore'
 import { fireOpsStageChange, fireTrigger } from './automationTrigger'
+import { getPipeline, savePipeline as storeSavePipeline } from './pipelineStore'
 
-const PIPELINE_KEY = 'fencepro_pipeline'
 const CONFIG_KEY = 'fencepro_config'
 const JOB_COMPLETE_STAGE = 'Job Complete'
 
 function loadPipeline(): { leads: any[]; stages: string[] } {
-  try {
-    const raw = localStorage.getItem(PIPELINE_KEY)
-    if (!raw) return { leads: [], stages: [] }
-    return JSON.parse(raw)
-  } catch { return { leads: [], stages: [] } }
+  const cached = getPipeline()
+  return { leads: cached.leads || [], stages: (cached.stages as string[]) || [] }
 }
 
 function savePipeline(data: { leads: any[]; stages: string[] }) {
-  localStorage.setItem(PIPELINE_KEY, JSON.stringify(data))
-  try { window.dispatchEvent(new CustomEvent('fencepro:pipeline:updated')) } catch {}
+  storeSavePipeline(data.leads, data.stages)
 }
 
 /** Ensures a Job Complete stage is present in the pipeline config + pipeline board. */

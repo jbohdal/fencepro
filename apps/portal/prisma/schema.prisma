@@ -92,6 +92,7 @@ model CrmAccount {
   scheduleSettings ScheduleSettings?
   scheduleEntries  ScheduledGridJob[]
   rainDayLogs      ScheduleRainDay[]
+  pipelineState    PipelineState?
 
   @@index([externalCrmId])
 }
@@ -1765,4 +1766,23 @@ model ScheduleRainDay {
 
   @@index([accountId])
   @@index([flaggedAt])
+}
+
+// ── Pipeline State — singleton per account holding the sales pipeline ──
+//
+// Replaces the prior `localStorage.fencepro_pipeline` blob. The shape
+// (`{ leads: PipelineLead[], stages: Stage[] }`) is preserved so the
+// existing SalesPipelineBoard kanban / list view, drag and drop, and
+// stage rename UI keep working unchanged. Stored as JSON because the
+// kanban consumes the whole list in memory; if normalized queries are
+// ever needed, leads can be split out into their own table later.
+model PipelineState {
+  id        String   @id @default(uuid())
+  accountId String   @unique
+  leads     Json // PipelineLead[]
+  stages    Json // Stage[] (id, name, color, etc.)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account CrmAccount @relation(fields: [accountId], references: [id])
 }
