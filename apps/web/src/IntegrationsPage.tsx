@@ -83,12 +83,12 @@ export default function IntegrationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Integrations</h1>
           <p className="text-sm text-gray-500 mt-1">Connect third-party services to your CRM.</p>
         </div>
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 overflow-x-auto">
           {([['integrations', 'Integrations'], ['api-keys', 'API Keys'], ['webhooks', 'Webhooks']] as const).map(([k, label]) => (
             <button key={k} onClick={() => setView(k)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
@@ -167,7 +167,7 @@ export default function IntegrationsPage() {
         if (!integ) return null
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] p-4 lg:p-6 mx-4 lg:mx-0 space-y-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto p-4 lg:p-6 mx-4 lg:mx-0 space-y-4 modal-responsive">
               <h2 className="font-bold text-gray-900 text-lg">Connect {integ.name}</h2>
               {integ.configFields?.map((field: any) => (
                 <div key={field.key}>
@@ -241,9 +241,9 @@ function ApiKeysSection() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <p className="text-sm text-gray-500">Manage API keys for external integrations and developer access.</p>
-        <button onClick={() => setCreating(true)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Generate Key</button>
+        <button onClick={() => setCreating(true)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium self-start lg:self-auto">+ Generate Key</button>
       </div>
 
       {/* Generated key alert (show once) */}
@@ -261,8 +261,8 @@ function ApiKeysSection() {
       )}
 
       {/* Keys table */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4 text-xs font-medium text-gray-500 uppercase">
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
+        <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4 text-xs font-medium text-gray-500 uppercase min-w-[640px]">
           <div className="col-span-3">Name</div><div className="col-span-2">Key</div><div className="col-span-2">Scope</div>
           <div className="col-span-2">Created</div><div className="col-span-1">Requests</div><div className="col-span-2 text-right">Actions</div>
         </div>
@@ -271,7 +271,7 @@ function ApiKeysSection() {
         ) : (
           <div className="divide-y divide-gray-50">
             {keys.map((k: any) => (
-              <div key={k.id} className={`px-6 py-3 grid grid-cols-12 gap-4 items-center text-sm ${k.isActive ? '' : 'opacity-50'}`}>
+              <div key={k.id} className={`px-6 py-3 grid grid-cols-12 gap-4 items-center text-sm min-w-[640px] ${k.isActive ? '' : 'opacity-50'}`}>
                 <div className="col-span-3 font-medium text-gray-900">{k.name}</div>
                 <div className="col-span-2 font-mono text-xs text-gray-500">{k.keyPrefix}</div>
                 <div className="col-span-2">
@@ -297,7 +297,7 @@ function ApiKeysSection() {
       {/* Create modal */}
       {creating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[400px] p-4 lg:p-6 mx-4 lg:mx-0 space-y-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[400px] max-h-[90vh] overflow-y-auto p-4 lg:p-6 mx-4 lg:mx-0 space-y-4 modal-responsive">
             <h2 className="font-bold text-gray-900">Generate API Key</h2>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Key Name</label>
@@ -345,7 +345,7 @@ function WebhookLogsSection() {
         ) : (
           <div className="divide-y divide-gray-50">
             {logs.map((log: any) => (
-              <div key={log.id} className="px-6 py-3 flex items-center justify-between">
+              <div key={log.id} className="px-4 lg:px-6 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium text-gray-900">{log.source}</p>
                   <p className="text-xs text-gray-400">{log.endpoint}</p>

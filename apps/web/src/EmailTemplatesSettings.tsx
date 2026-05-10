@@ -71,9 +71,9 @@ export default function EmailTemplatesSettings() {
   }
 
   return (
-    <div className="grid grid-cols-12 gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
       {/* Template list */}
-      <div className="col-span-3">
+      <div className="lg:col-span-3">
         <div className="bg-gray-50 rounded-xl border border-gray-200 p-2 space-y-1">
           {templates.map(t => (
             <button key={t.key} onClick={() => { setActiveKey(t.key); setPreview(false) }}
@@ -85,13 +85,13 @@ export default function EmailTemplatesSettings() {
       </div>
 
       {/* Editor */}
-      <div className="col-span-9 space-y-4">
-        <div className="flex items-center justify-between">
+      <div className="lg:col-span-9 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
             <h3 className="text-lg font-bold text-gray-900">{active.name}</h3>
             <p className="text-xs text-gray-500 mt-0.5">Used when this email fires — manually or via automation.</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button onClick={() => setPreview(p => !p)} className="text-xs border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50">
               {preview ? 'Hide Preview' : 'Preview'}
             </button>

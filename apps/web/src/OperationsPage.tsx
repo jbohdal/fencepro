@@ -402,12 +402,12 @@ function BoardView({ jobs, onSelect, onMoveStage }: { jobs: UnifiedJob[]; onSele
   }
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
+    <div className="flex gap-3 overflow-x-auto pb-4 kanban-scroll" style={{ minHeight: 400 }}>
       {activeStages.map(stage => {
         const stageJobs = jobs.filter(j => j.opsStage === stage.key)
         const isHot = dragOverStage === stage.key
         return (
-          <div key={stage.key} className="flex-shrink-0 w-72"
+          <div key={stage.key} className="flex-shrink-0 w-72 max-w-[85vw]"
             onDragOver={(e) => onDragOverCol(e, stage.key)}
             onDragLeave={() => setDragOverStage(null)}
             onDrop={(e) => onDropCol(e, stage.key)}>

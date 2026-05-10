@@ -79,7 +79,7 @@ export default function JobsPipeline() {
   return (
     <div className="space-y-4">
       {/* Header KPIs */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
           <p className="text-xs text-gray-400 font-semibold uppercase">Active Jobs</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">{stats.activeJobs}</p>
@@ -103,9 +103,9 @@ export default function JobsPipeline() {
       </div>
 
       {/* Controls */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-3">
-          <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-orange-400"
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <div className="flex flex-col sm:flex-row gap-2 lg:gap-3">
+          <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-orange-400"
             placeholder="Search jobs..." value={search} onChange={e => setSearch(e.target.value)} />
           <div className="flex bg-gray-100 rounded-lg p-0.5">
             {(['board', 'list'] as const).map(v => (
@@ -166,8 +166,8 @@ export default function JobsPipeline() {
 
       {/* List view */}
       {view === 'list' && (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>

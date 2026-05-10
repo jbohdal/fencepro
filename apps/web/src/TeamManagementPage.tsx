@@ -70,19 +70,19 @@ export default function TeamManagementPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Team Management</h1>
           <p className="text-sm text-gray-500 mt-1">Invite members, manage roles, and monitor access.</p>
         </div>
         <button onClick={() => setShowInvite(true)}
-          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium">
+          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium self-start lg:self-auto">
           + Invite Team Member
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit overflow-x-auto">
         {([['team', 'Team Members'], ['sessions', 'Active Sessions'], ['activity', 'Activity Log']] as const).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
@@ -102,7 +102,7 @@ export default function TeamManagementPage() {
           ) : (
             <div className="divide-y divide-gray-50">
               {users.map(user => (
-                <div key={user.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition group">
+                <div key={user.id} className="px-4 lg:px-6 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 hover:bg-gray-50 transition group">
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
                       {user.firstName.charAt(0)}{user.lastName.charAt(0)}
@@ -112,7 +112,7 @@ export default function TeamManagementPage() {
                       <p className="text-xs text-gray-500">{user.email}{user.phone ? ` · ${user.phone}` : ''}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-2 lg:gap-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLES.find(r => r.value === user.role)?.color || 'bg-gray-100 text-gray-700'}`}>
                       {user.role === 'super_admin' ? 'Super Admin' : ROLES.find(r => r.value === user.role)?.label || user.role}
                     </span>
@@ -124,7 +124,7 @@ export default function TeamManagementPage() {
                         Last login: {new Date(user.lastLoginAt).toLocaleDateString()}
                       </span>
                     )}
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                    <div className="flex gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition">
                       <button onClick={() => setEditingUser(user)} className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1">Edit</button>
                       {user.status === 'invited' && (
                         <button onClick={async () => {
@@ -158,7 +158,7 @@ export default function TeamManagementPage() {
           ) : (
             <div className="divide-y divide-gray-50">
               {sessions.map(s => (
-                <div key={s.id} className="px-6 py-3 flex items-center justify-between">
+                <div key={s.id} className="px-4 lg:px-6 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                   <div>
                     <p className="text-sm font-medium text-gray-900">{s.user.firstName} {s.user.lastName}</p>
                     <p className="text-xs text-gray-500">{s.user.email} · {s.ipAddress || 'Unknown IP'}</p>
@@ -183,7 +183,7 @@ export default function TeamManagementPage() {
           ) : (
             <div className="divide-y divide-gray-50">
               {activity.map((a: any) => (
-                <div key={a.id} className="px-6 py-3 flex items-center justify-between">
+                <div key={a.id} className="px-4 lg:px-6 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                   <div>
                     <p className="text-sm text-gray-900">
                       <span className="font-medium">{a.user?.firstName} {a.user?.lastName}</span>
@@ -232,7 +232,7 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <form onSubmit={handleInvite} className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] p-6 mx-4 space-y-4">
+      <form onSubmit={handleInvite} className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto p-6 mx-4 space-y-4 modal-responsive">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-gray-900 text-lg">Invite Team Member</h2>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
@@ -240,7 +240,7 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
 
         {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3">{error}</div>}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-gray-500 mb-1">First Name *</label>
             <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)} required
@@ -321,7 +321,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] p-6 mx-4 space-y-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto p-6 mx-4 space-y-4 modal-responsive">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-gray-900 text-lg">Edit {user.firstName} {user.lastName}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
@@ -329,7 +329,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
 
         {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3">{error}</div>}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-gray-500 mb-1">First Name</label>
             <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)}

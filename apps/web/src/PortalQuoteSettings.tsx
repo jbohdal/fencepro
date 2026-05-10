@@ -94,7 +94,7 @@ export default function PortalQuoteSettings() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
           <h3 className="text-lg font-bold text-gray-900">Portal &amp; Quote Settings</h3>
           <p className="text-sm text-gray-500 mt-0.5">Controls the customer portal experience and quote presentation defaults.</p>
@@ -111,7 +111,7 @@ export default function PortalQuoteSettings() {
           <textarea value={s.portal.welcomeMessage} onChange={e => update('portal', { welcomeMessage: e.target.value })} rows={2}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
         </Field>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Field label="Support Email"><input value={s.portal.supportEmail} onChange={e => update('portal', { supportEmail: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>
           <Field label="Support Phone"><input value={s.portal.supportPhone} onChange={e => update('portal', { supportPhone: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>
           <Field label="Accent Color"><input type="color" value={s.portal.accentColor} onChange={e => update('portal', { accentColor: e.target.value })} className="w-full h-10 border border-gray-200 rounded-lg" /></Field>
@@ -128,7 +128,7 @@ export default function PortalQuoteSettings() {
 
       <section className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
         <h4 className="text-sm font-bold text-gray-700 uppercase tracking-widest">Quote Defaults</h4>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Field label="Default Template">
             <select value={s.quote.defaultTemplate} onChange={e => update('quote', { defaultTemplate: e.target.value as TemplateKey })}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">

@@ -38,12 +38,12 @@ export default function ContractTemplatesSettings() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
           <h3 className="text-lg font-bold text-gray-900">Contract Templates</h3>
           <p className="text-sm text-gray-500 mt-0.5">The terms below appear on every quote. Existing quotes keep their saved text; changes apply to new quotes going forward.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowPreview(p => !p)} className="text-xs border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50">
             {showPreview ? 'Hide Preview' : 'Preview Contract'}
           </button>
@@ -55,7 +55,7 @@ export default function ContractTemplatesSettings() {
       </div>
 
       {showPreview ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-8">
+        <div className="bg-white border border-gray-200 rounded-2xl p-4 lg:p-8">
           <p className="text-lg font-bold text-gray-900 mb-6">Contract Preview</p>
           {sections.filter(s => s.visible).map(s => (
             <div key={s.key} className="mb-5">
@@ -68,7 +68,7 @@ export default function ContractTemplatesSettings() {
         <div className="space-y-3">
           {sections.map(s => (
             <div key={s.key} className="bg-white border border-gray-200 rounded-xl p-4">
-              <div className="flex items-center gap-3 mb-2">
+              <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3 mb-2">
                 <input value={s.title} onChange={e => update(s.key, { title: e.target.value })}
                   className="flex-1 text-sm font-semibold border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-400" />
                 <label className="flex items-center gap-1 text-xs text-gray-500">

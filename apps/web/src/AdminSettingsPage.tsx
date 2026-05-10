@@ -38,7 +38,7 @@ function CompanyTab({ config, onChange }: { config: AppConfig; onChange: (c: App
             <label className="text-xs text-gray-500 mb-1 block">Company Name</label>
             <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={co.name} onChange={e => set('name', e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Phone</label>
               <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="(352) 555-0100" value={co.phone} onChange={e => set('phone', e.target.value)} />
@@ -52,7 +52,7 @@ function CompanyTab({ config, onChange }: { config: AppConfig; onChange: (c: App
             <label className="text-xs text-gray-500 mb-1 block">Street Address</label>
             <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={co.address} onChange={e => set('address', e.target.value)} />
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">City</label>
               <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={co.city} onChange={e => set('city', e.target.value)} />
@@ -90,7 +90,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
     <div className="space-y-8 max-w-2xl">
       <div>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Labor</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Man-Hour Rate</label>
             <div className="flex items-center">
@@ -104,7 +104,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
 
       <div>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Commission</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Salesman Commission</label>
             <div className="flex items-center">
@@ -124,7 +124,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
 
       <div>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Tear-Out Costs</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Per Fence Section</label>
             <div className="flex items-center">
@@ -145,7 +145,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
       <div>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Margin Thresholds</h3>
         <p className="text-xs text-gray-400 mb-3">Controls color coding on quotes and dashboard</p>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block flex items-center gap-2">
               Good <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
@@ -210,8 +210,8 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex gap-2">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+        <div className="flex flex-wrap gap-2">
           {['All', ...STYLE_CATEGORIES].map(cat => (
             <button key={cat} onClick={() => setFilter(cat)} className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${filter === cat ? 'bg-orange-500 border-orange-500 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
               {cat}
@@ -221,8 +221,8 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
         <button onClick={addStyle} className="text-sm text-orange-500 border border-orange-300 rounded-lg px-3 py-2 hover:bg-orange-50">+ Add Style</button>
       </div>
 
-      <div className="border border-gray-200 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
@@ -513,13 +513,13 @@ export default function AdminSettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-6xl mx-auto px-8 py-8">
-        <div className="flex items-center justify-between mb-8">
+      <div className="max-w-6xl mx-auto px-4 lg:px-8 py-6 lg:py-8">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-6 lg:mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
             <p className="text-gray-400 mt-1">Configure pricing, fence styles, and business rules</p>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex flex-wrap gap-2 items-center">
             {dirty && <span className="text-xs text-orange-500 font-medium">Unsaved changes</span>}
             <button onClick={handleReset} className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50">Reset to defaults</button>
             <button onClick={handleSave} className={`text-sm font-semibold px-4 py-2 rounded-lg transition-colors ${saved ? 'bg-green-500 text-white' : dirty ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
@@ -528,7 +528,7 @@ export default function AdminSettingsPage() {
           </div>
         </div>
 
-        <div className="flex gap-1 bg-white border border-gray-200 rounded-xl p-1 w-fit mb-8">
+        <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-xl p-1 lg:w-fit mb-6 lg:mb-8 overflow-x-auto">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.key ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-800'}`}>
               {t.label}
@@ -536,7 +536,7 @@ export default function AdminSettingsPage() {
           ))}
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-200 p-8">
+        <div className="bg-white rounded-2xl border border-gray-200 p-4 lg:p-8">
           {tab === 'company' && <CompanyTab config={config} onChange={handleChange} />}
           {tab === 'pricing' && <PricingTab config={config} onChange={handleChange} />}
           {tab === 'styles' && <StylesTab config={config} onChange={handleChange} />}

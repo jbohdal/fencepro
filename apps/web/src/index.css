@@ -120,3 +120,92 @@
     padding: 12px !important; min-height: auto !important;
   }
 }
+
+/* ── Quote Template (public customer-facing) Mobile Overrides ── */
+/* These templates use inline styles (so they double as PDF print).
+   On mobile we force shrinking via !important rules. */
+@media (max-width: 1023px) {
+  .ezbiz-quote-template { max-width: 100% !important; }
+  .ezbiz-quote-template main {
+    padding: 24px 16px !important;
+    grid-template-columns: 1fr !important;
+    max-width: 100% !important;
+    gap: 24px !important;
+  }
+  .ezbiz-quote-template > section,
+  .ezbiz-quote-template > div > section {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  .ezbiz-quote-template aside {
+    position: static !important;
+    padding: 20px !important;
+  }
+  .ezbiz-quote-template h1 {
+    font-size: 32px !important;
+    line-height: 1.15 !important;
+  }
+  .ezbiz-quote-template h2 {
+    font-size: 22px !important;
+  }
+  .ezbiz-quote-template h3 {
+    font-size: 18px !important;
+  }
+  /* Hero / cover sections that use very large padding */
+  .ezbiz-quote-template section[style*="padding: 80px"],
+  .ezbiz-quote-template section[style*="padding: 64px"],
+  .ezbiz-quote-template section[style*="padding: '64px"],
+  .ezbiz-quote-template section[style*="padding: '80px"] {
+    padding: 32px 16px !important;
+    min-height: 0 !important;
+  }
+  /* Three-column stat grids → two columns */
+  .ezbiz-quote-template [style*="repeat(3, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  /* Investment / total amount mega text */
+  .ezbiz-quote-template p[style*="font-size: 72"],
+  .ezbiz-quote-template p[style*="fontSize: 72"] {
+    font-size: 44px !important;
+  }
+  .ezbiz-quote-template p[style*="font-size: 60"],
+  .ezbiz-quote-template p[style*="fontSize: 60"] {
+    font-size: 36px !important;
+  }
+  .ezbiz-quote-template p[style*="font-size: 56"],
+  .ezbiz-quote-template p[style*="fontSize: 56"] {
+    font-size: 32px !important;
+  }
+  .ezbiz-quote-template p[style*="font-size: 48"],
+  .ezbiz-quote-template p[style*="fontSize: 48"] {
+    font-size: 32px !important;
+  }
+  .ezbiz-quote-template p[style*="font-size: 40"],
+  .ezbiz-quote-template p[style*="fontSize: 40"] {
+    font-size: 28px !important;
+  }
+  .ezbiz-quote-template p[style*="font-size: 32"],
+  .ezbiz-quote-template p[style*="fontSize: 32"] {
+    font-size: 24px !important;
+  }
+  /* Pricing tables — keep readable and prevent horizontal overflow */
+  .ezbiz-quote-template table {
+    width: 100% !important;
+    font-size: 12px !important;
+  }
+  .ezbiz-quote-template table td,
+  .ezbiz-quote-template table th {
+    padding: 6px !important;
+    word-wrap: break-word;
+  }
+  /* Letterhead / inline flex headers — let them stack */
+  .ezbiz-quote-template div[style*="justify-content: space-between"][style*="display: flex"],
+  .ezbiz-quote-template div[style*="justifyContent: 'space-between'"][style*="display: 'flex'"] {
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+  }
+  /* Classic outer wrapper (uses padding: 48 inline) */
+  .ezbiz-quote-template[style*="padding: 48px"] {
+    padding: 16px !important;
+  }
+}

@@ -585,7 +585,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       <OptionConversionReport />
 
       {/* ── Header controls ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h3 className="text-lg font-bold text-gray-900">
             {section === 'tier1' ? 'Revenue & Margin Analysis' : section === 'tier2' ? 'Sales Performance' : section === 'tier3' ? 'Budget Variance' : 'Customer Intelligence'}
@@ -594,7 +594,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             {section === 'tier1' ? 'Sold quote financials' : section === 'tier2' ? 'Close rates, lead sources & rep performance' : section === 'tier3' ? 'Actual vs budget targets' : 'Revenue per customer, repeat business & segmentation'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Year selector */}
           <select
             value={year}
@@ -621,7 +621,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       </div>
 
       {/* ── KPI strip ── */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {[
           {
             label: 'Revenue (Sold)',
@@ -671,8 +671,8 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       </div>
 
       {/* ── Section selector ── */}
-      <div className="flex items-center gap-4">
-        <div className="flex bg-gray-200 rounded-lg p-0.5">
+      <div className="flex items-center gap-4 overflow-x-auto">
+        <div className="flex bg-gray-200 rounded-lg p-0.5 flex-nowrap">
           {([
             { key: 'tier1' as const, label: 'Revenue & Margins' },
             { key: 'tier2' as const, label: 'Sales Performance' },
@@ -698,7 +698,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       </div>
 
       {/* ── Tab navigation ── */}
-      <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto">
         {(section === 'tier1' ? TABS_TIER1 : section === 'tier2' ? TABS_TIER2 : section === 'tier3' ? TABS_TIER3 : TABS_TIER4).map(t => (
           <button
             key={t.key}
@@ -892,7 +892,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
           </div>
 
           {/* Top & bottom margin quotes */}
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-2xl border border-gray-200 p-6">
               <h4 className="font-semibold text-green-700 mb-3">Top 5 Margin Quotes</h4>
               <div className="space-y-2">
@@ -980,7 +980,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <div className="px-6 py-4 border-b border-gray-100">
               <h4 className="font-semibold text-gray-900">Product Mix Detail</h4>
             </div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Style</th>
@@ -994,28 +994,28 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               <tbody className="divide-y divide-gray-50">
                 {styleBreakdown.map(s => (
                   <tr key={s.label} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 font-medium text-gray-900">{s.label}</td>
-                    <td className="px-6 py-3 text-right text-gray-700">{s.count}</td>
-                    <td className="px-6 py-3 text-right font-semibold text-gray-900">{fmt(s.revenue)}</td>
-                    <td className="px-6 py-3 text-right text-gray-500">
+                    <td data-label="Style" className="px-6 py-3 font-medium text-gray-900">{s.label}</td>
+                    <td data-label="Jobs" className="px-6 py-3 text-right text-gray-700">{s.count}</td>
+                    <td data-label="Revenue" className="px-6 py-3 text-right font-semibold text-gray-900">{fmt(s.revenue)}</td>
+                    <td data-label="% of Total" className="px-6 py-3 text-right text-gray-500">
                       {ytdRevenue > 0 ? fmtPct(s.revenue / ytdRevenue) : '0%'}
                     </td>
-                    <td className={`px-6 py-3 text-right font-semibold ${marginColor(s.margin)}`}>
+                    <td data-label="Avg Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(s.margin)}`}>
                       {fmtPct(s.margin)}
                     </td>
-                    <td className="px-6 py-3 text-right text-gray-700">
+                    <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-700">
                       {s.count > 0 ? fmt(s.revenue / s.count) : '$0'}
                     </td>
                   </tr>
                 ))}
                 {styleBreakdown.length > 0 && (
                   <tr className="bg-gray-50 font-semibold">
-                    <td className="px-6 py-3 text-gray-900">Total</td>
-                    <td className="px-6 py-3 text-right text-gray-900">{soldQuotes.length}</td>
-                    <td className="px-6 py-3 text-right text-gray-900">{fmt(ytdRevenue)}</td>
-                    <td className="px-6 py-3 text-right text-gray-500">100%</td>
-                    <td className={`px-6 py-3 text-right ${marginColor(avgMargin)}`}>{fmtPct(avgMargin)}</td>
-                    <td className="px-6 py-3 text-right text-gray-900">{fmt(avgDeal)}</td>
+                    <td data-label="" className="px-6 py-3 text-gray-900">Total</td>
+                    <td data-label="Jobs" className="px-6 py-3 text-right text-gray-900">{soldQuotes.length}</td>
+                    <td data-label="Revenue" className="px-6 py-3 text-right text-gray-900">{fmt(ytdRevenue)}</td>
+                    <td data-label="% of Total" className="px-6 py-3 text-right text-gray-500">100%</td>
+                    <td data-label="Avg Margin" className={`px-6 py-3 text-right ${marginColor(avgMargin)}`}>{fmtPct(avgMargin)}</td>
+                    <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-900">{fmt(avgDeal)}</td>
                   </tr>
                 )}
               </tbody>
@@ -1084,7 +1084,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <div className="px-6 py-4 border-b border-gray-100">
               <h4 className="font-semibold text-gray-900">Top 10 Deals by Value</h4>
             </div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
@@ -1098,16 +1098,16 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               <tbody className="divide-y divide-gray-50">
                 {[...soldQuotes].sort((a, b) => b.finalPrice - a.finalPrice).slice(0, 10).map((q, i) => (
                   <tr key={q.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 text-gray-400 font-mono">{i + 1}</td>
-                    <td className="px-6 py-3 font-medium text-gray-900">{q.customerName}</td>
-                    <td className="px-6 py-3 text-gray-600">{q.fenceStyle}</td>
-                    <td className="px-6 py-3 text-gray-500">{q.date}</td>
-                    <td className="px-6 py-3 text-right font-bold text-gray-900">{fmt(q.finalPrice)}</td>
-                    <td className={`px-6 py-3 text-right font-semibold ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</td>
+                    <td data-label="#" className="px-6 py-3 text-gray-400 font-mono">{i + 1}</td>
+                    <td data-label="Customer" className="px-6 py-3 font-medium text-gray-900">{q.customerName}</td>
+                    <td data-label="Style" className="px-6 py-3 text-gray-600">{q.fenceStyle}</td>
+                    <td data-label="Date" className="px-6 py-3 text-gray-500">{q.date}</td>
+                    <td data-label="Price" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(q.finalPrice)}</td>
+                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</td>
                   </tr>
                 ))}
                 {soldQuotes.length === 0 && (
-                  <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">No sold quotes</td></tr>
+                  <tr><td data-label="" colSpan={6} className="px-6 py-8 text-center text-gray-400">No sold quotes</td></tr>
                 )}
               </tbody>
             </table>
@@ -1122,7 +1122,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       {tab === 'close_rate' && (
         <div className="space-y-6">
           {/* Close rate KPI strip */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {(() => {
               const totalQ = yearQuotes.length
               const soldQ = yearQuotes.filter(q => q.status === 'SOLD').length
@@ -1265,7 +1265,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <div className="px-6 py-4 border-b border-gray-100">
               <h4 className="font-semibold text-gray-900">Lead Source Detail</h4>
             </div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Source</th>
@@ -1279,20 +1279,20 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               <tbody className="divide-y divide-gray-50">
                 {leadSourceBreakdown.map(s => (
                   <tr key={s.source} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 font-medium text-gray-900">{s.source}</td>
-                    <td className="px-6 py-3 text-right text-gray-700">{s.total}</td>
-                    <td className="px-6 py-3 text-right text-gray-700">{s.sold}</td>
-                    <td className={`px-6 py-3 text-right font-semibold ${s.closeRate >= 0.4 ? 'text-green-600' : s.closeRate >= 0.25 ? 'text-yellow-600' : 'text-red-500'}`}>
+                    <td data-label="Source" className="px-6 py-3 font-medium text-gray-900">{s.source}</td>
+                    <td data-label="Quotes" className="px-6 py-3 text-right text-gray-700">{s.total}</td>
+                    <td data-label="Sold" className="px-6 py-3 text-right text-gray-700">{s.sold}</td>
+                    <td data-label="Close Rate" className={`px-6 py-3 text-right font-semibold ${s.closeRate >= 0.4 ? 'text-green-600' : s.closeRate >= 0.25 ? 'text-yellow-600' : 'text-red-500'}`}>
                       {fmtPct(s.closeRate)}
                     </td>
-                    <td className="px-6 py-3 text-right font-bold text-gray-900">{fmt(s.revenue)}</td>
-                    <td className={`px-6 py-3 text-right font-semibold ${marginColor(s.avgMargin)}`}>
+                    <td data-label="Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(s.revenue)}</td>
+                    <td data-label="Avg Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(s.avgMargin)}`}>
                       {s.sold > 0 ? fmtPct(s.avgMargin) : '—'}
                     </td>
                   </tr>
                 ))}
                 {leadSourceBreakdown.length === 0 && (
-                  <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">No quotes</td></tr>
+                  <tr><td data-label="" colSpan={6} className="px-6 py-8 text-center text-gray-400">No quotes</td></tr>
                 )}
               </tbody>
             </table>
@@ -1347,7 +1347,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <div className="px-6 py-4 border-b border-gray-100">
               <h4 className="font-semibold text-gray-900">Sales Rep Comparison</h4>
             </div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Rep</th>
@@ -1362,15 +1362,15 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               <tbody className="divide-y divide-gray-50">
                 {salesRepBreakdown.map(r => (
                   <tr key={r.rep} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 font-medium text-gray-900">{r.rep}</td>
-                    <td className="px-6 py-3 text-right text-gray-700">{r.total}</td>
-                    <td className="px-6 py-3 text-right text-gray-700">{r.sold}</td>
-                    <td className={`px-6 py-3 text-right font-semibold ${r.closeRate >= 0.4 ? 'text-green-600' : 'text-orange-500'}`}>
+                    <td data-label="Rep" className="px-6 py-3 font-medium text-gray-900">{r.rep}</td>
+                    <td data-label="Quotes" className="px-6 py-3 text-right text-gray-700">{r.total}</td>
+                    <td data-label="Sold" className="px-6 py-3 text-right text-gray-700">{r.sold}</td>
+                    <td data-label="Close Rate" className={`px-6 py-3 text-right font-semibold ${r.closeRate >= 0.4 ? 'text-green-600' : 'text-orange-500'}`}>
                       {fmtPct(r.closeRate)}
                     </td>
-                    <td className="px-6 py-3 text-right font-bold text-gray-900">{fmt(r.revenue)}</td>
-                    <td className="px-6 py-3 text-right text-gray-700">{r.sold > 0 ? fmt(r.avgDeal) : '—'}</td>
-                    <td className={`px-6 py-3 text-right font-semibold ${marginColor(r.avgMargin)}`}>
+                    <td data-label="Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(r.revenue)}</td>
+                    <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-700">{r.sold > 0 ? fmt(r.avgDeal) : '—'}</td>
+                    <td data-label="Avg Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(r.avgMargin)}`}>
                       {r.sold > 0 ? fmtPct(r.avgMargin) : '—'}
                     </td>
                   </tr>
@@ -1398,7 +1398,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       {tab === 'pipeline' && (
         <div className="space-y-6">
           {/* Pipeline status cards */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {pipelineByStatus.map(p => {
               const colors: Record<string, string> = {
                 DRAFT: 'border-gray-300 bg-gray-50',
@@ -1438,7 +1438,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
           </div>
 
           {/* Win/loss breakdown */}
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-2xl border border-gray-200 p-6">
               <h4 className="font-semibold text-gray-900 mb-3">Win/Loss Ratio</h4>
               {(() => {
@@ -1519,7 +1519,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       {tab === 'budget_rev' && (
         <div className="space-y-6">
           {/* Revenue vs Goal KPIs */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {(() => {
               const pctOfGoal = revenueGoal > 0 ? ytdRevenue / revenueGoal : 0
               const ytdBudgetTarget = monthlyBudgetTargets.reduce((a, b) => a + b, 0)
@@ -1662,7 +1662,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
           </div>
 
           {/* Cost breakdown pie-like display */}
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-2xl border border-gray-200 p-6">
               <h4 className="font-semibold text-gray-900 mb-3">Cost Breakdown (Sold Jobs)</h4>
               <div className="space-y-3">
@@ -1734,7 +1734,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       {tab === 'budget_overhead' && (
         <div className="space-y-6">
           {/* Overhead summary */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {(() => {
               const overPctTarget = budget?.overheadPct || 0.30
               const actualPct = ytdRevenue > 0 ? budgetOverhead.total / ytdRevenue : 0
@@ -1772,7 +1772,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <div className="px-6 py-4 border-b border-gray-100">
               <h4 className="font-semibold text-gray-900">Overhead Detail</h4>
             </div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Category</th>
@@ -1785,26 +1785,26 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               <tbody className="divide-y divide-gray-50">
                 {budgetOverhead.items.map(item => (
                   <tr key={item.label} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 font-medium text-gray-900">{item.label}</td>
-                    <td className="px-6 py-3 text-gray-500">{item.category}</td>
-                    <td className="px-6 py-3 text-right font-semibold text-gray-900">{fmt(item.annual)}</td>
-                    <td className="px-6 py-3 text-right text-gray-700">{fmt(item.annual / 12)}</td>
-                    <td className="px-6 py-3 text-right text-gray-500">
+                    <td data-label="Category" className="px-6 py-3 font-medium text-gray-900">{item.label}</td>
+                    <td data-label="Type" className="px-6 py-3 text-gray-500">{item.category}</td>
+                    <td data-label="Annual" className="px-6 py-3 text-right font-semibold text-gray-900">{fmt(item.annual)}</td>
+                    <td data-label="Monthly" className="px-6 py-3 text-right text-gray-700">{fmt(item.annual / 12)}</td>
+                    <td data-label="% of Overhead" className="px-6 py-3 text-right text-gray-500">
                       {budgetOverhead.total > 0 ? fmtPct(item.annual / budgetOverhead.total) : '0%'}
                     </td>
                   </tr>
                 ))}
                 {budgetOverhead.items.length > 0 && (
                   <tr className="bg-gray-50 font-semibold">
-                    <td className="px-6 py-3 text-gray-900">Total</td>
-                    <td className="px-6 py-3" />
-                    <td className="px-6 py-3 text-right text-gray-900">{fmt(budgetOverhead.total)}</td>
-                    <td className="px-6 py-3 text-right text-gray-900">{fmt(budgetOverhead.total / 12)}</td>
-                    <td className="px-6 py-3 text-right text-gray-500">100%</td>
+                    <td data-label="" className="px-6 py-3 text-gray-900">Total</td>
+                    <td data-label="" className="px-6 py-3" />
+                    <td data-label="Annual" className="px-6 py-3 text-right text-gray-900">{fmt(budgetOverhead.total)}</td>
+                    <td data-label="Monthly" className="px-6 py-3 text-right text-gray-900">{fmt(budgetOverhead.total / 12)}</td>
+                    <td data-label="% of Overhead" className="px-6 py-3 text-right text-gray-500">100%</td>
                   </tr>
                 )}
                 {budgetOverhead.items.length === 0 && (
-                  <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">No overhead data — set up in Budget module</td></tr>
+                  <tr><td data-label="" colSpan={5} className="px-6 py-8 text-center text-gray-400">No overhead data — set up in Budget module</td></tr>
                 )}
               </tbody>
             </table>
@@ -1819,7 +1819,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       {tab === 'cust_revenue' && (
         <div className="space-y-6">
           {/* Customer KPIs */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { label: 'Total Customers', value: String(customerRevenue.length), sub: 'with sold quotes', color: 'text-blue-600' },
               { label: 'Total Lifetime Revenue', value: fmt(allSoldQuotes.reduce((s, q) => s + q.finalPrice, 0)), sub: `${allSoldQuotes.length} sold jobs`, color: 'text-green-600' },
@@ -1839,7 +1839,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <div className="px-6 py-4 border-b border-gray-100">
               <h4 className="font-semibold text-gray-900">Top 20 Customers by Revenue</h4>
             </div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
@@ -1854,20 +1854,20 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               <tbody className="divide-y divide-gray-50">
                 {customerRevenue.slice(0, 20).map((c, i) => (
                   <tr key={c.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 text-gray-400 font-mono">{i + 1}</td>
-                    <td className="px-6 py-3 font-medium text-gray-900">
+                    <td data-label="#" className="px-6 py-3 text-gray-400 font-mono">{i + 1}</td>
+                    <td data-label="Customer" className="px-6 py-3 font-medium text-gray-900">
                       {c.name}
                       {c.count > 1 && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Repeat</span>}
                     </td>
-                    <td className="px-6 py-3 text-right text-gray-700">{c.count}</td>
-                    <td className="px-6 py-3 text-right font-bold text-gray-900">{fmt(c.revenue)}</td>
-                    <td className="px-6 py-3 text-right text-gray-700">{fmt(c.avgDeal)}</td>
-                    <td className={`px-6 py-3 text-right font-semibold ${marginColor(c.avgMargin)}`}>{fmtPct(c.avgMargin)}</td>
-                    <td className="px-6 py-3 text-gray-500 text-xs">{c.styles.join(', ')}</td>
+                    <td data-label="Jobs" className="px-6 py-3 text-right text-gray-700">{c.count}</td>
+                    <td data-label="Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(c.revenue)}</td>
+                    <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-700">{fmt(c.avgDeal)}</td>
+                    <td data-label="Avg Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(c.avgMargin)}`}>{fmtPct(c.avgMargin)}</td>
+                    <td data-label="Styles" className="px-6 py-3 text-gray-500 text-xs">{c.styles.join(', ')}</td>
                   </tr>
                 ))}
                 {customerRevenue.length === 0 && (
-                  <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400">No sold quotes</td></tr>
+                  <tr><td data-label="" colSpan={7} className="px-6 py-8 text-center text-gray-400">No sold quotes</td></tr>
                 )}
               </tbody>
             </table>
@@ -1911,7 +1911,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       {tab === 'cust_repeat' && (
         <div className="space-y-6">
           {/* Repeat vs one-time */}
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-2xl border-2 border-blue-200 p-6">
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-lg">🔁</span>
@@ -1983,7 +1983,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               <h4 className="font-semibold text-gray-900">Repeat Customers</h4>
               <p className="text-xs text-gray-400 mt-0.5">Customers with 2+ sold jobs</p>
             </div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
@@ -1997,16 +1997,16 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               <tbody className="divide-y divide-gray-50">
                 {customerRevenue.filter(c => c.count > 1).map(c => (
                   <tr key={c.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 font-medium text-gray-900">{c.name}</td>
-                    <td className="px-6 py-3 text-right font-bold text-blue-700">{c.count}</td>
-                    <td className="px-6 py-3 text-right font-bold text-gray-900">{fmt(c.revenue)}</td>
-                    <td className="px-6 py-3 text-right text-gray-700">{fmt(c.avgDeal)}</td>
-                    <td className="px-6 py-3 text-gray-500">{c.firstDate}</td>
-                    <td className="px-6 py-3 text-gray-500">{c.lastDate}</td>
+                    <td data-label="Customer" className="px-6 py-3 font-medium text-gray-900">{c.name}</td>
+                    <td data-label="Jobs" className="px-6 py-3 text-right font-bold text-blue-700">{c.count}</td>
+                    <td data-label="Lifetime Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(c.revenue)}</td>
+                    <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-700">{fmt(c.avgDeal)}</td>
+                    <td data-label="First Job" className="px-6 py-3 text-gray-500">{c.firstDate}</td>
+                    <td data-label="Last Job" className="px-6 py-3 text-gray-500">{c.lastDate}</td>
                   </tr>
                 ))}
                 {customerRevenue.filter(c => c.count > 1).length === 0 && (
-                  <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">No repeat customers yet</td></tr>
+                  <tr><td data-label="" colSpan={6} className="px-6 py-8 text-center text-gray-400">No repeat customers yet</td></tr>
                 )}
               </tbody>
             </table>
@@ -2043,7 +2043,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <div className="px-6 py-4 border-b border-gray-100">
               <h4 className="font-semibold text-gray-900">Segment Summary</h4>
             </div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Segment</th>
@@ -2059,19 +2059,19 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                   const totalRev = customerRevenue.reduce((s, c) => s + c.revenue, 0)
                   return (
                     <tr key={seg.label} className="hover:bg-gray-50">
-                      <td className="px-6 py-3 font-medium text-gray-900 flex items-center gap-2">
+                      <td data-label="Segment" className="px-6 py-3 font-medium text-gray-900 flex items-center gap-2">
                         <span className={`w-3 h-3 rounded ${seg.color} inline-block`} />
                         {seg.label}
                       </td>
-                      <td className="px-6 py-3 text-right text-gray-700">{seg.count}</td>
-                      <td className="px-6 py-3 text-right text-gray-500">
+                      <td data-label="Customers" className="px-6 py-3 text-right text-gray-700">{seg.count}</td>
+                      <td data-label="% of Customers" className="px-6 py-3 text-right text-gray-500">
                         {customerRevenue.length > 0 ? fmtPct(seg.count / customerRevenue.length) : '0%'}
                       </td>
-                      <td className="px-6 py-3 text-right font-bold text-gray-900">{fmt(seg.revenue)}</td>
-                      <td className="px-6 py-3 text-right text-gray-500">
+                      <td data-label="Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(seg.revenue)}</td>
+                      <td data-label="% of Revenue" className="px-6 py-3 text-right text-gray-500">
                         {totalRev > 0 ? fmtPct(seg.revenue / totalRev) : '0%'}
                       </td>
-                      <td className="px-6 py-3 text-right text-gray-700">
+                      <td data-label="Avg / Customer" className="px-6 py-3 text-right text-gray-700">
                         {seg.count > 0 ? fmt(seg.revenue / seg.count) : '—'}
                       </td>
                     </tr>

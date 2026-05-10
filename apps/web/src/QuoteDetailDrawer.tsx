@@ -85,7 +85,7 @@ export default function QuoteDetailDrawer({
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/40" onClick={onClose} />
-      <div className="w-full max-w-2xl bg-white shadow-2xl h-full overflow-y-auto">
+      <div className="w-full max-w-2xl bg-white shadow-2xl h-full overflow-y-auto slideover-responsive">
         {/* Header */}
         <div className="px-8 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -377,7 +377,7 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
 
   return (
     <div className="fixed inset-0 z-60 bg-black/40 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="font-bold text-gray-900">Send Quote to Customer</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>

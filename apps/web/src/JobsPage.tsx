@@ -198,7 +198,7 @@ export function QuickAddModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-[420px]">
+      <div className="bg-white rounded-2xl shadow-2xl w-[420px] max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900">Add to {stage}</h2>
@@ -207,7 +207,7 @@ export function QuickAddModal({
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
         <div className="px-6 py-5 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">First Name *</label>
               <input
@@ -890,15 +890,15 @@ export default function JobsPage() {
     <div className="flex flex-col h-full">
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-4">
           <input
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 w-64"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 w-full lg:w-64"
             placeholder="Search leads..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex flex-wrap items-center gap-3 lg:gap-4 text-sm">
             <span className="text-gray-500">
               Pipeline: <span className="font-bold text-gray-900">
                 {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalPipeline)}
@@ -918,7 +918,7 @@ export default function JobsPage() {
         </div>
         <button
           onClick={() => setAddingToStage(stages[0])}
-          className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg"
+          className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg self-start lg:self-auto"
         >
           + New Lead
         </button>

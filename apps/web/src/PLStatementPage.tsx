@@ -74,12 +74,12 @@ export default function PLStatementPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Profit &amp; Loss Statement</h1>
           <p className="text-sm text-gray-500 mt-1">Revenue, COGS, operating expenses, and EBITDA for the selected period.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowEntries(true)}
             className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">Manage Entries</button>
           <button onClick={() => exportPlPdf(pl)}
@@ -106,7 +106,7 @@ export default function PLStatementPage() {
               className="text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
           </div>
         )}
-        <div className="ml-auto flex gap-1 bg-gray-100 rounded-xl p-1">
+        <div className="lg:ml-auto flex gap-1 bg-gray-100 rounded-xl p-1">
           <button onClick={() => setViewMode('summary')}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${viewMode === 'summary' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>Summary</button>
           <button onClick={() => setViewMode('monthly')}
@@ -189,13 +189,13 @@ function SummaryView({ pl }: { pl: PlStatement }) {
         <Row label="Other Operating Expenses" amount={pl.opex.other} indent={1} />
         <Row label="Total Operating Expenses" amount={pl.opex.total} bold indent={0} />
 
-        <div className={`px-6 py-5 flex items-center justify-between ${positive ? 'bg-green-50' : 'bg-red-50'}`}>
+        <div className={`px-4 lg:px-6 py-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 ${positive ? 'bg-green-50' : 'bg-red-50'}`}>
           <div>
             <p className={`text-sm font-bold uppercase tracking-wide ${positive ? 'text-green-800' : 'text-red-800'}`}>EBITDA</p>
             <p className="text-xs text-gray-600 mt-0.5">Earnings before interest, taxes, depreciation &amp; amortization</p>
           </div>
-          <div className="text-right">
-            <p className={`text-3xl font-bold ${positive ? 'text-green-700' : 'text-red-700'}`}>{fmt(pl.ebitda)}</p>
+          <div className="text-left lg:text-right">
+            <p className={`text-2xl lg:text-3xl font-bold ${positive ? 'text-green-700' : 'text-red-700'}`}>{fmt(pl.ebitda)}</p>
             <p className="text-xs text-gray-600 mt-0.5">Margin: {fmtPct(pl.ebitdaMargin)}</p>
           </div>
         </div>
@@ -369,7 +369,7 @@ function ManageEntriesModal({ onClose, onSaved }: { onClose: () => void; onSaved
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+      <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">Manage P&amp;L Entries</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
@@ -448,13 +448,13 @@ function EntryForm({ initial, onCancel, onSaved }: { initial: PlManualEntry | nu
 
   return (
     <div className="fixed inset-0 z-60 bg-black/50 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl w-full max-w-md">
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">{initial ? 'Edit' : 'Add'} P&amp;L Entry</h3>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
         <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 font-semibold uppercase">Month</label>
               <select value={periodMonth} onChange={e => setPeriodMonth(parseInt(e.target.value))}

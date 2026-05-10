@@ -157,7 +157,7 @@ function OrderDetail({ order, onAdvance, onRemove }: {
         </div>
       )}
 
-      <div className="px-6 py-4">
+      <div className="px-6 py-4 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-gray-500 uppercase font-semibold border-b border-gray-100">

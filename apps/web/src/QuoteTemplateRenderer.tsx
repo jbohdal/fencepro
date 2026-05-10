@@ -135,7 +135,7 @@ function AcceptanceBlock({ template, interactive, onAccept, accepted, expired }:
 function PremiumTemplate({ quote, template, interactive, onAccept, accepted, expired }: RenderProps) {
   const { company, contractSections, totalFootage, gateSummary, pricePerFoot, quoteNumber, photos, introText, scopeText } = useComputedFields(quote)
   return (
-    <div style={{ fontFamily: template.fontFamily, color: '#1f2937', background: '#fff' }}>
+    <div className="ezbiz-quote-template" style={{ fontFamily: template.fontFamily, color: '#1f2937', background: '#fff' }}>
       {/* Cover */}
       <section style={{ background: `linear-gradient(135deg, ${template.primaryColor} 0%, #0a1530 100%)`, color: '#fff', padding: '80px 48px', textAlign: 'center' }}>
         <p style={{ color: template.accentColor, letterSpacing: 5, fontSize: 11, textTransform: 'uppercase', fontWeight: 700, marginBottom: 16 }}>{company.name || 'EZBiz'}</p>
@@ -306,7 +306,7 @@ function SectionHeading({ children, color, accent }: { children: React.ReactNode
 function ModernTemplate({ quote, template, interactive, onAccept, accepted, expired }: RenderProps) {
   const { company, contractSections, totalFootage, gateSummary, pricePerFoot, quoteNumber, photos, introText, scopeText } = useComputedFields(quote)
   return (
-    <div style={{ fontFamily: template.fontFamily, color: '#111827', background: '#fff' }}>
+    <div className="ezbiz-quote-template" style={{ fontFamily: template.fontFamily, color: '#111827', background: '#fff' }}>
       <section style={{ position: 'relative', padding: '64px 48px', background: '#fff', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: -80, right: -80, width: 400, height: 400, background: template.accentColor, transform: 'rotate(-25deg)', opacity: 0.9 }} />
         <div style={{ position: 'relative' }}>
@@ -411,7 +411,7 @@ function Fact({ label, value }: { label: string; value: string }) {
 function ClassicTemplate({ quote, template, interactive, onAccept, accepted, expired }: RenderProps) {
   const { company, contractSections, totalFootage, gateSummary, pricePerFoot, quoteNumber, scopeText } = useComputedFields(quote)
   return (
-    <div style={{ fontFamily: template.fontFamily, color: '#1f2937', background: '#fff', maxWidth: 800, margin: '0 auto', padding: 48 }}>
+    <div className="ezbiz-quote-template" style={{ fontFamily: template.fontFamily, color: '#1f2937', background: '#fff', maxWidth: 800, margin: '0 auto', padding: 48 }}>
       {/* Letterhead */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: `3px double ${template.primaryColor}`, paddingBottom: 20, marginBottom: 32 }}>
         <div>
@@ -511,7 +511,7 @@ function BoldTemplate({ quote, template, interactive, onAccept, accepted, expire
   const { company, contractSections, totalFootage, gateSummary, pricePerFoot, quoteNumber, photos, introText, scopeText } = useComputedFields(quote)
   const hero = photos[0]?.url
   return (
-    <div style={{ fontFamily: template.fontFamily, color: '#111827', background: '#fff' }}>
+    <div className="ezbiz-quote-template" style={{ fontFamily: template.fontFamily, color: '#111827', background: '#fff' }}>
       {/* Cover */}
       <section style={{
         position: 'relative', minHeight: 400, color: '#fff',

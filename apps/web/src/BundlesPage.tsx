@@ -56,12 +56,12 @@ export default function BundlesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Quote Bundles</h1>
           <p className="text-sm text-gray-500 mt-1">Configure Good/Better/Best tiered packages. Bundles with the same group name form a comparison set.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
             {(['all', 'active', 'inactive'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)}
@@ -85,14 +85,14 @@ export default function BundlesPage() {
           </div>
         ) : (
           groups.map(group => (
-            <div key={group.name} className="bg-white rounded-2xl border border-gray-200 p-6">
+            <div key={group.name} className="bg-white rounded-2xl border border-gray-200 p-4 lg:p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-semibold text-gray-900">{group.name === '(ungrouped)' ? 'Ungrouped Bundles' : group.name}</h3>
                   <p className="text-xs text-gray-500 mt-0.5">{group.bundles.length} tier{group.bundles.length === 1 ? '' : 's'}</p>
                 </div>
               </div>
-              <div className={`grid gap-4 ${group.bundles.length === 1 ? 'grid-cols-1' : group.bundles.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+              <div className={`grid gap-4 ${group.bundles.length === 1 ? 'grid-cols-1' : group.bundles.length === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 lg:grid-cols-3'}`}>
                 {group.bundles.map(b => (
                   <BundleCard key={b.id} bundle={b}
                     onEdit={() => { setEditing(b); setShowForm(true) }}
@@ -242,13 +242,13 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white z-10">
           <h3 className="text-lg font-bold text-gray-900">{initial ? 'Edit' : 'New'} Bundle</h3>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
         <div className="p-6 space-y-5">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Bundle Name *">
               <input value={name} onChange={e => setName(e.target.value)}
                 placeholder="e.g. Privacy Vinyl Starter"
@@ -264,7 +264,7 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           </Field>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Tier">
               <select value={tier} onChange={e => setTier(e.target.value as BundleTier)}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
@@ -299,7 +299,7 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
                 <option value="markup_percent">Markup Percent — material markup then calculated</option>
               </select>
             </Field>
-            <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               {(pricingMethod === 'calculated' || pricingMethod === 'markup_percent') && (
                 <Field label="Margin Override (%)">
                   <input type="number" step="0.1" value={marginOverride} onChange={e => setMarginOverride(e.target.value)}
@@ -336,7 +336,7 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
             </div>
             <div className="space-y-2">
               {inclusions.map(i => (
-                <div key={i.id} className="flex items-center gap-2">
+                <div key={i.id} className="flex flex-wrap items-center gap-2">
                   <input value={i.label} onChange={e => updateInclusion(i.id, { label: e.target.value })}
                     placeholder="e.g. 6ft White Vinyl Privacy Fence"
                     className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
@@ -357,7 +357,7 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
             </div>
             <div className="space-y-2">
               {addons.map(a => (
-                <div key={a.id} className="flex items-center gap-2">
+                <div key={a.id} className="flex flex-wrap items-center gap-2">
                   <input value={a.addonName} onChange={e => updateAddon(a.id, { addonName: e.target.value })}
                     placeholder="e.g. Additional Walk Gate"
                     className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
@@ -377,7 +377,7 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
             </div>
           </div>
 
-          <div className="border-t border-gray-100 pt-4 grid grid-cols-2 gap-3">
+          <div className="border-t border-gray-100 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Highlight Badge (optional)">
               <input value={highlightBadge} onChange={e => setHighlightBadge(e.target.value)}
                 placeholder="e.g. Most Popular"

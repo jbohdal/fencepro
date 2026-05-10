@@ -86,12 +86,12 @@ export default function BalanceSheetPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Balance Sheet</h1>
           <p className="text-sm text-gray-500 mt-1">Assets, liabilities, and equity. A/R and A/P auto-populate from live data.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <label className="text-xs text-gray-500 font-semibold uppercase">As of</label>
           <input type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)}
             className="text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
@@ -109,7 +109,7 @@ export default function BalanceSheetPage() {
       </div>
 
       {/* Balance status */}
-      <div className={`rounded-2xl border p-4 flex items-center justify-between ${balanced ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+      <div className={`rounded-2xl border p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 ${balanced ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
         <div>
           <p className={`text-sm font-bold ${balanced ? 'text-green-800' : 'text-yellow-800'}`}>
             {balanced ? '✓ Balanced' : '⚠ Out of Balance'}
@@ -126,7 +126,7 @@ export default function BalanceSheetPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Assets */}
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 font-bold uppercase text-xs tracking-widest text-gray-500">Assets</div>
@@ -239,7 +239,7 @@ function BalanceSheetEditor({ onClose, onSaved }: { onClose: () => void; onSaved
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+      <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">Balance Sheet Editor</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
@@ -306,7 +306,7 @@ function BsEntryForm({ initial, onCancel, onSaved }: { initial: BalanceSheetEntr
 
   return (
     <div className="fixed inset-0 z-60 bg-black/50 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl w-full max-w-md">
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">{initial ? 'Edit' : 'Add'} Balance Sheet Entry</h3>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>

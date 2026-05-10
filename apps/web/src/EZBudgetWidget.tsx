@@ -221,7 +221,7 @@ export default function EZBudgetWidget({ apiBase }: EZBudgetWidgetProps) {
         </p>
         <div className="mb-6">
           <p className="text-xs text-gray-400 mb-1">{quoteRange.label}</p>
-          <p className="text-3xl font-bold" style={{ color: primary }}>
+          <p className="text-2xl lg:text-3xl font-bold" style={{ color: primary }}>
             {cents(lowPrice)} — {cents(highPrice)}
           </p>
         </div>
@@ -417,7 +417,7 @@ export default function EZBudgetWidget({ apiBase }: EZBudgetWidgetProps) {
             <div className="px-6 py-6 text-center text-white" style={{ backgroundColor: primary }}>
               <p className="text-sm opacity-80 mb-1">{quoteRange.label}</p>
               {subtotal > 0 ? (
-                <p className="text-3xl font-bold">{cents(lowPrice)} — {cents(highPrice)}</p>
+                <p className="text-2xl lg:text-3xl font-bold">{cents(lowPrice)} — {cents(highPrice)}</p>
               ) : (
                 <p className="text-2xl font-bold">$0</p>
               )}

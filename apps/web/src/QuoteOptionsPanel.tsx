@@ -294,7 +294,7 @@ export function CustomerPresentationContent({ options, quoteId, readOnly }: { op
   }
 
   return (
-    <div className={`max-w-6xl mx-auto grid gap-6 ${current.length === 1 ? 'grid-cols-1' : current.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+    <div className={`max-w-6xl mx-auto grid gap-6 grid-cols-1 ${current.length === 2 ? 'lg:grid-cols-2' : current.length >= 3 ? 'md:grid-cols-2 lg:grid-cols-3' : ''}`}>
       {current.map(opt => (
         <CustomerCard key={opt.id} option={opt} onAccept={handleAccept} readOnly={readOnly} />
       ))}
@@ -311,7 +311,7 @@ function CustomerCard({ option, onAccept, readOnly }: { option: QuoteOption; onA
   const cardBg = isRecommended ? 'bg-gradient-to-b from-orange-50 to-white border-orange-300 shadow-xl ring-2 ring-orange-200' : 'bg-white border-gray-200 shadow-md'
 
   return (
-    <div className={`relative border rounded-3xl p-8 flex flex-col transition-transform ${isRecommended ? 'lg:-translate-y-2' : ''} ${cardBg}`}>
+    <div className={`relative border rounded-3xl p-5 lg:p-8 flex flex-col transition-transform ${isRecommended ? 'lg:-translate-y-2' : ''} ${cardBg}`}>
       {isRecommended && (
         <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-xs uppercase font-bold tracking-widest px-4 py-1 rounded-full shadow">
           ★ Recommended

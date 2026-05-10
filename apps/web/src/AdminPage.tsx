@@ -61,7 +61,7 @@ function DashboardTab() {
   return (
     <div className="space-y-6">
       {/* KPI strip */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Total Items', value: String(summary.totalItems), sub: `${Object.keys(summary.categoryCounts).length} categories`, color: 'text-blue-600' },
           { label: 'Total Stock Value', value: fmt(summary.totalValue), sub: 'based on unit cost × qty', color: 'text-green-600' },
@@ -76,7 +76,7 @@ function DashboardTab() {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Low stock alerts */}
         <div className="bg-white rounded-2xl border border-gray-200">
           <div className="px-6 py-4 border-b border-gray-100">
@@ -135,7 +135,7 @@ function DashboardTab() {
       {/* Category breakdown */}
       <div className="bg-white rounded-2xl border border-gray-200 p-6">
         <h3 className="font-semibold text-gray-900 mb-4">Items by Category</h3>
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {Object.entries(summary.categoryCounts).sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
             <div key={cat} className="bg-gray-50 rounded-xl p-3 text-center">
               <p className="text-lg font-bold text-gray-900">{count}</p>
@@ -226,12 +226,12 @@ function CatalogTab() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Item Catalog</h2>
           <p className="text-sm text-gray-400 mt-0.5">{items.length} items · click name to edit · changes apply to future quotes</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button onClick={handleReset} className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50">Reset defaults</button>
           <button onClick={() => setShowBulkImport(true)} className="text-sm text-blue-600 border border-blue-300 rounded-lg px-3 py-2 hover:bg-blue-50">📥 Bulk Import</button>
           <button onClick={addItem} className="text-sm text-orange-500 border border-orange-300 rounded-lg px-3 py-2 hover:bg-orange-50">+ Add item</button>
@@ -241,7 +241,7 @@ function CatalogTab() {
         </div>
       </div>
 
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-col lg:flex-row gap-2 lg:gap-3 mb-4">
         <input
           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
           placeholder="Search items..." value={search} onChange={e => setSearch(e.target.value)}
@@ -255,8 +255,8 @@ function CatalogTab() {
         </select>
       </div>
 
-      <div className="border border-gray-200 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Item Name</th>
@@ -374,7 +374,7 @@ function StockMovementTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Stock Movement</h2>
           <p className="text-sm text-gray-400 mt-0.5">Batch stock in or out. Add multiple items, then process all at once.</p>
@@ -383,7 +383,7 @@ function StockMovementTab() {
       </div>
 
       {/* Controls */}
-      <div className="flex gap-4">
+      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
         <div className="flex bg-gray-100 rounded-lg p-0.5">
           {(['in', 'out'] as const).map(m => (
             <button key={m} onClick={() => setMode(m)}
@@ -419,8 +419,8 @@ function StockMovementTab() {
 
       {/* Batch lines */}
       {lines.length > 0 && (
-        <div className="border border-gray-200 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm min-w-[520px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Item</th>
@@ -494,7 +494,7 @@ function TransactionsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Transaction History</h2>
           <p className="text-sm text-gray-400 mt-0.5">Immutable log of all stock movements</p>
@@ -502,7 +502,7 @@ function TransactionsTab() {
         <span className="text-xs text-gray-400">{filtered.length} transactions</span>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-col lg:flex-row gap-2 lg:gap-3">
         <input className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
           placeholder="Search items or notes..." value={search} onChange={e => setSearch(e.target.value)} />
         <select className="border border-gray-300 rounded-lg px-3 py-2 text-sm" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
@@ -511,8 +511,8 @@ function TransactionsTab() {
         </select>
       </div>
 
-      <div className="border border-gray-200 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[840px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Date</th>
@@ -594,7 +594,7 @@ function LocationsTab() {
         <p className="text-sm text-gray-400 mt-0.5">Manage where your materials are stored. Stock is tracked per location.</p>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-col lg:flex-row gap-2 lg:gap-3">
         <input className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
           placeholder="New location name..." value={newName} onChange={e => setNewName(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && addLocation()} />
@@ -691,8 +691,8 @@ function BundleEditor({
         )}
       </div>
       {bundleItems.length > 0 && (
-        <div className="border border-gray-200 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm min-w-[520px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Item</th>
@@ -765,7 +765,7 @@ function BundlesTab() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-6">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Bundles</h2>
           <p className="text-sm text-gray-400 mt-0.5">Preset collections of inventory items for quotes.</p>
@@ -836,13 +836,13 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-6 lg:py-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Inventory Management</h1>
           <p className="text-gray-400 mt-1">Track materials, manage stock levels, and monitor consumption.</p>
         </div>
 
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-8">
+        <div className="flex flex-wrap lg:flex-nowrap gap-1 bg-gray-100 rounded-xl p-1 mb-6 lg:mb-8 overflow-x-auto">
           {TAB_LABELS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`flex items-center gap-2 flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${

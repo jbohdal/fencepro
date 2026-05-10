@@ -784,7 +784,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
       {/* ── Save modal ── */}
       {showSaveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowSaveModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-[420px] p-6 space-y-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[420px] max-h-[90vh] overflow-y-auto p-6 space-y-4 modal-responsive" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-gray-900">{editingPlanId ? 'Update' : 'Save'} Site Plan</h3>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Plan Name</label>
@@ -812,7 +812,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
       {/* ── Plan list modal ── */}
       {showPlanList && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowPlanList(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[60vh] overflow-hidden mx-4 lg:mx-0" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[60vh] overflow-hidden mx-4 lg:mx-0 modal-responsive" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
               <h3 className="font-bold text-gray-900">Saved Site Plans</h3>
               <button onClick={() => setShowPlanList(false)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>

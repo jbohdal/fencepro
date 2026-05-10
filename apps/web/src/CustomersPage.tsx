@@ -467,7 +467,7 @@ function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[600px] max-h-[90vh] overflow-y-auto p-5 mx-4 space-y-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[600px] max-h-[90vh] overflow-y-auto p-5 mx-4 space-y-4 modal-responsive">
         <div className="flex justify-between"><h2 className="font-bold text-gray-900 text-lg">Create Invoice</h2><button onClick={onClose} className="text-gray-400 text-xl">×</button></div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="block text-xs text-gray-500 mb-1">Invoice #</label><input value={invoiceNumber} readOnly className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50" /></div>
@@ -525,7 +525,7 @@ function RecordPaymentModal({ invoiceId, customerId, customerName, onClose, onRe
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[400px] p-5 mx-4 space-y-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[400px] p-5 mx-4 space-y-4 modal-responsive">
         <h2 className="font-bold text-gray-900">Record Payment — {inv.invoiceNumber}</h2>
         <p className="text-sm text-gray-500">Balance due: ${(inv.balanceDueCents / 100).toFixed(2)}</p>
         <div><label className="block text-xs text-gray-500 mb-1">Amount</label><input type="number" step="0.01" value={amount} onChange={e => setAmount(parseFloat(e.target.value) || 0)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
@@ -826,15 +826,15 @@ function CustomerDetail({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="px-8 py-6 border-b border-gray-200 bg-white">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-orange-500 flex items-center justify-center text-white text-xl font-black">
+      <div className="px-4 py-4 lg:px-8 lg:py-6 border-b border-gray-200 bg-white">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="w-14 h-14 rounded-2xl bg-orange-500 flex items-center justify-center text-white text-xl font-black shrink-0">
               {customer.firstName?.[0] ?? ''}{customer.lastName?.[0] ?? ''}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold text-gray-900">{customer.firstName} {customer.lastName}</h2>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-xl font-bold text-gray-900 break-words">{customer.firstName} {customer.lastName}</h2>
                 {quotes.some(q => q.status === 'SOLD') && (
                   <span className="text-[10px] font-bold uppercase tracking-widest bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Signed / Sold</span>
                 )}
@@ -842,11 +842,11 @@ function CustomerDetail({
                   <span className="text-[10px] font-bold uppercase tracking-widest bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Quote Sent</span>
                 )}
               </div>
-              <div className="flex items-center gap-3 mt-1">
-                {customer.phone && <span className="text-sm text-gray-500">📞 {customer.phone}</span>}
-                {customer.email && <span className="text-sm text-gray-500">✉️ {customer.email}</span>}
+              <div className="flex items-center gap-3 mt-1 flex-wrap">
+                {customer.phone && <span className="text-sm text-gray-500 break-all">📞 {customer.phone}</span>}
+                {customer.email && <span className="text-sm text-gray-500 break-all">✉️ {customer.email}</span>}
               </div>
-              <div className="flex gap-1.5 mt-2">
+              <div className="flex gap-1.5 mt-2 flex-wrap">
                 {customer.tags.map(tag => (
                   <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{tag}</span>
                 ))}
@@ -856,14 +856,14 @@ function CustomerDetail({
               </div>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => onNewQuote(customer)} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg">+ New Quote</button>
-            <button onClick={onEdit} className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50">Edit</button>
-            <button onClick={() => onDelete(customer.id)} className="border border-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-red-50">Delete</button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => onNewQuote(customer)} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg flex-1 lg:flex-none min-h-[44px] lg:min-h-0">+ New Quote</button>
+            <button onClick={onEdit} className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 flex-1 lg:flex-none min-h-[44px] lg:min-h-0">Edit</button>
+            <button onClick={() => onDelete(customer.id)} className="border border-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-red-50 flex-1 lg:flex-none min-h-[44px] lg:min-h-0">Delete</button>
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-4 mt-5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4 mt-5">
           {[
             { label: 'Total Revenue', value: fmt(totalRevenue) },
             { label: 'Quotes', value: String(allQuoteCount) },
@@ -880,12 +880,12 @@ function CustomerDetail({
         {/* Portal Access section — prominent, dedicated row */}
         <PortalAccessSection customer={customer} />
 
-        <div className="flex gap-1 mt-5 bg-gray-100 rounded-xl p-1 w-fit">
+        <div className="flex gap-1 mt-5 bg-gray-100 rounded-xl p-1 w-full lg:w-fit overflow-x-auto">
           {(['overview', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files', 'photos', 'messages'] as const).map(t => (
             <button
               key={t}
               onClick={() => setActiveTab(t)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-all ${activeTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-all whitespace-nowrap shrink-0 ${activeTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
             >
               {t}
               {t === 'quotes' && allQuoteCount > 0 && <span className="ml-1.5 text-xs bg-orange-100 text-orange-600 rounded-full px-1.5">{allQuoteCount}</span>}
@@ -896,7 +896,7 @@ function CustomerDetail({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-8 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
         {activeTab === 'overview' && (
           <div className="space-y-6 max-w-2xl">
             <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
@@ -934,7 +934,7 @@ function CustomerDetail({
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Imported Quote History</p>
                   <p className="text-xs text-gray-400">{importedQuotes.length} records</p>
                 </div>
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-responsive-cards">
                   <thead className="border-b border-gray-100">
                     <tr>
                       <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400 uppercase">Type</th>
@@ -950,16 +950,16 @@ function CustomerDetail({
                   <tbody className="divide-y divide-gray-100">
                     {importedQuotes.map(q => (
                       <tr key={q.id} className="hover:bg-gray-50">
-                        <td className="px-5 py-2.5 font-medium text-gray-800">{q.projectType || '—'}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-600">{q.sections || '—'}</td>
-                        <td className="px-4 py-2.5 text-right font-bold text-gray-900">{q.quotedPrice > 0 ? fmt(q.quotedPrice) : '—'}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-600">{q.laborBid > 0 ? fmt(q.laborBid) : '—'}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-600">{q.depositAmt > 0 ? fmt(q.depositAmt) : '—'}</td>
-                        <td className="px-4 py-2.5 text-right">
+                        <td data-label="Type" className="px-5 py-2.5 font-medium text-gray-800">{q.projectType || '—'}</td>
+                        <td data-label="Sections" className="px-4 py-2.5 text-right text-gray-600">{q.sections || '—'}</td>
+                        <td data-label="Quoted" className="px-4 py-2.5 text-right font-bold text-gray-900">{q.quotedPrice > 0 ? fmt(q.quotedPrice) : '—'}</td>
+                        <td data-label="Labor" className="px-4 py-2.5 text-right text-gray-600">{q.laborBid > 0 ? fmt(q.laborBid) : '—'}</td>
+                        <td data-label="50% Dep" className="px-4 py-2.5 text-right text-gray-600">{q.depositAmt > 0 ? fmt(q.depositAmt) : '—'}</td>
+                        <td data-label="Tear Out" className="px-4 py-2.5 text-right">
                           {q.tearOut ? <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Yes</span> : <span className="text-xs text-gray-300">No</span>}
                         </td>
-                        <td className="px-4 py-2.5 text-right text-gray-500 text-xs uppercase">{q.salesRep || '—'}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-400 text-xs">{q.soldDate || '—'}</td>
+                        <td data-label="Rep" className="px-4 py-2.5 text-right text-gray-500 text-xs uppercase">{q.salesRep || '—'}</td>
+                        <td data-label="Sold" className="px-4 py-2.5 text-right text-gray-400 text-xs">{q.soldDate || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -972,7 +972,7 @@ function CustomerDetail({
                 <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quotes from EZBiz</p>
                 </div>
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-responsive-cards">
                   <thead className="border-b border-gray-100">
                     <tr>
                       <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase">Type</th>
@@ -986,14 +986,14 @@ function CustomerDetail({
                   <tbody className="divide-y divide-gray-100">
                     {quotes.map(q => (
                       <tr key={q.id} className="hover:bg-orange-50 cursor-pointer transition-colors" onClick={() => onQuoteClick?.(q.id)}>
-                        <td className="px-5 py-3 font-medium text-gray-800">{q.type}</td>
-                        <td className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
-                        <td className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
-                        <td className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= 0.34 ? 'text-green-600' : q.margin >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
+                        <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{q.type}</td>
+                        <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
+                        <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
+                        <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= 0.34 ? 'text-green-600' : q.margin >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
                           {(q.margin * 100).toFixed(1)}%
                         </td>
-                        <td className="px-4 py-3 text-right text-gray-400 text-xs">{q.date}</td>
-                        <td className="px-4 py-3 text-right">
+                        <td data-label="Date" className="px-4 py-3 text-right text-gray-400 text-xs">{q.date}</td>
+                        <td data-label="Status" className="px-4 py-3 text-right">
                           <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[q.status]}`}>{q.status}</span>
                         </td>
                       </tr>
@@ -1022,7 +1022,7 @@ function CustomerDetail({
               </div>
             ) : (
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-responsive-cards">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Type</th>
@@ -1035,11 +1035,11 @@ function CustomerDetail({
                   <tbody className="divide-y divide-gray-100">
                     {jobs.map(j => (
                       <tr key={j.id} className="hover:bg-gray-50">
-                        <td className="px-5 py-3 font-medium text-gray-800">{j.type}</td>
-                        <td className="px-4 py-3 text-right text-gray-600">{j.sections}</td>
-                        <td className="px-4 py-3 text-right font-bold text-gray-900">{fmt(j.value)}</td>
-                        <td className="px-4 py-3 text-right text-gray-400 text-xs">{j.scheduledDate}</td>
-                        <td className="px-4 py-3 text-right">
+                        <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{j.type}</td>
+                        <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{j.sections}</td>
+                        <td data-label="Value" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(j.value)}</td>
+                        <td data-label="Scheduled" className="px-4 py-3 text-right text-gray-400 text-xs">{j.scheduledDate}</td>
+                        <td data-label="Stage" className="px-4 py-3 text-right">
                           <span className={`text-xs px-2 py-1 rounded-full ${STAGE_COLORS[j.stage] ?? 'bg-gray-100 text-gray-600'}`}>
                             {STAGE_LABELS[j.stage] ?? j.stage}
                           </span>
@@ -1385,9 +1385,14 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
     e.target.value = ''
   }
 
+  // Master / detail responsive: on <lg the rail and detail stack — when a
+  // customer is selected, the rail hides and the detail takes the full width
+  // (with a back button rendered in the detail header). Above lg both panes
+  // show side by side as before.
+  const detailVisible = mode !== 'view' || !!selected
   return (
-    <div className="flex h-full bg-white rounded-2xl border border-gray-200 overflow-hidden" style={{ minHeight: 'calc(100vh - 120px)' }}>
-      <div className="w-72 border-r border-gray-200 flex flex-col shrink-0">
+    <div className="flex flex-col lg:flex-row h-full bg-white rounded-2xl border border-gray-200 overflow-hidden" style={{ minHeight: 'calc(100vh - 120px)' }}>
+      <div className={`${detailVisible ? 'hidden lg:flex' : 'flex'} w-full lg:w-72 border-b lg:border-b-0 lg:border-r border-gray-200 flex-col shrink-0`}>
         <div className="px-4 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-gray-900">Customers</h2>
@@ -1447,33 +1452,47 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
         </div>
       </div>
 
-      {mode === 'new' && <CustomerForm onSave={handleSave} onCancel={() => setMode('view')} />}
-      {mode === 'edit' && selected && <CustomerForm initial={selected} onSave={handleSave} onCancel={() => setMode('view')} />}
-      {mode === 'view' && !selected && <EmptyState onNew={() => setMode('new')} />}
-      {mode === 'view' && selected && (
-        <CustomerDetail
-          customer={selected}
-          quotes={customerQuotes}
-          importedQuotes={customerImportedQuotes}
-          jobs={customerJobs}
-          files={customerFiles}
-          onEdit={() => setMode('edit')}
-          onNewQuote={(c) => onNewQuote?.(c)}
-          onDelete={handleDelete}
-          onDeleteFile={id => setFiles(prev => {
-            const updated = prev.filter(f => f.id !== id)
-            localStorage.setItem('fencepro_files', JSON.stringify(updated))
-            return updated
-          })}
-          onQuoteClick={(quoteId) => {
-            const full = getQuotes().find(q => q.id === quoteId) || null
-            setDrawerQuote(full as SavedQuote | null)
-          }}
-          onFileClick={(f) => setViewerFile(f)}
-          initialTab={forcedTab}
-          onTabConsumed={() => setForcedTab(null)}
-        />
-      )}
+      {/* Detail pane: hidden on <lg unless something is selected. The mobile
+          back button below the lg breakpoint takes the user back to the list. */}
+      <div className={`${detailVisible ? 'flex' : 'hidden lg:flex'} flex-col flex-1 min-w-0`}>
+        {detailVisible && (
+          <button
+            onClick={() => { setSelectedId(null); setMode('view') }}
+            className="lg:hidden flex items-center gap-2 px-4 py-3 border-b border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
+            aria-label="Back to customers list"
+          >
+            <span aria-hidden>←</span>
+            <span>Back to customers</span>
+          </button>
+        )}
+        {mode === 'new' && <CustomerForm onSave={handleSave} onCancel={() => setMode('view')} />}
+        {mode === 'edit' && selected && <CustomerForm initial={selected} onSave={handleSave} onCancel={() => setMode('view')} />}
+        {mode === 'view' && !selected && <EmptyState onNew={() => setMode('new')} />}
+        {mode === 'view' && selected && (
+          <CustomerDetail
+            customer={selected}
+            quotes={customerQuotes}
+            importedQuotes={customerImportedQuotes}
+            jobs={customerJobs}
+            files={customerFiles}
+            onEdit={() => setMode('edit')}
+            onNewQuote={(c) => onNewQuote?.(c)}
+            onDelete={handleDelete}
+            onDeleteFile={id => setFiles(prev => {
+              const updated = prev.filter(f => f.id !== id)
+              localStorage.setItem('fencepro_files', JSON.stringify(updated))
+              return updated
+            })}
+            onQuoteClick={(quoteId) => {
+              const full = getQuotes().find(q => q.id === quoteId) || null
+              setDrawerQuote(full as SavedQuote | null)
+            }}
+            onFileClick={(f) => setViewerFile(f)}
+            initialTab={forcedTab}
+            onTabConsumed={() => setForcedTab(null)}
+          />
+        )}
+      </div>
 
       {viewerFile && (
         <FileViewerModal

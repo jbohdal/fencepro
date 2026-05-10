@@ -108,12 +108,12 @@ export default function AutomationsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Automations</h1>
           <p className="text-sm text-gray-500 mt-1">Build triggers that fire actions automatically when events happen.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button onClick={() => setView('logs')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'logs' ? 'bg-gray-900 text-white' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
             Run Log
@@ -164,7 +164,7 @@ function AutomationList({ automations, loading, onEdit, onReload }: { automation
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
       <div className="divide-y divide-gray-50">
         {automations.map(a => (
-          <div key={a.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition group">
+          <div key={a.id} className="px-4 lg:px-6 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 hover:bg-gray-50 transition group">
             <div className="flex items-center gap-4 flex-1 cursor-pointer" onClick={() => onEdit(a.id)}>
               <div className={`w-3 h-3 rounded-full ${a.isActive ? 'bg-green-500' : 'bg-gray-300'}`} />
               <div className="flex-1">
@@ -184,7 +184,7 @@ function AutomationList({ automations, loading, onEdit, onReload }: { automation
                 {a.lastFiredAt && <p>{new Date(a.lastFiredAt).toLocaleDateString()}</p>}
               </div>
             </div>
-            <div className="flex gap-1 ml-4 opacity-0 group-hover:opacity-100 transition">
+            <div className="flex gap-1 lg:ml-4 lg:opacity-0 lg:group-hover:opacity-100 transition">
               <button onClick={() => toggle(a.id)} className={`text-xs px-2 py-1 rounded ${a.isActive ? 'text-yellow-600 hover:bg-yellow-50' : 'text-green-600 hover:bg-green-50'}`}>
                 {a.isActive ? 'Disable' : 'Enable'}
               </button>
@@ -289,7 +289,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
           {TRIGGER_GROUPS.map(g => (
             <div key={g.label}>
               <p className="text-xs font-semibold text-gray-400 uppercase mb-2">{g.label}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {g.triggers.map(t => (
                   <button key={t.value} onClick={() => setTriggerType(t.value)}
                     className={`text-left px-4 py-3 rounded-lg border text-sm transition ${triggerType === t.value ? 'border-orange-500 bg-orange-50 text-orange-700 font-medium' : 'border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
@@ -413,7 +413,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
                   <textarea placeholder="Task description" value={action.taskDescription || ''} onChange={e => updateAction(i, { taskDescription: e.target.value })} rows={2}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <select value={action.taskAssignTo || 'role:ops_manager'} onChange={e => updateAction(i, { taskAssignTo: e.target.value })}
                       className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
                       <option value="role:owner">Owner</option>
@@ -488,7 +488,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
           <h3 className="font-semibold text-gray-900">Step 5: Optional conditions & save</h3>
           <p className="text-sm text-gray-500">Add conditions to narrow when this automation fires (leave blank to fire always).</p>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Only for assigned rep:</label>
               <input type="text" placeholder="Any rep" value={conditions.assignedRep || ''} onChange={e => setConditions({ ...conditions, assignedRep: e.target.value || undefined })}
@@ -506,12 +506,12 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
             Only fire during business hours (8 AM — 6 PM)
           </label>
 
-          <div className="border-t border-gray-100 pt-4 flex items-center justify-between">
+          <div className="border-t border-gray-100 pt-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <label className="flex items-center gap-2 text-sm font-medium">
               <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="w-4 h-4 accent-orange-500" />
               Active
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button onClick={() => setStep(4)} className="border border-gray-200 text-gray-700 px-6 py-2 rounded-lg text-sm hover:bg-gray-50">← Back</button>
               <button onClick={save} disabled={saving}
                 className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-2 rounded-lg text-sm font-medium disabled:opacity-40">
@@ -569,8 +569,8 @@ function RunLogViewer({ onBack }: { onBack: () => void }) {
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <div className="divide-y divide-gray-50">
             {logs.map(log => (
-              <div key={log.id} className="px-6 py-3">
-                <div className="flex items-center justify-between">
+              <div key={log.id} className="px-4 lg:px-6 py-3">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                   <div>
                     <p className="text-sm font-medium text-gray-900">{log.automationName}</p>
                     <p className="text-xs text-gray-400">

@@ -369,12 +369,12 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
     <div className="space-y-8">
 
       {/* Magic Number */}
-      <div className="bg-gray-900 rounded-2xl p-8 flex items-center justify-between">
+      <div className="bg-gray-900 rounded-2xl p-4 lg:p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <p className="text-gray-400 text-xs font-semibold uppercase tracking-widest mb-2">Magic Number — Cost of Goods Target</p>
-          <p className="text-7xl font-black text-white leading-none">{fmtPct(magicNumber)}</p>
+          <p className="text-4xl lg:text-7xl font-black text-white leading-none">{fmtPct(magicNumber)}</p>
           <p className="text-gray-500 text-xs mt-1">Price = COGS ÷ {fmtPct(magicNumber)} → implied GM of {fmtPct(impliedGM)}</p>
-          <div className="flex gap-6 mt-4">
+          <div className="flex flex-wrap gap-4 lg:gap-6 mt-4">
             <div>
               <p className="text-gray-500 text-xs">Labor Target</p>
               <p className="text-white font-bold text-lg">{fmtPct(laborPct)}</p>
@@ -407,11 +407,11 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
             </div>
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-left lg:text-right">
           <p className="text-gray-500 text-xs uppercase tracking-wide mb-2">Annual Revenue Goal</p>
           <input
             type="number"
-            className="text-4xl font-black text-orange-400 bg-transparent text-right outline-none w-56 border-b-2 border-gray-700 focus:border-orange-400 transition-colors pb-1"
+            className="text-2xl lg:text-4xl font-black text-orange-400 bg-transparent text-left lg:text-right outline-none w-full lg:w-56 border-b-2 border-gray-700 focus:border-orange-400 transition-colors pb-1"
             value={revenueGoal}
             onChange={e => onChange({ ...state, revenueGoal: Number(e.target.value) })}
           />
@@ -420,7 +420,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
       </div>
 
       {/* KPI strip */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Actual Net Profit"
           value={fmtPct(actualNetProfitPct)}
@@ -439,8 +439,8 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
       </div>
 
       {/* Chart + Buckets */}
-      <div className="grid grid-cols-5 gap-6">
-        <div className="col-span-3 bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div className="lg:col-span-3 bg-white rounded-2xl border border-gray-200 p-4 lg:p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-bold text-gray-900">Monthly Revenue Projection</h3>
@@ -462,7 +462,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
           />
         </div>
 
-        <div className="col-span-2 bg-white rounded-2xl border border-gray-200 p-6">
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 p-4 lg:p-6">
           <h3 className="font-bold text-gray-900 mb-1">4 Buckets</h3>
           <p className="text-xs text-gray-400 mb-5">Every revenue dollar flows into one of these.</p>
           <div className="space-y-5">
@@ -540,7 +540,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
           })()}
         </div>
         <p className="text-sm text-gray-400 mb-5">Must total exactly 100%. Adjust sliders until the indicator turns green.</p>
-        <div className="grid grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {[
             { label: 'Vinyl',     key: 'vinylPct',     val: vinylPct,            color: 'bg-orange-400' },
             { label: 'Aluminum',  key: 'aluminumPct',  val: aluminumPct,         color: 'bg-blue-400' },
@@ -644,7 +644,7 @@ function HistoricTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
 
       {/* Input table */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-16">Year</th>
@@ -1110,12 +1110,12 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
     <div className="space-y-6">
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Overhead Expenses</h2>
           <p className="text-sm text-gray-400 mt-0.5">Full chart of accounts. Click any name to rename. Changes update the Budget tab instantly.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className={`rounded-2xl px-5 py-3 text-right ${overTarget ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
             <p className={`text-2xl font-black ${overTarget ? 'text-red-600' : 'text-green-600'}`}>{fmtPct(actualPct)}</p>
             <p className="text-xs text-gray-500 mt-0.5">target {fmtPct(overheadPct)} · {fmt(total)}/yr</p>
@@ -1130,7 +1130,7 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
       </div>
 
       {/* Category summary pills */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {byCategory.map(({ cat, topLevel, total: catTotal }, idx) => (
           <div key={cat} className={`rounded-xl border p-4 group relative ${getCategoryColor(categories, cat)}`}>
             {editingCatIdx === idx ? (
@@ -1182,12 +1182,12 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
       </div>
 
       {/* Chart of accounts table */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
+        <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between min-w-[640px]">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Chart of Accounts</p>
           <p className="text-xs text-gray-400">Click name to rename · hover for controls</p>
         </div>
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[640px]">
           <thead className="border-b border-gray-100">
             <tr>
               <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400 uppercase">Expense</th>
@@ -1220,9 +1220,9 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
       </div>
 
       {/* Total footer */}
-      <div className="bg-gray-900 rounded-2xl px-6 py-4 flex items-center justify-between">
+      <div className="bg-gray-900 rounded-2xl px-4 lg:px-6 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <span className="font-bold text-white">Total Overhead</span>
-        <div className="flex items-center gap-8">
+        <div className="flex flex-wrap items-center gap-4 lg:gap-8">
           <div className="text-right">
             <p className="text-gray-400 text-xs">Annual</p>
             <p className="text-white font-bold text-lg">{fmt(total)}</p>
@@ -1271,19 +1271,19 @@ function CrewTab({ state, onChange }: { state: BudgetState, onChange: (s: Budget
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Crew & Labor</h2>
           <p className="text-sm text-gray-400 mt-0.5">Every team member ties directly into the labor bucket.</p>
         </div>
-        <div className={`rounded-2xl px-6 py-4 text-right ${overTarget ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
-          <p className={`text-3xl font-black ${overTarget ? 'text-red-600' : 'text-green-600'}`}>{fmtPct(actualPct)}</p>
+        <div className={`rounded-2xl px-4 lg:px-6 py-4 text-right ${overTarget ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
+          <p className={`text-2xl lg:text-3xl font-black ${overTarget ? 'text-red-600' : 'text-green-600'}`}>{fmtPct(actualPct)}</p>
           <p className="text-xs text-gray-500 mt-1">target {fmtPct(laborPct)} · {fmt(totalCost)}/yr</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-8">#</th>
@@ -1434,8 +1434,8 @@ function KPIsTab({ state }: { state: BudgetState }) {
   return (
     <div className="space-y-6">
       {/* Hero KPIs */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-gray-900 rounded-2xl p-5 col-span-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gray-900 rounded-2xl p-5 sm:col-span-2">
           <p className="text-gray-400 text-xs font-semibold uppercase tracking-wide mb-1">Revenue vs Goal (from Sold Quotes)</p>
           <div className="flex items-baseline gap-3">
             <p className="text-white text-3xl font-black">{fmt(totalRevenue)}</p>
@@ -1484,12 +1484,12 @@ function KPIsTab({ state }: { state: BudgetState }) {
       </div>
 
       {/* Monthly scoreboard */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
         <div className="px-6 py-4 border-b border-gray-100">
           <h3 className="font-bold text-gray-900">Monthly Scoreboard</h3>
           <p className="text-sm text-gray-400 mt-0.5">Auto-populated from quote data. Green = on pace or ahead.</p>
         </div>
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[800px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Month</th>
@@ -1605,8 +1605,8 @@ export default function BudgetPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-8 py-8">
-        <div className="mb-8">
+      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-6 lg:py-8">
+        <div className="mb-6 lg:mb-8">
           <h1 className="text-2xl font-bold text-gray-900">Budget & Planning</h1>
           <p className="text-gray-400 mt-1">Your financial command center. Every number is connected.</p>
         </div>

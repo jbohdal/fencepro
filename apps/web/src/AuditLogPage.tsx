@@ -100,12 +100,12 @@ export default function AuditLogPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-3 mb-3">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-3">
         <div>
           <h1 className="text-lg font-bold text-gray-900">Audit Log</h1>
           <p className="text-xs text-gray-500">{total.toLocaleString()} entries · every important data change is logged here</p>
         </div>
-        <button onClick={exportCsv} className="text-xs px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Export CSV</button>
+        <button onClick={exportCsv} className="text-xs px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 self-start lg:self-auto">Export CSV</button>
       </div>
 
       {/* Filters */}
@@ -129,7 +129,7 @@ export default function AuditLogPage() {
       {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm mb-3">{error}</div>}
 
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden flex-1 overflow-y-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-responsive-cards">
           <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
             <tr>
               <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase w-44">When</th>
@@ -145,17 +145,17 @@ export default function AuditLogPage() {
               <>
                 <tr key={r.id} onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
                   className="hover:bg-gray-50 cursor-pointer">
-                  <td className="px-3 py-2 text-xs text-gray-600">{fmt(r.createdAt)}</td>
-                  <td className="px-3 py-2 text-xs">{r.userEmail || r.userId || '—'}</td>
-                  <td className="px-3 py-2"><span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold">{r.action}</span></td>
-                  <td className="px-3 py-2 text-xs text-gray-700">{r.entityType}</td>
-                  <td className="px-3 py-2 text-xs font-mono text-gray-500">{r.entityId?.slice(0, 8) || '—'}</td>
-                  <td className="px-3 py-2 text-xs text-gray-400">{r.ipAddress || '—'}</td>
+                  <td data-label="When" className="px-3 py-2 text-xs text-gray-600">{fmt(r.createdAt)}</td>
+                  <td data-label="User" className="px-3 py-2 text-xs">{r.userEmail || r.userId || '—'}</td>
+                  <td data-label="Action" className="px-3 py-2"><span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold">{r.action}</span></td>
+                  <td data-label="Entity" className="px-3 py-2 text-xs text-gray-700">{r.entityType}</td>
+                  <td data-label="ID" className="px-3 py-2 text-xs font-mono text-gray-500">{r.entityId?.slice(0, 8) || '—'}</td>
+                  <td data-label="IP" className="px-3 py-2 text-xs text-gray-400">{r.ipAddress || '—'}</td>
                 </tr>
                 {expandedId === r.id && (
                   <tr key={r.id + '-exp'}>
-                    <td colSpan={6} className="px-3 py-3 bg-gray-50">
-                      <div className="grid grid-cols-2 gap-3">
+                    <td data-label="" colSpan={6} className="px-3 py-3 bg-gray-50">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                         <div>
                           <p className="text-[10px] font-semibold text-gray-500 uppercase mb-1">Before</p>
                           <pre className="text-xs bg-white border border-gray-200 rounded-lg p-2 overflow-x-auto max-h-64">{r.oldValues ? JSON.stringify(r.oldValues, null, 2) : '—'}</pre>
@@ -172,10 +172,10 @@ export default function AuditLogPage() {
               </>
             ))}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-400 text-sm">No audit log entries match your filters.</td></tr>
+              <tr><td data-label="" colSpan={6} className="px-6 py-12 text-center text-gray-400 text-sm">No audit log entries match your filters.</td></tr>
             )}
             {loading && (
-              <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-400 text-sm">Loading…</td></tr>
+              <tr><td data-label="" colSpan={6} className="px-6 py-12 text-center text-gray-400 text-sm">Loading…</td></tr>
             )}
           </tbody>
         </table>

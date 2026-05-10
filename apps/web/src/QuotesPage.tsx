@@ -281,7 +281,7 @@ function QuoteDrawer({
   return (
     <div className="fixed inset-0 z-40 flex">
       <div className="flex-1 bg-black/30" onClick={onClose} />
-      <div className="w-[520px] bg-white shadow-2xl flex flex-col overflow-y-auto">
+      <div className="w-[520px] bg-white shadow-2xl flex flex-col overflow-y-auto slideover-responsive">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900 text-lg">{quote.customerName}</h2>
@@ -511,14 +511,14 @@ export default function QuotesPage({
     <div>
       <PipelineAnalytics quotes={localQuotes} />
 
-      <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4 flex items-center gap-3 flex-wrap">
+      <div className="bg-white rounded-2xl border border-gray-200 p-3 lg:p-4 mb-4 flex flex-col lg:flex-row lg:items-center gap-3 lg:flex-wrap">
         <input
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 flex-1 min-w-48"
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 w-full lg:flex-1 lg:min-w-48"
           placeholder="Search by customer, style, phone, address..."
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap">
           {['All', 'DRAFT', 'SENT', 'SOLD', 'LOST'].map(s => (
             <button
               key={s}
@@ -529,7 +529,7 @@ export default function QuotesPage({
             >{s}</button>
           ))}
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap">
           {FENCE_CATEGORIES.map(c => (
             <button
               key={c}
@@ -540,7 +540,7 @@ export default function QuotesPage({
             >{c}</button>
           ))}
         </div>
-        <button onClick={onNewQuote} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg ml-auto">
+        <button onClick={onNewQuote} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg w-full lg:w-auto lg:ml-auto">
           + New Quote
         </button>
       </div>
@@ -555,7 +555,7 @@ export default function QuotesPage({
             )}
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-responsive-cards">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
@@ -576,20 +576,20 @@ export default function QuotesPage({
                   className="hover:bg-orange-50 cursor-pointer transition-colors"
                   onClick={() => setSelectedQuote(q)}
                 >
-                  <td className="px-5 py-3">
+                  <td className="px-5 py-3" data-label="Customer">
                     <p className="font-semibold text-gray-900">{q.customerName}</p>
                     {q.customerPhone && <p className="text-xs text-gray-400">{q.customerPhone}</p>}
                   </td>
-                  <td className="px-4 py-3 text-gray-700">{q.fenceStyle}</td>
-                  <td className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
-                  <td className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.finalPrice)}</td>
-                  <td className={`px-4 py-3 text-right font-bold text-sm ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</td>
-                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                  <td className="px-4 py-3 text-gray-700" data-label="Style">{q.fenceStyle}</td>
+                  <td className="px-4 py-3 text-right text-gray-600" data-label="Sections">{q.sections}</td>
+                  <td className="px-4 py-3 text-right font-bold text-gray-900" data-label="Price">{fmt(q.finalPrice)}</td>
+                  <td className={`px-4 py-3 text-right font-bold text-sm ${marginColor(q.gmPct)}`} data-label="Margin">{fmtPct(q.gmPct)}</td>
+                  <td className="px-4 py-3" data-label="Heat" onClick={e => e.stopPropagation()}>
                     <FlameRating value={q.leadTemp ?? 0} onChange={v => handleTempChange(q.id, v)} />
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-500 text-xs uppercase">{q.salesRep || '—'}</td>
-                  <td className="px-4 py-3 text-right text-gray-400 text-xs">{q.date}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right text-gray-500 text-xs uppercase" data-label="Rep">{q.salesRep || '—'}</td>
+                  <td className="px-4 py-3 text-right text-gray-400 text-xs" data-label="Date">{q.date}</td>
+                  <td className="px-4 py-3 text-right" data-label="Status">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[q.status]}`}>{q.status}</span>
                     <EngagementIndicator quote={q} />
                   </td>
@@ -627,7 +627,7 @@ export default function QuotesPage({
       {/* Pull from inventory confirmation */}
       {pullConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setPullConfirm(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-[440px] overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[440px] overflow-hidden modal-responsive" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-gray-200">
               <h3 className="font-bold text-gray-900">Pull Materials from Inventory?</h3>
               <p className="text-xs text-gray-400 mt-0.5">

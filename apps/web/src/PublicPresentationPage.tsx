@@ -47,15 +47,15 @@ export default function PublicPresentationPage({ token }: { token: string }) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-100 to-white">
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-6xl mx-auto px-8 py-5">
-          <h1 className="text-2xl font-bold text-gray-900">{companyName}</h1>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-5">
+          <h1 className="text-xl lg:text-2xl font-bold text-gray-900">{companyName}</h1>
           <p className="text-sm text-gray-500 mt-0.5">Your personalized fence quote — choose the option that works best for your home.</p>
         </div>
       </div>
-      <div className="py-12 px-8">
+      <div className="py-6 lg:py-12 px-4 sm:px-6 lg:px-8">
         <CustomerPresentationContent options={options} quoteId={quoteId} />
       </div>
-      <footer className="max-w-6xl mx-auto px-8 py-8 text-center text-xs text-gray-400 border-t border-gray-100 mt-12">
+      <footer className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center text-xs text-gray-400 border-t border-gray-100 mt-12">
         Powered by EZBiz · Questions? Contact {companyName}.
       </footer>
     </div>

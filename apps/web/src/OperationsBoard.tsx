@@ -1104,7 +1104,7 @@ function Th({ label, onClick, active, dir, align }: { label: string; onClick: ()
 function ConfirmModal({ title, body, confirmLabel, onConfirm, onCancel }: { title: string; body: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
-      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 modal-responsive">
         <h3 className="text-base font-bold text-gray-900">{title}</h3>
         <p className="text-sm text-gray-600 mt-1.5">{body}</p>
         <div className="flex justify-end gap-2 mt-4">

@@ -178,7 +178,7 @@ function SettingsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto mx-4 lg:mx-0">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto mx-4 lg:mx-0 modal-responsive">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900">Schedule Settings</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
@@ -415,14 +415,14 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div className="flex items-center gap-3">
           <button onClick={prevMonth} className="border border-gray-200 rounded-lg px-3 py-2 text-sm hover:bg-gray-50">&larr;</button>
-          <h2 className="text-lg font-bold text-gray-900 w-48 text-center">{monthName}</h2>
+          <h2 className="text-lg font-bold text-gray-900 flex-1 lg:w-48 text-center">{monthName}</h2>
           <button onClick={nextMonth} className="border border-gray-200 rounded-lg px-3 py-2 text-sm hover:bg-gray-50">&rarr;</button>
         </div>
-        <div className="flex gap-2">
-          <div className="flex gap-1.5 items-center mr-4">
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-1.5 items-center flex-wrap mr-2 lg:mr-4">
             {settings.crews.map(c => (
               <div key={c.id} className="flex items-center gap-1.5">
                 <div className={`w-3 h-3 rounded-full ${c.color}`} />
@@ -434,7 +434,7 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table className="w-full text-sm calendar-table">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -627,7 +627,7 @@ export default function SchedulePage() {
       {/* Rain Day Modal with Cascade */}
       {rainDayJob && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[560px] max-h-[85vh] overflow-y-auto p-4 lg:p-6 mx-4 lg:mx-0 space-y-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[560px] max-h-[85vh] overflow-y-auto p-4 lg:p-6 mx-4 lg:mx-0 space-y-4 modal-responsive">
             <h2 className="font-bold text-gray-900 text-lg">🌧 Flag Rain Day</h2>
             <p className="text-sm text-gray-500">
               <span className="font-medium text-gray-900">{rainDayJob.clientName}</span> — scheduled for {rainDayJob.date}

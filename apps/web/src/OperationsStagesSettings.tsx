@@ -80,12 +80,12 @@ export default function OperationsStagesSettings() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
           <h3 className="text-lg font-bold text-gray-900">Operations Stages</h3>
           <p className="text-sm text-gray-500 mt-1">The columns on the Operations board. Drag to reorder. Jobs on the first stage are where new signed contracts land.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button onClick={handleReset} className="text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50">Reset defaults</button>
           <button onClick={handleSave} disabled={!dirty}
             className={`text-sm font-semibold px-4 py-2 rounded-lg ${dirty ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
@@ -101,7 +101,7 @@ export default function OperationsStagesSettings() {
             onDragStart={() => onDragStart(i)}
             onDragOver={onDragOver}
             onDrop={() => onDrop(i)}
-            className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-3 py-3 hover:border-orange-300 transition-colors">
+            className="flex flex-wrap items-center gap-2 lg:gap-3 bg-white border border-gray-200 rounded-xl px-3 py-3 hover:border-orange-300 transition-colors">
             <span className="text-gray-300 cursor-grab select-none text-xl">⋮⋮</span>
             <div className="w-5 h-5 rounded-full border border-gray-200 shrink-0" style={{ backgroundColor: s.color }} />
             <input type="color" value={s.color} onChange={e => update(s.id, { color: e.target.value })}

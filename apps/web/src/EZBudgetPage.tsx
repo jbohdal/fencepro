@@ -45,8 +45,8 @@ export default function EZBudgetPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b border-gray-200 px-6">
-        <div className="flex gap-1">
+      <div className="bg-white border-b border-gray-200 px-4 lg:px-6">
+        <div className="flex gap-1 overflow-x-auto">
           {tabs.map(t => (
             <button
               key={t.key}
@@ -63,7 +63,7 @@ export default function EZBudgetPage() {
         </div>
       </div>
 
-      <div className="p-6">
+      <div className="p-4 lg:p-6">
         {tab === 'dashboard' && <DashboardTab />}
         {tab === 'services' && <ServicesTab />}
         {tab === 'quotes' && <QuotesTab />}
@@ -127,7 +127,8 @@ function DashboardTab() {
         {data.recentQuotes.length === 0 ? (
           <p className="text-gray-400 text-sm text-center py-4">No quotes yet</p>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[480px]">
             <thead>
               <tr className="border-b border-gray-100 text-gray-500 text-left">
                 <th className="pb-2 font-medium">Customer</th>
@@ -149,6 +150,7 @@ function DashboardTab() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
@@ -203,15 +205,15 @@ function ServicesTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <h2 className="text-lg font-semibold text-gray-900">Service Catalog</h2>
-        <button onClick={startNew} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Add Service</button>
+        <button onClick={startNew} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium self-start lg:self-auto">+ Add Service</button>
       </div>
 
       {editing && (
-        <div className="bg-white rounded-2xl border border-orange-200 p-6 space-y-4">
+        <div className="bg-white rounded-2xl border border-orange-200 p-4 lg:p-6 space-y-4">
           <h3 className="font-semibold text-gray-900">{editing === 'new' ? 'New Service' : 'Edit Service'}</h3>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Name" value={form.name} set={v => setForm({ ...form, name: v })} />
             <Inp label="Category" value={form.category} set={v => setForm({ ...form, category: v })} ph="e.g. Vinyl, Aluminum" />
             <Inp label="Unit Label" value={form.unitLabel} set={v => setForm({ ...form, unitLabel: v })} />
@@ -249,7 +251,7 @@ function ServicesTab() {
           </div>
           <div className="divide-y divide-gray-50">
             {services.filter(s => (s.category || 'Uncategorized') === cat).map(s => (
-              <div key={s.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition group">
+              <div key={s.id} className="px-4 lg:px-6 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 hover:bg-gray-50 transition group">
                 <div className="flex items-center gap-4">
                   {s.imageUrl && <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0"><img src={s.imageUrl} alt="" className="w-full h-full object-cover" /></div>}
                   <div>
@@ -417,9 +419,9 @@ function SettingsTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 lg:p-6 space-y-4">
         <h3 className="font-semibold text-gray-900">Widget Configuration</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <SInp label="Company Name" value={wc.companyName} set={v => save('widgetConfig', { ...wc, companyName: v })} />
           <div>
             <label className="block text-xs text-gray-500 mb-1">Primary Color</label>
@@ -433,10 +435,10 @@ function SettingsTab() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 lg:p-6 space-y-4">
         <h3 className="font-semibold text-gray-900">Customer Quote Display</h3>
         <p className="text-sm text-gray-500">Customers see a budget range instead of an exact price.</p>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <SInp label="Range Label" value={qr.label} set={v => save('quoteRange', { ...qr, label: v })} />
           <div><label className="block text-xs text-gray-500 mb-1">Low ({qr.lowPercent}%)</label><input type="range" min={-30} max={0} value={qr.lowPercent} onChange={e => save('quoteRange', { ...qr, lowPercent: parseInt(e.target.value) })} className="w-full accent-orange-500" /></div>
           <div><label className="block text-xs text-gray-500 mb-1">High (+{qr.highPercent}%)</label><input type="range" min={0} max={50} value={qr.highPercent} onChange={e => save('quoteRange', { ...qr, highPercent: parseInt(e.target.value) })} className="w-full accent-orange-500" /></div>

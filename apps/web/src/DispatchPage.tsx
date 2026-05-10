@@ -456,9 +456,9 @@ export default function DispatchPage() {
   // ═══ RENDER ════════════════════════════════════
 
   return (
-    <div className="h-[calc(100vh-120px)] flex flex-col gap-0 -mx-8 -mt-6 -mb-6">
+    <div className="h-[calc(100vh-120px)] flex flex-col gap-0 -mx-4 lg:-mx-8 -mt-4 lg:-mt-6 -mb-4 lg:-mb-6">
       {/* ── Top bar: date nav + view toggle ── */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between shrink-0">
+      <div className="bg-white border-b border-gray-200 px-4 lg:px-6 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 shrink-0">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setCurrentDate(d => addDays(d, viewMode === 'day' ? -1 : -7))}
@@ -486,7 +486,7 @@ export default function DispatchPage() {
           </h3>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="flex bg-gray-100 rounded-lg p-0.5">
             {(['day', 'week'] as ViewMode[]).map(mode => (
               <button
@@ -501,7 +501,7 @@ export default function DispatchPage() {
             ))}
           </div>
           {/* Crew legend */}
-          <div className="flex items-center gap-3 ml-4">
+          <div className="flex items-center gap-3 flex-wrap lg:ml-4">
             {crews.map(c => (
               <div key={c.id} className="flex items-center gap-1.5">
                 <div className={`w-3 h-3 rounded-full ${c.color}`} />
@@ -517,10 +517,10 @@ export default function DispatchPage() {
       </div>
 
       {/* ── Main 3-panel layout ── */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
 
         {/* ═══ LEFT: MAP ═══ */}
-        <div className="w-1/2 border-r border-gray-200 relative">
+        <div className="w-full h-64 lg:h-auto lg:w-1/2 border-b lg:border-b-0 lg:border-r border-gray-200 relative shrink-0">
           <div ref={mapContainerRef} className="absolute inset-0" />
           {!mapReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
@@ -530,7 +530,7 @@ export default function DispatchPage() {
         </div>
 
         {/* ═══ RIGHT: TIMELINE + SIDEBAR ═══ */}
-        <div className="w-1/2 flex flex-col overflow-hidden">
+        <div className="w-full lg:w-1/2 flex-1 flex flex-col overflow-hidden">
 
           {/* ── Timeline (Gantt) ── */}
           <div className="flex-1 overflow-auto border-b border-gray-200 bg-white">

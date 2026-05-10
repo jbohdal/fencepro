@@ -173,7 +173,7 @@ export default function PortalInbox() {
               {tickets.length === 0 ? (
                 <div className="px-6 py-12 text-center text-gray-400 text-sm">No tickets from customers yet</div>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-responsive-cards">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase w-4" />
@@ -186,10 +186,10 @@ export default function PortalInbox() {
                   <tbody className="divide-y divide-gray-50">
                     {tickets.map(t => (
                       <tr key={t.id} className="hover:bg-gray-50">
-                        <td className="px-5 py-3">
+                        <td data-label="Priority" className="px-5 py-3">
                           <div className={`w-2.5 h-2.5 rounded-full ${PRIORITY_DOT[t.priority] || 'bg-gray-300'}`} title={t.priority} />
                         </td>
-                        <td className="px-3 py-3">
+                        <td data-label="Subject" className="px-3 py-3">
                           <p className="font-medium text-gray-900">{t.title}</p>
                           {t.latestComment && (
                             <p className="text-xs text-gray-400 mt-0.5 truncate max-w-md">
@@ -197,13 +197,13 @@ export default function PortalInbox() {
                             </p>
                           )}
                         </td>
-                        <td className="px-3 py-3">
+                        <td data-label="Status" className="px-3 py-3">
                           <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[t.status] || 'bg-gray-100'}`}>
                             {t.status.replace('_', ' ')}
                           </span>
                         </td>
-                        <td className="px-3 py-3 text-right text-xs text-gray-500">{t.commentCount}</td>
-                        <td className="px-5 py-3 text-right text-xs text-gray-400">{new Date(t.createdAt).toLocaleDateString()}</td>
+                        <td data-label="Replies" className="px-3 py-3 text-right text-xs text-gray-500">{t.commentCount}</td>
+                        <td data-label="Created" className="px-5 py-3 text-right text-xs text-gray-400">{new Date(t.createdAt).toLocaleDateString()}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -218,7 +218,7 @@ export default function PortalInbox() {
               {documents.length === 0 ? (
                 <div className="px-6 py-12 text-center text-gray-400 text-sm">No customer uploads yet</div>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-responsive-cards">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">File</th>
@@ -231,13 +231,13 @@ export default function PortalInbox() {
                       const isNew = Date.now() - new Date(d.uploadedAt).getTime() < 24 * 60 * 60 * 1000
                       return (
                         <tr key={d.id} className={`hover:bg-gray-50 ${isNew ? 'bg-orange-50/30' : ''}`}>
-                          <td className="px-5 py-3 flex items-center gap-2">
+                          <td data-label="File" className="px-5 py-3 flex items-center gap-2">
                             <span>📄</span>
                             <span className="font-medium text-gray-900">{d.filename}</span>
                             {isNew && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-bold">NEW</span>}
                           </td>
-                          <td className="px-3 py-3 text-gray-600">{d.uploadedBy}</td>
-                          <td className="px-5 py-3 text-right text-xs text-gray-400">{new Date(d.uploadedAt).toLocaleString()}</td>
+                          <td data-label="Uploaded By" className="px-3 py-3 text-gray-600">{d.uploadedBy}</td>
+                          <td data-label="Date" className="px-5 py-3 text-right text-xs text-gray-400">{new Date(d.uploadedAt).toLocaleString()}</td>
                         </tr>
                       )
                     })}

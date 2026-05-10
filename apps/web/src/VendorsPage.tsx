@@ -225,7 +225,7 @@ function BillsList({ bills, onEdit, onRecordPayment, onApprove, onVoid }: {
   if (bills.length === 0) return <div className="text-center py-12 text-gray-400 text-sm">No bills yet for this vendor.</div>
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm table-responsive-cards">
         <thead className="text-xs text-gray-500 uppercase font-semibold tracking-widest">
           <tr className="border-b border-gray-100">
             <th className="px-3 py-2 text-left">Bill #</th>
@@ -240,15 +240,15 @@ function BillsList({ bills, onEdit, onRecordPayment, onApprove, onVoid }: {
         <tbody className="divide-y divide-gray-50">
           {bills.map(b => (
             <tr key={b.id} className="hover:bg-gray-50">
-              <td className="px-3 py-2 text-gray-900 font-medium">{b.billNumber}</td>
-              <td className="px-3 py-2 text-gray-600">{b.billDate}</td>
-              <td className="px-3 py-2 text-gray-600">{b.dueDate}</td>
-              <td className="px-3 py-2 text-right">{fmt(b.totalCents)}</td>
-              <td className={`px-3 py-2 text-right font-semibold ${b.balanceDueCents > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+              <td data-label="Bill #" className="px-3 py-2 text-gray-900 font-medium">{b.billNumber}</td>
+              <td data-label="Date" className="px-3 py-2 text-gray-600">{b.billDate}</td>
+              <td data-label="Due" className="px-3 py-2 text-gray-600">{b.dueDate}</td>
+              <td data-label="Total" className="px-3 py-2 text-right">{fmt(b.totalCents)}</td>
+              <td data-label="Balance" className={`px-3 py-2 text-right font-semibold ${b.balanceDueCents > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
                 {fmt(b.balanceDueCents)}
               </td>
-              <td className="px-3 py-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${STATUS_COLORS[b.status]}`}>{b.status}</span></td>
-              <td className="px-3 py-2 text-right">
+              <td data-label="Status" className="px-3 py-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${STATUS_COLORS[b.status]}`}>{b.status}</span></td>
+              <td data-label="Actions" className="px-3 py-2 text-right">
                 <button onClick={() => onEdit(b)} className="text-blue-600 hover:underline text-xs mr-2">Edit</button>
                 {b.status === 'received' && (
                   <button onClick={() => onApprove(b)} className="text-indigo-600 hover:underline text-xs mr-2">Approve</button>
@@ -330,7 +330,7 @@ function VendorForm({ initial, onCancel, onSaved }: { initial: VendorContact | n
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">{initial ? 'Edit' : 'New'} Vendor</h3>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
@@ -433,7 +433,7 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-60 bg-black/50 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">{initial ? 'Edit' : 'New'} Bill · {vendor.name}</h3>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
@@ -544,7 +544,7 @@ function PaymentForm({ bill, vendor, onCancel, onSaved }: { bill: VendorBill; ve
 
   return (
     <div className="fixed inset-0 z-60 bg-black/50 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl w-full max-w-md">
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>

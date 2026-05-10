@@ -271,7 +271,7 @@ function PushQuoteModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-[520px] max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-[520px] max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900">Push Sold Quote to Staging</h2>
@@ -496,7 +496,7 @@ function ListView({ jobs, onJobClick }: { jobs: StagingJob[], onJobClick: (job: 
         {filtered.length === 0 ? (
           <div className="text-center py-16 text-gray-400 text-sm">No jobs in this status</div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-responsive-cards">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Client</th>
@@ -517,19 +517,19 @@ function ListView({ jobs, onJobClick }: { jobs: StagingJob[], onJobClick: (job: 
                   new Date(job.locatesExpDate) <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
                 return (
                   <tr key={job.id} className="hover:bg-orange-50 cursor-pointer transition-colors" onClick={() => onJobClick(job)}>
-                    <td className="px-5 py-3">
+                    <td data-label="Client" className="px-5 py-3">
                       <p className="font-semibold text-gray-900">{job.clientName}</p>
                       {job.tearout && <p className="text-xs text-yellow-600">Tearout</p>}
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{job.fenceType}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">{job.area}</td>
-                    <td className="px-4 py-3 text-right text-gray-600">{job.sections || '—'}</td>
-                    <td className="px-4 py-3 text-right font-bold text-gray-900">{job.jobPrice ? fmt(job.jobPrice) : '—'}</td>
-                    <td className={`px-4 py-3 text-xs ${locatesExpired ? 'text-red-500 font-bold' : locatesExpiringSoon ? 'text-yellow-600 font-semibold' : 'text-gray-400'}`}>
+                    <td data-label="Type" className="px-4 py-3 text-gray-700">{job.fenceType}</td>
+                    <td data-label="Area" className="px-4 py-3 text-gray-500 text-xs">{job.area}</td>
+                    <td data-label="Sec" className="px-4 py-3 text-right text-gray-600">{job.sections || '—'}</td>
+                    <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{job.jobPrice ? fmt(job.jobPrice) : '—'}</td>
+                    <td data-label="Locates Exp" className={`px-4 py-3 text-xs ${locatesExpired ? 'text-red-500 font-bold' : locatesExpiringSoon ? 'text-yellow-600 font-semibold' : 'text-gray-400'}`}>
                       {job.locatesExpDate || '—'}{locatesExpired && ' ⚠'}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-400">{job.contractDate || '—'}</td>
-                    <td className="px-4 py-3">
+                    <td data-label="Contract" className="px-4 py-3 text-xs text-gray-400">{job.contractDate || '—'}</td>
+                    <td data-label="Status" className="px-4 py-3">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>{job.status}</span>
                     </td>
                   </tr>

@@ -148,7 +148,7 @@ function CostAJobModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[640px] max-h-[80vh] overflow-y-auto mx-4 lg:mx-0" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[640px] max-h-[80vh] overflow-y-auto mx-4 lg:mx-0 modal-responsive" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900 text-lg">{editEntry ? 'Edit Job Cost' : 'Cost a Completed Job'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
@@ -391,7 +391,7 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
             <div>
               <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Crew Breakdown</p>
               <div className="bg-gray-50 rounded-xl overflow-hidden">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-responsive-cards">
                   <thead>
                     <tr className="text-xs text-gray-400">
                       <th className="text-left px-4 py-2">Name</th>
@@ -403,10 +403,10 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
                   <tbody>
                     {e.crew.map((c, i) => (
                       <tr key={i} className="border-t border-gray-100">
-                        <td className="px-4 py-2 font-medium text-gray-900">{c.name}</td>
-                        <td className="px-4 py-2 text-right text-gray-700">{c.hours.toFixed(1)}</td>
-                        <td className="px-4 py-2 text-right text-gray-500">{fmt2(c.rate)}/hr</td>
-                        <td className="px-4 py-2 text-right font-bold text-gray-900">{fmt(c.hours * c.rate)}</td>
+                        <td data-label="Name" className="px-4 py-2 font-medium text-gray-900">{c.name}</td>
+                        <td data-label="Hours" className="px-4 py-2 text-right text-gray-700">{c.hours.toFixed(1)}</td>
+                        <td data-label="Rate" className="px-4 py-2 text-right text-gray-500">{fmt2(c.rate)}/hr</td>
+                        <td data-label="Cost" className="px-4 py-2 text-right font-bold text-gray-900">{fmt(c.hours * c.rate)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -610,7 +610,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
           <div className="px-6 py-4 border-b border-gray-100">
             <h3 className="font-bold text-gray-900">Variance by Fence Style</h3>
           </div>
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-responsive-cards">
             <thead className="bg-gray-50">
               <tr>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Style</th>
@@ -623,15 +623,15 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
             <tbody className="divide-y divide-gray-50">
               {Object.entries(stats.byStyle).sort((a, b) => b[1].jobs - a[1].jobs).map(([style, d]) => (
                 <tr key={style} className="hover:bg-gray-50">
-                  <td className="px-6 py-3 font-medium text-gray-900">{style}</td>
-                  <td className="px-4 py-3 text-right text-gray-700">{d.jobs}</td>
-                  <td className={`px-4 py-3 text-right font-bold ${varianceColor(d.avgLaborVar / 10)}`}>
+                  <td data-label="Style" className="px-6 py-3 font-medium text-gray-900">{style}</td>
+                  <td data-label="Jobs" className="px-4 py-3 text-right text-gray-700">{d.jobs}</td>
+                  <td data-label="Avg Labor Hr Var" className={`px-4 py-3 text-right font-bold ${varianceColor(d.avgLaborVar / 10)}`}>
                     {d.avgLaborVar >= 0 ? '+' : ''}{d.avgLaborVar.toFixed(1)} hrs
                   </td>
-                  <td className={`px-4 py-3 text-right font-bold ${varianceColor(d.avgMatVar)}`}>
+                  <td data-label="Avg Material Var" className={`px-4 py-3 text-right font-bold ${varianceColor(d.avgMatVar)}`}>
                     {d.avgMatVar >= 0 ? '+' : ''}{fmtPct(d.avgMatVar)}
                   </td>
-                  <td className={`px-4 py-3 text-right font-bold ${d.avgActGM >= 0.34 ? 'text-green-600' : d.avgActGM >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
+                  <td data-label="Avg Actual GM" className={`px-4 py-3 text-right font-bold ${d.avgActGM >= 0.34 ? 'text-green-600' : d.avgActGM >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
                     {fmtPct(d.avgActGM)}
                   </td>
                 </tr>
@@ -647,7 +647,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
           <h3 className="font-bold text-gray-900">Costed Jobs</h3>
           <span className="text-xs text-gray-400">{costedJobs.length} jobs</span>
         </div>
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-responsive-cards">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
@@ -664,26 +664,26 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
           <tbody className="divide-y divide-gray-50">
             {costedJobs.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-6 py-12 text-center text-gray-400">
+                <td data-label="" colSpan={9} className="px-6 py-12 text-center text-gray-400">
                   <p className="text-lg mb-1">No jobs costed yet</p>
                   <p className="text-sm">Click "Cost a Job" to enter actuals for a completed sold quote</p>
                 </td>
               </tr>
             ) : costedJobs.map(j => (
               <tr key={j.entry.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedJob(j)}>
-                <td className="px-5 py-3 font-medium text-gray-900">{j.quote.customerName}</td>
-                <td className="px-3 py-3 text-gray-600 text-xs">{fenceCategory(j.quote.fenceStyle)}</td>
-                <td className="px-3 py-3 text-right font-semibold text-gray-900">{fmt(j.quote.finalPrice)}</td>
-                <td className="px-3 py-3 text-right text-gray-500">{fmt(j.totalEstCOGS)}</td>
-                <td className="px-3 py-3 text-right font-semibold text-gray-900">{fmt(j.totalActCOGS)}</td>
-                <td className={`px-3 py-3 text-right font-bold ${varianceColor(j.cogsPct)}`}>
+                <td data-label="Customer" className="px-5 py-3 font-medium text-gray-900">{j.quote.customerName}</td>
+                <td data-label="Style" className="px-3 py-3 text-gray-600 text-xs">{fenceCategory(j.quote.fenceStyle)}</td>
+                <td data-label="Price" className="px-3 py-3 text-right font-semibold text-gray-900">{fmt(j.quote.finalPrice)}</td>
+                <td data-label="Est COGS" className="px-3 py-3 text-right text-gray-500">{fmt(j.totalEstCOGS)}</td>
+                <td data-label="Act COGS" className="px-3 py-3 text-right font-semibold text-gray-900">{fmt(j.totalActCOGS)}</td>
+                <td data-label="COGS Var" className={`px-3 py-3 text-right font-bold ${varianceColor(j.cogsPct)}`}>
                   {j.cogsVariance >= 0 ? '+' : ''}{fmt(j.cogsVariance)}
                 </td>
-                <td className="px-3 py-3 text-right text-gray-500">{fmtPct(j.estGM)}</td>
-                <td className={`px-3 py-3 text-right font-bold ${j.actGM >= 0.34 ? 'text-green-600' : j.actGM >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
+                <td data-label="Est GM" className="px-3 py-3 text-right text-gray-500">{fmtPct(j.estGM)}</td>
+                <td data-label="Act GM" className={`px-3 py-3 text-right font-bold ${j.actGM >= 0.34 ? 'text-green-600' : j.actGM >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
                   {fmtPct(j.actGM)}
                 </td>
-                <td className="px-2 py-3 text-right">
+                <td data-label="Actions" className="px-2 py-3 text-right">
                   <button
                     onClick={e => { e.stopPropagation(); handleDelete(j.entry.id) }}
                     className="text-gray-200 hover:text-red-400 text-lg leading-none"

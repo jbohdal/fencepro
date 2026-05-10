@@ -112,6 +112,7 @@ function OperationsView() {
                   </div>
                   {isOpen && (
                     <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
+                      <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="text-[10px] uppercase font-semibold text-gray-500 tracking-widest">
@@ -140,6 +141,7 @@ function OperationsView() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                       <div className="mt-3 flex gap-2 flex-wrap justify-end">
                         {o.status === 'pending' && (
                           <button onClick={() => advance(o.id, 'ordered')}
