@@ -36,18 +36,16 @@ export interface PurchaseOrder {
   createdBy: string       // 'auto' or user name
 }
 
-const PO_KEY = 'fencepro_purchase_orders'
+import { getBusinessField, setBusinessField } from './businessStateStore'
+
 const uid = () => Math.random().toString(36).slice(2, 9)
 
 export function getPurchaseOrders(): PurchaseOrder[] {
-  try {
-    const raw = localStorage.getItem(PO_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
+  return getBusinessField('purchaseOrders') as PurchaseOrder[]
 }
 
 export function savePurchaseOrders(pos: PurchaseOrder[]): void {
-  localStorage.setItem(PO_KEY, JSON.stringify(pos))
+  setBusinessField('purchaseOrders', pos)
 }
 
 export function getPOsForJob(jobId: string): PurchaseOrder[] {

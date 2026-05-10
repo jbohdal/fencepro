@@ -45,7 +45,8 @@ router.use(requireUser, requireAccount)
 const fields = [
   'bundles', 'quoteOptions', 'contractSections', 'jobChecklists', 'defaultMilestones',
   'plEntries', 'balanceSheet', 'cashFlowManual', 'automations',
-  'emailTemplates', 'settings', 'config', 'budget',
+  'emailTemplates', 'settings', 'config', 'budget', 'pendingOrders', 'purchaseOrders',
+  'invoices', 'payments', 'statements', 'pullSheets',
 ] as const
 
 const patchSchema = z.object(Object.fromEntries(fields.map(f => [f, z.any().optional()])))

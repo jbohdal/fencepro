@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { TEMPLATES, type TemplateKey } from './quoteTemplatesStore'
 import { toast } from './toast'
+import { getConfig, saveConfig } from './configStore'
 
 type AllSettings = {
   portal: {
@@ -58,28 +59,18 @@ const DEFAULTS: AllSettings = {
 }
 
 function load(): AllSettings {
-  try {
-    const r = localStorage.getItem('fencepro_config')
-    if (!r) return DEFAULTS
-    const cfg = JSON.parse(r)
-    return {
-      portal: { ...DEFAULTS.portal, ...(cfg.portal || {}) },
-      quote: { ...DEFAULTS.quote, ...(cfg.quote || {}) },
-      notifications: { ...DEFAULTS.notifications, ...(cfg.notifications || {}) },
-    }
-  } catch { return DEFAULTS }
+  const cfg = getConfig() as any
+  return {
+    portal: { ...DEFAULTS.portal, ...(cfg.portal || {}) },
+    quote: { ...DEFAULTS.quote, ...(cfg.quote || {}) },
+    notifications: { ...DEFAULTS.notifications, ...(cfg.notifications || {}) },
+  }
 }
 
 function save(s: AllSettings) {
-  try {
-    const r = localStorage.getItem('fencepro_config')
-    const cfg = r ? JSON.parse(r) : {}
-    cfg.portal = s.portal
-    cfg.quote = s.quote
-    cfg.notifications = s.notifications
-    localStorage.setItem('fencepro_config', JSON.stringify(cfg))
-    window.dispatchEvent(new CustomEvent('fencepro:settings:updated'))
-  } catch {}
+  const cfg = getConfig() as any
+  saveConfig({ ...cfg, portal: s.portal, quote: s.quote, notifications: s.notifications })
+  try { window.dispatchEvent(new CustomEvent('fencepro:settings:updated')) } catch {}
 }
 
 export default function PortalQuoteSettings() {

@@ -28,6 +28,12 @@ type BusinessFields = {
   settings: any
   config: any
   budget: any
+  pendingOrders: any[]
+  purchaseOrders: any[]
+  invoices: any[]
+  payments: any[]
+  statements: any[]
+  pullSheets: any[]
 }
 
 const DEFAULT: BusinessFields = {
@@ -44,6 +50,12 @@ const DEFAULT: BusinessFields = {
   settings: {},
   config: {},
   budget: {},
+  pendingOrders: [],
+  purchaseOrders: [],
+  invoices: [],
+  payments: [],
+  statements: [],
+  pullSheets: [],
 }
 
 let cache: BusinessFields = { ...DEFAULT }
@@ -104,6 +116,12 @@ async function migrateLocalBusinessOnce(): Promise<void> {
       emailTemplates: tryParse('fencepro_email_templates', {}),
       config: tryParse('fencepro_config', {}),
       budget: tryParse('fencepro_budget', {}),
+      pendingOrders: tryParse('fencepro_pending_orders', []),
+      purchaseOrders: tryParse('fencepro_purchase_orders', []),
+      invoices: tryParse('fencepro_invoices', []),
+      payments: tryParse('fencepro_payments', []),
+      statements: tryParse('fencepro_statements', []),
+      pullSheets: tryParse('fencepro_customer_pullsheets', []),
     }
     const r = await call('PATCH', patch)
     if (r.ok) localStorage.setItem(MIGRATION_FLAG, '1')

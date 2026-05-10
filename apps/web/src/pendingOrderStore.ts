@@ -11,8 +11,7 @@
 
 import type { LineItem } from './materialCalculator'
 import type { SavedQuote } from './QuotesPage'
-
-const PO_KEY = 'fencepro_pending_orders'
+import { getBusinessField, setBusinessField } from './businessStateStore'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -51,9 +50,9 @@ export interface PendingOrder {
 }
 
 export function getPendingOrders(): PendingOrder[] {
-  try { const r = localStorage.getItem(PO_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  return getBusinessField('pendingOrders') as PendingOrder[]
 }
-function save(orders: PendingOrder[]) { localStorage.setItem(PO_KEY, JSON.stringify(orders)) }
+function save(orders: PendingOrder[]) { setBusinessField('pendingOrders', orders) }
 
 export function getPendingOrdersForQuote(quoteId: string): PendingOrder[] {
   return getPendingOrders().filter(o => o.quoteId === quoteId)
@@ -153,13 +152,20 @@ export function updatePendingOrderItem(orderId: string, itemId: string, updates:
 }
 
 // ── Inventory reservation integration (best-effort, optional) ──
+//
+// Routes through inventoryStore (Phase 6) so reservations sync to the cloud
+// instead of being local to one browser.
+
+import { getInventory as storeGetInventory, saveInventory as storeSaveInventory } from './inventoryStore'
 
 interface InventoryItem { id: string; name: string; quantity?: number; reservedQty?: number }
 
 function getInventory(): InventoryItem[] {
-  try { const r = localStorage.getItem('fencepro_inventory'); return r ? JSON.parse(r) : [] } catch { return [] }
+  return storeGetInventory() as unknown as InventoryItem[]
 }
-function saveInventory(items: InventoryItem[]) { localStorage.setItem('fencepro_inventory', JSON.stringify(items)) }
+function saveInventory(items: InventoryItem[]) {
+  storeSaveInventory(items as any)
+}
 
 function reserveInventoryForOrder(order: PendingOrder) {
   const inv = getInventory()

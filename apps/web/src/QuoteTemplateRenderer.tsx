@@ -8,6 +8,7 @@
  */
 
 import { useState } from 'react'
+import { getContractSections } from './contractStore'
 import type { SavedQuote } from './QuotesPage'
 import { getTemplate, type QuoteTemplate, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
 
@@ -26,10 +27,7 @@ function readCompany() {
 }
 
 function readContract() {
-  try {
-    const r = localStorage.getItem('fencepro_contract_sections')
-    return r ? JSON.parse(r) : []
-  } catch { return [] }
+  return getContractSections()
 }
 
 export interface QuoteWithPresentation extends SavedQuote, QuotePresentation {}

@@ -5,12 +5,13 @@
  */
 
 import { fireInvoiceCreated, firePaymentReceived } from './automationTrigger'
+import { getBusinessField, setBusinessField } from './businessStateStore'
 
-const INV_KEY = 'fencepro_invoices'
-const PAY_KEY = 'fencepro_payments'
-const STMT_KEY = 'fencepro_statements'
+// Invoices, payments, statements, and pull sheets all flow through the
+// /api/business-state singleton. Customer notes are dead code in this file
+// (Phase 1 migrated CustomerNotesTab to /api/crm-contacts/:id/notes); the
+// helpers below remain as no-ops on a localStorage key nothing reads.
 const NOTE_KEY = 'fencepro_customer_notes'
-const PULL_KEY = 'fencepro_customer_pullsheets'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -58,9 +59,9 @@ export interface Invoice {
 let invCounter = 1000
 
 export function getInvoices(): Invoice[] {
-  try { const r = localStorage.getItem(INV_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  return getBusinessField('invoices') as Invoice[]
 }
-function saveInvoices(inv: Invoice[]) { localStorage.setItem(INV_KEY, JSON.stringify(inv)) }
+function saveInvoices(inv: Invoice[]) { setBusinessField('invoices', inv) }
 
 export function getInvoicesForCustomer(customerId: string): Invoice[] {
   return getInvoices().filter(i => i.customerId === customerId)
@@ -135,9 +136,9 @@ export interface Payment {
 }
 
 export function getPayments(): Payment[] {
-  try { const r = localStorage.getItem(PAY_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  return getBusinessField('payments') as Payment[]
 }
-function savePayments(pay: Payment[]) { localStorage.setItem(PAY_KEY, JSON.stringify(pay)) }
+function savePayments(pay: Payment[]) { setBusinessField('payments', pay) }
 
 export function getPaymentsForCustomer(customerId: string): Payment[] {
   return getPayments().filter(p => p.customerId === customerId)
@@ -239,22 +240,18 @@ export interface CustomerPullSheet {
 }
 
 export function getPullSheetsForCustomer(customerId: string): CustomerPullSheet[] {
-  try {
-    const r = localStorage.getItem(PULL_KEY)
-    const all: CustomerPullSheet[] = r ? JSON.parse(r) : []
-    return all.filter(ps => ps.customerId === customerId).sort((a, b) => b.linkedAt.localeCompare(a.linkedAt))
-  } catch { return [] }
+  return getAllPullSheets()
+    .filter(ps => ps.customerId === customerId)
+    .sort((a, b) => b.linkedAt.localeCompare(a.linkedAt))
 }
 
 function getAllPullSheets(): CustomerPullSheet[] {
-  try { const r = localStorage.getItem(PULL_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  return getBusinessField('pullSheets') as CustomerPullSheet[]
 }
 
 export function linkPullSheetToCustomer(data: Omit<CustomerPullSheet, 'id'>): CustomerPullSheet {
   const ps: CustomerPullSheet = { ...data, id: uid() }
-  const all = getAllPullSheets()
-  all.unshift(ps)
-  localStorage.setItem(PULL_KEY, JSON.stringify(all))
+  setBusinessField('pullSheets', [ps, ...getAllPullSheets()])
   return ps
 }
 

@@ -1858,6 +1858,12 @@ model BusinessState {
   settings          Json     @default("{}") // catch all UI settings
   config            Json     @default("{}") // company info, fence styles, pricing, etc.
   budget            Json     @default("{}") // BudgetState
+  pendingOrders     Json     @default("[]") // PendingOrder[] (materials reserved on sold quotes)
+  purchaseOrders    Json     @default("[]") // PurchaseOrder[] (drafted/sent POs to vendors)
+  invoices          Json     @default("[]") // Invoice[] (customer invoices, AR side)
+  payments          Json     @default("[]") // Payment[] (customer payments)
+  statements        Json     @default("[]") // Statement[] (rolled-up customer statements)
+  pullSheets        Json     @default("[]") // CustomerPullSheet[] (per-customer pull sheet snapshots)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
