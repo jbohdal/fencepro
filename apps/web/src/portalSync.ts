@@ -91,18 +91,22 @@ export async function syncJob(job: {
 
 /** Sync an invoice to the portal */
 export async function syncInvoice(invoice: {
-  id: string; invoiceNumber: string; amountCents: number
+  id: string; invoiceNumber: string; amountCents: number; taxCents?: number
   dueDate: string; status: 'pending' | 'paid' | 'overdue' | 'cancelled' | 'refunded'
-  paidAt?: string
+  paidAt?: string; notes?: string
+  lineItems?: { description: string; quantity: number; unitPriceCents: number; totalCents: number }[]
 }): Promise<boolean> {
   return syncPost('/invoices', {
     externalId: invoice.id,
     accountExternalId: ACCOUNT_EXTERNAL_ID,
     invoiceNumber: invoice.invoiceNumber,
     amountCents: invoice.amountCents,
+    taxCents: invoice.taxCents ?? 0,
     dueDate: invoice.dueDate,
     status: invoice.status,
     paidAt: invoice.paidAt,
+    notes: invoice.notes,
+    lineItems: invoice.lineItems ?? [],
   })
 }
 

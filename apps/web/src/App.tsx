@@ -632,7 +632,7 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
         {/* Brand */}
         <div className={`border-b border-gray-700 flex items-center ${sidebarCollapsed ? 'px-3 py-4 justify-center' : 'px-5 py-4'}`}>
           {sidebarCollapsed ? (
-            <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center text-white text-sm font-bold">F</div>
+            <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center text-white text-sm font-bold">{companyName.charAt(0).toUpperCase()}</div>
           ) : (
             <div>
               <h1 className="text-white text-lg font-bold tracking-tight">{companyName}</h1>

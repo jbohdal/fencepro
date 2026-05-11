@@ -38,7 +38,7 @@ const adapter: IntegrationAdapter = {
     try {
       const testPayload = {
         event: 'test',
-        source: 'fencepro_crm',
+        source: 'ezbiz_crm',
         timestamp: new Date().toISOString(),
         data: { message: 'This is a test webhook from EZBiz' },
       }

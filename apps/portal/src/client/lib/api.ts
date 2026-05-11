@@ -60,6 +60,25 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit =
   return json.data as T
 }
 
+/** Authenticated fetch that returns a Blob — retries once after token refresh on 401 */
+export async function apiFetchBlob(path: string): Promise<Blob> {
+  const headers: Record<string, string> = {}
+  if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+
+  let res = await fetch(`${BASE}${path}`, { headers })
+
+  if (res.status === 401 && refreshToken) {
+    const refreshed = await tryRefresh()
+    if (refreshed) {
+      headers['Authorization'] = `Bearer ${accessToken}`
+      res = await fetch(`${BASE}${path}`, { headers })
+    }
+  }
+
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`)
+  return res.blob()
+}
+
 // Convenience methods
 export const api = {
   get: <T>(path: string) => apiFetch<T>(path),

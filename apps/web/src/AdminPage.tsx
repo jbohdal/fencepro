@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   getInventory, saveInventory, resetInventory,
   getBundles, saveBundles,
@@ -9,6 +9,7 @@ import {
   getLowStockItems,
   getInventorySummary,
   reverseTransaction,
+  findItemByBarcode,
 } from './inventoryStore'
 import BulkImportModal from './BulkImportModal'
 import type {
@@ -153,15 +154,17 @@ function DashboardTab() {
    ═══════════════════════════════════════════════ */
 
 function CatalogTab() {
-  const [items, setItems]         = useState<InventoryItem[]>([])
-  const [levels, setLevels]       = useState<StockLevel[]>([])
-  const [search, setSearch]       = useState('')
-  const [category, setCategory]   = useState('All')
-  const [saved, setSaved]         = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [items, setItems]                   = useState<InventoryItem[]>([])
+  const [levels, setLevels]                 = useState<StockLevel[]>([])
+  const [search, setSearch]                 = useState('')
+  const [category, setCategory]             = useState('All')
+  const [saved, setSaved]                   = useState(false)
+  const [editingId, setEditingId]           = useState<string | null>(null)
+  const [thresholdExpandId, setThresholdExpandId] = useState<string | null>(null)
+  const [barcodesEditId, setBarcodesEditId] = useState<string | null>(null)
+  const [barcodesInput, setBarcodesInput]   = useState('')
   const [showBulkImport, setShowBulkImport] = useState(false)
   const locations = useMemo(() => getLocations(), [])
-  const defaultLoc = locations[0]?.id || 'loc-yard'
 
   useEffect(() => { setItems(getInventory()); setLevels(getStockLevels()) }, [])
 
@@ -175,25 +178,40 @@ function CatalogTab() {
     return levels.filter(s => s.itemId === itemId).reduce((sum, s) => sum + s.quantity, 0)
   }
 
-  function getReorder(itemId: string): number {
-    const lvl = levels.find(s => s.itemId === itemId)
-    return lvl?.reorderPoint ?? 0
+  function getLocReorder(itemId: string, locationId: string): number {
+    return levels.find(s => s.itemId === itemId && s.locationId === locationId)?.reorderPoint ?? 0
+  }
+
+  function countThresholdsSet(itemId: string): number {
+    return levels.filter(s => s.itemId === itemId && s.reorderPoint > 0).length
   }
 
   function updateItem(id: string, field: string, val: string | number) {
     setItems(prev => prev.map(i => i.id === id ? { ...i, [field]: val } : i))
   }
 
-  function updateReorderPoint(itemId: string, val: number) {
+  function updateReorderPoint(itemId: string, locationId: string, val: number) {
     setLevels(prev => {
-      const idx = prev.findIndex(s => s.itemId === itemId && s.locationId === defaultLoc)
+      const idx = prev.findIndex(s => s.itemId === itemId && s.locationId === locationId)
       if (idx >= 0) {
         const updated = [...prev]
         updated[idx] = { ...updated[idx], reorderPoint: val }
         return updated
       }
-      return [...prev, { itemId, locationId: defaultLoc, quantity: 0, minQuantity: 0, maxQuantity: 0, reorderPoint: val, reorderQty: 0, lastUpdated: new Date().toISOString() }]
+      return [...prev, { itemId, locationId, quantity: 0, minQuantity: 0, maxQuantity: 0, reorderPoint: val, reorderQty: 0, lastUpdated: new Date().toISOString() }]
     })
+  }
+
+  function openBarcodesEdit(item: InventoryItem) {
+    setBarcodesEditId(item.id)
+    setBarcodesInput((item.barcodes ?? []).join(', '))
+  }
+
+  function commitBarcodes(itemId: string) {
+    const parsed = barcodesInput.split(',').map(s => s.trim()).filter(Boolean)
+    setItems(prev => prev.map(i => i.id === itemId ? { ...i, barcodes: parsed } : i))
+    setBarcodesEditId(null)
+    setBarcodesInput('')
   }
 
   function addItem() {
@@ -263,58 +281,112 @@ function CatalogTab() {
               <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-32">Category</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-28">Unit Cost</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-20">On Hand</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-24">Reorder Pt</th>
-              <th className="w-16" />
+              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-28">Thresholds</th>
+              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-24">Barcodes</th>
               <th className="w-8" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {filtered.map(item => {
               const qty = getQty(item.id)
-              const reorder = getReorder(item.id)
               const hasStock = levels.some(s => s.itemId === item.id)
+              const thresholdCount = countThresholdsSet(item.id)
+              const barcodeCount = (item.barcodes ?? []).length
+              const isThresholdExpanded = thresholdExpandId === item.id
+              const isBarcodesEditing = barcodesEditId === item.id
+
               return (
-                <tr key={item.id} className="hover:bg-gray-50 group">
-                  <td className="px-4 py-2.5">
-                    {editingId === item.id ? (
-                      <input autoFocus className="w-full border border-orange-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                        value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} onBlur={() => setEditingId(null)} />
-                    ) : (
-                      <span className="cursor-pointer hover:text-orange-600" onClick={() => setEditingId(item.id)}>{item.name}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-gray-500 text-xs">{item.category}</td>
-                  <td className="px-3 py-2.5 text-right">
-                    <div className="flex items-center justify-end">
-                      <span className="text-gray-400 mr-1 text-xs">$</span>
-                      <input type="number" step="0.01" min="0"
-                        className="w-20 text-right border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
-                        value={item.unitCost} onChange={e => updateItem(item.id, 'unitCost', parseFloat(e.target.value) || 0)} />
-                    </div>
-                  </td>
-                  <td className={`px-3 py-2.5 text-right font-bold text-xs ${qty < 0 ? 'text-red-500' : qty === 0 && hasStock ? 'text-gray-400' : 'text-gray-700'}`}>
-                    {hasStock ? qty : '—'}
-                  </td>
-                  <td className="px-3 py-2.5 text-right">
-                    <input type="number" min="0"
-                      className="w-16 text-right border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
-                      value={reorder || ''} placeholder="0"
-                      onChange={e => updateReorderPoint(item.id, parseInt(e.target.value) || 0)} />
-                  </td>
-                  <td className="px-3 py-2.5 text-center">
-                    {qty < 0 && <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">{qty}</span>}
-                  </td>
-                  <td className="px-2 py-2.5">
-                    <button onClick={() => deleteItem(item.id)} className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
-                  </td>
-                </tr>
+                <React.Fragment key={item.id}>
+                  <tr className="hover:bg-gray-50 group">
+                    <td className="px-4 py-2.5">
+                      {editingId === item.id ? (
+                        <input autoFocus className="w-full border border-orange-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} onBlur={() => setEditingId(null)} />
+                      ) : (
+                        <span className="cursor-pointer hover:text-orange-600" onClick={() => setEditingId(item.id)}>{item.name}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-500 text-xs">{item.category}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      <div className="flex items-center justify-end">
+                        <span className="text-gray-400 mr-1 text-xs">$</span>
+                        <input type="number" step="0.01" min="0"
+                          className="w-20 text-right border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
+                          value={item.unitCost} onChange={e => updateItem(item.id, 'unitCost', parseFloat(e.target.value) || 0)} />
+                      </div>
+                    </td>
+                    <td className={`px-3 py-2.5 text-right font-bold text-xs ${qty < 0 ? 'text-red-500' : qty === 0 && hasStock ? 'text-gray-400' : 'text-gray-700'}`}>
+                      {hasStock ? qty : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <button
+                        onClick={() => setThresholdExpandId(isThresholdExpanded ? null : item.id)}
+                        className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${isThresholdExpanded ? 'bg-orange-100 border-orange-300 text-orange-700' : thresholdCount > 0 ? 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-orange-50 hover:border-orange-200' : 'border-dashed border-gray-200 text-gray-400 hover:border-orange-300 hover:text-orange-500'}`}
+                      >
+                        {thresholdCount > 0 ? `${thresholdCount} set` : '+ Set'}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      {isBarcodesEditing ? (
+                        <input
+                          autoFocus
+                          className="w-full border border-orange-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+                          placeholder="123,456,789"
+                          value={barcodesInput}
+                          onChange={e => setBarcodesInput(e.target.value)}
+                          onBlur={() => commitBarcodes(item.id)}
+                          onKeyDown={e => e.key === 'Enter' && commitBarcodes(item.id)}
+                        />
+                      ) : (
+                        <button
+                          onClick={() => openBarcodesEdit(item)}
+                          className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${barcodeCount > 0 ? 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-orange-50 hover:border-orange-200' : 'border-dashed border-gray-200 text-gray-400 hover:border-orange-300 hover:text-orange-500'}`}
+                        >
+                          {barcodeCount > 0 ? `${barcodeCount} barcode${barcodeCount > 1 ? 's' : ''}` : '+ Add'}
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <button onClick={() => deleteItem(item.id)} className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
+                    </td>
+                  </tr>
+                  {isThresholdExpanded && (
+                    <tr key={`${item.id}-thresholds`} className="bg-orange-50">
+                      <td colSpan={7} className="px-6 py-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-semibold text-orange-700 uppercase tracking-wide">Per-Location Reorder Points</span>
+                          <span className="text-xs text-gray-400">— alert triggers when a location's qty drops to or below its threshold</span>
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                          {locations.filter(l => l.isActive).map(loc => (
+                            <div key={loc.id} className="flex items-center gap-2 bg-white border border-orange-200 rounded-lg px-3 py-2">
+                              <span className="text-xs font-medium text-gray-700 min-w-[80px]">{loc.name}</span>
+                              <span className="text-xs text-gray-400">reorder at</span>
+                              <input
+                                type="number" min="0" step="1"
+                                className="w-16 text-right border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
+                                value={getLocReorder(item.id, loc.id) || ''}
+                                placeholder="0"
+                                onChange={e => updateReorderPoint(item.id, loc.id, parseInt(e.target.value) || 0)}
+                              />
+                              <span className="text-xs text-gray-400">{loc.type}</span>
+                            </div>
+                          ))}
+                          {locations.filter(l => l.isActive).length === 0 && (
+                            <p className="text-xs text-gray-400">No active locations — add one in the Locations tab first.</p>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               )
             })}
           </tbody>
         </table>
         {filtered.length === 0 && <div className="text-center py-12 text-gray-400 text-sm">No items match your search</div>}
       </div>
-      <p className="text-xs text-gray-400 mt-2">{filtered.length} of {items.length} items</p>
+      <p className="text-xs text-gray-400 mt-2">{filtered.length} of {items.length} items · barcodes: comma-separate multiple values, press Enter to save</p>
       {showBulkImport && (
         <BulkImportModal
           onClose={() => setShowBulkImport(false)}
@@ -335,6 +407,8 @@ function StockMovementTab() {
   const [mode, setMode] = useState<'in' | 'out'>('in')
   const [locationId, setLocationId] = useState(locations[0]?.id || '')
   const [search, setSearch] = useState('')
+  const [barcodeInput, setBarcodeInput] = useState('')
+  const [barcodeMsg, setBarcodeMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [lines, setLines] = useState<{ itemId: string; itemName: string; qty: number; note: string }[]>([])
   const [processed, setProcessed] = useState(false)
 
@@ -343,9 +417,29 @@ function StockMovementTab() {
     : []
 
   function addLine(item: InventoryItem) {
-    if (lines.find(l => l.itemId === item.id)) return
+    if (lines.find(l => l.itemId === item.id)) {
+      setLines(prev => prev.map(l => l.itemId === item.id ? { ...l, qty: l.qty + 1 } : l))
+      return
+    }
     setLines(prev => [...prev, { itemId: item.id, itemName: item.name, qty: 1, note: '' }])
     setSearch('')
+  }
+
+  function handleBarcodeScan(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== 'Enter') return
+    const code = barcodeInput.trim()
+    if (!code) return
+    const item = findItemByBarcode(code, items)
+    if (!item) {
+      setBarcodeMsg({ ok: false, text: `No item found for barcode "${code}"` })
+      setBarcodeInput('')
+      setTimeout(() => setBarcodeMsg(null), 3000)
+      return
+    }
+    addLine(item)
+    setBarcodeInput('')
+    setBarcodeMsg({ ok: true, text: `Added: ${item.name}` })
+    setTimeout(() => setBarcodeMsg(null), 2000)
   }
 
   function updateLine(itemId: string, field: string, val: string | number) {
@@ -400,21 +494,46 @@ function StockMovementTab() {
         </select>
       </div>
 
-      {/* Search + add items */}
-      <div className="relative">
-        <input className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-          placeholder="Search items to add to batch..." value={search} onChange={e => setSearch(e.target.value)} />
-        {searchResults.length > 0 && (
-          <div className="absolute z-10 w-full bg-white border border-gray-200 rounded-lg mt-1 shadow-lg max-h-56 overflow-y-auto">
-            {searchResults.map(item => (
-              <button key={item.id} onClick={() => addLine(item)}
-                className="w-full text-left px-4 py-2.5 text-sm hover:bg-orange-50 flex justify-between items-center">
-                <span className="text-gray-800">{item.name}</span>
-                <span className="text-gray-400 text-xs">{item.category} · {fmt(item.unitCost)}</span>
-              </button>
-            ))}
+      {/* Barcode scanner + search */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Barcode scanner */}
+        <div className="space-y-1">
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+            <span>📷</span> Scan Barcode
+          </label>
+          <input
+            className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono"
+            placeholder="Scan or type a barcode, press Enter..."
+            value={barcodeInput}
+            onChange={e => setBarcodeInput(e.target.value)}
+            onKeyDown={handleBarcodeScan}
+          />
+          {barcodeMsg && (
+            <p className={`text-xs font-medium ${barcodeMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
+              {barcodeMsg.ok ? '✓' : '✗'} {barcodeMsg.text}
+            </p>
+          )}
+        </div>
+
+        {/* Text search */}
+        <div className="space-y-1">
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Search by Name</label>
+          <div className="relative">
+            <input className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              placeholder="Search items to add to batch..." value={search} onChange={e => setSearch(e.target.value)} />
+            {searchResults.length > 0 && (
+              <div className="absolute z-10 w-full bg-white border border-gray-200 rounded-lg mt-1 shadow-lg max-h-56 overflow-y-auto">
+                {searchResults.map(item => (
+                  <button key={item.id} onClick={() => addLine(item)}
+                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-orange-50 flex justify-between items-center">
+                    <span className="text-gray-800">{item.name}</span>
+                    <span className="text-gray-400 text-xs">{item.category} · {fmt(item.unitCost)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Batch lines */}

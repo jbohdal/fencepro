@@ -1,0 +1,236 @@
+# EZ Biz (Codebase Currently Named FencePro): Full Production Audit and Completion
+
+## Mission
+
+You are taking ownership of **EZ Biz**, a production grade field service and sales platform built for fence contracting companies. The codebase has been developed across many sessions under the working name FencePro, but the application has been renamed to **EZ Biz** internally and that is the name it will ship under. The repo, package name, and folder structure may still reference fencepro and need to be updated as part of this pass. The codebase now needs one comprehensive run: ingest the entire uploaded codebase, audit every module, fix every issue you find, complete every unfinished feature, rebrand from FencePro to EZ Biz throughout, lay the foundation for whitelabeling, and deliver a fully production ready application.
+
+Execute this work from start to finish in a single autonomous run. Do not pause. Do not ask for confirmation between phases. Do not stop to verify direction. Do not present options. Make every decision yourself based on the patterns already established in the codebase, and keep moving until the entire mission below is complete.
+
+The only acceptable stopping points are (1) the absolute end of the mission, after every phase is complete and verified, or (2) a hard external blocker (for example, an external service that requires the human to create an account before credentials can be issued). For any external blocker, write the full integration code, stub the credential, and document exactly what the human needs to do, then keep going with everything else.
+
+---
+
+## Branding Context and Whitelabel Future
+
+Read this section before starting. It changes how you approach the rename and the configuration layer.
+
+**Current state:** The codebase was built under the working name FencePro. The application has been renamed to EZ Biz. References to FencePro are scattered throughout user facing strings, email templates, page titles, browser tab titles, logos, alt text, footer copy, marketing copy, and possibly the package.json name and folder names.
+
+**Future state after this run:** The owner keeps a copy of EZ Biz as the operational CRM for his own fence contracting business. Separately, the same codebase becomes the foundation for a whitelabeled subscription product sold to other businesses. Each subscriber will run their own branded version of the app with their own company name, logo, color palette, support email, and possibly their own domain.
+
+**What this means for this pass:**
+
+1. Replace every user facing reference to "FencePro" with "EZ Biz" in the codebase. This includes UI strings, page titles, email templates, document templates, PDF headers, browser tab titles, meta tags, alt text, marketing copy, README content, and any seed data that references the old name.
+2. Do not rename internal code identifiers (class names, function names, variable names, database table names, type names, file names of source code) just to drop the word fencepro. Renaming internal identifiers is high risk, low reward work. Leave those alone unless they appear in a user facing context.
+3. Do rename the package.json `name` field, the repo level README title, any folder that exists purely as a brand wrapper (for example, a folder literally named `fencepro-frontend` can become `ezbiz-frontend` if that is feasible without breaking imports), and any environment variable names that include the brand name.
+4. Build a lightweight **branding configuration layer** so whitelabeling is feasible later without a code rewrite. This is not a full multi tenancy refactor. It is a single configuration source that holds: brand name (default "EZ Biz"), logo URL or file path, primary color, secondary color, support email, support phone, company legal name, and a few similar fields. Every user facing string and visual element that references the brand should pull from this configuration source instead of hardcoding "EZ Biz". This way, when the whitelabel rollout happens later, swapping these values for a new tenant requires editing one configuration source, not hunting through the codebase.
+5. The branding configuration layer should be the single source of truth for: page titles, email "from" name, email templates, PDF headers and footers, the logo shown in the navigation, the favicon, the login page logo, the customer portal branding, and any place a brand visual appears. If you find brand text or images hardcoded anywhere, replace them with reads from the configuration source.
+6. Do not implement full multi tenancy in this pass. The owner will deploy a single tenant version for his own business after this run completes. Whitelabeling for other tenants is a separate future project. Just lay the foundation by ensuring brand values flow through configuration instead of being hardcoded.
+
+---
+
+## Known Critical Issues to Resolve
+
+These two issues are confirmed broken right now and must be fully resolved as part of this pass. Diagnose them early in Phase 1, fix them in Phase 2, and verify them in Phase 5. Do not leave either of them in a partial state.
+
+### Critical Issue 1: Address Autocomplete is Completely Broken on the New Customer Form
+
+**Current behavior:** On the new customer form, the address field does not accept any input at all. You cannot even type into it. The field is unusable.
+
+**Intended behavior:** As the user types into an address field, address suggestions should auto populate from a places API (most likely Google Places, since Google Maps is one of the integrated services). The user should be able to type freely, see suggestions, select one, and have the parsed address components populate the structured fields (street, city, state, postal code, country, latitude, longitude).
+
+**Important context:** This pattern existed and worked elsewhere in this same codebase at some point. It is not a feature that needs to be designed from scratch. It needs to be located, understood, and restored.
+
+**What to do:**
+
+1. Search the entire codebase for any existing address autocomplete implementation. Look for references to Google Places, Places API, Autocomplete, useAutocomplete, address suggestions, place_id, address_components, or any wrapper component that handled address input. Check git history if available.
+2. Identify the most recent or most polished working version. If more than one pattern exists, pick the cleanest one and standardize on it.
+3. Diagnose why the new customer form version is broken. Likely culprits include: the Google Maps script not loading on that route, a stale or missing API key, a controlled input fighting the autocomplete library, an event handler that calls preventDefault on every keystroke, a CSS layer covering the input, or a dependency that was upgraded and broke the integration.
+4. Fix the root cause, not the symptom. Make sure the user can type freely into the field and see suggestions appear.
+5. Once fixed, apply the same address autocomplete pattern uniformly to every place in the app where a structured address is entered. This includes at minimum: new customer form, edit customer form, job site address, vendor address, billing address, shipping address, and any inventory location address. If you find additional places, fix those too.
+6. Verify the parsed address components populate the structured database fields, not just a single freeform string. Latitude and longitude should be saved when available.
+
+### Critical Issue 2: Modules Do Not Talk to Each Other
+
+**Current behavior:** Entries made in one part of the app are not propagating to other parts of the app where that data should appear. Numbers that should populate automatically from upstream entries are missing, stale, or require manual reentry. Automations that should fire across modules are either not firing or not propagating their effects.
+
+**Intended behavior:** EZ Biz is a connected system. Every value entered in one place should flow to every place that depends on it. The trigger automation engine should fire reliably across module boundaries. The agent must read the entire schema and the entire automation engine, build a complete map of how data is supposed to flow, and confirm every flow actually works.
+
+**What to do:**
+
+1. Read every Prisma model and document every relation. Build an internal graph of how the data is connected.
+2. Read the trigger automation engine (rules, conditions, actions) and document every cross module effect it is supposed to produce.
+3. For every module pairing, write down what data should propagate in each direction. Examples (not exhaustive):
+   * Accepted quote line items should populate the pull sheet on the customer file with no manual reentry.
+   * Quote totals should populate the customer balance and feed the AR module.
+   * AR balances should feed the cash flow projection engine.
+   * Scheduled jobs should appear on the unified Operations board and feed expected revenue into the cash flow projection.
+   * Rain day flags should cascade to every downstream pending scheduled job.
+   * Inventory consumption from a job should decrement stock based on the recipe / bill of materials.
+   * Reorder points being crossed should automatically generate a purchase order.
+   * Customer notes, billing data, and selected CRM data should appear in the customer portal through the selective adapter, never raw.
+   * Trigger automations defined in the engine should fire on the events they declare and propagate their actions to every affected module.
+4. Walk every flow in the live app. For each flow that does not work, diagnose the root cause and fix it. Common failure modes include: the upstream write happens but no event is emitted, the event is emitted but no subscriber is registered, the subscriber runs but updates the wrong record, the update happens but the frontend reads from a stale query, or the propagation works for create but not for update or delete.
+5. Where propagation requires recalculation (cash flow projection, AR aging, inventory levels, projected schedule after rain), confirm the recalculation runs every time an upstream input changes, not only on a manual refresh.
+6. Save the data flow map you built to `/DATA_FLOW_MAP.md` at the repo root so the human can review it.
+
+---
+
+## Tech Stack (Verify on Ingest)
+
+* React with TypeScript on the frontend
+* Tailwind CSS for styling
+* Node.js with Express on the backend
+* PostgreSQL with Prisma ORM
+* JWT based authentication
+
+Confirm exact versions from `package.json`, `tsconfig.json`, and `prisma/schema.prisma` on ingest. If anything is inconsistent across the repo (mismatched TypeScript targets, Prisma versions, conflicting eslint configs, duplicate dependencies), normalize it.
+
+## What EZ Biz Includes
+
+The application is largely complete and running in production. The following modules should all be present, wired, and functional. Inventory each one against the codebase during Phase 1 and treat any gap as something you must close in Phase 3.
+
+* **Trigger automation engine** for sales and operations workflows
+* **Unified Operations board** (replaces the older separate Jobs and Staging modules) with a kanban view
+* **Rain day scheduling** with full cascade rescheduling (moving one job shifts every downstream pending scheduled job to the next available workday, not just the affected job)
+* **Inventory system** with bulk loading, auto ordering, and per location thresholds. The module must explicitly support: zero as a valid minimum quantity, per location alert thresholds, multiple barcodes per item, recipe / bill of materials with auto decrement on consumption, automatic purchase order generation from reorder points, and a customizable dashboard
+* **Third party integration framework** with provider swappable adapters for QuickBooks, Stripe, Google Calendar, Twilio, Google Maps, OpenWeatherMap, CompanyCam, Connecteam, and Zapier
+* **API Keys section inside the Admin panel** (this is a distinct surface, not part of general settings)
+* **Mobile responsiveness** layered on top of the existing desktop layout. The desktop experience is sacred and must remain pixel identical. Responsive behavior activates only on phone sized viewports and is purely additive
+* **Authentication system** with role based access control across seven roles
+* **Customer portal** with selective CRM data exposure and document management, built on a provider swappable CRM data adapter
+* **Billing and accounts receivable module** attached to each customer file
+* **Cash flow projection engine**
+* **Notes section** on customer records
+* **Automatic pull sheet population** from quotes into the corresponding customer file
+* **Branding configuration layer** that drives every user facing brand reference (new requirement, see Branding Context above)
+
+## Execution Phases
+
+### Phase 1: Full Codebase Ingest and Audit
+
+1. Unzip and walk the entire repository tree. Build an internal map of: every route, every page, every component, every API endpoint, every Prisma model, every service, every adapter, every cron / scheduled job, every webhook handler, and every environment variable referenced anywhere in the code.
+2. Run the project locally inside the Replit environment. Install dependencies. Run database migrations against a fresh Postgres instance. Seed any required data. Boot the backend. Boot the frontend. Capture every error, every warning, and every failed network request.
+3. Audit every reference to "FencePro" or "fencepro" or "fence-pro" anywhere in the codebase. Categorize each hit as user facing (must be replaced with EZ Biz or pulled from the new branding configuration), brand wrapper (folder names, package name, may be renamed), or internal identifier (leave alone). Save the categorized list to `/REBRAND_AUDIT.md` at the repo root.
+4. Specifically locate every existing address autocomplete implementation in the codebase. This is needed to resolve Critical Issue 1.
+5. Specifically build the data flow map across all modules and the trigger automation engine. This is needed to resolve Critical Issue 2.
+6. Audit every module listed under "What EZ Biz Includes" and produce an internal status table: present and working, present but broken, present but incomplete, or missing entirely. Save this table to `/AUDIT_REPORT.md` at the repo root for the human to review later.
+7. Audit production readiness:
+   * Every environment variable referenced in code must exist in `.env.example` with a clear description and an indication of whether it is required or optional.
+   * No placeholder credentials, no hardcoded test keys, no `TODO` strings, no `FIXME` strings, no commented out blocks meant to be filled in later.
+   * Every external service call must have proper error handling, retry where appropriate, and clear logging.
+   * All API endpoints must enforce auth and role based access control consistent with the seven role system.
+   * No console.log statements in production paths. Replace with proper logging.
+   * No unused imports, no unused variables, no dead routes, no orphaned components.
+8. Run the full TypeScript compiler in strict mode and resolve every type error. Run eslint and resolve every error and warning. Run prettier and normalize formatting across the entire codebase.
+
+### Phase 2: Fix Every Issue Found and Apply the Rebrand
+
+For everything in the audit table marked "present but broken" or anything that surfaced as an error or warning during boot, plus the two Critical Issues at the top of this document, plus the rebrand work:
+
+1. Diagnose the root cause. Do not patch symptoms.
+2. Apply the fix using the patterns already established elsewhere in the codebase. If the codebase uses a particular service layer convention, follow it. If routes follow a particular shape, follow it. Consistency is more important than personal preference.
+3. Apply the rebrand from FencePro to EZ Biz across every user facing surface identified in `REBRAND_AUDIT.md`. Replace hardcoded brand strings with reads from the new branding configuration source.
+4. Update the package.json `name` field, the README title, and any brand wrapper folder name where it can be safely changed without breaking imports.
+5. Add or update tests for the fixed behavior where a test scaffold already exists. If no test scaffold exists, do not introduce one as part of this pass.
+6. Verify the fix by exercising the relevant flow fully before moving on.
+
+Common categories to expect and resolve without escalating:
+
+* Address autocomplete failures across every form that takes an address (Critical Issue 1)
+* Cross module data flow gaps where upstream entries do not propagate downstream (Critical Issue 2)
+* Hardcoded "FencePro" strings in user facing surfaces that must be pulled into the branding configuration source
+* Trigger automations that are defined but do not fire, or fire but do not propagate
+* Broken database wiring (missing fields, drifted schema, stale migrations, foreign keys that point at the wrong table)
+* Frontend routes that exist but render blank, throw, or fail to fetch
+* API endpoints that exist but return 404 because they were never registered in the router
+* Adapters that were stubbed but never finished
+* Forms that submit to nonexistent endpoints
+* Permission checks that were copy pasted with the wrong role list
+* Jobs and Staging code that should have been removed when Operations replaced them
+* Rain day logic that flags one job instead of cascading
+* Inventory thresholds that do not honor zero as a valid minimum
+* Customer portal data leaks (the portal must expose only the selective CRM data layer, never raw CRM fields)
+* Mobile styles that have leaked into desktop breakpoints
+
+### Phase 3: Complete Every Unfinished Feature
+
+For everything in the audit table marked "present but incomplete" or "missing entirely," build it out fully using the existing architectural patterns. Ship the complete feature, not a placeholder.
+
+Specific completion targets, in priority order:
+
+1. Trigger automation engine: ensure the rule editor, condition evaluation, action execution, and audit log are all wired and exercised by at least one default seeded automation. Confirm cross module propagation works for every action type the engine supports.
+2. Unified Operations board: confirm it fully replaces Jobs and Staging. Remove any remaining legacy Jobs or Staging routes, components, or database remnants. Kanban must support drag, status transitions, and the rain day cascade.
+3. Rain day cascade: implement the full cascade. Marking a day as rain shifts every pending scheduled job after that day forward to the next available workday, respecting the calendar of nonworking days, weather, and crew capacity if those concepts already exist in the schema.
+4. Inventory: close every gap from the BoxHero competitive analysis. Zero as valid minimum, per location thresholds, multiple barcodes per item, recipe / bill of materials with auto decrement, auto PO generation, customizable dashboard.
+5. Third party integration framework: every adapter must implement the same interface so providers are swappable. Confirm QuickBooks, Stripe, Google Calendar, Twilio, Google Maps, OpenWeatherMap, CompanyCam, Connecteam, and Zapier each have a working adapter with stubbed credentials and clear error states when credentials are missing.
+6. API Keys section in Admin: distinct from general settings. Each integration shows up here with masked values, last rotated date, and a rotate button.
+7. Mobile responsiveness: phone viewport only. Audit every page. Desktop layout must remain identical. Use a single responsive boundary and never alter desktop styles.
+8. Customer portal: selective CRM data adapter, document upload and download, billing and AR view, notes (read only), and quote acceptance flow.
+9. Billing and AR module per customer file: invoices, payments, aging buckets, statement generation. Numbers must feed the cash flow projection automatically.
+10. Cash flow projection engine: pull from scheduled work, open invoices, expected costs, and recurring overhead. Output a rolling projection by week for the next 13 weeks. Recalculate every time an upstream input changes.
+11. Notes section on customer records: rich text or markdown, timestamped, attributed to the user.
+12. Automatic pull sheet population from quotes: when a quote is accepted, the line items become the pull sheet on the customer file with no manual data entry.
+13. Branding configuration layer: a single source of truth for brand name, logo, primary color, secondary color, support email, support phone, and company legal name. Wired into every user facing surface (page titles, email templates, PDF headers, login page, navigation logo, customer portal, favicon).
+
+### Phase 4: Production Readiness and Whitelabel Foundation
+
+1. Centralize configuration in a single `config` module that reads environment variables, validates them at boot, and fails fast with a readable error if anything required is missing or malformed.
+2. Add structured logging across the backend with request IDs that propagate through every service call.
+3. Confirm AWS S3 (or whatever object store the codebase uses) handles uploads, downloads, and signed URLs with proper bucket policies. Document required IAM permissions in the setup file.
+4. Confirm Sentry (or whatever error tracker the codebase uses) is initialized in both frontend and backend with the DSN read from env.
+5. Confirm SendGrid is wired for transactional email with templates referenced by ID, not hardcoded HTML. Email sender name and reply to address must come from the branding configuration source, not be hardcoded.
+6. Confirm Twilio is wired for SMS with a default sending number read from env.
+7. Confirm Stripe is wired for payments with webhook signature verification.
+8. Confirm Google Maps is wired for both map display and Places autocomplete (this is the same API key used to fix Critical Issue 1).
+9. Confirm Google Calendar is wired with the OAuth flow it requires.
+10. Confirm CompanyCam, Connecteam, and QuickBooks adapters are wired with the auth flows their APIs require.
+11. Confirm OpenWeatherMap is wired and used by the rain day workflow.
+12. Confirm Zapier hooks expose the right outbound webhook events.
+13. Add a `/health` endpoint that reports backend status, database connectivity, and the status of each external integration.
+14. Build and serve the frontend in production mode, confirm bundle sizes are reasonable, and resolve any console errors in the production build.
+15. Write a `WHITELABEL.md` document at the repo root explaining how a future operator would clone EZ Biz, change the brand name, swap the logo, change the color palette, change the support contact info, and deploy a branded copy. The document should describe the exact configuration source, every field it accepts, where each field surfaces in the UI, and what assets need to be replaced.
+
+### Phase 5: Verification and Handoff
+
+1. Run the full app in the Replit environment. Walk through every primary flow as each of the seven roles. Capture results.
+2. Specifically verify Critical Issue 1: type into every address field in the app, confirm autocomplete suggestions appear, select one, confirm the structured fields populate.
+3. Specifically verify Critical Issue 2: walk every flow in the data flow map and confirm propagation works in both directions where applicable. Create a customer, create a quote, accept the quote, confirm pull sheet populates. Schedule a job, mark a rain day, confirm cascade. Decrement inventory below reorder point, confirm PO generates. Add an invoice, confirm AR updates, confirm cash flow projection updates. Trigger an automation, confirm it fires and propagates.
+4. Specifically verify the rebrand: search the running app for any remaining "FencePro" string. There should be none in any user facing surface. Confirm every brand reference comes from the branding configuration source by changing one value in the source and confirming it propagates everywhere.
+5. Update `AUDIT_REPORT.md` with the original audit table, the fixes applied, the features completed, and the current state of every module (which should now all be "present and working").
+6. Confirm `DATA_FLOW_MAP.md` accurately reflects the current state of the system and that every flow it describes actually works.
+7. Confirm `REBRAND_AUDIT.md` is updated to reflect that every user facing FencePro reference has been resolved.
+8. Create or update `SETUP.md` at the repo root with human readable, step by step instructions for every external service that requires the human to create an account or generate credentials. For each service: what to sign up for, where to get the credential, and exactly which environment variable to paste it into. Include SendGrid, Twilio, Stripe, Google Maps, Google Calendar, CompanyCam, Connecteam, QuickBooks, AWS S3, Sentry, OpenWeatherMap, and Zapier.
+9. Create or update `README.md` so a new developer can clone, install, configure, and run the app in under fifteen minutes. The README should reflect EZ Biz as the product name.
+10. Confirm `WHITELABEL.md` is complete and accurate.
+11. Confirm `npm run build`, `npm run typecheck`, `npm run lint`, and the production boot all complete cleanly.
+12. Output a final summary message that lists everything fixed, everything completed, every external action the human still needs to take, and a confidence statement that the application is now production ready.
+
+## Hard Rules
+
+* Do not redesign the desktop layout. Mobile responsiveness is purely additive at phone breakpoints.
+* Do not introduce a new framework, library, or pattern unless absolutely required to fix a real bug. Match the existing codebase.
+* Do not delete features. If something looks unused, confirm by tracing references first.
+* Do not leave `TODO`, `FIXME`, placeholder credentials, or commented out scaffolding in the final state.
+* Do not stop to ask whether to proceed. Proceed.
+* Do not present a plan and wait for approval. Execute the plan.
+* If you are uncertain between two reasonable approaches, pick the one that matches the rest of the codebase and keep going.
+* Treat every external service that requires human account creation as a documentation task, not a stopping condition. Stub the credential, write the code, document the steps, move on.
+* Do not implement full multi tenancy in this pass. Build the branding configuration layer only. Multi tenancy is a separate future project.
+* Do not rename internal code identifiers (class names, function names, type names, database tables) just to drop the word fencepro. Only rename user facing surfaces and brand wrapper artifacts.
+* Both Critical Issues at the top of this document must be fully resolved before the run ends. They are not optional and they are not partial.
+
+## Final Output
+
+When the entire run is complete, the repository should:
+
+1. Boot cleanly with no errors and no warnings.
+2. Pass typecheck, lint, and production build.
+3. Have every module in the inventory in a "present and working" state.
+4. Have address autocomplete working on every form that takes an address.
+5. Have every cross module data flow propagating correctly, with automations firing as designed.
+6. Display "EZ Biz" (or whatever value is configured in the branding source) on every user facing surface, with no remaining "FencePro" references in user facing copy.
+7. Contain a complete `AUDIT_REPORT.md`, `DATA_FLOW_MAP.md`, `REBRAND_AUDIT.md`, `SETUP.md`, `WHITELABEL.md`, and updated `README.md`.
+8. Be ready to deploy with no remaining code work, only credential entry by the human.
+
+Begin now. Do not respond with a plan. Do not ask clarifying questions. Start with Phase 1 and run all the way through Phase 5 in a single continuous execution.

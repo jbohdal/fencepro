@@ -1,5 +1,5 @@
 {
-  "name": "fencepro-portal",
+  "name": "ezbiz-portal",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.9.0",
+    "@types/pdfkit": "^0.17.6",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
@@ -30,6 +31,7 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.1",
+    "pdfkit": "^0.18.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "uuid": "^11.1.0",
@@ -54,5 +56,13 @@
     "typescript": "^5.9.3",
     "vite": "^8.0.1",
     "vitest": "^3.2.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma"
+    ]
   }
 }

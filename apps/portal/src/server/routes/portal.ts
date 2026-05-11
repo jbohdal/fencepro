@@ -22,7 +22,7 @@ import fs from 'fs'
 import path from 'path'
 import multer from 'multer'
 import { z } from 'zod'
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import prisma from '../lib/prisma.js'
 import { hashPassword, verifyPassword, generateTokens, verifyAccessToken } from '../lib/auth.js'
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
@@ -230,7 +230,8 @@ router.post('/invite', requireStaffSyncKey, async (req, res) => {
 const resendLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,
-  keyGenerator: (req) => (req.body?.email || req.ip).toString().toLowerCase(),
+  keyGenerator: (req) => (req.body?.email || req.ip || 'unknown').toString().toLowerCase(),
+  validate: false,
   message: { success: false, error: 'RATE_LIMITED', message: 'Too many resend requests. Please wait an hour.' },
   standardHeaders: true,
   legacyHeaders: false,
