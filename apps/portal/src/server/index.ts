@@ -29,6 +29,7 @@ import inventoryStateRoutes from './routes/inventory.js'
 import vendorStateRoutes from './routes/vendors-state.js'
 import businessStateRoutes from './routes/business-state.js'
 import kvRoutes from './routes/kv.js'
+import intakeRoutes, { quotingRouter, retellRouter } from './routes/intake.js'
 import leadChatRoutes from './routes/lead-chat.js'
 import knowledgeRoutes from './routes/knowledge.js'
 import googleCalendarRoutes from './routes/google-calendar.js'
@@ -58,6 +59,12 @@ app.use(helmet({
   contentSecurityPolicy: false, // Disabled for now: app uses inline styles + CDN sources; tighten later.
 }))
 app.disable('x-powered-by')
+
+// ── Public intake, mounted before the app wide CORS and JSON parser ──
+// The website quote widget lives on another domain and brings its own origin
+// list; the phone agent webhook is verified against the raw request body.
+app.use('/api/quoting', quotingRouter)
+app.use('/api/intake/retell', retellRouter)
 
 // Build allowed origins list: CLIENT_URL + optional CORS_ORIGINS (comma-separated)
 const allowedOrigins: string[] = [CLIENT_URL]
@@ -144,6 +151,7 @@ app.use('/api/inventory-state', inventoryStateRoutes)
 app.use('/api/vendor-state', vendorStateRoutes)
 app.use('/api/business-state', businessStateRoutes)
 app.use('/api/kv', kvRoutes)
+app.use('/api/intake', intakeRoutes)
 app.use('/api/lead-chat', leadChatRoutes)
 app.use('/api/knowledge', knowledgeRoutes)
 app.use('/api/google-calendar', googleCalendarRoutes)

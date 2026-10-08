@@ -50,6 +50,7 @@ import { initInventory, isInventoryHydrated } from './inventoryStore'
 import { initVendors, isVendorsHydrated } from './vendorStore'
 import { initBusinessState, isBusinessStateHydrated } from './businessStateStore'
 import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
+import { startIntakeSync } from './intakeStore'
 import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
@@ -244,6 +245,8 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     const failed = await hydrateStores()
     setNotLoaded(failed)
     setLoadingData(false)
+    // Website quotes and phone calls that came in while nobody was looking.
+    startIntakeSync()
   }
 
   function startSession(user: CrmUser) {

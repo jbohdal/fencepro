@@ -15,7 +15,7 @@
 import { fireCustomerCreated } from './automationTrigger'
 import { addLeadForNewCustomer } from './pipelineSeeder'
 import { legacyMigrationEnabled } from './syncGuard'
-import { newId, enqueue, hasLaterWrites } from './recordSync'
+import { newId, enqueue, hasLaterWrites, hasPendingWrites } from './recordSync'
 import {
   listContacts,
   createContact as apiCreateContact,
@@ -134,6 +134,23 @@ export function initCustomers(): Promise<void> {
 
 /** True once customers have loaded from the server. */
 export function isCustomersHydrated(): boolean { return hydrated }
+
+/**
+ * Pull the customer list again. Used when the server created customers on
+ * its own (a website quote, a phone call). Customers with a save still on
+ * its way out keep their local copy.
+ */
+export async function refreshCustomers(): Promise<void> {
+  if (!hydrated) return
+  const records = await listContacts()
+  if (!records) return
+  const fresh = records.map(fromApi)
+  const seen = new Set(fresh.map(c => c.id))
+  const inFlight = cache.filter(c => hasPendingWrites(`customer:${c.id}`))
+  const inFlightIds = new Set(inFlight.map(c => c.id))
+  cache = [...inFlight.filter(c => !seen.has(c.id)), ...fresh.map(c => inFlightIds.has(c.id) ? (inFlight.find(l => l.id === c.id) as Customer) : c)]
+  emit()
+}
 
 export function getCustomers(): Customer[] {
   return cache

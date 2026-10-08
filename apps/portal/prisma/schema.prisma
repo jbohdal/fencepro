@@ -1891,3 +1891,32 @@ model AccountKeyValue {
 
   @@id([accountId, key])
 }
+
+// ── Intake leads ──
+// A lead that arrived from outside the CRM: a quote completed on the website
+// (EZ Quote widget) or a call handled by the Retell phone agent. The server
+// creates the customer contact and a note right away; this row is the queue
+// the CRM reads to add the lead to the sales pipeline, and it keeps the full
+// original payload (drawn fence line, transcript, answers) for reference.
+model IntakeLead {
+  id           String    @id @default(uuid())
+  accountId    String
+  source       String // 'ez_quote' | 'retell'
+  sourceRef    String // website quote id or Retell call id (dedupes retries)
+  crmContactId String?
+  name         String    @default("")
+  phone        String    @default("")
+  email        String    @default("")
+  address      String    @default("")
+  fenceType    String    @default("")
+  summary      String    @default("")
+  estimate     Float?
+  callbackAt   String?
+  payload      Json
+  status       String    @default("new") // new | imported
+  createdAt    DateTime  @default(now())
+  importedAt   DateTime?
+
+  @@unique([source, sourceRef])
+  @@index([accountId, status])
+}
