@@ -205,6 +205,11 @@ Verified on this Mac on 2026 10 08:
   returns 404, the web app and the customer portal load, an API call without
   a sign in is refused, the widget address answers with the token and refuses
   without it
+* from the public internet, through the public door on port 8443: the widget
+  address answers with the token and refuses without it, a browser on
+  gdfencepro.com is allowed and one on another site is not, and the sign in
+  page, the health check, the login API and the file read probe all return
+  404. Port 443 does not answer from the public internet at all
 * killing pm2 and running the login job brings the server back
 * the nightly backup ran through the scheduler, and that backup restored into
   an empty database with every table and the owner login
