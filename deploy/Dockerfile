@@ -25,7 +25,7 @@ FROM deps AS build-portal
 COPY apps/portal/ apps/portal/
 WORKDIR /app/apps/portal
 RUN npx prisma generate
-RUN npx tsc -p tsconfig.server.json || true
+RUN npx tsc -p tsconfig.server.json
 RUN npx vite build
 
 # ── Production runtime ──

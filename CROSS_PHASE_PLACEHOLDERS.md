@@ -19,9 +19,8 @@ The standing rule (per `feedback_no_placeholders.md`): a UI element either works
 
 **RESOLVED 2026-05-09 in commits a17f3a1 + 11bc728.** All entries below are
 historical; banners removed, data flows through /api/saved-quotes. The
-remaining open item is `localStorage.fencepro_imported_quotes` which is
-still localStorage backed and will be migrated alongside a future bulk-CSV
-ImportedQuote effort.
+imported quotes list (`fencepro_imported_quotes`) moved to the server on
+2026-10-07.
 
 ---
 
@@ -29,8 +28,8 @@ ImportedQuote effort.
 
 **RESOLVED 2026-05-09.** SavedJob model + /api/saved-jobs CRUD shipped;
 jobStore.ts is API backed; banners on Jobs and Costing tabs removed.
-`localStorage.fencepro_jobcosting` remains the home for actual-cost entries
-until a Job Costing API ships (sub-phase under Phase 9 finance work).
+Job costing entries (`fencepro_jobcosting`) moved to the server on 2026-10-07
+and now feed the P&L.
 
 ---
 
@@ -44,22 +43,25 @@ until a Job Costing API ships (sub-phase under Phase 9 finance work).
 
 ## Phase 9 — Settings, P&L, Balance Sheet, Automations, Email Templates, Billing
 
-| File | Element | Banner location | Action when Phase 9 lands |
-|---|---|---|---|
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | Billing tab (`CustomerBillingTab`) — overview / invoices / payments sub nav, aging summary tiles, invoice list, payment list | Banner at top of `CustomerBillingTab` | Remove banner; replace `getInvoicesForCustomer / getPaymentsForCustomer / getBillingSummary` with API calls into the existing `Invoice` Prisma model (extend with line items + payments tables) |
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | "+ Create Invoice" button + `CreateInvoiceModal` | Same banner | Modal save calls API `/api/invoices` |
-| [apps/web/src/CustomersPage.tsx](apps/web/src/CustomersPage.tsx) | "Record Payment" button + `RecordPaymentModal` | Same banner | Modal save calls API `/api/payments` (or `/api/invoices/:id/payments`) |
+**RESOLVED 2026-10-07 on the `finalize` branch.** Invoices and payments are
+part of the business state the server stores per company; the two browser
+test confirms an invoice and a partial payment made in one browser appear in
+another. The banner on the customer Billing tab is removed.
 
 ---
 
 ## Other (no fixed phase number)
 
+**Updated 2026-10-07 on the `finalize` branch.** These are resolved and their
+entries removed: legacy files and site plans, the materials staging board, job
+costing entries, imported quotes (all now stored on the server through
+`/api/kv`, see `apps/web/src/cloudStorage.ts`), and the Automations and
+Integrations pages (both use the server routes with the signed in user).
+
+Still open:
+
 | File | Element | Banner location | Action |
 |---|---|---|---|
-| [apps/web/src/CustomerFilesTab.tsx](apps/web/src/CustomerFilesTab.tsx) | "Site Plans & Local Files" legacy section | None — labeled "Site Plans" honestly; site plan workflow is its own future phase | When site plans get a phase, migrate `localStorage.fencepro_files` (legacy) and `localStorage.fencepro_site_plans` to API + drop the legacy section |
-| [apps/web/src/FileViewerModal.tsx](apps/web/src/FileViewerModal.tsx) | Delete button on legacy files (writes `localStorage.fencepro_files`) | Inherits banner from the legacy section above | Same migration |
-| [apps/web/src/StagingPage.tsx](apps/web/src/StagingPage.tsx) + [apps/web/src/OperationsPage.tsx](apps/web/src/OperationsPage.tsx) + [apps/web/src/SmartSchedule.tsx](apps/web/src/SmartSchedule.tsx) + [apps/web/src/SchedulePage.tsx](apps/web/src/SchedulePage.tsx) | Materials staging board (`fencepro_staging`) | None | Separate Staging mini-phase: migrate the staging board entries to a new API endpoint; the board sits between SOLD quote → scheduled job and is currently localStorage only |
-| [apps/web/src/AutomationsPage.tsx](apps/web/src/AutomationsPage.tsx) | Automation rules editor | None | Frontend wiring: page should consume the existing `/api/automations` server routes (Automation + AutomationRunLog models already on the schema) instead of any local cache |
-| [apps/web/src/IntegrationsPage.tsx](apps/web/src/IntegrationsPage.tsx) | Integration connect / disconnect for Stripe / Twilio / Google Calendar / etc. | None | Frontend wiring: page should consume the existing `/api/integrations` server routes (Integration + IntegrationLog models already on the schema) instead of `localStorage.fencepro_integrations`. Most live integrations are untested per project context |
+| [apps/web/src/CustomerPortalApp.tsx](apps/web/src/CustomerPortalApp.tsx) | Customer portal reads shared quotes and files (`fencepro_quote_shares`, `fencepro_files`) from the browser's own storage | None | Give the portal a customer scoped read of the same data from the server. Until then a customer on their own device does not see them in the portal; the public quote link (`#/quote/:token`) does work from any device |
 | [apps/web/src/PublicPresentationPage.tsx](apps/web/src/PublicPresentationPage.tsx) | Customer-facing presentation page company branding | Renders default 'EZBiz' instead of company name when no inline mirror is present | Add a server-side public branding endpoint (e.g. GET `/api/saved-quotes/share/:token` returns company snapshot) so customer browsers without `fencepro_config` mirror still see proper branding |
 | [apps/web/src/billingStore.ts](apps/web/src/billingStore.ts) | `createNote / updateNote / deleteNote / getNotesForCustomer` | None — dead code since Phase 1 migration | Safe to delete in a future cleanup pass; Phase 1 already routes the Notes tab through `/api/crm-contacts/:id/notes` |
