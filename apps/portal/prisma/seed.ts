@@ -247,10 +247,19 @@ async function main() {
       lastName: 'Bohdal',
       role: 'super_admin',
       status: 'active',
-      mustChangePassword: false,
+      // The seed password is in a public repo, so it must be changed at first login.
+      mustChangePassword: true,
+      // Every CRM route is scoped by company; without this link the owner is
+      // locked out of every module.
+      crmAccountId: account.id,
     },
   })
-  console.log('  CRM Super Admin: jbohdal@gdfencepro.com / admin1234')
+  // Link an owner that was seeded before the company link existed.
+  await prisma.crmUser.updateMany({
+    where: { email: 'jbohdal@gdfencepro.com', crmAccountId: null },
+    data: { crmAccountId: account.id },
+  })
+  console.log('  CRM Super Admin: jbohdal@gdfencepro.com / admin1234 (must be changed at first login)')
 
   console.log('\nSeed complete!')
   console.log('─'.repeat(40))

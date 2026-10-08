@@ -42,7 +42,23 @@ export function isAuthenticated(): boolean {
   return !!accessToken
 }
 
+/** Pick up tokens another tab already refreshed. Refresh tokens rotate on
+ *  use, so two tabs each refreshing with the same token would log one out. */
+function adoptTokensFromStorage(): boolean {
+  try {
+    const a = localStorage.getItem('crm_access_token')
+    const r = localStorage.getItem('crm_refresh_token')
+    if (a && r && (a !== accessToken || r !== refreshToken)) {
+      accessToken = a
+      refreshToken = r
+      return true
+    }
+  } catch { /* storage unavailable */ }
+  return false
+}
+
 async function tryRefresh(): Promise<boolean> {
+  if (adoptTokensFromStorage()) return true
   if (!refreshToken) return false
   try {
     const res = await fetch(`${AUTH_API}/refresh`, {
@@ -58,6 +74,44 @@ async function tryRefresh(): Promise<boolean> {
     }
     return false
   } catch { return false }
+}
+
+// One refresh at a time. Every store shares it, so ten saves that all hit an
+// expired token trigger a single refresh instead of ten competing ones.
+let refreshInFlight: Promise<boolean> | null = null
+function refreshOnce(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = tryRefresh().finally(() => { refreshInFlight = null })
+  }
+  return refreshInFlight
+}
+
+/**
+ * fetch() with the current access token. Access tokens last 15 minutes; when
+ * the server answers 401 this refreshes the token once and retries, so a save
+ * made after the token expired still lands instead of failing silently.
+ *
+ * Every data store must use this (not bare fetch) for authenticated calls.
+ * Returns the raw Response. If the session cannot be refreshed the tokens are
+ * cleared, the session expired handler fires, and the 401 response is returned.
+ */
+export async function fetchWithAuth(url: string, init: RequestInit = {}): Promise<Response> {
+  const withToken = (): RequestInit => {
+    const headers: Record<string, string> = { ...((init.headers as Record<string, string>) || {}) }
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    return { ...init, headers }
+  }
+  let res = await fetch(url, withToken())
+  if (res.status !== 401) return res
+  if (!refreshToken && !adoptTokensFromStorage()) return res
+  const refreshed = await refreshOnce()
+  if (!refreshed) {
+    clearTokens()
+    sessionExpiredHandler?.()
+    return res
+  }
+  res = await fetch(url, withToken())
+  return res
 }
 
 type SessionExpiredHandler = () => void
@@ -81,7 +135,7 @@ export async function authFetch<T = unknown>(path: string, options: RequestInit 
 
   if (res.status === 401) {
     if (refreshToken) {
-      const refreshed = await tryRefresh()
+      const refreshed = await refreshOnce()
       if (refreshed) {
         headers['Authorization'] = `Bearer ${accessToken}`
         res = await fetch(path, { ...options, headers })
@@ -132,7 +186,7 @@ export async function fetchCurrentUser(): Promise<CrmUser | null> {
     })
     if (!res.ok) {
       if (res.status === 401 && refreshToken) {
-        const refreshed = await tryRefresh()
+        const refreshed = await refreshOnce()
         if (refreshed) return fetchCurrentUser()
       }
       clearTokens()
@@ -184,6 +238,18 @@ export async function resetPassword(token: string, email: string, password: stri
   })
   const data = await res.json()
   if (!data.success) throw new Error(data.error || 'Reset failed')
+}
+
+/** Change the logged in user's password. Other devices are signed out. */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const res = await fetchWithAuth(`${AUTH_API}/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!data.success) throw new Error(data.error || 'Could not change password')
+  setTokens(data.data.accessToken, data.data.refreshToken)
 }
 
 // Permission check for UI

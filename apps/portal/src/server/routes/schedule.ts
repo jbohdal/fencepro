@@ -12,9 +12,10 @@ import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
+import { resolveSecret } from '../lib/secrets.js'
 
 const router = Router()
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-crm-jwt-secret-change-me'
+const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
 async function requireUser(req: any, res: any, next: any) {
   const auth = req.headers.authorization
@@ -202,35 +203,58 @@ router.delete('/jobs/:id', async (req: any, res) => {
   }
 })
 
+//
+// The schedule page keeps the whole board in memory and saves the whole board.
+//   - A new job keeps the id the browser gave it. (It used to get a fresh
+//     server id, so the next save did not recognize it and created it again:
+//     every save duplicated every job added since the page loaded.)
+//   - With replace: true the list is authoritative, so a job removed from the
+//     board is removed here too. (It used to come back on the next reload.)
 router.post('/jobs/sync', async (req: any, res) => {
   try {
-    const { jobs } = z.object({ jobs: z.array(jobSchema) }).parse(req.body)
-    let created = 0, updated = 0
+    const { jobs, replace } = z.object({
+      jobs: z.array(jobSchema),
+      replace: z.boolean().optional(),
+    }).parse(req.body)
+    const accountId = req.user.crmAccountId
+    let created = 0, updated = 0, removed = 0
+    const keptIds: string[] = []
     for (const j of jobs) {
-      if (j.id) {
-        const existing = await prisma.scheduledGridJob.findUnique({ where: { id: j.id } })
-        if (existing && existing.accountId === req.user.crmAccountId) {
-          await prisma.scheduledGridJob.update({
-            where: { id: existing.id },
-            data: { ...j, id: undefined as any, stagingJobId: j.stagingJobId || null },
-          })
+      const { id: clientId, ...fields } = j
+      const data = { ...fields, stagingJobId: j.stagingJobId || null }
+      if (clientId) {
+        const existing = await prisma.scheduledGridJob.findUnique({ where: { id: clientId } })
+        if (existing && existing.accountId === accountId) {
+          await prisma.scheduledGridJob.update({ where: { id: existing.id }, data })
+          keptIds.push(existing.id)
           updated++
+          continue
+        }
+        if (existing) {
+          // The id belongs to another company. Never touch it; make a new row.
+          const row = await prisma.scheduledGridJob.create({ data: { accountId, ...data } })
+          keptIds.push(row.id)
+          created++
           continue
         }
       }
       try {
-        await prisma.scheduledGridJob.create({
-          data: {
-            accountId: req.user.crmAccountId,
-            stagingJobId: j.stagingJobId || null,
-            ...j,
-            id: undefined as any,
-          },
+        const row = await prisma.scheduledGridJob.create({
+          data: { ...(clientId ? { id: clientId } : {}), accountId, ...data },
         })
+        keptIds.push(row.id)
         created++
-      } catch {}
+      } catch (err) {
+        console.error('[schedule] jobs sync create failed:', err)
+      }
     }
-    res.json({ success: true, data: { created, updated, total: jobs.length } })
+    if (replace) {
+      const del = await prisma.scheduledGridJob.deleteMany({
+        where: { accountId, id: { notIn: keptIds } },
+      })
+      removed = del.count
+    }
+    res.json({ success: true, data: { created, updated, removed, total: jobs.length } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
     console.error('[schedule] jobs sync error:', err)

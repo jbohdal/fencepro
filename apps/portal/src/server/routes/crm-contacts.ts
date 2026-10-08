@@ -20,10 +20,11 @@ import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
+import { resolveSecret } from '../lib/secrets.js'
 
 const router = Router()
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-crm-jwt-secret-change-me'
+const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
 async function requireUser(req: any, res: any, next: any) {
   const auth = req.headers.authorization

@@ -28,6 +28,7 @@ import { hashPassword, verifyPassword, generateTokens, verifyAccessToken } from 
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
 import { createNotification } from '../lib/notificationService.js'
 import { buildFrontendUrl } from '../lib/urls.js'
+import { isStaffRequest } from '../lib/secrets.js'
 
 // File storage helpers
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
@@ -87,13 +88,10 @@ function requirePortalAuth(req: PortalAuthRequest, res: Response, next: Function
 
 // ── Sync-key auth for staff-initiated actions ──
 
+// Staff actions need the sync key or a VERIFIED staff login token. This used
+// to accept any Authorization header that started with "Bearer ".
 function requireStaffSyncKey(req: Request, res: Response, next: Function): void {
-  const key = req.headers['x-api-key']
-  const expected = process.env.CRM_SYNC_KEY || 'dev-sync-key'
-  if (!key || key !== expected) {
-    const auth = req.headers.authorization
-    if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Auth required' }); return }
-  }
+  if (!isStaffRequest(req)) { res.status(401).json({ success: false, error: 'Auth required' }); return }
   next()
 }
 
@@ -677,10 +675,10 @@ router.delete('/photos/:id', async (req, res) => {
         if (payload?.role === 'portal_customer') {
           const photo = await prisma.portalPhoto.findUnique({ where: { id } })
           if (photo && photo.uploadedByAccountId === payload.sub) allow = true
-        } else { allow = true }
+        }
       } catch {}
     }
-    if (!allow && req.headers['x-api-key'] === (process.env.CRM_SYNC_KEY || 'dev-sync-key')) allow = true
+    if (!allow && isStaffRequest(req)) allow = true
     if (!allow) { res.status(401).json({ success: false, error: 'AUTH_REQUIRED' }); return }
     await prisma.portalPhoto.update({ where: { id }, data: { deletedAt: new Date() } })
     res.json({ success: true })
@@ -820,10 +818,10 @@ router.delete('/documents/:id', async (req, res) => {
         if (payload?.role === 'portal_customer') {
           const f = await prisma.portalFile.findUnique({ where: { id } })
           if (f && f.uploadedByAccountId === payload.sub) allow = true
-        } else { allow = true }
+        }
       } catch {}
     }
-    if (!allow && req.headers['x-api-key'] === (process.env.CRM_SYNC_KEY || 'dev-sync-key')) allow = true
+    if (!allow && isStaffRequest(req)) allow = true
     if (!allow) { res.status(401).json({ success: false, error: 'AUTH_REQUIRED' }); return }
     await prisma.portalFile.update({ where: { id }, data: { deletedAt: new Date() } })
     res.json({ success: true })
@@ -849,10 +847,20 @@ function serializeFile(f: any) {
 router.get(/^\/files\/(.+)$/, async (req, res) => {
   try {
     const fileKey = String((req.params as any)[0] || '')
-    const safe = fileKey.replace(/\.\.\//g, '')
-    const fullPath = path.resolve(UPLOAD_DIR, safe)
-    if (!fs.existsSync(fullPath)) { res.status(404).end(); return }
-    res.sendFile(fullPath)
+    // Containment check, not string scrubbing: resolve the requested key under
+    // the upload folder and refuse anything that lands outside it. (Stripping
+    // "../" let "....//" and absolute paths like "//etc/passwd" through, which
+    // exposed every file the server process could read.)
+    const root = path.resolve(UPLOAD_DIR)
+    const fullPath = path.resolve(root, '.' + path.sep + fileKey)
+    if (fileKey.includes('\0') || !fullPath.startsWith(root + path.sep)) { res.status(404).end(); return }
+    let real: string
+    try { real = fs.realpathSync(fullPath) } catch { res.status(404).end(); return }
+    const realRoot = fs.realpathSync(root)
+    if (!real.startsWith(realRoot + path.sep) || !fs.statSync(real).isFile()) { res.status(404).end(); return }
+    // Serve relative to the upload root so dotfiles inside it stay hidden even
+    // when the root itself sits under a dot folder.
+    res.sendFile(path.relative(realRoot, real), { root: realRoot, dotfiles: 'deny' })
   } catch (err) {
     console.error('[portal-file-serve]', err)
     res.status(500).end()

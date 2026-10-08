@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { processFollowUps } from '../lib/followUpScheduler.js'
+import { isStaffRequest } from '../lib/secrets.js'
 
 const router = Router()
 
@@ -10,7 +11,11 @@ const router = Router()
  */
 router.post('/follow-ups', async (req, res) => {
   const secret = process.env.CRON_SECRET
-  if (secret && req.headers['x-cron-secret'] !== secret) {
+  const allowed = secret
+    ? req.headers['x-cron-secret'] === secret
+    // No secret configured: open in development, staff only in production.
+    : (process.env.NODE_ENV !== 'production' || isStaffRequest(req))
+  if (!allowed) {
     res.status(401).json({ success: false, error: 'Unauthorized' })
     return
   }

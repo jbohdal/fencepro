@@ -14,6 +14,7 @@
 
 import { fireCustomerCreated } from './automationTrigger'
 import { addLeadForNewCustomer } from './pipelineSeeder'
+import { legacyMigrationEnabled } from './syncGuard'
 import {
   listContacts,
   createContact as apiCreateContact,
@@ -50,6 +51,7 @@ export interface Customer {
 
 let cache: Customer[] = []
 let initPromise: Promise<void> | null = null
+let hydrated = false
 
 function fromApi(r: CrmContactRecord): Customer {
   return {
@@ -100,27 +102,36 @@ function emit() {
  * legacy key so canonical data lives only in Postgres.
  */
 export function initCustomers(): Promise<void> {
+  if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    try {
-      const raw = localStorage.getItem(LEGACY_KEY)
-      const local = raw ? JSON.parse(raw) : []
-      if (Array.isArray(local) && local.length > 0) {
-        await migrateLocalContactsOnce(local)
-      }
-    } catch {}
-    const records = await listContacts()
-    if (records) {
-      cache = records.map(fromApi)
-      emit()
+    // Old browser only customers move up only when that is switched on
+    // (see legacyMigrationEnabled); otherwise they are left where they are.
+    const migrate = legacyMigrationEnabled()
+    if (migrate) {
+      try {
+        const raw = localStorage.getItem(LEGACY_KEY)
+        const local = raw ? JSON.parse(raw) : []
+        if (Array.isArray(local) && local.length > 0) {
+          await migrateLocalContactsOnce(local)
+        }
+      } catch {}
     }
-    try { localStorage.removeItem(LEGACY_KEY) } catch {}
-    // After contacts are settled, push any legacy localStorage notes into
-    // the database so the Notes tab is populated from the cloud going forward.
-    try { await migrateLocalNotesOnce() } catch {}
-  })()
+    const records = await listContacts()
+    if (!records) return
+    cache = records.map(fromApi)
+    hydrated = true
+    emit()
+    if (migrate) {
+      try { localStorage.removeItem(LEGACY_KEY) } catch {}
+      try { await migrateLocalNotesOnce() } catch {}
+    }
+  })().finally(() => { if (!hydrated) initPromise = null })
   return initPromise
 }
+
+/** True once customers have loaded from the server. */
+export function isCustomersHydrated(): boolean { return hydrated }
 
 export function getCustomers(): Customer[] {
   return cache

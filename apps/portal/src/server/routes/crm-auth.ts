@@ -14,11 +14,12 @@ import prisma from '../lib/prisma.js'
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
 import { buildFrontendUrl } from '../lib/urls.js'
 import { audit } from '../lib/auditLog.js'
+import { resolveSecret } from '../lib/secrets.js'
 
 const router = Router()
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-crm-jwt-secret-change-me'
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev-crm-refresh-secret-change-me'
+const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
+const JWT_REFRESH_SECRET = resolveSecret('JWT_REFRESH_SECRET', 'dev-crm-refresh-secret-change-me')
 const BCRYPT_ROUNDS = 12
 const ACCESS_EXPIRY = '15m'
 const REFRESH_EXPIRY_DAYS = 7
@@ -55,11 +56,48 @@ const loginSchema = z.object({
   password: z.string().min(1),
 })
 
+/**
+ * Every CRM route is scoped by the user's company (crmAccountId). An owner or
+ * admin created by the seed script or straight in the database has no company
+ * link, which locks them out of every module with "not linked to a company".
+ *
+ * On a single company install that link is unambiguous, so set it here:
+ *   - no company exists yet  → create one (COMPANY_NAME) and link it
+ *   - exactly one exists     → link it
+ *   - more than one exists   → leave it; an admin has to choose
+ * Only super_admin and admin are linked this way. Everyone else gets their
+ * company from the invite that created them.
+ */
+async function ensureStaffAccount<T extends { id: string; role: string; crmAccountId: string | null }>(user: T): Promise<T> {
+  if (user.crmAccountId) return user
+  if (user.role !== 'super_admin' && user.role !== 'admin') return user
+  try {
+    const accounts = await prisma.crmAccount.findMany({ select: { id: true }, orderBy: { createdAt: 'asc' }, take: 2 })
+    let accountId: string
+    if (accounts.length === 0) {
+      const created = await prisma.crmAccount.create({
+        data: { name: process.env.COMPANY_NAME || 'My Company', status: 'active' },
+      })
+      accountId = created.id
+    } else if (accounts.length === 1) {
+      accountId = accounts[0].id
+    } else {
+      return user
+    }
+    await prisma.crmUser.update({ where: { id: user.id }, data: { crmAccountId: accountId } })
+    console.log(`[CRM Auth] Linked ${user.role} ${user.id} to company ${accountId}`)
+    return { ...user, crmAccountId: accountId }
+  } catch (err) {
+    console.error('[CRM Auth] Could not link user to a company:', err)
+    return user
+  }
+}
+
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = loginSchema.parse(req.body)
 
-    const user = await prisma.crmUser.findUnique({ where: { email: email.toLowerCase() } })
+    let user = await prisma.crmUser.findUnique({ where: { email: email.toLowerCase() } })
     if (!user || !user.passwordHash) {
       res.status(401).json({ success: false, error: 'Invalid email or password' })
       return
@@ -100,6 +138,9 @@ router.post('/login', async (req, res) => {
       where: { id: user.id },
       data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
     })
+
+    // Make sure an owner/admin has a company before the token is issued
+    user = await ensureStaffAccount(user)
 
     // Generate tokens
     const accessToken = generateAccessToken(user)
@@ -179,7 +220,7 @@ router.post('/refresh', async (req, res) => {
     })
 
     // Issue new tokens
-    const user = matchedSession.user
+    const user = await ensureStaffAccount(matchedSession.user)
     const accessToken = generateAccessToken(user)
     const newRefreshToken = generateRefreshToken()
     const newRefreshHash = await bcrypt.hash(newRefreshToken, 10)
@@ -618,6 +659,75 @@ router.post('/reset-password', async (req, res) => {
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
     res.status(500).json({ success: false, error: 'Reset failed' })
+  }
+})
+
+// ── Change Password (logged in) ──
+//
+// The only other way to change a password is the emailed reset link, which
+// needs working outbound email. This lets a logged in user change it directly,
+// and is what clears mustChangePassword for the seeded owner login.
+router.post('/change-password', async (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
+
+  let payload: any
+  try { payload = verifyAccess(auth.slice(7)) } catch {
+    res.status(401).json({ success: false, error: 'Invalid token' }); return
+  }
+
+  try {
+    const { currentPassword, newPassword } = z.object({
+      currentPassword: z.string().min(1, 'Current password is required'),
+      newPassword: z.string().min(8, 'New password must be at least 8 characters').max(200),
+    }).parse(req.body)
+
+    const user = await prisma.crmUser.findUnique({ where: { id: payload.sub } })
+    if (!user || !user.passwordHash || user.status === 'deactivated') {
+      res.status(401).json({ success: false, error: 'Account not found' })
+      return
+    }
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash)
+    if (!valid) {
+      res.status(400).json({ success: false, error: 'Current password is incorrect' })
+      return
+    }
+    if (newPassword === currentPassword) {
+      res.status(400).json({ success: false, error: 'New password must be different from the current one' })
+      return
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
+    await prisma.crmUser.update({
+      where: { id: user.id },
+      data: { passwordHash, mustChangePassword: false, failedLoginAttempts: 0, lockedUntil: null },
+    })
+
+    // Sign every other device out, then hand this one a fresh session.
+    await prisma.crmUserSession.updateMany({
+      where: { userId: user.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+    const accessToken = generateAccessToken(user)
+    const refreshToken = generateRefreshToken()
+    await prisma.crmUserSession.create({
+      data: {
+        userId: user.id,
+        tokenHash: await bcrypt.hash(refreshToken, 10),
+        ipAddress: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+        expiresAt: new Date(Date.now() + REFRESH_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+      },
+    })
+    await prisma.crmUserActivity.create({
+      data: { userId: user.id, action: 'password_changed', ipAddress: req.ip || null },
+    }).catch(() => {})
+
+    res.json({ success: true, data: { accessToken, refreshToken } })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    console.error('[CRM Auth] Change password error:', err)
+    res.status(500).json({ success: false, error: 'Could not change password' })
   }
 })
 

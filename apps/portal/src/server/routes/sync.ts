@@ -11,25 +11,15 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { isStaffRequest } from '../lib/secrets.js'
 
 const router = Router()
 
-// Simple API key auth for sync endpoints
+// Sync endpoints accept the configured sync key or a verified staff login.
+// (The old JWT branch called require() inside an ES module, which throws, so
+// a logged in CRM could never sync and every push failed silently.)
 function requireSyncAuth(req: any, res: any, next: any) {
-  const apiKey = req.headers['x-api-key']
-  const expected = process.env.CRM_SYNC_KEY || 'dev-sync-key'
-  if (apiKey === expected) { next(); return }
-
-  // Also allow admin JWT
-  const auth = req.headers.authorization
-  if (auth?.startsWith('Bearer ')) {
-    try {
-      const { verifyAccessToken } = require('../lib/auth.js')
-      const payload = verifyAccessToken(auth.slice(7))
-      if (payload.role === 'admin') { next(); return }
-    } catch {}
-  }
-
+  if (isStaffRequest(req)) { next(); return }
   res.status(401).json({ success: false, error: 'Sync auth required' })
 }
 

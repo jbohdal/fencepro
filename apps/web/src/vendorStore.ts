@@ -7,7 +7,8 @@
  * post Phase 7 and then dropped.
  */
 
-import { getAccessToken } from './crmAuth'
+import { getAccessToken, fetchWithAuth } from './crmAuth'
+import { createFlusher, legacyMigrationEnabled } from './syncGuard'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 const VENDOR_EVT = 'fencepro:vendors:updated'
@@ -17,13 +18,13 @@ interface VendorStateBlob { vendors: any[]; bills: any[]; payments: any[] }
 
 let vendorCache: VendorStateBlob = { vendors: [], bills: [], payments: [] }
 let vendorInitPromise: Promise<void> | null = null
-let vendorFlushTimer: ReturnType<typeof setTimeout> | null = null
+let vendorHydrated = false
 
 async function vendorCall<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T }> {
   const token = getAccessToken()
   if (!token) return { ok: false }
   try {
-    const res = await fetch(`${AUTH_API}/api/vendor-state`, {
+    const res = await fetchWithAuth(`${AUTH_API}/api/vendor-state`, {
       method,
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
@@ -36,18 +37,24 @@ async function vendorCall<T>(method: string, body?: unknown): Promise<{ ok: bool
 }
 
 function vendorEmit() { try { window.dispatchEvent(new CustomEvent(VENDOR_EVT)) } catch {} }
-function vendorScheduleFlush() {
-  if (vendorFlushTimer) clearTimeout(vendorFlushTimer)
-  vendorFlushTimer = setTimeout(() => {
-    vendorFlushTimer = null
-    vendorCall('PUT', vendorCache).catch(() => {})
-  }, 250)
-}
+// Vendors, bills and payments are one server record, so it is only ever
+// written after it has been loaded (see syncGuard).
+const vendorFlusher = createFlusher({
+  name: 'Vendors',
+  isHydrated: () => vendorHydrated,
+  send: async () => (await vendorCall('PUT', vendorCache)).ok,
+})
+function vendorScheduleFlush() { vendorFlusher.schedule() }
 
-async function migrateLocalVendorsOnce(): Promise<void> {
-  if (localStorage.getItem(VENDOR_MIGRATION_FLAG) === '1') return
-  const token = getAccessToken()
-  if (!token) return
+/** Optional, opt in. Old browser data only moves up if the server has no vendor data at all. */
+async function migrateLocalVendorsOnce(server: VendorStateBlob): Promise<VendorStateBlob | null> {
+  if (!legacyMigrationEnabled()) return null
+  if (localStorage.getItem(VENDOR_MIGRATION_FLAG) === '1') return null
+  if (!getAccessToken()) return null
+  if (server.vendors.length || server.bills.length || server.payments.length) {
+    localStorage.setItem(VENDOR_MIGRATION_FLAG, '1')
+    return null
+  }
   try {
     const blob: VendorStateBlob = {
       vendors: JSON.parse(localStorage.getItem('fencepro_vendors') || '[]'),
@@ -55,36 +62,43 @@ async function migrateLocalVendorsOnce(): Promise<void> {
       payments: JSON.parse(localStorage.getItem('fencepro_vendor_payments') || '[]'),
     }
     const hasData = blob.vendors.length || blob.bills.length || blob.payments.length
-    if (hasData) {
-      const r = await vendorCall<VendorStateBlob>('PUT', blob)
-      if (r.ok) localStorage.setItem(VENDOR_MIGRATION_FLAG, '1')
-    } else {
-      localStorage.setItem(VENDOR_MIGRATION_FLAG, '1')
-    }
-  } catch {}
+    if (!hasData) { localStorage.setItem(VENDOR_MIGRATION_FLAG, '1'); return null }
+    const r = await vendorCall<VendorStateBlob>('PUT', blob)
+    if (!r.ok) return null
+    localStorage.setItem(VENDOR_MIGRATION_FLAG, '1')
+    return blob
+  } catch { return null }
 }
 
 export function initVendors(): Promise<void> {
+  if (vendorHydrated) return Promise.resolve()
   if (vendorInitPromise) return vendorInitPromise
   vendorInitPromise = (async () => {
-    try { await migrateLocalVendorsOnce() } catch {}
     const r = await vendorCall<VendorStateBlob>('GET')
-    if (r.ok && r.data) {
-      vendorCache = {
-        vendors: Array.isArray(r.data.vendors) ? r.data.vendors : [],
-        bills: Array.isArray(r.data.bills) ? r.data.bills : [],
-        payments: Array.isArray(r.data.payments) ? r.data.payments : [],
-      }
-      vendorEmit()
+    if (!r.ok || !r.data) return
+    let next: VendorStateBlob = {
+      vendors: Array.isArray(r.data.vendors) ? r.data.vendors : [],
+      bills: Array.isArray(r.data.bills) ? r.data.bills : [],
+      payments: Array.isArray(r.data.payments) ? r.data.payments : [],
     }
-    try {
-      localStorage.removeItem('fencepro_vendors')
-      localStorage.removeItem('fencepro_vendor_bills')
-      localStorage.removeItem('fencepro_vendor_payments')
-    } catch {}
-  })()
+    const migrated = await migrateLocalVendorsOnce(next)
+    if (migrated) next = migrated
+    vendorCache = next
+    vendorHydrated = true
+    vendorEmit()
+    if (legacyMigrationEnabled() && localStorage.getItem(VENDOR_MIGRATION_FLAG) === '1') {
+      try {
+        localStorage.removeItem('fencepro_vendors')
+        localStorage.removeItem('fencepro_vendor_bills')
+        localStorage.removeItem('fencepro_vendor_payments')
+      } catch {}
+    }
+  })().finally(() => { if (!vendorHydrated) vendorInitPromise = null })
   return vendorInitPromise
 }
+
+/** True once vendors have loaded from the server. */
+export function isVendorsHydrated(): boolean { return vendorHydrated }
 
 export const VENDORS_UPDATED_EVENT = VENDOR_EVT
 

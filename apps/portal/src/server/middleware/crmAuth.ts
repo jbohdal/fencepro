@@ -7,8 +7,9 @@
 
 import type { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
+import { resolveSecret, syncKeyMatches } from '../lib/secrets.js'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-crm-jwt-secret-change-me'
+const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
 export interface CrmUserPayload {
   sub: string
@@ -39,9 +40,7 @@ export function requireCrmAuth(req: Request, res: Response, next: NextFunction):
   }
 
   // Also accept X-API-Key for backward compat with sync endpoints
-  const apiKey = req.headers['x-api-key']
-  const syncKey = process.env.CRM_SYNC_KEY || 'dev-sync-key'
-  if (apiKey === syncKey) {
+  if (syncKeyMatches(req.headers['x-api-key'])) {
     req.crmUser = { sub: 'sync', email: 'sync@system', role: 'admin', firstName: 'System', lastName: 'Sync' }
     next()
     return

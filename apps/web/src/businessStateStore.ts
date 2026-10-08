@@ -8,7 +8,8 @@
  * stay tiny and just bridge to this module.
  */
 
-import { getAccessToken } from './crmAuth'
+import { getAccessToken, fetchWithAuth } from './crmAuth'
+import { createFlusher, legacyMigrationEnabled } from './syncGuard'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 const EVT = 'fencepro:business-state:updated'
@@ -60,14 +61,14 @@ const DEFAULT: BusinessFields = {
 
 let cache: BusinessFields = { ...DEFAULT }
 let initPromise: Promise<void> | null = null
-let flushTimer: ReturnType<typeof setTimeout> | null = null
+let hydrated = false
 let pendingPatch: Partial<BusinessFields> = {}
 
 async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T }> {
   const token = getAccessToken()
   if (!token) return { ok: false }
   try {
-    const res = await fetch(`${AUTH_API}/api/business-state`, {
+    const res = await fetchWithAuth(`${AUTH_API}/api/business-state`, {
       method,
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
@@ -81,14 +82,27 @@ async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; d
 
 function emit() { try { window.dispatchEvent(new CustomEvent(EVT)) } catch {} }
 
-function scheduleFlush() {
-  if (flushTimer) clearTimeout(flushTimer)
-  flushTimer = setTimeout(() => {
+// Only the fields that changed are sent. A patch that fails to send is put
+// back so the next attempt still carries it.
+const flusher = createFlusher({
+  name: 'Settings and business data',
+  isHydrated: () => hydrated,
+  send: async () => {
     const patch = pendingPatch
+    if (Object.keys(patch).length === 0) return true
     pendingPatch = {}
-    flushTimer = null
-    call('PATCH', patch).catch(() => {})
-  }, 250)
+    const r = await call('PATCH', patch)
+    if (!r.ok) pendingPatch = { ...patch, ...pendingPatch }
+    return r.ok
+  },
+})
+function scheduleFlush() { flusher.schedule() }
+
+function isEmptyValue(v: unknown): boolean {
+  if (v === undefined || v === null) return true
+  if (Array.isArray(v)) return v.length === 0
+  if (typeof v === 'object') return Object.keys(v as object).length === 0
+  return false
 }
 
 const LEGACY_KEYS = [
@@ -97,63 +111,90 @@ const LEGACY_KEYS = [
   'fencepro_bs_entries', 'fencepro_email_templates', 'fencepro_config', 'fencepro_budget',
 ]
 
-async function migrateLocalBusinessOnce(): Promise<void> {
-  if (localStorage.getItem(MIGRATION_FLAG) === '1') return
-  const token = getAccessToken()
-  if (!token) return
-  try {
-    const tryParse = (key: string, fallback: any) => {
-      try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fallback } catch { return fallback }
-    }
-    const patch: Partial<BusinessFields> = {
-      bundles: tryParse('fencepro_bundles', []),
-      quoteOptions: tryParse('fencepro_quote_options', []),
-      contractSections: tryParse('fencepro_contract_sections', []),
-      jobChecklists: tryParse('fencepro_job_checklists', {}),
-      defaultMilestones: tryParse('fencepro_default_milestones', []),
-      plEntries: tryParse('fencepro_pl_entries', []),
-      balanceSheet: tryParse('fencepro_bs_entries', []),
-      emailTemplates: tryParse('fencepro_email_templates', {}),
-      config: tryParse('fencepro_config', {}),
-      budget: tryParse('fencepro_budget', {}),
-      pendingOrders: tryParse('fencepro_pending_orders', []),
-      purchaseOrders: tryParse('fencepro_purchase_orders', []),
-      invoices: tryParse('fencepro_invoices', []),
-      payments: tryParse('fencepro_payments', []),
-      statements: tryParse('fencepro_statements', []),
-      pullSheets: tryParse('fencepro_customer_pullsheets', []),
-    }
-    const r = await call('PATCH', patch)
-    if (r.ok) localStorage.setItem(MIGRATION_FLAG, '1')
-  } catch {}
+const LEGACY_SOURCES: Array<[keyof BusinessFields, string]> = [
+  ['bundles', 'fencepro_bundles'],
+  ['quoteOptions', 'fencepro_quote_options'],
+  ['contractSections', 'fencepro_contract_sections'],
+  ['jobChecklists', 'fencepro_job_checklists'],
+  ['defaultMilestones', 'fencepro_default_milestones'],
+  ['plEntries', 'fencepro_pl_entries'],
+  ['balanceSheet', 'fencepro_bs_entries'],
+  ['emailTemplates', 'fencepro_email_templates'],
+  ['config', 'fencepro_config'],
+  ['budget', 'fencepro_budget'],
+  ['pendingOrders', 'fencepro_pending_orders'],
+  ['purchaseOrders', 'fencepro_purchase_orders'],
+  ['invoices', 'fencepro_invoices'],
+  ['payments', 'fencepro_payments'],
+  ['statements', 'fencepro_statements'],
+  ['pullSheets', 'fencepro_customer_pullsheets'],
+]
+
+/**
+ * Optional, opt in (see legacyMigrationEnabled). Copies old browser only data
+ * up to the server, field by field, and ONLY into fields the server has empty.
+ *
+ * The previous version sent every field on the first login from any browser,
+ * with an empty value for anything that browser did not have. Logging in from
+ * a second computer, or after clearing the browser, wiped settings, bundles,
+ * invoices, payments and the rest on the server.
+ */
+async function migrateLocalBusinessOnce(server: Partial<BusinessFields>): Promise<Partial<BusinessFields>> {
+  if (!legacyMigrationEnabled()) return {}
+  if (localStorage.getItem(MIGRATION_FLAG) === '1') return {}
+  if (!getAccessToken()) return {}
+  const patch: Partial<BusinessFields> = {}
+  for (const [field, key] of LEGACY_SOURCES) {
+    let local: unknown
+    try { const raw = localStorage.getItem(key); local = raw ? JSON.parse(raw) : undefined } catch { local = undefined }
+    if (isEmptyValue(local)) continue
+    if (!isEmptyValue((server as any)[field])) continue
+    ;(patch as any)[field] = local
+  }
+  if (Object.keys(patch).length === 0) {
+    localStorage.setItem(MIGRATION_FLAG, '1')
+    return {}
+  }
+  const r = await call('PATCH', patch)
+  if (!r.ok) return {}
+  localStorage.setItem(MIGRATION_FLAG, '1')
+  return patch
 }
 
 export function initBusinessState(): Promise<void> {
+  if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    try { await migrateLocalBusinessOnce() } catch {}
     const r = await call<BusinessFields>('GET')
-    if (r.ok && r.data) {
-      cache = { ...DEFAULT }
-      for (const k of Object.keys(DEFAULT) as (keyof BusinessFields)[]) {
-        const v = (r.data as any)[k]
-        if (v !== undefined && v !== null) (cache as any)[k] = v
-      }
-      emit()
+    if (!r.ok || !r.data) return
+    const next: BusinessFields = { ...DEFAULT }
+    for (const k of Object.keys(DEFAULT) as (keyof BusinessFields)[]) {
+      const v = (r.data as any)[k]
+      if (v !== undefined && v !== null) (next as any)[k] = v
     }
-    // Drop the migrated keys EXCEPT the ones used by inline-localStorage readers
-    // scattered through the codebase (configStore + BudgetPage maintain those
-    // mirrors via their own getters).
-    const KEEP_AS_MIRROR = new Set(['fencepro_config', 'fencepro_budget'])
-    try {
-      for (const k of LEGACY_KEYS) {
-        if (KEEP_AS_MIRROR.has(k)) continue
-        localStorage.removeItem(k)
-      }
-    } catch {}
-  })()
+    let migrated: Partial<BusinessFields> = {}
+    try { migrated = await migrateLocalBusinessOnce(next) } catch {}
+    cache = { ...next, ...migrated }
+    hydrated = true
+    emit()
+    // Old browser copies are only cleared once they have been moved up.
+    // fencepro_config and fencepro_budget stay: they are live mirrors that
+    // configStore and BudgetPage keep fresh for inline readers.
+    if (legacyMigrationEnabled() && localStorage.getItem(MIGRATION_FLAG) === '1') {
+      const KEEP_AS_MIRROR = new Set(['fencepro_config', 'fencepro_budget'])
+      try {
+        for (const k of LEGACY_KEYS) {
+          if (KEEP_AS_MIRROR.has(k)) continue
+          localStorage.removeItem(k)
+        }
+      } catch {}
+    }
+  })().finally(() => { if (!hydrated) initPromise = null })
   return initPromise
 }
+
+/** True once business state has loaded from the server. */
+export function isBusinessStateHydrated(): boolean { return hydrated }
 
 export function getBusinessField<K extends keyof BusinessFields>(key: K): BusinessFields[K] {
   return cache[key]

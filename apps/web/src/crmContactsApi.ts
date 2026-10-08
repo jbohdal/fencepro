@@ -12,7 +12,7 @@
  * preserved and the user is warned via toast — no data is lost.
  */
 
-import { getAccessToken } from './crmAuth'
+import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
@@ -49,7 +49,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
   const token = getAccessToken()
   if (!token) return { ok: false, error: 'Not authenticated' }
   try {
-    const res = await fetch(`${AUTH_API}/api/crm-contacts${path}`, {
+    const res = await fetchWithAuth(`${AUTH_API}/api/crm-contacts${path}`, {
       method,
       headers: {
         'Authorization': `Bearer ${token}`,

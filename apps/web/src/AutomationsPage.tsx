@@ -6,18 +6,14 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { fetchWithAuth } from './crmAuth'
 
 const API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/automations'
-const hdrs: Record<string, string> = (() => {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = localStorage.getItem('crm_access_token')
-  if (token) h['Authorization'] = `Bearer ${token}`
-  else h['X-API-Key'] = 'dev-sync-key'
-  return h
-})()
+const hdrs: Record<string, string> = { 'Content-Type': 'application/json' }
 
 async function api(path: string, opts?: RequestInit) {
-  const res = await fetch(`${API}${path}`, { headers: hdrs, ...opts })
+  // fetchWithAuth adds the current login token and refreshes it when it has expired.
+  const res = await fetchWithAuth(`${API}${path}`, { headers: hdrs, ...opts })
   const data = await res.json()
   if (!data.success) throw new Error(data.error || 'API error')
   return data.data

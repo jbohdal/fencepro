@@ -12,6 +12,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { auditLog } from '../middleware/audit.js'
 import { fireAutomations, type TriggerEvent } from '../lib/automationEngine.js'
 import { str } from '../lib/helpers.js'
+import { isStaffRequest } from '../lib/secrets.js'
 
 const router = Router()
 
@@ -43,16 +44,10 @@ const triggerSchema = z.object({
 
 // CRM frontend fires this via sync key auth
 router.post('/trigger', async (req, res) => {
-  // Allow sync key OR admin JWT
-  const apiKey = req.headers['x-api-key']
-  const expected = process.env.CRM_SYNC_KEY || 'dev-sync-key'
-  if (apiKey !== expected) {
-    // Try JWT auth
-    const auth = req.headers.authorization
-    if (!auth?.startsWith('Bearer ')) {
-      res.status(401).json({ success: false, error: 'Auth required' })
-      return
-    }
+  // Sync key or a verified staff login token (a bare "Bearer x" used to pass).
+  if (!isStaffRequest(req)) {
+    res.status(401).json({ success: false, error: 'Auth required' })
+    return
   }
 
   try {
@@ -117,7 +112,13 @@ router.get('/', requireAuth, async (req, res) => {
 })
 
 // Get single automation with recent run logs
-router.get('/:id', requireAuth, async (req, res) => {
+// Fixed paths under this router (/tasks, /notifications, /logs/all) are declared
+// further down. Without this guard "/:id" swallowed them and answered 404, so
+// the notification bell and the Tasks and Logs tabs never loaded.
+const RESERVED_AUTOMATION_PATHS = new Set(['tasks', 'notifications', 'logs'])
+
+router.get('/:id', requireAuth, async (req, res, next) => {
+  if (RESERVED_AUTOMATION_PATHS.has(String(req.params.id))) { next(); return }
   if (req.user!.role !== 'admin') {
     res.status(403).json({ success: false, error: 'Admin access required' })
     return

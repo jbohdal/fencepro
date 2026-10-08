@@ -26,6 +26,7 @@ import TeamManagementPage from './TeamManagementPage'
 import BillingPage from './BillingPage'
 import OperationsPage from './OperationsPage'
 import LoginPage from './LoginPage'
+import ChangePasswordPage from './ChangePasswordPage'
 import PLStatementPage from './PLStatementPage'
 import BalanceSheetPage from './BalanceSheetPage'
 import VendorsPage from './VendorsPage'
@@ -40,14 +41,14 @@ import NotificationBell from './NotificationBell'
 import MessagesInbox from './MessagesInbox'
 import PublicQuotePage from './PublicQuotePage'
 import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
-import { initCustomers, getCustomers } from './customerStore'
-import { initQuotes, getQuotes, getQuoteById, upsertQuote } from './quoteStore'
-import { initJobs } from './jobStore'
-import { initSchedule } from './scheduleStore'
-import { initPipeline, getPipeline } from './pipelineStore'
-import { initInventory } from './inventoryStore'
-import { initVendors } from './vendorStore'
-import { initBusinessState } from './businessStateStore'
+import { initCustomers, getCustomers, isCustomersHydrated } from './customerStore'
+import { initQuotes, getQuotes, getQuoteById, upsertQuote, isQuotesHydrated } from './quoteStore'
+import { initJobs, isJobsHydrated } from './jobStore'
+import { initSchedule, isScheduleHydrated } from './scheduleStore'
+import { initPipeline, getPipeline, isPipelineHydrated } from './pipelineStore'
+import { initInventory, isInventoryHydrated } from './inventoryStore'
+import { initVendors, isVendorsHydrated } from './vendorStore'
+import { initBusinessState, isBusinessStateHydrated } from './businessStateStore'
 import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
@@ -200,9 +201,55 @@ interface SearchResult {
    APP SHELL
    ═══════════════════════════════════════════════ */
 
-function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: () => void) => React.ReactNode; onLogout?: () => void }) {
+/**
+ * Load every module's data from the server. Runs after login AND after a page
+ * reload with an existing session, and the app does not render until it has
+ * finished. (A fresh login used to load customers only. Quotes, jobs,
+ * inventory, vendors, pipeline, schedule and settings stayed empty until the
+ * page was reloaded, and anything saved in that state overwrote the server
+ * with the empty copy.)
+ */
+const STORE_LOADERS: Array<{ name: string; load: () => Promise<void>; loaded: () => boolean }> = [
+  { name: 'Customers', load: initCustomers, loaded: isCustomersHydrated },
+  { name: 'Quotes', load: initQuotes, loaded: isQuotesHydrated },
+  { name: 'Jobs', load: initJobs, loaded: isJobsHydrated },
+  { name: 'Schedule', load: initSchedule, loaded: isScheduleHydrated },
+  { name: 'Sales pipeline', load: initPipeline, loaded: isPipelineHydrated },
+  { name: 'Inventory', load: initInventory, loaded: isInventoryHydrated },
+  { name: 'Vendors', load: initVendors, loaded: isVendorsHydrated },
+  { name: 'Settings and business data', load: initBusinessState, loaded: isBusinessStateHydrated },
+]
+
+async function hydrateStores(): Promise<string[]> {
+  await Promise.all(STORE_LOADERS.map(s => s.load().catch(() => {})))
+  return STORE_LOADERS.filter(s => !s.loaded()).map(s => s.name)
+}
+
+const ROLE_MAP: Record<string, UserRole> = {
+  super_admin: 'owner', admin: 'admin', manager: 'admin',
+  sales_rep: 'salesman', field_crew: 'shop', office_staff: 'ops_manager',
+}
+
+function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: () => void, changePassword: () => void) => React.ReactNode; onLogout?: () => void }) {
   const [authChecked, setAuthChecked] = useState(false)
   const [crmUser, setCrmUser] = useState<CrmUser | null>(null)
+  const [loadingData, setLoadingData] = useState(false)
+  const [notLoaded, setNotLoaded] = useState<string[]>([])
+  const [showChangePassword, setShowChangePassword] = useState(false)
+
+  async function loadData() {
+    setLoadingData(true)
+    const failed = await hydrateStores()
+    setNotLoaded(failed)
+    setLoadingData(false)
+  }
+
+  function startSession(user: CrmUser) {
+    saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: ROLE_MAP[user.role] || 'salesman' })
+    setLoadingData(true)
+    setCrmUser(user)
+    void loadData()
+  }
 
   useEffect(() => {
     function onFirstView(e: any) {
@@ -225,41 +272,23 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     })
     if (isAuthenticated()) {
       fetchCurrentUser().then(user => {
-        setCrmUser(user)
-        if (user) {
-          const mapped: Record<string, UserRole> = {
-            super_admin: 'owner', admin: 'admin', manager: 'admin',
-            sales_rep: 'salesman', field_crew: 'shop', office_staff: 'ops_manager',
-          }
-          saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: mapped[user.role] || 'salesman' })
-          initCustomers().catch(() => {})
-          initQuotes().catch(() => {})
-          initJobs().catch(() => {})
-          initSchedule().catch(() => {})
-          initPipeline().catch(() => {})
-          initInventory().catch(() => {})
-          initVendors().catch(() => {})
-          initBusinessState().catch(() => {})
-        }
+        if (user) startSession(user)
         setAuthChecked(true)
       })
     } else {
       setAuthChecked(true)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function handleLogin(user: CrmUser) {
-    setCrmUser(user)
-    const mapped: Record<string, UserRole> = {
-      super_admin: 'owner', admin: 'admin', manager: 'admin',
-      sales_rep: 'salesman', field_crew: 'shop', office_staff: 'ops_manager',
-    }
-    saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: mapped[user.role] || 'salesman' })
-    initCustomers().catch(() => {})
+    startSession(user)
   }
 
   function handleLogout() {
-    crmLogout()
+    // Reload after signing out so no data from this session stays in memory
+    // for whoever logs in next on this browser.
+    crmLogout().finally(() => { window.location.reload() })
     setCrmUser(null)
   }
 
@@ -269,8 +298,39 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
   if (!crmUser) {
     return <LoginPage onLogin={handleLogin} />
   }
+  if (crmUser.mustChangePassword) {
+    return (
+      <ChangePasswordPage
+        forced
+        onDone={() => { setCrmUser({ ...crmUser, mustChangePassword: false }); toast.success('Password changed') }}
+        onCancel={handleLogout}
+      />
+    )
+  }
+  if (loadingData) {
+    return <div className="min-h-screen bg-gray-900 flex items-center justify-center"><div className="text-gray-500">Loading your data...</div></div>
+  }
 
-  return <>{children(crmUser, handleLogout)}</>
+  return (
+    <>
+      {notLoaded.length > 0 && (
+        <div className="fixed top-0 inset-x-0 z-[200] bg-red-600 text-white text-sm px-4 py-2 flex items-center justify-center gap-3 flex-wrap">
+          <span>
+            <strong>Could not load {notLoaded.join(', ')} from the server.</strong> Changes there will not be saved until it loads.
+          </span>
+          <button onClick={() => void loadData()} className="bg-white text-red-700 font-semibold text-xs px-3 py-1 rounded">Try again</button>
+        </div>
+      )}
+      {children(crmUser, handleLogout, () => setShowChangePassword(true))}
+      {showChangePassword && (
+        <ChangePasswordPage
+          forced={false}
+          onDone={() => { setShowChangePassword(false); toast.success('Password changed', 'Your other devices have been signed out.') }}
+          onCancel={() => setShowChangePassword(false)}
+        />
+      )}
+    </>
+  )
 }
 
 export default function App() {
@@ -298,13 +358,13 @@ export default function App() {
     <>
       <ToastContainer />
       <AuthGate>
-        {(crmUser, logout) => <AppShell crmUser={crmUser} onLogout={logout} />}
+        {(crmUser, logout, changePassword) => <AppShell crmUser={crmUser} onLogout={logout} onChangePassword={changePassword} />}
       </AuthGate>
     </>
   )
 }
 
-function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => void }) {
+function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; onLogout: () => void; onChangePassword: () => void }) {
   const [active, setActive]             = useState('Dashboard')
   const [showQuote, setShowQuote]       = useState(false)
   const [editingQuote, setEditingQuote] = useState<SavedQuote | null>(null)
@@ -620,7 +680,10 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
               </select>
             </div>
           </div>
-          <button onClick={onLogout} className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
+          <button onClick={onChangePassword} className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
+            Change password
+          </button>
+          <button onClick={onLogout} className="mt-1 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
             Sign out
           </button>
         </div>
@@ -708,9 +771,14 @@ function AppShell({ crmUser, onLogout }: { crmUser: CrmUser; onLogout: () => voi
             </div>
           )}
           {!sidebarCollapsed && (
-            <button onClick={onLogout} className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
-              Sign out
-            </button>
+            <>
+              <button onClick={onChangePassword} className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
+                Change password
+              </button>
+              <button onClick={onLogout} className="mt-1 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
+                Sign out
+              </button>
+            </>
           )}
         </div>
       </div>

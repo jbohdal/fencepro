@@ -1,4 +1,5 @@
 import type { SavedQuote } from './QuotesPage'
+import { legacyMigrationEnabled } from './syncGuard'
 import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
 import { ensureChecklistForJob } from './checklistStore'
 import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
@@ -102,6 +103,7 @@ const uid = () => Math.random().toString(36).slice(2, 9)
 
 let cache: Job[] = []
 let initPromise: Promise<void> | null = null
+let hydrated = false
 
 function fromApi(r: SavedJobRecord): Job {
   return {
@@ -205,18 +207,23 @@ function toApiPayload(j: Partial<Job>) {
 function emit() { try { window.dispatchEvent(new CustomEvent(EVT)) } catch {} }
 
 export function initJobs(): Promise<void> {
+  if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    try { await migrateLocalJobsOnce() } catch {}
+    const migrate = legacyMigrationEnabled()
+    if (migrate) { try { await migrateLocalJobsOnce() } catch {} }
     const records = await listSavedJobs()
-    if (records) {
-      cache = records.map(fromApi)
-      emit()
-    }
-    try { localStorage.removeItem(LEGACY_KEY) } catch {}
-  })()
+    if (!records) return
+    cache = records.map(fromApi)
+    hydrated = true
+    emit()
+    if (migrate) { try { localStorage.removeItem(LEGACY_KEY) } catch {} }
+  })().finally(() => { if (!hydrated) initPromise = null })
   return initPromise
 }
+
+/** True once jobs have loaded from the server. */
+export function isJobsHydrated(): boolean { return hydrated }
 
 export function getJobs(): Job[] {
   return cache

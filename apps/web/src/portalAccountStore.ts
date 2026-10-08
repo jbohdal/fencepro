@@ -6,6 +6,8 @@
  * currently logged-in portal user.
  */
 
+import { fetchWithAuth } from './crmAuth'
+
 const SESSION_KEY = 'fencepro_portal_session'
 const EVT = 'fencepro:portal:updated'
 
@@ -17,9 +19,8 @@ function apiBase(): string {
 function staffAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   try {
+    // The login token itself is attached (and refreshed) by fetchWithAuth.
     const token = localStorage.getItem('crm_access_token')
-    const key = token || 'dev-sync-key'
-    headers['X-API-Key'] = key
     if (token) headers['Authorization'] = `Bearer ${token}`
   } catch {}
   return headers
@@ -73,7 +74,7 @@ export interface InviteResult {
  */
 export async function sendPortalInvite(customer: { id: string; email: string; firstName?: string; lastName?: string }): Promise<{ ok: boolean; data?: InviteResult; error?: string }> {
   try {
-    const res = await fetch(`${apiBase()}/api/portal/invite`, {
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/invite`, {
       method: 'POST',
       headers: staffAuthHeaders(),
       body: JSON.stringify({
@@ -220,7 +221,7 @@ async function fetchAccounts(): Promise<PortalAccount[]> {
   cacheLoadedAt = Date.now()
   cachePromise = (async () => {
     try {
-      const res = await fetch(`${apiBase()}/api/portal/accounts`, { headers: staffAuthHeaders() })
+      const res = await fetchWithAuth(`${apiBase()}/api/portal/accounts`, { headers: staffAuthHeaders() })
       const json = await res.json()
       if (res.ok && json.success) {
         const list = json.data as PortalAccount[]
@@ -263,7 +264,7 @@ export async function adminListAccounts(): Promise<PortalAccount[]> {
 
 export async function adminForceActivate(accountId: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${apiBase()}/api/portal/accounts/${accountId}/force-activate`, {
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/accounts/${accountId}/force-activate`, {
       method: 'POST', headers: staffAuthHeaders(),
     })
     const json = await res.json()
@@ -274,7 +275,7 @@ export async function adminForceActivate(accountId: string): Promise<{ ok: boole
 
 export async function adminRevokeAccount(accountId: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${apiBase()}/api/portal/accounts/${accountId}/revoke`, {
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/accounts/${accountId}/revoke`, {
       method: 'POST', headers: staffAuthHeaders(),
     })
     const json = await res.json()

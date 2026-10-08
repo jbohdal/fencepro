@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { getAccessToken } from './crmAuth'
+import { getAccessToken, fetchWithAuth } from './crmAuth'
 
 const API_BASE = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 
@@ -59,9 +59,7 @@ export default function AuditLogPage() {
     if (!token) { setError('Not authenticated'); return }
     setLoading(true); setError(null)
     try {
-      const res = await fetch(`${API_BASE}/api/admin/audit-log?${queryString}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const res = await fetchWithAuth(`${API_BASE}/api/admin/audit-log?${queryString}`)
       if (res.status === 403) { setError('Admin access required'); return }
       const json = await res.json()
       if (!json.success) { setError(json.error || 'Failed to load'); return }

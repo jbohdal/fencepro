@@ -2,9 +2,10 @@ import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
 import type { TokenPayload, AuthTokens } from '../../types/index.js'
+import { resolveSecret } from './secrets.js'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me'
+const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-secret-change-me')
+const JWT_REFRESH_SECRET = resolveSecret('JWT_REFRESH_SECRET', 'dev-refresh-secret-change-me')
 const ACCESS_EXPIRY = process.env.JWT_ACCESS_EXPIRY || '15m'
 const REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || '7d'
 const SALT_ROUNDS = 12

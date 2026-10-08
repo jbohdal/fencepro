@@ -6,7 +6,7 @@
  * table at /api/saved-quotes and are scoped by CrmAccount on the server.
  */
 
-import { getAccessToken } from './crmAuth'
+import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import type { LineItem } from './materialCalculator'
 import type { QuotePricingOverrides } from './pricingEngine'
@@ -73,7 +73,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
   const token = getAccessToken()
   if (!token) return { ok: false, error: 'Not authenticated' }
   try {
-    const res = await fetch(`${AUTH_API}/api/saved-quotes${path}`, {
+    const res = await fetchWithAuth(`${AUTH_API}/api/saved-quotes${path}`, {
       method,
       headers: {
         'Authorization': `Bearer ${token}`,

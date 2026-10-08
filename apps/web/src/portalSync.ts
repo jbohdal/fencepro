@@ -7,16 +7,18 @@
  */
 
 const PORTAL_API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/sync'
-const SYNC_KEY = localStorage.getItem('crm_access_token') ? '' : 'dev-sync-key' // Uses JWT auth when logged in
+import { fetchWithAuth } from './crmAuth'
 
 // Default account for this CRM instance
 const ACCOUNT_EXTERNAL_ID = 'gdf-001'
 
 async function syncPost(path: string, body: unknown): Promise<boolean> {
   try {
-    const res = await fetch(`${PORTAL_API}${path}`, {
+    // Sent with the staff login. (This used to send an empty API key and no
+    // login token whenever someone was logged in, so every sync was rejected.)
+    const res = await fetchWithAuth(`${PORTAL_API}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': SYNC_KEY },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
     return res.ok
@@ -28,9 +30,7 @@ async function syncPost(path: string, body: unknown): Promise<boolean> {
 
 async function syncGet(path: string): Promise<unknown | null> {
   try {
-    const res = await fetch(`${PORTAL_API}${path}`, {
-      headers: { 'X-API-Key': SYNC_KEY },
-    })
+    const res = await fetchWithAuth(`${PORTAL_API}${path}`)
     if (!res.ok) return null
     const data = await res.json()
     return data.success ? data.data : null

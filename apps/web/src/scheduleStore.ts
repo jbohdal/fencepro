@@ -22,6 +22,7 @@ import {
   type CrewRecord,
 } from './scheduleApi'
 import type { ScheduledJob, ScheduleSettings, RainDayEntry } from './SchedulePage'
+import { createFlusher, legacyMigrationEnabled } from './syncGuard'
 
 const SETTINGS_EVT = 'fencepro:schedule:updated'
 const RAIN_EVT = 'fencepro:rainlog:updated'
@@ -35,6 +36,7 @@ let cacheJobs: ScheduledJob[] = []
 let cacheSettings: ScheduleSettings = DEFAULT_SETTINGS
 let cacheRain: RainDayEntry[] = []
 let initPromise: Promise<void> | null = null
+let hydrated = false
 
 function statusFromApi(s: string): ScheduledJob['status'] {
   if (s === 'InProgress') return 'In Progress'
@@ -54,14 +56,18 @@ function emit(name: string) {
 }
 
 export function initSchedule(): Promise<void> {
+  if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    try { await migrateLocalScheduleOnce() } catch {}
+    if (legacyMigrationEnabled()) { try { await migrateLocalScheduleOnce() } catch {} }
     const [settings, jobs, rain] = await Promise.all([
       fetchScheduleSettings(),
       fetchScheduledJobs(),
       fetchRainLog(),
     ])
+    // The board is saved as a whole, so it only counts as loaded when both
+    // the settings and the job list actually came back.
+    if (!settings || !jobs) return
     if (settings) {
       cacheSettings = {
         workDays: Array.isArray(settings.workDays) ? settings.workDays : [1, 2, 3, 4],
@@ -95,11 +101,45 @@ export function initSchedule(): Promise<void> {
         flaggedAt: r.flaggedAt,
       }))
     }
+    hydrated = true
     emit(SETTINGS_EVT)
     emit(RAIN_EVT)
-  })()
+  })().finally(() => { if (!hydrated) initPromise = null })
   return initPromise
 }
+
+/** True once the schedule has loaded from the server. */
+export function isScheduleHydrated(): boolean { return hydrated }
+
+// The whole board is saved at once (settings + every job), and the save
+// replaces the server's list, so it only runs after the board has loaded.
+const flusher = createFlusher({
+  name: 'Schedule',
+  isHydrated: () => hydrated,
+  debounceMs: 150,
+  send: async () => {
+    const settings = cacheSettings
+    const jobs = cacheJobs
+    const [a, b] = await Promise.all([
+      saveScheduleSettings({ workDays: settings.workDays, crews: settings.crews }),
+      syncScheduledJobs(jobs.map(j => ({
+        id: j.id,
+        stagingJobId: j.stagingJobId || undefined,
+        clientName: j.clientName,
+        area: j.area,
+        sections: j.sections,
+        fenceType: j.fenceType,
+        jobPrice: j.jobPrice,
+        tearout: j.tearout,
+        crewId: j.crewId,
+        date: j.date,
+        notes: j.notes,
+        status: statusToApi(j.status),
+      })), { replace: true }),
+    ])
+    return !!a && !!b
+  },
+})
 
 export function loadSchedule(): { jobs: ScheduledJob[]; settings: ScheduleSettings } {
   return { jobs: cacheJobs, settings: cacheSettings }
@@ -109,22 +149,7 @@ export function saveSchedule(jobs: ScheduledJob[], settings: ScheduleSettings): 
   cacheJobs = jobs
   cacheSettings = settings
   emit(SETTINGS_EVT)
-  // Fire and forget API writes. The settings PUT + jobs sync are independent.
-  saveScheduleSettings({ workDays: settings.workDays, crews: settings.crews }).catch(() => {})
-  syncScheduledJobs(jobs.map(j => ({
-    id: j.id,
-    stagingJobId: j.stagingJobId || undefined,
-    clientName: j.clientName,
-    area: j.area,
-    sections: j.sections,
-    fenceType: j.fenceType,
-    jobPrice: j.jobPrice,
-    tearout: j.tearout,
-    crewId: j.crewId,
-    date: j.date,
-    notes: j.notes,
-    status: statusToApi(j.status),
-  }))).catch(() => {})
+  flusher.schedule()
 }
 
 export function loadRainLog(): RainDayEntry[] {

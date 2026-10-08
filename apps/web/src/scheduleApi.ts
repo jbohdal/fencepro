@@ -3,7 +3,7 @@
  * Mirrors savedQuotesApi.ts pattern. Account scoped on the server.
  */
 
-import { getAccessToken } from './crmAuth'
+import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
@@ -49,7 +49,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
   const token = getAccessToken()
   if (!token) return { ok: false, error: 'Not authenticated' }
   try {
-    const res = await fetch(`${AUTH_API}/api/schedule${path}`, {
+    const res = await fetchWithAuth(`${AUTH_API}/api/schedule${path}`, {
       method,
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
@@ -96,8 +96,13 @@ export async function deleteScheduledJob(id: string): Promise<boolean> {
   const r = await call('DELETE', `/jobs/${id}`)
   return r.ok
 }
-export async function syncScheduledJobs(jobs: any[]): Promise<{ created: number; updated: number; total: number } | null> {
-  const r = await call<{ created: number; updated: number; total: number }>('POST', '/jobs/sync', { jobs })
+/**
+ * Upsert scheduled jobs. With `replace: true` the list is the whole board and
+ * the server removes anything not in it; only pass that after the schedule
+ * has been loaded from the server.
+ */
+export async function syncScheduledJobs(jobs: any[], opts: { replace?: boolean } = {}): Promise<{ created: number; updated: number; total: number } | null> {
+  const r = await call<{ created: number; updated: number; total: number }>('POST', '/jobs/sync', { jobs, replace: !!opts.replace })
   return r.ok ? (r.data || null) : null
 }
 

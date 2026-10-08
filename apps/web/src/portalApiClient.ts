@@ -4,6 +4,8 @@
  * CRM staff side (with X-API-Key for sync auth).
  */
 
+import { fetchWithAuth } from './crmAuth'
+
 function apiBase(): string {
   if (typeof window === 'undefined') return ''
   return window.location.hostname === 'localhost' ? 'http://localhost:4000' : ''
@@ -23,8 +25,8 @@ function portalAuthHeaders(): Record<string, string> {
 function staffAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {}
   try {
+    // The login token itself is attached (and refreshed) by fetchWithAuth.
     const token = localStorage.getItem('crm_access_token')
-    headers['X-API-Key'] = token || 'dev-sync-key'
     if (token) headers['Authorization'] = `Bearer ${token}`
   } catch {}
   return headers
@@ -80,7 +82,7 @@ export async function deletePortalPhoto(id: string): Promise<boolean> {
 
 export async function listCustomerPhotos(customerId: string): Promise<PortalPhotoRow[]> {
   try {
-    const res = await fetch(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/photos`, {
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/photos`, {
       headers: staffAuthHeaders(),
     })
     const json = await res.json()
@@ -94,7 +96,7 @@ export async function uploadStaffPhotoForCustomer(customerId: string, file: File
     fd.append('file', file)
     if (caption) fd.append('caption', caption)
     if (uploadedBy) fd.append('uploadedBy', uploadedBy)
-    const res = await fetch(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/photos`, {
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/photos`, {
       method: 'POST', headers: staffAuthHeaders(), body: fd,
     })
     const json = await res.json()
@@ -145,7 +147,7 @@ export async function listPortalDocuments(): Promise<PortalFileRow[]> {
 
 export async function listCustomerDocuments(customerId: string): Promise<PortalFileRow[]> {
   try {
-    const res = await fetch(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/documents`, {
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/documents`, {
       headers: staffAuthHeaders(),
     })
     const json = await res.json()
@@ -159,7 +161,7 @@ export async function uploadStaffDocumentForCustomer(customerId: string, file: F
     fd.append('file', file)
     if (label) fd.append('label', label)
     if (uploadedBy) fd.append('uploadedBy', uploadedBy)
-    const res = await fetch(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/documents`, {
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/documents`, {
       method: 'POST', headers: staffAuthHeaders(), body: fd,
     })
     const json = await res.json()
@@ -228,7 +230,7 @@ export async function listPortalMessages(): Promise<{ messages: PortalMessage[];
 
 export async function listCustomerMessages(customerId: string): Promise<PortalMessage[]> {
   try {
-    const res = await fetch(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/messages`, {
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/messages`, {
       headers: staffAuthHeaders(),
     })
     const json = await res.json()
@@ -238,7 +240,7 @@ export async function listCustomerMessages(customerId: string): Promise<PortalMe
 
 export async function staffReplyToCustomer(customerId: string, body: string, sender?: string): Promise<{ ok: boolean; data?: PortalMessage; error?: string }> {
   try {
-    const res = await fetch(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/messages`, {
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...staffAuthHeaders() },
       body: JSON.stringify({ body, sender }),
@@ -251,7 +253,7 @@ export async function staffReplyToCustomer(customerId: string, body: string, sen
 
 export async function getMessagesInbox(): Promise<{ threads: InboxThread[]; totalUnread: number }> {
   try {
-    const res = await fetch(`${apiBase()}/api/portal/messages/inbox`, { headers: staffAuthHeaders() })
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/messages/inbox`, { headers: staffAuthHeaders() })
     const json = await res.json()
     return json.success ? json.data : { threads: [], totalUnread: 0 }
   } catch { return { threads: [], totalUnread: 0 } }
