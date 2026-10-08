@@ -335,9 +335,6 @@ function CustomerBillingTab({ customerId, customerName, customerEmail }: { custo
 
   return (
     <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
-        Billing data (invoices and payments) is migrating to the cloud (Phase 9). Anything you create or record here is stored locally in this browser only and will not be visible to teammates until the migration completes.
-      </div>
       {/* Sub-nav */}
       <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 w-fit">
         {(['overview', 'invoices', 'payments'] as const).map(t => (
