@@ -80,23 +80,35 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }))
 
 // ── Rate Limiting ──
+// Limits can be set from the environment. The API default allows a real
+// working session:
+// one screen load is about 15 calls, and saves, polling and imports add up
+// fast. At the old fixed 100 a minute a busy minute answered 429.
+const envInt = (name: string, fallback: number) => {
+  const n = parseInt(process.env[name] || '', 10)
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: envInt('RATE_LIMIT_LOGIN_FAILS_PER_15MIN', 10),
   message: { success: false, error: 'Too many login attempts. Try again in 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
+  // Only failed attempts count, so signing in on several devices is never blocked.
+  skipSuccessfulRequests: true,
 })
 
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 10,
+  max: envInt('RATE_LIMIT_UPLOADS_PER_HOUR', 60),
   message: { success: false, error: 'Upload limit reached. Try again in an hour.' },
 })
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: envInt('RATE_LIMIT_API_PER_MIN', 600),
+  message: { success: false, error: 'Too many requests. Wait a moment and try again.' },
   standardHeaders: true,
   legacyHeaders: false,
 })
