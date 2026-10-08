@@ -13,6 +13,8 @@ import { getBills } from './vendorStore'
 import { getPlEntries } from './financeStore'
 import type { PlManualEntry } from './financeStore'
 import type { VendorBillCategory } from './vendorStore'
+import { cloudStorage } from './cloudStorage'
+import { getConfig } from './configStore'
 
 export interface PlLine {
   key: string
@@ -93,23 +95,34 @@ function sumManualByCategory(from: Date, to: Date, categories: PlManualEntry['ca
 }
 
 function sumJobCostingLabor(from: Date, to: Date): number {
-  // Job costing records live in localStorage.fencepro_job_costing (written by JobCostingTab).
-  // Each record has { jobId, dateISO, laborCents, materialCents, ... }.
+  // Job costing records are written by JobCostingTab under fencepro_jobcosting:
+  //   { quoteId, completionDate, actualLaborHrs, crew: [{ name, hours, rate }], ... }
+  // (This used to read a different key, fencepro_job_costing, and different
+  // field names, so the P&L never saw any job costing labor.)
   try {
-    const raw = localStorage.getItem('fencepro_job_costing')
+    const raw = cloudStorage.getItem('fencepro_jobcosting')
     if (!raw) return 0
-    const records: Array<{ dateISO?: string; date?: string; laborCents?: number; labor?: number }> = JSON.parse(raw)
+    const records: Array<{
+      completionDate?: string; dateISO?: string; date?: string
+      actualLaborHrs?: number; crew?: Array<{ hours?: number; rate?: number }>
+      laborCents?: number; labor?: number
+    }> = JSON.parse(raw)
+    const hourlyRate = getConfig().pricing?.manHourRate ?? 22
     let total = 0
     for (const r of records) {
-      const dateStr = r.dateISO || r.date
+      const dateStr = r.completionDate || r.dateISO || r.date
       if (!dateStr) continue
       const d = new Date(dateStr)
-      if (inPeriod(d, from, to)) {
-        const cents = typeof r.laborCents === 'number' ? r.laborCents
-          : typeof r.labor === 'number' ? Math.round(r.labor * 100)
-          : 0
-        total += cents
-      }
+      if (!inPeriod(d, from, to)) continue
+      if (typeof r.laborCents === 'number') { total += r.laborCents; continue }
+      if (typeof r.labor === 'number') { total += Math.round(r.labor * 100); continue }
+      // Same rule as the Job Costing screen: crew lines if there are any,
+      // otherwise actual hours at the man hour rate.
+      const crewDollars = Array.isArray(r.crew)
+        ? r.crew.reduce((sum, c) => sum + (Number(c.hours) || 0) * (Number(c.rate) || 0), 0)
+        : 0
+      const dollars = crewDollars > 0 ? crewDollars : (Number(r.actualLaborHrs) || 0) * hourlyRate
+      total += Math.round(dollars * 100)
     }
     return total
   } catch { return 0 }

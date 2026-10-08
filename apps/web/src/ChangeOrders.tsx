@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { cloudStorage } from './cloudStorage'
 
 /* ───────── types ───────── */
 
@@ -32,13 +33,13 @@ const uid = () => Math.random().toString(36).slice(2, 9)
 
 export function loadChangeOrders(): ChangeOrder[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = cloudStorage.getItem(STORAGE_KEY)
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
 
 function saveAll(orders: ChangeOrder[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(orders))
+  cloudStorage.setItem(STORAGE_KEY, JSON.stringify(orders))
 }
 
 /** Get total approved change order value for a quote */

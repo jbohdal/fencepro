@@ -15,6 +15,7 @@ import {
   resolveFileUrl,
   type PortalPhotoRow,
 } from './portalApiClient'
+import { cloudStorage } from './cloudStorage'
 
 const ACCEPTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif']
 const ACCEPT_ATTR = 'image/jpeg,image/png,image/webp,image/heic,image/heif,image/gif'
@@ -24,10 +25,10 @@ const uid = () => Math.random().toString(36).slice(2, 10)
 
 function logActivity(customerId: string, action: string, meta?: any) {
   try {
-    const raw = localStorage.getItem(ACTIVITY_KEY)
+    const raw = cloudStorage.getItem(ACTIVITY_KEY)
     const all = raw ? JSON.parse(raw) : []
     all.unshift({ id: uid(), customerId, action, meta, at: new Date().toISOString() })
-    localStorage.setItem(ACTIVITY_KEY, JSON.stringify(all.slice(0, 1000)))
+    cloudStorage.setItem(ACTIVITY_KEY, JSON.stringify(all.slice(0, 1000)))
   } catch {}
 }
 

@@ -3,6 +3,7 @@
  * For XLSX, we parse the first sheet by reading it as CSV via the FileReader API.
  * No external dependencies.
  */
+import { cloudStorage } from './cloudStorage'
 
 export interface ParsedSheet {
   headers: string[]
@@ -111,7 +112,7 @@ const TEMPLATE_KEY = 'fencepro_import_templates'
 
 export function getImportTemplates(): ColumnMappingTemplate[] {
   try {
-    const raw = localStorage.getItem(TEMPLATE_KEY)
+    const raw = cloudStorage.getItem(TEMPLATE_KEY)
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
@@ -121,7 +122,7 @@ export function saveImportTemplate(template: ColumnMappingTemplate): void {
   const idx = templates.findIndex(t => t.id === template.id)
   if (idx >= 0) templates[idx] = template
   else templates.push(template)
-  localStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates))
+  cloudStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates))
 }
 
 /** Import history log */
@@ -143,7 +144,7 @@ const LOG_KEY = 'fencepro_import_log'
 
 export function getImportLog(): ImportLogEntry[] {
   try {
-    const raw = localStorage.getItem(LOG_KEY)
+    const raw = cloudStorage.getItem(LOG_KEY)
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
@@ -151,5 +152,5 @@ export function getImportLog(): ImportLogEntry[] {
 export function saveImportLogEntry(entry: ImportLogEntry): void {
   const log = getImportLog()
   log.unshift(entry)
-  localStorage.setItem(LOG_KEY, JSON.stringify(log.slice(0, 100))) // keep last 100
+  cloudStorage.setItem(LOG_KEY, JSON.stringify(log.slice(0, 100))) // keep last 100
 }

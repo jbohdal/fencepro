@@ -59,7 +59,7 @@ interface StagingJob {
 
 function loadStaging(): StagingJob[] {
   try {
-    const raw = localStorage.getItem('fencepro_staging')
+    const raw = cloudStorage.getItem('fencepro_staging')
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
@@ -758,6 +758,7 @@ function CheckItem({ label, done, detail }: { label: string; done: boolean; deta
 
 import { getChecklistForJob, toggleChecklistItem, type ChecklistItem } from './checklistStore'
 import { toast } from './toast'
+import { cloudStorage } from './cloudStorage'
 
 function MilestoneChecklist({ jobId }: { jobId: string }) {
   const [items, setItems] = useState<ChecklistItem[]>([])

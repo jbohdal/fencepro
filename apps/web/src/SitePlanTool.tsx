@@ -4,6 +4,7 @@ import { distanceFeet } from './geoUtils'
 import type { LatLng } from './geoUtils'
 import { toast } from './toast'
 import { getCustomers } from './customerStore'
+import { cloudStorage } from './cloudStorage'
 
 interface CustomerLite { id: string; firstName: string; lastName: string; phone?: string }
 function loadCustomers(): CustomerLite[] {
@@ -25,7 +26,7 @@ interface CustomerFileLite {
 function linkSitePlanToCustomerFiles(plan: SitePlan) {
   if (!plan.customerId) return
   try {
-    const raw = localStorage.getItem('fencepro_files')
+    const raw = cloudStorage.getItem('fencepro_files')
     const files: CustomerFileLite[] = raw ? JSON.parse(raw) : []
     const existingIdx = files.findIndex(f => f.siteplanId === plan.id)
     const entry: CustomerFileLite = {
@@ -40,7 +41,7 @@ function linkSitePlanToCustomerFiles(plan: SitePlan) {
     }
     if (existingIdx >= 0) files[existingIdx] = entry
     else files.unshift(entry)
-    localStorage.setItem('fencepro_files', JSON.stringify(files))
+    cloudStorage.setItem('fencepro_files', JSON.stringify(files))
   } catch { /* noop */ }
 }
 
@@ -131,9 +132,9 @@ const UTILITY_KINDS: { kind: string; label: string; color: string }[] = [
 /* ───────── persistence ───────── */
 
 function loadPlans(): SitePlan[] {
-  try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : [] } catch { return [] }
+  try { const raw = cloudStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : [] } catch { return [] }
 }
-function savePlans(plans: SitePlan[]) { localStorage.setItem(STORAGE_KEY, JSON.stringify(plans)) }
+function savePlans(plans: SitePlan[]) { cloudStorage.setItem(STORAGE_KEY, JSON.stringify(plans)) }
 
 /* ───────── Address Search (reused) ───────── */
 

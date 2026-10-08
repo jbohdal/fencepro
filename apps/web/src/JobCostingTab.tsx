@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import type { SavedQuote } from './QuotesPage'
 import { getQuotes } from './quoteStore'
+import { cloudStorage } from './cloudStorage'
 
 /* ───────── types ───────── */
 
@@ -65,13 +66,13 @@ function loadQuotes(): SavedQuote[] {
 
 function loadEntries(): JobCostEntry[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = cloudStorage.getItem(STORAGE_KEY)
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
 
 function saveEntries(entries: JobCostEntry[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
+  cloudStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
 }
 
 function fenceCategory(style: string): string {

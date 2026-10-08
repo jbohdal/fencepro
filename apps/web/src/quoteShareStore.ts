@@ -4,6 +4,7 @@
  *
  * Also records acceptance + request-changes events per token.
  */
+import { cloudStorage } from './cloudStorage'
 
 const KEY = 'fencepro_quote_shares'
 
@@ -22,9 +23,9 @@ export interface QuoteShare {
 }
 
 export function getShares(): QuoteShare[] {
-  try { const r = localStorage.getItem(KEY); return r ? JSON.parse(r) : [] } catch { return [] }
+  try { const r = cloudStorage.getItem(KEY); return r ? JSON.parse(r) : [] } catch { return [] }
 }
-function saveAll(all: QuoteShare[]) { localStorage.setItem(KEY, JSON.stringify(all)) }
+function saveAll(all: QuoteShare[]) { cloudStorage.setItem(KEY, JSON.stringify(all)) }
 
 export function getShareByToken(token: string): QuoteShare | null {
   return getShares().find(s => s.token === token) || null

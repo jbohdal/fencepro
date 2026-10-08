@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { toast } from './toast'
 import SitePlanTool from './SitePlanTool'
 import { getCustomers } from './customerStore'
+import { cloudStorage } from './cloudStorage'
 
 interface SavedPlan {
   id: string
@@ -22,10 +23,10 @@ interface SavedPlan {
 }
 
 function loadPlans(): SavedPlan[] {
-  try { const r = localStorage.getItem('fencepro_siteplans'); return r ? JSON.parse(r) : [] } catch { return [] }
+  try { const r = cloudStorage.getItem('fencepro_siteplans'); return r ? JSON.parse(r) : [] } catch { return [] }
 }
 function savePlans(p: SavedPlan[]) {
-  localStorage.setItem('fencepro_siteplans', JSON.stringify(p))
+  cloudStorage.setItem('fencepro_siteplans', JSON.stringify(p))
   try { window.dispatchEvent(new CustomEvent('fencepro:siteplans:updated')) } catch {}
 }
 
@@ -70,7 +71,7 @@ export default function SitePlansPage() {
       savePlans(next); setPlans(next)
       // Also mirror into customer files list so it appears in their Files tab
       try {
-        const filesRaw = localStorage.getItem('fencepro_files')
+        const filesRaw = cloudStorage.getItem('fencepro_files')
         const files = filesRaw ? JSON.parse(filesRaw) : []
         files.unshift({
           id: Math.random().toString(36).slice(2, 10),
@@ -82,7 +83,7 @@ export default function SitePlansPage() {
           uploadedAt: new Date().toISOString().slice(0, 10),
           uploadedBy: 'site plan tool',
         })
-        localStorage.setItem('fencepro_files', JSON.stringify(files))
+        cloudStorage.setItem('fencepro_files', JSON.stringify(files))
       } catch {}
       toast.success(`Linked to ${c.firstName} ${c.lastName}`)
     } catch (err: any) {

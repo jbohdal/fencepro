@@ -3,6 +3,7 @@ import { getJobs, updateJob } from './jobStore'
 import { loadMaps, loadMarker, loadPlaces } from './mapsLoader'
 import { clusterByDistance } from './geoUtils'
 import type { LatLng } from './geoUtils'
+import { cloudStorage } from './cloudStorage'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -71,7 +72,7 @@ function loadSchedulableJobs(): SchedulableJob[] {
 
   // From staging store (catch jobs not yet in the unified store)
   try {
-    const raw = localStorage.getItem('fencepro_staging')
+    const raw = cloudStorage.getItem('fencepro_staging')
     if (raw) {
       const staging = JSON.parse(raw) as any[]
       const jobIds = new Set(result.map(r => r.id))

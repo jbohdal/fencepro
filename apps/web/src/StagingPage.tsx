@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import type { SavedQuote } from './QuotesPage'
 import { getQuotes } from './quoteStore'
+import { cloudStorage } from './cloudStorage'
 
 export interface StagingJob {
   id: string
@@ -58,13 +59,13 @@ const uid = () => Math.random().toString(36).slice(2, 9)
 
 function loadStaging(): StagingJob[] {
   try {
-    const raw = localStorage.getItem('fencepro_staging')
+    const raw = cloudStorage.getItem('fencepro_staging')
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
 
 function saveStaging(jobs: StagingJob[]) {
-  localStorage.setItem('fencepro_staging', JSON.stringify(jobs))
+  cloudStorage.setItem('fencepro_staging', JSON.stringify(jobs))
 }
 
 function loadSoldQuotes(): SavedQuote[] {

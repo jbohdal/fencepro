@@ -26,6 +26,7 @@ import {
   type CrmContactRecord,
   type CrmContactPayload,
 } from './crmContactsApi'
+import { cloudStorage } from './cloudStorage'
 
 const EVT = 'fencepro:customers:updated'
 const LEGACY_KEY = 'fencepro_customers'
@@ -309,7 +310,7 @@ const ACTIVITY_KEY = 'fencepro_customer_activity'
 
 export function getActivityForCustomer(customerId: string): CustomerActivity[] {
   try {
-    const r = localStorage.getItem(ACTIVITY_KEY)
+    const r = cloudStorage.getItem(ACTIVITY_KEY)
     const all: CustomerActivity[] = r ? JSON.parse(r) : []
     return all.filter(a => a.customerId === customerId).sort((a, b) => b.at.localeCompare(a.at))
   } catch { return [] }
@@ -317,7 +318,7 @@ export function getActivityForCustomer(customerId: string): CustomerActivity[] {
 
 export function logCustomerActivity(customerId: string, body: string, opts: { actor?: string; kind?: CustomerActivity['kind'] } = {}): void {
   try {
-    const r = localStorage.getItem(ACTIVITY_KEY)
+    const r = cloudStorage.getItem(ACTIVITY_KEY)
     const all: CustomerActivity[] = r ? JSON.parse(r) : []
     all.unshift({
       id: uid(), customerId, body,
@@ -325,7 +326,7 @@ export function logCustomerActivity(customerId: string, body: string, opts: { ac
       kind: opts.kind || 'info',
       at: new Date().toISOString(),
     })
-    localStorage.setItem(ACTIVITY_KEY, JSON.stringify(all.slice(0, 2000)))
+    cloudStorage.setItem(ACTIVITY_KEY, JSON.stringify(all.slice(0, 2000)))
   } catch {}
 }
 

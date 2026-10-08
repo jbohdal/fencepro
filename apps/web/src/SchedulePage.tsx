@@ -6,6 +6,7 @@ import {
   loadRainLog as storeLoadRainLog,
   saveRainLog as storeSaveRainLog,
 } from './scheduleStore'
+import { cloudStorage } from './cloudStorage'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -143,7 +144,7 @@ const saveSchedule = (jobs: ScheduledJob[], settings: ScheduleSettings) => store
 
 function loadStagingJobs() {
   try {
-    const raw = localStorage.getItem('fencepro_staging')
+    const raw = cloudStorage.getItem('fencepro_staging')
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }

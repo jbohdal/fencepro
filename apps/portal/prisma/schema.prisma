@@ -1875,3 +1875,19 @@ model BusinessState {
 
   account CrmAccount @relation(fields: [accountId], references: [id])
 }
+
+// ── Account key/value store ──
+// Small pieces of company data that used to live only in one browser's
+// localStorage: job costing actuals, change orders, operations stage setup,
+// site plans, customer file lists, suppliers, the customer activity feed,
+// import templates. One row per (company, key); the value is the same JSON
+// the browser used to keep, so every device sees the same data.
+model AccountKeyValue {
+  accountId String
+  key       String
+  value     Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+
+  @@id([accountId, key])
+}

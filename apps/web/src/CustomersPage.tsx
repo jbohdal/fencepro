@@ -21,6 +21,7 @@ import {
   listContactNotes, createContactNote, updateContactNote, deleteContactNote,
   type CrmContactNoteRecord,
 } from './crmContactsApi'
+import { cloudStorage } from './cloudStorage'
 
 interface Customer {
   id: string
@@ -722,7 +723,7 @@ function CustomerPullSheetsTab({ customerId }: { customerId: string }) {
 
 function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
   const costEntries: any[] = (() => {
-    try { const r = localStorage.getItem('fencepro_jobcosting'); return r ? JSON.parse(r) : [] } catch { return [] }
+    try { const r = cloudStorage.getItem('fencepro_jobcosting'); return r ? JSON.parse(r) : [] } catch { return [] }
   })()
 
   const soldQuotes = quotes.filter((q: any) => q.status === 'SOLD')
@@ -1096,7 +1097,7 @@ function CustomerDetail({
 export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?: Customer) => void }) {
   const [importedQuotes, setImportedQuotes] = useState<ImportedQuote[]>(() => {
     try {
-      const raw = localStorage.getItem('fencepro_imported_quotes')
+      const raw = cloudStorage.getItem('fencepro_imported_quotes')
       return raw ? JSON.parse(raw) : []
     } catch { return [] }
   })
@@ -1149,7 +1150,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
 
   const [files, setFiles] = useState<CustomerFile[]>(() => {
     try {
-      const raw = localStorage.getItem('fencepro_files')
+      const raw = cloudStorage.getItem('fencepro_files')
       return raw ? JSON.parse(raw) : []
     } catch { return [] }
   })
@@ -1375,7 +1376,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
 
       setImportedQuotes(prev => {
         const updated = [...importedQuotesList, ...prev]
-        localStorage.setItem('fencepro_imported_quotes', JSON.stringify(updated))
+        cloudStorage.setItem('fencepro_imported_quotes', JSON.stringify(updated))
         return updated
       })
 
@@ -1480,7 +1481,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
             onDelete={handleDelete}
             onDeleteFile={id => setFiles(prev => {
               const updated = prev.filter(f => f.id !== id)
-              localStorage.setItem('fencepro_files', JSON.stringify(updated))
+              cloudStorage.setItem('fencepro_files', JSON.stringify(updated))
               return updated
             })}
             onQuoteClick={(quoteId) => {
@@ -1502,7 +1503,7 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
           onDelete={(id) => {
             setFiles(prev => {
               const next = prev.filter(f => f.id !== id)
-              localStorage.setItem('fencepro_files', JSON.stringify(next))
+              cloudStorage.setItem('fencepro_files', JSON.stringify(next))
               return next
             })
           }}

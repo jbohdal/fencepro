@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from './toast'
+import { cloudStorage } from './cloudStorage'
 
 export interface CustomerFileShape {
   id: string
@@ -184,7 +185,7 @@ function SitePlanViewer({ siteplanId }: { siteplanId: string }) {
   const [plan, setPlan] = useState<any>(null)
   useEffect(() => {
     try {
-      const raw = localStorage.getItem('fencepro_siteplans')
+      const raw = cloudStorage.getItem('fencepro_siteplans')
       const all = raw ? JSON.parse(raw) : []
       setPlan(all.find((p: any) => p.id === siteplanId) || null)
     } catch {}

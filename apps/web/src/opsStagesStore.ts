@@ -4,6 +4,7 @@
  * localStorage-backed for the CRM web app. Mirrors the Prisma OperationsStage
  * model so a future server migration can lift-and-shift.
  */
+import { cloudStorage } from './cloudStorage'
 
 const KEY = 'fencepro_ops_stages'
 const EVT = 'fencepro:ops_stages:updated'
@@ -40,10 +41,10 @@ function seedIfEmpty(): OpsStage[] {
 
 export function getOpsStages(): OpsStage[] {
   try {
-    const r = localStorage.getItem(KEY)
+    const r = cloudStorage.getItem(KEY)
     if (!r) {
       const seed = seedIfEmpty()
-      localStorage.setItem(KEY, JSON.stringify(seed))
+      cloudStorage.setItem(KEY, JSON.stringify(seed))
       return seed
     }
     const parsed: OpsStage[] = JSON.parse(r)
@@ -63,13 +64,13 @@ export function saveOpsStages(stages: OpsStage[]): void {
   // Enforce exactly one isFirstStage
   const firstIdx = stages.findIndex(s => s.isFirstStage)
   const cleaned = stages.map((s, i) => ({ ...s, isFirstStage: i === firstIdx, sortOrder: i, updatedAt: now }))
-  localStorage.setItem(KEY, JSON.stringify(cleaned))
+  cloudStorage.setItem(KEY, JSON.stringify(cleaned))
   try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
 }
 
 export function resetOpsStages(): OpsStage[] {
   const fresh = seedIfEmpty()
-  localStorage.setItem(KEY, JSON.stringify(fresh))
+  cloudStorage.setItem(KEY, JSON.stringify(fresh))
   try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
   return fresh
 }

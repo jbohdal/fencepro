@@ -9,6 +9,7 @@
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { createFlusher, legacyMigrationEnabled } from './syncGuard'
 import { setMaterialPriceSource, normalizeItemName } from './materialCalculator'
+import { cloudStorage } from './cloudStorage'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 const INV_EVT = 'fencepro:inventory:updated'
@@ -747,13 +748,13 @@ const SUPPLIER_KEY = 'fencepro_inv_suppliers'
 
 export function getSuppliers(): Supplier[] {
   try {
-    const raw = localStorage.getItem(SUPPLIER_KEY)
+    const raw = cloudStorage.getItem(SUPPLIER_KEY)
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
 
 export function saveSuppliers(suppliers: Supplier[]): void {
-  localStorage.setItem(SUPPLIER_KEY, JSON.stringify(suppliers))
+  cloudStorage.setItem(SUPPLIER_KEY, JSON.stringify(suppliers))
 }
 
 // ── Inventory Summary Helpers ──

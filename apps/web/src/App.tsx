@@ -49,6 +49,7 @@ import { initPipeline, getPipeline, isPipelineHydrated } from './pipelineStore'
 import { initInventory, isInventoryHydrated } from './inventoryStore'
 import { initVendors, isVendorsHydrated } from './vendorStore'
 import { initBusinessState, isBusinessStateHydrated } from './businessStateStore'
+import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
 import { ToastContainer, toast } from './toast'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
@@ -218,6 +219,7 @@ const STORE_LOADERS: Array<{ name: string; load: () => Promise<void>; loaded: ()
   { name: 'Inventory', load: initInventory, loaded: isInventoryHydrated },
   { name: 'Vendors', load: initVendors, loaded: isVendorsHydrated },
   { name: 'Settings and business data', load: initBusinessState, loaded: isBusinessStateHydrated },
+  { name: 'Job costing, change orders, site plans and files', load: initCloudStorage, loaded: isCloudStorageHydrated },
 ]
 
 async function hydrateStores(): Promise<string[]> {
