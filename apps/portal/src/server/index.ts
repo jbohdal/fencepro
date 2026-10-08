@@ -48,6 +48,9 @@ import portalRoutes from './routes/portal.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
+// Set HOST=127.0.0.1 when a local proxy (Tailscale, nginx) is the only way in.
+// Unset means every address, as before.
+const HOST = process.env.HOST as string
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
 
 // ── Trust proxy (behind Nginx) ──
@@ -256,7 +259,7 @@ printEnvValidation()
 // On Vercel, the app is exported and Vercel manages the serverless lifecycle.
 const isVercel = process.env.VERCEL === '1'
 if (!isVercel) {
-  const server = app.listen(PORT, () => {
+  const server = app.listen(PORT, HOST, () => {
     console.log(`🚀 EZBiz Portal API running on port ${PORT}`)
     console.log(`   CORS origin: ${CLIENT_URL}`)
     console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`)
