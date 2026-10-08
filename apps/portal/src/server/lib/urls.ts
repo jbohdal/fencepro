@@ -47,7 +47,10 @@ export function validateProductionEnv(): { critical: string[]; warnings: string[
   } else if (process.env.DATABASE_URL.startsWith('file:')) {
     critical.push('DATABASE_URL points to a SQLite file: ' + process.env.DATABASE_URL + '. SQLite is ephemeral on most hosting platforms (Render/Railway/Fly) and will lose data on every deploy. Migrate to a managed PostgreSQL service.')
   } else if (/localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL) && process.env.NODE_ENV === 'production') {
-    critical.push('DATABASE_URL points to localhost in production. This is almost certainly wrong — production must use a managed PostgreSQL host.')
+    // A self hosted install runs Postgres on the same machine on purpose.
+    if (process.env.ALLOW_LOCAL_DATABASE === 'true') {
+      warnings.push('DATABASE_URL points to localhost in production (allowed by ALLOW_LOCAL_DATABASE). The database lives on this machine, so its backups are yours to keep.')
+    } else critical.push('DATABASE_URL points to localhost in production. This is almost certainly wrong — production must use a managed PostgreSQL host.')
   }
 
   if (!process.env.JWT_SECRET || /change-me|dev-/i.test(process.env.JWT_SECRET)) {
