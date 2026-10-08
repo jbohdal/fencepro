@@ -124,9 +124,29 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
   const p = config.pricing
   const m = config.margins
 
-  function setP(field: keyof PricingConfig, value: number) {
+  function setP<K extends keyof PricingConfig>(field: K, value: PricingConfig[K]) {
     onChange({ ...config, pricing: { ...p, [field]: value } })
   }
+
+  function setCategoryRate(category: string, value: number | undefined) {
+    const next = { ...(p.subRateByCategory ?? {}) }
+    if (value === undefined) delete next[category]
+    else next[category] = value
+    onChange({ ...config, pricing: { ...p, subRateByCategory: next } })
+  }
+
+  const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400'
+  const unitLabel = p.subUnit === 'section' ? 'section' : 'foot'
+  const moneyField = (label: string, field: 'subRateDefault' | 'subWalkGate' | 'subDblGate' | 'subTearOutSection' | 'subTearOutGate', suffix?: string) => (
+    <div>
+      <label className="text-xs text-gray-500 mb-1 block">{label}</label>
+      <div className="flex items-center">
+        <span className="text-gray-400 mr-1">$</span>
+        <input type="number" step="0.25" min="0" max="10000" className={inputCls} value={p[field] ?? 0} onChange={e => { const v = parseFloat(e.target.value); setP(field, !isNaN(v) && v >= 0 ? Math.round(v * 100) / 100 : 0) }} />
+        {suffix && <span className="text-gray-400 text-sm ml-2 whitespace-nowrap">{suffix}</span>}
+      </div>
+    </div>
+  )
 
   function setM(field: keyof MarginThresholds, value: number) {
     onChange({ ...config, margins: { ...m, [field]: value } })
@@ -135,7 +155,64 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
   return (
     <div className="space-y-8 max-w-2xl">
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Labor</h3>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">How jobs are priced</h3>
+        <p className="text-xs text-gray-400 mb-4">These are the defaults for a new quote. Every quote can switch labor and price method on its own, and a saved quote keeps the choices it was saved with.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Install labor</label>
+            <select className={inputCls} value={p.laborMode ?? 'hourly'} onChange={e => setP('laborMode', e.target.value as PricingConfig['laborMode'])}>
+              <option value="hourly">Hourly crew (man hours × rate)</option>
+              <option value="subcontractor">Subcontractor (rate per unit)</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Customer price</label>
+            <select className={inputCls} value={p.priceMethod ?? 'cost_factor'} onChange={e => setP('priceMethod', e.target.value as PricingConfig['priceMethod'])}>
+              <option value="cost_factor">From cost (cost ÷ magic number)</option>
+              <option value="per_foot">Per foot price (set per style)</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Commission</label>
+            <select className={inputCls} value={p.commissionMode ?? 'included'} onChange={e => setP('commissionMode', e.target.value as PricingConfig['commissionMode'])}>
+              <option value="included">Taken out of the price</option>
+              <option value="added">Added on top of the price</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Subcontractor rates</h3>
+        <p className="text-xs text-gray-400 mb-4">Used when a quote's labor is set to Subcontractor. A rate on the style (Fence Styles tab) wins, then the category rate here, then the default.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Rates are paid per</label>
+            <select className={inputCls} value={p.subUnit ?? 'foot'} onChange={e => setP('subUnit', e.target.value as PricingConfig['subUnit'])}>
+              <option value="foot">Foot</option>
+              <option value="section">Section</option>
+            </select>
+          </div>
+          {moneyField('Default rate', 'subRateDefault', `/ ${unitLabel}`)}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+          {STYLE_CATEGORIES.map(cat => (
+            <div key={cat}>
+              <label className="text-xs text-gray-500 mb-1 block">{cat}</label>
+              <input type="number" step="0.25" min="0" className={inputCls} placeholder="Default" value={p.subRateByCategory?.[cat] ?? ''} onChange={e => { const v = parseFloat(e.target.value); setCategoryRate(cat, e.target.value === '' || isNaN(v) || v < 0 ? undefined : Math.round(v * 100) / 100) }} />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {moneyField('Per walk gate', 'subWalkGate')}
+          {moneyField('Per double gate', 'subDblGate')}
+          {moneyField('Tear out, per section', 'subTearOutSection')}
+          {moneyField('Tear out, per gate', 'subTearOutGate')}
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Hourly labor</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Man-Hour Rate</label>
@@ -268,16 +345,18 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
       </div>
 
       <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[720px]">
+        <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
               <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Category</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Margin</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20" title="Magic number: cost ÷ this = price">Magic #</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Sec/MH</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Panel</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Walk Gate</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Dbl Gate</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24" title="Subcontractor pay per foot or section for this style">Sub Rate</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24" title="Customer price per foot, used when a quote is priced per foot">$ / Ft</th>
               <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-16">Active</th>
               <th className="w-10" />
             </tr>
@@ -311,6 +390,12 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
                 </td>
                 <td className="px-3 py-2.5 text-right">
                   <input type="number" step="0.1" min="0" max="20" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.mhPerDblGate} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) update(style.id, { mhPerDblGate: Math.round(v * 10) / 10 }) }} />
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <input type="number" step="0.25" min="0" placeholder="—" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.subRate ?? ''} onChange={e => { const v = parseFloat(e.target.value); update(style.id, { subRate: e.target.value === '' || isNaN(v) || v < 0 ? undefined : Math.round(v * 100) / 100 }) }} />
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <input type="number" step="0.25" min="0" placeholder="—" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.pricePerFoot ?? ''} onChange={e => { const v = parseFloat(e.target.value); update(style.id, { pricePerFoot: e.target.value === '' || isNaN(v) || v < 0 ? undefined : Math.round(v * 100) / 100 }) }} />
                 </td>
                 <td className="px-3 py-2.5 text-center">
                   <button onClick={() => update(style.id, { isActive: !style.isActive })} className={`w-8 h-5 rounded-full transition-colors relative ${style.isActive ? 'bg-orange-500' : 'bg-gray-300'}`}>

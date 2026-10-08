@@ -24,6 +24,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
+import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
 
@@ -100,12 +101,23 @@ const quoteSchema = z.object({
   date: z.string().default(''),
   notes: z.string().default(''),
   leadTemp: z.number().int().default(0),
+  // Per quote pricing choices (labor mode, subcontractor rate, price method,
+  // manual price). Stored as is; the web pricing engine owns the shape.
+  pricing: z.record(z.any()).optional().nullable(),
 })
 
 const quoteUpdateSchema = quoteSchema.partial()
 
 function toJsonValue(value: unknown): any {
   return value === undefined ? undefined : (value === null ? null : JSON.parse(JSON.stringify(value)))
+}
+
+/** For nullable Json columns (runRails, pricing). Prisma rejects a bare JS
+ *  null on a Json? column, so null has to be sent as Prisma.JsonNull. */
+function toNullableJson(value: unknown): any {
+  if (value === undefined) return undefined
+  if (value === null) return Prisma.JsonNull
+  return JSON.parse(JSON.stringify(value))
 }
 
 // ── List ──
@@ -154,7 +166,8 @@ router.post('/', requireUser, requireAccount, async (req: any, res) => {
         salesRep: data.salesRep,
         fenceStyle: data.fenceStyle,
         runs: toJsonValue(data.runs),
-        runRails: toJsonValue(data.runRails),
+        runRails: toNullableJson(data.runRails),
+        pricing: toNullableJson(data.pricing),
         corners: data.corners,
         ends: data.ends,
         walkGates: data.walkGates,
@@ -208,7 +221,8 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
         salesRep: data.salesRep,
         fenceStyle: data.fenceStyle,
         runs: toJsonValue(data.runs),
-        runRails: toJsonValue(data.runRails),
+        runRails: toNullableJson(data.runRails),
+        pricing: toNullableJson(data.pricing),
         corners: data.corners,
         ends: data.ends,
         walkGates: data.walkGates,
@@ -284,7 +298,8 @@ router.post('/sync', requireUser, requireAccount, async (req: any, res) => {
             data: {
               ...quoteSchema.partial().parse(q),
               runs: toJsonValue(q.runs),
-              runRails: toJsonValue(q.runRails),
+              runRails: toNullableJson(q.runRails),
+              pricing: toNullableJson(q.pricing),
               pullSheet: toJsonValue(q.pullSheet),
             },
           })
@@ -314,7 +329,8 @@ router.post('/sync', requireUser, requireAccount, async (req: any, res) => {
             salesRep: q.salesRep,
             fenceStyle: q.fenceStyle,
             runs: toJsonValue(q.runs),
-            runRails: toJsonValue(q.runRails),
+            runRails: toNullableJson(q.runRails),
+            pricing: toNullableJson(q.pricing),
             corners: q.corners,
             ends: q.ends,
             walkGates: q.walkGates,

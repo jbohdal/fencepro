@@ -1,6 +1,9 @@
-import { useState, useMemo, useRef } from 'react'
-import { calculateMaterials, calculateMixedMaterials, mixedTotalSections, totalMaterialCost } from './materialCalculator'
-import type { LineItem, RailWidth } from './materialCalculator'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { calculateMaterialsDetailed, calculateMixedMaterialsDetailed, mixedTotalSections, totalMaterialCost, materialUnitCost } from './materialCalculator'
+import type { LineItem, RailWidth, MaterialResult } from './materialCalculator'
+import { calculatePrice, resolveSubRate, cleanOverrides } from './pricingEngine'
+import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
+import { INVENTORY_UPDATED_EVENT } from './inventoryStore'
 import type { SavedQuote } from './QuotesPage'
 import QuoteOptionsPanel from './QuoteOptionsPanel'
 import { getCustomers, getCustomerById, upsertCustomer } from './customerStore'
@@ -10,47 +13,40 @@ import { sectionsForRun } from './sectionCount'
 import { getRailOptimizerConfig } from './configStore'
 import {
   optimizeJob,
+  runMaterialCost,
   WHITE_VINYL_6X6_COSTS,
   WHITE_VINYL_6X8_COSTS,
 } from './railOptimizer'
+import type { PanelCosts } from './railOptimizer'
 
-const FENCE_STYLES = [
-  { id: 'auto-wv-nd', name: "WV-Auto ND Privacy", category: 'Vinyl',    margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6, autoRailMix: true,  installMethod: 'no-dig'  as const, colorFamily: 'white' as const },
-  { id: 'auto-wv-ds', name: "WV-Auto DS Privacy", category: 'Vinyl',    margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 6, autoRailMix: true,  installMethod: 'dig-set' as const, colorFamily: 'white' as const },
-  { id: '1',  name: "WV-ND 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6  },
-  { id: '2',  name: "WV-ND 6'x8' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6  },
-  { id: '3',  name: "WV-ND 8'x6' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 8  },
-  { id: '4',  name: "WV-ND 8'x8' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 8  },
-  { id: '5',  name: "WV-ND Bell 4'x6'",         category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.25, panelWidth: 4  },
-  { id: '6',  name: "WV-DS 6'x6' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 6  },
-  { id: '7',  name: "WV-DS 6'x8' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 6  },
-  { id: '8',  name: "WV-DS 8'x6' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.7,  panelWidth: 8  },
-  { id: '9',  name: "WV-DS 8'x8' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.7,  panelWidth: 8  },
-  { id: '10', name: "TV-ND 6'x6' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6  },
-  { id: '11', name: "TV-ND 6'x8' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.5,  panelWidth: 6  },
-  { id: '12', name: "TV-DS 6'x6' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.1,  panelWidth: 6  },
-  { id: '13', name: "TV-DS 6'x8' Privacy",      category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.1,  panelWidth: 6  },
-  { id: '14', name: "CL - 4' Galv",             category: 'Chainlink',  margin: 0.56, sectionsPerMH: 1.5,  panelWidth: 10 },
-  { id: '15', name: "CL - 5' Galv",             category: 'Chainlink',  margin: 0.56, sectionsPerMH: 1.5,  panelWidth: 10 },
-  { id: '16', name: "CL - 6' Galv",             category: 'Chainlink',  margin: 0.56, sectionsPerMH: 1.5,  panelWidth: 10 },
-  { id: '17', name: "CL - 4' Black",            category: 'Chainlink',  margin: 0.56, sectionsPerMH: 1.5,  panelWidth: 10 },
-  { id: '18', name: "CL - 5' Black",            category: 'Chainlink',  margin: 0.56, sectionsPerMH: 1.5,  panelWidth: 10 },
-  { id: '19', name: "CL - 6' Black",            category: 'Chainlink',  margin: 0.56, sectionsPerMH: 1.5,  panelWidth: 10 },
-  { id: '20', name: "CL - Com 6'",              category: 'Commercial', margin: 0.56, sectionsPerMH: 1.0,  panelWidth: 10 },
-  { id: '21', name: "CL - Com 6'+1'",           category: 'Commercial', margin: 0.56, sectionsPerMH: 1.0,  panelWidth: 10 },
-  { id: '22', name: "CL - Com 6'+1' Black",     category: 'Commercial', margin: 0.56, sectionsPerMH: 1.0,  panelWidth: 10 },
-  { id: '23', name: "Alum - ND - Emily - 48",   category: 'Aluminum',   margin: 0.64, sectionsPerMH: 1.5,  panelWidth: 6  },
-  { id: '24', name: "Alum - DS - Emily - 48",   category: 'Aluminum',   margin: 0.62, sectionsPerMH: 1.2,  panelWidth: 6  },
-  { id: '25', name: "Alum - DS - Ind Abigail",  category: 'Aluminum',   margin: 0.58, sectionsPerMH: 1.2,  panelWidth: 8  },
-  { id: '26', name: "Durafence",                category: 'Other',      margin: 0.64, sectionsPerMH: 1.0,  panelWidth: 8  },
-]
+// Settings are read when the builder opens (not when the app loads), so a
+// change in Settings → Pricing or Fence Styles applies to the next quote
+// without a page reload.
+const DEFAULT_LEAD_SOURCES = ['Google', 'Facebook', 'Instagram', 'Yard Sign', 'Referral', 'Door Hanger', 'Repeat Customer', 'Nextdoor', 'Other']
+function leadSources(): string[] {
+  const ls = getConfig().leadSources
+  return ls?.length ? ls : DEFAULT_LEAD_SOURCES
+}
 
-// Pull live values from Settings → Pricing so changes in admin propagate here
-const CFG = getConfig()
-const LEAD_SOURCES = CFG.leadSources?.length ? CFG.leadSources : ['Google', 'Facebook', 'Instagram', 'Yard Sign', 'Referral', 'Door Hanger', 'Repeat Customer', 'Nextdoor', 'Other']
-const MAN_HOUR_RATE  = CFG.pricing?.manHourRate ?? 22
-const TEAR_OUT_FENCE = CFG.pricing?.tearOutFence ?? 9.50
-const TEAR_OUT_GATE  = CFG.pricing?.tearOutGate ?? 27.00
+/** White vinyl panel costs for the rail optimizer, read from Inventory. */
+function livePanelCosts(): { c6: PanelCosts; c8: PanelCosts } {
+  const picketCost = materialUnitCost('*Vinyl, White, Picket, 62-1/4"', WHITE_VINYL_6X6_COSTS.picketCost)
+  const uTrimCost = materialUnitCost('*Vinyl, White, U-Trim, 59-1/4"', WHITE_VINYL_6X6_COSTS.uTrimCost)
+  return {
+    c6: { ...WHITE_VINYL_6X6_COSTS, picketCost, uTrimCost,
+          railCost: materialUnitCost("*Vinyl, White, Rail, 6'", WHITE_VINYL_6X6_COSTS.railCost) },
+    c8: { ...WHITE_VINYL_6X8_COSTS, picketCost, uTrimCost,
+          railCost: materialUnitCost("*Vinyl, White, Rail, 8'", WHITE_VINYL_6X8_COSTS.railCost),
+          stiffenerCost: materialUnitCost("Vinyl, Rail Insert, 8'", WHITE_VINYL_6X8_COSTS.stiffenerCost) },
+  }
+}
+
+/** '' → undefined, otherwise the number if it is valid and not negative. */
+function numOrUndef(v: string): number | undefined {
+  if (v.trim() === '') return undefined
+  const n = parseFloat(v)
+  return Number.isFinite(n) && n >= 0 ? n : undefined
+}
 const FLAME_COLORS   = ['text-blue-400','text-cyan-400','text-yellow-400','text-orange-500','text-red-500']
 const FLAME_LABELS   = ['Cold','Cool','Warm','Hot','On Fire']
 
@@ -70,8 +66,6 @@ interface SavedCustomer {
   leadSource: string
   salesRep: string
 }
-
-function r2(n: number) { return n }
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
@@ -118,6 +112,7 @@ function SaveModal({
   const [status, setStatus]       = useState<SavedQuote['status']>('DRAFT')
   const [notes, setNotes]         = useState('')
   const [leadTemp, setLeadTemp]   = useState(0)
+  const LEAD_SOURCES = useMemo(() => leadSources(), [])
 
   const allCustomers: SavedCustomer[] = useMemo(() => {
     return getCustomers() as SavedCustomer[]
@@ -350,6 +345,15 @@ export default function QuoteBuilder({
 }) {
   const init = initialQuote
 
+  // Styles, rates and thresholds all come from Settings. Inactive styles are
+  // hidden unless this quote already uses one.
+  const cfg = useMemo(() => getConfig(), [])
+  const FENCE_STYLES = useMemo(
+    () => cfg.fenceStyles.filter(s => s.isActive !== false || s.name === init?.fenceStyle),
+    [cfg, init?.fenceStyle],
+  )
+  const initPricing: QuotePricingOverrides = init?.pricing ?? {}
+
   const [customerName, setCustomerName] = useState(init?.customerName ?? '')
   const [styleId, setStyleId]           = useState(() => {
     if (!init) return ''
@@ -370,6 +374,23 @@ export default function QuoteBuilder({
   const [adjLaborHrs, setAdjLaborHrs]   = useState(init?.adjLaborHrs ? String(init.adjLaborHrs) : '')
   const [priceAdjust, setPriceAdjust]   = useState(init?.priceAdjust ?? 0)
   const [hasSalesman, setHasSalesman]   = useState(init?.hasSalesman ?? false)
+  // Pricing choices for this quote. A saved quote reopens with the choices it
+  // was saved with; a new quote starts from Settings → Pricing.
+  const [laborMode, setLaborMode]       = useState<LaborMode>(initPricing.laborMode ?? cfg.pricing.laborMode ?? 'hourly')
+  const [subUnit, setSubUnit]           = useState<SubUnit>(initPricing.subUnit ?? cfg.pricing.subUnit ?? 'foot')
+  const [subRateStr, setSubRateStr]     = useState(initPricing.subRate != null ? String(initPricing.subRate) : '')
+  const [laborFlatStr, setLaborFlatStr] = useState(initPricing.laborCost != null ? String(initPricing.laborCost) : '')
+  const [priceMethod, setPriceMethod]   = useState<PriceMethod>(initPricing.priceMethod ?? cfg.pricing.priceMethod ?? 'cost_factor')
+  const [perFootStr, setPerFootStr]     = useState(initPricing.pricePerFoot != null ? String(initPricing.pricePerFoot) : '')
+  const [factorStr, setFactorStr]       = useState(initPricing.costFactor != null ? String(initPricing.costFactor) : '')
+  const [finalPriceStr, setFinalPriceStr] = useState(initPricing.finalPrice != null ? String(initPricing.finalPrice) : '')
+  // Bumps when Inventory changes so material costs are re-read while the builder is open.
+  const [invTick, setInvTick]           = useState(0)
+  useEffect(() => {
+    const onInv = () => setInvTick(t => t + 1)
+    window.addEventListener(INVENTORY_UPDATED_EVENT, onInv)
+    return () => window.removeEventListener(INVENTORY_UPDATED_EVENT, onInv)
+  }, [])
   const [showPullSheet, setShowPullSheet] = useState(true)
   const [showSaveModal, setShowSaveModal] = useState(false)
   // Use `||` instead of `??` so an empty-string id (from callers that
@@ -377,8 +398,9 @@ export default function QuoteBuilder({
   const quoteIdRef = useRef<string>(init?.id || uid())
 
   const style = FENCE_STYLES.find(s => s.id === styleId)
-  const cfgStyle = style ? getConfig().fenceStyles.find(s => s.id === style.id) : undefined
+  const cfgStyle = style
   const isAutoMix = !!cfgStyle?.autoRailMix
+  const panelCosts = useMemo(() => livePanelCosts(), [invTick])
 
   // ── Auto-mix: resolve per-run rail width via the optimizer ──
   // For each run, look up the override; if 'auto', call the optimizer with
@@ -392,14 +414,14 @@ export default function QuoteBuilder({
       if (r.rail === '6ft' || r.rail === '8ft') return r.rail
       // Optimizer decision (matches railOptimizer.ts logic)
       if (!optSettingsLive.enabled || ft <= optSettingsLive.shortRunCutoffFt) return '6ft'
-      const cost6 = sectionsForRun(ft, 6) * (11 * 2.71 + 2 * 5.98 + 2 * 1.62)
-      const cost8 = sectionsForRun(ft, 8) * (15 * 2.71 + 2 * 9.26 + 2 * 1.62 + 8.0)
+      const cost6 = runMaterialCost(ft, panelCosts.c6, 6)
+      const cost8 = runMaterialCost(ft, panelCosts.c8, 8)
       if (cost8 < cost6) return '8ft'
       const pctDiff = cost6 > 0 ? (cost6 - cost8) / cost6 : 0
       if (-pctDiff <= optSettingsLive.costPreferenceThreshold) return '8ft'
       return '6ft'
     })
-  }, [isAutoMix, runs, optSettingsLive.enabled, optSettingsLive.shortRunCutoffFt, optSettingsLive.costPreferenceThreshold])
+  }, [isAutoMix, runs, panelCosts, optSettingsLive.enabled, optSettingsLive.shortRunCutoffFt, optSettingsLive.costPreferenceThreshold])
 
   const sections = useMemo(() => {
     if (isAutoMix) {
@@ -413,13 +435,13 @@ export default function QuoteBuilder({
     }, 0)
   }, [isAutoMix, runs, resolvedRunRails, style])
 
-  const materialItems: LineItem[] = useMemo(() => {
-    if (!style || sections === 0) return []
+  const materials: MaterialResult = useMemo(() => {
+    if (!style || sections === 0) return { items: [], warnings: [] }
     if (isAutoMix && cfgStyle?.installMethod && cfgStyle?.colorFamily) {
       const mixed = runs
         .map((r, i) => ({ ft: parseFloat(r.ft) || 0, rail: resolvedRunRails[i] || ('6ft' as RailWidth) }))
         .filter(r => r.ft > 0)
-      return calculateMixedMaterials({
+      return calculateMixedMaterialsDetailed({
         installMethod: cfgStyle.installMethod,
         colorFamily: cfgStyle.colorFamily,
         runs: mixed,
@@ -427,7 +449,7 @@ export default function QuoteBuilder({
         tearOutSections: tearOutSec, tearOutGates,
       })
     }
-    return calculateMaterials({
+    return calculateMaterialsDetailed({
       fenceStyle:      style.name,
       runs:            runs.map(r => parseFloat(r.ft) || 0).filter(f => f > 0),
       corners,
@@ -437,27 +459,55 @@ export default function QuoteBuilder({
       tearOutSections: tearOutSec,
       tearOutGates,
     })
-  }, [style, isAutoMix, cfgStyle, sections, runs, resolvedRunRails, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates])
+    // invTick: re-read Inventory costs when Inventory changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [style, isAutoMix, cfgStyle, sections, runs, resolvedRunRails, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, invTick])
 
+  const materialItems: LineItem[] = materials.items
   const materialCost = useMemo(() => totalMaterialCost(materialItems), [materialItems])
+  const totalFootage = runs.reduce((s, r) => s + (parseFloat(r.ft) || 0), 0)
 
-  const mhPerWalkGate = 2.4
-  const mhPerDblGate  = 4.8
-  const baseMH = style
-    ? sections / style.sectionsPerMH + walkGates * mhPerWalkGate + dblGates * mhPerDblGate
-    : 0
-  const adjustedMH  = baseMH + (parseFloat(adjLaborHrs) || 0)
-  const laborCost   = r2(adjustedMH * MAN_HOUR_RATE)
-  const tearOutCost = r2(tearOutSec * TEAR_OUT_FENCE + tearOutGates * TEAR_OUT_GATE)
-  const totalCOGS   = r2(laborCost + materialCost + tearOutCost)
-  const margin      = style ? style.margin : 0.64
-  const basePrice   = margin > 0 ? r2(totalCOGS / margin) : 0
-  const adjPrice    = r2(basePrice * (1 + priceAdjust))
-  const commPct     = hasSalesman ? 0.10 : 0
-  const commAmt     = r2(adjPrice * commPct)
-  const grossMargin = r2(adjPrice - totalCOGS - commAmt)
-  const gmPct       = adjPrice > 0 ? grossMargin / adjPrice : 0
-  const gmColor     = gmPct >= 0.34 ? 'text-green-600' : gmPct >= 0.27 ? 'text-yellow-500' : 'text-red-500'
+  // Everything about labor, cost and price comes out of the pricing engine,
+  // driven by Settings → Pricing, the style, and the choices on this quote.
+  const pricingOverrides: QuotePricingOverrides = {
+    laborMode,
+    subUnit: laborMode === 'subcontractor' ? subUnit : undefined,
+    subRate: laborMode === 'subcontractor' ? numOrUndef(subRateStr) : undefined,
+    laborCost: numOrUndef(laborFlatStr),
+    priceMethod,
+    pricePerFoot: priceMethod === 'per_foot' ? numOrUndef(perFootStr) : undefined,
+    costFactor: priceMethod === 'cost_factor' ? numOrUndef(factorStr) : undefined,
+    finalPrice: numOrUndef(finalPriceStr),
+  }
+  const priced = calculatePrice({
+    sections,
+    footage: totalFootage,
+    walkGates,
+    dblGates,
+    tearOutSections: tearOutSec,
+    tearOutGates,
+    materialCost,
+    extraLaborHrs: parseFloat(adjLaborHrs) || 0,
+    hasSalesman,
+    priceAdjust,
+    style: cfgStyle,
+    pricing: cfg.pricing,
+    overrides: pricingOverrides,
+  })
+  const adjustedMH  = priced.manHours
+  const laborCost   = priced.laborCost
+  const tearOutCost = priced.tearOutCost
+  const totalCOGS   = priced.totalCOGS
+  const adjPrice    = priced.price
+  const commAmt     = priced.commissionAmt
+  const grossMargin = priced.grossMargin
+  const gmPct       = priced.gmPct
+  const gmGood      = cfg.margins?.good ?? 0.34
+  const gmWarn      = cfg.margins?.warning ?? 0.27
+  const gmColor     = gmPct >= gmGood ? 'text-green-600' : gmPct >= gmWarn ? 'text-yellow-500' : 'text-red-500'
+  const defaultSubRate = resolveSubRate(cfgStyle, cfg.pricing)
+  const commissionPctLabel = `${Math.round((cfg.pricing.commissionSalesman ?? 0) * 1000) / 10}%`
+  const quoteWarnings = [...materials.warnings, ...priced.notes]
 
   function addRun() { setRuns(r => [...r, { ft: '', rail: 'auto' }]) }
   function removeRun(i: number) { setRuns(r => r.filter((_, idx) => idx !== i)) }
@@ -481,15 +531,15 @@ export default function QuoteBuilder({
     if (runFootages.length === 0) return null
     return optimizeJob({
       runs: runFootages.map(f => ({ footage: f })),
-      costs6ft: WHITE_VINYL_6X6_COSTS,
-      costs8ft: WHITE_VINYL_6X8_COSTS,
+      costs6ft: panelCosts.c6,
+      costs8ft: panelCosts.c8,
       settings: {
         enabled: optSettings.enabled,
         shortRunCutoffFt: optSettings.shortRunCutoffFt,
         costPreferenceThreshold: optSettings.costPreferenceThreshold,
       },
     })
-  }, [showOptimizer, runs, optSettings.enabled, optSettings.shortRunCutoffFt, optSettings.costPreferenceThreshold])
+  }, [showOptimizer, runs, panelCosts, optSettings.enabled, optSettings.shortRunCutoffFt, optSettings.costPreferenceThreshold])
 
   function handleSave(data: {
     customerId: string
@@ -542,6 +592,7 @@ export default function QuoteBuilder({
       date: new Date().toISOString().slice(0, 10),
       notes: data.notes,
       leadTemp: data.leadTemp ?? 0,
+      pricing: cleanOverrides(pricingOverrides),
     }
     setShowSaveModal(false)
     onSave(quote)
@@ -774,15 +825,56 @@ export default function QuoteBuilder({
             </div>
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Labor Override</h3>
-              <label className="text-xs text-gray-400 mb-1 block">Extra hours added on top of calculated</label>
-              <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="0" value={adjLaborHrs} onChange={e => setAdjLaborHrs(e.target.value)} />
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Labor</h3>
+              <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-3">
+                {([['hourly', 'Hourly crew'], ['subcontractor', 'Subcontractor']] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setLaborMode(mode)}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${laborMode === mode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+                  >{label}</button>
+                ))}
+              </div>
+
+              {laborMode === 'subcontractor' ? (
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Sub rate ($)</label>
+                    <input type="number" min={0} step="0.25" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder={defaultSubRate > 0 ? `${defaultSubRate} from Settings` : 'No rate set'} value={subRateStr} onChange={e => setSubRateStr(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Paid per</label>
+                    <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={subUnit} onChange={e => setSubUnit(e.target.value as SubUnit)}>
+                      <option value="foot">Foot</option>
+                      <option value="section">Section</option>
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 mb-3">
+                  Projected man hours × ${cfg.pricing.manHourRate}/hr from Settings.
+                </p>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Extra hours (at ${cfg.pricing.manHourRate}/hr)</label>
+                  <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="0" value={adjLaborHrs} onChange={e => setAdjLaborHrs(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Flat labor $ (replaces calculated)</label>
+                  <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="Calculated" value={laborFlatStr} onChange={e => setLaborFlatStr(e.target.value)} />
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center justify-between py-1">
               <div>
                 <p className="text-sm font-medium text-gray-700">Salesman on this job?</p>
-                <p className="text-xs text-gray-400">Adds 10% commission</p>
+                <p className="text-xs text-gray-400">
+                  {commissionPctLabel} commission, {priced.commissionMode === 'added' ? 'added on top of the price' : 'taken out of the price'}
+                </p>
               </div>
               <button
                 type="button"
@@ -803,6 +895,7 @@ export default function QuoteBuilder({
               adjLaborHrs: parseFloat(adjLaborHrs) || 0,
               hasSalesman, priceAdjust,
               fenceStyleId: styleId,
+              pricing: pricingOverrides,
             }} />
           </div>
 
@@ -818,19 +911,19 @@ export default function QuoteBuilder({
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-xs text-gray-500">Total Footage</span>
                   <span className="text-sm font-semibold text-gray-700">
-                    {runs.reduce((s, r) => s + (parseFloat(r.ft) || 0), 0)} ft
+                    {totalFootage} ft
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-gray-500">Projected MH</span>
-                  <span className="text-xl font-bold text-gray-900">{r2(adjustedMH).toFixed(1)}</span>
+                  <span className="text-xl font-bold text-gray-900">{adjustedMH.toFixed(1)}</span>
                 </div>
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2">
                 {[
                   { label: 'Material Cost', val: fmt(materialCost) },
-                  { label: 'Labor Cost',    val: fmt(laborCost) },
+                  { label: priced.laborMode === 'flat' ? 'Labor (flat)' : priced.laborMode === 'subcontractor' ? `Labor (sub, $${priced.subRate}/${priced.subUnit === 'section' ? 'sec' : 'ft'})` : 'Labor Cost', val: fmt(laborCost) },
                   { label: 'Tear Out',      val: fmt(tearOutCost) },
                 ].map(row => (
                   <div key={row.label} className="flex justify-between text-sm">
@@ -844,7 +937,47 @@ export default function QuoteBuilder({
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
+              {quoteWarnings.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
+                  <p className="text-xs font-semibold text-amber-800">Check before you quote</p>
+                  {quoteWarnings.map((w, i) => (
+                    <p key={i} className="text-xs text-amber-800 leading-snug">{w}</p>
+                  ))}
+                </div>
+              )}
+
+              <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">Price from</span>
+                  <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5">
+                    {([['cost_factor', 'Cost'], ['per_foot', 'Per foot']] as const).map(([m, label]) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setPriceMethod(m)}
+                        className={`text-[11px] font-semibold px-2 py-1 rounded ${priceMethod === m ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+                      >{label}</button>
+                    ))}
+                  </div>
+                </div>
+                {priceMethod === 'cost_factor' ? (
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Magic number (cost ÷ this = price)</label>
+                    <input type="number" min={0.01} max={1} step="0.01" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder={`${cfgStyle?.margin ?? 0.64} from style`} value={factorStr} onChange={e => setFactorStr(e.target.value)} />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Price per foot ($)</label>
+                    <input type="number" min={0} step="0.25" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder={cfgStyle?.pricePerFoot ? `${cfgStyle.pricePerFoot} from style` : 'No price set for this style'} value={perFootStr} onChange={e => setPerFootStr(e.target.value)} />
+                  </div>
+                )}
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Set final price by hand ($)</label>
+                  <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="Calculated" value={finalPriceStr} onChange={e => setFinalPriceStr(e.target.value)} />
+                </div>
+              </div>
+
+              <div className={`bg-white rounded-xl border border-gray-200 p-4 ${priced.priceMethod === 'manual' ? 'opacity-40' : ''}`}>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-xs text-gray-500">Price Adjust</span>
                   <span className={`text-sm font-semibold ${priceAdjust >= 0 ? 'text-green-600' : 'text-red-500'}`}>
@@ -858,9 +991,10 @@ export default function QuoteBuilder({
               </div>
 
               <div className="bg-gray-900 rounded-xl p-4">
-                <p className="text-gray-400 text-xs mb-1">Adjusted Price</p>
+                <p className="text-gray-400 text-xs mb-1">{priced.priceMethod === 'manual' ? 'Price (set by hand)' : 'Adjusted Price'}</p>
                 <p className="text-white text-3xl font-bold">{fmt(adjPrice)}</p>
-                {hasSalesman && <p className="text-gray-400 text-xs mt-1">Commission: {fmt(commAmt)}</p>}
+                {totalFootage > 0 && <p className="text-gray-400 text-xs mt-1">{fmt(priced.pricePerFoot)} per foot</p>}
+                {commAmt > 0 && <p className="text-gray-400 text-xs mt-1">Commission: {fmt(commAmt)}</p>}
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -874,10 +1008,10 @@ export default function QuoteBuilder({
                 </div>
                 <div className="mt-2">
                   <div className="w-full bg-gray-100 rounded-full h-1.5">
-                    <div className={`h-1.5 rounded-full transition-all ${gmPct >= 0.34 ? 'bg-green-500' : gmPct >= 0.27 ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.min(gmPct * 100, 100)}%` }} />
+                    <div className={`h-1.5 rounded-full transition-all ${gmPct >= gmGood ? 'bg-green-500' : gmPct >= gmWarn ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(gmPct * 100, 100))}%` }} />
                   </div>
                   <p className={`text-xs mt-1 ${gmColor}`}>
-                    {gmPct >= 0.34 ? '✓ Above target' : gmPct >= 0.27 ? '⚠ Below target' : '✗ Danger zone'}
+                    {gmPct >= gmGood ? '✓ Above target' : gmPct >= gmWarn ? '⚠ Below target' : '✗ Danger zone'}
                   </p>
                 </div>
               </div>

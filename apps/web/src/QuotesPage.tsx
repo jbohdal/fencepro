@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { LineItem } from './materialCalculator'
+import type { QuotePricingOverrides } from './pricingEngine'
 import { ChangeOrderPanel } from './ChangeOrders'
 import { POButton } from './PurchaseOrder'
 import { pullFromInventory, getLocations } from './inventoryStore'
@@ -44,6 +45,9 @@ export interface SavedQuote {
   date: string
   notes: string
   leadTemp: number
+  /** Pricing choices made on this quote (labor mode, subcontractor rate,
+   *  price method, manual price). Absent means "use Settings". */
+  pricing?: QuotePricingOverrides
 }
 
 const fmt = (n: number) =>

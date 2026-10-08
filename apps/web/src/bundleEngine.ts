@@ -11,6 +11,7 @@ import { calculateMaterials, totalMaterialCost } from './materialCalculator'
 import { getConfig, type FenceStyle } from './configStore'
 import type { QuoteBundle, QuoteOption, BundleInclusion, BundleAddon } from './bundleStore'
 import { sectionsForRun } from './sectionCount'
+import { calculatePrice, type QuotePricingOverrides } from './pricingEngine'
 
 export interface BundleJobInputs {
   quoteId: string
@@ -26,6 +27,9 @@ export interface BundleJobInputs {
   hasSalesman: boolean
   priceAdjust: number
   presentationOrder: number
+  /** Labor choices made on the quote (hourly vs subcontractor, rates). The
+   *  bundle's own price settings still decide how the price is built. */
+  pricing?: QuotePricingOverrides
 }
 
 export function calculateBundleOption(
@@ -60,19 +64,26 @@ export function calculateBundleOption(
     }
   }
 
-  // Labor
-  const mhPerWalkGate = 2.4, mhPerDblGate = 4.8
-  const baseMH = style
-    ? sections / style.sectionsPerMH + inputs.walkGates * mhPerWalkGate + inputs.dblGates * mhPerDblGate
-    : 0
-  const adjustedMH = baseMH + (inputs.adjLaborHrs || 0)
-  const laborCost = adjustedMH * manHourRate
-
-  // Tear out
-  const tearOutCost = inputs.tearOutSections * cfg.pricing.tearOutFence
-    + inputs.tearOutGates * cfg.pricing.tearOutGate
-
-  const totalCOGS = materialCost + laborCost + tearOutCost
+  // Labor + tear out come from the shared pricing engine, so a bundle option
+  // costs labor the same way the quote does (hourly crew or subcontractor).
+  const q = inputs.pricing ?? {}
+  const costed = calculatePrice({
+    sections,
+    footage: totalFootage,
+    walkGates: inputs.walkGates,
+    dblGates: inputs.dblGates,
+    tearOutSections: inputs.tearOutSections,
+    tearOutGates: inputs.tearOutGates,
+    materialCost,
+    extraLaborHrs: inputs.adjLaborHrs || 0,
+    hasSalesman: inputs.hasSalesman,
+    priceAdjust: 0,
+    style,
+    pricing: { ...cfg.pricing, manHourRate },
+    overrides: { laborMode: q.laborMode, subUnit: q.subUnit, subRate: q.subRate, laborCost: q.laborCost },
+  })
+  const laborCost = costed.laborCost
+  const totalCOGS = costed.totalCOGS
 
   let quotePrice = 0
   switch (bundle.pricingMethod) {

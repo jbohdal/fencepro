@@ -11,6 +11,7 @@ import {
 } from './bundleStore'
 import { calculateBundleOption } from './bundleEngine'
 import { fireTrigger } from './automationTrigger'
+import type { QuotePricingOverrides } from './pricingEngine'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -31,6 +32,8 @@ export interface JobInputsForOptions {
   hasSalesman: boolean
   priceAdjust: number
   fenceStyleId?: string  // override fence style per-tier; otherwise each bundle's own style
+  /** Labor choices from the quote (hourly vs subcontractor, rates). */
+  pricing?: QuotePricingOverrides
 }
 
 export default function QuoteOptionsPanel({ inputs }: { inputs: JobInputsForOptions }) {
@@ -60,6 +63,7 @@ export default function QuoteOptionsPanel({ inputs }: { inputs: JobInputsForOpti
         tearOutSections: inputs.tearOutSections, tearOutGates: inputs.tearOutGates,
         adjLaborHrs: inputs.adjLaborHrs, hasSalesman: inputs.hasSalesman,
         priceAdjust: inputs.priceAdjust, presentationOrder: idx,
+        pricing: inputs.pricing,
       })
       createOption(opt)
     })

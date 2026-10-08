@@ -22,6 +22,12 @@ export interface FenceStyle {
   /** Color family for the mixed-rail calculator. Used to pick the right
    *  picket / rail / u-trim SKUs (white vs tan). */
   colorFamily?: 'white' | 'tan'
+  /** Subcontractor pay per foot or per section for this style. Blank falls
+   *  back to the category rate, then the default rate in Settings → Pricing. */
+  subRate?: number
+  /** Customer price per foot for this style, used when a quote is priced
+   *  per foot instead of from cost. */
+  pricePerFoot?: number
 }
 
 export interface PricingConfig {
@@ -30,6 +36,22 @@ export interface PricingConfig {
   commissionNonSalesman: number
   tearOutFence: number
   tearOutGate: number
+  /** How install labor is costed by default. Each quote can switch. */
+  laborMode: 'hourly' | 'subcontractor'
+  /** What a subcontractor rate is paid on. */
+  subUnit: 'foot' | 'section'
+  /** Subcontractor pay per unit when the style and its category have none. */
+  subRateDefault: number
+  /** Subcontractor pay per unit by style category. */
+  subRateByCategory: Record<string, number>
+  subWalkGate: number
+  subDblGate: number
+  subTearOutSection: number
+  subTearOutGate: number
+  /** How the customer price is built by default. Each quote can switch. */
+  priceMethod: 'cost_factor' | 'per_foot'
+  /** 'included' takes commission out of the price; 'added' puts it on top. */
+  commissionMode: 'included' | 'added'
 }
 
 export interface MarginThresholds {
@@ -93,12 +115,12 @@ const DEFAULT_FENCE_STYLES: FenceStyle[] = [
   // ── Locked-width styles ──
   { id: '1',  name: "WV-ND 6'x6' Privacy",    category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '2',  name: "WV-ND 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
-  { id: '3',  name: "WV-ND 8'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
+  { id: '3',  name: "WV-ND 8'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '4',  name: "WV-ND 8'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '5',  name: "WV-ND Bell 4'x6'",        category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.25, panelWidth: 4,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '6',  name: "WV-DS 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '7',  name: "WV-DS 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
-  { id: '8',  name: "WV-DS 8'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.7,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
+  { id: '8',  name: "WV-DS 8'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.7,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '9',  name: "WV-DS 8'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.7,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '10', name: "TV-ND 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '11', name: "TV-ND 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.5,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
@@ -135,6 +157,16 @@ const DEFAULT_CONFIG: AppConfig = {
     commissionNonSalesman: 0,
     tearOutFence: 9.50,
     tearOutGate: 27.00,
+    laborMode: 'hourly',
+    subUnit: 'foot',
+    subRateDefault: 0,
+    subRateByCategory: {},
+    subWalkGate: 0,
+    subDblGate: 0,
+    subTearOutSection: 0,
+    subTearOutGate: 0,
+    priceMethod: 'cost_factor',
+    commissionMode: 'included',
   },
   margins: {
     // GM thresholds: Magic Number = 1 - overhead% - profit% ≈ 0.654 → GM target ≈ 0.346
@@ -195,7 +227,14 @@ export function getConfig(): AppConfig {
   const saved = getBusinessField('config') as Partial<AppConfig>
   const merged: AppConfig = (!saved || Object.keys(saved).length === 0)
     ? DEFAULT_CONFIG
-    : { ...DEFAULT_CONFIG, ...saved }
+    : {
+        ...DEFAULT_CONFIG,
+        ...saved,
+        // Pricing and margins merge field by field so a config saved before a
+        // setting existed still gets that setting's default.
+        pricing: { ...DEFAULT_CONFIG.pricing, ...(saved.pricing ?? {}) },
+        margins: { ...DEFAULT_CONFIG.margins, ...(saved.margins ?? {}) },
+      }
   // Keep the inline-reader mirror fresh on every read; cheap, idempotent,
   // and avoids stale defaults during the brief window after auth hydrates.
   mirrorToLocalStorage(merged)

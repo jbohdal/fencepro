@@ -9,6 +9,7 @@
 import { getAccessToken } from './crmAuth'
 import { toast } from './toast'
 import type { LineItem } from './materialCalculator'
+import type { QuotePricingOverrides } from './pricingEngine'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 
@@ -47,10 +48,12 @@ export interface SavedQuotePayload {
   date?: string
   notes?: string
   leadTemp?: number
+  pricing?: QuotePricingOverrides | null
 }
 
-export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'id'>> {
+export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'id' | 'pricing'>> {
   id: string
+  pricing: QuotePricingOverrides | null
   accountId: string
   ownerId: string | null
   crmContactId: string | null

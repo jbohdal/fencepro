@@ -7,6 +7,7 @@
  */
 
 import { getAccessToken } from './crmAuth'
+import { setMaterialPriceSource, normalizeItemName } from './materialCalculator'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 const INV_EVT = 'fencepro:inventory:updated'
@@ -412,6 +413,7 @@ export function getInventory(): InventoryItem[] {
 
 export function saveInventory(items: InventoryItem[]): void {
   invCache.items = items
+  costIndexFor = null // costs may have changed, even if the array was edited in place
   invEmit()
   scheduleFlush()
 }
@@ -436,6 +438,29 @@ export function getPriceMap(): Record<string, number> {
   for (const item of inv) { map[item.name] = item.unitCost }
   return map
 }
+
+// ── Inventory is the cost source for every material calculation ──────────────
+// The lookup is rebuilt only when the items array itself changes (saveInventory
+// and initInventory both replace it), so a cost edited on the Inventory page is
+// what the very next quote uses.
+let costIndexFor: InventoryItem[] | null = null
+let costIndex = new Map<string, number>()
+
+export function getInventoryUnitCost(itemName: string): number | undefined {
+  const inv = getInventory()
+  if (inv !== costIndexFor) {
+    costIndex = new Map()
+    for (const item of inv) {
+      if (item.status === 'inactive' || item.status === 'discontinued') continue
+      const cost = Number(item.unitCost)
+      costIndex.set(normalizeItemName(item.name), Number.isFinite(cost) ? cost : 0)
+    }
+    costIndexFor = inv
+  }
+  return costIndex.get(normalizeItemName(itemName))
+}
+
+setMaterialPriceSource(getInventoryUnitCost)
 
 /* ═══════════════════════════════════════════════
    STOCK LEVELS, TRANSACTIONS, LOCATIONS, SUPPLIERS

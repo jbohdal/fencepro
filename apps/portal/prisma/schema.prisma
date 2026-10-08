@@ -1558,6 +1558,9 @@ model SavedQuote {
   finalPrice   Float @default(0)
   gmPct        Float @default(0)
   pullSheet    Json // LineItem[] from materialCalculator
+  // Per quote pricing choices (labor mode, subcontractor rate, price method,
+  // manual price). Null means the quote uses Settings → Pricing as is.
+  pricing      Json?
 
   status   SavedQuoteStatus @default(DRAFT)
   date     String           @default("") // YYYY-MM-DD legacy format

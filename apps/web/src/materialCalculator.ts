@@ -1,8 +1,103 @@
 // apps/web/src/materialCalculator.ts
 // Replicates the exact logic from EZ-Quote Hidden sheet and EZ-Quote Form
 // Calculates a full bill of materials for any fence job
+//
+// COSTS: every part cost is read from Inventory at calculation time through
+// the registered price source (see setMaterialPriceSource; inventoryStore
+// registers itself on load). The dollar figure passed to add() is only a
+// fallback for a part that is missing from Inventory, and any use of a
+// fallback is reported back as a warning so it never happens silently.
 
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
+
+/** Returns the Inventory unit cost for a part name, or undefined if the part
+ *  is not in Inventory. */
+export type MaterialPriceSource = (itemName: string) => number | undefined
+
+let priceSource: MaterialPriceSource | null = null
+
+/** Register (or clear) where part costs come from. Called by inventoryStore. */
+export function setMaterialPriceSource(fn: MaterialPriceSource | null): void {
+  priceSource = fn
+}
+
+/** Part names are matched ignoring case and whitespace, because the price
+ *  book has names like "V , W, Privacy Gate 8 x 4" and trailing spaces. */
+export function normalizeItemName(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, '')
+}
+
+/** Build a price source from a plain name → cost map (Inventory price map). */
+export function priceSourceFromMap(map: Record<string, number>): MaterialPriceSource {
+  const norm = new Map<string, number>()
+  for (const [name, cost] of Object.entries(map)) norm.set(normalizeItemName(name), cost)
+  return (itemName: string) => norm.get(normalizeItemName(itemName))
+}
+
+/** Current Inventory cost for one part, with a fallback when it is missing. */
+export function materialUnitCost(itemName: string, fallback = 0): number {
+  const inv = priceSource ? priceSource(itemName) : undefined
+  return typeof inv === 'number' && Number.isFinite(inv) ? inv : fallback
+}
+
+export interface MaterialResult {
+  items: LineItem[]
+  /** Gaps the estimator needs to see before quoting: parts missing from
+   *  Inventory, parts carried at $0, styles with no parts list. */
+  warnings: string[]
+}
+
+interface Collector {
+  items: LineItem[]
+  warnings: string[]
+  add: (item: string, qty: number, fallbackCost?: number) => void
+  finish: () => MaterialResult
+}
+
+function makeCollector(): Collector {
+  const items: LineItem[] = []
+  const warnings: string[] = []
+  const missing = new Set<string>()
+  const zero = new Set<string>()
+
+  function add(item: string, qty: number, fallbackCost = 0) {
+    if (!(qty > 0)) return
+    const inv = priceSource ? priceSource(item) : undefined
+    const fromInventory = typeof inv === 'number' && Number.isFinite(inv)
+    const unitCost = fromInventory ? (inv as number) : fallbackCost
+    if (priceSource) {
+      // Live mode: keep every part on the pull sheet even at $0 so the crew
+      // still pulls it, and say why the cost is off.
+      if (!fromInventory) missing.add(item)
+      else if (!(unitCost > 0)) zero.add(item)
+    } else if (!(unitCost > 0)) {
+      return
+    }
+    items.push({
+      item,
+      qty: round2(qty),
+      unitCost,
+      total: round2(qty * unitCost),
+      costSource: fromInventory ? 'inventory' : 'builtin',
+    })
+  }
+
+  function finish(): MaterialResult {
+    if (missing.size > 0) {
+      warnings.push(
+        `${missing.size} part${missing.size === 1 ? ' is' : 's are'} not in Inventory, so a built in cost was used: ${[...missing].join('; ')}. Add ${missing.size === 1 ? 'it' : 'them'} to Inventory to control the cost.`,
+      )
+    }
+    if (zero.size > 0) {
+      warnings.push(
+        `${zero.size} part${zero.size === 1 ? ' is' : 's are'} in Inventory at $0.00: ${[...zero].join('; ')}.`,
+      )
+    }
+    return { items, warnings }
+  }
+
+  return { items, warnings, add, finish }
+}
 
 export interface JobInputs {
   fenceStyle: string
@@ -20,12 +115,18 @@ export interface LineItem {
   qty: number
   unitCost: number
   total: number
+  /** Where unitCost came from. Absent on quotes saved before this field. */
+  costSource?: 'inventory' | 'builtin'
 }
 
 // ── Section count per run ─────────────────────────────────────────────────────
 // Matches EZ-Quote Form C10:C24 formulas exactly. Per-run, never total/panel.
 function panelLengthForStyle(style: string): number {
   if (isChainlink(style)) return 10
+  // 8 ft tall privacy is bought as assembled sections, so the section width is
+  // the second number in the name (8'x6' = 8 tall, 6 wide).
+  const tall = vinyl8Tall(style)
+  if (tall) return tall.width
   if (is8Wide(style) || isDurafence(style)) return 8
   // 6ft wide: vinyl 6x6, 6x8, Bell, Aluminum Emily (6x6 panel)
   return 6
@@ -86,6 +187,20 @@ function is8Wide(s: string) {
   return s.includes("8'x6'") || s.includes("8'x8'") || s === "Durafence"
 }
 function isDurafence(s: string) { return s === "Durafence" }
+function isAlumIndAbigail(s: string) { return s.includes('Ind Abigail') }
+/** 8 ft tall vinyl privacy ("WV-ND 8'x6' Privacy"): color, install, width. */
+function vinyl8Tall(s: string): { white: boolean; noDig: boolean; width: 6 | 8 } | null {
+  const m = s.match(/^(WV|TV)-(ND|DS) 8'x([68])'/)
+  if (!m) return null
+  return { white: m[1] === 'WV', noDig: m[2] === 'ND', width: m[3] === '8' ? 8 : 6 }
+}
+
+/** Whether the calculator has a parts list for this style name. */
+export function styleHasPartsList(s: string): boolean {
+  return isVinylWhiteND(s) || isVinylWhiteDS(s) || isVinylTanND(s) || isVinylTanDS(s)
+    || !!vinyl8Tall(s) || isChainlinkGalv(s) || isChainlinkBlack(s) || isCommercial(s)
+    || isAlumND(s) || isAlumDS(s) || isAlumIndAbigail(s)
+}
 
 function clHeight(s: string): 4 | 5 | 6 {
   if (s.includes("4'")) return 4
@@ -104,6 +219,11 @@ function totalFt(runs: number[]): number {
 
 // ── Main material calculator ──────────────────────────────────────────────────
 export function calculateMaterials(inputs: JobInputs): LineItem[] {
+  return calculateMaterialsDetailed(inputs).items
+}
+
+/** Same as calculateMaterials, plus the warnings the estimator should see. */
+export function calculateMaterialsDetailed(inputs: JobInputs): MaterialResult {
   const { fenceStyle: s, runs, corners, ends, walkGates, dblGates,
           tearOutSections, tearOutGates } = inputs
 
@@ -114,17 +234,19 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
   // blank posts = double gate count (posts between double gate panels)
   const blankPosts = dblGates
 
-  const items: LineItem[] = []
-
-  function add(item: string, qty: number, unitCost: number) {
-    if (qty > 0 && unitCost > 0) {
-      items.push({ item, qty: round2(qty), unitCost, total: round2(qty * unitCost) })
-    }
-  }
+  const col = makeCollector()
+  const { add, warnings } = col
 
   // ── Tear-out ────────────────────────────────────────────────────────────────
   add('Tear Out Haul-Away Fence', tearOutSections, 9.50)
   add('Tear Out Haul-Away Gate', tearOutGates, 27.00)
+
+  if (!styleHasPartsList(s)) {
+    warnings.push(
+      `"${s}" has no parts list, so no fence material is included. Set the price by hand or use a per foot price.`,
+    )
+    return col.finish()
+  }
 
   // ── VINYL WHITE NO-DIG (WV-ND) ──────────────────────────────────────────────
   // All formulas verified against EZ-Quote PDF (1-section and 31-section jobs)
@@ -207,21 +329,23 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
     add('ND, Donut', totalPostCount * 2 - blankPosts * 2, 3.19)
     add("Pipe, PT40, Galv, 2-1/2\" x 8'", corners + ends + linePosts, 19.50)
 
+    // Panel goods: sections plus every gate leaf (a double gate is two leaves).
+    const tanPanels = sections + walkGates + dblGates * 2
     if (isVinyl6x6(s)) {
-      add("*Vinyl, Tan, Picket, 62-1/4\"", (sections + walkGates) * 11, 3.22)
-      add("*Vinyl, Tan, Rail, 6'", 2 * (sections + walkGates), 7.98)
-      add("*Vinyl, Tan, U-Trim, 59-1/4\"", 2 * (sections + walkGates), 1.85)
+      add("*Vinyl, Tan, Picket, 62-1/4\"", tanPanels * 11, 3.22)
+      add("*Vinyl, Tan, Rail, 6'", 2 * tanPanels, 7.98)
+      add("*Vinyl, Tan, U-Trim, 59-1/4\"", 2 * tanPanels, 1.85)
     }
     if (isVinyl6x8(s)) {
-      add("*Vinyl, Tan, Picket, 62-1/4\"", (sections + walkGates) * 16, 3.22)
-      add("*Vinyl, Tan, Rail, 8'", 2 * (sections + walkGates), 10.18)
-      add("*Vinyl, Tan, U-Trim, 59-1/4\"", 2 * (sections + walkGates), 1.85)
-      add("Vinyl, Rail Insert, 8' ", sections + walkGates, 8.00)
+      add("*Vinyl, Tan, Picket, 62-1/4\"", tanPanels * 16, 3.22)
+      add("*Vinyl, Tan, Rail, 8'", 2 * tanPanels, 10.18)
+      add("*Vinyl, Tan, U-Trim, 59-1/4\"", 2 * tanPanels, 1.85)
+      add("Vinyl, Rail Insert, 8' ", tanPanels, 8.00)
     }
 
     add("*Vinyl, Hex, 1/4 x 3\" (Rail Ties/Bottom)", totalPostCount * 3, 0.123)
     add("**Vinyl, Donut Pin", totalPostCount * 4, 0.10)
-    add("*Vinyl, Truss, 8 x 3/4\" (U-Trim)", 6 * (sections + walkGates), 0.03)
+    add("*Vinyl, Truss, 8 x 3/4\" (U-Trim)", 6 * tanPanels, 0.03)
     add("Vinyl, Tan, Cap, 5\"x5\"", totalPostCount, 1.00)
 
     if (walkGates > 0) {
@@ -256,20 +380,22 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
     add('Misc, Concrete',
       Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2), 6.25)
 
+    // Panel goods: sections plus every gate leaf (a double gate is two leaves).
+    const dsPanels = sections + walkGates + dblGates * 2
     if (isVinyl6x6(s)) {
-      add("*Vinyl, White, Picket, 62-1/4\"", (sections + walkGates) * 11, 2.71)
-      add("*Vinyl, White, Rail, 6'", 2 * (sections + walkGates), 5.98)
-      add("*Vinyl, White, U-Trim, 59-1/4\"", 2 * (sections + walkGates), 1.62)
+      add("*Vinyl, White, Picket, 62-1/4\"", dsPanels * 11, 2.71)
+      add("*Vinyl, White, Rail, 6'", 2 * dsPanels, 5.98)
+      add("*Vinyl, White, U-Trim, 59-1/4\"", 2 * dsPanels, 1.62)
     }
     if (isVinyl6x8(s)) {
-      add("*Vinyl, White, Picket, 62-1/4\"", (sections + walkGates) * 15, 2.71)
-      add("*Vinyl, White, Rail, 8'", 2 * (sections + walkGates), 9.26)
-      add("*Vinyl, White, U-Trim, 59-1/4\"", 2 * (sections + walkGates), 1.62)
-      add("Vinyl, Rail Insert, 8' ", sections + walkGates, 8.00)
+      add("*Vinyl, White, Picket, 62-1/4\"", dsPanels * 15, 2.71)
+      add("*Vinyl, White, Rail, 8'", 2 * dsPanels, 9.26)
+      add("*Vinyl, White, U-Trim, 59-1/4\"", 2 * dsPanels, 1.62)
+      add("Vinyl, Rail Insert, 8' ", dsPanels, 8.00)
     }
 
     add("*Vinyl, Hex, 1/4 x 3\" (Rail Ties/Bottom)", totalPostCount * 2, 0.123)
-    add("*Vinyl, Truss, 8 x 3/4\" (U-Trim)", 6 * (sections + walkGates), 0.03)
+    add("*Vinyl, Truss, 8 x 3/4\" (U-Trim)", 6 * dsPanels, 0.03)
     add("*Vinyl, White, Cap, 5\"x5\"", totalPostCount, 1.00)
 
     if (walkGates > 0) {
@@ -290,6 +416,88 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
       add("*Vinyl, White, Upright", dblGates * 2, 8.75)
       add("*Vinyl, White, Rivet, 1\"", dblGates * 100, 0.12)
     }
+  }
+
+  // ── VINYL TAN DIG-SET (TV-DS) ───────────────────────────────────────────────
+  // Mirrors the white dig-set list with the tan parts. This style had no parts
+  // list before, so it quoted with $0 material.
+  if (isVinylTanDS(s)) {
+    add("*Vinyl, Tan, Post, Corner, 5\" x 5\" x 102\"", corners, 19.24)
+    add("*Vinyl, Tan, Post, End, 5\" x 5\" x 102\"", ends, 19.24)
+    add("*Vinyl, Tan, Post, Line, 5\" x 5\" x 102\"", linePosts, 19.24)
+    add("*Vinyl, Tan, Post, Blank, 5\" x 5\" x 102\"", blankPosts, 16.38)
+    add('Misc, Concrete',
+      Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2), 6.25)
+
+    const tanDsPanels = sections + walkGates + dblGates * 2
+    if (isVinyl6x6(s)) {
+      add("*Vinyl, Tan, Picket, 62-1/4\"", tanDsPanels * 11, 3.22)
+      add("*Vinyl, Tan, Rail, 6'", 2 * tanDsPanels, 7.98)
+      add("*Vinyl, Tan, U-Trim, 59-1/4\"", 2 * tanDsPanels, 1.85)
+    }
+    if (isVinyl6x8(s)) {
+      add("*Vinyl, Tan, Picket, 62-1/4\"", tanDsPanels * 16, 3.22)
+      add("*Vinyl, Tan, Rail, 8'", 2 * tanDsPanels, 10.18)
+      add("*Vinyl, Tan, U-Trim, 59-1/4\"", 2 * tanDsPanels, 1.85)
+      add("Vinyl, Rail Insert, 8' ", tanDsPanels, 8.00)
+    }
+
+    add("*Vinyl, Hex, 1/4 x 3\" (Rail Ties/Bottom)", totalPostCount * 2, 0.123)
+    add("*Vinyl, Truss, 8 x 3/4\" (U-Trim)", 6 * tanDsPanels, 0.03)
+    add("Vinyl, Tan, Cap, 5\"x5\"", totalPostCount, 1.00)
+
+    if (walkGates > 0) {
+      add("*Vinyl, Gate, H-Beam, 6'", walkGates * 2, 22.80)
+      add("*Vinyl, Gate, Brace", walkGates, 36.37)
+      add("*Vinyl, Gate, Hinge", walkGates, 29.03)
+      add("*Vinyl, Gate, Latch", walkGates, 20.46)
+      add("Vinyl, Tan, Cap, Gate", walkGates * 2, 1.00)
+      add("*Vinyl, Tan, Upright", walkGates, 9.69)
+      add("*Vinyl, Tan, Rivet, 1\"", walkGates * 50, 0.20)
+    }
+    if (dblGates > 0) {
+      add("*Vinyl, Gate, H-Beam, 8'", dblGates * 3, 29.60)
+      add("*Vinyl, Gate, Brace", dblGates * 2, 36.37)
+      add("*Vinyl, Gate, Hinge", dblGates * 2, 29.03)
+      add("*Vinyl, Gate, Latch", dblGates, 20.46)
+      add("Vinyl, Tan, Cap, Gate", dblGates * 4, 1.00)
+      add("*Vinyl, Tan, Upright", dblGates * 2, 9.69)
+      add("*Vinyl, Tan, Rivet, 1\"", dblGates * 100, 0.20)
+    }
+    warnings.push('Tan dig set uses the white dig set parts list with tan parts. Check the pull sheet against how you build it.')
+  }
+
+  // ── VINYL 8 FT TALL PRIVACY (WV/TV, ND/DS, 8'x6' and 8'x8') ──────────────────
+  // Assembled picket sections, 8 ft privacy posts, complete 8 x 4 gates. These
+  // styles had no parts list before, so they quoted with $0 material.
+  const tall = vinyl8Tall(s)
+  if (tall) {
+    const V = tall.white ? 'V , W' : 'V , T'
+    const secCost = tall.white ? (tall.width === 8 ? 143.25 : 108.68) : (tall.width === 8 ? 164.74 : 124.98)
+    const postCost = tall.white ? 24.56 : 27.50
+    add(`${V}, Picket Section 8' x ${tall.width}' Privacy`, sections, secCost)
+    add(`${V}, Post, 8' Privacy, CP, 5" x 5"`, corners, postCost)
+    add(`${V}, Post, 8' Privacy, EP, 5" x 5"`, ends, postCost)
+    add(`${V}, Post, 8' Privacy, LP, 5" x 5"`, linePosts, postCost)
+    add(tall.white ? '*Vinyl, White, Cap, 5"x5"' : 'Vinyl, Tan, Cap, 5"x5"', totalPostCount, 1.00)
+
+    if (tall.noDig) {
+      add('ND, Donut', totalPostCount * 2, 3.19)
+      add("Pipe, PT40, Galv, 2-1/2\" x 8'", totalPostCount, 19.50)
+    } else {
+      // Taller post, deeper hole: 2 bags per post.
+      add('Misc, Concrete', totalPostCount * 2, 6.25)
+    }
+
+    const gateLeaves = walkGates + dblGates * 2
+    add(`${V}, Privacy Gate 8 x 4`, gateLeaves, tall.white ? 399.00 : 458.00)
+    add('*Vinyl, Gate, Hinge', gateLeaves * 2, 29.03)
+    add('*Vinyl, Gate, Latch', walkGates + dblGates, 20.46)
+    add('*Vinyl, Gate, Handle', gateLeaves * 2, 5.98)
+    add(tall.white ? '*Vinyl, White, Cap, Gate' : 'Vinyl, Tan, Cap, Gate', gateLeaves * 2, 1.00)
+    warnings.push(
+      `8 ft privacy parts list is new and unconfirmed: assembled 8' x ${tall.width}' sections, 8 ft posts${tall.noDig ? ", the same 8' no dig pipe as 6 ft fence" : ', 2 bags of concrete per post'}, and 4 ft wide gate leaves. Check the pull sheet before you quote.`,
+    )
   }
 
   // ── CHAINLINK GALVANIZED ─────────────────────────────────────────────────────
@@ -359,9 +567,11 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
       : corners * 14 + ends * 7
     add("G, Bolt, 5/16 x 1-1/4\" w/ Nut", bolts5, 0.15)
 
-    // Gates
+    // Gates match the fence height and are 4 ft wide per leaf.
+    const galvGate = `Chainlink, Galv, Gate, 1-3/8", ${h}' x 4' (.055)`
+    const galvGateCost = h === 4 ? 85.00 : h === 5 ? 88.85 : 114.86
     if (walkGates > 0) {
-      add("Chainlink, Galv, Gate, 1-3/8\", 4' x 4' (.055)", walkGates, 85.00)
+      add(galvGate, walkGates, galvGateCost)
       add("G, Hinge, Female, 1-3/8\" x 5/8\"", walkGates * 2, 0.83)
       add("G, Hinge, Male, PS, 2-3/8\"", walkGates * 2, 0.83)
       add("G, Fork, PS, 1-3/8\"", walkGates * 2, 1.18)
@@ -371,7 +581,7 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
       add("G, Bolt, 3/8\" x 3\" w/ Nut", walkGates * 2, 0.41)
     }
     if (dblGates > 0) {
-      add("Chainlink, Galv, Gate, 1-3/8\", 4' x 4' (.055)", dblGates * 2, 85.00)
+      add(galvGate, dblGates * 2, galvGateCost)
       add("G, Hinge, Female, 1-3/8\" x 5/8\"", dblGates * 4, 0.83)
       add("G, Hinge, Male, PS, 2-3/8\"", dblGates * 4, 0.83)
       add("G, Fork, PS, 2-1/2\"", dblGates * 2, 1.53)
@@ -440,8 +650,11 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
       : corners * 14 + ends * 7
     add("Black, Bolt, 5/16 x 1-1/4\" w/ Nut", bolts5, 0.18)
 
+    // Gates match the fence height and are 4 ft wide per leaf.
+    const blackGate = `Chainlink, Black, Gate, 1-3/8", ${h}' x 4' (.065)`
+    const blackGateCost = h === 4 ? 123.95 : h === 5 ? 138.46 : 154.66
     if (walkGates > 0) {
-      add("Chainlink, Black, Gate, 1-3/8\", 4' x 4' (.065)", walkGates, 123.95)
+      add(blackGate, walkGates, blackGateCost)
       add("Black, Hinge, Female, 1-3/8\" x 5/8\"", walkGates * 2, 1.24)
       add("Black, Hinge, Male, 2-3/8\"", walkGates * 2, 2.01)
       add("Black, Fork, PS, 1-3/8\" ", walkGates * 2, 1.53)
@@ -451,7 +664,7 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
       add("Black, Bolt, 3/8\" x 3\" w/ Nut", walkGates * 2, 0.53)
     }
     if (dblGates > 0) {
-      add("Chainlink, Black, Gate, 1-3/8\", 4' x 4' (.065)", dblGates * 2, 123.95)
+      add(blackGate, dblGates * 2, blackGateCost)
       add("Black, Hinge, Female, 1-3/8\" x 5/8\"", dblGates * 4, 1.24)
       add("Black, Hinge, Male, 2-3/8\"", dblGates * 4, 2.01)
       add("Black, Fork, PS, 2-1/2\"", dblGates * 2, 1.98)
@@ -461,6 +674,11 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
 
   // ── COMMERCIAL CHAINLINK ─────────────────────────────────────────────────────
   if (isCommercial(s)) {
+    if (s.includes('Black') || s.includes('Green')) {
+      warnings.push(
+        `"${s}" is priced with galvanized commercial fabric and pipe. There is no commercial grade color fabric in the parts list, so add the color premium by hand.`,
+      )
+    }
     add("Comm, G, Fabric, 72\" KT (9)", fabricRolls(totalFootage), 258.75)
     add("Comm, G, Term, Plated, 2-1/2\" X 6' (SS40)", corners + ends, 59.00)
     add("Pipe, Galv,  2-1/2\" X 10' (SS40)", corners + ends, 33.75)
@@ -536,7 +754,24 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
     }
   }
 
-  return items
+  // ── ALUMINUM INDUSTRIAL ABIGAIL (dig set, 6 ft tall, 8 ft sections) ──────────
+  // New and unconfirmed parts list; this style quoted with $0 material before.
+  if (isAlumIndAbigail(s)) {
+    add("Alum, Ind, Sec, 6' x 8'", sections, 211.62)
+    add("Alum, Post 3\" x 8', CP", corners, 71.93)
+    add("Alum, Post 3\" x 8', EP", ends, 71.93)
+    add("Alum, Post 3\" x 8', LP", linePosts, 71.93)
+    add('Alum, Cap, 3"', totalPostCount, 2.50)
+    add('Misc, Concrete', totalPostCount * 2, 6.25)
+    add('Alum, Hex, 1/4"', sections * 6 + (walkGates + dblGates) * 24, 0.17)
+    warnings.push(
+      walkGates + dblGates > 0
+        ? 'Industrial Abigail parts list is new and unconfirmed, and there is no Abigail gate in the parts list, so gate material is not included. Add the gate cost by hand.'
+        : 'Industrial Abigail parts list is new and unconfirmed. Check the pull sheet before you quote.',
+    )
+  }
+
+  return col.finish()
 }
 
 export function totalMaterialCost(items: LineItem[]): number {
@@ -584,6 +819,11 @@ function sectionsForMixedRun(ft: number, rail: RailWidth): number {
 }
 
 export function calculateMixedMaterials(input: MixedJobInputs): LineItem[] {
+  return calculateMixedMaterialsDetailed(input).items
+}
+
+/** Same as calculateMixedMaterials, plus the warnings the estimator should see. */
+export function calculateMixedMaterialsDetailed(input: MixedJobInputs): MaterialResult {
   const { installMethod, colorFamily, runs, corners, ends,
           walkGates, dblGates, tearOutSections, tearOutGates } = input
 
@@ -606,12 +846,8 @@ export function calculateMixedMaterials(input: MixedJobInputs): LineItem[] {
   const isND = installMethod === 'no-dig'
   const isDS = installMethod === 'dig-set'
 
-  const items: LineItem[] = []
-  function add(item: string, qty: number, unitCost: number) {
-    if (qty > 0 && unitCost > 0) {
-      items.push({ item, qty: round2(qty), unitCost, total: round2(qty * unitCost) })
-    }
-  }
+  const col = makeCollector()
+  const { add } = col
 
   // ── Tear-out (same as existing branches) ──
   add('Tear Out Haul-Away Fence', tearOutSections, 9.50)
@@ -743,7 +979,7 @@ export function calculateMixedMaterials(input: MixedJobInputs): LineItem[] {
     }
   }
 
-  return items
+  return col.finish()
 }
 
 /** Helper: total section count (per-run sum) for a mixed-rail job. */
