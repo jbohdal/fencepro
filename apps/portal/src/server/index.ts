@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit'
 import { ensureUploadDir } from './lib/storage/index.js'
 import prisma from './lib/prisma.js'
 import { printEnvValidation } from './lib/urls.js'
+import { mountStaticSites } from './lib/staticSites.js'
 
 // Route imports
 import authRoutes from './routes/auth.js'
@@ -228,6 +229,13 @@ app.get('/api/health/storage', async (_req, res) => {
   } catch (err) {
     res.status(503).json({ status: 'error', message: (err as Error).message, driver: process.env.STORAGE_DRIVER || 'local', path: dir })
   }
+})
+
+// ── Web app and customer portal (single process, no nginx) ──
+// After every /api route, so the API always wins. Off unless the folders are set.
+mountStaticSites(app, {
+  webDistDir: process.env.WEB_DIST_DIR,
+  portalDistDir: process.env.PORTAL_DIST_DIR,
 })
 
 // ── Error handler ──
