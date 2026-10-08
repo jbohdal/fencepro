@@ -27,6 +27,7 @@ import crypto from 'crypto'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
+import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { resolveSecret } from '../lib/secrets.js'
 
 const router = Router()
@@ -113,6 +114,20 @@ function toJsonValue(value: unknown): any {
   return value === undefined ? undefined : (value === null ? null : JSON.parse(JSON.stringify(value)))
 }
 
+/**
+ * A quote may only link to a contact that exists in the same company. An id
+ * that does not resolve is saved as "no link" instead of failing the whole
+ * save: the quote still carries the customer's name, phone and address, and
+ * losing the quote is far worse than losing the link.
+ */
+async function ownContactId(contactId: string | null | undefined, accountId: string): Promise<string | null> {
+  if (!contactId) return null
+  const c = await prisma.crmContact.findUnique({ where: { id: contactId }, select: { id: true, accountId: true } })
+  if (c && c.accountId === accountId) return c.id
+  console.warn(`[saved-quotes] contact ${contactId} not found for this company; saving the quote without the link`)
+  return null
+}
+
 /** For nullable Json columns (runRails, pricing). Prisma rejects a bare JS
  *  null on a Json? column, so null has to be sent as Prisma.JsonNull. */
 function toNullableJson(value: unknown): any {
@@ -154,11 +169,19 @@ router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
 router.post('/', requireUser, requireAccount, async (req: any, res) => {
   try {
     const data = quoteSchema.parse(req.body)
+    const clientId = clientIdSchema.parse(req.body?.id)
+    const decision = await decideClientId(clientId, req.user.crmAccountId, id => prisma.savedQuote.findUnique({ where: { id } }))
+    if (decision.kind === 'exists') {
+      // A retried create: the quote is already here.
+      res.status(200).json({ success: true, data: decision.row })
+      return
+    }
     const created = await prisma.savedQuote.create({
       data: {
+        ...(decision.kind === 'use' ? { id: decision.id } : {}),
         accountId: req.user.crmAccountId,
         ownerId: req.user.id,
-        crmContactId: data.crmContactId || undefined,
+        crmContactId: await ownContactId(data.crmContactId, req.user.crmAccountId),
         customerName: data.customerName,
         customerPhone: data.customerPhone,
         customerEmail: data.customerEmail,
@@ -213,7 +236,7 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     const updated = await prisma.savedQuote.update({
       where: { id: existing.id },
       data: {
-        crmContactId: data.crmContactId === undefined ? undefined : (data.crmContactId || null),
+        crmContactId: data.crmContactId === undefined ? undefined : await ownContactId(data.crmContactId, req.user.crmAccountId),
         customerName: data.customerName,
         customerPhone: data.customerPhone,
         customerEmail: data.customerEmail,

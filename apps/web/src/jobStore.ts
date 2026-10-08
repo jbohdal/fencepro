@@ -1,5 +1,6 @@
 import type { SavedQuote } from './QuotesPage'
 import { legacyMigrationEnabled } from './syncGuard'
+import { newId, enqueue, settled, hasLaterWrites } from './recordSync'
 import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
 import { ensureChecklistForJob } from './checklistStore'
 import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
@@ -250,7 +251,9 @@ export function createJobFromQuote(quote: SavedQuote): Job {
   const totalFeet = (quote.runs || []).reduce((s: number, r: number) => s + r, 0)
 
   const job: Job = {
-    id: uid(),
+    // Permanent id: checklists, purchase orders and schedule entries keyed by
+    // it stay valid after a reload.
+    id: newId(),
     quoteId: quote.id,
     status: 'staging',
 
@@ -294,12 +297,16 @@ export function createJobFromQuote(quote: SavedQuote): Job {
   cache = [job, ...cache]
   emit()
 
-  // Fire and forget the API write. The cache holds a temp client uid; once the
-  // server responds, swap the temp id for the server uuid in the cache.
-  createSavedJob(toApiPayload(job)).then(saved => {
-    if (!saved) return
+  // Queued behind the quote and the customer it came from, so they exist on
+  // the server before the job that points at them.
+  enqueue(`job:${job.id}`, async () => {
+    await settled(job.customerId ? `customer:${job.customerId}` : null)
+    await settled(job.quoteId ? `quote:${job.quoteId}` : null)
+    const current = cache.find(j => j.id === job.id) || job
+    const saved = await createSavedJob({ ...toApiPayload(current), id: job.id })
+    if (!saved || hasLaterWrites(`job:${job.id}`)) return
     const fromServer = fromApi(saved)
-    cache = cache.map(j => j.id === job.id ? fromServer : j)
+    cache = cache.map(j => j.id === job.id ? { ...fromServer, id: job.id } : j)
     emit()
   }).catch(() => {})
 
@@ -332,13 +339,12 @@ export function updateJob(id: string, updates: Partial<Job>): Job | null {
   const next: Job = { ...prev, ...updates, updatedAt: new Date().toISOString() }
   cache = cache.map(j => j.id === id ? next : j)
   emit()
-  // Fire the API write in the background; cache swap on response so the
-  // server-canonical updatedAt and any computed fields land for next reads.
-  updateSavedJob(id, toApiPayload(next)).then(saved => {
-    if (!saved) return
-    const fromServer = fromApi(saved)
-    cache = cache.map(j => j.id === id ? fromServer : j)
-    emit()
+  // Queued behind the job's create and earlier edits. The latest cached copy
+  // is what gets sent, so rapid edits cannot land out of order.
+  enqueue(`job:${id}`, async () => {
+    const current = cache.find(j => j.id === id)
+    if (!current) return
+    await updateSavedJob(id, toApiPayload(current))
   }).catch(() => {})
   // Local view of the rest of this function uses `jobs`/`prev`/`jobs[idx]`
   // semantics from before; re-bind for minimal further change below.

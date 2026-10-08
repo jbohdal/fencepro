@@ -22,6 +22,7 @@ import {
 } from './savedQuotesApi'
 import type { SavedQuote } from './QuotesPage'
 import { legacyMigrationEnabled } from './syncGuard'
+import { newId, enqueue, settled, hasLaterWrites } from './recordSync'
 
 const EVT = 'fencepro:quotes:updated'
 const LEGACY_KEY = 'fencepro_quotes'
@@ -160,16 +161,13 @@ export function upsertQuote(partial: Partial<SavedQuote> & { fenceStyle?: string
     const merged: SavedQuote = { ...existing, ...partial } as SavedQuote
     cache = cache.map(q => q.id === merged.id ? merged : q)
     emit()
-    updateSavedQuote(merged.id, toApiPayload(merged)).then(updated => {
-      if (!updated) return
-      const fromServer = fromApi(updated)
-      cache = cache.map(q => q.id === fromServer.id ? fromServer : q)
-      emit()
-    }).catch(() => {})
+    pushQuoteUpdate(merged.id)
     return merged
   }
 
-  const tempId = partial.id || uid()
+  // Permanent id: the server keeps it, so jobs, quote options, pull sheets and
+  // share links created against this quote stay valid.
+  const tempId = partial.id || newId()
   const fresh: SavedQuote = {
     id: tempId,
     customerId: partial.customerId,
@@ -208,14 +206,29 @@ export function upsertQuote(partial: Partial<SavedQuote> & { fenceStyle?: string
   cache = [fresh, ...cache]
   emit()
 
-  createSavedQuote(toApiPayload(fresh)).then(created => {
-    if (!created) return
+  enqueue(`quote:${tempId}`, async () => {
+    // A quote points at its customer. If that customer was created a moment
+    // ago, wait for it to exist on the server first.
+    await settled(fresh.customerId ? `customer:${fresh.customerId}` : null)
+    const current = cache.find(q => q.id === tempId) || fresh
+    const created = await createSavedQuote({ ...toApiPayload(current), id: tempId })
+    if (!created || hasLaterWrites(`quote:${tempId}`)) return
     const fromServer = fromApi(created)
-    cache = cache.map(q => q.id === tempId ? fromServer : q)
+    cache = cache.map(q => q.id === tempId ? { ...fromServer, id: tempId } : q)
     emit()
   }).catch(() => {})
 
   return fresh
+}
+
+/** Send the cached copy of a quote. Queued behind its create and earlier edits. */
+function pushQuoteUpdate(id: string): void {
+  enqueue(`quote:${id}`, async () => {
+    const current = cache.find(q => q.id === id)
+    if (!current) return
+    await settled(current.customerId ? `customer:${current.customerId}` : null)
+    await updateSavedQuote(id, toApiPayload(current))
+  }).catch(() => {})
 }
 
 export function updateQuote(id: string, updates: Partial<SavedQuote>): SavedQuote | null {
@@ -224,19 +237,14 @@ export function updateQuote(id: string, updates: Partial<SavedQuote>): SavedQuot
   const next: SavedQuote = { ...cache[idx], ...updates }
   cache = cache.map(q => q.id === id ? next : q)
   emit()
-  updateSavedQuote(id, toApiPayload(next)).then(updated => {
-    if (!updated) return
-    const fromServer = fromApi(updated)
-    cache = cache.map(q => q.id === id ? fromServer : q)
-    emit()
-  }).catch(() => {})
+  pushQuoteUpdate(id)
   return next
 }
 
 export function deleteQuote(id: string): void {
   cache = cache.filter(q => q.id !== id)
   emit()
-  archiveSavedQuote(id).catch(() => {})
+  enqueue(`quote:${id}`, () => archiveSavedQuote(id)).catch(() => {})
 }
 
 export const QUOTES_UPDATED_EVENT = EVT

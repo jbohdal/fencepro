@@ -19,6 +19,7 @@ import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
 import { resolveSecret } from '../lib/secrets.js'
+import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 
 const router = Router()
 
@@ -138,14 +139,29 @@ router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
 router.post('/', requireUser, requireAccount, async (req: any, res) => {
   try {
     const data = jobSchema.parse(req.body)
+    const clientId = clientIdSchema.parse(data.id)
+    const decision = await decideClientId(clientId, req.user.crmAccountId, id => prisma.savedJob.findUnique({ where: { id } }))
+    if (decision.kind === 'exists') {
+      // A retried create: the job is already here.
+      res.status(200).json({ success: true, data: decision.row })
+      return
+    }
+    // Only link to a contact that exists in this company; otherwise keep the
+    // job (it carries the customer's details) and drop the link.
+    let contactId: string | null = null
+    if (data.crmContactId) {
+      const c = await prisma.crmContact.findUnique({ where: { id: data.crmContactId }, select: { id: true, accountId: true } })
+      if (c && c.accountId === req.user.crmAccountId) contactId = c.id
+      else console.warn(`[saved-jobs] contact ${data.crmContactId} not found for this company; saving the job without the link`)
+    }
+    const { id: _ignored, ...fields } = data
     const created = await prisma.savedJob.create({
       data: {
+        ...fields,
+        ...(decision.kind === 'use' ? { id: decision.id } : {}),
         accountId: req.user.crmAccountId,
         quoteId: data.quoteId || null,
-        crmContactId: data.crmContactId || null,
-        ...data,
-        // Strip the keys we already set explicitly above
-        id: undefined as any,
+        crmContactId: contactId,
       },
     })
     await audit(req, 'create', 'SavedJob', created.id, { newValues: created })

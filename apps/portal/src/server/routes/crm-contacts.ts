@@ -21,6 +21,7 @@ import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
 import { resolveSecret } from '../lib/secrets.js'
+import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 
 const router = Router()
 
@@ -110,8 +111,16 @@ router.get('/', requireAccount, async (req: any, res) => {
 router.post('/', requireAccount, async (req: any, res) => {
   try {
     const data = contactSchema.parse(req.body)
+    const clientId = clientIdSchema.parse(req.body?.id)
+    const decision = await decideClientId(clientId, req.user.crmAccountId, id => prisma.crmContact.findUnique({ where: { id } }))
+    if (decision.kind === 'exists') {
+      // A retried create: the contact is already here.
+      res.status(200).json({ success: true, data: decision.row })
+      return
+    }
     const created = await prisma.crmContact.create({
       data: {
+        ...(decision.kind === 'use' ? { id: decision.id } : {}),
         accountId: req.user.crmAccountId,
         ownerId: req.user.id,
         firstName: data.firstName,

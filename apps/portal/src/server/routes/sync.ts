@@ -11,7 +11,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
-import { isStaffRequest } from '../lib/secrets.js'
+import { isStaffRequest, verifyStaffBearer } from '../lib/secrets.js'
 
 const router = Router()
 
@@ -24,6 +24,23 @@ function requireSyncAuth(req: any, res: any, next: any) {
 }
 
 router.use(requireSyncAuth)
+
+/**
+ * Which company a sync call is for. A logged in staff member always syncs
+ * into their own company. (The CRM used to send a hard coded external id,
+ * 'gdf-001', which only exists on a database built by the demo seed, so on a
+ * real database every sync answered "Account not found".) The external id is
+ * only used for sync key callers, which carry no login.
+ */
+async function resolveSyncAccount(req: any, externalId: string | undefined) {
+  const staff = verifyStaffBearer(req)
+  if (staff?.crmAccountId) {
+    const own = await prisma.crmAccount.findUnique({ where: { id: staff.crmAccountId } })
+    if (own) return own
+  }
+  if (!externalId) return null
+  return prisma.crmAccount.findUnique({ where: { externalCrmId: externalId } })
+}
 
 // ── Sync Account ──
 const accountSchema = z.object({
@@ -66,7 +83,7 @@ const customerSchema = z.object({
 router.post('/customers', async (req, res) => {
   try {
     const data = customerSchema.parse(req.body)
-    const account = await prisma.crmAccount.findUnique({ where: { externalCrmId: data.accountExternalId } })
+    const account = await resolveSyncAccount(req, data.accountExternalId)
     if (!account) {
       res.status(404).json({ success: false, error: 'Account not found. Sync account first.' })
       return
@@ -119,7 +136,7 @@ const quoteSchema = z.object({
 router.post('/quotes', async (req, res) => {
   try {
     const data = quoteSchema.parse(req.body)
-    const account = await prisma.crmAccount.findUnique({ where: { externalCrmId: data.accountExternalId } })
+    const account = await resolveSyncAccount(req, data.accountExternalId)
     if (!account) {
       res.status(404).json({ success: false, error: 'Account not found' })
       return
@@ -164,7 +181,7 @@ const jobSchema = z.object({
 router.post('/jobs', async (req, res) => {
   try {
     const data = jobSchema.parse(req.body)
-    const account = await prisma.crmAccount.findUnique({ where: { externalCrmId: data.accountExternalId } })
+    const account = await resolveSyncAccount(req, data.accountExternalId)
     if (!account) {
       res.status(404).json({ success: false, error: 'Account not found' })
       return
@@ -224,7 +241,7 @@ const invoiceSchema = z.object({
 router.post('/invoices', async (req, res) => {
   try {
     const data = invoiceSchema.parse(req.body)
-    const account = await prisma.crmAccount.findUnique({ where: { externalCrmId: data.accountExternalId } })
+    const account = await resolveSyncAccount(req, data.accountExternalId)
     if (!account) {
       res.status(404).json({ success: false, error: 'Account not found' })
       return
@@ -267,7 +284,7 @@ router.post('/invoices', async (req, res) => {
 router.get('/activity/:accountExternalId', async (req, res) => {
   try {
     const externalId = Array.isArray(req.params.accountExternalId) ? req.params.accountExternalId[0] : req.params.accountExternalId
-    const account = await prisma.crmAccount.findUnique({ where: { externalCrmId: externalId } })
+    const account = await resolveSyncAccount(req, externalId)
     if (!account) {
       res.status(404).json({ success: false, error: 'Account not found' })
       return

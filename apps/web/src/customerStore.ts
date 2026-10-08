@@ -15,6 +15,7 @@
 import { fireCustomerCreated } from './automationTrigger'
 import { addLeadForNewCustomer } from './pipelineSeeder'
 import { legacyMigrationEnabled } from './syncGuard'
+import { newId, enqueue, hasLaterWrites } from './recordSync'
 import {
   listContacts,
   createContact as apiCreateContact,
@@ -183,16 +184,13 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
     }
     cache = cache.map(c => c.id === merged.id ? merged : c)
     emit()
-    apiUpdateContact(merged.id, toApiPayload(merged)).then(updated => {
-      if (!updated) return
-      const fromServer = fromApi(updated)
-      cache = cache.map(c => c.id === fromServer.id ? fromServer : c)
-      emit()
-    }).catch(() => {})
+    pushCustomerUpdate(merged.id)
     return { customer: merged, created: false }
   }
 
-  const tempId = partial.id || uid()
+  // The id chosen here is permanent: the server keeps it, so quotes, jobs and
+  // pipeline leads that point at this customer stay valid.
+  const tempId = partial.id || newId()
   const fresh: Customer = {
     id: tempId,
     firstName: partial.firstName.trim(),
@@ -213,10 +211,7 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
   cache = [fresh, ...cache]
   emit()
 
-  // Seed pipeline + fire automation immediately using the temp id; if the API
-  // assigns a different id we patch the cache below — pipeline + automation
-  // records keyed by the temp id remain valid because the user is still in
-  // the same session and the in flight subscribers keep a stable reference.
+  // Seed pipeline + fire automation with the customer's (permanent) id.
   try {
     addLeadForNewCustomer({
       id: fresh.id,
@@ -237,14 +232,25 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
     })
   } catch {}
 
-  apiCreateContact(toApiPayload(fresh)).then(created => {
-    if (!created) return
+  enqueue(`customer:${tempId}`, async () => {
+    const created = await apiCreateContact({ ...toApiPayload(fresh), id: tempId })
+    // Take server computed fields, but never over an edit made while this was in flight.
+    if (!created || hasLaterWrites(`customer:${tempId}`)) return
     const fromServer = fromApi(created)
-    cache = cache.map(c => c.id === tempId ? fromServer : c)
+    cache = cache.map(c => c.id === tempId ? { ...fromServer, id: tempId } : c)
     emit()
   }).catch(() => {})
 
   return { customer: fresh, created: true }
+}
+
+/** Send the cached copy of a customer. Queued behind its create and earlier edits. */
+function pushCustomerUpdate(id: string): void {
+  enqueue(`customer:${id}`, async () => {
+    const current = cache.find(c => c.id === id)
+    if (!current) return
+    await apiUpdateContact(id, toApiPayload(current))
+  }).catch(() => {})
 }
 
 export function updateCustomer(id: string, updates: Partial<Customer>): Customer | null {
@@ -254,19 +260,14 @@ export function updateCustomer(id: string, updates: Partial<Customer>): Customer
   const next: Customer = { ...prev, ...updates }
   cache = cache.map(c => c.id === id ? next : c)
   emit()
-  apiUpdateContact(id, toApiPayload(next)).then(updated => {
-    if (!updated) return
-    const fromServer = fromApi(updated)
-    cache = cache.map(c => c.id === id ? fromServer : c)
-    emit()
-  }).catch(() => {})
+  pushCustomerUpdate(id)
   return next
 }
 
 export function deleteCustomer(id: string): void {
   cache = cache.filter(c => c.id !== id)
   emit()
-  apiArchiveContact(id).catch(() => {})
+  enqueue(`customer:${id}`, () => apiArchiveContact(id)).catch(() => {})
 }
 
 /**

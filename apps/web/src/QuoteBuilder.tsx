@@ -4,6 +4,7 @@ import type { LineItem, RailWidth, MaterialResult } from './materialCalculator'
 import { calculatePrice, resolveSubRate, cleanOverrides } from './pricingEngine'
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT } from './inventoryStore'
+import { newId } from './recordSync'
 import type { SavedQuote } from './QuotesPage'
 import QuoteOptionsPanel from './QuoteOptionsPanel'
 import { getCustomers, getCustomerById, upsertCustomer } from './customerStore'
@@ -69,8 +70,6 @@ interface SavedCustomer {
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
-
-const uid = () => Math.random().toString(36).slice(2, 9)
 
 // ── Save Modal ────────────────────────────────────────────────────────────────
 
@@ -395,7 +394,7 @@ export default function QuoteBuilder({
   const [showSaveModal, setShowSaveModal] = useState(false)
   // Use `||` instead of `??` so an empty-string id (from callers that
   // preseed a "new quote" with id: '') also falls through to a fresh uid.
-  const quoteIdRef = useRef<string>(init?.id || uid())
+  const quoteIdRef = useRef<string>(init?.id || newId())
 
   const style = FENCE_STYLES.find(s => s.id === styleId)
   const cfgStyle = style

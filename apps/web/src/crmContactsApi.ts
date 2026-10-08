@@ -18,6 +18,8 @@ import { toast } from './toast'
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 
 export interface CrmContactPayload {
+  /** Permanent id chosen by the browser for a new contact; the server keeps it. */
+  id?: string
   firstName: string
   lastName: string
   email?: string
