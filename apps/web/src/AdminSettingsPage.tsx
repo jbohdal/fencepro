@@ -9,8 +9,9 @@ import EmailTemplatesSettings from './EmailTemplatesSettings'
 import ContractTemplatesSettings from './ContractTemplatesSettings'
 import PortalQuoteSettings from './PortalQuoteSettings'
 import { toast } from './toast'
+import CalendarSyncSettings from './CalendarSyncSettings'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -605,10 +606,12 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'email_templates',    label: 'Email Templates' },
   { key: 'contract_templates', label: 'Contract Templates' },
   { key: 'portal_quote',       label: 'Portal & Quotes' },
+  { key: 'calendar',           label: 'Google Calendar' },
 ]
 
 export default function AdminSettingsPage() {
-  const [tab, setTab] = useState<AdminTab>('company')
+  // ?settings=calendar opens this tab: Google sends the browser back with it after connecting.
+  const [tab, setTab] = useState<AdminTab>(() => (new URLSearchParams(window.location.search).get('settings') === 'calendar' ? 'calendar' : 'company'))
   const [config, setConfig] = useState<AppConfig>(getConfig)
   const [saved, setSaved] = useState(false)
   const [dirty, setDirty] = useState(false)
@@ -703,6 +706,7 @@ export default function AdminSettingsPage() {
           {tab === 'email_templates' && <EmailTemplatesSettings />}
           {tab === 'contract_templates' && <ContractTemplatesSettings />}
           {tab === 'portal_quote' && <PortalQuoteSettings />}
+          {tab === 'calendar' && <CalendarSyncSettings />}
         </div>
       </div>
     </div>

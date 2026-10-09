@@ -355,6 +355,48 @@ model Appointment {
   @@index([scheduledAt])
 }
 
+// ── Calendar sync (one way: CRM → Google Calendar) ──
+//
+// One row per company: which Google account is connected and which dedicated
+// calendar the events go to. `activatedAt` is set the first time "Push all
+// upcoming" runs; before that nothing is sent, so connecting alone never
+// writes to the calendar.
+model CalendarSyncState {
+  accountId    String    @id
+  googleEmail  String?
+  calendarId   String?
+  calendarName String?
+  connectedAt  DateTime?
+  activatedAt  DateTime?
+  lastSyncAt   DateTime?
+  lastError    String?
+  updatedAt    DateTime  @updatedAt
+}
+
+// One row per CRM record that has an event in Google Calendar. `source` and
+// `recordId` name the CRM record (a job, a schedule board entry, a pipeline
+// card, a customer's first appointment, a chatbot appointment). Saving the
+// record again finds this row, so it updates the same event instead of making
+// a second one. `contentHash` is what was last sent; `status` is `synced` or
+// `error` (with `attempts` and `lastError` for the retry).
+model CalendarEventLink {
+  id          String   @id @default(uuid())
+  accountId   String
+  source      String
+  recordId    String
+  calendarId  String
+  eventId     String
+  contentHash String   @default("")
+  status      String   @default("synced")
+  attempts    Int      @default(0)
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([accountId, source, recordId])
+  @@index([accountId, status])
+}
+
 // ── Google Calendar OAuth Tokens ──
 
 model GoogleCalendarToken {

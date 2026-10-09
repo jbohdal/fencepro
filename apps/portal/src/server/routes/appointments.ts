@@ -17,9 +17,12 @@ import { sendAppointmentConfirmation } from '../lib/sms.js'
 import { cancelFollowUps } from '../lib/followUpScheduler.js'
 import { writeAuditLog } from '../middleware/audit.js'
 import { str } from '../lib/helpers.js'
-import { pushAppointmentToCalendar, updateCalendarEvent } from '../lib/googleCalendar.js'
+import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 
 const router = Router()
+
+// Anything saved here may carry a date: keep Google Calendar in step, in the background.
+router.use(syncCalendarAfterWrite as any)
 
 const BOTPRESS_WEBHOOK_SECRET = process.env.BOTPRESS_WEBHOOK_SECRET || ''
 
@@ -119,31 +122,7 @@ router.post('/', verifyBotpressWebhook, async (req, res) => {
       sendAppointmentConfirmation(lead.phone, dateStr, lead.firstName || undefined).catch(() => {})
     }
 
-    // Push to assigned rep's Google Calendar (fire and forget)
-    const repEmail = lead?.assignedRepEmail || data.assignedRepEmail
-    if (repEmail) {
-      pushAppointmentToCalendar({
-        repEmail,
-        scheduledAt: new Date(data.scheduledAt),
-        duration: data.duration,
-        type: data.type,
-        location: data.address,
-        customerName: [lead?.firstName, lead?.lastName].filter(Boolean).join(' ') || 'New Lead',
-        customerPhone: lead?.phone || undefined,
-        customerEmail: lead?.email || undefined,
-        fenceType: lead?.fenceType || undefined,
-        linearFootage: lead?.linearFootage || undefined,
-        notes: data.notes,
-      }).then(async (eventId) => {
-        if (eventId) {
-          // Fields added in migration — regenerate Prisma client after migration
-          await prisma.appointment.update({
-            where: { id: appointment.id },
-            data: { googleCalendarEventId: eventId, assignedRepEmail: repEmail } as any,
-          })
-        }
-      }).catch(err => console.error('[GCal] Push failed:', err))
-    }
+    // Google Calendar: the router's syncCalendarAfterWrite picks this appointment up from the database.
 
     await writeAuditLog(null, 'appointment_booked', {
       leadId,
@@ -258,18 +237,6 @@ router.patch('/:id', requireAuth, async (req, res) => {
         ...(data.scheduledAt ? { scheduledAt: new Date(data.scheduledAt) } : {}),
       },
     })
-
-    // Sync changes to Google Calendar (fire and forget)
-    const repEmail = (existing as any)?.assignedRepEmail
-    const eventId = (existing as any)?.googleCalendarEventId
-    if (repEmail && eventId) {
-      updateCalendarEvent({
-        repEmail,
-        eventId,
-        ...(data.cancelled ? { cancelled: true } : {}),
-        ...(data.scheduledAt ? { scheduledAt: new Date(data.scheduledAt), duration: existing?.duration } : {}),
-      }).catch(err => console.error('[GCal] Update failed:', err))
-    }
 
     res.json({ success: true, data: updated })
   } catch (err) {

@@ -462,3 +462,95 @@ A change made directly in the live database from outside the app (an import
 script) must also add 1 to the record's `version` when it edits the pipeline,
 inventory, business state, vendors, schedule settings or a cloud storage key,
 so that open tabs merge it in instead of being refused without reason.
+
+## 16. Google Calendar
+
+One way: anything with a date in EZ Biz is sent to Google Calendar. Nothing
+comes back from Google.
+
+| | Live | Dev |
+|---|---|---|
+| Calendar the events go to | `GD Fence Pro` | `GD Fence Pro (TEST)` |
+| Redirect address | `http://localhost:4000/api/google-calendar/callback` | `http://localhost:4001/api/google-calendar/callback` |
+| Where you press Connect | `http://localhost:4000` on the Mac mini, Settings, Google Calendar | `http://localhost:4001`, same place |
+
+The app makes the calendar itself the first time you connect. It asks Google
+only for permission to manage calendars it created, so it cannot read or
+change your main calendar. A copy of the code that is not `~/ezbiz` always
+uses the `(TEST)` name, whatever its settings say.
+
+What is sent:
+
+| In EZ Biz | On the calendar |
+|---|---|
+| A job with a scheduled date (Operations, Dispatch, Smart Schedule) | `Install: Name (style, sections)`, all day, across its working days |
+| An entry on the Schedule board | The same, on its day. Back to back days for one job are one event. A rain day reschedule moves it |
+| A pipeline card with a date, before the sale | `Estimate: Name`, all day |
+| A pipeline card with a date, after the sale | `Install: ...`, only when no job carries the date |
+| A customer's First Appointment Date | `Estimate: Name`, unless their card already shows it that day |
+| An appointment booked by the website chat | `Estimate: Name` at its time |
+
+Each event has the address as its location, and a description with phone,
+fence style, footage, gates, quote price, notes and an "Open in EZ Biz" link.
+
+How it behaves:
+
+- It runs on the server a couple of seconds after a save, never in the
+  browser, and a save never waits for Google. If Google is down the save
+  still works; the event is retried on the next save and every five minutes.
+- Connecting sends nothing. "Push all upcoming" sends everything dated today
+  or later and switches syncing on. Past dates are not back filled.
+- Each CRM record maps to one Google event (table `CalendarEventLink`), and
+  the event's id is derived from the record, so a second event for the same
+  record cannot be made.
+- Disconnect stops the sync and forgets the Google sign in. Events already on
+  the calendar stay.
+- Problems show under Settings, Google Calendar, and in `pm2 logs ezbiz`
+  (lines starting `[calendar]`).
+
+### One time Google setup
+
+Sign in to Google as your gdfencepro.com account for all of this.
+
+1. Open `https://console.cloud.google.com`. At the top, click the project
+   picker, then **New project**. Name: `EZ Biz Calendar`. Organization:
+   `gdfencepro.com`. Click **Create**, then select the new project.
+2. Menu (three lines, top left) → **APIs & Services** → **Library**. Search
+   `Google Calendar API`, open it, click **Enable**.
+3. Menu → **APIs & Services** → **OAuth consent screen**. Click **Get
+   started**. App name: `EZ Biz`. Support email: yours. Audience:
+   **Internal**. Contact email: yours. Agree and click **Create**.
+   Internal is what keeps the connection from expiring.
+4. In the left list click **Data access** → **Add or remove scopes**. In
+   "Manually add scopes" paste these two lines, click **Add to table**,
+   **Update**, then **Save**:
+   ```
+   https://www.googleapis.com/auth/calendar.app.created
+   https://www.googleapis.com/auth/userinfo.email
+   ```
+5. In the left list click **Clients** → **Create client**. Application type:
+   **Web application**. Name: `EZ Biz`. Under **Authorized redirect URIs**
+   click **Add URI** twice and enter:
+   ```
+   http://localhost:4000/api/google-calendar/callback
+   http://localhost:4001/api/google-calendar/callback
+   ```
+   Click **Create**. In the box that appears click **Download JSON**.
+6. Put three lines in each settings file (never commit them). The client id
+   and secret are the same in both; only the redirect differs.
+   `~/ezbiz/apps/portal/.env`:
+   ```
+   GOOGLE_CLIENT_ID="...apps.googleusercontent.com"
+   GOOGLE_CLIENT_SECRET="..."
+   GOOGLE_REDIRECT_URI="http://localhost:4000/api/google-calendar/callback"
+   ```
+   `apps/portal/.env` in the working folder: the same id and secret, with
+   `GOOGLE_REDIRECT_URI="http://localhost:4001/api/google-calendar/callback"`.
+   Then `pm2 restart ezbiz --update-env` for live.
+7. On the Mac mini open `http://localhost:4000`, sign in, go to Settings →
+   Google Calendar, press **Connect Google Calendar**, choose your
+   gdfencepro.com account and allow. You come back to the same page showing
+   the account and the calendar name. Press **Push all upcoming**.
+8. In Google Calendar, the new calendar appears under "My calendars". To see
+   it on your phone, turn it on in the Google Calendar app's settings.
+

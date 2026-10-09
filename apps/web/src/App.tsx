@@ -372,14 +372,24 @@ export default function App() {
 }
 
 function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; onLogout: () => void; onChangePassword: () => void }) {
-  const [active, setActive]             = useState('Dashboard')
+  // Links from outside the app: ?customer=<id> (a calendar event's "Open in EZ
+  // Biz") opens that customer; ?settings=calendar (back from Google) opens Settings.
+  const [active, setActive]             = useState(() => {
+    const q = new URLSearchParams(window.location.search)
+    return q.get('customer') ? 'Customers' : q.get('settings') ? 'Settings' : 'Dashboard'
+  })
   const [showQuote, setShowQuote]       = useState(false)
   const [editingQuote, setEditingQuote] = useState<SavedQuote | null>(null)
   const [quotes, setQuotes]             = useState<SavedQuote[]>(loadQuotes)
   const [jobs, setJobs]                 = useState<Job[]>(getJobs)
   // Customer opened from a pipeline card; drives "Back to pipeline" on the customer page.
   const [pipelineCustomerId, setPipelineCustomerId] = useState<string | null>(null)
-  useEffect(() => { if (active !== 'Customers') setPipelineCustomerId(null) }, [active])
+  const [linkedCustomerId, setLinkedCustomerId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('customer'))
+  useEffect(() => {
+    // The customer id has been read; take it out of the address bar. (?settings is tidied by the Settings page.)
+    if (new URLSearchParams(window.location.search).get('customer')) window.history.replaceState(null, '', window.location.pathname + window.location.hash)
+  }, [])
+  useEffect(() => { if (active !== 'Customers') { setPipelineCustomerId(null); setLinkedCustomerId(null) } }, [active])
 
   // When a save was refused and another device's changes were merged in (see
   // syncGuard), the page on screen may still hold its own older copy of that
@@ -913,7 +923,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Bundles'   && <BundlesPage />}
           {active === 'Cash Flow' && <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center"><p className="text-4xl mb-3">💸</p><h2 className="text-lg font-bold text-gray-900">Cash Flow</h2><p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">Cash Flow statement coming soon. For now, check the P&amp;L Statement and Accounts Receivable/Payable dashboards.</p></div>}
           {active === 'Customers' && <CustomersPage
-            openCustomerId={pipelineCustomerId}
+            openCustomerId={pipelineCustomerId || linkedCustomerId}
             onBack={pipelineCustomerId ? () => { markPipelineReturn(); setActive('Sales Pipeline') } : undefined}
             backLabel="Back to pipeline"
             onNewQuote={(c) => {

@@ -8,6 +8,7 @@ import prisma from './lib/prisma.js'
 import { printEnvValidation } from './lib/urls.js'
 import { mountStaticSites } from './lib/staticSites.js'
 import { liveDatabaseMisuse } from './lib/liveGuard.js'
+import { startCalendarSyncRetry } from './lib/calendarSync/index.js'
 
 // Before anything touches the database: only the live install may use the live database.
 const misuse = liveDatabaseMisuse(process.env.DATABASE_URL, process.cwd())
@@ -274,6 +275,9 @@ if (!isVercel) {
     console.log('   Follow-up cron: use /api/cron/follow-ups endpoint (or setInterval for local dev)')
 
     // Start in-process data-integrity cron (snapshot + backup-staleness)
+    try { startCalendarSyncRetry() } catch (err) {
+      console.warn('[startup] calendar sync retry failed to start:', (err as Error).message)
+    }
     try { startDataIntegrityCron() } catch (err) {
       console.warn('[startup] data-integrity cron failed to start:', (err as Error).message)
     }

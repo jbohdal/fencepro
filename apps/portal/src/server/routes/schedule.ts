@@ -14,8 +14,12 @@ import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
+import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 
 const router = Router()
+
+// Anything saved here may carry a date: keep Google Calendar in step, in the background.
+router.use(syncCalendarAfterWrite as any)
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
 async function requireUser(req: any, res: any, next: any) {

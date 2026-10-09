@@ -1,8 +1,10 @@
 /**
  * Google Calendar Integration
  *
- * Pushes appointment/estimate events to the assigned salesman's Google Calendar.
- * Uses OAuth2 with per-user refresh tokens stored in the database.
+ * Kept for the older callers (the chat appointment route and the integrations
+ * adapter). Calendar sync itself lives in lib/calendarSync: one way, to a
+ * dedicated calendar, driven from the database. The push, update and pull
+ * functions here no longer touch anyone's main calendar.
  *
  * Setup:
  *   1. Create a Google Cloud project with Calendar API enabled
@@ -13,6 +15,7 @@
 
 import { google, calendar_v3 } from 'googleapis'
 import prisma from './prisma.js'
+import { requestCalendarSync } from './calendarSync/index.js'
 
 const SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 
@@ -140,59 +143,11 @@ export async function pushAppointmentToCalendar(params: {
   linearFootage?: number
   notes?: string
 }): Promise<string | null> {
-  const calendar = await getCalendarClient(params.repEmail)
-  if (!calendar) return null
-
-  const endTime = new Date(params.scheduledAt.getTime() + params.duration * 60_000)
-
-  const typeLabel = params.type === 'estimate' ? 'Fence Estimate'
-    : params.type === 'follow_up' ? 'Follow-Up'
-    : 'Consultation'
-
-  // Build description with job details
-  const descParts = [
-    `${typeLabel} — ${params.customerName}`,
-    '',
-  ]
-  if (params.fenceType) descParts.push(`Fence Type: ${params.fenceType}`)
-  if (params.linearFootage) descParts.push(`Linear Footage: ~${params.linearFootage} ft`)
-  if (params.customerPhone) descParts.push(`Phone: ${params.customerPhone}`)
-  if (params.customerEmail) descParts.push(`Email: ${params.customerEmail}`)
-  if (params.notes) descParts.push(`\nNotes: ${params.notes}`)
-  descParts.push('\n---\nCreated by EZBiz')
-
-  try {
-    const event = await calendar.events.insert({
-      calendarId: 'primary',
-      requestBody: {
-        summary: `${typeLabel}: ${params.customerName}`,
-        description: descParts.join('\n'),
-        location: params.location || undefined,
-        start: {
-          dateTime: params.scheduledAt.toISOString(),
-          timeZone: 'America/New_York', // FL timezone
-        },
-        end: {
-          dateTime: endTime.toISOString(),
-          timeZone: 'America/New_York',
-        },
-        reminders: {
-          useDefault: false,
-          overrides: [
-            { method: 'popup', minutes: 60 },
-            { method: 'popup', minutes: 15 },
-          ],
-        },
-        colorId: params.type === 'estimate' ? '9' : '5', // blueberry for estimates, banana for others
-      },
-    })
-
-    console.log(`[GCal] Event created: ${event.data.id} for ${params.repEmail}`)
-    return event.data.id || null
-  } catch (err) {
-    console.error(`[GCal] Failed to create event for ${params.repEmail}:`, err)
-    return null
-  }
+  // Appointments now go to the dedicated calendar through calendarSync, which
+  // reads them from the database. Nothing is written to anyone's main calendar.
+  void params
+  requestCalendarSync()
+  return null
 }
 
 /**
@@ -206,38 +161,9 @@ export async function updateCalendarEvent(params: {
   cancelled?: boolean
   notes?: string
 }): Promise<boolean> {
-  const calendar = await getCalendarClient(params.repEmail)
-  if (!calendar) return false
-
-  try {
-    if (params.cancelled) {
-      await calendar.events.delete({
-        calendarId: 'primary',
-        eventId: params.eventId,
-      })
-      console.log(`[GCal] Event deleted: ${params.eventId}`)
-      return true
-    }
-
-    const updates: calendar_v3.Schema$Event = {}
-    if (params.scheduledAt) {
-      const duration = params.duration || 60
-      const endTime = new Date(params.scheduledAt.getTime() + duration * 60_000)
-      updates.start = { dateTime: params.scheduledAt.toISOString(), timeZone: 'America/New_York' }
-      updates.end = { dateTime: endTime.toISOString(), timeZone: 'America/New_York' }
-    }
-
-    await calendar.events.patch({
-      calendarId: 'primary',
-      eventId: params.eventId,
-      requestBody: updates,
-    })
-    console.log(`[GCal] Event updated: ${params.eventId}`)
-    return true
-  } catch (err) {
-    console.error(`[GCal] Failed to update event ${params.eventId}:`, err)
-    return false
-  }
+  void params
+  requestCalendarSync()
+  return true
 }
 
 /**
@@ -271,8 +197,8 @@ export async function listConnectedCalendars(): Promise<{ email: string; connect
 }
 
 /**
- * Pull upcoming events from a rep's Google Calendar.
- * Returns events within the next `daysAhead` days.
+ * The sync is one way (EZ Biz to Google) and has no access to main calendars,
+ * so there is nothing to pull. Kept so the integrations adapter still loads.
  */
 export async function pullCalendarEvents(params: {
   repEmail: string
@@ -285,33 +211,6 @@ export async function pullCalendarEvents(params: {
   cancelled: boolean
   description?: string
 }>> {
-  const calendar = await getCalendarClient(params.repEmail)
-  if (!calendar) return []
-
-  const now = new Date()
-  const maxTime = new Date(now.getTime() + (params.daysAhead ?? 30) * 24 * 60 * 60 * 1000)
-
-  try {
-    const res = await calendar.events.list({
-      calendarId: 'primary',
-      timeMin: now.toISOString(),
-      timeMax: maxTime.toISOString(),
-      singleEvents: true,
-      orderBy: 'startTime',
-      maxResults: 200,
-      showDeleted: true, // include cancelled events so we can sync deletions
-    })
-
-    return (res.data.items || []).map(ev => ({
-      eventId: ev.id || '',
-      summary: ev.summary || '',
-      start: ev.start?.dateTime ? new Date(ev.start.dateTime) : new Date(),
-      end: ev.end?.dateTime ? new Date(ev.end.dateTime) : new Date(),
-      cancelled: ev.status === 'cancelled',
-      description: ev.description || undefined,
-    })).filter(ev => ev.eventId)
-  } catch (err) {
-    console.error(`[GCal] Failed to list events for ${params.repEmail}:`, err)
-    return []
-  }
+  void params
+  return []
 }
