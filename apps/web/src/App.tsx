@@ -43,7 +43,8 @@ import PublicQuotePage from './PublicQuotePage'
 import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
 import { initCustomers, getCustomers, isCustomersHydrated } from './customerStore'
 import { initQuotes, getQuotes, getQuoteById, upsertQuote, isQuotesHydrated } from './quoteStore'
-import { initJobs, isJobsHydrated } from './jobStore'
+import { initJobs, isJobsHydrated, getJobs } from './jobStore'
+import type { Job } from './jobStore'
 import { initSchedule, isScheduleHydrated } from './scheduleStore'
 import { initPipeline, getPipeline, isPipelineHydrated } from './pipelineStore'
 import { initInventory, isInventoryHydrated } from './inventoryStore'
@@ -57,7 +58,7 @@ import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import { syncQuote } from './portalSync'
 import { createPendingOrderFromQuote, checkStockForOrder } from './pendingOrderStore'
 import { fireQuoteSold } from './automationTrigger'
-import { soldRevenueForYear, averageMargin } from './quoteStats'
+import { installedRevenueForYear, soldNotInstalled, averageMargin } from './quoteStats'
 
 /* ───────── role system ───────── */
 
@@ -375,6 +376,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const [showQuote, setShowQuote]       = useState(false)
   const [editingQuote, setEditingQuote] = useState<SavedQuote | null>(null)
   const [quotes, setQuotes]             = useState<SavedQuote[]>(loadQuotes)
+  const [jobs, setJobs]                 = useState<Job[]>(getJobs)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userProfile, setUserProfile]   = useState(loadUserProfile)
@@ -387,6 +389,13 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
   const companyName = useMemo(() => loadCompanyName(), [])
   const role = userProfile.role
+
+  // Revenue on the dashboard comes from jobs, so follow them as they change.
+  useEffect(() => {
+    const onJobs = () => setJobs([...getJobs()])
+    window.addEventListener('fencepro:jobs:updated', onJobs)
+    return () => window.removeEventListener('fencepro:jobs:updated', onJobs)
+  }, [])
 
   // Keyboard shortcut: Cmd+K or Ctrl+K to open search
   useEffect(() => {
@@ -587,7 +596,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
   const thisMonth    = new Date().getMonth()
   const thisYear     = new Date().getFullYear()
-  const ytdRevenue   = soldRevenueForYear(quotes, thisYear)
+  // Installed revenue by install date, the way the GD Schedule counts it.
+  const ytdRevenue   = installedRevenueForYear(jobs, thisYear)
+  const openSold     = soldNotInstalled(jobs)
   const monthQuotes  = quotes.filter(q => {
     if (!q.date) return false
     const d = new Date(q.date)
@@ -618,7 +629,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const ytdGoal            = revenueGoal * (thisMonth + 1) / 12
 
   const kpis = [
-    { label: 'Revenue YTD', value: fmt(ytdRevenue), sub: `${fmtPct(ytdRevenue / revenueGoal)} of ${fmt(revenueGoal)} goal`, icon: '💰', color: ytdRevenue >= ytdGoal ? 'text-green-600' : 'text-orange-500' },
+    { label: 'Revenue YTD', value: fmt(ytdRevenue), sub: `${fmtPct(ytdRevenue / revenueGoal)} of ${fmt(revenueGoal)} goal`, sub2: `Sold, not installed: ${fmt(openSold.total)} (${openSold.count} ${openSold.count === 1 ? 'job' : 'jobs'})`, icon: '💰', color: ytdRevenue >= ytdGoal ? 'text-green-600' : 'text-orange-500' },
     { label: 'Sold This Month', value: String(monthSold), sub: `${monthQuotes.length} quoted · ${monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%'} close rate`, icon: '📋', color: 'text-blue-600' },
     { label: 'Open Quotes', value: String(openQuotes), sub: fmt(quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)), icon: '⏳', color: 'text-orange-500' },
     { label: 'Active Pipeline', value: String(activePipeline), sub: 'leads in progress', icon: '🔨', color: 'text-purple-600' },
@@ -919,6 +930,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                     </div>
                     <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
                     <p className="text-xs text-gray-400 mt-1">{kpi.sub}</p>
+                    {'sub2' in kpi && kpi.sub2 && <p className="text-xs text-gray-500 mt-0.5">{kpi.sub2}</p>}
                   </div>
                 ))}
               </div>

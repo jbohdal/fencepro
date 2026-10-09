@@ -3,19 +3,32 @@
  */
 
 interface QuoteForStats {
-  status: string
-  date: string        // YYYY-MM-DD
-  finalPrice: number
   totalCOGS: number
   gmPct: number
 }
 
-/** Sold revenue for one calendar year, by quote date. The year is read off the
- *  date text: new Date('2026-01-01') is still December 31 in Florida. */
-export function soldRevenueForYear(quotes: QuoteForStats[], year: number): number {
-  return quotes
-    .filter(q => q.status === 'SOLD' && (q.date || '').startsWith(`${year}-`))
-    .reduce((s, q) => s + q.finalPrice, 0)
+interface JobForStats {
+  completedDate?: string | null   // YYYY-MM-DD, set once the job is installed
+  contractValue: number
+  quotePrice: number
+}
+
+const jobValue = (j: JobForStats) => j.contractValue || j.quotePrice
+
+/** Installed revenue for one year: jobs with a completion (install) date in
+ *  that year. The year is read off the date text: new Date('2026-01-01') is
+ *  still December 31 in Florida. */
+export function installedRevenueForYear(jobs: JobForStats[], year: number): number {
+  return jobs
+    .filter(j => (j.completedDate || '').startsWith(`${year}-`))
+    .reduce((s, j) => s + jobValue(j), 0)
+}
+
+/** Sold but not installed: every job with no completion date yet, whatever
+ *  year it was sold in. */
+export function soldNotInstalled(jobs: JobForStats[]): { count: number; total: number } {
+  const open = jobs.filter(j => !j.completedDate)
+  return { count: open.length, total: open.reduce((s, j) => s + jobValue(j), 0) }
 }
 
 /** Average gross margin over quotes that carry a cost. A quote with a price
