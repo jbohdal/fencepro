@@ -57,6 +57,7 @@ import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import { syncQuote } from './portalSync'
 import { createPendingOrderFromQuote, checkStockForOrder } from './pendingOrderStore'
 import { fireQuoteSold } from './automationTrigger'
+import { soldRevenueForYear, averageMargin } from './quoteStats'
 
 /* ───────── role system ───────── */
 
@@ -584,9 +585,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
   /* ── Dashboard stats ── */
 
-  const ytdRevenue   = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0)
   const thisMonth    = new Date().getMonth()
   const thisYear     = new Date().getFullYear()
+  const ytdRevenue   = soldRevenueForYear(quotes, thisYear)
   const monthQuotes  = quotes.filter(q => {
     if (!q.date) return false
     const d = new Date(q.date)
@@ -594,7 +595,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   })
   const monthSold    = monthQuotes.filter(q => q.status === 'SOLD').length
   const openQuotes   = quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').length
-  const avgMargin    = quotes.length > 0 ? quotes.reduce((s, q) => s + q.gmPct, 0) / quotes.length : 0
+  const avgMargin    = averageMargin(quotes)
   const activePipeline = loadPipelineCount()
   const recentQuotes = [...quotes].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
 
@@ -621,7 +622,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     { label: 'Sold This Month', value: String(monthSold), sub: `${monthQuotes.length} quoted · ${monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%'} close rate`, icon: '📋', color: 'text-blue-600' },
     { label: 'Open Quotes', value: String(openQuotes), sub: fmt(quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)), icon: '⏳', color: 'text-orange-500' },
     { label: 'Active Pipeline', value: String(activePipeline), sub: 'leads in progress', icon: '🔨', color: 'text-purple-600' },
-    { label: 'Avg Gross Margin', value: fmtPct(avgMargin), sub: avgMargin >= 0.34 ? 'Above target ✓' : 'Below target ⚠', icon: '📈', color: avgMargin >= 0.34 ? 'text-green-600' : 'text-yellow-600' },
+    { label: 'Avg Gross Margin', value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'No costed quotes yet' : avgMargin >= 0.34 ? 'Above target ✓' : 'Below target ⚠', icon: '📈', color: avgMargin === null ? 'text-gray-400' : avgMargin >= 0.34 ? 'text-green-600' : 'text-yellow-600' },
   ]
 
   const budgetBuckets = [

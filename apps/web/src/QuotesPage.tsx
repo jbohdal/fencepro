@@ -7,6 +7,7 @@ import { pullFromInventory, getLocations } from './inventoryStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import { getQuotes, updateQuote } from './quoteStore'
+import { averageMargin } from './quoteStats'
 
 export interface SavedQuote {
   id: string
@@ -189,7 +190,7 @@ function PipelineAnalytics({ quotes }: { quotes: SavedQuote[] }) {
   const closingRate = totalOpp > 0 ? totalSold / totalOpp : 0
   const avgDeal     = totalSold > 0 ? totalRev / totalSold : 0
   const openPipe    = quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)
-  const avgMargin   = quotes.length > 0 ? quotes.reduce((s, q) => s + q.gmPct, 0) / quotes.length : 0
+  const avgMargin   = averageMargin(quotes)
 
   if (quotes.length === 0) return null
 
@@ -201,7 +202,7 @@ function PipelineAnalytics({ quotes }: { quotes: SavedQuote[] }) {
           { label: 'Closed',         value: String(totalSold), sub: fmtPct(closingRate) + ' close rate', accent: true },
           { label: 'Closed Revenue', value: fmt(totalRev),     sub: `avg ${fmt(avgDeal)}/job` },
           { label: 'Open Pipeline',  value: fmt(openPipe),     sub: `${quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').length} active` },
-          { label: 'Avg Margin',     value: fmtPct(avgMargin), sub: quotes.filter(q => q.gmPct >= 0.34).length + ' above target' },
+          { label: 'Avg Margin',     value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'no costed quotes yet' : quotes.filter(q => q.gmPct >= 0.34).length + ' above target' },
         ].map(s => (
           <div key={s.label} className={`rounded-2xl p-4 ${s.accent ? 'bg-orange-500' : 'bg-white border border-gray-200'}`}>
             <p className={`text-xs font-semibold uppercase tracking-wide mb-1 ${s.accent ? 'text-orange-100' : 'text-gray-400'}`}>{s.label}</p>
