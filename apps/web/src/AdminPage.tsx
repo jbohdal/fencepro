@@ -12,6 +12,7 @@ import {
   findItemByBarcode,
 } from './inventoryStore'
 import BulkImportModal from './BulkImportModal'
+import { groupCatalog, NEW_ITEMS_GROUP } from './inventorySort'
 import type {
   InventoryItem, Bundle, BundleItem,
   InventoryLocation, StockLevel,
@@ -164,15 +165,37 @@ function CatalogTab() {
   const [barcodesEditId, setBarcodesEditId] = useState<string | null>(null)
   const [barcodesInput, setBarcodesInput]   = useState('')
   const [showBulkImport, setShowBulkImport] = useState(false)
+  // Names as of the last load or save: the table is ordered by these, so a row
+  // stays put while its name is edited and files into place on save.
+  const [filedNames, setFiledNames]         = useState<Map<string, string>>(new Map())
+  const [collapsed, setCollapsed]           = useState<Set<string>>(new Set())
   const locations = useMemo(() => getLocations(), [])
 
-  useEffect(() => { setItems(getInventory()); setLevels(getStockLevels()) }, [])
+  function loadItems() {
+    const inv = getInventory()
+    setItems(inv)
+    setFiledNames(new Map(inv.map(i => [i.id, i.name])))
+  }
+
+  useEffect(() => { loadItems(); setLevels(getStockLevels()) }, [])
 
   const filtered = items.filter(i => {
     const matchCat  = category === 'All' || i.category === category
     const matchText = i.name.toLowerCase().includes(search.toLowerCase())
     return matchCat && matchText
   })
+  const groups = groupCatalog(filtered, filedNames, CATEGORIES)
+  // A search shows every match, even inside a group that was closed.
+  const isCollapsed = (key: string) => !search && collapsed.has(key)
+
+  function toggleGroup(key: string) {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   function getQty(itemId: string): number {
     return levels.filter(s => s.itemId === itemId).reduce((sum, s) => sum + s.quantity, 0)
@@ -231,6 +254,7 @@ function CatalogTab() {
   function handleSave() {
     saveInventory(items)
     saveStockLevels(levels)
+    setFiledNames(new Map(items.map(i => [i.id, i.name])))
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -238,7 +262,7 @@ function CatalogTab() {
   function handleReset() {
     if (confirm('Reset all inventory to factory defaults? This cannot be undone.')) {
       resetInventory()
-      setItems(getInventory())
+      loadItems()
     }
   }
 
@@ -247,7 +271,7 @@ function CatalogTab() {
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Item Catalog</h2>
-          <p className="text-sm text-gray-400 mt-0.5">{items.length} items · click name to edit · changes apply to future quotes</p>
+          <p className="text-sm text-gray-400 mt-0.5">{items.length} items · grouped by category, A to Z · click name to edit · changes apply to future quotes</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={handleReset} className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50">Reset defaults</button>
@@ -287,7 +311,16 @@ function CatalogTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {filtered.map(item => {
+            {groups.map(group => (
+              <React.Fragment key={group.key}>
+              <tr className="bg-gray-50 cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleGroup(group.key)}>
+                <td colSpan={7} className="px-4 py-2">
+                  <span className="text-gray-400 text-xs mr-2">{isCollapsed(group.key) ? '▸' : '▾'}</span>
+                  <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">{group.key === NEW_ITEMS_GROUP ? 'New, not saved yet' : group.key}</span>
+                  <span className="text-xs text-gray-400 ml-2">{group.items.length}</span>
+                </td>
+              </tr>
+              {!isCollapsed(group.key) && group.items.map(item => {
               const qty = getQty(item.id)
               const hasStock = levels.some(s => s.itemId === item.id)
               const thresholdCount = countThresholdsSet(item.id)
@@ -382,6 +415,8 @@ function CatalogTab() {
                 </React.Fragment>
               )
             })}
+              </React.Fragment>
+            ))}
           </tbody>
         </table>
         {filtered.length === 0 && <div className="text-center py-12 text-gray-400 text-sm">No items match your search</div>}
@@ -390,7 +425,7 @@ function CatalogTab() {
       {showBulkImport && (
         <BulkImportModal
           onClose={() => setShowBulkImport(false)}
-          onComplete={() => { setItems(getInventory()); setLevels(getStockLevels()) }}
+          onComplete={() => { loadItems(); setLevels(getStockLevels()) }}
         />
       )}
     </div>
