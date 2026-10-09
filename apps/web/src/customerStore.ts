@@ -27,6 +27,7 @@ import {
   type CrmContactPayload,
 } from './crmContactsApi'
 import { cloudStorage } from './cloudStorage'
+import { businessDate } from './businessDate'
 
 const EVT = 'fencepro:customers:updated'
 const LEGACY_KEY = 'fencepro_customers'
@@ -68,7 +69,7 @@ function fromApi(r: CrmContactRecord): Customer {
     leadSource: r.leadSource || '',
     notes: r.notes || '',
     tags: Array.isArray(r.tags) ? r.tags : [],
-    createdAt: (r.createdAt || '').slice(0, 10),
+    createdAt: businessDate(r.createdAt),
     salesRep: r.salesRep || '',
     firstApptDate: r.firstApptDate || '',
     jobStatus: r.jobStatus,
@@ -221,7 +222,7 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
     leadSource: partial.leadSource || '',
     notes: partial.notes || '',
     tags: partial.tags || [],
-    createdAt: partial.createdAt || new Date().toISOString().slice(0, 10),
+    createdAt: partial.createdAt || businessDate(new Date()),
     salesRep: partial.salesRep || '',
     firstApptDate: partial.firstApptDate || '',
     jobStatus: partial.jobStatus,
