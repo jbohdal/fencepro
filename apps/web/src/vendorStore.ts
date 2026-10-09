@@ -9,8 +9,9 @@
 
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
+const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const VENDOR_EVT = 'fencepro:vendors:updated'
 const VENDOR_MIGRATION_FLAG = 'fencepro_vendors_db_migrated_v1'
 

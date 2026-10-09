@@ -5,7 +5,9 @@
  * Talks to /api/crm-auth/ on the portal backend.
  */
 
-const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/crm-auth'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
+
+const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/crm-auth'
 
 let accessToken: string | null = localStorage.getItem('crm_access_token')
 let refreshToken: string | null = localStorage.getItem('crm_refresh_token')

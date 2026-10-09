@@ -8,8 +8,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { getAccessToken, fetchWithAuth } from './crmAuth'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const API_BASE = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
+const API_BASE = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
 interface AuditRow {
   id: string

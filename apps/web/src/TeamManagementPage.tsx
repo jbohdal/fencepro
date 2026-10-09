@@ -6,8 +6,9 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { authFetch } from './crmAuth'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/crm-auth'
+const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/crm-auth'
 
 async function api<T = any>(path: string, opts?: RequestInit): Promise<T> {
   return authFetch<T>(`${AUTH_API}${path}`, opts)

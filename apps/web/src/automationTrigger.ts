@@ -5,8 +5,9 @@
  * Fires events to the portal backend which evaluates all active automations.
  */
 
-const AUTOMATION_API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/automations/trigger'
+const AUTOMATION_API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/automations/trigger'
 import { fetchWithAuth } from './crmAuth'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 export interface TriggerEvent {
   jobId?: string

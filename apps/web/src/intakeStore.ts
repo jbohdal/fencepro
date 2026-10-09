@@ -15,8 +15,9 @@ import { refreshCustomers, getCustomerById } from './customerStore'
 import { getPipeline, savePipeline, isPipelineHydrated } from './pipelineStore'
 import { newId } from './recordSync'
 import { toast } from './toast'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
+const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
 export interface IntakeLead {
   id: string

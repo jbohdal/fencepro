@@ -6,8 +6,9 @@
  * Failures are silent — the CRM works offline, portal syncs when available.
  */
 
-const PORTAL_API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/sync'
+const PORTAL_API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/sync'
 import { fetchWithAuth } from './crmAuth'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 // Default account for this CRM instance
 const ACCOUNT_EXTERNAL_ID = 'gdf-001'

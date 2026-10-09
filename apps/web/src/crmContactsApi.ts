@@ -14,8 +14,9 @@
 
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
+const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
 export interface CrmContactPayload {
   /** Permanent id chosen by the browser for a new contact; the server keeps it. */

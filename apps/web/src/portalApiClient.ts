@@ -5,10 +5,11 @@
  */
 
 import { fetchWithAuth } from './crmAuth'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 function apiBase(): string {
   if (typeof window === 'undefined') return ''
-  return window.location.hostname === 'localhost' ? 'http://localhost:4000' : ''
+  return window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
 }
 
 function portalAuthHeaders(): Record<string, string> {

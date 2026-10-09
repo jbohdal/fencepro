@@ -25,6 +25,7 @@ import {
 import { getCustomerById } from './customerStore'
 import { getQuotes } from './quoteStore'
 import { getJobs } from './jobStore'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 function readCompanyInfo() {
   try {
@@ -795,7 +796,7 @@ function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent:
 function resolveFileUrlSync(fileUrl: string): string {
   if (!fileUrl) return ''
   if (/^https?:\/\//i.test(fileUrl)) return fileUrl
-  const base = window.location.hostname === 'localhost' ? 'http://localhost:4000' : ''
+  const base = window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
   return `${base}${fileUrl}`
 }
 

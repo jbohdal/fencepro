@@ -10,8 +10,9 @@
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
+const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const EVT = 'fencepro:pipeline:updated'
 const LEGACY_KEY = 'fencepro_pipeline'
 const MIGRATION_FLAG = 'fencepro_pipeline_db_migrated_v1'

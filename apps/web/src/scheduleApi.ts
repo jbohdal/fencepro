@@ -5,8 +5,9 @@
 
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
+const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
 export interface CrewRecord { id: string; name: string; color: string }
 export interface ScheduleSettingsRecord {

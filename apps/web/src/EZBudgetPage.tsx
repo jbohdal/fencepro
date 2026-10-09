@@ -7,8 +7,9 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { fetchWithAuth } from './crmAuth'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '') + '/api/ez-budget'
+const API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/ez-budget'
 const headers: Record<string, string> = { 'Content-Type': 'application/json' }
 
 async function api(path: string, opts?: RequestInit) {

@@ -21,8 +21,9 @@ import {
 } from './scheduleApi'
 import type { ScheduledJob, ScheduleSettings, RainDayEntry } from './SchedulePage'
 import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
+const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
 const SETTINGS_EVT = 'fencepro:schedule:updated'
 const RAIN_EVT = 'fencepro:rainlog:updated'

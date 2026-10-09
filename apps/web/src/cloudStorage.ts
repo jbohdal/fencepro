@@ -22,8 +22,9 @@
 
 import { fetchWithAuth, getAccessToken } from './crmAuth'
 import { createVersionedFlusher, versionedSave, legacyMigrationEnabled, type VersionedFlusher } from './syncGuard'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
+const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const EVT = 'ezbiz:cloud-storage:updated'
 
 /** Every key that lives in cloudStorage. A key not listed here is refused. */

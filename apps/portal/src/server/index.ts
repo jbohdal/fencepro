@@ -7,6 +7,14 @@ import { ensureUploadDir } from './lib/storage/index.js'
 import prisma from './lib/prisma.js'
 import { printEnvValidation } from './lib/urls.js'
 import { mountStaticSites } from './lib/staticSites.js'
+import { liveDatabaseMisuse } from './lib/liveGuard.js'
+
+// Before anything touches the database: only the live install may use the live database.
+const misuse = liveDatabaseMisuse(process.env.DATABASE_URL, process.cwd())
+if (misuse) {
+  console.error(`[env] ${misuse}`)
+  process.exit(1)
+}
 
 // Route imports
 import authRoutes from './routes/auth.js'

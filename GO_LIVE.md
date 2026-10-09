@@ -20,9 +20,9 @@ The phone agent (Retell) sends finished calls into EZ Biz the same way.
 | Who can open it | Only devices signed in to your Tailscale account (this Mac, your phone) | |
 | Public intake address | `https://jonathans-mac-mini.tail40fb4a.ts.net:8443`, only `/api/quoting` and `/api/intake/retell` | |
 | Live copy of the code | `~/ezbiz` (cloned from `main` on GitHub) | |
-| Working copy | the folder in Downloads. Edit and commit there, never in `~/ezbiz` | |
+| Working copy | the folder in Downloads. Edit and commit there, never in `~/ezbiz`. It has its own database (`ezbiz_dev`) and port (4001); see section 15 | |
 | Server | one Node 22 process under pm2, named `ezbiz`, port 4000, this Mac only | at login (`com.ezbiz.pm2`) |
-| Database | Postgres 16 on this Mac, database `ezbiz` | at login (brew services) |
+| Database | Postgres 16 on this Mac, database `ezbiz`. Only `~/ezbiz` uses it (section 15) | at login (brew services) |
 | Tailscale | the Tailscale app; it remembers the serve and Funnel setup | at login (app setting) |
 | Backups | `~/ezbiz-backups`, every night at 2:30, kept 14 days | at login (`com.ezbiz.backup`) |
 | Uploaded files | `~/ezbiz/apps/portal/uploads` | |
@@ -394,3 +394,71 @@ says the copy was skipped.
 
 Also keep a copy of `~/ezbiz/apps/portal/.env` somewhere safe (a password
 manager). It is not in the backups and not on GitHub.
+
+## 15. Live and dev are separate
+
+**The rule: only `~/ezbiz` ever uses the live database. Nothing run from the
+working folder in Downloads, or from any other copy of the code, may read or
+write live.** The working folder once held a copy of the live settings file,
+so every command run there was pointed at live. That is what this section
+prevents.
+
+| | Live | Dev (practice) |
+|---|---|---|
+| Code | `~/ezbiz` | the working folder in Downloads |
+| Database | `ezbiz` | `ezbiz_dev`, a copy of live to practice on |
+| Database login | `ezbiz` | `ezbiz_dev` |
+| API port | 4000 | 4001 |
+| Settings file | `~/ezbiz/apps/portal/.env` | `apps/portal/.env` in the working folder |
+| Web app's API port | 4000 (the default) | `VITE_API_PORT=4001` in `apps/web/.env.local` and `apps/portal/.env.local` |
+| Email, texts, calendar, phone agent | on, as set in section 3 | off: those settings are empty |
+| Secrets | the live ones | its own, so a sign in made in dev is worthless on live |
+
+What enforces it:
+
+1. **Database logins.** The `ezbiz_dev` login cannot open the `ezbiz`
+   database, and the `ezbiz` login cannot open `ezbiz_dev`. Postgres refuses
+   the connection.
+2. **Start up guard.** The server refuses to start when its `DATABASE_URL`
+   names `ezbiz` on this machine and it is not running from `~/ezbiz`
+   (`apps/portal/src/server/lib/liveGuard.ts`).
+3. **Ports.** The web app talks to `localhost:4000` unless `VITE_API_PORT`
+   says otherwise. The working folder sets 4001, so a dev browser never
+   reaches the live server.
+
+Rules for anyone (or any assistant) working in this repo:
+
+- Never copy `~/ezbiz/apps/portal/.env` into the working folder, and never put
+  the `ezbiz` database, the `ezbiz` login or port 4000 in the working folder's
+  settings.
+- Before running anything that touches a database from the working folder
+  (`prisma db push`, `prisma migrate`, a seed, a script, the server), check
+  that `DATABASE_URL` in `apps/portal/.env` names `ezbiz_dev`.
+- Try schema changes and imports on `ezbiz_dev` first. They reach live only
+  through section 4 (`update.sh`), or through a script the owner has approved
+  for live, run after a backup.
+- `psql` and `pg_dump` run as the Mac user are superuser and can open either
+  database. Name the database on every command (`-d ezbiz_dev`), and treat
+  `-d ezbiz` as a deliberate act on live.
+- The dev database holds real customers' names, emails and phone numbers.
+  Keep email and text settings empty in the working folder so nothing run
+  there can contact a customer.
+
+Fresh practice data: this throws away what is in `ezbiz_dev` and copies live
+in again. Live is only read.
+
+```bash
+bash deploy/mac/refresh-dev-db.sh
+```
+
+Run the dev copy (sign in with your normal login; it was copied with the data):
+
+```bash
+cd apps/portal && pnpm dev:server     # API on http://localhost:4001
+cd apps/web && pnpm dev               # web app on http://localhost:5173
+```
+
+A change made directly in the live database from outside the app (an import
+script) must also add 1 to the record's `version` when it edits the pipeline,
+inventory, business state, vendors, schedule settings or a cloud storage key,
+so that open tabs merge it in instead of being refused without reason.

@@ -10,8 +10,9 @@ import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import type { LineItem } from './materialCalculator'
 import type { QuotePricingOverrides } from './pricingEngine'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
+const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
 export type SavedQuoteStatus = 'DRAFT' | 'SENT' | 'SOLD' | 'LOST'
 

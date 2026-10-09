@@ -7,13 +7,14 @@
  */
 
 import { fetchWithAuth } from './crmAuth'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 const SESSION_KEY = 'fencepro_portal_session'
 const EVT = 'fencepro:portal:updated'
 
 function apiBase(): string {
   if (typeof window === 'undefined') return ''
-  return window.location.hostname === 'localhost' ? 'http://localhost:4000' : ''
+  return window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
 }
 
 function staffAuthHeaders(): Record<string, string> {

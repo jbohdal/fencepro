@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { authFetch } from './crmAuth'
+import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 interface Notification {
   id: string
@@ -34,7 +35,7 @@ export default function NotificationBell() {
   async function load() {
     try {
       setLoading(true)
-      const host = window.location.hostname === 'localhost' ? 'http://localhost:4000' : ''
+      const host = window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
       const data = await authFetch<NotifResponse>(host + '/api/automations/notifications')
       setNotifs(data.notifications || [])
       setUnread(data.unread || 0)
@@ -59,7 +60,7 @@ export default function NotificationBell() {
 
   async function markRead(id: string) {
     try {
-      const host = window.location.hostname === 'localhost' ? 'http://localhost:4000' : ''
+      const host = window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
       await authFetch(host + `/api/automations/notifications/${id}/read`, { method: 'PATCH' })
       setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
       setUnread(u => Math.max(0, u - 1))
@@ -68,7 +69,7 @@ export default function NotificationBell() {
 
   async function markAllRead() {
     try {
-      const host = window.location.hostname === 'localhost' ? 'http://localhost:4000' : ''
+      const host = window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
       await authFetch(host + '/api/automations/notifications/read-all', { method: 'POST' })
       setNotifs(prev => prev.map(n => ({ ...n, read: true })))
       setUnread(0)
