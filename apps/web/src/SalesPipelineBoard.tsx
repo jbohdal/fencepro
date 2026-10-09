@@ -13,7 +13,7 @@
  * unchanged. The original JobsPage.tsx remains importable as a fallback.
  */
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   type PipelineLead,
   loadPipeline, savePipeline, LeadDrawer, QuickAddModal,
@@ -22,6 +22,11 @@ import {
 import { fireSalesStageChange } from './automationTrigger'
 import { applySignedContractTransition } from './signedContractFlow'
 import { toast } from './toast'
+import { getQuotes } from './quoteStore'
+import { getJobs } from './jobStore'
+import { getCustomerById } from './customerStore'
+import { leadValue, pipelineMetrics } from './pipelineValue'
+import { useMergedRefresh } from './useMergedRefresh'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -96,8 +101,18 @@ function isMobileViewport() {
   return window.matchMedia('(max-width: 767px)').matches
 }
 
-export default function SalesPipelineBoard() {
+// Filters and scroll position of the board, kept only in memory so "Back to
+// pipeline" on the customer page lands where the user left off.
+let leftAt: { search: string; repFilter: string; styleFilter: string; scrollTop: number } | null = null
+let returning = false
+
+/** Call just before showing the pipeline again from "Back to pipeline". */
+export function markPipelineReturn() { returning = true }
+
+export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?: (customerId: string) => void } = {}) {
   const initial = loadPipeline()
+  // Decided once per mount: a normal visit to the pipeline starts fresh.
+  const [restore] = useState(() => { const r = returning ? leftAt : null; returning = false; return r })
   const [leads, setLeads] = useState<PipelineLead[]>(initial.leads)
   const [stages, setStages] = useState<string[]>(initial.stages)
 
@@ -106,9 +121,9 @@ export default function SalesPipelineBoard() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed)
   const [analyticsOpen, setAnalyticsOpen] = useState<boolean>(() => localStorage.getItem(ANALYTICS_KEY) === '1')
 
-  const [search, setSearch] = useState('')
-  const [repFilter, setRepFilter] = useState('')
-  const [styleFilter, setStyleFilter] = useState('')
+  const [search, setSearch] = useState(restore?.search ?? '')
+  const [repFilter, setRepFilter] = useState(restore?.repFilter ?? '')
+  const [styleFilter, setStyleFilter] = useState(restore?.styleFilter ?? '')
   const [selected, setSelected] = useState<PipelineLead | null>(null)
   const [addingToStage, setAddingToStage] = useState<string | null>(null)
   const [confirmSold, setConfirmSold] = useState<{ lead: PipelineLead; fromStage: string } | null>(null)
@@ -116,6 +131,47 @@ export default function SalesPipelineBoard() {
   const [isMobile, setIsMobile] = useState(isMobileViewport)
 
   const dragId = useRef<string | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  // Whatever actually scrolls: the board's own lane area, or (list view, small
+  // screens) the page around it.
+  function scroller(): HTMLElement | null {
+    const scrolls = (el: HTMLElement) => el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY)
+    const own = rootRef.current?.querySelector<HTMLElement>('[data-pipeline-scroll]')
+    if (own && scrolls(own)) return own
+    for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) if (scrolls(el)) return el
+    return (document.scrollingElement as HTMLElement | null)
+  }
+
+  useLayoutEffect(() => {
+    if (restore) { const el = scroller(); if (el) el.scrollTop = restore.scrollTop }
+  }, [restore])
+
+  /* ── card values come from quotes and jobs, so follow both ── */
+  const [dataTick, setDataTick] = useState(0)
+  useEffect(() => {
+    const bump = () => setDataTick(t => t + 1)
+    window.addEventListener('fencepro:quotes:updated', bump)
+    window.addEventListener('fencepro:jobs:updated', bump)
+    return () => {
+      window.removeEventListener('fencepro:quotes:updated', bump)
+      window.removeEventListener('fencepro:jobs:updated', bump)
+    }
+  }, [])
+  const values = useMemo(() => {
+    const quotes = getQuotes(), jobs = getJobs()
+    return new Map(leads.map(l => [l.id, leadValue(l, quotes, jobs)]))
+  }, [leads, dataTick])
+  const valueOf = (l: PipelineLead) => values.get(l.id) ?? 0
+
+  /** A card opens the full customer page; a lead with no customer record still gets the side panel. */
+  function openLead(lead: PipelineLead) {
+    if (onOpenCustomer && lead.customerId && getCustomerById(lead.customerId)) {
+      leftAt = { search, repFilter, styleFilter, scrollTop: scroller()?.scrollTop ?? 0 }
+      onOpenCustomer(lead.customerId)
+    } else {
+      setSelected(lead)
+    }
+  }
 
   /* ── viewport listener ── */
   useEffect(() => {
@@ -145,6 +201,10 @@ export default function SalesPipelineBoard() {
       window.removeEventListener('fencepro:pipeline:updated', reload)
     }
   }, [])
+
+  // After a merge with another device the board is already reloaded by the
+  // pipeline event above; say so, so the page is not remounted under the user.
+  useMergedRefresh('Sales pipeline', () => {})
 
   /* ── persist helper ── */
   function persist(nextLeads: PipelineLead[], nextStages: string[] = stages) {
@@ -180,8 +240,8 @@ export default function SalesPipelineBoard() {
     const out = [...arr]
     switch (sortMode) {
       case 'oldest':       out.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')); break
-      case 'value_desc':   out.sort((a, b) => (b.quotePrice || b.jobValue || 0) - (a.quotePrice || a.jobValue || 0)); break
-      case 'value_asc':    out.sort((a, b) => (a.quotePrice || a.jobValue || 0) - (b.quotePrice || b.jobValue || 0)); break
+      case 'value_desc':   out.sort((a, b) => valueOf(b) - valueOf(a)); break
+      case 'value_asc':    out.sort((a, b) => valueOf(a) - valueOf(b)); break
       case 'days_in_stage':out.sort((a, b) => daysInStage(b) - daysInStage(a)); break
       case 'newest':
       default:             out.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
@@ -312,24 +372,13 @@ export default function SalesPipelineBoard() {
   /* ── analytics ── */
   const analytics = useMemo(() => {
     const active = leads.filter(l => !DEAD_STAGES.has(l.stage) && l.stage !== 'Paid & Closed')
-    const closedThisMonth = leads.filter(l => l.stage === 'Signed Contract' && (l.lastMoved || '').slice(0, 7) === TODAY().slice(0, 7))
-    const createdThisMonth = leads.filter(l => (l.createdAt || '').slice(0, 7) === TODAY().slice(0, 7))
-    const probMap: Record<string, number> = {
-      'First Contact': 0.05, 'Appointment': 0.15, 'Estimating': 0.30,
-      'Pending Signature': 0.60, 'Signed Contract': 1.0, 'Job Prep': 1.0,
-      'Pending Start': 1.0, 'Jobs In Progress': 1.0, 'Job Complete': 1.0,
-      'Pending Payment': 1.0, 'Paid & Closed': 1.0,
-    }
-    const totalValue = active.reduce((s, l) => s + (l.quotePrice || l.jobValue || 0), 0)
-    const weighted = active.reduce((s, l) => s + (l.quotePrice || l.jobValue || 0) * (probMap[l.stage] ?? 0.1), 0)
-    const avgDeal = active.length ? totalValue / active.length : 0
+    // Money figures use the same per card values the cards show (see pipelineValue).
+    const since = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
+    const m = pipelineMetrics(leads, getQuotes(), getJobs(), since)
     const avgDays = active.length ? Math.round(active.reduce((s, l) => s + daysInStage(l), 0) / active.length) : 0
-    const closeRate = createdThisMonth.length > 0 ? Math.round((closedThisMonth.length / createdThisMonth.length) * 100) : 0
     const atRisk = active.filter(l => daysInStage(l) > 14).length
-    const sold = leads.filter(l => CLOSING_STAGES.has(l.stage) || l.stage === 'Paid & Closed')
-      .reduce((s, l) => s + (l.jobValue || l.quotePrice || 0), 0)
-    return { totalValue, weighted, avgDeal, avgDays, closeRate, atRisk, sold }
-  }, [leads])
+    return { totalValue: m.pipelineValue, weighted: m.weighted, avgDeal: m.avgDeal, avgDays, closeRate: m.closeRate, atRisk, sold: m.sold }
+  }, [leads, dataTick])
 
   /* ── unique reps / fence styles for filter dropdowns ── */
   const repOptions = useMemo(() => {
@@ -368,7 +417,7 @@ export default function SalesPipelineBoard() {
 
   /* ── render ── */
   return (
-    <div className="flex flex-col h-full">
+    <div ref={rootRef} className="flex flex-col h-full">
       <ControlsBar
         title="Sales Pipeline"
         totalLabel={`Pipeline: ${fmtUSD(analytics.totalValue)}`}
@@ -392,7 +441,7 @@ export default function SalesPipelineBoard() {
           { label: 'Weighted Pipeline',  value: fmtUSD(analytics.weighted) },
           { label: 'Avg Deal Size',      value: fmtUSD(analytics.avgDeal) },
           { label: 'Avg Days in Stage',  value: `${analytics.avgDays}d` },
-          { label: 'Close Rate (Month)', value: `${analytics.closeRate}%` },
+          { label: 'Close Rate (90 days)', value: `${analytics.closeRate}%` },
           { label: 'At Risk (>14d)',     value: String(analytics.atRisk),  highlight: analytics.atRisk > 0 ? 'orange' : undefined },
         ]} />
       )}
@@ -407,11 +456,11 @@ export default function SalesPipelineBoard() {
       )}
 
       {view === 'board' ? (
-        <div className="flex-1 overflow-y-auto pb-32 md:pb-4 space-y-3">
+        <div data-pipeline-scroll className="flex-1 overflow-y-auto pb-32 md:pb-4 space-y-3">
           {stages.map(stage => {
             const stageLeads = sortLeads(filteredLeads.filter(l => l.stage === stage))
             const allStageLeads = leads.filter(l => l.stage === stage)
-            const total = allStageLeads.reduce((s, l) => s + (l.quotePrice || l.jobValue || 0), 0)
+            const total = allStageLeads.reduce((s, l) => s + valueOf(l), 0)
             const isOpen = !collapsed[stage] && (
               !isMobile || (allStageLeads.length > 0 && stageIsFirstOpenOnMobile(stages, leads, stage, collapsed))
             )
@@ -429,7 +478,9 @@ export default function SalesPipelineBoard() {
               >
                 <CardGrid
                   leads={stageLeads}
-                  onCardClick={setSelected}
+                  valueOf={valueOf}
+                  onCardClick={openLead}
+                  onQuickView={setSelected}
                   onDragStart={onDragStart}
                   matchesSearch={matchesSearch}
                   isMobile={isMobile}
@@ -454,7 +505,8 @@ export default function SalesPipelineBoard() {
         <PipelineListView
           leads={sortLeads(filteredLeads)}
           stages={stages}
-          onRowClick={setSelected}
+          valueOf={valueOf}
+          onRowClick={openLead}
           bulkSelected={bulkSelected}
           onBulkChange={setBulkSelected}
           onBulkMove={(toStage) => {
@@ -590,10 +642,12 @@ function Swimlane({
 }
 
 function CardGrid({
-  leads, onCardClick, onDragStart, matchesSearch, isMobile, onSwipeRight, onSwipeLeft,
+  leads, valueOf, onCardClick, onQuickView, onDragStart, matchesSearch, isMobile, onSwipeRight, onSwipeLeft,
 }: {
   leads: PipelineLead[]
+  valueOf: (l: PipelineLead) => number
   onCardClick: (l: PipelineLead) => void
+  onQuickView: (l: PipelineLead) => void
   onDragStart: (e: React.DragEvent, id: string) => void
   matchesSearch: Set<string> | null
   isMobile: boolean
@@ -614,7 +668,9 @@ function CardGrid({
           <PipelineCard
             key={l.id}
             lead={l}
+            value={valueOf(l)}
             onClick={() => onCardClick(l)}
+            onQuickView={() => onQuickView(l)}
             onDragStart={e => onDragStart(e, l.id)}
             faded={matchesSearch !== null && !matchesSearch.has(l.id)}
             isMobile={isMobile}
@@ -644,10 +700,15 @@ function EmptyStageCard({ label }: { label: string }) {
 }
 
 function PipelineCard({
-  lead, onClick, onDragStart, faded, isMobile, onSwipeRight, onSwipeLeft,
+  lead, value, onClick, onQuickView, onDragStart, faded, isMobile, onSwipeRight, onSwipeLeft,
 }: {
   lead: PipelineLead
+  /** From the customer's quotes; see pipelineValue. */
+  value: number
+  /** Opens the full customer page. */
   onClick: () => void
+  /** Opens the small side panel. */
+  onQuickView: () => void
   onDragStart: (e: React.DragEvent) => void
   faded: boolean
   isMobile: boolean
@@ -656,7 +717,6 @@ function PipelineCard({
 }) {
   const days = daysInStage(lead)
   const hex = stageHexFromTailwind(lead.stage)
-  const value = lead.quotePrice || lead.jobValue || 0
   const initials = `${(lead.firstName?.[0] || '').toUpperCase()}${(lead.lastName?.[0] || '').toUpperCase()}`
   const city = (lead.address || '').split(',').slice(-2)[0]?.trim() || lead.address || ''
   const [menuOpen, setMenuOpen] = useState(false)
@@ -701,7 +761,15 @@ function PipelineCard({
       </div>
       <div className="flex items-center justify-between mt-2 text-[11px]">
         <span className={`px-2 py-0.5 rounded-full font-semibold ${ageBadgeClass(days)}`}>{days}d in stage</span>
-        <span className="text-gray-400">{relTime(lead.lastMoved || lead.createdAt)}</span>
+        <span className="flex items-center gap-1.5 text-gray-400">
+          {relTime(lead.lastMoved || lead.createdAt)}
+          <button
+            onClick={e => { e.stopPropagation(); onQuickView() }}
+            onPointerDown={e => e.stopPropagation()}
+            className="px-1 rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50"
+            title="Quick view" aria-label="Quick view"
+          >👁</button>
+        </span>
       </div>
 
       {/* hover three-dot menu */}
@@ -714,7 +782,8 @@ function PipelineCard({
           >⋯</button>
           {menuOpen && (
             <div onClick={e => e.stopPropagation()} className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg text-xs z-20">
-              <button onClick={onClick} className="block w-full text-left px-3 py-2 hover:bg-gray-50">View / Edit</button>
+              <button onClick={onClick} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Open customer</button>
+              <button onClick={onQuickView} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Quick view</button>
               <button onClick={onSwipeRight} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to Next Stage</button>
               <button onClick={onSwipeLeft} className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600">Mark Lost</button>
             </div>
@@ -875,8 +944,9 @@ function StagePills({ stages, onJump }: { stages: string[]; onJump: (s: string) 
 }
 
 function PipelineListView({
-  leads, stages, onRowClick, bulkSelected, onBulkChange, onBulkMove, onExportSelected,
+  leads, stages, valueOf, onRowClick, bulkSelected, onBulkChange, onBulkMove, onExportSelected,
 }: {
+  valueOf: (l: PipelineLead) => number
   leads: PipelineLead[]
   stages: string[]
   onRowClick: (l: PipelineLead) => void
@@ -899,7 +969,7 @@ function PipelineListView({
       switch (sortCol) {
         case 'name':       av = `${a.firstName} ${a.lastName}`.toLowerCase(); bv = `${b.firstName} ${b.lastName}`.toLowerCase(); break
         case 'stage':      av = a.stage; bv = b.stage; break
-        case 'value':      av = a.quotePrice || a.jobValue || 0; bv = b.quotePrice || b.jobValue || 0; break
+        case 'value':      av = valueOf(a); bv = valueOf(b); break
         case 'days':       av = daysInStage(a); bv = daysInStage(b); break
         case 'lastMoved':  av = a.lastMoved || ''; bv = b.lastMoved || ''; break
       }
@@ -956,7 +1026,7 @@ function PipelineListView({
                   <td className="px-3 py-2">
                     <span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: stageHexFromTailwind(l.stage) }}>{l.stage}</span>
                   </td>
-                  <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{fmtUSD(l.quotePrice || l.jobValue || 0)}</td>
+                  <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{fmtUSD(valueOf(l))}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{l.assignedRep || '—'}</td>
                   <td className="px-3 py-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${ageBadgeClass(days)}`}>{days}d</span></td>
                   <td className="px-3 py-2 text-xs text-gray-500">{relTime(l.lastMoved || l.createdAt)}</td>
@@ -975,7 +1045,7 @@ function PipelineListView({
             <button key={l.id} onClick={() => onRowClick(l)} className="w-full text-left px-3 py-3 hover:bg-gray-50">
               <div className="flex items-center justify-between">
                 <p className="font-semibold text-sm text-gray-900">{l.firstName} {l.lastName}</p>
-                <p className="text-sm font-bold text-emerald-600">{fmtUSD(l.quotePrice || l.jobValue || 0)}</p>
+                <p className="text-sm font-bold text-emerald-600">{fmtUSD(valueOf(l))}</p>
               </div>
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: stageHexFromTailwind(l.stage) }}>{l.stage}</span>

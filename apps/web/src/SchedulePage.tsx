@@ -7,6 +7,7 @@ import {
   saveRainLog as storeSaveRainLog,
 } from './scheduleStore'
 import { cloudStorage } from './cloudStorage'
+import { useMergedRefresh } from './useMergedRefresh'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -252,6 +253,8 @@ function SettingsModal({
 
 export default function SchedulePage() {
   const [data, setData] = useState(() => loadSchedule())
+  // Another device's schedule changes were merged into a save from this tab.
+  useMergedRefresh('Schedule', () => setData(loadSchedule()))
   const [showSettings, setShowSettings] = useState(false)
   const [viewMonth, setViewMonth] = useState(() => new Date())
   const [dragJob, setDragJob] = useState<ScheduledJob | null>(null)

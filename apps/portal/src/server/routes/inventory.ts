@@ -10,6 +10,7 @@ import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
+import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
 
 const router = Router()
@@ -72,24 +73,23 @@ router.get('/', async (req: any, res) => {
 router.put('/', async (req: any, res) => {
   try {
     const data = inventorySchema.parse(req.body)
-    const inv = await prisma.inventoryState.upsert({
-      where: { accountId: req.user.crmAccountId },
-      create: {
-        accountId: req.user.crmAccountId,
-        items: JSON.parse(JSON.stringify(data.items)),
-        bundles: JSON.parse(JSON.stringify(data.bundles)),
-        locations: JSON.parse(JSON.stringify(data.locations)),
-        stockLevels: JSON.parse(JSON.stringify(data.stockLevels)),
-        transactions: JSON.parse(JSON.stringify(data.transactions)),
-      },
-      update: {
-        items: JSON.parse(JSON.stringify(data.items)),
-        bundles: JSON.parse(JSON.stringify(data.bundles)),
-        locations: JSON.parse(JSON.stringify(data.locations)),
-        stockLevels: JSON.parse(JSON.stringify(data.stockLevels)),
-        transactions: JSON.parse(JSON.stringify(data.transactions)),
-      },
-    })
+    const base = baseVersionOf(req.body)
+    if (base === null) { refuseUnversioned(res); return }
+    const accountId = req.user.crmAccountId
+    const fields = {
+      items: JSON.parse(JSON.stringify(data.items)),
+      bundles: JSON.parse(JSON.stringify(data.bundles)),
+      locations: JSON.parse(JSON.stringify(data.locations)),
+      stockLevels: JSON.parse(JSON.stringify(data.stockLevels)),
+      transactions: JSON.parse(JSON.stringify(data.transactions)),
+    }
+    const done = await prisma.inventoryState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+    if (done.count === 0) {
+      const current = await prisma.inventoryState.findUnique({ where: { accountId } })
+      if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
+      await prisma.inventoryState.create({ data: { accountId, ...fields } })
+    }
+    const inv = (await prisma.inventoryState.findUnique({ where: { accountId } }))!
     await audit(req, 'update', 'InventoryState', inv.id, {
       newValues: {
         itemsCount: data.items.length,

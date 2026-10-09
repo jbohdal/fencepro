@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
 import QuoteBuilder from './QuoteBuilder'
 import AdminPage from './AdminPage'
 import AdminSettingsPage from './AdminSettingsPage'
@@ -6,7 +6,7 @@ import BudgetPage from './BudgetPage'
 import CustomersPage from './CustomersPage'
 import QuotesPage, { type SavedQuote } from './QuotesPage'
 import JobsPage from './JobsPage'
-import SalesPipelineBoard from './SalesPipelineBoard'
+import SalesPipelineBoard, { markPipelineReturn } from './SalesPipelineBoard'
 import OperationsBoard from './OperationsBoard'
 import AuditLogPage from './AuditLogPage'
 import StagingPage from './StagingPage'
@@ -377,6 +377,36 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const [editingQuote, setEditingQuote] = useState<SavedQuote | null>(null)
   const [quotes, setQuotes]             = useState<SavedQuote[]>(loadQuotes)
   const [jobs, setJobs]                 = useState<Job[]>(getJobs)
+  // Customer opened from a pipeline card; drives "Back to pipeline" on the customer page.
+  const [pipelineCustomerId, setPipelineCustomerId] = useState<string | null>(null)
+  useEffect(() => { if (active !== 'Customers') setPipelineCustomerId(null) }, [active])
+
+  // When a save was refused and another device's changes were merged in (see
+  // syncGuard), the page on screen may still hold its own older copy of that
+  // record. Screens that can refresh in place do (useMergedRefresh); for the
+  // rest the page is remounted so it reads the merged data, but never while
+  // the user is typing in a field.
+  const [dataEpoch, setDataEpoch] = useState(0)
+  useEffect(() => {
+    let pending = false
+    const typing = () => {
+      const el = document.activeElement as HTMLElement | null
+      return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
+    }
+    const refresh = () => {
+      if (!pending || typing()) return
+      pending = false
+      setDataEpoch(e => e + 1)
+    }
+    const onReload = () => { pending = true; refresh() }
+    const onFocusOut = () => setTimeout(refresh, 0)
+    window.addEventListener('ezbiz:reload-page-data', onReload)
+    window.addEventListener('focusout', onFocusOut)
+    return () => {
+      window.removeEventListener('ezbiz:reload-page-data', onReload)
+      window.removeEventListener('focusout', onFocusOut)
+    }
+  }, [])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userProfile, setUserProfile]   = useState(loadUserProfile)
@@ -863,6 +893,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
         {/* Page content */}
         <div className="flex-1 overflow-y-auto px-8 py-6">
+          {/* Keyed so the open page reloads its data after another device's changes are merged in. */}
+          <Fragment key={dataEpoch}>
           {active === 'Team' && <TeamManagementPage />}
           {active === 'EZ Budget' && <EZBudgetPage />}
           {active === 'Automations' && <AutomationsPage />}
@@ -880,7 +912,11 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Vendors'   && <VendorsPage />}
           {active === 'Bundles'   && <BundlesPage />}
           {active === 'Cash Flow' && <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center"><p className="text-4xl mb-3">💸</p><h2 className="text-lg font-bold text-gray-900">Cash Flow</h2><p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">Cash Flow statement coming soon. For now, check the P&amp;L Statement and Accounts Receivable/Payable dashboards.</p></div>}
-          {active === 'Customers' && <CustomersPage onNewQuote={(c) => {
+          {active === 'Customers' && <CustomersPage
+            openCustomerId={pipelineCustomerId}
+            onBack={pipelineCustomerId ? () => { markPipelineReturn(); setActive('Sales Pipeline') } : undefined}
+            backLabel="Back to pipeline"
+            onNewQuote={(c) => {
             if (c) {
               // NOTE: leave `id` undefined so QuoteBuilder generates a fresh one
               // per quote. Previously `id: ''` caused every new-for-customer
@@ -909,7 +945,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             setShowQuote(true)
           }} />}
           {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={handleOpenQuote} onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
-          {active === 'Sales Pipeline' && <SalesPipelineBoard />}
+          {active === 'Sales Pipeline' && <SalesPipelineBoard onOpenCustomer={(id) => { setPipelineCustomerId(id); setActive('Customers') }} />}
           {active === 'Operations'     && <OperationsBoard />}
           {active === 'Jobs'           && <OperationsBoard />}
           {active === 'Staging'        && <OperationsBoard />}
@@ -1029,6 +1065,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               </div>
             </div>
           )}
+          </Fragment>
         </div>
       </div>
 

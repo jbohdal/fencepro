@@ -13,6 +13,7 @@ import {
 } from './inventoryStore'
 import BulkImportModal from './BulkImportModal'
 import { groupCatalog, NEW_ITEMS_GROUP } from './inventorySort'
+import { useMergedRefresh } from './useMergedRefresh'
 import type {
   InventoryItem, Bundle, BundleItem,
   InventoryLocation, StockLevel,
@@ -178,6 +179,9 @@ function CatalogTab() {
   }
 
   useEffect(() => { loadItems(); setLevels(getStockLevels()) }, [])
+  // Another device's inventory changes were merged into a save from this tab:
+  // show them, so the next Save here does not send the old copy back.
+  useMergedRefresh('Inventory', () => { loadItems(); setLevels(getStockLevels()) })
 
   const filtered = items.filter(i => {
     const matchCat  = category === 'All' || i.category === category

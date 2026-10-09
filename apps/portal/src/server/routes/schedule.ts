@@ -12,6 +12,7 @@ import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
+import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
 
 const router = Router()
@@ -77,23 +78,20 @@ router.get('/settings', async (req: any, res) => {
 
 router.put('/settings', async (req: any, res) => {
   try {
+    // The board (settings and jobs) is saved through PUT /board with a version
+    // check. A tab still calling this is running the app from before that.
+    const base = baseVersionOf(req.body)
+    if (base === null) { refuseUnversioned(res); return }
     const data = settingsSchema.parse(req.body)
-    const s = await prisma.scheduleSettings.upsert({
-      where: { accountId: req.user.crmAccountId },
-      create: {
-        accountId: req.user.crmAccountId,
-        workDays: data.workDays,
-        crews: JSON.parse(JSON.stringify(data.crews)),
-        lat: data.lat ?? null,
-        lng: data.lng ?? null,
-      },
-      update: {
-        workDays: data.workDays,
-        crews: JSON.parse(JSON.stringify(data.crews)),
-        lat: data.lat ?? null,
-        lng: data.lng ?? null,
-      },
-    })
+    const accountId = req.user.crmAccountId
+    const fields = { workDays: data.workDays, crews: JSON.parse(JSON.stringify(data.crews)), lat: data.lat ?? null, lng: data.lng ?? null }
+    const done = await prisma.scheduleSettings.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+    if (done.count === 0) {
+      const current = await prisma.scheduleSettings.findUnique({ where: { accountId } })
+      if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
+      await prisma.scheduleSettings.create({ data: { accountId, ...fields } })
+    }
+    const s = (await prisma.scheduleSettings.findUnique({ where: { accountId } }))!
     await audit(req, 'update', 'ScheduleSettings', s.id, { newValues: s })
     res.json({ success: true, data: s })
   } catch (err) {
@@ -217,6 +215,9 @@ router.post('/jobs/sync', async (req: any, res) => {
       replace: z.boolean().optional(),
     }).parse(req.body)
     const accountId = req.user.crmAccountId
+    // Replacing the whole list is only done through PUT /board, which checks
+    // the version first. Without that an old tab would delete newer jobs.
+    if (replace) { refuseUnversioned(res); return }
     let created = 0, updated = 0, removed = 0
     const keptIds: string[] = []
     for (const j of jobs) {
@@ -259,6 +260,75 @@ router.post('/jobs/sync', async (req: any, res) => {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
     console.error('[schedule] jobs sync error:', err)
     res.status(500).json({ success: false, error: 'Failed to sync scheduled jobs' })
+  }
+})
+
+// ── The whole board in one versioned save ──
+//
+// Settings and the full job list, applied together and only if nobody else
+// saved the board since `baseVersion`. The version lives on ScheduleSettings.
+async function readBoard(accountId: string) {
+  const [settings, jobs] = await Promise.all([
+    prisma.scheduleSettings.findUnique({ where: { accountId } }),
+    prisma.scheduledGridJob.findMany({ where: { accountId }, orderBy: { date: 'asc' } }),
+  ])
+  return { settings, jobs, version: settings?.version ?? 0 }
+}
+
+router.get('/board', async (req: any, res) => {
+  try {
+    const accountId = req.user.crmAccountId
+    let board = await readBoard(accountId)
+    if (!board.settings) {
+      await prisma.scheduleSettings.create({ data: { accountId, workDays: [1, 2, 3, 4], crews: DEFAULT_CREWS } })
+      board = await readBoard(accountId)
+    }
+    res.json({ success: true, data: board })
+  } catch (err) {
+    console.error('[schedule] board get error:', err)
+    res.status(500).json({ success: false, error: 'Failed to load the schedule' })
+  }
+})
+
+router.put('/board', async (req: any, res) => {
+  try {
+    const { settings, jobs } = z.object({ settings: settingsSchema, jobs: z.array(jobSchema) }).parse(req.body)
+    const base = baseVersionOf(req.body)
+    if (base === null) { refuseUnversioned(res); return }
+    const accountId = req.user.crmAccountId
+    const saved = await prisma.$transaction(async tx => {
+      const settingsData = { workDays: settings.workDays, crews: JSON.parse(JSON.stringify(settings.crews)) }
+      const claimed = await tx.scheduleSettings.updateMany({ where: { accountId, version: base }, data: { ...settingsData, version: { increment: 1 } } })
+      if (claimed.count === 0) {
+        const current = await tx.scheduleSettings.findUnique({ where: { accountId } })
+        if (current || base !== 0) return false
+        await tx.scheduleSettings.create({ data: { accountId, ...settingsData } })
+      }
+      const keptIds: string[] = []
+      for (const j of jobs) {
+        const { id: clientId, ...fields } = j
+        const data = { ...fields, stagingJobId: j.stagingJobId || null }
+        const existing = clientId ? await tx.scheduledGridJob.findUnique({ where: { id: clientId } }) : null
+        if (existing && existing.accountId === accountId) {
+          await tx.scheduledGridJob.update({ where: { id: existing.id }, data })
+          keptIds.push(existing.id)
+        } else {
+          // A new job keeps the id the browser gave it, unless that id belongs to another company.
+          const row = await tx.scheduledGridJob.create({ data: { ...(clientId && !existing ? { id: clientId } : {}), accountId, ...data } })
+          keptIds.push(row.id)
+        }
+      }
+      await tx.scheduledGridJob.deleteMany({ where: { accountId, id: { notIn: keptIds } } })
+      return true
+    })
+    const board = await readBoard(accountId)
+    if (!saved) { refuseStale(res, board, board.version); return }
+    if (board.settings) await audit(req, 'update', 'ScheduleSettings', board.settings.id, { newValues: { jobsCount: board.jobs.length, version: board.version } })
+    res.json({ success: true, data: board })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    console.error('[schedule] board put error:', err)
+    res.status(500).json({ success: false, error: 'Failed to save the schedule' })
   }
 })
 

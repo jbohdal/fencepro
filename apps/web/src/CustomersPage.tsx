@@ -17,6 +17,9 @@ import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity, getCustomers, upsertCustomer, deleteCustomer as storeDeleteCustomer, bulkImportCustomers } from './customerStore'
 import { getQuotes } from './quoteStore'
 import { getJobs } from './jobStore'
+import { getPipeline } from './pipelineStore'
+import { loadPipeline } from './JobsPage'
+import { changeLeadStage } from './pipelineStageChange'
 import {
   listContactNotes, createContactNote, updateContactNote, deleteContactNote,
   type CrmContactNoteRecord,
@@ -791,6 +794,33 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
 
 // ── Customer Detail ───────────────────────────────────────────────────────────
 
+/** The customer's pipeline stage, changeable from the customer page. Shows
+ *  nothing for a customer who has no pipeline card. */
+function PipelineStageSelect({ customerId }: { customerId: string }) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const bump = () => setTick(t => t + 1)
+    window.addEventListener('fencepro:pipeline:updated', bump)
+    return () => window.removeEventListener('fencepro:pipeline:updated', bump)
+  }, [])
+  const lead = (getPipeline().leads || []).find((l: any) => l.customerId === customerId)
+  if (!lead) return null
+  const stages = loadPipeline().stages
+  const options = stages.includes(lead.stage) ? stages : [lead.stage, ...stages]
+  return (
+    <label className="flex items-center gap-1.5 text-xs text-gray-500">
+      Pipeline stage
+      <select
+        className="border border-gray-300 rounded-lg px-2 py-1 text-xs font-semibold text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
+        value={lead.stage}
+        onChange={e => { changeLeadStage(lead.id, e.target.value); setTick(t => t + 1) }}
+      >
+        {options.map(s => <option key={s} value={s}>{s}</option>)}
+      </select>
+    </label>
+  )
+}
+
 function CustomerDetail({
   customer, quotes, importedQuotes, jobs, files,
   onEdit, onNewQuote, onDelete, onDeleteFile, onQuoteClick, onFileClick, initialTab, onTabConsumed,
@@ -844,6 +874,7 @@ function CustomerDetail({
                 {customer.phone && <span className="text-sm text-gray-500 break-all">📞 {customer.phone}</span>}
                 {customer.email && <span className="text-sm text-gray-500 break-all">✉️ {customer.email}</span>}
               </div>
+              <div className="mt-2"><PipelineStageSelect customerId={customer.id} /></div>
               <div className="flex gap-1.5 mt-2 flex-wrap">
                 {customer.tags.map(tag => (
                   <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{tag}</span>
@@ -1091,7 +1122,14 @@ function CustomerDetail({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?: Customer) => void }) {
+export default function CustomersPage({ onNewQuote, openCustomerId, onBack, backLabel }: {
+  onNewQuote?: (customer?: Customer) => void
+  /** Open straight on this customer (used when arriving from a pipeline card). */
+  openCustomerId?: string | null
+  /** When set, a back button returns to where the user came from. */
+  onBack?: () => void
+  backLabel?: string
+}) {
   const [importedQuotes, setImportedQuotes] = useState<ImportedQuote[]>(() => {
     try {
       const raw = cloudStorage.getItem('fencepro_imported_quotes')
@@ -1151,12 +1189,16 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
       return raw ? JSON.parse(raw) : []
     } catch { return [] }
   })
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(openCustomerId ?? null)
   const [mode, setMode] = useState<'view' | 'new' | 'edit'>('view')
   const [search, setSearch] = useState('')
   const [drawerQuote, setDrawerQuote] = useState<SavedQuote | null>(null)
   const [viewerFile, setViewerFile] = useState<CustomerFile | null>(null)
   const [forcedTab, setForcedTab] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (openCustomerId) { setSelectedId(openCustomerId); setMode('view') }
+  }, [openCustomerId])
 
   useEffect(() => {
     function onSelect(e: any) {
@@ -1453,7 +1495,16 @@ export default function CustomersPage({ onNewQuote }: { onNewQuote?: (customer?:
       {/* Detail pane: hidden on <lg unless something is selected. The mobile
           back button below the lg breakpoint takes the user back to the list. */}
       <div className={`${detailVisible ? 'flex' : 'hidden lg:flex'} flex-col flex-1 min-w-0`}>
-        {detailVisible && (
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 text-sm font-semibold text-orange-600 hover:bg-orange-50"
+          >
+            <span aria-hidden>←</span>
+            <span>{backLabel || 'Back'}</span>
+          </button>
+        )}
+        {detailVisible && !onBack && (
           <button
             onClick={() => { setSelectedId(null); setMode('view') }}
             className="lg:hidden flex items-center gap-2 px-4 py-3 border-b border-gray-200 text-sm text-gray-600 hover:bg-gray-50"

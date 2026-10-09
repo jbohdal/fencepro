@@ -70,8 +70,8 @@ export async function fetchScheduleSettings(): Promise<ScheduleSettingsRecord | 
 }
 export async function saveScheduleSettings(payload: {
   workDays: number[]; crews: CrewRecord[]; lat?: number | null; lng?: number | null
-}): Promise<ScheduleSettingsRecord | null> {
-  const r = await call<ScheduleSettingsRecord>('PUT', '/settings', payload)
+}, baseVersion: number): Promise<ScheduleSettingsRecord | null> {
+  const r = await call<ScheduleSettingsRecord>('PUT', '/settings', { ...payload, baseVersion })
   if (!r.ok) toast.error('Schedule settings not saved', `${r.error || 'Network error'}`)
   return r.ok ? (r.data || null) : null
 }
@@ -133,10 +133,11 @@ export async function migrateLocalScheduleOnce(): Promise<void> {
       const raw = localStorage.getItem('fencepro_schedule')
       const blob = raw ? JSON.parse(raw) : null
       if (blob?.settings) {
+        const current = await fetchScheduleSettings()
         await saveScheduleSettings({
           workDays: Array.isArray(blob.settings.workDays) ? blob.settings.workDays : [1, 2, 3, 4],
           crews: Array.isArray(blob.settings.crews) ? blob.settings.crews : [],
-        })
+        }, (current as { version?: number } | null)?.version ?? 0)
       }
       if (Array.isArray(blob?.jobs) && blob.jobs.length > 0) {
         await syncScheduledJobs(blob.jobs.map((j: any) => ({

@@ -7,7 +7,7 @@
  */
 
 import { getAccessToken, fetchWithAuth } from './crmAuth'
-import { createFlusher, legacyMigrationEnabled } from './syncGuard'
+import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
 import { setMaterialPriceSource, normalizeItemName } from './materialCalculator'
 import { cloudStorage } from './cloudStorage'
 
@@ -45,19 +45,27 @@ async function invCall<T>(method: string, body?: unknown): Promise<{ ok: boolean
 
 function invEmit() { try { window.dispatchEvent(new CustomEvent(INV_EVT)) } catch {} }
 
-// The whole inventory is one server record, so it is only ever written after
-// it has been loaded (see syncGuard).
-const invFlusher = createFlusher({
+// The whole inventory is one server record. It is only written after it has
+// loaded, and every save is version checked: if another tab or device saved
+// first, this tab's change is put on top of the newest copy (see syncGuard).
+const arr = (v: unknown): any[] => (Array.isArray(v) ? v : [])
+const pickInventory = (d: any): InventoryStateBlob => ({
+  items: arr(d?.items), bundles: arr(d?.bundles), locations: arr(d?.locations),
+  stockLevels: arr(d?.stockLevels), transactions: arr(d?.transactions),
+})
+const invFlusher = createVersionedFlusher<InventoryStateBlob>({
   name: 'Inventory',
   isHydrated: () => invHydrated,
-  send: async () => (await invCall('PUT', invCache)).ok,
+  get: () => invCache,
+  apply: next => { invCache = pickInventory(next); costIndexFor = null; invEmit() },
+  save: (state, version) => versionedSave(`${AUTH_API}/api/inventory-state`, 'PUT', { ...state }, version, pickInventory),
 })
 function scheduleFlush() { invFlusher.schedule() }
 
 const INV_LEGACY_KEYS = ['fencepro_inventory', 'fencepro_bundles', 'fencepro_inv_locations', 'fencepro_inv_stock', 'fencepro_inv_transactions']
 
 /** Optional, opt in. Old browser data only moves up if the server has no inventory at all. */
-async function migrateLocalInventoryOnce(server: InventoryStateBlob): Promise<InventoryStateBlob | null> {
+async function migrateLocalInventoryOnce(server: InventoryStateBlob, version: number): Promise<InventoryStateBlob | null> {
   if (!legacyMigrationEnabled()) return null
   if (localStorage.getItem(INV_MIGRATION_FLAG) === '1') return null
   if (!getAccessToken()) return null
@@ -73,7 +81,7 @@ async function migrateLocalInventoryOnce(server: InventoryStateBlob): Promise<In
     }
     const hasData = blob.items.length || blob.bundles.length || blob.locations.length || blob.stockLevels.length || blob.transactions.length
     if (!hasData) { localStorage.setItem(INV_MIGRATION_FLAG, '1'); return null }
-    const r = await invCall<InventoryStateBlob>('PUT', blob)
+    const r = await invCall<InventoryStateBlob>('PUT', { ...blob, baseVersion: version })
     if (!r.ok) return null
     localStorage.setItem(INV_MIGRATION_FLAG, '1')
     return blob
@@ -93,9 +101,11 @@ export function initInventory(): Promise<void> {
       stockLevels: Array.isArray(r.data.stockLevels) ? r.data.stockLevels : [],
       transactions: Array.isArray(r.data.transactions) ? r.data.transactions : [],
     }
-    const migrated = await migrateLocalInventoryOnce(next)
-    if (migrated) next = migrated
+    let version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
+    const migrated = await migrateLocalInventoryOnce(next, version)
+    if (migrated) { next = migrated; version++ }
     invCache = next
+    invFlusher.loaded(next, version)
     invHydrated = true
     invEmit()
     // Old browser copies are only cleared once they have been moved up.

@@ -4,6 +4,7 @@ import { upsertCustomer, logCustomerActivity, getCustomers } from './customerSto
 import { getPipeline, savePipeline as storeSavePipeline } from './pipelineStore'
 import { toast } from './toast'
 import { applySignedContractTransition } from './signedContractFlow'
+import { PRE_SALE_STAGES, PRODUCTION_STAGES, CLOSING_STAGES, DEAD_STAGES } from './pipelineValue'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,10 +49,7 @@ export const DEFAULT_STAGES = [
   'No Answer',
 ]
 
-export const PRE_SALE_STAGES   = new Set(['First Contact', 'Appointment', 'Estimating', 'Pending Signature'])
-export const PRODUCTION_STAGES = new Set(['Signed Contract', 'Job Prep', 'Pending Start', 'Jobs In Progress'])
-export const CLOSING_STAGES    = new Set(['Job Complete', 'Pending Payment', 'Paid & Closed'])
-export const DEAD_STAGES       = new Set(['Lost Sale', 'No Answer'])
+export { PRE_SALE_STAGES, PRODUCTION_STAGES, CLOSING_STAGES, DEAD_STAGES }
 
 export const STAGE_COLORS: Record<string, string> = {
   'First Contact':     'bg-gray-500',

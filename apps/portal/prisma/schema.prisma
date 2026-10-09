@@ -1716,6 +1716,8 @@ model ScheduleSettings {
   crews     Json // {id,name,color}[]
   lat       Float? // optional weather widget centerpoint
   lng       Float?
+  // Goes up by one on every save of the board (settings and jobs); a save built on an older version is refused (see lib/versioned.ts).
+  version   Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1790,6 +1792,8 @@ model PipelineState {
   accountId String   @unique
   leads     Json // PipelineLead[]
   stages    Json // Stage[] (id, name, color, etc.)
+  // Goes up by one on every save; a save built on an older version is refused (see lib/versioned.ts).
+  version   Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1811,6 +1815,8 @@ model InventoryState {
   locations    Json // InventoryLocation[]
   stockLevels  Json // StockLevel[]
   transactions Json // InventoryTransaction[]
+  // Goes up by one on every save; a save built on an older version is refused (see lib/versioned.ts).
+  version   Int      @default(1)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -1832,6 +1838,8 @@ model VendorState {
   vendors   Json // VendorContact[]
   bills     Json // VendorBill[]
   payments  Json // VendorPayment[]
+  // Goes up by one on every save; a save built on an older version is refused (see lib/versioned.ts).
+  version   Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1849,6 +1857,8 @@ model VendorState {
 model BusinessState {
   id                String   @id @default(uuid())
   accountId         String   @unique
+  // Goes up by one on every save; a save built on an older version is refused (see lib/versioned.ts).
+  version           Int      @default(1)
   // Phase 8
   bundles           Json     @default("[]") // QuoteBundle[]
   quoteOptions      Json     @default("[]") // QuoteOption[]
@@ -1886,6 +1896,8 @@ model AccountKeyValue {
   accountId String
   key       String
   value     Json
+  // Goes up by one on every save; a save built on an older version is refused (see lib/versioned.ts).
+  version   Int      @default(1)
   updatedBy String?
   updatedAt DateTime @updatedAt
 

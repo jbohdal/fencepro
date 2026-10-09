@@ -13,16 +13,16 @@
 
 import {
   fetchScheduleSettings,
-  saveScheduleSettings,
   fetchScheduledJobs,
-  syncScheduledJobs,
   fetchRainLog,
   appendRainDay,
   migrateLocalScheduleOnce,
   type CrewRecord,
 } from './scheduleApi'
 import type { ScheduledJob, ScheduleSettings, RainDayEntry } from './SchedulePage'
-import { createFlusher, legacyMigrationEnabled } from './syncGuard'
+import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
+
+const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 
 const SETTINGS_EVT = 'fencepro:schedule:updated'
 const RAIN_EVT = 'fencepro:rainlog:updated'
@@ -74,22 +74,8 @@ export function initSchedule(): Promise<void> {
         crews: Array.isArray(settings.crews) ? (settings.crews as CrewRecord[]) : DEFAULT_SETTINGS.crews,
       }
     }
-    if (jobs) {
-      cacheJobs = jobs.map(j => ({
-        id: j.id,
-        clientName: j.clientName,
-        area: j.area,
-        sections: j.sections,
-        fenceType: j.fenceType,
-        jobPrice: j.jobPrice,
-        tearout: j.tearout,
-        crewId: j.crewId,
-        date: j.date,
-        notes: j.notes,
-        stagingJobId: j.stagingJobId || undefined,
-        status: statusFromApi(j.status),
-      }))
-    }
+    if (jobs) cacheJobs = jobs.map(jobFromApi)
+    flusher.loaded(boardNow(), typeof (settings as { version?: number }).version === 'number' ? (settings as unknown as { version: number }).version : 0)
     if (rain) {
       cacheRain = rain.map(r => ({
         id: r.id,
@@ -111,34 +97,63 @@ export function initSchedule(): Promise<void> {
 /** True once the schedule has loaded from the server. */
 export function isScheduleHydrated(): boolean { return hydrated }
 
-// The whole board is saved at once (settings + every job), and the save
-// replaces the server's list, so it only runs after the board has loaded.
-const flusher = createFlusher({
+function jobFromApi(j: any): ScheduledJob {
+  return {
+    id: j.id,
+    clientName: j.clientName,
+    area: j.area,
+    sections: j.sections,
+    fenceType: j.fenceType,
+    jobPrice: j.jobPrice,
+    tearout: j.tearout,
+    crewId: j.crewId,
+    date: j.date,
+    notes: j.notes,
+    stagingJobId: j.stagingJobId || undefined,
+    status: statusFromApi(j.status),
+  }
+}
+function jobToApi(j: ScheduledJob) {
+  return {
+    id: j.id,
+    stagingJobId: j.stagingJobId || undefined,
+    clientName: j.clientName,
+    area: j.area,
+    sections: j.sections,
+    fenceType: j.fenceType,
+    jobPrice: j.jobPrice,
+    tearout: j.tearout,
+    crewId: j.crewId,
+    date: j.date,
+    notes: j.notes,
+    status: statusToApi(j.status),
+  }
+}
+
+// The whole board (settings and every job) is saved at once, and the save
+// replaces the server's list. It only runs after the board has loaded, and it
+// is version checked: if another tab or device saved first, this tab's change
+// is put on top of the newest board and saved again (see syncGuard).
+type BoardDoc = { settings: { workDays: number[]; crews: CrewRecord[] }; jobs: ScheduledJob[] }
+const boardNow = (): BoardDoc => ({ settings: { workDays: cacheSettings.workDays, crews: cacheSettings.crews as CrewRecord[] }, jobs: cacheJobs })
+const pickBoard = (d: any): BoardDoc => ({
+  settings: {
+    workDays: Array.isArray(d?.settings?.workDays) ? d.settings.workDays : [1, 2, 3, 4],
+    crews: Array.isArray(d?.settings?.crews) ? d.settings.crews : (DEFAULT_SETTINGS.crews as CrewRecord[]),
+  },
+  jobs: Array.isArray(d?.jobs) ? d.jobs.map(jobFromApi) : [],
+})
+const flusher = createVersionedFlusher<BoardDoc>({
   name: 'Schedule',
   isHydrated: () => hydrated,
   debounceMs: 150,
-  send: async () => {
-    const settings = cacheSettings
-    const jobs = cacheJobs
-    const [a, b] = await Promise.all([
-      saveScheduleSettings({ workDays: settings.workDays, crews: settings.crews }),
-      syncScheduledJobs(jobs.map(j => ({
-        id: j.id,
-        stagingJobId: j.stagingJobId || undefined,
-        clientName: j.clientName,
-        area: j.area,
-        sections: j.sections,
-        fenceType: j.fenceType,
-        jobPrice: j.jobPrice,
-        tearout: j.tearout,
-        crewId: j.crewId,
-        date: j.date,
-        notes: j.notes,
-        status: statusToApi(j.status),
-      })), { replace: true }),
-    ])
-    return !!a && !!b
+  get: boardNow,
+  apply: next => {
+    cacheSettings = { ...cacheSettings, workDays: next.settings.workDays, crews: next.settings.crews }
+    cacheJobs = next.jobs
+    emit(SETTINGS_EVT)
   },
+  save: (state, version) => versionedSave(`${AUTH_API}/api/schedule/board`, 'PUT', { settings: state.settings, jobs: state.jobs.map(jobToApi) }, version, pickBoard),
 })
 
 export function loadSchedule(): { jobs: ScheduledJob[]; settings: ScheduleSettings } {

@@ -13,13 +13,15 @@
  * Rules, same as the other stores (see syncGuard):
  *   - nothing is written until the copy has loaded from the server
  *   - failed writes are retried and reported
+ *   - every key is version checked: if another tab or device saved it first,
+ *     this tab's change is put on top of the newest value and saved again
  *
  * Browser preferences (which view is open, collapsed columns) stay in real
  * localStorage on purpose: they are per person per device.
  */
 
 import { fetchWithAuth, getAccessToken } from './crmAuth'
-import { createFlusher, legacyMigrationEnabled, type Flusher } from './syncGuard'
+import { createVersionedFlusher, versionedSave, legacyMigrationEnabled, type VersionedFlusher } from './syncGuard'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 const EVT = 'ezbiz:cloud-storage:updated'
@@ -45,40 +47,29 @@ const KEY_SET = new Set<string>(CLOUD_KEYS)
 let cache: Record<string, unknown> = {}
 let hydrated = false
 let initPromise: Promise<void> | null = null
-const dirty = new Set<string>()
-const flushers = new Map<string, Flusher>()
+const flushers = new Map<string, VersionedFlusher<unknown>>()
 
 function emit(key: string) {
   try { window.dispatchEvent(new CustomEvent(EVT, { detail: { key } })) } catch {}
 }
 
-async function put(key: string, value: unknown): Promise<boolean> {
-  try {
-    const res = await fetchWithAuth(`${AUTH_API}/api/kv/${key}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: value ?? null }),
-    })
-    if (!res.ok) return false
-    const json = await res.json().catch(() => ({}))
-    return !!json?.success
-  } catch { return false }
-}
+const putKey = (key: string, value: unknown, version: number) =>
+  versionedSave<unknown>(`${AUTH_API}/api/kv/${key}`, 'PUT', { value: value ?? null }, version, d => d ?? null)
 
-function flusherFor(key: string): Flusher {
+function flusherFor(key: string): VersionedFlusher<unknown> {
   let f = flushers.get(key)
   if (!f) {
-    f = createFlusher({
+    f = createVersionedFlusher<unknown>({
       name: LABELS[key as CloudKey] || 'Your changes',
       isHydrated: () => hydrated,
       debounceMs: 300,
-      send: async () => {
-        if (!dirty.has(key)) return true
-        dirty.delete(key)
-        const ok = await put(key, cache[key])
-        if (!ok) dirty.add(key)
-        return ok
+      get: () => cache[key] ?? null,
+      apply: next => {
+        if (next === null || next === undefined) delete cache[key]
+        else cache[key] = next
+        emit(key)
       },
+      save: (state, version) => putKey(key, state, version),
     })
     flushers.set(key, f)
   }
@@ -107,15 +98,21 @@ export function initCloudStorage(): Promise<void> {
   initPromise = (async () => {
     if (!getAccessToken()) return
     let data: Record<string, unknown> | null = null
+    let versions: Record<string, number> = {}
     try {
       const res = await fetchWithAuth(`${AUTH_API}/api/kv`)
       if (res.ok) {
         const json = await res.json().catch(() => ({}))
-        if (json?.success && json.data && typeof json.data === 'object') data = json.data
+        if (json?.success && json.data && typeof json.data === 'object') {
+          data = json.data
+          if (json.versions && typeof json.versions === 'object') versions = json.versions
+        }
       }
     } catch { /* stays unloaded */ }
     if (!data) return
     cache = data
+    // A key that is not on the server yet is at version 0.
+    for (const key of CLOUD_KEYS) flusherFor(key).loaded(cache[key] ?? null, versions[key] ?? 0)
     hydrated = true
 
     // Optional, opt in: move this browser's old copies up, but only for keys
@@ -127,7 +124,8 @@ export function initCloudStorage(): Promise<void> {
           const raw = localStorage.getItem(key)
           if (!raw) continue
           const parsed = JSON.parse(raw)
-          if (await put(key, parsed)) cache[key] = parsed
+          const r = await putKey(key, parsed, 0)
+          if (r.status === 'saved') { cache[key] = parsed; flusherFor(key).loaded(parsed, r.version) }
         } catch { /* skip this key */ }
       }
     }
@@ -157,14 +155,12 @@ export const cloudStorage = {
     let parsed: unknown
     try { parsed = JSON.parse(value) } catch { parsed = value }
     cache[key] = parsed
-    dirty.add(key)
     emit(key)
     flusherFor(key).schedule()
   },
   removeItem(key: CloudKey | string): void {
     check(key)
     delete cache[key]
-    dirty.add(key)
     emit(key)
     flusherFor(key).schedule()
   },

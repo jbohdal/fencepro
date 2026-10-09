@@ -8,7 +8,7 @@
  */
 
 import { getAccessToken, fetchWithAuth } from './crmAuth'
-import { createFlusher, legacyMigrationEnabled } from './syncGuard'
+import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 const VENDOR_EVT = 'fencepro:vendors:updated'
@@ -39,15 +39,24 @@ async function vendorCall<T>(method: string, body?: unknown): Promise<{ ok: bool
 function vendorEmit() { try { window.dispatchEvent(new CustomEvent(VENDOR_EVT)) } catch {} }
 // Vendors, bills and payments are one server record, so it is only ever
 // written after it has been loaded (see syncGuard).
-const vendorFlusher = createFlusher({
+// Version checked: if another tab or device saved first, this tab's change is
+// put on top of the newest copy and saved again (see syncGuard).
+const pickVendors = (d: any): VendorStateBlob => ({
+  vendors: Array.isArray(d?.vendors) ? d.vendors : [],
+  bills: Array.isArray(d?.bills) ? d.bills : [],
+  payments: Array.isArray(d?.payments) ? d.payments : [],
+})
+const vendorFlusher = createVersionedFlusher<VendorStateBlob>({
   name: 'Vendors',
   isHydrated: () => vendorHydrated,
-  send: async () => (await vendorCall('PUT', vendorCache)).ok,
+  get: () => vendorCache,
+  apply: next => { vendorCache = pickVendors(next); vendorEmit() },
+  save: (state, version) => versionedSave(`${AUTH_API}/api/vendor-state`, 'PUT', { ...state }, version, pickVendors),
 })
 function vendorScheduleFlush() { vendorFlusher.schedule() }
 
 /** Optional, opt in. Old browser data only moves up if the server has no vendor data at all. */
-async function migrateLocalVendorsOnce(server: VendorStateBlob): Promise<VendorStateBlob | null> {
+async function migrateLocalVendorsOnce(server: VendorStateBlob, version: number): Promise<VendorStateBlob | null> {
   if (!legacyMigrationEnabled()) return null
   if (localStorage.getItem(VENDOR_MIGRATION_FLAG) === '1') return null
   if (!getAccessToken()) return null
@@ -63,7 +72,7 @@ async function migrateLocalVendorsOnce(server: VendorStateBlob): Promise<VendorS
     }
     const hasData = blob.vendors.length || blob.bills.length || blob.payments.length
     if (!hasData) { localStorage.setItem(VENDOR_MIGRATION_FLAG, '1'); return null }
-    const r = await vendorCall<VendorStateBlob>('PUT', blob)
+    const r = await vendorCall<VendorStateBlob>('PUT', { ...blob, baseVersion: version })
     if (!r.ok) return null
     localStorage.setItem(VENDOR_MIGRATION_FLAG, '1')
     return blob
@@ -81,9 +90,11 @@ export function initVendors(): Promise<void> {
       bills: Array.isArray(r.data.bills) ? r.data.bills : [],
       payments: Array.isArray(r.data.payments) ? r.data.payments : [],
     }
-    const migrated = await migrateLocalVendorsOnce(next)
-    if (migrated) next = migrated
+    let version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
+    const migrated = await migrateLocalVendorsOnce(next, version)
+    if (migrated) { next = migrated; version++ }
     vendorCache = next
+    vendorFlusher.loaded(next, version)
     vendorHydrated = true
     vendorEmit()
     if (legacyMigrationEnabled() && localStorage.getItem(VENDOR_MIGRATION_FLAG) === '1') {

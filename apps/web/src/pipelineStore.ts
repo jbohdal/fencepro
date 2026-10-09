@@ -9,7 +9,7 @@
 
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
-import { createFlusher, legacyMigrationEnabled } from './syncGuard'
+import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 const EVT = 'fencepro:pipeline:updated'
@@ -39,7 +39,7 @@ async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; d
 }
 
 /** Optional, opt in. Old browser data only moves up if the server has no pipeline at all. */
-async function migrateLocalPipelineOnce(server: { leads: any[]; stages: any[] }): Promise<{ leads: any[]; stages: any[] } | null> {
+async function migrateLocalPipelineOnce(server: { leads: any[]; stages: any[] }, version: number): Promise<{ leads: any[]; stages: any[] } | null> {
   if (!legacyMigrationEnabled()) return null
   if (localStorage.getItem(MIGRATION_FLAG) === '1') return null
   if (!getAccessToken()) return null
@@ -52,7 +52,7 @@ async function migrateLocalPipelineOnce(server: { leads: any[]; stages: any[] })
       return null
     }
     const next = { leads: blob.leads || [], stages: blob.stages || [] }
-    const r = await call<any>('PUT', next)
+    const r = await call<any>('PUT', { ...next, baseVersion: version })
     if (!r.ok) return null
     localStorage.setItem(MIGRATION_FLAG, '1')
     toast.info('Pipeline synced to cloud', `${next.leads.length} leads migrated.`)
@@ -69,9 +69,11 @@ export function initPipeline(): Promise<void> {
     const r = await call<{ leads: any[]; stages: any[] }>('GET')
     if (!r.ok || !r.data) return
     let next = { leads: Array.isArray(r.data.leads) ? r.data.leads : [], stages: Array.isArray(r.data.stages) ? r.data.stages : [] }
-    const migrated = await migrateLocalPipelineOnce(next)
-    if (migrated) next = migrated
+    let version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
+    const migrated = await migrateLocalPipelineOnce(next, version)
+    if (migrated) { next = migrated; version++ }
     cache = next
+    flusher.loaded(next, version)
     hydrated = true
     emit()
     if (legacyMigrationEnabled() && localStorage.getItem(MIGRATION_FLAG) === '1') {
@@ -84,13 +86,18 @@ export function initPipeline(): Promise<void> {
 /** True once the pipeline has loaded from the server. */
 export function isPipelineHydrated(): boolean { return hydrated }
 
-// The whole pipeline is one server record, so it is only ever written after
-// it has been loaded (see syncGuard).
-const flusher = createFlusher({
+// The whole pipeline is one server record. It is only written after it has
+// loaded, and every save is version checked: if another tab or device saved
+// first, this tab's change is put on top of the newest copy (see syncGuard).
+type PipelineDoc = { leads: any[]; stages: any[] }
+const pickPipeline = (d: any): PipelineDoc => ({ leads: Array.isArray(d?.leads) ? d.leads : [], stages: Array.isArray(d?.stages) ? d.stages : [] })
+const flusher = createVersionedFlusher<PipelineDoc>({
   name: 'Sales pipeline',
   isHydrated: () => hydrated,
-  send: async () => (await call('PUT', { leads: cache.leads, stages: cache.stages })).ok,
   debounceMs: 150,
+  get: () => ({ leads: cache.leads, stages: cache.stages }),
+  apply: next => { cache = pickPipeline(next); emit() },
+  save: (state, version) => versionedSave(`${AUTH_API}/api/pipeline`, 'PUT', state, version, pickPipeline),
 })
 
 export function getPipeline(): { leads: any[]; stages: any[] } {

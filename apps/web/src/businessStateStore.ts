@@ -9,7 +9,8 @@
  */
 
 import { getAccessToken, fetchWithAuth } from './crmAuth'
-import { createFlusher, legacyMigrationEnabled } from './syncGuard'
+import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
+import { deepEqual } from './merge3'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? 'http://localhost:4000' : '')
 const EVT = 'fencepro:business-state:updated'
@@ -62,7 +63,6 @@ const DEFAULT: BusinessFields = {
 let cache: BusinessFields = { ...DEFAULT }
 let initPromise: Promise<void> | null = null
 let hydrated = false
-let pendingPatch: Partial<BusinessFields> = {}
 
 async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T }> {
   const token = getAccessToken()
@@ -82,18 +82,29 @@ async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; d
 
 function emit() { try { window.dispatchEvent(new CustomEvent(EVT)) } catch {} }
 
-// Only the fields that changed are sent. A patch that fails to send is put
-// back so the next attempt still carries it.
-const flusher = createFlusher({
+function pickBusiness(d: any): BusinessFields {
+  const next: BusinessFields = { ...DEFAULT }
+  for (const k of Object.keys(DEFAULT) as (keyof BusinessFields)[]) {
+    const v = d?.[k]
+    if (v !== undefined && v !== null) (next as any)[k] = v
+  }
+  return next
+}
+
+// Only the fields that changed are sent, and every save is version checked:
+// if another tab or device saved first, this tab's change is put on top of
+// the newest copy and saved again (see syncGuard).
+const flusher = createVersionedFlusher<BusinessFields>({
   name: 'Settings and business data',
   isHydrated: () => hydrated,
-  send: async () => {
-    const patch = pendingPatch
-    if (Object.keys(patch).length === 0) return true
-    pendingPatch = {}
-    const r = await call('PATCH', patch)
-    if (!r.ok) pendingPatch = { ...patch, ...pendingPatch }
-    return r.ok
+  get: () => cache,
+  apply: next => { cache = pickBusiness(next); emit() },
+  save: (state, version, base) => {
+    const patch: Record<string, unknown> = {}
+    for (const k of Object.keys(DEFAULT) as (keyof BusinessFields)[]) {
+      if (!deepEqual(state[k], base[k])) patch[k] = state[k]
+    }
+    return versionedSave(`${AUTH_API}/api/business-state`, 'PATCH', patch, version, pickBusiness)
   },
 })
 function scheduleFlush() { flusher.schedule() }
@@ -139,7 +150,7 @@ const LEGACY_SOURCES: Array<[keyof BusinessFields, string]> = [
  * a second computer, or after clearing the browser, wiped settings, bundles,
  * invoices, payments and the rest on the server.
  */
-async function migrateLocalBusinessOnce(server: Partial<BusinessFields>): Promise<Partial<BusinessFields>> {
+async function migrateLocalBusinessOnce(server: Partial<BusinessFields>, version: number): Promise<Partial<BusinessFields>> {
   if (!legacyMigrationEnabled()) return {}
   if (localStorage.getItem(MIGRATION_FLAG) === '1') return {}
   if (!getAccessToken()) return {}
@@ -155,7 +166,7 @@ async function migrateLocalBusinessOnce(server: Partial<BusinessFields>): Promis
     localStorage.setItem(MIGRATION_FLAG, '1')
     return {}
   }
-  const r = await call('PATCH', patch)
+  const r = await call('PATCH', { ...patch, baseVersion: version })
   if (!r.ok) return {}
   localStorage.setItem(MIGRATION_FLAG, '1')
   return patch
@@ -167,14 +178,13 @@ export function initBusinessState(): Promise<void> {
   initPromise = (async () => {
     const r = await call<BusinessFields>('GET')
     if (!r.ok || !r.data) return
-    const next: BusinessFields = { ...DEFAULT }
-    for (const k of Object.keys(DEFAULT) as (keyof BusinessFields)[]) {
-      const v = (r.data as any)[k]
-      if (v !== undefined && v !== null) (next as any)[k] = v
-    }
+    const next = pickBusiness(r.data)
+    let version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
     let migrated: Partial<BusinessFields> = {}
-    try { migrated = await migrateLocalBusinessOnce(next) } catch {}
+    try { migrated = await migrateLocalBusinessOnce(next, version) } catch {}
+    if (Object.keys(migrated).length > 0) version++
     cache = { ...next, ...migrated }
+    flusher.loaded(cache, version)
     hydrated = true
     emit()
     // Old browser copies are only cleared once they have been moved up.
@@ -202,7 +212,6 @@ export function getBusinessField<K extends keyof BusinessFields>(key: K): Busine
 
 export function setBusinessField<K extends keyof BusinessFields>(key: K, value: BusinessFields[K]): void {
   cache[key] = value
-  pendingPatch[key] = value as any
   emit()
   scheduleFlush()
 }

@@ -14,6 +14,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
 
 const router = Router()
@@ -72,11 +73,18 @@ router.patch('/', async (req: any, res) => {
     for (const f of fields) {
       if (data[f] !== undefined) updateData[f] = JSON.parse(JSON.stringify(data[f]))
     }
-    const s = await prisma.businessState.upsert({
-      where: { accountId: req.user.crmAccountId },
-      create: { accountId: req.user.crmAccountId, ...updateData },
-      update: updateData,
-    })
+    const base = baseVersionOf(req.body)
+    if (base === null) { refuseUnversioned(res); return }
+    const accountId = req.user.crmAccountId
+    // One version covers the whole record, so a patch built on an older copy
+    // is refused even when it touches a different field; the browser merges.
+    const done = await prisma.businessState.updateMany({ where: { accountId, version: base }, data: { ...updateData, version: { increment: 1 } } })
+    if (done.count === 0) {
+      const current = await prisma.businessState.findUnique({ where: { accountId } })
+      if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
+      await prisma.businessState.create({ data: { accountId, ...updateData } })
+    }
+    const s = (await prisma.businessState.findUnique({ where: { accountId } }))!
     res.json({ success: true, data: s })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }

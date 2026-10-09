@@ -12,6 +12,8 @@
  */
 
 import { toast } from './toast'
+import { fetchWithAuth, getAccessToken } from './crmAuth'
+import { createVersionedDoc, type SaveResult } from './versionedDoc'
 
 export interface Flusher {
   /** Call after every change to the in memory copy. */
@@ -93,6 +95,66 @@ export function createFlusher(opts: {
     },
     isDirty: () => dirtyStores.has(opts.name),
   }
+}
+
+export interface VersionedFlusher<T> extends Flusher {
+  /** Call when the record has loaded from the server, with the version it came with. */
+  loaded: (server: T, version: number) => void
+}
+
+/**
+ * A flusher for a record that is saved whole and version checked. If another
+ * tab or device saved first, the newest copy is fetched, this tab's change is
+ * put on top of it and saved again (see versionedDoc and merge3), and the
+ * user is told.
+ */
+export function createVersionedFlusher<T>(opts: {
+  name: string
+  isHydrated: () => boolean
+  debounceMs?: number
+  get: () => T
+  apply: (next: T) => void
+  save: (state: T, baseVersion: number, base: T) => Promise<SaveResult<T>>
+}): VersionedFlusher<T> {
+  const doc = createVersionedDoc<T>({
+    get: opts.get, apply: opts.apply, save: opts.save,
+    onMerged: ({ problems }) => {
+      // A screen holding its own copy of this record needs to read it again.
+      // One that can do so in place says so (useMergedRefresh); otherwise the
+      // app shell remounts the open page.
+      try {
+        const handled = !window.dispatchEvent(new CustomEvent('ezbiz:merged-from-server', { detail: { name: opts.name }, cancelable: true }))
+        if (!handled) window.dispatchEvent(new CustomEvent('ezbiz:reload-page-data'))
+      } catch {}
+      if (problems.length > 0) toast.error(`${opts.name}: not everything could be saved`, problems.join(' '))
+      else toast.info(`${opts.name} updated`, 'Changes made on another tab or device were brought in, and your change was saved on top of them.')
+    },
+  })
+  const flusher = createFlusher({ name: opts.name, isHydrated: opts.isHydrated, debounceMs: opts.debounceMs, send: () => doc.push() })
+  return { ...flusher, loaded: doc.loaded }
+}
+
+/**
+ * One version checked save. `body` is sent with `baseVersion` added. A refusal
+ * (409 STALE_VERSION) comes back as { status: 'stale' } carrying the server's
+ * current copy, shaped by `pick`.
+ */
+export async function versionedSave<T>(url: string, method: 'PUT' | 'PATCH', body: Record<string, unknown>, baseVersion: number, pick: (data: any) => T): Promise<SaveResult<T>> {
+  if (!getAccessToken()) return { status: 'failed' }
+  try {
+    const res = await fetchWithAuth(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, baseVersion }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (res.status === 409 && json?.code === 'STALE_VERSION') {
+      return { status: 'stale', server: pick(json.data), version: typeof json.version === 'number' ? json.version : 0 }
+    }
+    if (!res.ok || !json?.success) return { status: 'failed' }
+    const version = typeof json.version === 'number' ? json.version : json.data?.version
+    return typeof version === 'number' ? { status: 'saved', version } : { status: 'failed' }
+  } catch { return { status: 'failed' } }
 }
 
 /**

@@ -8,6 +8,7 @@ import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
+import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
 
 const router = Router()
@@ -60,18 +61,18 @@ router.get('/', async (req: any, res) => {
 router.put('/', async (req: any, res) => {
   try {
     const data = pipelineSchema.parse(req.body)
-    const p = await prisma.pipelineState.upsert({
-      where: { accountId: req.user.crmAccountId },
-      create: {
-        accountId: req.user.crmAccountId,
-        leads: JSON.parse(JSON.stringify(data.leads)),
-        stages: JSON.parse(JSON.stringify(data.stages)),
-      },
-      update: {
-        leads: JSON.parse(JSON.stringify(data.leads)),
-        stages: JSON.parse(JSON.stringify(data.stages)),
-      },
-    })
+    const base = baseVersionOf(req.body)
+    if (base === null) { refuseUnversioned(res); return }
+    const accountId = req.user.crmAccountId
+    const fields = { leads: JSON.parse(JSON.stringify(data.leads)), stages: JSON.parse(JSON.stringify(data.stages)) }
+    // Applied only if nobody saved since `base`; the where clause makes that one atomic step.
+    const done = await prisma.pipelineState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+    if (done.count === 0) {
+      const current = await prisma.pipelineState.findUnique({ where: { accountId } })
+      if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
+      await prisma.pipelineState.create({ data: { accountId, ...fields } })
+    }
+    const p = (await prisma.pipelineState.findUnique({ where: { accountId } }))!
     await audit(req, 'update', 'PipelineState', p.id, { newValues: { leadsCount: data.leads.length, stagesCount: data.stages.length } })
     res.json({ success: true, data: p })
   } catch (err) {

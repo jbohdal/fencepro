@@ -8,6 +8,7 @@ import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
+import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
 
 const router = Router()
@@ -61,20 +62,21 @@ router.get('/', async (req: any, res) => {
 router.put('/', async (req: any, res) => {
   try {
     const data = vendorStateSchema.parse(req.body)
-    const v = await prisma.vendorState.upsert({
-      where: { accountId: req.user.crmAccountId },
-      create: {
-        accountId: req.user.crmAccountId,
-        vendors: JSON.parse(JSON.stringify(data.vendors)),
-        bills: JSON.parse(JSON.stringify(data.bills)),
-        payments: JSON.parse(JSON.stringify(data.payments)),
-      },
-      update: {
-        vendors: JSON.parse(JSON.stringify(data.vendors)),
-        bills: JSON.parse(JSON.stringify(data.bills)),
-        payments: JSON.parse(JSON.stringify(data.payments)),
-      },
-    })
+    const base = baseVersionOf(req.body)
+    if (base === null) { refuseUnversioned(res); return }
+    const accountId = req.user.crmAccountId
+    const fields = {
+      vendors: JSON.parse(JSON.stringify(data.vendors)),
+      bills: JSON.parse(JSON.stringify(data.bills)),
+      payments: JSON.parse(JSON.stringify(data.payments)),
+    }
+    const done = await prisma.vendorState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+    if (done.count === 0) {
+      const current = await prisma.vendorState.findUnique({ where: { accountId } })
+      if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
+      await prisma.vendorState.create({ data: { accountId, ...fields } })
+    }
+    const v = (await prisma.vendorState.findUnique({ where: { accountId } }))!
     await audit(req, 'update', 'VendorState', v.id, {
       newValues: { vendorsCount: data.vendors.length, billsCount: data.bills.length, paymentsCount: data.payments.length },
     })
