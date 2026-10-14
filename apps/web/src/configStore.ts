@@ -104,6 +104,8 @@ export interface AppConfig {
   customerTags: string[]
   pipelineStages: string[]
   railOptimizer?: RailOptimizerConfig
+  /** Appointment types' lengths, the team, and when slots are suggested. See appointmentLogic. */
+  appointments?: Partial<AppointmentSettings>
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -216,6 +218,12 @@ export function getRailOptimizerConfig(cfg: AppConfig = getConfig()): RailOptimi
 // blob; the mirror is updated on every save and on initBusinessState().
 
 import { getBusinessField, setBusinessField } from './businessStateStore'
+import { withDefaults, type AppointmentSettings } from './appointmentLogic'
+
+/** Appointment settings with every default filled in. */
+export function getAppointmentSettings(cfg: AppConfig = getConfig()): AppointmentSettings {
+  return withDefaults(cfg.appointments)
+}
 
 const LEGACY_KEY = 'fencepro_config'
 

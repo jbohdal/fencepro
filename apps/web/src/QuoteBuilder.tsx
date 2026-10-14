@@ -78,6 +78,8 @@ function SaveModal({
   onCancel,
   initialCustomerName,
   initialCustomerId,
+  initialAddress = '',
+  initialNotes = '',
 }: {
   onSave: (data: {
     customerId: string
@@ -94,6 +96,9 @@ function SaveModal({
   onCancel: () => void
   initialCustomerName: string
   initialCustomerId?: string
+  /** The property this quote is for (it can differ from the customer's main address). */
+  initialAddress?: string
+  initialNotes?: string
 }) {
   const [mode, setMode]           = useState<'search' | 'new'>('search')
   const [search, setSearch]       = useState(initialCustomerName)
@@ -109,8 +114,9 @@ function SaveModal({
   const [leadSource, setLeadSource] = useState('')
   const [salesRep, setSalesRep]   = useState('')
   const [status, setStatus]       = useState<SavedQuote['status']>('DRAFT')
-  const [notes, setNotes]         = useState('')
+  const [notes, setNotes]         = useState(initialNotes)
   const [leadTemp, setLeadTemp]   = useState(0)
+  const [propertyAddress, setPropertyAddress] = useState(initialAddress || selectedCustomer?.serviceAddress || '')
   const LEAD_SOURCES = useMemo(() => leadSources(), [])
 
   const allCustomers: SavedCustomer[] = useMemo(() => {
@@ -128,6 +134,7 @@ function SaveModal({
   function handleSelectCustomer(c: SavedCustomer) {
     setSelectedCustomer(c)
     setSearch(`${c.firstName} ${c.lastName}`)
+    setPropertyAddress(c.serviceAddress || '')
   }
 
   function handleSubmit() {
@@ -137,7 +144,7 @@ function SaveModal({
         customerName: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`,
         customerPhone: selectedCustomer.phone,
         customerEmail: selectedCustomer.email,
-        customerAddress: selectedCustomer.serviceAddress,
+        customerAddress: propertyAddress.trim() || selectedCustomer.serviceAddress,
         leadSource: selectedCustomer.leadSource,
         salesRep: selectedCustomer.salesRep,
         status,
@@ -301,6 +308,18 @@ function SaveModal({
               )}
             </div>
           </div>
+
+          {mode === 'search' && selectedCustomer && (
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block font-medium">Property address</label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                value={propertyAddress}
+                onChange={e => setPropertyAddress(e.target.value)}
+                data-quote-property-address
+              />
+            </div>
+          )}
 
           <div>
             <label className="text-xs text-gray-500 mb-1 block font-medium">Notes (optional)</label>
@@ -1056,6 +1075,8 @@ export default function QuoteBuilder({
         <SaveModal
           initialCustomerName={customerName}
           initialCustomerId={init?.customerId}
+          initialAddress={init?.customerAddress}
+          initialNotes={init?.notes}
           onCancel={() => setShowSaveModal(false)}
           onSave={handleSave}
         />

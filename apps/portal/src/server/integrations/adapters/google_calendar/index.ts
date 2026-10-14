@@ -24,23 +24,13 @@ import {
   disconnectCalendar,
   pushAppointmentToCalendar,
   updateCalendarEvent,
-  pullCalendarEvents,
 } from '../../../lib/googleCalendar.js'
-import prisma from '../../../lib/prisma.js'
-
-/** Appointment fields selected for sync operations */
-type SyncedAppointment = {
-  id: string
-  googleCalendarEventId: string | null
-  scheduledAt: Date
-  duration: number
-}
 
 const adapter: IntegrationAdapter = {
   slug: 'google_calendar',
   name: 'Google Calendar',
   category: 'Scheduling',
-  description: 'Two-way sync between CRM schedule and Google Calendar.',
+  description: 'Superseded by Settings → Google Calendar (one way, every appointment).',
   capabilities: ['sync_calendar', 'push_events', 'pull_blocks'],
   configFields: [
     {
@@ -83,210 +73,15 @@ const adapter: IntegrationAdapter = {
     }
   },
 
-  async sync(config) {
-    const { repEmail } = config as { repEmail?: string }
-
-    const connectedCalendars = await listConnectedCalendars()
-    if (connectedCalendars.length === 0) {
-      return { synced: 0, errors: 0, message: 'No Google Calendars connected. Complete OAuth flow first.' }
-    }
-
-    const targetEmails = repEmail
-      ? connectedCalendars.filter(c => c.email === repEmail).map(c => c.email)
-      : connectedCalendars.map(c => c.email)
-
-    let synced = 0
-    let errors = 0
-
-    for (const email of targetEmails) {
-      // ── PUSH: upcoming appointments without a calendar event ──
-      try {
-        const appointments = await prisma.appointment.findMany({
-          where: {
-            assignedRepEmail: email,
-            scheduledAt: { gte: new Date() },
-            cancelledAt: null,
-            googleCalendarEventId: null,
-          },
-          include: {
-            lead: {
-              select: {
-                firstName: true,
-                lastName: true,
-                email: true,
-                phone: true,
-                fenceType: true,
-                linearFootage: true,
-              },
-            },
-          },
-          take: 50,
-        })
-
-        for (const appt of appointments) {
-          try {
-            const eventId = await pushAppointmentToCalendar({
-              repEmail: email,
-              scheduledAt: appt.scheduledAt,
-              duration: appt.duration,
-              type: appt.type,
-              location: appt.location || undefined,
-              customerName: [appt.lead.firstName, appt.lead.lastName].filter(Boolean).join(' ') || 'New Lead',
-              customerPhone: appt.lead.phone || undefined,
-              customerEmail: appt.lead.email || undefined,
-              fenceType: appt.lead.fenceType || undefined,
-              linearFootage: appt.lead.linearFootage || undefined,
-              notes: appt.notes || undefined,
-            })
-
-            if (eventId) {
-              await prisma.appointment.update({
-                where: { id: appt.id },
-                data: { googleCalendarEventId: eventId },
-              })
-              synced++
-            } else {
-              errors++
-            }
-          } catch {
-            errors++
-          }
-        }
-      } catch (err) {
-        console.error(`[GoogleCalendar] Push error for ${email}:`, err)
-        errors++
-      }
-
-      // ── PULL: reconcile existing calendar events back into appointments ──
-      try {
-        const calEvents = await pullCalendarEvents({ repEmail: email, daysAhead: 60 })
-        const eventMap = new Map(calEvents.map(ev => [ev.eventId, ev]))
-
-        const syncedAppointments: SyncedAppointment[] = await prisma.appointment.findMany({
-          where: {
-            assignedRepEmail: email,
-            googleCalendarEventId: { not: null },
-            cancelledAt: null,
-            scheduledAt: { gte: new Date() },
-          },
-          select: {
-            id: true,
-            googleCalendarEventId: true,
-            scheduledAt: true,
-            duration: true,
-          },
-        })
-
-        for (const appt of syncedAppointments) {
-          // googleCalendarEventId is non-null here because of the 'not: null' filter above
-          const eventId = appt.googleCalendarEventId as string
-          const calEvent = eventMap.get(eventId)
-
-          if (!calEvent) continue // event not in the pull window, skip
-
-          if (calEvent.cancelled) {
-            // Event was deleted in Google Calendar — cancel the appointment
-            await prisma.appointment.update({
-              where: { id: appt.id },
-              data: { cancelledAt: new Date() },
-            })
-            console.log(`[GoogleCalendar] Appointment ${appt.id} cancelled (GCal event deleted)`)
-            synced++
-          } else {
-            // Check if the event time was changed in Google Calendar
-            const diffMs = Math.abs(calEvent.start.getTime() - appt.scheduledAt.getTime())
-            if (diffMs > 60_000) {
-              // More than 1 minute difference — rep rescheduled in Google Calendar
-              await prisma.appointment.update({
-                where: { id: appt.id },
-                data: { scheduledAt: calEvent.start },
-              })
-              console.log(`[GoogleCalendar] Appointment ${appt.id} rescheduled to ${calEvent.start.toISOString()} (pulled from GCal)`)
-              synced++
-            }
-          }
-        }
-      } catch (err) {
-        console.error(`[GoogleCalendar] Pull error for ${email}:`, err)
-        errors++
-      }
-    }
-
-    const calStr = targetEmails.join(', ')
-    return {
-      synced,
-      errors,
-      message: synced > 0
-        ? `Two-way sync complete: ${synced} change(s) for ${calStr}`
-        : `No sync changes needed for ${calStr || 'any connected calendar'}`,
-    }
+  // Appointments now go to Google one way, through Settings → Google Calendar
+  // (lib/calendarSync). This older two-way link no longer moves them, so the
+  // CRM stays the one record of every appointment.
+  async sync() {
+    return { synced: 0, errors: 0, message: 'Appointments are sent to Google Calendar from Settings → Google Calendar. Nothing to do here.' }
   },
 
-  async handleInbound(payload, headers) {
-    // Google Calendar push notifications via Channel/Watch
-    const resourceState = headers['x-goog-resource-state'] || ''
-    const channelId = headers['x-goog-channel-id'] || ''
-
-    console.log(`[GoogleCalendar] Push notification: state=${resourceState} channel=${channelId}`)
-
-    if (resourceState === 'sync') {
-      return { processed: true, message: 'Google Calendar sync verification received' }
-    }
-
-    if (resourceState === 'exists') {
-      // A calendar resource changed — run a pull sync for all connected reps
-      const connectedCalendars = await listConnectedCalendars()
-      let updated = 0
-      let errors = 0
-
-      for (const cal of connectedCalendars) {
-        try {
-          const calEvents = await pullCalendarEvents({ repEmail: cal.email, daysAhead: 60 })
-          const eventMap = new Map(calEvents.map(ev => [ev.eventId, ev]))
-
-          const syncedAppointments: SyncedAppointment[] = await prisma.appointment.findMany({
-            where: {
-              assignedRepEmail: cal.email,
-              googleCalendarEventId: { not: null },
-              cancelledAt: null,
-              scheduledAt: { gte: new Date() },
-            },
-            select: {
-              id: true,
-              googleCalendarEventId: true,
-              scheduledAt: true,
-              duration: true,
-            },
-          })
-
-          for (const appt of syncedAppointments) {
-            const eventId = appt.googleCalendarEventId as string
-            const calEvent = eventMap.get(eventId)
-            if (!calEvent) continue
-
-            if (calEvent.cancelled) {
-              await prisma.appointment.update({ where: { id: appt.id }, data: { cancelledAt: new Date() } })
-              updated++
-            } else {
-              const diffMs = Math.abs(calEvent.start.getTime() - appt.scheduledAt.getTime())
-              if (diffMs > 60_000) {
-                await prisma.appointment.update({ where: { id: appt.id }, data: { scheduledAt: calEvent.start } })
-                updated++
-              }
-            }
-          }
-        } catch {
-          errors++
-        }
-      }
-
-      return {
-        processed: true,
-        message: `Calendar change synced: ${updated} appointment(s) updated${errors > 0 ? `, ${errors} error(s)` : ''}`,
-      }
-    }
-
-    return { processed: true, message: `Google Calendar notification: ${resourceState}` }
+  async handleInbound(_payload, headers) {
+    return { processed: true, message: `Google Calendar notification ignored (${headers['x-goog-resource-state'] || 'unknown'}); changes made in Google are not brought back.` }
   },
 }
 

@@ -10,8 +10,9 @@ import ContractTemplatesSettings from './ContractTemplatesSettings'
 import PortalQuoteSettings from './PortalQuoteSettings'
 import { toast } from './toast'
 import CalendarSyncSettings from './CalendarSyncSettings'
+import { AppointmentSettingsTab } from './AppointmentWidgets'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -606,6 +607,7 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'email_templates',    label: 'Email Templates' },
   { key: 'contract_templates', label: 'Contract Templates' },
   { key: 'portal_quote',       label: 'Portal & Quotes' },
+  { key: 'appointments',       label: 'Appointments' },
   { key: 'calendar',           label: 'Google Calendar' },
 ]
 
@@ -627,7 +629,8 @@ export default function AdminSettingsPage() {
 
   function handleSave() {
     try {
-      saveConfig(config)
+      // The Appointments tab saves on its own; keep what it saved.
+      saveConfig({ ...config, appointments: getConfig().appointments })
       setSaved(true)
       setDirty(false)
       setTimeout(() => setSaved(false), 2000)
@@ -707,6 +710,7 @@ export default function AdminSettingsPage() {
           {tab === 'contract_templates' && <ContractTemplatesSettings />}
           {tab === 'portal_quote' && <PortalQuoteSettings />}
           {tab === 'calendar' && <CalendarSyncSettings />}
+          {tab === 'appointments' && <AppointmentSettingsTab />}
         </div>
       </div>
     </div>

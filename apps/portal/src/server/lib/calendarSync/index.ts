@@ -31,7 +31,7 @@ const floridaToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America
 const baseUrl = () => (process.env.CLIENT_URL || process.env.APP_URL || '').replace(/\/+$/, '')
 
 async function loadInputs(accountId: string): Promise<SpecInputs> {
-  const [gridJobs, pipeline, contacts, settings, appointments] = await Promise.all([
+  const [gridJobs, pipeline, contacts, settings, appointments, business, owner] = await Promise.all([
     prisma.scheduledGridJob.findMany({ where: { accountId } }),
     prisma.pipelineState.findUnique({ where: { accountId }, select: { leads: true } }),
     prisma.crmContact.findMany({
@@ -39,12 +39,15 @@ async function loadInputs(accountId: string): Promise<SpecInputs> {
       select: { id: true, firstName: true, lastName: true, phone: true, email: true, serviceAddress: true, firstApptDate: true, notes: true },
     }),
     prisma.scheduleSettings.findUnique({ where: { accountId } }),
-    // Chat appointments belong to no company in the schema; there is one company on this install.
     prisma.appointment.findMany({
-      where: { scheduledAt: { gte: new Date(Date.now() - 60 * 86_400_000) } },
-      include: { lead: { select: { firstName: true, lastName: true, phone: true, email: true, address: true, city: true, state: true, zipCode: true, fenceType: true, linearFootage: true } } },
+      where: { accountId, archivedAt: null, source: { not: 'import' }, startAt: { gte: new Date(Date.now() - 60 * 86_400_000) } },
+      include: { contact: { select: { firstName: true, lastName: true, phone: true, email: true, serviceAddress: true } } },
     }),
+    prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
+    prisma.crmUser.findFirst({ where: { crmAccountId: accountId }, orderBy: { createdAt: 'asc' }, select: { firstName: true, lastName: true } }),
   ])
+  const team = (business?.config as any)?.appointments?.team as Array<{ name: string; isDefault?: boolean }> | undefined
+  const defaultPerson = team?.find(t => t?.isDefault)?.name || team?.[0]?.name || `${owner?.firstName || ''} ${owner?.lastName || ''}`.trim()
   const onBoard = gridJobs.map(g => g.stagingJobId).filter((x): x is string => !!x)
   const jobs = await prisma.savedJob.findMany({
     where: { accountId, archivedAt: null, OR: [{ scheduledDate: { not: '' } }, { id: { in: onBoard } }] },
@@ -54,7 +57,7 @@ async function loadInputs(accountId: string): Promise<SpecInputs> {
     baseUrl: baseUrl(),
     workDays: Array.isArray(settings?.workDays) ? (settings!.workDays as number[]) : [1, 2, 3, 4],
     crews: Array.isArray(settings?.crews) ? (settings!.crews as Array<{ id: string; name: string }>) : [],
-    jobs, gridJobs, contacts, appointments,
+    jobs, gridJobs, contacts, appointments, defaultPerson,
     leads: leads.filter(l => l && typeof l === 'object' && l.scheduledDate),
   }
 }
@@ -122,6 +125,9 @@ export function syncCalendarNow(accountId: string, opts: { activate?: boolean } 
   const next = prev.catch(() => {}).then(async () => {
     let state = await prisma.calendarSyncState.findUnique({ where: { accountId } })
     if (!googleConfigured() || !state?.googleEmail || !state.calendarId) return null
+    // A copy of the live database (the dev copy) carries live's calendar. Only a
+    // calendar with this copy's own name is ever written to.
+    if (state.calendarName !== calendarName()) { console.error(`[calendar] not syncing: connected calendar "${state.calendarName}" is not this copy's "${calendarName()}". Connect again under Settings, Google Calendar.`); return null }
     if (!state.activatedAt) {
       if (!opts.activate) return null
       state = await prisma.calendarSyncState.update({ where: { accountId }, data: { activatedAt: new Date() } })

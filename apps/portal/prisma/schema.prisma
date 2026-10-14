@@ -321,7 +321,6 @@ model Lead {
   createdAt              DateTime     @default(now())
   updatedAt              DateTime     @updatedAt
 
-  appointments Appointment[]
   followUps    FollowUp[]
 
   @@index([stage])
@@ -331,28 +330,77 @@ model Lead {
   @@index([createdAt])
 }
 
+// ── Appointments ──
+//
+// One record per visit, call back or install day with a customer: booked by
+// staff, by the website chat or from a phone agent call back, or imported
+// from the old CRM. Installs themselves stay on SavedJob; an Install
+// appointment points at its job. See apps/web/src/appointmentLogic.ts.
 model Appointment {
-  id                    String    @id @default(uuid())
-  leadId                String
-  scheduledAt           DateTime
-  duration              Int       @default(60) // minutes
-  type                  String    @default("estimate") // estimate, follow_up, consultation
-  location              String? // address for the estimate visit
-  notes                 String?
-  confirmed             Boolean   @default(false)
-  cancelledAt           DateTime?
-  completedAt           DateTime?
-  reminderSent          Boolean   @default(false)
-  // Google Calendar sync
-  googleCalendarEventId String? // GCal event ID for sync
-  assignedRepEmail      String? // salesman's email whose calendar gets the event
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id           String    @id @default(uuid())
+  accountId    String
+  crmContactId String
+  quoteId      String?
+  jobId        String?
+  /// estimate | follow_up | contract_signing | install | service | warranty | call_back | other
+  type         String    @default("estimate")
+  /// scheduled | confirmed | on_my_way | rescheduled | completed | no_show | cancelled
+  status       String    @default("scheduled")
+  /// Empty for a call back whose time could not be read: it waits under "Needs a date".
+  startAt      DateTime?
+  endAt        DateTime?
+  allDay       Boolean   @default(false)
+  /// Property visited; starts as the customer's address.
+  address      String    @default("")
+  lat          Float?
+  lng          Float?
+  /// A name from the team list in Settings.
+  assignedTo   String    @default("")
+  notes        String    @default("")
+  /// ready_to_quote | needs_follow_up | not_interested | no_show | imported
+  outcome      String?
+  outcomeNotes String    @default("")
+  measuredFeet Int?
+  nextStep     String    @default("")
+  /// [{ at, by, kind, from?, to?, reason? }], oldest first: reschedules and status changes.
+  history      Json      @default("[]")
+  /// manual | website_chat | phone_agent | import
+  source       String    @default("manual")
+  /// Dedupes intake and import: the same source record never makes two appointments.
+  sourceRef    String?
+  version      Int       @default(1)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdBy    String?
+  archivedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contact CrmContact @relation(fields: [crmContactId], references: [id])
 
-  @@index([leadId])
-  @@index([scheduledAt])
+  @@unique([accountId, sourceRef])
+  @@index([accountId, startAt])
+  @@index([crmContactId])
+  // A new table: the old chat-only "Appointment" table (always empty) is dropped.
+  @@map("CrmAppointment")
+}
+
+// Where an address is on the map: looked up once (US Census by default, or
+// Google when GEOCODER=google) and kept, or placed by hand by dragging the pin.
+model GeoPoint {
+  id         String   @id @default(uuid())
+  accountId  String
+  /// The address, lower case with punctuation and extra spaces removed.
+  addressKey String
+  address    String
+  lat        Float?
+  lng        Float?
+  /// census | google | manual | none (looked up, not found)
+  source     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([accountId, addressKey])
 }
 
 // ── Calendar sync (one way: CRM → Google Calendar) ──
@@ -1444,6 +1492,7 @@ model CrmContact {
   contactNotes CrmContactNote[]
   savedQuotes  SavedQuote[]
   savedJobs    SavedJob[]
+  appointments Appointment[]
 
   @@index([accountId])
   @@index([ownerId])

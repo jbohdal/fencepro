@@ -23,6 +23,7 @@ import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { resolveSecret } from '../lib/secrets.js'
+import { parseCallbackTime } from '../lib/appointments.js'
 import { recordIntake, resolveIntakeAccountId, digits } from '../lib/intake.js'
 import { verifyRetellSignature, summarizeRetellCall } from '../lib/retell.js'
 
@@ -271,16 +272,20 @@ retellRouter.post('/', async (req: any, res) => {
       },
     })
 
-    if (!result.duplicate) {
-      await prisma.task.create({
+    if (!result.duplicate && result.contactId) {
+      // The call back is an appointment on the customer. A time the agent
+      // could not pin down leaves it under "Needs a date" on the Appointments page.
+      const at = parseCallbackTime(info.callbackAt)
+      await prisma.appointment.create({
         data: {
-          title: `Call back ${result.contactName || info.name}${info.phone ? ' at ' + info.phone : ''}${info.callbackAt ? ' (' + info.callbackAt + ')' : ''}`,
-          description: info.summary.slice(0, 4000),
-          assignedRole: 'owner',
-          priority: 'high',
-          createdBy: 'phone-agent',
+          accountId, crmContactId: result.contactId, type: 'call_back', status: 'scheduled',
+          startAt: at, endAt: at ? new Date(at.getTime() + 15 * 60_000) : null,
+          address: info.address || '', source: 'phone_agent', sourceRef: `retell:${call.call_id}`,
+          notes: [info.callbackAt ? `Asked for a call back: ${info.callbackAt}` : 'Asked for a call back.', info.phone ? `Phone: ${info.phone}` : ''].filter(Boolean).join('\n'),
+          createdBy: 'Phone agent',
+          history: [{ at: new Date().toISOString(), by: 'Phone agent', kind: 'booked', to: { startAt: at ? at.toISOString() : null } }],
         },
-      }).catch(err => console.error('[intake] task failed:', err))
+      }).catch(err => { if (err?.code !== 'P2002') console.error('[intake] call back failed:', err) })
     }
     res.status(204).end()
   } catch (err) {

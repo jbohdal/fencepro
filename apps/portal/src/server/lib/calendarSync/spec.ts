@@ -8,7 +8,7 @@
  *   lead         a pipeline card with a date: an estimate before the sale, an
  *                install after it when no job carries the date
  *   contact      a customer's First Appointment Date
- *   appointment  an appointment booked by the website chat
+ *   appointment  an appointment on a customer (Appointments page, website chat, phone agent)
  *
  * The same visit must not appear twice, so: a job that is on the Schedule
  * board is shown from the board; an install typed on a pipeline card is
@@ -32,6 +32,8 @@ export interface CalendarEventSpec {
   /** Timed events: ISO instants. */
   startAt?: string
   endAt?: string
+  /** A phone reminder this many minutes before (timed events). */
+  reminderMinutes?: number
 }
 
 export interface JobRow {
@@ -56,9 +58,10 @@ export interface ContactRow {
   serviceAddress: string | null; firstApptDate: string | null; notes: string | null
 }
 export interface AppointmentRow {
-  id: string; scheduledAt: Date; duration: number; type: string; location: string | null; notes: string | null
-  cancelledAt: Date | null
-  lead: { firstName: string | null; lastName: string | null; phone: string | null; email: string | null; address: string | null; city: string | null; state: string | null; zipCode: string | null; fenceType: string | null; linearFootage: number | null }
+  id: string; crmContactId: string; type: string; status: string
+  startAt: Date | null; endAt: Date | null; allDay: boolean
+  address: string; assignedTo: string; notes: string; source: string; jobId: string | null
+  contact: { firstName: string; lastName: string; phone: string | null; email: string | null; serviceAddress: string | null }
 }
 
 export interface SpecInputs {
@@ -72,6 +75,8 @@ export interface SpecInputs {
   leads: LeadRow[]
   contacts: ContactRow[]
   appointments: AppointmentRow[]
+  /** The usual person on appointments; others get their name in the title. */
+  defaultPerson?: string
 }
 
 // Same stage groups as the web app's pipelineValue.ts.
@@ -234,33 +239,47 @@ export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
     })
   }
 
-  // ── Appointments booked by the website chat ──
+  // ── Appointments ──
+  // Imported history never goes to the calendar, nor does anything cancelled
+  // or missed. An install linked to a job is already there as the job.
+  const LABEL: Record<string, string> = {
+    estimate: 'Estimate', follow_up: 'Follow up', contract_signing: 'Contract signing', install: 'Install',
+    service: 'Service', warranty: 'Warranty', call_back: 'Call back', other: 'Appointment',
+  }
   for (const a of inp.appointments) {
-    if (a.cancelledAt) continue
-    const label = a.type === 'follow_up' ? 'Follow up' : a.type === 'consultation' ? 'Consultation' : 'Estimate'
-    const addr = a.location || [a.lead.address, a.lead.city, [a.lead.state, a.lead.zipCode].filter(Boolean).join(' ')].filter(Boolean).join(', ')
-    out.push({
-      source: 'appointment', recordId: a.id,
-      summary: `${label}: ${fullName(a.lead.firstName, a.lead.lastName) || 'Unknown'}`,
-      location: addr,
-      description: describe([
-        ['Phone', a.lead.phone], ['Email', a.lead.email], ['Fence style', a.lead.fenceType],
-        ['Footage', a.lead.linearFootage ? `about ${a.lead.linearFootage} ft` : null],
-      ], a.notes, null),
-      startAt: a.scheduledAt.toISOString(),
-      endAt: new Date(a.scheduledAt.getTime() + (a.duration || 60) * 60_000).toISOString(),
-    })
+    if (a.source === 'import' || !a.startAt || ['cancelled', 'no_show'].includes(a.status)) continue
+    if (a.type === 'install' && a.jobId) continue
+    const name = fullName(a.contact.firstName, a.contact.lastName) || 'Unknown'
+    const who = a.assignedTo && inp.defaultPerson && a.assignedTo !== inp.defaultPerson ? ` (${a.assignedTo})` : ''
+    const done = a.status === 'completed' ? '✓ ' : ''
+    const common = {
+      source: 'appointment' as const, recordId: a.id,
+      summary: `${done}${LABEL[a.type] || 'Appointment'}: ${name}${who}`,
+      location: a.address || a.contact.serviceAddress || '',
+      description: describe([['Phone', a.contact.phone], ['Email', a.contact.email], ['With', a.assignedTo || null]], a.notes, link(a.crmContactId)),
+    }
+    if (a.allDay) {
+      const first = florida(a.startAt)
+      out.push({ ...common, startDate: first, endDate: a.endAt ? florida(new Date(a.endAt.getTime() - 1)) : first })
+    } else {
+      const end = a.endAt && a.endAt > a.startAt ? a.endAt : new Date(a.startAt.getTime() + 60 * 60_000)
+      out.push({ ...common, startAt: a.startAt.toISOString(), endAt: end.toISOString(), reminderMinutes: 30 })
+    }
   }
   return out
 }
 
 function norm(s: string): string { return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() }
 
+function florida(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+}
+
 export const eventKey = (e: { source: string; recordId: string }) => `${e.source}:${e.recordId}`
 
 /** Changes whenever anything Google would show changes. */
 export function specHash(e: CalendarEventSpec): string {
-  return createHash('sha1').update(JSON.stringify([e.summary, e.location, e.description, e.startDate, e.endDate, e.startAt, e.endAt])).digest('hex')
+  return createHash('sha1').update(JSON.stringify([e.summary, e.location, e.description, e.startDate, e.endDate, e.startAt, e.endAt, e.reminderMinutes ?? null])).digest('hex')
 }
 
 /** The day an event ends, in Florida. Used to decide what counts as upcoming. */

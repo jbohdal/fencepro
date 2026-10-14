@@ -28,6 +28,10 @@ import { getCustomerById } from './customerStore'
 import { leadValue, pipelineMetrics } from './pipelineValue'
 import { useMergedRefresh } from './useMergedRefresh'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
+import { openBooking } from './BookingDialog'
+import { moveCard } from './appointmentPipeline'
+import { useAppointmentList } from './TodayScreen'
+import { isOpen, needsOutcome, shortWhen, type Appointment } from './appointmentLogic'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -286,6 +290,25 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
     return out
   }
 
+  /* ── appointments on the cards ── */
+  const appointments = useAppointmentList()
+  const apptInfo = useMemo(() => {
+    const now = Date.now()
+    const next = new Map<string, Appointment>(), overdue = new Set<string>()
+    for (const a of appointments) {
+      if (needsOutcome(a)) overdue.add(a.crmContactId)
+      if (!isOpen(a) || !a.startAt || new Date(a.endAt || a.startAt).getTime() < now) continue
+      const cur = next.get(a.crmContactId)
+      if (!cur || a.startAt < cur.startAt!) next.set(a.crmContactId, a)
+    }
+    return { next, overdue }
+  }, [appointments])
+  /** Book for a card's customer; a card without one just opens its quick view. */
+  function bookFor(l: PipelineLead, then?: () => void) {
+    if (!l.customerId) { setSelected(l); return }
+    openBooking({ customerId: l.customerId, type: 'estimate', onBooked: then })
+  }
+
   /* ── board columns ── */
   // Stage order as configured, with the dead stages (Lost Sale, No Answer) last.
   const columnStages = useMemo(
@@ -320,6 +343,11 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
 
   function onCardDrop(lead: PipelineLead, stage: string, pointerIndex: number) {
     const sameStage = stage === lead.stage
+    // Dropping into Appointment books the appointment; the card moves once it is booked.
+    if (!sameStage && stage === 'Appointment' && lead.customerId) {
+      bookFor(lead, () => moveCard(lead.customerId!, 'Appointment'))
+      return
+    }
     if (!sameStage && stage === 'Signed Contract') {
       setConfirmSold({ lead, fromStage: lead.stage })
       return
@@ -567,6 +595,9 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
                   moveLead(l, 'Lost Sale')
                 }
               }}
+              next={l.customerId ? apptInfo.next.get(l.customerId) ?? null : null}
+              needsOutcome={!!l.customerId && apptInfo.overdue.has(l.customerId)}
+              onBook={() => bookFor(l)}
             />
           )}
         />
@@ -646,8 +677,11 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
 
 function slug(s: string) { return s.replace(/[^a-z0-9]+/gi, '-').toLowerCase() }
 
+// New leads from the website and the phone agent get a one tap "Book estimate".
+const INTAKE_SOURCES = new Set(['Website Quote', 'Phone (AI receptionist)', 'Website chat'])
+
 function PipelineCard({
-  lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost,
+  lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook,
 }: {
   lead: PipelineLead
   /** From the customer's quotes; see pipelineValue. */
@@ -660,6 +694,11 @@ function PipelineCard({
   isMobile: boolean
   onNextStage: () => void
   onMarkLost: () => void
+  /** The customer's next appointment, shown as a chip. */
+  next: Appointment | null
+  /** A past appointment nobody has closed out. */
+  needsOutcome: boolean
+  onBook: () => void
 }) {
   const days = daysInStage(lead)
   const hex = stageHexFromTailwind(lead.stage)
@@ -691,12 +730,29 @@ function PipelineCard({
         <span className="flex items-center gap-1.5 text-gray-400">
           {relTime(lead.lastMoved || lead.createdAt)}
           <button
+            onClick={e => { e.stopPropagation(); onBook() }}
+            className="px-1 rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50"
+            title="Book appointment" aria-label="Book appointment" data-card-book
+          >📅</button>
+          <button
             onClick={e => { e.stopPropagation(); onQuickView() }}
             className="px-1 rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50"
             title="Quick view" aria-label="Quick view"
           >👁</button>
         </span>
       </div>
+
+      {(next || overdue || (!next && lead.stage === 'First Contact' && INTAKE_SOURCES.has(lead.leadSource))) && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          {next && (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700" data-card-next>📅 {shortWhen(next)}</span>
+          )}
+          {overdue && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700" data-card-needs-outcome>Needs outcome</span>}
+          {!next && lead.stage === 'First Contact' && INTAKE_SOURCES.has(lead.leadSource) && (
+            <button onClick={e => { e.stopPropagation(); onBook() }} className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-orange-500 text-white" data-card-book-estimate>Book estimate</button>
+          )}
+        </div>
+      )}
 
       {/* hover three-dot menu */}
       {!isMobile && (

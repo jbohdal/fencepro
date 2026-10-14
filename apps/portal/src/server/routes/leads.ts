@@ -269,7 +269,6 @@ router.get('/', requireAuth, async (req, res) => {
       prisma.lead.findMany({
         where,
         include: {
-          appointments: { orderBy: { scheduledAt: 'asc' }, take: 1 },
           _count: { select: { followUps: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -297,7 +296,8 @@ router.get('/', requireAuth, async (req, res) => {
           tags: l.tags,
           source: l.source,
           assignedRepName: l.assignedRepName,
-          nextAppointment: l.appointments[0]?.scheduledAt || null,
+          // Appointments belong to customers now (see routes/appointments.ts).
+          nextAppointment: null,
           followUpCount: l._count.followUps,
           createdAt: l.createdAt,
           updatedAt: l.updatedAt,
@@ -359,7 +359,6 @@ router.get('/:id', requireAuth, async (req, res) => {
     const lead = await prisma.lead.findUnique({
       where: { id: str(req.params.id) },
       include: {
-        appointments: { orderBy: { scheduledAt: 'desc' } },
         followUps: { orderBy: { scheduledFor: 'asc' } },
       },
     })

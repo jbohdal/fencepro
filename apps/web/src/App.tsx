@@ -59,6 +59,11 @@ import { syncQuote } from './portalSync'
 import { createPendingOrderFromQuote, checkStockForOrder } from './pendingOrderStore'
 import { fireQuoteSold } from './automationTrigger'
 import { installedRevenueForYear, soldNotInstalled, averageMargin } from './quoteStats'
+import { initAppointments, isAppointmentsHydrated } from './appointmentsStore'
+import AppointmentsPage from './AppointmentsPage'
+import TodayScreen from './TodayScreen'
+import { BookingHost, openBooking } from './BookingDialog'
+import { DashboardAppointments } from './AppointmentWidgets'
 
 /* ───────── role system ───────── */
 
@@ -80,6 +85,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Sales',
     items: [
       { name: 'Sales Pipeline', icon: '🔨', roles: ['owner', 'admin', 'salesman'] },
+      { name: 'Appointments',   icon: '📅', roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
+      { name: 'Today',          icon: '☀️', roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
       { name: 'Dashboard',      icon: '📊', roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
       { name: 'Customers',      icon: '👥', roles: ['owner', 'admin', 'salesman'] },
       { name: 'Quotes',         icon: '📋', roles: ['owner', 'admin', 'salesman'] },
@@ -219,6 +226,7 @@ const STORE_LOADERS: Array<{ name: string; load: () => Promise<void>; loaded: ()
   { name: 'Jobs', load: initJobs, loaded: isJobsHydrated },
   { name: 'Schedule', load: initSchedule, loaded: isScheduleHydrated },
   { name: 'Sales pipeline', load: initPipeline, loaded: isPipelineHydrated },
+  { name: 'Appointments', load: initAppointments, loaded: isAppointmentsHydrated },
   { name: 'Inventory', load: initInventory, loaded: isInventoryHydrated },
   { name: 'Vendors', load: initVendors, loaded: isVendorsHydrated },
   { name: 'Settings and business data', load: initBusinessState, loaded: isBusinessStateHydrated },
@@ -544,6 +552,39 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     setEditingQuote(q)
     setShowQuote(true)
   }
+
+  /** A new quote for a customer: from their page, or from an appointment closed out "Ready to quote" (with its property and measurements). */
+  function openQuoteFor(c: { id: string; firstName: string; lastName: string; phone?: string; email?: string; serviceAddress?: string; leadSource?: string; salesRep?: string }, extra: { address?: string; notes?: string } = {}) {
+    setEditingQuote({
+      id: undefined as unknown as string,
+      customerId: c.id,
+      customerName: `${c.firstName} ${c.lastName}`.trim(),
+      customerPhone: c.phone || '',
+      customerEmail: c.email || '',
+      customerAddress: extra.address || c.serviceAddress || '',
+      leadSource: c.leadSource || '',
+      salesRep: c.salesRep || '',
+      fenceStyle: '', runs: [], corners: 0, ends: 0,
+      walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0,
+      adjLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
+      sections: 0, materialCost: 0, laborCost: 0, tearOutCost: 0,
+      totalCOGS: 0, finalPrice: 0, gmPct: 0, pullSheet: [],
+      status: 'DRAFT', date: new Date().toISOString().slice(0, 10),
+      notes: extra.notes || '', leadTemp: 0,
+    } as SavedQuote)
+    setShowQuote(true)
+  }
+
+  // An appointment closed out "Ready to quote" opens the quote builder, filled in.
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ customerId: string; address?: string; notes?: string }>).detail
+      const c = d?.customerId ? getCustomers().find(x => x.id === d.customerId) : null
+      if (c) openQuoteFor(c, { address: d.address, notes: d.notes })
+    }
+    window.addEventListener('ezbiz:new-quote', h)
+    return () => window.removeEventListener('ezbiz:new-quote', h)
+  })
 
   function handleMapQuoteData(data: MapFenceData) {
     setShowMapQuote(false)
@@ -873,6 +914,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               <kbd className="text-[10px] bg-gray-200 text-gray-400 px-1.5 py-0.5 rounded font-mono">⌘K</kbd>
             </button>
 
+            {/* Book an appointment from any page */}
+            <button onClick={() => openBooking()} data-global-appointment
+              className="bg-white border border-orange-300 text-orange-600 hover:bg-orange-50 text-sm font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap">
+              + Appointment
+            </button>
+
             {/* Action buttons */}
             {(active === 'Schedule' || active === 'Operations' || active === 'Jobs' || active === 'Dispatch') && (
               <button
@@ -927,32 +974,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             onBack={pipelineCustomerId ? () => { markPipelineReturn(); setActive('Sales Pipeline') } : undefined}
             backLabel="Back to pipeline"
             onNewQuote={(c) => {
-            if (c) {
-              // NOTE: leave `id` undefined so QuoteBuilder generates a fresh one
-              // per quote. Previously `id: ''` caused every new-for-customer
-              // quote to share the same empty string id and overwrite prior
-              // quotes. Keep this as undefined.
-              setEditingQuote({
-                id: undefined as unknown as string,
-                customerId: c.id,
-                customerName: `${c.firstName} ${c.lastName}`.trim(),
-                customerPhone: c.phone || '',
-                customerEmail: c.email || '',
-                customerAddress: c.serviceAddress || '',
-                leadSource: c.leadSource || '',
-                salesRep: c.salesRep || '',
-                fenceStyle: '', runs: [], corners: 0, ends: 0,
-                walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0,
-                adjLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
-                sections: 0, materialCost: 0, laborCost: 0, tearOutCost: 0,
-                totalCOGS: 0, finalPrice: 0, gmPct: 0, pullSheet: [],
-                status: 'DRAFT', date: new Date().toISOString().slice(0, 10),
-                notes: '', leadTemp: 0,
-              } as SavedQuote)
-            } else {
-              setEditingQuote(null)
-            }
-            setShowQuote(true)
+            if (c) openQuoteFor(c)
+            else { setEditingQuote(null); setShowQuote(true) }
           }} />}
           {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={handleOpenQuote} onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
           {active === 'Sales Pipeline' && <SalesPipelineBoard onOpenCustomer={(id) => { setPipelineCustomerId(id); setActive('Customers') }} />}
@@ -960,12 +983,15 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Jobs'           && <OperationsBoard />}
           {active === 'Staging'        && <OperationsBoard />}
           {active === 'Schedule'  && <SchedulePage />}
+          {active === 'Appointments' && <AppointmentsPage />}
+          {active === 'Today'     && <TodayScreen />}
           {active === 'Dispatch'  && <DispatchPage />}
           {active === 'Reports'   && <ReportsPage quotes={quotes} />}
           {active === 'Site Plans' && <SitePlansPage />}
 
           {active === 'Dashboard' && (
             <div className="space-y-6">
+              <DashboardAppointments />
               {/* KPI strip */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                 {kpis.map(kpi => (
@@ -1125,6 +1151,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           </div>
         </div>
       )}
+
+      {/* ═══ BOOKING DIALOG (opened from anywhere with openBooking) ═══ */}
+      <BookingHost />
 
       {/* ═══ SMART SCHEDULE ═══ */}
       {showSmartSchedule && (

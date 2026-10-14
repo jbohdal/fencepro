@@ -20,6 +20,13 @@ const inputs = (over: Partial<SpecInputs> = {}): SpecInputs => ({
   baseUrl: 'https://jonathans-mac-mini.example.ts.net', workDays: [1, 2, 3, 4], crews: [{ id: 'crew1', name: 'Crew 1' }],
   jobs: [], gridJobs: [], leads: [], contacts: [], appointments: [], ...over,
 })
+const appt = (over: Record<string, unknown> = {}) => ({
+  id: 'a1', crmContactId: 'c5', type: 'estimate', status: 'scheduled',
+  startAt: new Date('2026-10-16T14:00:00Z') as Date | null, endAt: new Date('2026-10-16T15:00:00Z') as Date | null, allDay: false,
+  address: '1 Main St, Ocala, FL 34470', assignedTo: 'Jonathan Bohdal', notes: '', source: 'manual', jobId: null as string | null,
+  contact: { firstName: 'Pat', lastName: 'Lee', phone: '(352) 555-0123', email: null, serviceAddress: '1 Main St, Ocala, FL 34470' },
+  ...over,
+} as any)
 const only = (evs: CalendarEventSpec[]) => { expect(evs).toHaveLength(1); return evs[0] }
 
 describe('working days', () => {
@@ -105,12 +112,32 @@ describe('estimates', () => {
     expect(buildDesiredEvents(inputs({ contacts: [contact], leads: [lead] })).map(e => e.source)).toEqual(['lead'])
     expect(buildDesiredEvents(inputs({ contacts: [{ ...contact, firstApptDate: '2026-10-20' }], leads: [lead] }))).toHaveLength(2)
   })
-  test('a chat appointment is a timed event; a cancelled one has none', () => {
-    const a = { id: 'a1', scheduledAt: new Date('2026-10-16T14:00:00Z'), duration: 60, type: 'estimate', location: null, notes: null, cancelledAt: null,
-      lead: { firstName: 'Pat', lastName: 'Lee', phone: null, email: null, address: '1 Main St', city: 'Ocala', state: 'FL', zipCode: '34470', fenceType: 'vinyl', linearFootage: 120 } }
-    const e = only(buildDesiredEvents(inputs({ appointments: [a] })))
-    expect(e).toMatchObject({ summary: 'Estimate: Pat Lee', location: '1 Main St, Ocala, FL 34470', startAt: '2026-10-16T14:00:00.000Z', endAt: '2026-10-16T15:00:00.000Z' })
-    expect(buildDesiredEvents(inputs({ appointments: [{ ...a, cancelledAt: new Date() }] }))).toEqual([])
+  test('an appointment is a timed event with a 30 minute reminder', () => {
+    const e = only(buildDesiredEvents(inputs({ appointments: [appt()], defaultPerson: 'Jonathan Bohdal' })))
+    expect(e).toMatchObject({ source: 'appointment', summary: 'Estimate: Pat Lee', location: '1 Main St, Ocala, FL 34470',
+      startAt: '2026-10-16T14:00:00.000Z', endAt: '2026-10-16T15:00:00.000Z', reminderMinutes: 30 })
+    expect(e.description).toContain('Phone: (352) 555-0123')
+    expect(e.description).toContain('/?customer=c5')
+  })
+  test('someone other than the usual person is named in the title', () => {
+    expect(only(buildDesiredEvents(inputs({ appointments: [appt({ assignedTo: 'Stacy Mcgovern', type: 'follow_up' })], defaultPerson: 'Jonathan Bohdal' }))).summary)
+      .toBe('Follow up: Pat Lee (Stacy Mcgovern)')
+  })
+  test('cancelled, no show, imported, undated and job-linked installs are not on the calendar', () => {
+    for (const over of [{ status: 'cancelled' }, { status: 'no_show' }, { source: 'import' }, { startAt: null, endAt: null }, { type: 'install', jobId: 'j1', allDay: true }]) {
+      expect(buildDesiredEvents(inputs({ appointments: [appt(over)] }))).toEqual([])
+    }
+  })
+  test('a completed appointment stays, marked done; a moved one changes its hash', () => {
+    const done = only(buildDesiredEvents(inputs({ appointments: [appt({ status: 'completed' })] })))
+    expect(done.summary).toBe('✓ Estimate: Pat Lee')
+    const moved = only(buildDesiredEvents(inputs({ appointments: [appt({ startAt: new Date('2026-10-17T14:00:00Z'), endAt: new Date('2026-10-17T15:00:00Z') })] })))
+    expect(specHash(moved)).not.toBe(specHash(only(buildDesiredEvents(inputs({ appointments: [appt()] })))))
+  })
+  test('an all day install with no job is an all day event across its days', () => {
+    const e = only(buildDesiredEvents(inputs({ appointments: [appt({ type: 'install', allDay: true, startAt: new Date('2026-10-19T04:00:00Z'), endAt: new Date('2026-10-21T04:00:00Z') })] })))
+    expect(e).toMatchObject({ summary: 'Install: Pat Lee', startDate: '2026-10-19', endDate: '2026-10-20' })
+    expect(e.reminderMinutes).toBeUndefined()
   })
 })
 

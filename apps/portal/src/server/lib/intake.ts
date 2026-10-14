@@ -10,7 +10,7 @@
 
 import prisma from './prisma.js'
 
-export type IntakeSource = 'ez_quote' | 'retell'
+export type IntakeSource = 'ez_quote' | 'retell' | 'website_chat'
 
 export interface IntakeInput {
   source: IntakeSource
@@ -51,7 +51,7 @@ export async function resolveIntakeAccountId(): Promise<string | null> {
 }
 
 /** Find the contact with the same phone or email, or create one. Never duplicates on a repeat caller. */
-async function findOrCreateContact(accountId: string, input: IntakeInput): Promise<{ id: string; created: boolean; name: string }> {
+export async function findOrCreateContact(accountId: string, input: IntakeInput): Promise<{ id: string; created: boolean; name: string }> {
   const phone10 = digits(input.phone)
   const email = (input.email || '').trim().toLowerCase()
 
@@ -142,14 +142,14 @@ export async function recordIntake(accountId: string, input: IntakeInput): Promi
     throw err
   }
 
-  const label = input.source === 'ez_quote' ? 'Website quote' : 'Phone call'
+  const label = input.source === 'ez_quote' ? 'Website quote' : input.source === 'website_chat' ? 'Website chat booking' : 'Phone call'
   await prisma.crmContactNote.create({
     data: {
       crmContactId: contact.id,
       accountId,
       body: input.summary.slice(0, 19000),
       isPinned: false,
-      createdBy: input.source === 'ez_quote' ? 'EZ Quote (website)' : 'Phone agent (Retell)',
+      createdBy: input.source === 'ez_quote' ? 'EZ Quote (website)' : input.source === 'website_chat' ? 'Website chat' : 'Phone agent (Retell)',
     },
   }).catch(err => console.error('[intake] note failed:', err))
 

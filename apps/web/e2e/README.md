@@ -16,6 +16,7 @@ scripts refuse to run unless both URLs are localhost.
 | `intake.mjs` | A website quote and a phone agent call each become a customer, a note and a pipeline card. Repeat contact makes no duplicates. |
 | `every-screen.mjs` | Every screen opens with no console errors, failed requests or blank pages. |
 | `kanban-drag.mjs` | Sales Pipeline board at desktop and phone sizes: column layout, wheel and swipe scrolling, dragging a card to a column that starts off screen, to a spot far down a long column, into a collapsed column and onto a header, with each move checked on the server; the Signed Contract question, quick view, customer page, list view, and a stale browser's save being merged. Needs real pipeline data, so it runs on the dev copy (`ezbiz_dev`, API on 4001) rather than an empty database, and refuses port 4000. |
+| `appointments.mjs` | Appointments at desktop and phone sizes: booking from the customer page, a pipeline card and the global button (with the confirmation offer), a drop into the Appointment column opening booking, dragging to reschedule on the week view (reason and old time kept), and the phone Today screen: On my way text, Navigate, Complete with Ready to quote landing in a quote with the property and measurements, and the pipeline card moving. Dev copy only, like `kanban-drag.mjs`. |
 
 ## Running them
 

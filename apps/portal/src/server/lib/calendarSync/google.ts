@@ -91,6 +91,7 @@ function eventBody(spec: CalendarEventSpec): calendar_v3.Schema$Event {
     body.start = { dateTime: spec.startAt, timeZone: TIME_ZONE }
     body.end = { dateTime: spec.endAt, timeZone: TIME_ZONE }
   }
+  if (spec.reminderMinutes) body.reminders = { useDefault: false, overrides: [{ method: 'popup', minutes: spec.reminderMinutes }] }
   return body
 }
 
