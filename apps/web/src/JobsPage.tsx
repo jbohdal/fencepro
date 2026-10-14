@@ -31,6 +31,8 @@ export interface PipelineLead {
   createdAt: string
   lastMoved: string
   assignedRep?: string
+  /** Hand placed position on the board. Only counts while the card is still in `stage`. */
+  boardOrder?: { stage: string; rank: number }
 }
 
 export const DEFAULT_STAGES = [

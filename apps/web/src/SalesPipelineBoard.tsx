@@ -1,19 +1,19 @@
 /**
- * SalesPipelineBoard — vertical-swimlane redesign of the Sales Pipeline.
+ * SalesPipelineBoard — the Sales Pipeline.
  *
- * Replaces the horizontal kanban (`JobsPage.tsx`) with:
- *   - Vertical swimlanes (one per stage, full-width, flex-wrap card grid inside)
- *   - Mobile accordion with stage pills + bottom-sheet slide-over + FAB
+ *   - Board view: one column per stage, left to right (see KanbanBoard), with
+ *     drag and drop between and within columns, mouse or long press
+ *   - Stage pills on a phone to jump to a column, bottom-sheet slide-over + FAB
  *   - List view (sortable table with bulk select + CSV export)
  *   - Collapsible analytics strip
- *   - Optimistic drag-and-drop with snap-back on error
+ *   - Optimistic moves with snap-back on error
  *
  * Reuses the data-layer + LeadDrawer + QuickAddModal from JobsPage so all
  * existing automation triggers, signed-contract cascades, and persistence work
  * unchanged. The original JobsPage.tsx remains importable as a fallback.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   type PipelineLead,
   loadPipeline, savePipeline, LeadDrawer, QuickAddModal,
@@ -27,6 +27,7 @@ import { getJobs } from './jobStore'
 import { getCustomerById } from './customerStore'
 import { leadValue, pipelineMetrics } from './pipelineValue'
 import { useMergedRefresh } from './useMergedRefresh'
+import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -79,18 +80,42 @@ function stageHexFromTailwind(stage: string): string {
   return map[cls] || '#9ca3af'
 }
 
-const COLLAPSE_KEY = 'fencepro_pipeline_collapsed_stages'
+// Per device view preferences (not business data).
+const COLLAPSE_KEY = 'fencepro_pipeline_collapsed_columns'
 const VIEW_KEY = 'fencepro_pipeline_view'   // 'board' | 'list'
-const SORT_KEY = 'fencepro_pipeline_sort'   // SortMode
+const SORT_KEY = 'fencepro_pipeline_sort_v2'   // SortMode
 const ANALYTICS_KEY = 'fencepro_pipeline_analytics_open'
 
-type SortMode = 'newest' | 'oldest' | 'value_desc' | 'value_asc' | 'days_in_stage'
+type SortMode = 'manual' | 'newest' | 'oldest' | 'value_desc' | 'value_asc' | 'days_in_stage'
 type ViewMode = 'board' | 'list'
 
-const VIRTUAL_THRESHOLD = 20
+const SORT_LABELS: Record<SortMode, string> = {
+  manual: 'Manual order', newest: 'Newest', oldest: 'Oldest',
+  value_desc: 'Value high→low', value_asc: 'Value low→high', days_in_stage: 'Days in stage',
+}
+const SORT_MODES = Object.keys(SORT_LABELS) as SortMode[]
+
+// Finished and dead stages start as narrow strips until this device says otherwise.
+const COLLAPSED_BY_DEFAULT: Record<string, boolean> = { 'Paid & Closed': true, 'Lost Sale': true, 'No Answer': true }
 
 function readCollapsed(): Record<string, boolean> {
-  try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}') } catch { return {} }
+  try {
+    const raw = localStorage.getItem(COLLAPSE_KEY)
+    return raw ? JSON.parse(raw) : { ...COLLAPSED_BY_DEFAULT }
+  } catch { return { ...COLLAPSED_BY_DEFAULT } }
+}
+
+/** A card's hand placed position, which only counts in the stage it was placed in. */
+function rankOf(l: PipelineLead): number | null {
+  return l.boardOrder && l.boardOrder.stage === l.stage ? l.boardOrder.rank : null
+}
+/** Manual order: cards nobody has placed yet come first, newest on top, then the placed ones. */
+function byManualOrder(a: PipelineLead, b: PipelineLead): number {
+  const ra = rankOf(a), rb = rankOf(b)
+  if (ra === null && rb === null) return (b.createdAt || '').localeCompare(a.createdAt || '')
+  if (ra === null) return -1
+  if (rb === null) return 1
+  return ra - rb
 }
 function writeCollapsed(state: Record<string, boolean>) {
   localStorage.setItem(COLLAPSE_KEY, JSON.stringify(state))
@@ -103,7 +128,7 @@ function isMobileViewport() {
 
 // Filters and scroll position of the board, kept only in memory so "Back to
 // pipeline" on the customer page lands where the user left off.
-let leftAt: { search: string; repFilter: string; styleFilter: string; scrollTop: number } | null = null
+let leftAt: { search: string; repFilter: string; styleFilter: string; scrollTop: number; boardLeft: number; columnTops: Record<string, number> } | null = null
 let returning = false
 
 /** Call just before showing the pipeline again from "Back to pipeline". */
@@ -117,7 +142,10 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
   const [stages, setStages] = useState<string[]>(initial.stages)
 
   const [view, setView] = useState<ViewMode>(() => (localStorage.getItem(VIEW_KEY) as ViewMode) || 'board')
-  const [sortMode, setSortMode] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) as SortMode) || 'newest')
+  const [sortMode, setSortMode] = useState<SortMode>(() => {
+    const saved = localStorage.getItem(SORT_KEY) as SortMode
+    return SORT_MODES.includes(saved) ? saved : 'manual'
+  })
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed)
   const [analyticsOpen, setAnalyticsOpen] = useState<boolean>(() => localStorage.getItem(ANALYTICS_KEY) === '1')
 
@@ -130,20 +158,23 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
   const [isMobile, setIsMobile] = useState(isMobileViewport)
 
-  const dragId = useRef<string | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
-  // Whatever actually scrolls: the board's own lane area, or (list view, small
-  // screens) the page around it.
+  // List view scrolls with the page around it.
   function scroller(): HTMLElement | null {
     const scrolls = (el: HTMLElement) => el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY)
-    const own = rootRef.current?.querySelector<HTMLElement>('[data-pipeline-scroll]')
-    if (own && scrolls(own)) return own
     for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) if (scrolls(el)) return el
     return (document.scrollingElement as HTMLElement | null)
   }
+  // Board view scrolls sideways as a whole and each column up and down.
+  const boardEl = () => rootRef.current?.querySelector<HTMLElement>('[data-kanban-board]') ?? null
+  const columnScrollers = () => Array.from(rootRef.current?.querySelectorAll<HTMLElement>('[data-kanban-col]') ?? [])
+    .map(col => ({ key: col.dataset.kanbanCol!, el: col.querySelector<HTMLElement>('[data-kanban-scroll]') }))
 
   useLayoutEffect(() => {
-    if (restore) { const el = scroller(); if (el) el.scrollTop = restore.scrollTop }
+    if (!restore) return
+    const el = scroller(); if (el) el.scrollTop = restore.scrollTop
+    const board = boardEl(); if (board) board.scrollLeft = restore.boardLeft
+    for (const c of columnScrollers()) if (c.el) c.el.scrollTop = restore.columnTops[c.key] ?? 0
   }, [restore])
 
   /* ── card values come from quotes and jobs, so follow both ── */
@@ -166,7 +197,11 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
   /** A card opens the full customer page; a lead with no customer record still gets the side panel. */
   function openLead(lead: PipelineLead) {
     if (onOpenCustomer && lead.customerId && getCustomerById(lead.customerId)) {
-      leftAt = { search, repFilter, styleFilter, scrollTop: scroller()?.scrollTop ?? 0 }
+      leftAt = {
+        search, repFilter, styleFilter, scrollTop: scroller()?.scrollTop ?? 0,
+        boardLeft: boardEl()?.scrollLeft ?? 0,
+        columnTops: Object.fromEntries(columnScrollers().map(c => [c.key, c.el?.scrollTop ?? 0])),
+      }
       onOpenCustomer(lead.customerId)
     } else {
       setSelected(lead)
@@ -239,6 +274,8 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
   function sortLeads(arr: PipelineLead[]): PipelineLead[] {
     const out = [...arr]
     switch (sortMode) {
+      // Stage first, so the list view groups by stage; inside one column it is the hand placed order.
+      case 'manual':       out.sort((a, b) => (stages.indexOf(a.stage) - stages.indexOf(b.stage)) || byManualOrder(a, b)); break
       case 'oldest':       out.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')); break
       case 'value_desc':   out.sort((a, b) => valueOf(b) - valueOf(a)); break
       case 'value_asc':    out.sort((a, b) => valueOf(a) - valueOf(b)); break
@@ -249,32 +286,76 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
     return out
   }
 
-  /* ── drag-and-drop (desktop) — optimistic ── */
-  function onDragStart(e: React.DragEvent, id: string) {
-    if (isMobile) { e.preventDefault(); return }
-    dragId.current = id
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', id)
-  }
-  function onStageDrop(e: React.DragEvent, stage: string) {
-    e.preventDefault()
-    const id = dragId.current || e.dataTransfer.getData('text/plain')
-    dragId.current = null
-    if (!id) return
-    const lead = leads.find(l => l.id === id)
-    if (!lead || lead.stage === stage) return
+  /* ── board columns ── */
+  // Stage order as configured, with the dead stages (Lost Sale, No Answer) last.
+  const columnStages = useMemo(
+    () => [...stages.filter(s => !DEAD_STAGES.has(s)), ...stages.filter(s => DEAD_STAGES.has(s))],
+    [stages],
+  )
+  const columns: KanbanColumn<PipelineLead>[] = columnStages.map(stage => ({
+    key: stage,
+    label: stage,
+    items: sortLeads(filteredLeads.filter(l => l.stage === stage)),
+    total: leads.reduce((sum, l) => l.stage === stage ? sum + valueOf(l) : sum, 0),
+    colorHex: stage === 'Signed Contract' ? '#22c55e' : stageHexFromTailwind(stage),
+    icon: stage === 'Signed Contract' ? '🏆' : DEAD_STAGES.has(stage) ? '✕' : undefined,
+    emptyLabel: 'No deals in this stage',
+  }))
+  /** The cards shown in a stage's column, without the one being dragged. */
+  const othersIn = (stage: string, lead: PipelineLead) =>
+    (columns.find(c => c.key === stage)?.items ?? []).filter(l => l.id !== lead.id)
 
-    if (stage === 'Signed Contract') {
+  /* ── drag-and-drop — optimistic ── */
+  /** Where the dragged card will sit in the column once dropped; null when the drop changes nothing. */
+  function landingIndex(lead: PipelineLead, stage: string, pointerIndex: number): number | null {
+    if (sortMode === 'manual') {
+      if (stage !== lead.stage) return pointerIndex
+      const shown = columns.find(c => c.key === stage)?.items ?? []
+      return shown.findIndex(l => l.id === lead.id) === pointerIndex ? null : pointerIndex
+    }
+    // Sorted columns: the card goes where the sort puts it, not where it is let go.
+    const moved = { ...lead, stage, lastMoved: stage === lead.stage ? lead.lastMoved : TODAY() }
+    return sortLeads([...othersIn(stage, lead), moved]).indexOf(moved)
+  }
+
+  function onCardDrop(lead: PipelineLead, stage: string, pointerIndex: number) {
+    const sameStage = stage === lead.stage
+    if (!sameStage && stage === 'Signed Contract') {
       setConfirmSold({ lead, fromStage: lead.stage })
       return
     }
-    moveLead(lead, stage)
+    if (sortMode !== 'manual') {
+      if (sameStage) toast.info(`Cards are sorted by ${SORT_LABELS[sortMode]}`, 'Choose "Manual order" in the sort menu to arrange cards by hand.')
+      else moveLead(lead, stage)
+      return
+    }
+    // Hand placed: renumber the whole stage (including cards a filter is
+    // hiding) with the card put just above the one it was dropped on.
+    const shown = othersIn(stage, lead)
+    const all = leads.filter(l => l.stage === stage && l.id !== lead.id).sort(byManualOrder)
+    const before = shown[pointerIndex]
+    const last = shown[shown.length - 1]
+    const at = before ? all.findIndex(l => l.id === before.id) : last ? all.findIndex(l => l.id === last.id) + 1 : 0
+    const ids = all.map(l => l.id)
+    ids.splice(at, 0, lead.id)
+    const ranks = new Map(ids.map((id, i) => [id, i]))
+    if (sameStage) persist(applyRanks(leads, stage, ranks))
+    else moveLead(lead, stage, ranks)
   }
 
-  function moveLead(lead: PipelineLead, toStage: string) {
+  /** Stamp hand placed positions on the cards of a stage, touching only the ones that change. */
+  function applyRanks(list: PipelineLead[], stage: string, ranks: Map<string, number>): PipelineLead[] {
+    return list.map(l => {
+      const rank = ranks.get(l.id)
+      if (rank === undefined || (l.boardOrder?.stage === stage && l.boardOrder.rank === rank)) return l
+      return { ...l, boardOrder: { stage, rank } }
+    })
+  }
+
+  function moveLead(lead: PipelineLead, toStage: string, ranks?: Map<string, number>) {
     const fromStage = lead.stage
-    const optimistic = leads.map(l => l.id === lead.id ? { ...l, stage: toStage, lastMoved: TODAY() } : l)
-    persist(optimistic)
+    const moved = leads.map(l => l.id === lead.id ? { ...l, stage: toStage, lastMoved: TODAY() } : l)
+    persist(ranks ? applyRanks(moved, toStage, ranks) : moved)
     try {
       fireSalesStageChange(lead.id, fromStage, toStage, {
         jobName: `${lead.firstName} ${lead.lastName}`.trim(),
@@ -448,59 +529,45 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
 
       {/* mobile stage pills */}
       {isMobile && view === 'board' && (
-        <StagePills stages={stages} onJump={s => {
-          const el = document.getElementById(`stage-${slug(s)}`)
-          el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        <StagePills stages={columnStages} onJump={s => {
           setCollapsed(prev => ({ ...prev, [s]: false }))
+          // After the column has opened to full width.
+          requestAnimationFrame(() => document.getElementById(`stage-${slug(s)}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' }))
         }} />
       )}
 
       {view === 'board' ? (
-        <div data-pipeline-scroll className="flex-1 overflow-y-auto pb-32 md:pb-4 space-y-3">
-          {stages.map(stage => {
-            const stageLeads = sortLeads(filteredLeads.filter(l => l.stage === stage))
-            const allStageLeads = leads.filter(l => l.stage === stage)
-            const total = allStageLeads.reduce((s, l) => s + valueOf(l), 0)
-            const isOpen = !collapsed[stage] && (
-              !isMobile || (allStageLeads.length > 0 && stageIsFirstOpenOnMobile(stages, leads, stage, collapsed))
-            )
-            return (
-              <Swimlane
-                key={stage}
-                stage={stage}
-                count={stageLeads.length}
-                total={total}
-                isOpen={isOpen || (!isMobile && !collapsed[stage])}
-                onToggle={() => toggleStage(stage)}
-                onDrop={e => onStageDrop(e, stage)}
-                isSold={stage === 'Signed Contract'}
-                isDead={DEAD_STAGES.has(stage)}
-              >
-                <CardGrid
-                  leads={stageLeads}
-                  valueOf={valueOf}
-                  onCardClick={openLead}
-                  onQuickView={setSelected}
-                  onDragStart={onDragStart}
-                  matchesSearch={matchesSearch}
-                  isMobile={isMobile}
-                  onSwipeRight={lead => {
-                    const next = nextStageOf(lead.stage)
-                    if (next) {
-                      if (next === 'Signed Contract') setConfirmSold({ lead, fromStage: lead.stage })
-                      else moveLead(lead, next)
-                    }
-                  }}
-                  onSwipeLeft={lead => {
-                    if (window.confirm(`Mark ${lead.firstName} ${lead.lastName} as Lost Sale?`)) {
-                      moveLead(lead, 'Lost Sale')
-                    }
-                  }}
-                />
-              </Swimlane>
-            )
-          })}
-        </div>
+        <KanbanBoard
+          columns={columns}
+          getId={l => l.id}
+          collapsed={collapsed}
+          onToggle={toggleStage}
+          columnDomId={s => `stage-${slug(s)}`}
+          landingIndex={landingIndex}
+          onDrop={onCardDrop}
+          renderCard={l => (
+            <PipelineCard
+              lead={l}
+              value={valueOf(l)}
+              onClick={() => openLead(l)}
+              onQuickView={() => setSelected(l)}
+              faded={matchesSearch !== null && !matchesSearch.has(l.id)}
+              isMobile={isMobile}
+              onNextStage={() => {
+                const next = nextStageOf(l.stage)
+                if (next) {
+                  if (next === 'Signed Contract') setConfirmSold({ lead: l, fromStage: l.stage })
+                  else moveLead(l, next)
+                }
+              }}
+              onMarkLost={() => {
+                if (window.confirm(`Mark ${l.firstName} ${l.lastName} as Lost Sale?`)) {
+                  moveLead(l, 'Lost Sale')
+                }
+              }}
+            />
+          )}
+        />
       ) : (
         <PipelineListView
           leads={sortLeads(filteredLeads)}
@@ -577,130 +644,8 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
 
 function slug(s: string) { return s.replace(/[^a-z0-9]+/gi, '-').toLowerCase() }
 
-function stageIsFirstOpenOnMobile(stages: string[], leads: PipelineLead[], stage: string, collapsed: Record<string, boolean>): boolean {
-  // First non-empty stage opens by default unless explicitly collapsed
-  for (const s of stages) {
-    const has = leads.some(l => l.stage === s)
-    if (has) return s === stage && !collapsed[s]
-  }
-  return false
-}
-
-function Swimlane({
-  stage, count, total, isOpen, onToggle, onDrop, isSold, isDead, children,
-}: {
-  stage: string
-  count: number
-  total: number
-  isOpen: boolean
-  onToggle: () => void
-  onDrop: (e: React.DragEvent) => void
-  isSold?: boolean
-  isDead?: boolean
-  children: React.ReactNode
-}) {
-  const [isHot, setHot] = useState(false)
-  const hex = stageHexFromTailwind(stage)
-  const headerStyle: CSSProperties = isSold
-    ? { borderLeftColor: '#22c55e', borderLeftWidth: '4px' }
-    : { borderLeftColor: hex, borderLeftWidth: '4px' }
-
-  return (
-    <section id={`stage-${slug(stage)}`} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      <button
-        onClick={onToggle}
-        onDragOver={e => { e.preventDefault(); setHot(true) }}
-        onDragLeave={() => setHot(false)}
-        onDrop={e => { setHot(false); onDrop(e) }}
-        style={headerStyle}
-        className={`sticky top-0 z-10 w-full pl-4 pr-4 py-3 flex items-center justify-between gap-3 bg-white hover:bg-gray-50 transition-colors ${isHot ? 'ring-2 ring-orange-300 bg-orange-50' : ''}`}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          {isSold && <span className="text-base">🏆</span>}
-          {isDead && <span className="text-base text-gray-400">✕</span>}
-          <span className="text-sm font-bold text-gray-900 truncate">{stage}</span>
-          <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-semibold">{count}</span>
-          {total > 0 && <span className="hidden sm:inline text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold">{fmtUSD(total)}</span>}
-        </div>
-        <span className={`text-gray-400 text-xs transition-transform ${isOpen ? 'rotate-180' : ''}`}>▾</span>
-      </button>
-      {isOpen && (
-        <div
-          onDragOver={e => { e.preventDefault(); setHot(true) }}
-          onDragLeave={() => setHot(false)}
-          onDrop={e => { setHot(false); onDrop(e) }}
-          className={`px-3 py-3 ${isHot ? 'bg-orange-50/40' : 'bg-gray-50/40'}`}
-        >
-          {children}
-        </div>
-      )}
-      {!isOpen && count > 0 && (
-        <div className="px-4 pb-3 text-xs text-gray-400">{count} hidden — click to expand</div>
-      )}
-    </section>
-  )
-}
-
-function CardGrid({
-  leads, valueOf, onCardClick, onQuickView, onDragStart, matchesSearch, isMobile, onSwipeRight, onSwipeLeft,
-}: {
-  leads: PipelineLead[]
-  valueOf: (l: PipelineLead) => number
-  onCardClick: (l: PipelineLead) => void
-  onQuickView: (l: PipelineLead) => void
-  onDragStart: (e: React.DragEvent, id: string) => void
-  matchesSearch: Set<string> | null
-  isMobile: boolean
-  onSwipeRight: (l: PipelineLead) => void
-  onSwipeLeft: (l: PipelineLead) => void
-}) {
-  if (leads.length === 0) {
-    return <EmptyStageCard label="No deals in this stage" />
-  }
-  // Virtual rendering: only render first VIRTUAL_THRESHOLD; rest become a "show more" placeholder.
-  const [showAll, setShowAll] = useState(false)
-  const visible = showAll ? leads : leads.slice(0, VIRTUAL_THRESHOLD)
-  const hidden = leads.length - visible.length
-  return (
-    <div>
-      <div className={`grid gap-3 ${isMobile ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'}`}>
-        {visible.map(l => (
-          <PipelineCard
-            key={l.id}
-            lead={l}
-            value={valueOf(l)}
-            onClick={() => onCardClick(l)}
-            onQuickView={() => onQuickView(l)}
-            onDragStart={e => onDragStart(e, l.id)}
-            faded={matchesSearch !== null && !matchesSearch.has(l.id)}
-            isMobile={isMobile}
-            onSwipeRight={() => onSwipeRight(l)}
-            onSwipeLeft={() => onSwipeLeft(l)}
-          />
-        ))}
-      </div>
-      {hidden > 0 && (
-        <button
-          onClick={() => setShowAll(true)}
-          className="mt-2 w-full text-center py-2 text-xs text-gray-500 hover:text-orange-600 border border-dashed border-gray-300 rounded-lg"
-        >
-          Show {hidden} more cards
-        </button>
-      )}
-    </div>
-  )
-}
-
-function EmptyStageCard({ label }: { label: string }) {
-  return (
-    <div className="border-2 border-dashed border-gray-200 rounded-xl px-4 py-6 flex items-center justify-center text-xs text-gray-400">
-      <span className="mr-2 text-base">+</span>{label}
-    </div>
-  )
-}
-
 function PipelineCard({
-  lead, value, onClick, onQuickView, onDragStart, faded, isMobile, onSwipeRight, onSwipeLeft,
+  lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost,
 }: {
   lead: PipelineLead
   /** From the customer's quotes; see pipelineValue. */
@@ -709,43 +654,23 @@ function PipelineCard({
   onClick: () => void
   /** Opens the small side panel. */
   onQuickView: () => void
-  onDragStart: (e: React.DragEvent) => void
   faded: boolean
   isMobile: boolean
-  onSwipeRight: () => void
-  onSwipeLeft: () => void
+  onNextStage: () => void
+  onMarkLost: () => void
 }) {
   const days = daysInStage(lead)
   const hex = stageHexFromTailwind(lead.stage)
   const initials = `${(lead.firstName?.[0] || '').toUpperCase()}${(lead.lastName?.[0] || '').toUpperCase()}`
   const city = (lead.address || '').split(',').slice(-2)[0]?.trim() || lead.address || ''
   const [menuOpen, setMenuOpen] = useState(false)
-  const swipe = useSwipe(isMobile, { onLeft: onSwipeLeft, onRight: onSwipeRight })
 
   return (
     <div
-      draggable={!isMobile}
-      onDragStart={onDragStart}
       onClick={onClick}
-      onPointerDown={swipe.onPointerDown}
-      onPointerMove={swipe.onPointerMove}
-      onPointerUp={swipe.onPointerUp}
-      onPointerCancel={swipe.onPointerCancel}
-      className={`relative bg-white rounded-xl shadow-sm hover:shadow-md hover:bg-gray-50 transition-all cursor-pointer p-3 group select-none ${faded ? 'opacity-20' : ''}`}
-      style={{
-        borderLeft: `4px solid ${hex}`,
-        transform: swipe.dx ? `translateX(${swipe.dx}px)` : undefined,
-        transition: swipe.dx ? undefined : 'transform 200ms ease-out',
-      }}
+      className={`relative bg-white rounded-xl shadow-sm hover:shadow-md hover:bg-gray-50 transition-shadow cursor-pointer p-3 group select-none ${faded ? 'opacity-20' : ''}`}
+      style={{ borderLeft: `4px solid ${hex}` }}
     >
-      {/* Swipe action backdrops */}
-      {isMobile && swipe.dx > 30 && (
-        <div className="absolute inset-y-0 left-0 -translate-x-full bg-green-500 text-white px-3 flex items-center text-xs font-semibold rounded-l-xl">→ Next Stage</div>
-      )}
-      {isMobile && swipe.dx < -30 && (
-        <div className="absolute inset-y-0 right-0 translate-x-full bg-red-500 text-white px-3 flex items-center text-xs font-semibold rounded-r-xl">Mark Lost</div>
-      )}
-
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-gray-900 truncate">{lead.firstName} {lead.lastName}</p>
@@ -765,7 +690,6 @@ function PipelineCard({
           {relTime(lead.lastMoved || lead.createdAt)}
           <button
             onClick={e => { e.stopPropagation(); onQuickView() }}
-            onPointerDown={e => e.stopPropagation()}
             className="px-1 rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50"
             title="Quick view" aria-label="Quick view"
           >👁</button>
@@ -784,8 +708,8 @@ function PipelineCard({
             <div onClick={e => e.stopPropagation()} className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg text-xs z-20">
               <button onClick={onClick} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Open customer</button>
               <button onClick={onQuickView} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Quick view</button>
-              <button onClick={onSwipeRight} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to Next Stage</button>
-              <button onClick={onSwipeLeft} className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600">Mark Lost</button>
+              <button onClick={onNextStage} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to Next Stage</button>
+              <button onClick={onMarkLost} className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600">Mark Lost</button>
             </div>
           )}
         </div>
@@ -858,9 +782,7 @@ function ControlsBar({
               {styleOptions.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
             <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
-              <option value="newest">Newest</option><option value="oldest">Oldest</option>
-              <option value="value_desc">Value high→low</option><option value="value_asc">Value low→high</option>
-              <option value="days_in_stage">Days in stage</option>
+              {SORT_MODES.map(m => <option key={m} value={m}>{SORT_LABELS[m]}</option>)}
             </select>
             <button onClick={onToggleAnalytics} className="w-full text-left text-xs text-orange-600 hover:underline">{analyticsOpen ? 'Hide analytics' : 'Show analytics'}</button>
           </div>
@@ -888,11 +810,7 @@ function ControlsBar({
           {styleOptions.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
         <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
-          <option value="newest">Newest</option>
-          <option value="oldest">Oldest</option>
-          <option value="value_desc">Value high→low</option>
-          <option value="value_asc">Value low→high</option>
-          <option value="days_in_stage">Days in stage</option>
+          {SORT_MODES.map(m => <option key={m} value={m}>{SORT_LABELS[m]}</option>)}
         </select>
         <ViewToggle value={view} onChange={onViewChange} />
         <button onClick={onToggleAnalytics} className="text-xs text-gray-500 hover:text-orange-600 px-2 py-1.5 border border-gray-200 rounded-lg">
@@ -1112,45 +1030,4 @@ export function BottomSheet({ children, onClose }: { children: React.ReactNode; 
       </div>
     </div>
   )
-}
-
-/* ─────────── Swipe gesture hook ─────────── */
-type SwipeOpts = { onLeft?: () => void; onRight?: () => void }
-function useSwipe(enabled: boolean, opts: SwipeOpts) {
-  const [dx, setDx] = useState(0)
-  const startX = useRef<number | null>(null)
-  const startY = useRef<number | null>(null)
-  const horizontal = useRef<boolean | null>(null)
-  function reset() {
-    setDx(0); startX.current = null; startY.current = null; horizontal.current = null
-  }
-  return {
-    dx,
-    onPointerDown: (e: React.PointerEvent) => {
-      if (!enabled) return
-      startX.current = e.clientX
-      startY.current = e.clientY
-      horizontal.current = null
-    },
-    onPointerMove: (e: React.PointerEvent) => {
-      if (!enabled || startX.current === null || startY.current === null) return
-      const dxNow = e.clientX - startX.current
-      const dyNow = e.clientY - startY.current
-      // First decisive movement decides axis; if vertical, abandon swipe (preserves scroll)
-      if (horizontal.current === null) {
-        if (Math.abs(dxNow) < 8 && Math.abs(dyNow) < 8) return
-        horizontal.current = Math.abs(dxNow) > Math.abs(dyNow)
-      }
-      if (!horizontal.current) return
-      setDx(Math.max(-160, Math.min(160, dxNow)))
-    },
-    onPointerUp: () => {
-      if (!enabled) return
-      const threshold = 90
-      if (dx > threshold) opts.onRight?.()
-      else if (dx < -threshold) opts.onLeft?.()
-      reset()
-    },
-    onPointerCancel: reset,
-  }
 }

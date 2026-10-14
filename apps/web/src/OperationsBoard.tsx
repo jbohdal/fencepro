@@ -1,21 +1,21 @@
 /**
- * OperationsBoard — vertical-swimlane redesign of the Operations / Jobs board.
+ * OperationsBoard — the Operations / Jobs board.
  *
- * Replaces the horizontal kanban (`OperationsPage.tsx`) with:
- *   - Vertical swimlanes per ops stage + permanent "Unscheduled" lane
- *   - Mobile accordion + stage pills + bottom-sheet slide-over + FAB
+ *   - Board view: one column per ops stage, left to right (see KanbanBoard),
+ *     plus a permanent "Unscheduled" column; drag by mouse or long press
+ *   - Stage pills on a phone to jump to a column, bottom-sheet slide-over + FAB
  *   - Today highlight (pulsing orange ring on cards scheduled today)
  *   - Show Completed toggle (auto-archives completed > 48h)
  *   - List view with sortable columns + bulk actions + CSV export
  *   - Collapsible analytics strip
- *   - Optimistic drag-and-drop with snap-back on error
+ *   - Optimistic moves with snap-back on error
  *
  * Reuses the data-layer + DetailPanel from OperationsPage so all existing
  * automation triggers, job-completion cascade, and checklist integration work
  * unchanged.
  */
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   type UnifiedJob,
   OPS_STAGES, buildUnifiedList, DetailPanel,
@@ -26,6 +26,7 @@ import { onJobCompleted } from './jobCompleteFlow'
 import { getChecklistProgress } from './checklistStore'
 import { toast } from './toast'
 import { BottomSheet } from './SalesPipelineBoard'
+import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -91,14 +92,12 @@ function isMobileViewport() {
   return window.matchMedia('(max-width: 767px)').matches
 }
 
-const COLLAPSE_KEY      = 'fencepro_ops_collapsed_stages'
+const COLLAPSE_KEY      = 'fencepro_ops_collapsed_columns'
 const VIEW_KEY          = 'fencepro_ops_view'
 const SORT_KEY          = 'fencepro_ops_sort'
 const ANALYTICS_KEY     = 'fencepro_ops_analytics_open'
 const SHOW_COMPLETED_KEY= 'fencepro_ops_show_completed'
 const TODAY_HIGHLIGHT_KEY = 'fencepro_ops_highlight_today'
-
-const VIRTUAL_THRESHOLD = 20
 
 type SortMode = 'scheduled' | 'value' | 'name' | 'days_in_stage'
 type ViewMode = 'board' | 'list'
@@ -124,8 +123,6 @@ export default function OperationsBoard() {
   const [confirmComplete, setConfirmComplete] = useState<UnifiedJob | null>(null)
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
   const [isMobile, setIsMobile] = useState(isMobileViewport)
-
-  const dragId = useRef<string | null>(null)
 
   /* ── viewport ── */
   useEffect(() => {
@@ -200,21 +197,16 @@ export default function OperationsBoard() {
   }
 
   /* ── DnD: optimistic ── */
-  function onDragStart(e: React.DragEvent, j: UnifiedJob) {
-    if (isMobile || j.source !== 'job') { e.preventDefault(); return }
-    dragId.current = j.id
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', j.id)
+  /** Columns are sorted, so a dropped card goes where the sort puts it; null when the drop changes nothing. */
+  function landingIndex(j: UnifiedJob, laneKey: string): number | null {
+    if (j.opsStage === laneKey) return null
+    const others = laneJobs(laneKey).filter(x => x.id !== j.id)
+    const moved = { ...j, opsStage: laneKey }
+    return sortJobs([...others, moved]).indexOf(moved)
   }
 
-  function onStageDrop(e: React.DragEvent, stageKey: string) {
-    e.preventDefault()
-    const id = dragId.current || e.dataTransfer.getData('text/plain')
-    dragId.current = null
-    if (!id) return
-    const j = jobs.find(x => x.id === id)
-    if (!j || j.opsStage === stageKey) return
-
+  function onCardDrop(j: UnifiedJob, stageKey: string) {
+    if (j.opsStage === stageKey) return
     if (stageKey === 'completed') { setConfirmComplete(j); return }
     moveJobToStage(j, stageKey)
   }
@@ -373,6 +365,27 @@ export default function OperationsBoard() {
     return sortJobs(filtered.filter(j => j.opsStage === laneKey && j.scheduledDate))
   }
 
+  const columns: KanbanColumn<UnifiedJob>[] = laneOrder.map(lane => {
+    const items = laneJobs(lane.key)
+    const crewCount = new Set(items.map(j => j.crewAssigned).filter(Boolean)).size
+    const unscheduled = lane.key === UNSCHEDULED_KEY
+    return {
+      key: lane.key,
+      label: lane.label,
+      items,
+      total: unscheduled ? 0 : items.reduce((s, j) => s + (j.contractValue || 0), 0),
+      colorHex: lane.key === 'completed' ? '#22c55e' : unscheduled ? '#d1d5db' : (stageColorHex[lane.color] || '#9ca3af'),
+      icon: lane.key === 'completed' ? '✓' : undefined,
+      muted: lane.muted,
+      badge: !unscheduled && crewCount > 0
+        ? <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold">{crewCount} crew</span>
+        : undefined,
+      emptyLabel: 'No jobs in this stage',
+      // A job leaves Unscheduled by getting a date, not by being dragged in or out of a stage.
+      acceptsDrop: !unscheduled,
+    }
+  })
+
   return (
     <div className="flex flex-col h-full">
       <ControlsBar
@@ -411,64 +424,48 @@ export default function OperationsBoard() {
           onJump={label => {
             const found = laneOrder.find(l => l.label === label)
             if (!found) return
-            const el = document.getElementById(`opslane-${slug(found.key)}`)
-            el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
             setCollapsed(prev => ({ ...prev, [found.key]: false }))
+            // After the column has opened to full width.
+            requestAnimationFrame(() => document.getElementById(`opslane-${slug(found.key)}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' }))
           }}
         />
       )}
 
       {view === 'board' ? (
-        <div className="flex-1 overflow-y-auto pb-32 md:pb-4 space-y-3">
-          {laneOrder.map(lane => {
-            const ljobs = laneJobs(lane.key)
-            const total = ljobs.reduce((s, j) => s + (j.contractValue || 0), 0)
-            const crewCount = new Set(ljobs.map(j => j.crewAssigned).filter(Boolean)).size
-            const isOpen = !collapsed[lane.key]
-            // Auto-collapse empty unscheduled
-            const showOpen = lane.key === UNSCHEDULED_KEY ? (isOpen && ljobs.length > 0) : isOpen
-            return (
-              <Swimlane
-                key={lane.key}
-                id={`opslane-${slug(lane.key)}`}
-                label={lane.label}
-                count={ljobs.length}
-                total={total}
-                crewCount={crewCount}
-                isOpen={showOpen}
-                onToggle={() => setCollapsed(prev => ({ ...prev, [lane.key]: !prev[lane.key] }))}
-                onDrop={e => onStageDrop(e, lane.key === UNSCHEDULED_KEY ? '' : lane.key)}
-                colorHex={lane.muted ? undefined : (stageColorHex[lane.color] || '#9ca3af')}
-                muted={lane.muted}
-                isComplete={lane.key === 'completed'}
-              >
-                <CardGrid
-                  jobs={ljobs}
-                  onCardClick={setSelected}
-                  onDragStart={onDragStart}
-                  isMobile={isMobile}
-                  highlightToday={highlightToday}
-                  showStageBadge={lane.key === UNSCHEDULED_KEY}
-                  matchesSearch={matchesSearch}
-                  onSwipeRight={(j) => {
-                    const idx = OPS_STAGES.findIndex(s => s.key === j.opsStage)
-                    const next = OPS_STAGES[idx + 1]
-                    if (next) {
-                      if (next.key === 'completed') setConfirmComplete(j)
-                      else moveJobToStage(j, next.key)
-                    }
-                  }}
-                  onSwipeLeft={(j) => {
-                    if (window.confirm(`Flag ${j.customerName} as Rain Day / Hold?`)) {
-                      if (j.rawJob) updateJob(j.id, { holdReason: 'Rain Day', status: 'on_hold' as JobStatus })
-                      refresh()
-                    }
-                  }}
-                />
-              </Swimlane>
-            )
-          })}
-        </div>
+        <KanbanBoard
+          columns={columns}
+          getId={j => j.id}
+          canDrag={j => j.source === 'job'}
+          collapsed={collapsed}
+          onToggle={key => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))}
+          columnDomId={key => `opslane-${slug(key)}`}
+          landingIndex={landingIndex}
+          onDrop={onCardDrop}
+          renderCard={j => (
+            <OpsCard
+              job={j}
+              onClick={() => setSelected(j)}
+              isMobile={isMobile}
+              highlightToday={highlightToday}
+              showStageBadge={!j.scheduledDate}
+              faded={matchesSearch !== null && !matchesSearch.has(j.id)}
+              onNextStage={() => {
+                const idx = OPS_STAGES.findIndex(s => s.key === j.opsStage)
+                const next = OPS_STAGES[idx + 1]
+                if (next) {
+                  if (next.key === 'completed') setConfirmComplete(j)
+                  else moveJobToStage(j, next.key)
+                }
+              }}
+              onRainDay={() => {
+                if (window.confirm(`Flag ${j.customerName} as Rain Day / Hold?`)) {
+                  if (j.rawJob) updateJob(j.id, { holdReason: 'Rain Day', status: 'on_hold' as JobStatus })
+                  refresh()
+                }
+              }}
+            />
+          )}
+        />
       ) : (
         <OpsListView
           jobs={sortJobs(filtered)}
@@ -544,136 +541,22 @@ export default function OperationsBoard() {
 
 function slug(s: string) { return s.replace(/[^a-z0-9]+/gi, '-').toLowerCase() }
 
-function Swimlane({
-  id, label, count, total, crewCount, isOpen, onToggle, onDrop, colorHex, muted, isComplete, children,
-}: {
-  id: string
-  label: string
-  count: number
-  total: number
-  crewCount: number
-  isOpen: boolean
-  onToggle: () => void
-  onDrop: (e: React.DragEvent) => void
-  colorHex?: string
-  muted?: boolean
-  isComplete?: boolean
-  children: React.ReactNode
-}) {
-  const [hot, setHot] = useState(false)
-  const headerStyle: CSSProperties = isComplete
-    ? { borderLeftColor: '#22c55e', borderLeftWidth: '4px' }
-    : muted
-      ? { borderLeftColor: '#d1d5db', borderLeftWidth: '4px' }
-      : { borderLeftColor: colorHex || '#9ca3af', borderLeftWidth: '4px' }
-
-  return (
-    <section id={id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      <button
-        onClick={onToggle}
-        onDragOver={e => { e.preventDefault(); setHot(true) }}
-        onDragLeave={() => setHot(false)}
-        onDrop={e => { setHot(false); onDrop(e) }}
-        style={headerStyle}
-        className={`sticky top-0 z-10 w-full pl-4 pr-4 py-3 flex items-center justify-between gap-3 ${muted ? 'bg-gray-50' : 'bg-white'} hover:bg-gray-50 transition-colors ${hot ? 'ring-2 ring-orange-300 bg-orange-50' : ''}`}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          {isComplete && <span className="text-base">✓</span>}
-          <span className={`text-sm font-bold truncate ${muted ? 'text-gray-600' : 'text-gray-900'}`}>{label}</span>
-          <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-semibold">{count}</span>
-          {!muted && total > 0 && <span className="hidden sm:inline text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold">{fmtUSD(total)}</span>}
-          {!muted && crewCount > 0 && <span className="hidden md:inline text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold">{crewCount} crew</span>}
-        </div>
-        <span className={`text-gray-400 text-xs transition-transform ${isOpen ? 'rotate-180' : ''}`}>▾</span>
-      </button>
-      {isOpen && (
-        <div
-          onDragOver={e => { e.preventDefault(); setHot(true) }}
-          onDragLeave={() => setHot(false)}
-          onDrop={e => { setHot(false); onDrop(e) }}
-          className={`px-3 py-3 ${hot ? 'bg-orange-50/40' : 'bg-gray-50/40'}`}
-        >
-          {children}
-        </div>
-      )}
-      {!isOpen && count > 0 && (
-        <div className="px-4 pb-3 text-xs text-gray-400">{count} hidden — click to expand</div>
-      )}
-    </section>
-  )
-}
-
-function CardGrid({
-  jobs, onCardClick, onDragStart, isMobile, highlightToday, showStageBadge, matchesSearch, onSwipeRight, onSwipeLeft,
-}: {
-  jobs: UnifiedJob[]
-  onCardClick: (j: UnifiedJob) => void
-  onDragStart: (e: React.DragEvent, j: UnifiedJob) => void
-  isMobile: boolean
-  highlightToday: boolean
-  showStageBadge: boolean
-  matchesSearch: Set<string> | null
-  onSwipeRight: (j: UnifiedJob) => void
-  onSwipeLeft: (j: UnifiedJob) => void
-}) {
-  if (jobs.length === 0) {
-    return (
-      <div className="border-2 border-dashed border-gray-200 rounded-xl px-4 py-6 flex items-center justify-center text-xs text-gray-400">
-        <span className="mr-2 text-base">+</span>No jobs in this stage
-      </div>
-    )
-  }
-  const [showAll, setShowAll] = useState(false)
-  const visible = showAll ? jobs : jobs.slice(0, VIRTUAL_THRESHOLD)
-  const hidden = jobs.length - visible.length
-  return (
-    <div>
-      <div className={`grid gap-3 ${isMobile ? 'grid-cols-1' : 'grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'}`}>
-        {visible.map(j => (
-          <OpsCard
-            key={j.id}
-            job={j}
-            onClick={() => onCardClick(j)}
-            onDragStart={(e) => onDragStart(e, j)}
-            isMobile={isMobile}
-            highlightToday={highlightToday}
-            showStageBadge={showStageBadge}
-            faded={matchesSearch !== null && !matchesSearch.has(j.id)}
-            onSwipeRight={() => onSwipeRight(j)}
-            onSwipeLeft={() => onSwipeLeft(j)}
-          />
-        ))}
-      </div>
-      {hidden > 0 && (
-        <button
-          onClick={() => setShowAll(true)}
-          className="mt-2 w-full text-center py-2 text-xs text-gray-500 hover:text-orange-600 border border-dashed border-gray-300 rounded-lg"
-        >
-          Show {hidden} more cards
-        </button>
-      )}
-    </div>
-  )
-}
-
 function OpsCard({
-  job, onClick, onDragStart, isMobile, highlightToday, showStageBadge, faded, onSwipeRight, onSwipeLeft,
+  job, onClick, isMobile, highlightToday, showStageBadge, faded, onNextStage, onRainDay,
 }: {
   job: UnifiedJob
   onClick: () => void
-  onDragStart: (e: React.DragEvent) => void
   isMobile: boolean
   highlightToday: boolean
   showStageBadge: boolean
   faded: boolean
-  onSwipeRight: () => void
-  onSwipeLeft: () => void
+  onNextStage: () => void
+  onRainDay: () => void
 }) {
   const stageInfo = OPS_STAGES.find(s => s.key === job.opsStage)
   const hex = stageInfo ? (stageColorHex[stageInfo.color] || '#9ca3af') : '#9ca3af'
   const [progress, setProgress] = useState<{ total: number; complete: number }>({ total: 0, complete: 0 })
   const [menuOpen, setMenuOpen] = useState(false)
-  const swipe = useSwipe(isMobile, { onLeft: onSwipeLeft, onRight: onSwipeRight })
 
   useEffect(() => {
     if (job.source !== 'job') return
@@ -685,34 +568,16 @@ function OpsCard({
 
   const pct = progress.total > 0 ? (progress.complete / progress.total) * 100 : 0
   const today = highlightToday && isToday(job.scheduledDate)
-  const draggable = !isMobile && job.source === 'job'
   const city = (job.address || '').split(',').slice(-2)[0]?.trim() || job.address || ''
   const isRain = (job.rawJob as Job & { isRainDay?: boolean })?.isRainDay
   const weatherAlert = withinNDays(job.scheduledDate, 7) && isRain
 
   return (
     <div
-      draggable={draggable}
-      onDragStart={onDragStart}
       onClick={onClick}
-      onPointerDown={swipe.onPointerDown}
-      onPointerMove={swipe.onPointerMove}
-      onPointerUp={swipe.onPointerUp}
-      onPointerCancel={swipe.onPointerCancel}
-      className={`relative bg-white rounded-xl shadow-sm hover:shadow-md hover:bg-gray-50 transition-all cursor-pointer p-3 group select-none ${faded ? 'opacity-20' : ''} ${today ? 'ring-2 ring-orange-400' : ''}`}
-      style={{
-        borderLeft: `4px solid ${hex}`,
-        transform: swipe.dx ? `translateX(${swipe.dx}px)` : undefined,
-        transition: swipe.dx ? undefined : 'transform 200ms ease-out',
-      }}
+      className={`relative bg-white rounded-xl shadow-sm hover:shadow-md hover:bg-gray-50 transition-shadow cursor-pointer p-3 group select-none ${faded ? 'opacity-20' : ''} ${today ? 'ring-2 ring-inset ring-orange-400' : ''}`}
+      style={{ borderLeft: `4px solid ${hex}` }}
     >
-      {isMobile && swipe.dx > 30 && (
-        <div className="absolute inset-y-0 left-0 -translate-x-full bg-green-500 text-white px-3 flex items-center text-xs font-semibold rounded-l-xl">→ Next Stage</div>
-      )}
-      {isMobile && swipe.dx < -30 && (
-        <div className="absolute inset-y-0 right-0 translate-x-full bg-red-500 text-white px-3 flex items-center text-xs font-semibold rounded-r-xl">Flag Rain Day</div>
-      )}
-
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-gray-900 truncate">{job.customerName}</p>
@@ -763,8 +628,8 @@ function OpsCard({
           {menuOpen && (
             <div onClick={e => e.stopPropagation()} className="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg text-xs z-20">
               <button onClick={onClick} className="block w-full text-left px-3 py-2 hover:bg-gray-50">View / Edit</button>
-              <button onClick={onSwipeRight} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to Next Stage</button>
-              <button onClick={onSwipeLeft} className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600">Flag Rain Day</button>
+              <button onClick={onNextStage} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to Next Stage</button>
+              <button onClick={onRainDay} className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600">Flag Rain Day</button>
             </div>
           )}
         </div>
@@ -1114,42 +979,4 @@ function ConfirmModal({ title, body, confirmLabel, onConfirm, onCancel }: { titl
       </div>
     </div>
   )
-}
-
-/* ─────────── swipe hook (duplicated locally to avoid extra exports) ─────────── */
-type SwipeOpts = { onLeft?: () => void; onRight?: () => void }
-function useSwipe(enabled: boolean, opts: SwipeOpts) {
-  const [dx, setDx] = useState(0)
-  const startX = useRef<number | null>(null)
-  const startY = useRef<number | null>(null)
-  const horizontal = useRef<boolean | null>(null)
-  function reset() { setDx(0); startX.current = null; startY.current = null; horizontal.current = null }
-  return {
-    dx,
-    onPointerDown: (e: React.PointerEvent) => {
-      if (!enabled) return
-      startX.current = e.clientX
-      startY.current = e.clientY
-      horizontal.current = null
-    },
-    onPointerMove: (e: React.PointerEvent) => {
-      if (!enabled || startX.current === null || startY.current === null) return
-      const dxNow = e.clientX - startX.current
-      const dyNow = e.clientY - startY.current
-      if (horizontal.current === null) {
-        if (Math.abs(dxNow) < 8 && Math.abs(dyNow) < 8) return
-        horizontal.current = Math.abs(dxNow) > Math.abs(dyNow)
-      }
-      if (!horizontal.current) return
-      setDx(Math.max(-160, Math.min(160, dxNow)))
-    },
-    onPointerUp: () => {
-      if (!enabled) return
-      const threshold = 90
-      if (dx > threshold) opts.onRight?.()
-      else if (dx < -threshold) opts.onLeft?.()
-      reset()
-    },
-    onPointerCancel: reset,
-  }
 }
