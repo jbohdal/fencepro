@@ -11,6 +11,7 @@ import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { diffPipeline } from './pipelineDelta'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const EVT = 'fencepro:pipeline:updated'
@@ -88,7 +89,8 @@ export function initPipeline(): Promise<void> {
 export function isPipelineHydrated(): boolean { return hydrated }
 
 // The whole pipeline is one server record. It is only written after it has
-// loaded, and every save is version checked: if another tab or device saved
+// loaded, a save sends just the cards that changed, and every save is version
+// checked: if another tab or device saved
 // first, this tab's change is put on top of the newest copy (see syncGuard).
 type PipelineDoc = { leads: any[]; stages: any[] }
 const pickPipeline = (d: any): PipelineDoc => ({ leads: Array.isArray(d?.leads) ? d.leads : [], stages: Array.isArray(d?.stages) ? d.stages : [] })
@@ -98,7 +100,14 @@ const flusher = createVersionedFlusher<PipelineDoc>({
   debounceMs: 150,
   get: () => ({ leads: cache.leads, stages: cache.stages }),
   apply: next => { cache = pickPipeline(next); emit() },
-  save: (state, version) => versionedSave(`${AUTH_API}/api/pipeline`, 'PUT', state, version, pickPipeline),
+  // Only the cards that changed are sent. The whole pipeline goes only when
+  // the change cannot be said card by card.
+  save: (state, version, base) => {
+    const delta = diffPipeline(base, state)
+    return delta
+      ? versionedSave(`${AUTH_API}/api/pipeline`, 'PATCH', { ...delta }, version, pickPipeline)
+      : versionedSave(`${AUTH_API}/api/pipeline`, 'PUT', state, version, pickPipeline)
+  },
 })
 
 export function getPipeline(): { leads: any[]; stages: any[] } {

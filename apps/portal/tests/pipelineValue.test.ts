@@ -97,6 +97,16 @@ describe('pipelineMetrics', () => {
     expect(m.soldCount).toBe(2)
   })
 
+  test('sold this year counts only cards whose sold quote is dated in that year', () => {
+    expect(m.soldThisYear).toBe(10000)
+    const old = [...leads, lead({ id: '7', customerId: 'g', stage: 'Paid & Closed', createdAt: '2023-04-26' }), lead({ id: '8', customerId: 'h', stage: 'Signed Contract', quotePrice: 900 })]
+    const withOld = [...quotes, quote({ id: 'qg', customerId: 'g', status: 'SOLD', date: '2023-04-26', finalPrice: 30000 })]
+    const y = pipelineMetrics(old, withOld, [], '2026-07-11', '2026')
+    expect(y.sold).toBe(40900)             // every sold card, any year, quote or not
+    expect(y.soldThisYear).toBe(10000)     // the 2023 job and the card with no sold quote stay out
+    expect(pipelineMetrics(old, withOld, [], '2026-07-11', '2023').soldThisYear).toBe(30000)
+  })
+
   test('close rate is cards sold in the period over cards created in the period', () => {
     expect(m.soldInPeriod).toBe(1)          // the October sale; the May one is too old
     expect(m.createdInPeriod).toBe(5)       // every card but the one created in March

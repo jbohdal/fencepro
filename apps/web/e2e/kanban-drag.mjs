@@ -36,10 +36,10 @@ async function open(browser, phone) {
     : { viewport: { width: 1440, height: 900 } })
   if (TOKEN) await ctx.addInitScript(t => { localStorage.setItem('crm_access_token', t); if (!localStorage.getItem('crm_refresh_token')) localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
   const page = await ctx.newPage()
-  const s = { ctx, page, phone, errors: [], saves: [], token: TOKEN }
+  const s = { ctx, page, phone, errors: [], saves: [], sent: [], token: TOKEN }
   page.on('pageerror', e => s.errors.push(String(e).slice(0, 300)))
   page.on('dialog', d => d.accept().catch(() => {}))
-  page.on('response', r => { if (r.url() === `${API}/api/pipeline` && r.request().method() === 'PUT') s.saves.push(r.status()) })
+  page.on('response', r => { if (r.url() === `${API}/api/pipeline` && r.request().method() !== 'GET') { s.saves.push(r.status()); s.sent.push(r.request().postData()?.length || 0) } })
   page.on('request', r => { const a = r.headers()['authorization']; if (a && r.url().startsWith(API)) s.token = a.replace(/^Bearer /, '') })
   // A stage change asks the server to run automations. The dev data holds real
   // customers, so that request never leaves the browser here.
@@ -358,6 +358,7 @@ async function mergeCheck(browser) {
   const { leads, version } = await serverLeads(A)
   const st = id => leads.find(l => l.id === id)?.stage
   check('merge: a save from a stale browser is refused once, then merged', B.saves.includes(409) && B.saves[B.saves.length - 1] === 200, `browser B saves: ${B.saves.join(',')}`)
+  check('merge: a save sends the changed cards, not the whole pipeline', Math.max(...A.sent, ...B.sent) < JSON.stringify(leads).length / 4 || leads.length < 20, `largest save ${Math.max(...A.sent, ...B.sent)} bytes, whole pipeline ${JSON.stringify(leads).length} bytes`)
   check('merge: both moves are on the server', st(x) === 'Estimating' && st(y) === 'Estimating', `version ${v0} to ${version}`)
   await A.ctx.close(); await B.ctx.close()
 }

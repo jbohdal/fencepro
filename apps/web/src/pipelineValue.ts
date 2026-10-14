@@ -87,6 +87,8 @@ export interface PipelineMetrics {
   avgDeal: number
   /** Cards at Signed Contract or later: sum of their sold quotes. */
   sold: number
+  /** The same, counting only cards whose sold quote is dated in `year`. */
+  soldThisYear: number
   /** Cards sold in the period as a percent of cards created in the period, 0 to 100. */
   closeRate: number
   openCount: number
@@ -97,15 +99,17 @@ export interface PipelineMetrics {
 
 /** The close rate looks at the period from `since` (YYYY-MM-DD) to now: a card
  *  counts as sold in the period by its sold quote's date, and as created in the
- *  period by its own created date. */
-export function pipelineMetrics(leads: LeadForValue[], quotes: QuoteForValue[], jobs: JobForValue[], since: string): PipelineMetrics {
-  let pipelineValue = 0, weighted = 0, valued = 0, sold = 0, openCount = 0, soldCount = 0, soldInPeriod = 0
+ *  period by its own created date. `year` (YYYY) is the calendar year for
+ *  soldThisYear. */
+export function pipelineMetrics(leads: LeadForValue[], quotes: QuoteForValue[], jobs: JobForValue[], since: string, year: string = since.slice(0, 4)): PipelineMetrics {
+  let pipelineValue = 0, weighted = 0, valued = 0, sold = 0, soldThisYear = 0, openCount = 0, soldCount = 0, soldInPeriod = 0
   for (const l of leads) {
     const v = leadValue(l, quotes, jobs)
     if (isSoldStage(l.stage)) {
       sold += v; soldCount++
       const q = relevantQuote(l, quotes, jobs)
       if (q && (q.date || '') >= since) soldInPeriod++
+      if (q && q.status === 'SOLD' && (q.date || '').slice(0, 4) === year) soldThisYear += q.finalPrice || 0
     } else if (isOpenStage(l.stage)) {
       openCount++
       pipelineValue += v
@@ -115,7 +119,7 @@ export function pipelineMetrics(leads: LeadForValue[], quotes: QuoteForValue[], 
   }
   const createdInPeriod = leads.filter(l => (l.createdAt || '') >= since).length
   return {
-    pipelineValue, weighted, sold,
+    pipelineValue, weighted, sold, soldThisYear,
     avgDeal: valued > 0 ? pipelineValue / valued : 0,
     closeRate: createdInPeriod > 0 ? Math.round((soldInPeriod / createdInPeriod) * 100) : 0,
     openCount, soldCount, soldInPeriod, createdInPeriod,

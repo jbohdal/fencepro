@@ -10,6 +10,7 @@ import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
+import { applyPipelineDelta } from '../lib/pipelineDelta.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -78,6 +79,42 @@ router.put('/', async (req: any, res) => {
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
     console.error('[pipeline] put error:', err)
+    res.status(500).json({ success: false, error: 'Failed to save pipeline' })
+  }
+})
+
+// One card moved is one card sent, not the whole board (see lib/pipelineDelta).
+const deltaSchema = z.object({
+  upsert: z.array(z.object({
+    lead: z.object({ id: z.string().min(1) }).passthrough(),
+    before: z.string().nullable().optional(),
+  })).default([]),
+  remove: z.array(z.string()).default([]),
+  stages: z.array(z.any()).optional(),
+})
+
+router.patch('/', async (req: any, res) => {
+  try {
+    const delta = deltaSchema.parse(req.body)
+    const base = baseVersionOf(req.body)
+    if (base === null) { refuseUnversioned(res); return }
+    const accountId = req.user.crmAccountId
+    const current = await prisma.pipelineState.findUnique({ where: { accountId } })
+    // Same rule as a whole save: only onto the version it was built on.
+    if (!current || current.version !== base) { refuseStale(res, current, current?.version ?? 0); return }
+    const next = applyPipelineDelta({ leads: (current.leads as any[]) ?? [], stages: (current.stages as any[]) ?? [] }, delta)
+    const fields = { leads: JSON.parse(JSON.stringify(next.leads)), stages: JSON.parse(JSON.stringify(next.stages)) }
+    const done = await prisma.pipelineState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+    if (done.count === 0) {
+      const now = await prisma.pipelineState.findUnique({ where: { accountId } })
+      refuseStale(res, now, now?.version ?? 0); return
+    }
+    await audit(req, 'update', 'PipelineState', current.id, { newValues: { cardsSaved: delta.upsert.length, cardsRemoved: delta.remove.length, leadsCount: next.leads.length } })
+    // Only the new version goes back: the browser already holds the cards.
+    res.json({ success: true, version: base + 1 })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    console.error('[pipeline] patch error:', err)
     res.status(500).json({ success: false, error: 'Failed to save pipeline' })
   }
 })

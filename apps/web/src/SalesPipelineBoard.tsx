@@ -451,14 +451,16 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
   }
 
   /* ── analytics ── */
+  // The same calendar year the dashboard's Revenue YTD tile uses.
+  const thisYear = String(new Date().getFullYear())
   const analytics = useMemo(() => {
     const active = leads.filter(l => !DEAD_STAGES.has(l.stage) && l.stage !== 'Paid & Closed')
     // Money figures use the same per card values the cards show (see pipelineValue).
     const since = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
-    const m = pipelineMetrics(leads, getQuotes(), getJobs(), since)
+    const m = pipelineMetrics(leads, getQuotes(), getJobs(), since, thisYear)
     const avgDays = active.length ? Math.round(active.reduce((s, l) => s + daysInStage(l), 0) / active.length) : 0
     const atRisk = active.filter(l => daysInStage(l) > 14).length
-    return { totalValue: m.pipelineValue, weighted: m.weighted, avgDeal: m.avgDeal, avgDays, closeRate: m.closeRate, atRisk, sold: m.sold }
+    return { totalValue: m.pipelineValue, weighted: m.weighted, avgDeal: m.avgDeal, avgDays, closeRate: m.closeRate, atRisk, soldThisYear: m.soldThisYear }
   }, [leads, dataTick])
 
   /* ── unique reps / fence styles for filter dropdowns ── */
@@ -502,7 +504,7 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
       <ControlsBar
         title="Sales Pipeline"
         totalLabel={`Pipeline: ${fmtUSD(analytics.totalValue)}`}
-        secondaryLabel={`Sold: ${fmtUSD(analytics.sold)}`}
+        secondaryLabel={`Sold ${thisYear}: ${fmtUSD(analytics.soldThisYear)}`}
         countLabel={`${leads.length} total`}
         view={view} onViewChange={setView}
         search={search} onSearchChange={setSearch}
