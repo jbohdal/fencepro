@@ -29,5 +29,9 @@ trap 'rm -f "$dump"' EXIT
 "$PG_BIN/psql" -q -d postgres -c "revoke connect on database $DEV_DB from public"
 "$PG_BIN/pg_restore" --no-owner --no-privileges --role="$DEV_ROLE" --dbname="$DEV_DB" "$dump"
 
+# The copy must never reach live's Google Calendar: forget live's Google sign in
+# and calendar. Connect the dev copy on its own; it uses a "(TEST)" calendar.
+"$PG_BIN/psql" -q -d "$DEV_DB" -c 'delete from "CalendarEventLink"; delete from "CalendarSyncState"; delete from "GoogleCalendarToken";'
+
 echo "$DEV_DB now holds a copy of $LIVE_DB taken $(date '+%Y-%m-%d %H:%M')."
 echo "Customers: $("$PG_BIN/psql" -d "$DEV_DB" -Atc 'select count(*) from "CrmContact"')"
