@@ -13,7 +13,9 @@
  *                                 (undecided ones are held back and listed);
  *                               "installedCard": [<csv row>, ...] merged customers who were in fact
  *                                 installed and get a Paid & Closed card;
- *                               "extraNotes": { "<csv row>": "<text>" } one more note on that customer
+ *                               "extraNotes": { "<csv row>": "<text>" } one more note on that customer;
+ *                               "createJob": [<csv row>, ...] paid JobNimbus work the owner confirmed is a
+ *                                 separate job from the ones that customer already has
  *   ... --raw-lead-source       keep JobNimbus's own lead source wording instead of EZ Biz's
  *
  * Safe to run twice: every record it creates has an id worked out from the
@@ -57,7 +59,7 @@ const FILE = expand(opt('file') || '')
 const APPLY = flag('apply')
 const RAW_SOURCE = flag('raw-lead-source')
 if (!FILE || !fs.existsSync(FILE)) { console.error('Give the CSV with --file <path>.'); process.exit(2) }
-const decisions: { merge?: Record<string, string>; separate?: number[]; installedCard?: number[]; extraNotes?: Record<string, string> } =
+const decisions: { merge?: Record<string, string>; separate?: number[]; installedCard?: number[]; extraNotes?: Record<string, string>; createJob?: number[] } =
   opt('decisions') ? JSON.parse(fs.readFileSync(expand(opt('decisions')!), 'utf8')) : {}
 
 const dbUrl = process.env.DATABASE_URL || ''
@@ -233,7 +235,7 @@ async function main() {
   /* ── build everything ── */
   const newContacts: any[] = [], updates: { id: string; data: any; why: string }[] = [], notes: any[] = [], quotes: any[] = [], jobs: any[] = [], cards: any[] = []
   const jobsByYear: Record<string, { count: number; total: number }> = {}
-  const list2024: string[] = [], keptCard: string[] = [], scheduleWins: string[] = [], filled: string[] = []
+  const list2024: string[] = [], keptCard: string[] = [], scheduleWins: string[] = [], separateJobs: string[] = [], filled: string[] = []
   const cardsPerColumn: Record<string, number> = {}
   let noCard = 0
   const sourceOf = (r: Row) => RAW_SOURCE ? r.source : (LEAD_SOURCE[r.source] ?? r.source)
@@ -291,12 +293,15 @@ async function main() {
     /* jobs */
     let jobTotal = 0
     const seenAmounts = new Set<number>()
-    // The schedule is the better record: a merged customer who already has a
-    // GD Schedule job keeps that job and its price, and gets nothing added.
+    // A merged customer who already has GD Schedule jobs may be a repeat
+    // customer: the JobNimbus work is the same job only when the dates are
+    // within 60 days and the prices within 10%. The owner went through these
+    // one by one; the rows he confirmed as separate work are in createJob.
+    // Every other one keeps the schedule's job and price, with nothing added.
     const onSchedule = gdJobs.filter(j => j.crmContactId === g.contactId)
     for (const r of g.rows) {
       if (r.status !== 'Paid & Closed' || r.invoices <= 0) continue
-      if (g.existing && onSchedule.length) {
+      if (g.existing && onSchedule.length && !decisions.createJob?.includes(r.n)) {
         const line = `${who(r)} ${r.day} ${money(r.invoices)}: ${name} already has ${onSchedule.length} GD Schedule job${onSchedule.length > 1 ? 's' : ''} (${onSchedule.map(j => `${j.completedDate || j.scheduledDate || '?'} ${money(j.contractValue)}`).join(', ')})`
         scheduleWins.push(line)
         if (r.day.startsWith('2024')) list2024.push('SKIP    ' + line)
@@ -304,6 +309,7 @@ async function main() {
       }
       if (seenAmounts.has(r.invoices)) { flagged.push(`${who(r)}: ${money(r.invoices)} is the same invoice total as this customer's other JobNimbus record; one job created, not two`); continue }
       const year = r.day.slice(0, 4)
+      if (g.existing && onSchedule.length) separateJobs.push(`${who(r)} ${r.day} ${money(r.invoices)}: a separate job from ${name}'s GD Schedule job${onSchedule.length > 1 ? 's' : ''} (${onSchedule.map(j => `${j.completedDate || j.scheduledDate || '?'} ${money(j.contractValue)}`).join(', ')})`)
       if (year === '2024') list2024.push(`CREATE  ${who(r)} ${r.day} ${money(r.invoices)}: ${g.existing ? 'existing customer with no GD Schedule job' : 'not an EZ Biz customer before this import'}`)
       seenAmounts.add(r.invoices); jobTotal += r.invoices
       jobsByYear[year] = { count: (jobsByYear[year]?.count || 0) + 1, total: (jobsByYear[year]?.total || 0) + r.invoices }
@@ -370,6 +376,7 @@ async function main() {
   section('FURTHER MATCHES by email or phone that the file did not mark', furtherMatches)
   section('2024 Paid & Closed jobs', list2024)
   section('NO JOB: the merged customer already has a GD Schedule job, which stays as it is', scheduleWins)
+  section('JOB CREATED beside existing GD Schedule jobs: separate work, confirmed by the owner', separateJobs)
   section('EXISTING CARDS KEPT', keptCard)
   section('FLAGGED', flagged)
   section('EXISTING CUSTOMERS CHANGED', updates.map(u => u.why))
