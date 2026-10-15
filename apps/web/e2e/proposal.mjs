@@ -79,6 +79,14 @@ try {
   }
   await b.locator('[data-side="Left return"] [data-gate-choice] button:has-text("Walk gate")').click()
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: OWN }); await sleep(400)
+  // Good, Better, Best show under the price with no taps.
+  const tierNames = await b.locator('[data-tier]').evaluateAll(els => els.map(e => e.getAttribute('data-tier')))
+  const tierPrice = async k => Number((await b.locator(`[data-tier="${k}"] [data-tier-price]`).textContent()).replace(/[^\d.]/g, ''))
+  check('tiers: Good, Better, Best show under the price', tierNames.join(',') === 'good,better,best', tierNames.join(','))
+  check('tiers: Better is marked Most popular and priced above Good', (await b.locator('[data-tier="better"]').textContent()).includes('Most popular') && await tierPrice('better') > await tierPrice('good'),
+    `good ${await tierPrice('good')}, better ${await tierPrice('better')}`)
+  check('tiers: each says which width prices lower', (await b.locator('[data-tier="good"] [data-tier-width]').textContent()).includes('ft wide prices lower for this yard'))
+  if (SHOTS) { await b.locator('[data-tiers]').scrollIntoViewIfNeeded(); await p.screenshot({ path: `${SHOTS}/2a-phone-good-better-best.png` }) }
   await b.locator('[data-compare-toggle]').click(); await sleep(500)
   const rows = await b.locator('[data-compare-row]').count()
   const sixRow = (await b.locator(`[data-compare-row="${SIX}"]`).textContent()).replace(/\s+/g, ' ')
@@ -96,10 +104,11 @@ try {
   await s.ctx.close()
 
   const list = await api('/api/saved-quotes')
-  const q = (Array.isArray(list) ? list : []).filter(x => x.customerName === 'Shawn Collins' && x.proposal?.options?.length === 3).sort((a, z) => String(z.createdAt).localeCompare(String(a.createdAt)))[0]
+  const q = (Array.isArray(list) ? list : []).filter(x => x.customerName === 'Shawn Collins' && x.proposal?.options?.length >= 3 && !x.acceptedAt).sort((a, z) => String(z.createdAt).localeCompare(String(a.createdAt)))[0]
   quoteId = q?.id
   const offered = q ? q.proposal.options.map(o => o.fenceStyle) : []
-  check('saved with a proposal of 3 options, this style first', offered[0] === OWN && offered.includes(TAN) && offered.includes(SIX), offered.join(' | '))
+  check('saved: Good, Better, Best first, then the extra option ticked', q.proposal.options.slice(0, 3).map(o => o.tier?.label).join(',') === 'Good,Better,Best' && offered.includes(OWN) && offered.includes(TAN) && offered.includes(SIX), offered.join(' | '))
+  check('saved: Most popular (Better) is the recommended option', q.proposal.recommended === 1 && q.proposal.options[1].badge === 'Most popular')
   check('the proposal carries the site plan, deposit and financing', !!q?.proposal.planSvg?.startsWith('<svg') && q.proposal.depositPct === 50 && q.proposal.financing?.months === 60)
   const sixIndex = offered.indexOf(SIX), tanIndex = offered.indexOf(TAN)
   const sixOpt = q.proposal.options[sixIndex]
@@ -114,9 +123,10 @@ try {
   check('customer page: no costs, margin or pull sheet in it', !html.includes(String(q.totalCOGS)) && !/materialCost|totalCOGS|pullSheet|gmPct|Picket, 62/.test(html))
   const c = await open(browser, true)
   await c.page.goto(`${API}/p/${token}`); await sleep(1200)
-  const opts = await c.page.locator('.opt').count()
   const pageText = (await c.page.locator('body').textContent()).replace(/\s+/g, ' ')
-  check('customer page: 3 options, recommended first', opts === 3 && (await c.page.locator('.opt').first().textContent()).includes('Recommended'))
+  const opts = await c.page.locator('.opt').count()
+  check('customer page: every option offered, tiers side by side, Better marked Most popular', opts === offered.length && await c.page.locator('.opts.tiers').count() === 1 && (await c.page.locator('.opt').nth(1).textContent()).includes('Most popular'))
+  check('customer page: each tier says what makes it better', ['Dig set: posts set in concrete.', 'No dig: steel pipe driven deep, no concrete, faster install.'].every(t => pageText.includes(t)))
   check('customer page: site plan, monthly payment, deposit, warranty, what is included', ['Site plan', 'As low as $', '/month for 60 months', 'Deposit', '50% to schedule', 'Warranty', "What's included", '446 ft of new fence'].every(t => pageText.includes(t)), pageText.slice(0, 200))
   check('customer page: the tan option shows its style photo', await c.page.locator('.opt').nth(tanIndex).locator('img.photo').count() === 1)
   if (SHOTS) await c.page.screenshot({ path: `${SHOTS}/3-customer-proposal-top.png` })
@@ -137,7 +147,10 @@ try {
   const after = (await c.page.locator('body').textContent()).replace(/\s+/g, ' ')
   check('customer page: accepted, with the option and price', after.includes('Accepted by Shawn Collins') && after.includes(sixOpt.label), after.slice(after.indexOf('Accepted'), after.indexOf('Accepted') + 160))
   if (SHOTS) await c.page.screenshot({ path: `${SHOTS}/5-customer-accepted.png` })
+  check('customer page: read only after accepting (no Accept button)', await c.page.locator('#go').count() === 0)
   check('customer page: no page errors', c.errors.length === 0, c.errors.join(' | '))
+  const twice = await fetch(`${API}/p/${token}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ option: 0, name: 'Someone else', signature: 'data:image/png;base64,iVBORw0KGgo=' }) })
+  check('cannot be accepted twice', twice.status === 409, String(twice.status))
   await c.ctx.close()
 
   const sold = await api(`/api/saved-quotes/${quoteId}`)
@@ -145,13 +158,25 @@ try {
     `${sold.status} ${sold.fenceStyle} ${sold.finalPrice} vs ${sixOpt.finalPrice}`)
   check('its pull sheet and sections per run are that option\'s', sold.sections === sixOpt.sections && sold.layout.runSections.join(',') === sixOpt.snapshot.runSections.join(',') && sold.pullSheet.some(i => /Rail, 6'/.test(i.item)))
 
+  const pipe = await api('/api/pipeline')
+  const card = pipe.leads.find(l => l.customerId === sold.crmContactId && l.stage === 'Signed Contract')
+  check('the pipeline card moved to Signed Contract with the price', !!card && card.jobValue === sixOpt.finalPrice, card ? `${card.stage} ${card.jobValue}` : 'no card')
+  const notes = await api('/api/automations/notifications')
+  const note = (notes.notifications || []).find(n => n.title === 'Proposal accepted: Shawn Collins')
+  check('an in app notification says who accepted what', !!note && note.body.includes(sixOpt.label), note?.body || 'none')
+
   // ── Back in the app: the quote shows the customer's choice ──
   await d.page.goto(`${APP}/?customer=${sold.crmContactId}`); await d.page.waitForSelector('[data-global-appointment]'); await sleep(1200)
   await d.page.locator('button.capitalize', { hasText: /^quotes/i }).first().click(); await sleep(500)
   await d.page.locator(`text=$${Math.round(sold.finalPrice).toLocaleString('en-US')}`).first().click(); await sleep(800)
   const chosenText = (await d.page.locator('[data-proposal-chosen]').textContent().catch(() => '')) || ''
   check('the saved quote shows who accepted which option', chosenText.includes('Accepted by Shawn Collins') && chosenText.includes(sixOpt.label), chosenText)
-  check('and Text it / Email it / Open buttons', await d.page.locator('[data-proposal-text]').count() === 1 && await d.page.locator('[data-proposal-open]').count() === 1)
+  check('and Text it / Email it / Open buttons, with the link date', await d.page.locator('[data-proposal-text]').count() === 1 && await d.page.locator('[data-proposal-open]').count() === 1 && /Link works until/.test(await d.page.locator('[data-link-state]').textContent()))
+  await d.page.locator('[data-link-off]').click(); await sleep(800)
+  check('Turn off link: the quote says it is off', /Link turned off/.test(await d.page.locator('[data-link-state]').textContent()))
+  const offRes = await fetch(`${API}/p/${token}`)
+  const offHtml = await offRes.text()
+  check('a turned off link shows a friendly page with the phone number', offRes.status === 410 && offHtml.includes('This link is no longer active') && /tel:\d+/.test(offHtml))
   if (SHOTS) { await d.page.locator('[data-proposal-send]').scrollIntoViewIfNeeded(); await d.page.screenshot({ path: `${SHOTS}/6-quote-proposal-block.png` }) }
   check('desktop: no page errors', d.errors.length === 0, d.errors.join(' | '))
   await setProposalSettings(d.page, '', '', '')

@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import { ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import type { SavedQuote } from './QuotesPage'
-import { issueShareToken } from './savedQuotesApi'
+import { issueShareToken, turnOffShare } from './savedQuotesApi'
 import { proposalUrl } from './proposal'
 import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
@@ -16,6 +16,10 @@ import { toast } from './toast'
 export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   const [url, setUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // The link as the server last said: open until a date, turned off, or none yet.
+  const [expiresAt, setExpiresAt] = useState<string | null>(quote.shareExpiresAt ?? null)
+  const [offAt, setOffAt] = useState<string | null>(quote.shareDisabledAt ?? null)
+  const hasLink = !!quote.shareToken || !!url
   const cfg = getConfig()
   const company = cfg.company?.name || 'Getter Done Fence'
   const p = quote.proposal
@@ -31,8 +35,17 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
     setBusy(false)
     if (!t?.shareToken) { toast.error('Could not make the link. Check the connection and try again.'); return null }
     const u = proposalUrl(t.shareToken)
-    setUrl(u)
+    setUrl(u); setExpiresAt(t.expiresAt); setOffAt(null)
     return u
+  }
+  async function turnOff() {
+    if (!window.confirm('Turn off this link? The customer will see a page asking them to call you. Sending it again makes a new link.')) return
+    setBusy(true)
+    const ok = await turnOffShare(quote.id).catch(() => false)
+    setBusy(false)
+    if (!ok) { toast.error('Could not turn the link off. Try again.'); return }
+    setOffAt(new Date().toISOString()); setUrl(null)
+    toast.success('Link turned off')
   }
   const message = (u: string) => `Hi ${first}, here is your fence proposal from ${company}. You can pick an option and sign right on your phone: ${u}`
 
@@ -46,6 +59,12 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   }
 
   const chosen = quote.acceptedAt != null && quote.chosenOption != null ? p.options[quote.chosenOption] : null
+  const day = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const expired = !offAt && !!expiresAt && new Date(expiresAt).getTime() < Date.now()
+  const linkLine = offAt ? `Link turned off ${day(offAt)}. Sending it again makes a new link.`
+    : expired ? `Link ran out ${day(expiresAt!)}. Sending it again makes a new link.`
+    : hasLink && expiresAt ? `Link works until ${day(expiresAt)}.`
+    : 'No link sent yet.'
   return (
     <div className="space-y-3" data-proposal-send>
       {chosen && (
@@ -64,6 +83,10 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
         <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => go('copy')}><Copy size={16} aria-hidden="true" /> Copy link</button>
         <button type="button" className="btn btn-primary" disabled={busy || !quote.customerPhone} onClick={() => go('text')} data-proposal-text><MessageSquare size={16} aria-hidden="true" /> Text it</button>
         <button type="button" className="btn btn-secondary" disabled={busy || !quote.customerEmail} onClick={() => go('email')}><Mail size={16} aria-hidden="true" /> Email it</button>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-gray-600" data-link-state>{linkLine}</p>
+        {hasLink && !offAt && !expired && <button type="button" className="btn btn-quiet btn-sm" disabled={busy} onClick={turnOff} data-link-off>Turn off link</button>}
       </div>
       {url && <p className="text-xs text-gray-500 break-all">{url}</p>}
     </div>

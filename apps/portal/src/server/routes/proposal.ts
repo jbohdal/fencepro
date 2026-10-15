@@ -21,6 +21,20 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
+import { onProposalAccepted } from '../lib/proposalAccepted.js'
+
+/** A link that was turned off or has run out. */
+export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
+  if (q.shareDisabledAt) return 'off'
+  if (q.shareExpiresAt && q.shareExpiresAt.getTime() < Date.now()) return 'expired'
+  return null
+}
+
+async function companyPhone(accountId: string, p?: { company?: { phone?: string } } | null): Promise<string> {
+  if (p?.company?.phone) return p.company.phone
+  const b = await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }).catch(() => null)
+  return String((b?.config as any)?.company?.phone || '')
+}
 
 export const publicProposal = Router()
 export const stylePhotos = Router()
@@ -45,7 +59,7 @@ export function monthlyPayment(price: number, aprPct: number, months: number): n
   return r > 0 ? (price * r) / (1 - Math.pow(1 + r, -months)) : price / months
 }
 
-interface ProposalOption { label: string; fenceStyle: string; finalPrice: number; perFoot: number; sections: number; photoId?: string | null; snapshot?: any }
+interface ProposalOption { label: string; fenceStyle: string; finalPrice: number; perFoot: number; sections: number; photoId?: string | null; tier?: { label?: string; blurb?: string }; badge?: string; snapshot?: any }
 interface Proposal {
   version: number
   company?: { name?: string; phone?: string; email?: string }
@@ -105,6 +119,15 @@ publicProposal.get('/:token', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store')
   if (!q || q.archivedAt) { res.status(404).type('html').send(page('Proposal not found', '<main class="wrap"><h1>This proposal is not available</h1><p>Please call us and we will send a new link.</p></main>', nonce)); return }
   const p = q.proposal as unknown as Proposal | null
+  const closed = linkClosed(q)
+  if (closed) {
+    const phone = await companyPhone(q.accountId, p)
+    const name = esc(p?.company?.name || 'Getter Done Fence')
+    res.status(410).type('html').send(page('Proposal link closed', `<header class="top"><img src="logo.png" alt="" class="logo"><div><p class="co">${name}</p></div></header>
+      <main class="wrap"><section><h1>This link is no longer active</h1><p>${closed === 'expired' ? 'Proposal links are good for a limited time, and this one has run out.' : 'This proposal link was turned off.'}</p>
+      <p>We are happy to help. Call us${phone ? ` at <a href="tel:${esc(phone.replace(/[^\d+]/g, ''))}"><b>${esc(phone)}</b></a>` : ''} and we will send you a current proposal.</p></section></main>`, nonce))
+    return
+  }
   if (!p || !Array.isArray(p.options) || p.options.length === 0) { res.status(404).type('html').send(page('Proposal not found', '<main class="wrap"><h1>This proposal is not ready yet</h1><p>Please call us.</p></main>', nonce)); return }
   await prisma.savedQuote.update({ where: { id: q.id }, data: { firstViewedAt: q.firstViewedAt || new Date(), viewCount: { increment: 1 } } }).catch(() => {})
   res.type('html').send(renderProposal(q, p, token, nonce))
@@ -121,7 +144,8 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
     const body = acceptSchema.parse(req.body)
     const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) } })
     if (!q || q.archivedAt) { res.status(404).json({ success: false, error: 'This proposal is no longer available.' }); return }
-    if (q.acceptedAt) { res.json({ success: true, data: { acceptedAt: q.acceptedAt, option: q.chosenOption ?? 0 } }); return }
+    if (q.acceptedAt) { res.status(409).json({ success: false, error: 'This proposal was already accepted.' }); return }
+    if (linkClosed(q)) { res.status(410).json({ success: false, error: 'This link is no longer active. Please call us.' }); return }
     const p = q.proposal as unknown as Proposal | null
     const opt = p?.options?.[body.option]
     if (!opt) { res.status(400).json({ success: false, error: 'Please choose an option.' }); return }
@@ -146,6 +170,7 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
       },
     })
     console.log(`[proposal] customer accepted quote ${q.id} option ${body.option} (${opt.fenceStyle}) as "${body.name}"`)
+    await onProposalAccepted(q, opt, body.name).catch(err => console.error('[proposal] after accept:', err))
     res.json({ success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
@@ -209,8 +234,10 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string): stri
       <input type="radio" name="option" value="${i}"${i === chosen ? ' checked' : ''}${accepted ? ' disabled' : ''}>
       ${photo}
       <span class="optbody">
-        ${i === rec && p.options.length > 1 ? '<span class="badge">Recommended</span>' : ''}
+        ${o.badge ? `<span class="badge">${esc(o.badge)}</span>` : i === rec && p.options.length > 1 ? '<span class="badge">Recommended</span>' : ''}
+        ${o.tier?.label ? `<span class="tier">${esc(o.tier.label)}</span>` : ''}
         <span class="optlabel">${esc(o.label)}</span>
+        ${o.tier?.blurb ? `<span class="blurb">${esc(o.tier.blurb)}</span>` : ''}
         <span class="price">${money(o.finalPrice)}</span>
         <span class="small">${money2(o.perFoot)} a foot · ${o.sections} sections</span>
         ${save}${monthly}
@@ -243,7 +270,7 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string): stri
     <p class="small">${esc(p.customer?.address || q.customerAddress || '')}</p>
     <p class="facts">${p.footageFt ? `${Math.round(p.footageFt)} ft of fence` : ''}${p.gatesText ? ` · ${esc(p.gatesText)}` : ''}</p>
     ${plan ? `<section><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Purple: new fence. Squares: corner posts. Dots: end and gate posts. Gray dashed: existing fence or no fence, not included. Not to scale for permitting.</p></section>` : ''}
-    <section><h2>${p.options.length > 1 ? 'Your options' : 'Your fence'}</h2><div class="opts">${options}</div></section>
+    <section><h2>${p.options.length > 1 ? 'Your options' : 'Your fence'}</h2><div class="opts${p.options.some(o => o.tier) ? ' tiers' : ''}">${options}</div></section>
     ${included}${warranty}${deposit}${acceptBlock}
     <p class="small foot">Questions? Call ${esc(company.phone || 'us')}.</p>
   </main>`
@@ -287,7 +314,8 @@ h1{font-size:28px;line-height:1.15;margin:4px 0}h2{font-size:18px;margin:0 0 10p
 section{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px;margin-top:16px}
 .small{font-size:14px;color:var(--g);margin:4px 0}.upper{text-transform:uppercase;letter-spacing:.08em;font-weight:700;color:var(--p)}
 .facts{font-weight:600}.plan svg{width:100%;height:auto;display:block}
-.opts{display:grid;gap:12px}.opt{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;border:2px solid var(--line);border-radius:14px;padding:12px;cursor:pointer}
+.opts{display:grid;gap:12px}.opts.tiers{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.tier{font-size:22px;font-weight:800;color:var(--p)}.blurb{font-size:14px;color:var(--g)}.opt{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;border:2px solid var(--line);border-radius:14px;padding:12px;cursor:pointer}
 .opt.on{border-color:var(--p);background:#F7F3FD}.opt input{width:24px;height:24px;margin-top:4px;accent-color:var(--p)}
 .photo{grid-column:1/-1;width:100%;max-height:260px;object-fit:cover;border-radius:10px}
 .optbody{display:flex;flex-direction:column;gap:2px}.optlabel{font-weight:700}.price{font-size:28px;font-weight:800}

@@ -19,7 +19,8 @@ import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type Name
 import { getQuotes } from './quoteStore'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
-import { compareStyles, priceOption, buildProposal } from './proposal'
+import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
+import { resolveTiers, tierOptions, isVinylStyle, DEFAULT_TIERS, DEFAULT_POPULAR, type TierPrefs, type TierKey } from './tiers'
 import { getContractSections } from './contractStore'
 import { listStylePhotos } from './stylePhotosApi'
 
@@ -408,6 +409,10 @@ export default function QuoteBuilder({
   // Options offered on the proposal besides this quote's own style.
   const [offer, setOffer] = useState<string[]>(() => (init?.proposal?.options ?? []).slice(1).map(o => o.fenceStyle))
   const [showCompare, setShowCompare] = useState(false)
+  const [tierPrefs, setTierPrefs] = useState<TierPrefs>(() => ({
+    off: (init?.proposal?.tierPrefs?.off ?? []) as TierKey[],
+    swap: (init?.proposal?.tierPrefs?.swap ?? {}) as TierPrefs['swap'],
+  }))
   const [photoIds, setPhotoIds] = useState<Record<string, string>>({})
   useEffect(() => {
     listStylePhotos().then(list => setPhotoIds(Object.fromEntries(list.map(p => [p.styleName, p.id])))).catch(() => {})
@@ -499,6 +504,10 @@ export default function QuoteBuilder({
   const runWidths = effRuns.map((_, i) => (isAutoMix ? (calc.perRunRail[i] === '6ft' ? 6 : 8) : widthFt))
   const tapeRunFlags = style ? tapeFlags(namedRuns, runWidths) : []
   const pastQuotes = useMemo(() => getQuotes(), [])
+  // Good, Better, Best: priced from the same layout on every vinyl quote, no taps needed.
+  const tiers = useMemo(() => (isVinylStyle(style) && sections > 0
+    ? resolveTiers(calcInput, FENCE_STYLES, cfg.proposal?.tiers?.length ? cfg.proposal.tiers : DEFAULT_TIERS, cfg.proposal?.popular ?? DEFAULT_POPULAR, tierPrefs)
+    : []), [style, sections, JSON.stringify(calcInput), tierPrefs, invTick])  // eslint-disable-line react-hooks/exhaustive-deps
   // Compare options: the same yard as the styles that make sense for this one.
   const compareRows = useMemo(() => (showCompare && style && sections > 0
     ? compareStyles(style, FENCE_STYLES).map(s => ({ style: s, option: priceOption(calcInput, s) }))
@@ -592,6 +601,8 @@ export default function QuoteBuilder({
         warranty: getContractSections().find(x => x.key === 'warranty' && x.visible !== false)?.body ?? '',
         settings: cfg.proposal ?? {},
         photoIds,
+        tiers: tierOptions(tiers),
+        tierPrefs: { off: tierPrefs.off, swap: tierPrefs.swap as Record<string, string> },
       }) : undefined,
     }
     setShowSaveModal(false)
@@ -1042,6 +1053,43 @@ export default function QuoteBuilder({
                   </p>
                 )}
               </div>
+
+              {tiers.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2" data-tiers>
+                  <p className="text-xs font-semibold text-gray-500">Good, Better, Best <span className="font-normal">· on the proposal</span></p>
+                  {tiers.map(t => {
+                    const main = t.style.name === style?.name
+                    const price = main ? adjPrice : t.option.finalPrice
+                    return (
+                      <div key={t.spec.key} className={`rounded-lg border p-3 ${main ? 'border-orange-500 bg-orange-50' : 'border-gray-200'} ${t.off ? 'opacity-60' : ''}`} data-tier={t.spec.key}>
+                        <div className="flex items-start justify-between gap-2">
+                          <label className="flex items-center gap-2 min-w-0">
+                            <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} aria-label={`Offer ${t.spec.label}`}
+                              onChange={e => setTierPrefs(p => ({ ...p, off: e.target.checked ? p.off.filter(k => k !== t.spec.key) : [...p.off, t.spec.key] }))} />
+                            <span className="font-bold text-gray-900">{t.spec.label}</span>
+                            {t.popular && <span className="text-[11px] font-semibold bg-orange-500 text-white rounded-full px-2 py-0.5">Most popular</span>}
+                          </label>
+                          <span className="text-right">
+                            <span className="block font-bold tabular-nums" data-tier-price>{fmt(price)}</span>
+                            <span className="block text-xs text-gray-600 tabular-nums">{fmt(t.option.perFoot)}/ft</span>
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-700 mt-1">{optionLabel(t.style.name)}</p>
+                        {t.widthFt && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard{t.otherWidth ? ` (${t.otherWidth.widthFt} ft wide: ${fmt(t.otherWidth.price)})` : ''}.</p>}
+                        <div className="flex gap-2 mt-2">
+                          <button type="button" className="btn btn-secondary btn-sm shrink-0" disabled={main}
+                            onClick={() => { const s = FENCE_STYLES.find(x => x.name === t.style.name); if (s) setStyleId(s.id) }} data-tier-main>{main ? 'Main option' : 'Make main'}</button>
+                          <select className="min-w-0 flex-1 border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value={tierPrefs.swap[t.spec.key] ?? ''} aria-label={`Style for ${t.spec.label}`}
+                            onChange={e => setTierPrefs(p => { const swap = { ...p.swap }; if (e.target.value) swap[t.spec.key] = e.target.value; else delete swap[t.spec.key]; return { ...p, swap } })} data-tier-swap>
+                            <option value="">Style: automatic</option>
+                            {FENCE_STYLES.filter(s => s.isActive !== false && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
 
               {style && sections > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4" data-compare>

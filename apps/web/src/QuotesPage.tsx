@@ -34,6 +34,10 @@ export interface SavedQuote {
   chosenOption?: number | null
   acceptedAt?: string
   acceptedBy?: string
+  /** Customer link state. */
+  shareToken?: string | null
+  shareExpiresAt?: string | null
+  shareDisabledAt?: string | null
   corners: number
   ends: number
   walkGates: number

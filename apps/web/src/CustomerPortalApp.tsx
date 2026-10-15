@@ -628,9 +628,6 @@ function InvoicesPage({ session, accent }: { session: PortalAccount; customer: a
                   <p className="font-bold text-gray-900">${((i.totalCents || 0) / 100).toLocaleString()}</p>
                   <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBg}`}>{status}</span>
                 </div>
-                {i.balanceDueCents > 0 && (
-                  <button className="text-xs text-white px-3 py-2 rounded-lg hover:opacity-90" style={{ backgroundColor: accent }}>Pay Now</button>
-                )}
               </div>
             )
           })}

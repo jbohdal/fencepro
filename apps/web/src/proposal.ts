@@ -11,6 +11,7 @@
 
 import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from './quoteCalc'
 import type { LineItem } from './materialCalculator'
+import type { TierSpec, TierKey } from './tiers'
 
 export interface ProposalSettings {
   /** Extra "what's included" text, one item per line. */
@@ -20,6 +21,11 @@ export interface ProposalSettings {
   financing?: { provider?: string; apr?: number; months?: number; link?: string }
   /** Turned on once the public door for /p is open, so customers can open links. */
   publicLinks?: boolean
+  /** Days a customer link works after it is made (default 30). */
+  linkDays?: number
+  /** Good, Better, Best lineup and the "Most popular" pick (defaults in tiers.ts). */
+  tiers?: TierSpec[]
+  popular?: TierKey
 }
 
 export interface ProposalOption {
@@ -29,6 +35,10 @@ export interface ProposalOption {
   perFoot: number
   sections: number
   photoId?: string | null
+  /** Good, Better or Best, with what makes it better. */
+  tier?: { key: string; label: string; blurb: string }
+  /** "Most popular" */
+  badge?: string
   /** Priced snapshot copied onto the quote if the customer picks this option. Never shown to the customer. */
   snapshot: {
     materialCost: number; laborCost: number; tearOutCost: number; totalCOGS: number; gmPct: number
@@ -52,6 +62,8 @@ export interface QuoteProposal {
   financing: { provider: string; apr: number; months: number; link: string } | null
   recommended: number
   options: ProposalOption[]
+  /** Tiers left off or swapped on this quote, so it reopens the same way. */
+  tierPrefs?: { off: string[]; swap: Record<string, string> }
 }
 
 // ── Which options make sense for a style ──────────────────────────────────────
@@ -143,20 +155,25 @@ export function buildProposal(args: {
   warranty: string
   settings: ProposalSettings
   photoIds: Record<string, string>
+  /** Good, Better, Best options (tiers.ts), shown first. */
+  tiers?: ProposalOption[]
+  tierPrefs?: { off: string[]; swap: Record<string, string> }
 }): QuoteProposal {
   const { input, settings } = args
   const own = input.style!
-  const options = args.styles.map((s, i) => {
-    const o = priceOption(input, s)
+  // Tiers first, then this quote's own style and anything else ticked.
+  const options: ProposalOption[] = (args.tiers ?? []).map(o => ({ ...o }))
+  for (const s of args.styles) if (!options.some(o => o.fenceStyle === s.name)) options.push(priceOption(input, s))
+  for (const o of options) {
     // The quote's own option keeps the price on the quote, even one typed by hand.
-    if (i === 0 && s.name === own.name && args.ownPrice > 0) {
+    if (o.fenceStyle === own.name && args.ownPrice > 0) {
       const feet = input.runs.reduce((t, r) => t + (r.ft > 0 ? r.ft : 0), 0)
       o.finalPrice = args.ownPrice
       o.perFoot = feet > 0 ? Math.round((args.ownPrice / feet) * 100) / 100 : 0
     }
-    o.photoId = args.photoIds[s.name] ?? null
-    return o
-  })
+    o.photoId = args.photoIds[o.fenceStyle] ?? null
+  }
+  const popular = options.findIndex(o => o.badge === 'Most popular')
   const footageFt = input.runs.reduce((t, r) => t + (r.ft > 0 ? r.ft : 0), 0)
   const fin = settings.financing
   return {
@@ -173,7 +190,8 @@ export function buildProposal(args: {
     depositPct: settings.depositPct && settings.depositPct > 0 ? settings.depositPct : 0,
     depositNote: settings.depositNote?.trim() ?? '',
     financing: fin && (fin.months ?? 0) > 0 ? { provider: fin.provider ?? '', apr: fin.apr ?? 0, months: fin.months!, link: fin.link ?? '' } : null,
-    recommended: 0,
+    tierPrefs: args.tierPrefs,
+    recommended: popular >= 0 ? popular : Math.max(0, options.findIndex(o => o.fenceStyle === own.name)),
     options,
   }
 }

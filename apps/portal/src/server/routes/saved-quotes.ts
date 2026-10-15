@@ -415,19 +415,33 @@ router.post('/:id/share-token', requireUser, requireAccount, async (req: any, re
       res.status(404).json({ success: false, error: 'Quote not found' })
       return
     }
-    // A link already sent keeps working; ?new=1 replaces it.
-    if (existing.shareToken && req.query.new !== '1') { res.json({ success: true, data: { shareToken: existing.shareToken, quoteId: existing.id } }); return }
+    // A link already sent keeps working until it runs out or is turned off;
+    // after that (or with ?new=1) a new link is made.
+    const open = existing.shareToken && !existing.shareDisabledAt && !(existing.shareExpiresAt && existing.shareExpiresAt.getTime() < Date.now())
+    if (open && req.query.new !== '1') { res.json({ success: true, data: { shareToken: existing.shareToken, quoteId: existing.id, expiresAt: existing.shareExpiresAt } }); return }
+    const b = await prisma.businessState.findUnique({ where: { accountId: existing.accountId }, select: { config: true } }).catch(() => null)
+    const days = Number((b?.config as any)?.proposal?.linkDays) > 0 ? Number((b?.config as any).proposal.linkDays) : 30
+    const expiresAt = new Date(Date.now() + days * 86_400_000)
     const token = crypto.randomBytes(24).toString('base64url')
     const updated = await prisma.savedQuote.update({
       where: { id: existing.id },
-      data: { shareToken: token, firstViewedAt: null },
+      data: { shareToken: token, firstViewedAt: null, shareExpiresAt: expiresAt, shareDisabledAt: null },
     })
     await audit(req, 'update', 'SavedQuote', updated.id, { newValues: { shareToken: token } })
-    res.json({ success: true, data: { shareToken: token, quoteId: existing.id } })
+    res.json({ success: true, data: { shareToken: token, quoteId: existing.id, expiresAt } })
   } catch (err) {
     console.error('[saved-quotes] share-token error:', err)
     res.status(500).json({ success: false, error: 'Failed to issue share token' })
   }
+})
+
+// ── Turn a customer link off ──
+router.post('/:id/share-off', requireUser, requireAccount, async (req: any, res) => {
+  const existing = await prisma.savedQuote.findUnique({ where: { id: req.params.id } })
+  if (!existing || existing.accountId !== req.user.crmAccountId) { res.status(404).json({ success: false, error: 'Quote not found' }); return }
+  const updated = await prisma.savedQuote.update({ where: { id: existing.id }, data: { shareDisabledAt: new Date() } })
+  await audit(req, 'update', 'SavedQuote', updated.id, { newValues: { shareDisabledAt: updated.shareDisabledAt } })
+  res.json({ success: true, data: { shareDisabledAt: updated.shareDisabledAt } })
 })
 
 // ── Public read by share token (no auth) ──
@@ -440,6 +454,10 @@ router.get('/share/:token', async (req: any, res) => {
     const q = await prisma.savedQuote.findUnique({ where: { shareToken: req.params.token } })
     if (!q || q.archivedAt) {
       res.status(404).json({ success: false, error: 'Quote not found or no longer available' })
+      return
+    }
+    if (q.shareDisabledAt || (q.shareExpiresAt && q.shareExpiresAt.getTime() < Date.now())) {
+      res.status(410).json({ success: false, error: 'This link is no longer active. Please call us for a current quote.' })
       return
     }
     await prisma.savedQuote.update({

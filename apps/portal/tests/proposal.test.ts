@@ -86,3 +86,14 @@ describe('the proposal', () => {
     expect(o.finalPrice).toBeGreaterThan(1000)
   })
 })
+
+describe('customer links', () => {
+  test('a link is open until it runs out or is turned off', async () => {
+    const { linkClosed } = await import('../src/server/routes/proposal.js')
+    const day = 86_400_000
+    expect(linkClosed({ shareDisabledAt: null, shareExpiresAt: new Date(Date.now() + 29 * day) })).toBeNull()
+    expect(linkClosed({ shareDisabledAt: null, shareExpiresAt: new Date(Date.now() - 1000) })).toBe('expired')
+    expect(linkClosed({ shareDisabledAt: new Date(), shareExpiresAt: new Date(Date.now() + day) })).toBe('off')
+    expect(linkClosed({ shareDisabledAt: null, shareExpiresAt: null })).toBeNull()
+  })
+})

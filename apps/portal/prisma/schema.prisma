@@ -1663,6 +1663,10 @@ model SavedQuote {
   // Generated server-side on first request to share the quote. Unique so the
   // link is unguessable.
   shareToken        String?   @unique
+  // When the customer link stops working (set from Settings → Proposals when
+  // the link is made), and when staff turned it off by hand.
+  shareExpiresAt    DateTime?
+  shareDisabledAt   DateTime?
   // Timestamp of the first time a customer hit the public share page; null
   // until then. Drives the "viewed" badge + automation trigger.
   firstViewedAt     DateTime?

@@ -67,6 +67,8 @@ export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmC
   proposal: QuoteProposal | null
   chosenOption: number | null
   shareToken: string | null
+  shareExpiresAt: string | null
+  shareDisabledAt: string | null
   firstViewedAt: string | null
   viewCount: number
   acceptedAt: string | null
@@ -140,10 +142,17 @@ export async function archiveSavedQuote(id: string): Promise<boolean> {
   return r.ok
 }
 
-export async function issueShareToken(id: string): Promise<{ shareToken: string } | null> {
-  const r = await call<{ shareToken: string; quoteId: string }>('POST', `/${id}/share-token`)
+/** The customer link for a quote: the one already sent while it is open, else a new one. */
+export async function issueShareToken(id: string, fresh = false): Promise<{ shareToken: string; expiresAt: string | null } | null> {
+  const r = await call<{ shareToken: string; quoteId: string; expiresAt?: string | null }>('POST', `/${id}/share-token${fresh ? '?new=1' : ''}`)
   if (!r.ok || !r.data) return null
-  return { shareToken: r.data.shareToken }
+  return { shareToken: r.data.shareToken, expiresAt: r.data.expiresAt ?? null }
+}
+
+/** Stops the customer link working; it shows a page with the company phone. */
+export async function turnOffShare(id: string): Promise<boolean> {
+  const r = await call<{ shareDisabledAt: string }>('POST', `/${id}/share-off`)
+  return r.ok
 }
 
 /**
