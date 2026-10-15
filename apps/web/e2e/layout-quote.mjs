@@ -81,6 +81,23 @@ try {
   check('phone: the left return is split around its gate, with post spacing', /Piece 1: 13' 0" = 2 sections, posts 6' 6" apart/.test(leftRuns), leftRuns)
   check('phone: quoted in under 2 minutes of tapping', taps <= 25, `${taps} taps, ${secs}s for the test robot`)
 
+  // Site plan: drawn as typed, with every post the quote is priced with.
+  const plan = b.locator('[data-site-plan]').first()
+  const drawn = await plan.evaluate(svg => ({
+    squares: svg.querySelectorAll('rect[width="12"]').length,
+    dots: [...svg.querySelectorAll('circle')].filter(c => c.getAttribute('r') === '5.5').length,
+    open: [...svg.querySelectorAll('circle')].filter(c => c.getAttribute('r') === '3.2').length,
+    gates: svg.querySelectorAll('[data-plan-gate]').length,
+    text: svg.textContent,
+  }))
+  check('phone: the plan draws 4 corner squares, 6 end and gate dots, 2 gate swings', drawn.squares === 4 && drawn.dots === 6 && drawn.gates === 2, JSON.stringify({ ...drawn, text: undefined }))
+  check('phone: line posts drawn at the section count (57 sections, 7 runs = 50)', drawn.open === 50, String(drawn.open))
+  check('phone: footage, sections, house, street and the permitting note are on the plan',
+    ['150\' 0"', 'Back · 19 sec', 'House', 'STREET', 'Not to scale for permitting', "4' walk gate", "10' double gate"].every(t => drawn.text.includes(t)), drawn.text.slice(0, 200))
+  await p.locator('[data-plan-side="Back"]').click({ force: true }); await sleep(400)
+  check('phone: tapping a side on the plan opens its length', (await p.locator('[data-ftin-pad]').getAttribute('aria-label')) === 'Length of Back length')
+  await p.locator('[data-ftin-pad] button:has-text("Cancel")').click()
+
   // The same job typed as a run list prices the same.
   await b.locator('[data-to-advanced]').click(); await sleep(300)
   const typed = await b.locator('input[placeholder="Length in feet"]').evaluateAll(els => els.map(e => e.value))
@@ -127,7 +144,18 @@ try {
   await d.page.locator(`text=$${Math.round(saved.finalPrice).toLocaleString('en-US')}`).first().click(); await sleep(800)
   const runTable = (await d.page.locator('[data-run-spacing]').first().textContent()).replace(/\s+/g, ' ')
   if (process.env.SHOTS) await d.page.screenshot({ path: `${process.env.SHOTS}/desktop-quote-drawer-runs.png` })
+  check('the saved quote shows its site plan', await d.page.locator('[data-quote-plan] [data-site-plan]').count() > 0)
   check('the saved quote lists runs by side with post spacing', runTable.includes('Left return (1 of 2)') && runTable.includes(`7' 10 3/4"`), runTable.slice(0, 160))
+
+  // The customer's link: the plan is on it, and no costs or margin are sent.
+  const share = await api(`/api/saved-quotes/${saved.id}/share-token`, { method: 'POST' })
+  const token = share.token || share.shareToken
+  const pub = await (await fetch(`${API}/api/saved-quotes/share/${token}`)).json()
+  check('the customer link sends no costs, margin or pull sheet', pub.data.totalCOGS === 0 && pub.data.gmPct === 0 && pub.data.pullSheet.length === 0 && pub.data.finalPrice > 0 && !!pub.data.layout?.yard,
+    `cost ${pub.data.totalCOGS}, margin ${pub.data.gmPct}, ${pub.data.pullSheet.length} parts, price ${pub.data.finalPrice}`)
+  await d.page.goto(`${APP}/#/quote/${token}`); await sleep(2500)
+  if (process.env.SHOTS) await d.page.screenshot({ path: `${process.env.SHOTS}/customer-quote-with-plan.png`, fullPage: true })
+  check('the customer sees the site plan on their quote', await d.page.locator('[data-plan-section] [data-site-plan]').count() > 0)
   check('desktop: no page errors', d.errors.length === 0, d.errors.join(' | '))
   await d.ctx.close()
 } catch (e) {

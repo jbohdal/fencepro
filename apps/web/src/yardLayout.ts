@@ -48,7 +48,12 @@ export interface YardSide {
   endFinish: EndFinish
   gate?: SideGate | null
   skip?: SideSkip | null
+  /** Drawing direction in degrees (0 = right, 90 = up the page), for the site plan. */
+  heading?: number
 }
+
+/** Point on the site plan, in feet, y up. */
+export interface PlanPoint { x: number; y: number }
 
 export interface YardLayout {
   shape: YardShape
@@ -58,6 +63,11 @@ export interface YardLayout {
   /** Counts typed over the top of what the layout counts. */
   cornersOverride?: number | null
   endsOverride?: number | null
+  /** Site plan drawing: corners dragged by hand, and the aerial photo it sits on. */
+  plan?: {
+    points?: PlanPoint[] | null
+    aerial?: { lat: number; lng: number; halfM: number; address: string } | null
+  } | null
 }
 
 /** What a saved quote keeps about its layout. */
@@ -98,8 +108,8 @@ export function newSideId(): string {
   return `s${Date.now().toString(36)}${seq}`
 }
 
-function side(name: string, startFinish: EndFinish, endFinish: EndFinish): YardSide {
-  return { id: newSideId(), name, on: true, lengthIn: 0, startFinish, endFinish, gate: null, skip: null }
+function side(name: string, startFinish: EndFinish, endFinish: EndFinish, heading: number): YardSide {
+  return { id: newSideId(), name, on: true, lengthIn: 0, startFinish, endFinish, gate: null, skip: null, heading }
 }
 
 /** A new layout for a yard shape, sides in walking order. */
@@ -107,29 +117,29 @@ export function layoutForShape(shape: YardShape): YardLayout {
   switch (shape) {
     case 'backyard':
       return { shape, closed: false, sides: [
-        side('Left return', 'house', 'corner'),
-        side('Left side', 'corner', 'corner'),
-        side('Back', 'corner', 'corner'),
-        side('Right side', 'corner', 'corner'),
-        side('Right return', 'corner', 'house'),
+        side('Left return', 'house', 'corner', 180),
+        side('Left side', 'corner', 'corner', 90),
+        side('Back', 'corner', 'corner', 0),
+        side('Right side', 'corner', 'corner', 270),
+        side('Right return', 'corner', 'house', 180),
       ] }
     case 'perimeter':
       return { shape, closed: true, sides: [
-        side('Front', 'corner', 'corner'),
-        side('Right side', 'corner', 'corner'),
-        side('Back', 'corner', 'corner'),
-        side('Left side', 'corner', 'corner'),
+        side('Front', 'corner', 'corner', 0),
+        side('Right side', 'corner', 'corner', 90),
+        side('Back', 'corner', 'corner', 180),
+        side('Left side', 'corner', 'corner', 270),
       ] }
     case 'front':
       return { shape, closed: false, sides: [
-        side('Left side', 'house', 'corner'),
-        side('Front', 'corner', 'corner'),
-        side('Right side', 'corner', 'house'),
+        side('Left side', 'house', 'corner', 270),
+        side('Front', 'corner', 'corner', 0),
+        side('Right side', 'corner', 'house', 90),
       ] }
     case 'straight':
-      return { shape, closed: false, sides: [side('Fence', 'free', 'free')] }
+      return { shape, closed: false, sides: [side('Fence', 'free', 'free', 0)] }
     case 'custom':
-      return { shape, closed: false, sides: [side('Side 1', 'free', 'free')] }
+      return { shape, closed: false, sides: [side('Side 1', 'free', 'free', 0)] }
   }
 }
 
@@ -194,6 +204,10 @@ export interface SideResult {
   runs: LayoutRun[]
   /** Where the gate starts (inches from the side's start), if it fits. */
   gateAtIn: number | null
+  /** Inches from the side's start: each fence piece, the gate and the skip. */
+  pieceSpans: Array<[number, number]>
+  gateSpan: [number, number] | null
+  skipSpan: [number, number] | null
   skipAtIn: number | null
   finishes: { start: EndFinish; end: EndFinish }
   /** Posts at the side's two ends, if anything touches them. */
@@ -267,6 +281,7 @@ function deriveSide(layout: YardLayout, i: number, nearIn: number): SideResult {
   const finishes = effectiveFinishes(layout, i)
   const base: SideResult = {
     sideId: s.id, name: s.name, on: s.on, lengthIn: L, fenceIn: 0, runs: [], gateAtIn: null, skipAtIn: null,
+    pieceSpans: [], gateSpan: null, skipSpan: null,
     finishes, touchesStart: false, touchesEnd: false, gatePosts: 0, skipPosts: 0, notes: [],
   }
   if (!s.on || L <= 0) return base
@@ -328,6 +343,9 @@ function deriveSide(layout: YardLayout, i: number, nearIn: number): SideResult {
     ft: ftOf(b - a), inches: b - a, sideId: s.id, sideName: s.name, piece: k + 1, pieces: pieces.length,
   }))
   base.fenceIn = pieces.reduce((t, [a, b]) => t + (b - a), 0)
+  base.pieceSpans = pieces
+  base.gateSpan = gate ? [gate.from, gate.to] : null
+  base.skipSpan = skip ? [skip.from, skip.to] : null
   return base
 }
 

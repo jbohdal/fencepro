@@ -17,6 +17,7 @@
  * The portal has its own visual language (white/accent, top nav, no FencePro branding).
  */
 
+import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { useEffect, useMemo, useState } from 'react'
 import {
   getCurrentSession, login, verifyAndActivate, setPassword, logout,
@@ -484,7 +485,8 @@ function QuotesPage({ session, accent }: { session: PortalAccount; customer: any
             const statusLabel = q.status === 'SOLD' ? 'Accepted' : q.status === 'SENT' ? 'Pending Review' : q.status === 'LOST' ? 'Closed' : q.status
             const statusBg = q.status === 'SOLD' ? 'bg-green-100 text-green-700' : q.status === 'SENT' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
             return (
-              <div key={q.id} className="bg-white border border-gray-200 rounded-2xl p-5 flex items-center justify-between gap-4">
+              <div key={q.id} className="bg-white border border-gray-200 rounded-2xl p-5">
+              <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-xs text-gray-400">Quote #{q.id?.slice(-6)?.toUpperCase()}</p>
                   <p className="font-semibold text-gray-900 truncate">{q.fenceStyle}</p>
@@ -495,6 +497,13 @@ function QuotesPage({ session, accent }: { session: PortalAccount; customer: any
                   <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBg}`}>{statusLabel}</span>
                 </div>
                 <QuoteViewButton quoteId={q.id} accent={accent} />
+              </div>
+              {quoteHasPlan(q) && (
+                <details className="mt-3" data-portal-plan>
+                  <summary className="text-sm font-semibold cursor-pointer" style={{ color: accent }}>See the site plan</summary>
+                  <div className="mt-2"><QuotePlan quote={q} /></div>
+                </details>
+              )}
               </div>
             )
           })}

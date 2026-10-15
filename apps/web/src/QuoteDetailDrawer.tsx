@@ -18,6 +18,7 @@ import { toast } from './toast'
 import { TEMPLATES, getDefaultTemplateKey, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
 import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import RunSpacingTable from './RunSpacingTable'
+import QuotePlan, { quoteHasPlan } from './QuotePlan'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -136,6 +137,13 @@ export default function QuoteDetailDrawer({
                   </div>
                 ))}
               </div>
+            </section>
+          )}
+
+          {quoteHasPlan(quote) && (
+            <section>
+              <p className="text-xs font-bold text-gray-500 mb-2">Site plan</p>
+              <QuotePlan quote={quote} caption={false} />
             </section>
           )}
 

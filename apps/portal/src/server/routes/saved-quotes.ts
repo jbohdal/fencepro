@@ -441,12 +441,20 @@ router.get('/share/:token', async (req: any, res) => {
         viewCount: { increment: 1 },
       },
     })
-    res.json({ success: true, data: q })
+    res.json({ success: true, data: forCustomer(q) })
   } catch (err) {
     console.error('[saved-quotes] share read error:', err)
     res.status(500).json({ success: false, error: 'Failed to read quote' })
   }
 })
+
+/** What a customer's browser gets: the quote without costs, margin, the
+ *  pull sheet or the internal pricing choices. */
+function forCustomer<T extends Record<string, any>>(q: T) {
+  const { materialCost, laborCost, tearOutCost, totalCOGS, gmPct, pullSheet, pricing, ownerId, adjLaborHrs, ...rest } = q
+  void materialCost; void laborCost; void tearOutCost; void totalCOGS; void gmPct; void pullSheet; void pricing; void ownerId; void adjLaborHrs
+  return { ...rest, materialCost: 0, laborCost: 0, tearOutCost: 0, totalCOGS: 0, gmPct: 0, pullSheet: [], pricing: null, adjLaborHrs: 0 }
+}
 
 // ── Public accept by share token (no auth) ──
 //
@@ -467,7 +475,7 @@ router.post('/share/:token/accept', async (req: any, res) => {
       return
     }
     if (q.acceptedAt) {
-      res.json({ success: true, data: q })
+      res.json({ success: true, data: forCustomer(q) })
       return
     }
     const updated = await prisma.savedQuote.update({
@@ -480,7 +488,7 @@ router.post('/share/:token/accept', async (req: any, res) => {
       },
     })
     console.log(`[saved-quotes] customer accepted quote ${q.id} as "${data.name}"`)
-    res.json({ success: true, data: updated })
+    res.json({ success: true, data: forCustomer(updated) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
     console.error('[saved-quotes] accept error:', err)

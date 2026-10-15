@@ -603,6 +603,8 @@ export default function QuoteBuilder({
                   runSections={calc.perRunSections}
                   nearIn={widthFt * 12}
                   hasStyle={!!style}
+                  widthFt={widthFt}
+                  address={init?.customerAddress || getCustomers().find(c => `${c.firstName} ${c.lastName}`.trim().toLowerCase() === customerName.trim().toLowerCase())?.serviceAddress || ''}
                 />
               )}
             </div>

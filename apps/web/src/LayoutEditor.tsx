@@ -4,9 +4,12 @@
  * builder prices exactly the runs and posts this produces (see yardLayout.ts).
  */
 
-import { useState } from 'react'
-import { Pencil, Trash2, Plus } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Pencil, Trash2, Plus, Image as ImageIcon } from 'lucide-react'
 import FtInPad from './FtInPad'
+import SitePlan from './SitePlan'
+import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX } from './sitePlanGeometry'
+import { lookupPosition } from './appointmentsStore'
 import {
   layoutForShape, newSideId, joinedFromPrev, joinsNext, neighborName, formatFtIn, postSpacing,
   FINISH_LABEL, FINISH_NEAR, GATE_LABEL, GATE_WIDTH_IN, SHAPE_LABEL,
@@ -23,7 +26,7 @@ const SHAPES: Array<{ shape: YardShape; hint: string; path: string }> = [
 
 type PadTarget = { sideId: string; field: 'length' | 'gateWidth' | 'gateDistance' | 'skipLength' | 'skipDistance' }
 
-export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle }: {
+export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt }: {
   layout: YardLayout | null
   onChange: (l: YardLayout | null) => void
   result: LayoutResult | null
@@ -32,8 +35,26 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   /** How far a gate "near" an end sits from it, in inches. */
   nearIn: number
   hasStyle: boolean
+  /** The property, for the aerial photo. */
+  address?: string
+  widthFt: number
 }) {
   const [pad, setPad] = useState<PadTarget | null>(null)
+  const [aerialOn, setAerialOn] = useState(false)
+  const [aerialAddress, setAerialAddress] = useState(address ?? '')
+  const [aerialMsg, setAerialMsg] = useState('')
+  const [photoReady, setPhotoReady] = useState<string | null>(null)
+  const aerial = layout?.plan?.aerial ?? null
+  const photo = aerialOn && aerial ? aerialUrl(aerial.lat, aerial.lng, aerial.halfM) : null
+  useEffect(() => { if (address && !aerialAddress) setAerialAddress(address) }, [address])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Preload the photo so the plan can say it is still coming.
+  useEffect(() => {
+    if (!photo || photoReady === photo) return
+    const img = new Image()
+    img.onload = () => setPhotoReady(photo)
+    img.onerror = () => setAerialMsg('The aerial photo did not load. Try again in a minute.')
+    img.src = photo
+  }, [photo, photoReady])
   const [renaming, setRenaming] = useState<string | null>(null)
   const [editCounts, setEditCounts] = useState(false)
 
@@ -104,7 +125,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     const sides = layout!.sides.map(s => ({ ...s }))
     const joined = !!last && last.on
     if (joined) sides[sides.length - 1].endFinish = 'corner'
-    sides.push({ id: newSideId(), name: `Side ${sides.length + 1}`, on: true, lengthIn: 0, startFinish: joined ? 'corner' : 'free', endFinish: 'free', gate: null, skip: null })
+    // A new side turns a quarter to the right of the last one on the plan.
+    const heading = last ? (((last.heading ?? 0) - 90) % 360 + 360) % 360 : 0
+    sides.push({ id: newSideId(), name: `Side ${sides.length + 1}`, on: true, lengthIn: 0, startFinish: joined ? 'corner' : 'free', endFinish: 'free', gate: null, skip: null, heading })
     set({ ...layout!, sides })
   }
 
@@ -152,6 +175,26 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     runCursor += 1
   }
 
+  async function showAerial() {
+    setAerialMsg('')
+    if (aerial && aerial.address === aerialAddress.trim()) { setAerialOn(true); return }
+    if (!aerialAddress.trim()) { setAerialMsg('Type the property address first.'); return }
+    setAerialMsg('Finding the address…')
+    const at = await lookupPosition(aerialAddress.trim()).catch(() => null)
+    if (!at) { setAerialMsg('That address was not found. Check it, or add the city and ZIP.'); return }
+    setAerialMsg('')
+    // Enough photo around the point for the whole yard, with room to drag.
+    const pts = centeredVertices(layout!)
+    const reachFt = Math.max(...pts.map(p => Math.max(Math.abs(p.x), Math.abs(p.y))))
+    const halfM = Math.min(150, Math.max(40, Math.ceil(reachFt * 0.3048 * 1.5)))
+    onChange({ ...layout!, plan: { points: pts, aerial: { lat: at.lat, lng: at.lng, halfM, address: aerialAddress.trim() } } })
+    setAerialOn(true)
+  }
+  function tapSide(id: string) {
+    document.querySelector(`[data-side-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setPad({ sideId: id, field: 'length' })
+  }
+
   const selectCls = 'w-full border border-gray-300 rounded-lg px-3 h-11 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400'
   const counted = result?.counted
 
@@ -161,6 +204,38 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
         <p className="text-sm text-gray-700"><span className="font-semibold">{SHAPE_LABEL[layout.shape]}</span>{result ? ` · ${formatFtIn(result.totalIn)} of yard` : ''}</p>
         <button type="button" onClick={changeShape} className="btn btn-quiet btn-sm">Change shape</button>
       </div>
+
+      <div className="relative" data-plan-wrap>
+        <SitePlan
+          layout={layout}
+          result={result ?? undefined}
+          runSections={runSections}
+          widthFt={widthFt}
+          onSideTap={tapSide}
+          aerial={photo && photoReady === photo ? { href: photo, ftPerPx: aerialFtPerPx(aerial!.halfM), sizePx: AERIAL_PX } : null}
+          onPointsChange={pts => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: pts } })}
+        />
+        {photo && photoReady !== photo && !aerialMsg && (
+          <p className="absolute inset-x-0 top-8 mx-auto w-fit bg-white/90 rounded-lg px-3 py-1.5 text-sm text-gray-700 shadow">Loading the aerial photo. It can take 20 seconds.</p>
+        )}
+      </div>
+      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{aerialOn && photoReady ? ' Drag the corners onto the yard; the center button moves the whole plan.' : ''}</p>
+      <div className="flex flex-wrap items-center gap-2" data-aerial>
+        {!aerialOn ? (
+          <>
+            <input className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 h-11 text-sm" placeholder="Property address for the aerial photo"
+              value={aerialAddress} onChange={e => setAerialAddress(e.target.value)} data-aerial-address />
+            <button type="button" className="btn btn-secondary" onClick={showAerial} data-aerial-show><ImageIcon size={18} aria-hidden="true" /> Show aerial photo</button>
+          </>
+        ) : (
+          <button type="button" className="btn btn-secondary" onClick={() => setAerialOn(false)} data-aerial-hide>Hide aerial photo</button>
+        )}
+        {layout.plan?.points && (
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: aerialOn ? centeredVertices(layout) : null } })}>Reset the drawing</button>
+        )}
+        {aerialMsg && <p className="w-full text-sm text-amber-800">{aerialMsg}</p>}
+      </div>
+      {aerialOn && <p className="text-xs text-gray-500 -mt-1">Aerial photo: USGS National Map (NAIP), public domain.</p>}
 
       {layout.sides.map((s, i) => {
         const r = result?.sides[i]
@@ -178,7 +253,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           </select>
         )
         return (
-          <div key={s.id} className={`rounded-2xl border bg-white p-3 sm:p-4 ${s.on ? 'border-gray-200' : 'border-dashed border-gray-300 bg-gray-50'}`} data-side={s.name}>
+          <div key={s.id} className={`rounded-2xl border bg-white p-3 sm:p-4 scroll-mt-24 ${s.on ? 'border-gray-200' : 'border-dashed border-gray-300 bg-gray-50'}`} data-side={s.name} data-side-id={s.id}>
             <div className="flex items-center gap-2">
               <button type="button" role="switch" aria-checked={s.on} aria-label={`${s.name} ${s.on ? 'on' : 'off'}`} onClick={() => toggleSide(i)}
                 className="shrink-0 w-14 h-12 grid place-items-center rounded-lg" data-side-toggle>
