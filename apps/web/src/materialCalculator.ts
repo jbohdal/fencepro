@@ -119,17 +119,33 @@ export interface LineItem {
   costSource?: 'inventory' | 'builtin'
 }
 
-// ── Section count per run ─────────────────────────────────────────────────────
+// ── Section width and count per run ───────────────────────────────────────────
 // Matches EZ-Quote Form C10:C24 formulas exactly. Per-run, never total/panel.
+// Vinyl and aluminum names read height x width: 6'x8' is 6 tall, 8 wide.
 function panelLengthForStyle(style: string): number {
   if (isChainlink(style)) return 10
   // 8 ft tall privacy is bought as assembled sections, so the section width is
   // the second number in the name (8'x6' = 8 tall, 6 wide).
   const tall = vinyl8Tall(style)
   if (tall) return tall.width
+  // 6 tall, 8 wide: 8' rails, 15 pickets and an insert per section.
+  if (isVinyl6x8(style)) return 8
+  // Industrial Abigail is bought as 6' x 8' sections (6 tall, 8 wide).
+  if (isAlumIndAbigail(style)) return 8
   if (is8Wide(style) || isDurafence(style)) return 8
-  // 6ft wide: vinyl 6x6, 6x8, Bell, Aluminum Emily (6x6 panel)
+  // 6ft wide: vinyl 6x6, Bell 4'x6', Aluminum Emily
   return 6
+}
+
+/**
+ * Section width in feet for a fence style. The one width used everywhere a
+ * section is counted: the quote builder, bundles, the quote drawer and the
+ * pull sheet. A style with a parts list gets the width its parts are bought
+ * at; any other style uses the width saved for it in Settings.
+ */
+export function sectionWidthForStyle(styleName: string, savedWidth?: number): number {
+  if (styleHasPartsList(styleName) || isDurafence(styleName)) return panelLengthForStyle(styleName)
+  return typeof savedWidth === 'number' && savedWidth > 0 ? savedWidth : 6
 }
 
 function sectionsPerRun(ft: number, style: string): number {
@@ -836,6 +852,14 @@ export function calculateMixedMaterialsDetailed(input: MixedJobInputs): Material
     if (r.rail === '8ft') sections8 += sec
     else sections6 += sec
     if (sec > 1) linePosts += sec - 1
+  }
+  // Gate leaves take panel goods like a section, as on the locked styles (a
+  // double gate is two leaves). They use the 8 ft kit only when every run is
+  // 8 ft, so an all 6 or all 8 job matches the 6'x6' or 6'x8' style exactly.
+  const gateLeaves = walkGates + dblGates * 2
+  if (gateLeaves > 0) {
+    if (sections8 > 0 && sections6 === 0) sections8 += gateLeaves
+    else sections6 += gateLeaves
   }
   const totalSections = sections6 + sections8
   const totalPostCount = corners + ends + linePosts

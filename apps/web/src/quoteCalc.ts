@@ -1,0 +1,207 @@
+/**
+ * The quote builder's math in one pure function: sections, the 6 ft / 8 ft
+ * choice per run, the pull sheet, and labor, cost and price. QuoteBuilder
+ * renders what this returns; tests call it directly, so what is tested is
+ * what is quoted.
+ *
+ * Section width always comes from sectionWidthForStyle, the same function the
+ * pull sheet uses, so the section count and the parts can never disagree.
+ */
+
+import {
+  calculateMaterialsDetailed,
+  calculateMixedMaterialsDetailed,
+  totalMaterialCost,
+  sectionWidthForStyle,
+  type MaterialResult,
+  type RailWidth,
+} from './materialCalculator'
+import {
+  calculatePrice,
+  type PricingSettings,
+  type PriceResult,
+  type QuotePricingOverrides,
+  type StylePricing,
+} from './pricingEngine'
+import { sectionsForRun } from './sectionCount'
+import { optimizeJob, type OptimizerJobResult, type RailOptimizerSettings, type RunCostFn } from './railOptimizer'
+
+export interface QuoteStyle extends StylePricing {
+  name: string
+  panelWidth?: number
+  autoRailMix?: boolean
+  installMethod?: 'no-dig' | 'dig-set'
+  colorFamily?: 'white' | 'tan'
+}
+
+export interface QuoteRun {
+  ft: number
+  /** Auto mix only: the width chosen by hand, or 'auto'. */
+  rail?: 'auto' | RailWidth
+}
+
+export interface QuoteCalcInput {
+  style: QuoteStyle | undefined
+  /** In screen order; empty runs (0 ft) are allowed and count 0 sections. */
+  runs: QuoteRun[]
+  corners: number
+  ends: number
+  walkGates: number
+  dblGates: number
+  tearOutSections: number
+  tearOutGates: number
+  extraLaborHrs: number
+  hasSalesman: boolean
+  priceAdjust: number
+  pricing: PricingSettings
+  overrides?: QuotePricingOverrides
+  optimizer: RailOptimizerSettings
+}
+
+export interface QuoteCalc {
+  /** Sections for each input run, same order. */
+  perRunSections: number[]
+  /** Auto mix only: the width used for each input run (null for an empty run). */
+  perRunRail: Array<RailWidth | null>
+  sections: number
+  materials: MaterialResult
+  materialCost: number
+  priced: PriceResult
+  /** Auto mix: the decision behind the pull sheet. Locked 6 ft tall vinyl:
+   *  what the picker would choose, for information. Otherwise null. */
+  optimizer: OptimizerJobResult | null
+}
+
+export interface VinylKind {
+  installMethod: 'no-dig' | 'dig-set'
+  colorFamily: 'white' | 'tan'
+}
+
+/** Color and install method of a 6 ft tall vinyl privacy style the 6/8 picker
+ *  can price, or null. Tan dig set has no mixed width parts list. */
+export function vinylKind(style: QuoteStyle): VinylKind | null {
+  if (style.autoRailMix) {
+    return style.installMethod && style.colorFamily
+      ? { installMethod: style.installMethod, colorFamily: style.colorFamily }
+      : null
+  }
+  const m = style.name.match(/^(WV|TV)-(ND|DS) 6'x[68]'/)
+  if (!m || (m[1] === 'TV' && m[2] === 'DS')) return null
+  return { installMethod: m[2] === 'ND' ? 'no-dig' : 'dig-set', colorFamily: m[1] === 'WV' ? 'white' : 'tan' }
+}
+
+/**
+ * Full cost of building one run at one width: the material calculator's own
+ * pull sheet for that run (panel goods, line posts, pipe, donuts or concrete,
+ * caps, hardware) plus labor from the pricing engine with the style's
+ * sections per man hour. An 8 ft section takes the same labor as a 6 ft one.
+ * Corner and end posts and gates are the same at either width, so they are
+ * left out of the comparison.
+ */
+export function makeRunCost(
+  kind: VinylKind,
+  style: QuoteStyle,
+  pricing: PricingSettings,
+  overrides?: QuotePricingOverrides,
+): RunCostFn {
+  const laborChoice: QuotePricingOverrides = { laborMode: overrides?.laborMode, subUnit: overrides?.subUnit, subRate: overrides?.subRate }
+  return (ft, rail) => {
+    const items = calculateMixedMaterialsDetailed({
+      ...kind,
+      runs: [{ ft, rail }],
+      corners: 0, ends: 0, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0,
+    }).items
+    const labor = calculatePrice({
+      sections: sectionsForRun(ft, rail === '8ft' ? 8 : 6),
+      footage: ft,
+      walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0,
+      materialCost: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
+      style, pricing, overrides: laborChoice,
+    }).laborCost
+    return totalMaterialCost(items) + labor
+  }
+}
+
+export function calculateQuote(input: QuoteCalcInput): QuoteCalc {
+  const { style } = input
+  const runs = input.runs.map(r => ({ ft: Number.isFinite(r.ft) && r.ft > 0 ? r.ft : 0, rail: r.rail }))
+  const kind = style ? vinylKind(style) : null
+  const isAuto = !!style?.autoRailMix && !!kind
+
+  let optimizer: OptimizerJobResult | null = null
+  const filled = runs.filter(r => r.ft > 0)
+  if (style && kind && filled.length > 0) {
+    optimizer = optimizeJob({
+      runs: filled.map(r => ({ footage: r.ft, override: isAuto ? r.rail : undefined })),
+      runCost: makeRunCost(kind, style, input.pricing, input.overrides),
+      settings: input.optimizer,
+    })
+  }
+
+  let k = 0
+  const perRunRail: Array<RailWidth | null> = runs.map(r => (isAuto && r.ft > 0 ? optimizer!.perRun[k++].railType : null))
+  const width = style ? sectionWidthForStyle(style.name, style.panelWidth) : 0
+  const perRunSections = runs.map((r, i) =>
+    !style ? 0 : isAuto ? sectionsForRun(r.ft, perRunRail[i] === '8ft' ? 8 : 6) : sectionsForRun(r.ft, width))
+  const sections = perRunSections.reduce((s, n) => s + n, 0)
+
+  let materials: MaterialResult = { items: [], warnings: [] }
+  if (style && sections > 0) {
+    const jobParts = {
+      corners: input.corners, ends: input.ends, walkGates: input.walkGates, dblGates: input.dblGates,
+      tearOutSections: input.tearOutSections, tearOutGates: input.tearOutGates,
+    }
+    materials = isAuto
+      ? calculateMixedMaterialsDetailed({
+          ...kind!,
+          runs: runs.map((r, i) => ({ ft: r.ft, rail: perRunRail[i] ?? '6ft' })).filter(r => r.ft > 0),
+          ...jobParts,
+        })
+      : calculateMaterialsDetailed({ fenceStyle: style.name, runs: filled.map(r => r.ft), ...jobParts })
+  }
+  const materialCost = totalMaterialCost(materials.items)
+
+  const priced = calculatePrice({
+    sections,
+    footage: runs.reduce((s, r) => s + r.ft, 0),
+    walkGates: input.walkGates,
+    dblGates: input.dblGates,
+    tearOutSections: input.tearOutSections,
+    tearOutGates: input.tearOutGates,
+    materialCost,
+    extraLaborHrs: input.extraLaborHrs,
+    hasSalesman: input.hasSalesman,
+    priceAdjust: input.priceAdjust,
+    style,
+    pricing: input.pricing,
+    overrides: input.overrides,
+  })
+
+  return { perRunSections, perRunRail, sections, materials, materialCost, priced, optimizer }
+}
+
+/**
+ * The same job priced at 6 ft and at 8 ft wide, for the line under a vinyl
+ * quote's total. Auto mix styles force every run to one width; a locked style
+ * is priced as its 6 ft and 8 ft wide twins from Settings (WV-ND 6'x6' and
+ * WV-ND 6'x8', WV-DS 8'x6' and WV-DS 8'x8', ...), each with its own Settings.
+ * A price typed by hand is left out so the two can be compared.
+ */
+export function widthComparison(input: QuoteCalcInput, styles: QuoteStyle[]): { at6: number; at8: number } | null {
+  const { style } = input
+  if (!style || !input.runs.some(r => r.ft > 0)) return null
+  const overrides = { ...(input.overrides ?? {}), finalPrice: undefined }
+  const priceWith = (s: QuoteStyle, rail?: RailWidth) =>
+    calculateQuote({ ...input, style: s, overrides, runs: input.runs.map(r => ({ ft: r.ft, rail: rail ?? r.rail })) }).priced.price
+
+  if (style.autoRailMix) {
+    if (!vinylKind(style)) return null
+    return { at6: priceWith(style, '6ft'), at8: priceWith(style, '8ft') }
+  }
+  const m = style.name.match(/^((?:WV|TV)-(?:ND|DS) [68]'x)([68])'(.*)$/)
+  if (!m) return null
+  const twin = (w: 6 | 8) => styles.find(s => s.name === `${m[1]}${w}'${m[3]}`)
+  const s6 = twin(6), s8 = twin(8)
+  if (!s6 || !s8) return null
+  return { at6: priceWith(s6), at8: priceWith(s8) }
+}

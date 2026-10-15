@@ -7,7 +7,7 @@
  * pricePerFootOverride, materialMarkupPercent.
  */
 
-import { calculateMaterials, totalMaterialCost } from './materialCalculator'
+import { calculateMaterials, totalMaterialCost, sectionWidthForStyle } from './materialCalculator'
 import { getConfig, type FenceStyle } from './configStore'
 import type { QuoteBundle, QuoteOption, BundleInclusion, BundleAddon } from './bundleStore'
 import { sectionsForRun } from './sectionCount'
@@ -42,7 +42,7 @@ export function calculateBundleOption(
 
   const totalFootage = inputs.runs.reduce((s, f) => s + f, 0)
   const sections = style
-    ? inputs.runs.reduce((s, ft) => s + sectionsForRun(ft, style.panelWidth), 0)
+    ? inputs.runs.reduce((s, ft) => s + sectionsForRun(ft, sectionWidthForStyle(style.name, style.panelWidth)), 0)
     : 0
 
   // Materials

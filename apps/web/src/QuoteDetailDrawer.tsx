@@ -19,6 +19,7 @@ import { TEMPLATES, getDefaultTemplateKey, type TemplateKey, type QuotePresentat
 import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import { getConfig } from './configStore'
 import { sectionsForRun } from './sectionCount'
+import { sectionWidthForStyle } from './materialCalculator'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -142,10 +143,13 @@ export default function QuoteDetailDrawer({
 
           {/* Runs */}
           {(quote.runs || []).length > 0 && (() => {
-            // Look up the panel width from configStore by style name. Falls back
-            // to 6 if the style is missing from the config (legacy quotes).
+            // Today's width for the style. A quote saved before a width was
+            // corrected keeps its own numbers, so show its runs at whichever
+            // width adds up to the sections it was priced with.
             const styleCfg = getConfig().fenceStyles.find(s => s.name === quote.fenceStyle)
-            const panelWidth = styleCfg?.panelWidth ?? 6
+            const today = sectionWidthForStyle(quote.fenceStyle, styleCfg?.panelWidth)
+            const sumAt = (w: number) => (quote.runs || []).reduce((s, ft) => s + sectionsForRun(ft, w), 0)
+            const panelWidth = [today, 6, 8, 10, 4].find(w => sumAt(w) === quote.sections) ?? today
             const perRunSections = (quote.runs || []).map(ft => sectionsForRun(ft, panelWidth))
             const totalSections = perRunSections.reduce((s, n) => s + n, 0)
             return (

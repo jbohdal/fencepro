@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { calculateMaterialsDetailed, calculateMixedMaterialsDetailed, mixedTotalSections, totalMaterialCost, materialUnitCost } from './materialCalculator'
-import type { LineItem, RailWidth, MaterialResult } from './materialCalculator'
-import { calculatePrice, resolveSubRate, cleanOverrides } from './pricingEngine'
+import { totalMaterialCost } from './materialCalculator'
+import type { LineItem, MaterialResult } from './materialCalculator'
+import { resolveSubRate, cleanOverrides } from './pricingEngine'
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT } from './inventoryStore'
 import { newId } from './recordSync'
@@ -10,15 +10,8 @@ import QuoteOptionsPanel from './QuoteOptionsPanel'
 import { getCustomers, getCustomerById, upsertCustomer } from './customerStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
-import { sectionsForRun } from './sectionCount'
 import { getRailOptimizerConfig } from './configStore'
-import {
-  optimizeJob,
-  runMaterialCost,
-  WHITE_VINYL_6X6_COSTS,
-  WHITE_VINYL_6X8_COSTS,
-} from './railOptimizer'
-import type { PanelCosts } from './railOptimizer'
+import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
 
 // Settings are read when the builder opens (not when the app loads), so a
 // change in Settings → Pricing or Fence Styles applies to the next quote
@@ -27,19 +20,6 @@ const DEFAULT_LEAD_SOURCES = ['Google', 'Facebook', 'Instagram', 'Yard Sign', 'R
 function leadSources(): string[] {
   const ls = getConfig().leadSources
   return ls?.length ? ls : DEFAULT_LEAD_SOURCES
-}
-
-/** White vinyl panel costs for the rail optimizer, read from Inventory. */
-function livePanelCosts(): { c6: PanelCosts; c8: PanelCosts } {
-  const picketCost = materialUnitCost('*Vinyl, White, Picket, 62-1/4"', WHITE_VINYL_6X6_COSTS.picketCost)
-  const uTrimCost = materialUnitCost('*Vinyl, White, U-Trim, 59-1/4"', WHITE_VINYL_6X6_COSTS.uTrimCost)
-  return {
-    c6: { ...WHITE_VINYL_6X6_COSTS, picketCost, uTrimCost,
-          railCost: materialUnitCost("*Vinyl, White, Rail, 6'", WHITE_VINYL_6X6_COSTS.railCost) },
-    c8: { ...WHITE_VINYL_6X8_COSTS, picketCost, uTrimCost,
-          railCost: materialUnitCost("*Vinyl, White, Rail, 8'", WHITE_VINYL_6X8_COSTS.railCost),
-          stiffenerCost: materialUnitCost("Vinyl, Rail Insert, 8'", WHITE_VINYL_6X8_COSTS.stiffenerCost) },
-  }
 }
 
 /** '' → undefined, otherwise the number if it is valid and not negative. */
@@ -418,75 +398,11 @@ export default function QuoteBuilder({
   const style = FENCE_STYLES.find(s => s.id === styleId)
   const cfgStyle = style
   const isAutoMix = !!cfgStyle?.autoRailMix
-  const panelCosts = useMemo(() => livePanelCosts(), [invTick])
+  const optSettings = getRailOptimizerConfig()
 
-  // ── Auto-mix: resolve per-run rail width via the optimizer ──
-  // For each run, look up the override; if 'auto', call the optimizer with
-  // the configured cutoff + threshold; otherwise honor the user's lock.
-  const optSettingsLive = getRailOptimizerConfig()
-  const resolvedRunRails: RailWidth[] = useMemo(() => {
-    if (!isAutoMix) return []
-    return runs.map(r => {
-      const ft = parseFloat(r.ft) || 0
-      if (ft <= 0) return '6ft'
-      if (r.rail === '6ft' || r.rail === '8ft') return r.rail
-      // Optimizer decision (matches railOptimizer.ts logic)
-      if (!optSettingsLive.enabled || ft <= optSettingsLive.shortRunCutoffFt) return '6ft'
-      const cost6 = runMaterialCost(ft, panelCosts.c6, 6)
-      const cost8 = runMaterialCost(ft, panelCosts.c8, 8)
-      if (cost8 < cost6) return '8ft'
-      const pctDiff = cost6 > 0 ? (cost6 - cost8) / cost6 : 0
-      if (-pctDiff <= optSettingsLive.costPreferenceThreshold) return '8ft'
-      return '6ft'
-    })
-  }, [isAutoMix, runs, panelCosts, optSettingsLive.enabled, optSettingsLive.shortRunCutoffFt, optSettingsLive.costPreferenceThreshold])
-
-  const sections = useMemo(() => {
-    if (isAutoMix) {
-      const mixed = runs.map((r, i) => ({ ft: parseFloat(r.ft) || 0, rail: resolvedRunRails[i] || ('6ft' as RailWidth) }))
-                        .filter(r => r.ft > 0)
-      return mixedTotalSections(mixed)
-    }
-    return runs.reduce((sum, r) => {
-      const ft = parseFloat(r.ft) || 0
-      return sum + (style ? sectionsForRun(ft, style.panelWidth) : 0)
-    }, 0)
-  }, [isAutoMix, runs, resolvedRunRails, style])
-
-  const materials: MaterialResult = useMemo(() => {
-    if (!style || sections === 0) return { items: [], warnings: [] }
-    if (isAutoMix && cfgStyle?.installMethod && cfgStyle?.colorFamily) {
-      const mixed = runs
-        .map((r, i) => ({ ft: parseFloat(r.ft) || 0, rail: resolvedRunRails[i] || ('6ft' as RailWidth) }))
-        .filter(r => r.ft > 0)
-      return calculateMixedMaterialsDetailed({
-        installMethod: cfgStyle.installMethod,
-        colorFamily: cfgStyle.colorFamily,
-        runs: mixed,
-        corners, ends, walkGates, dblGates,
-        tearOutSections: tearOutSec, tearOutGates,
-      })
-    }
-    return calculateMaterialsDetailed({
-      fenceStyle:      style.name,
-      runs:            runs.map(r => parseFloat(r.ft) || 0).filter(f => f > 0),
-      corners,
-      ends,
-      walkGates,
-      dblGates,
-      tearOutSections: tearOutSec,
-      tearOutGates,
-    })
-    // invTick: re-read Inventory costs when Inventory changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [style, isAutoMix, cfgStyle, sections, runs, resolvedRunRails, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, invTick])
-
-  const materialItems: LineItem[] = materials.items
-  const materialCost = useMemo(() => totalMaterialCost(materialItems), [materialItems])
-  const totalFootage = runs.reduce((s, r) => s + (parseFloat(r.ft) || 0), 0)
-
-  // Everything about labor, cost and price comes out of the pricing engine,
-  // driven by Settings → Pricing, the style, and the choices on this quote.
+  // Everything about sections, the 6 ft / 8 ft choice per run, the pull sheet,
+  // labor, cost and price comes out of quoteCalc, driven by Settings, the
+  // style, Inventory prices and the choices on this quote.
   const pricingOverrides: QuotePricingOverrides = {
     laborMode,
     subUnit: laborMode === 'subcontractor' ? subUnit : undefined,
@@ -497,21 +413,30 @@ export default function QuoteBuilder({
     costFactor: priceMethod === 'cost_factor' ? numOrUndef(factorStr) : undefined,
     finalPrice: numOrUndef(finalPriceStr),
   }
-  const priced = calculatePrice({
-    sections,
-    footage: totalFootage,
-    walkGates,
-    dblGates,
-    tearOutSections: tearOutSec,
-    tearOutGates,
-    materialCost,
+  const calcInput: QuoteCalcInput = {
+    style,
+    runs: runs.map(r => ({ ft: parseFloat(r.ft) || 0, rail: r.rail })),
+    corners, ends, walkGates, dblGates,
+    tearOutSections: tearOutSec, tearOutGates,
     extraLaborHrs: parseFloat(adjLaborHrs) || 0,
     hasSalesman,
     priceAdjust,
-    style: cfgStyle,
     pricing: cfg.pricing,
     overrides: pricingOverrides,
-  })
+    optimizer: optSettings,
+  }
+  // invTick: re-read Inventory costs when Inventory changes while the builder is open.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const calc = useMemo(() => calculateQuote(calcInput), [JSON.stringify(calcInput), invTick])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const compare = useMemo(() => widthComparison(calcInput, FENCE_STYLES), [JSON.stringify(calcInput), invTick])
+  const sections = calc.sections
+  const materials: MaterialResult = calc.materials
+  const priced = calc.priced
+
+  const materialItems: LineItem[] = materials.items
+  const materialCost = useMemo(() => totalMaterialCost(materialItems), [materialItems])
+  const totalFootage = runs.reduce((s, r) => s + (parseFloat(r.ft) || 0), 0)
   const adjustedMH  = priced.manHours
   const laborCost   = priced.laborCost
   const tearOutCost = priced.tearOutCost
@@ -539,25 +464,10 @@ export default function QuoteBuilder({
   const categories = [...new Set(FENCE_STYLES.map(s => s.category))]
   const canSave = styleId && sections > 0
 
-  // Smart-rail optimizer (advisory: recommends 6ft / 8ft per run for vinyl jobs)
-  const optSettings = getRailOptimizerConfig()
-  const isWhiteVinyl = !!style && (style.name.startsWith('WV-ND') || style.name.startsWith('WV-DS') || style.name.startsWith('WV-Auto'))
-  const showOptimizer = optSettings.enabled && optSettings.showDetailsInBuilder && (isWhiteVinyl || isAutoMix)
-  const optimizerResult = useMemo(() => {
-    if (!showOptimizer) return null
-    const runFootages = runs.map(r => parseFloat(r.ft) || 0).filter(f => f > 0)
-    if (runFootages.length === 0) return null
-    return optimizeJob({
-      runs: runFootages.map(f => ({ footage: f })),
-      costs6ft: panelCosts.c6,
-      costs8ft: panelCosts.c8,
-      settings: {
-        enabled: optSettings.enabled,
-        shortRunCutoffFt: optSettings.shortRunCutoffFt,
-        costPreferenceThreshold: optSettings.costPreferenceThreshold,
-      },
-    })
-  }, [showOptimizer, runs, panelCosts, optSettings.enabled, optSettings.shortRunCutoffFt, optSettings.costPreferenceThreshold])
+  // The 6 ft / 8 ft picker's per run choice. On auto mix styles it drives the
+  // pull sheet; on locked 6 ft tall vinyl it is shown for information.
+  const showOptimizer = optSettings.enabled && optSettings.showDetailsInBuilder && !!calc.optimizer
+  const optimizerResult = calc.optimizer
 
   function handleSave(data: {
     customerId: string
@@ -691,10 +601,8 @@ export default function QuoteBuilder({
               <div className="space-y-2">
                 {runs.map((run, i) => {
                   const ft = parseFloat(run.ft) || 0
-                  const resolvedRail = isAutoMix ? (resolvedRunRails[i] ?? '6ft') : null
-                  const sectionsThisRun = isAutoMix
-                    ? (resolvedRail ? sectionsForRun(ft, resolvedRail === '8ft' ? 8 : 6) : 0)
-                    : (style ? sectionsForRun(ft, style.panelWidth) : 0)
+                  const resolvedRail = isAutoMix ? calc.perRunRail[i] : null
+                  const sectionsThisRun = calc.perRunSections[i] ?? 0
                   const isOverridden = isAutoMix && (run.rail === '6ft' || run.rail === '8ft')
                   return (
                     <div key={i} className="flex items-center gap-2">
@@ -745,12 +653,13 @@ export default function QuoteBuilder({
                 <div className="mt-4 bg-orange-50 border border-orange-200 rounded-xl p-4">
                   <div className="flex items-start justify-between mb-3">
                     <div>
-                      <h4 className="text-xs font-bold text-orange-700">Smart Rail Recommendation</h4>
+                      <h4 className="text-xs font-bold text-orange-700">6 ft or 8 ft wide, per run</h4>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        Per-run rail-width suggestion. Currently advisory — does not yet drive the pull sheet.
+                        {isAutoMix
+                          ? `Each run is priced both ways, all parts and labor. The cheaper width is used; 8 ft is kept when it costs no more than ${Math.round(optSettings.costPreferenceThreshold * 100)}% extra.`
+                          : 'What auto mix would choose for these runs. This style stays at its own width.'}
                       </p>
                     </div>
-                    <span className="text-[10px] bg-orange-200 text-orange-700 px-2 py-0.5 rounded-full font-semibold">PREVIEW</span>
                   </div>
 
                   <div className="space-y-1.5 mb-3">
@@ -780,11 +689,11 @@ export default function QuoteBuilder({
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] text-gray-500">Material vs all-6ft</p>
-                      <p className={`text-sm font-bold ${optimizerResult.totals.materialSavings > 0 ? 'text-green-600' : 'text-gray-700'}`}>
-                        {optimizerResult.totals.materialSavings > 0 ? `-$${optimizerResult.totals.materialSavings.toFixed(2)}` : '$0.00'}
+                      <p className="text-[10px] text-gray-500">Cost vs all 6 ft</p>
+                      <p className={`text-sm font-bold ${optimizerResult.totals.savingsVsAll6ft > 0 ? 'text-green-600' : 'text-gray-700'}`}>
+                        {optimizerResult.totals.savingsVsAll6ft > 0 ? `-$${optimizerResult.totals.savingsVsAll6ft.toFixed(2)}` : '$0.00'}
                       </p>
-                      <p className="text-[10px] text-gray-400">{optimizerResult.totals.materialSavings > 0 ? 'savings' : 'no change'}</p>
+                      <p className="text-[10px] text-gray-400">{optimizerResult.totals.savingsVsAll6ft > 0 ? 'saved' : 'no change'}</p>
                     </div>
                     <div>
                       <p className="text-[10px] text-gray-500">Sections vs all-6ft</p>
@@ -1014,6 +923,11 @@ export default function QuoteBuilder({
                 <p className="text-white text-3xl font-bold">{fmt(adjPrice)}</p>
                 {totalFootage > 0 && <p className="text-gray-400 text-xs mt-1">{fmt(priced.pricePerFoot)} per foot</p>}
                 {commAmt > 0 && <p className="text-gray-400 text-xs mt-1">Commission: {fmt(commAmt)}</p>}
+                {compare && (
+                  <p className="text-gray-300 text-xs mt-2 pt-2 border-t border-gray-700" data-width-compare>
+                    Same job at 6 ft wide: {fmt(compare.at6)}  |  at 8 ft wide: {fmt(compare.at8)}
+                  </p>
+                )}
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">

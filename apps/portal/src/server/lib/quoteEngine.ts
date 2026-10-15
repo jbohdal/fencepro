@@ -81,18 +81,18 @@ const FENCE_STYLES: FenceStyle[] = [
   { id: 'auto-wv-nd', name: "WV-Auto ND Privacy", category: 'Vinyl', margin: 0.64, sectionsPerMH: 1.2, panelWidth: 6, mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: 'auto-wv-ds', name: "WV-Auto DS Privacy", category: 'Vinyl', margin: 0.64, sectionsPerMH: 0.8, panelWidth: 6, mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '1',  name: "WV-ND 6'x6' Privacy",    category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
-  { id: '2',  name: "WV-ND 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
+  { id: '2',  name: "WV-ND 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '3',  name: "WV-ND 8'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '4',  name: "WV-ND 8'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '5',  name: "WV-ND Bell 4'x6'",        category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.25, panelWidth: 4,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '6',  name: "WV-DS 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
-  { id: '7',  name: "WV-DS 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
+  { id: '7',  name: "WV-DS 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.8,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '8',  name: "WV-DS 8'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.7,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '9',  name: "WV-DS 8'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 0.7,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '10', name: "TV-ND 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
-  { id: '11', name: "TV-ND 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.5,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
+  { id: '11', name: "TV-ND 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.5,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '12', name: "TV-DS 6'x6' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.1,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
-  { id: '13', name: "TV-DS 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.1,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
+  { id: '13', name: "TV-DS 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.1,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '14', name: "CL - 4' Galv",            category: 'Chainlink',  margin: 0.56, sectionsPerMH: 1.5,  panelWidth: 10, mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '15', name: "CL - 5' Galv",            category: 'Chainlink',  margin: 0.56, sectionsPerMH: 1.5,  panelWidth: 10, mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
   { id: '16', name: "CL - 6' Galv",            category: 'Chainlink',  margin: 0.56, sectionsPerMH: 1.5,  panelWidth: 10, mhPerWalkGate: 2.4, mhPerDblGate: 4.8 },
@@ -135,8 +135,15 @@ function is8Wide(s: string) { return s.includes("8'x6'") || s.includes("8'x8'") 
 function isDurafence(s: string) { return s === "Durafence" }
 function clHeight(s: string): 4 | 5 | 6 { if (s.includes("4'")) return 4; if (s.includes("5'")) return 5; return 6 }
 
-function panelLengthForStyle(style: string): number {
+/** Section width in feet. Must match sectionWidthForStyle in the web app's
+ *  materialCalculator.ts (a test checks every style). Names read height x
+ *  width: 6'x8' is 6 tall, 8 wide; 8'x6' is 8 tall, 6 wide. */
+export function panelLengthForStyle(style: string): number {
   if (isChainlink(style)) return 10
+  const tall = style.match(/^(WV|TV)-(ND|DS) 8'x([68])'/)
+  if (tall) return tall[3] === '8' ? 8 : 6
+  if (isVinyl6x8(style)) return 8
+  if (style.includes('Ind Abigail')) return 8
   if (is8Wide(style) || isDurafence(style)) return 8
   return 6
 }

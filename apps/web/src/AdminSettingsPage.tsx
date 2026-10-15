@@ -9,6 +9,7 @@ import EmailTemplatesSettings from './EmailTemplatesSettings'
 import ContractTemplatesSettings from './ContractTemplatesSettings'
 import PortalQuoteSettings from './PortalQuoteSettings'
 import { toast } from './toast'
+import { sectionWidthForStyle, styleHasPartsList } from './materialCalculator'
 import CalendarSyncSettings from './CalendarSyncSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
 
@@ -385,7 +386,13 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
                   <input type="number" step="0.1" min="0.1" max="20" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.sectionsPerMH} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) update(style.id, { sectionsPerMH: Math.round(v * 10) / 10 }) }} />
                 </td>
                 <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="1" min="1" className="w-14 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.panelWidth} onChange={e => update(style.id, { panelWidth: parseInt(e.target.value) || 6 })} />
+                  {style.autoRailMix ? (
+                    <span className="text-xs font-mono text-gray-600" title="Chosen per run: 6 ft or 8 ft wide">6 or 8</span>
+                  ) : styleHasPartsList(style.name) ? (
+                    <span className="text-xs font-mono text-gray-600" title="Set by this style's parts list">{sectionWidthForStyle(style.name, style.panelWidth)}</span>
+                  ) : (
+                    <input type="number" step="1" min="1" className="w-14 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.panelWidth} onChange={e => update(style.id, { panelWidth: parseInt(e.target.value) || 6 })} />
+                  )}
                 </td>
                 <td className="px-3 py-2.5 text-right">
                   <input type="number" step="0.1" min="0" max="20" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.mhPerWalkGate} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) update(style.id, { mhPerWalkGate: Math.round(v * 10) / 10 }) }} />

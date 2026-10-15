@@ -84,18 +84,18 @@ describe('calculateMixedMaterials — white vinyl ND', () => {
       walkGates: 1,
       dblGates: 0,
     })
-    // Section breakdown: 1 + 13 = 14 total, 1 at 6ft, 13 at 8ft
-    expect(find(items, "*Vinyl, White, Rail, 6'")?.qty).toBe(2)   // 1 × 2
+    // Section breakdown: 1 + 13 = 14 total, 1 at 6ft, 13 at 8ft. The walk
+    // gate leaf takes a 6 ft kit (not every run is 8 ft), like the locked styles.
+    expect(find(items, "*Vinyl, White, Rail, 6'")?.qty).toBe(4)   // (1 + 1 leaf) × 2
     expect(find(items, "*Vinyl, White, Rail, 8'")?.qty).toBe(26)  // 13 × 2
     expect(find(items, "Vinyl, Rail Insert, 8'")?.qty).toBe(13)   // 1 per 8ft section, none for 6ft
-    // Pickets split by rail:
-    // 1 × 11 (6ft) + 13 × 15 (8ft) = 11 + 195 = 206 total
+    // Pickets split by rail: 2 × 11 (6ft + leaf) + 13 × 15 (8ft) = 22 + 195 = 217
     // The calculator emits two separate picket lines (one per rail width).
     const picketLines = items.filter(i => i.item === '*Vinyl, White, Picket, 62-1/4"')
     const totalPickets = picketLines.reduce((s, p) => s + p.qty, 0)
-    expect(totalPickets).toBe(206)
-    // U-trim: total sections × 2 = 14 × 2 = 28
-    expect(find(items, '*Vinyl, White, U-Trim, 59-1/4"')?.qty).toBe(28)
+    expect(totalPickets).toBe(217)
+    // U-trim: (14 sections + 1 leaf) × 2 = 30
+    expect(find(items, '*Vinyl, White, U-Trim, 59-1/4"')?.qty).toBe(30)
   })
 
   test('no stiffener for 6ft-only runs in a mixed job', () => {
