@@ -179,3 +179,63 @@ describe('6 ft vs 8 ft line under the total', () => {
     expect(widthComparison(input, STYLES)).toBeNull()
   })
 })
+
+describe('subcontractor paid per section', () => {
+  const sub = { ...pricing, manHourRate: 25, laborMode: 'subcontractor' as const, subUnit: 'section' as const, subRateByCategory: { Vinyl: 24 } }
+  const subQuote = (name: string, job: Partial<QuoteCalcInput> & { runs: number[] }, p: any = sub) => calculateQuote({
+    style: byName(name), corners: 0, ends: 2, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0,
+    extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, pricing: p, optimizer: DEFAULT_RAIL_OPTIMIZER_SETTINGS,
+    ...job, runs: job.runs.map(ft => ({ ft })),
+  })
+
+  test('labor is $24 a section at 6 ft and at 8 ft wide', () => {
+    expect(subQuote("WV-ND 6'x6' Privacy", STRAIGHT).priced.laborCost).toBe(25 * 24)
+    expect(subQuote("WV-ND 6'x8' Privacy", STRAIGHT).priced.laborCost).toBe(19 * 24)
+  })
+
+  test('the picker prices each run with sub labor', () => {
+    const run = subQuote('WV-Auto ND Privacy', { runs: [100] }).optimizer!.perRun[0]
+    const panelsAndPosts = (rail: '6ft' | '8ft') => totalMaterialCost(calculateMixedMaterials({ installMethod: 'no-dig', colorFamily: 'white', runs: [{ ft: 100, rail }], corners: 0, ends: 0, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0 }))
+    expect(run.cost6ft).toBeCloseTo(panelsAndPosts('6ft') + 17 * 24, 2)
+    expect(run.cost8ft).toBeCloseTo(panelsAndPosts('8ft') + 13 * 24, 2)
+  })
+
+  test('the 6 ft / 8 ft line uses sub labor too', () => {
+    const input = {
+      style: byName('WV-Auto ND Privacy'), runs: [{ ft: 150 }], corners: 0, ends: 2, walkGates: 0, dblGates: 0,
+      tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, pricing: sub,
+      optimizer: DEFAULT_RAIL_OPTIMIZER_SETTINGS,
+    }
+    const c = widthComparison(input, STYLES)!
+    expect(c.at6).toBe(subQuote("WV-ND 6'x6' Privacy", STRAIGHT).priced.price)
+    expect(c.at8).toBe(subQuote("WV-ND 6'x8' Privacy", STRAIGHT).priced.price)
+  })
+
+  test('a blank gate or tear out rate warns instead of quietly charging $0', () => {
+    const q = subQuote("WV-ND 6'x8' Privacy", { runs: [100], walkGates: 1, dblGates: 1, tearOutSections: 3 })
+    expect(q.priced.notes.join(' ')).toMatch(/No subcontractor rate per walk gate, per double gate, per tear out section is set/)
+    const set = subQuote("WV-ND 6'x8' Privacy", { runs: [100], walkGates: 1 }, { ...sub, subWalkGate: 60 })
+    expect(set.priced.notes).toEqual([])
+    expect(set.priced.laborCost).toBe(13 * 24 + 60)
+  })
+
+  test('a blank section rate warns', () => {
+    const q = subQuote("WV-ND 6'x8' Privacy", STRAIGHT, { ...sub, subRateByCategory: {} })
+    expect(q.priced.laborCost).toBe(0)
+    expect(q.priced.notes.join(' ')).toMatch(/No subcontractor rate is set for this style/)
+  })
+
+  test('man hours and crew time still show on sub quotes', () => {
+    const q = subQuote("WV-ND 6'x8' Privacy", { runs: [36], ends: 2 }, { ...sub, crewSize: 3, crewHoursPerDay: 10 })
+    // 36 ft at 8 wide = 5 sections; at 1.2 sections per man hour = 4.17 man hours.
+    expect(q.priced.manHours).toBeCloseTo(5 / 1.2, 5)
+    expect(q.priced.crewHours).toBeCloseTo(5 / 1.2 / 3, 5)
+  })
+
+  test("Jonathan's example: 3 men for 10 hours is 30 man hours, 36 sections at 1.2", () => {
+    const q = subQuote("WV-ND 6'x8' Privacy", { runs: [36 * 8], ends: 2 }, { ...sub, crewSize: 3, crewHoursPerDay: 10 })
+    expect(q.sections).toBe(36)
+    expect(q.priced.manHours).toBeCloseTo(30, 5)
+    expect(q.priced.crewDays).toBeCloseTo(1, 5)
+  })
+})

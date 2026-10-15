@@ -52,6 +52,9 @@ export interface PricingConfig {
   priceMethod: 'cost_factor' | 'per_foot'
   /** 'included' takes commission out of the price; 'added' puts it on top. */
   commissionMode: 'included' | 'added'
+  /** Men on a crew and hours in a crew day: turns man hours into crew time. */
+  crewSize: number
+  crewHoursPerDay: number
 }
 
 export interface MarginThresholds {
@@ -169,6 +172,8 @@ const DEFAULT_CONFIG: AppConfig = {
     subTearOutGate: 0,
     priceMethod: 'cost_factor',
     commissionMode: 'included',
+    crewSize: 3,
+    crewHoursPerDay: 10,
   },
   margins: {
     // GM thresholds: Magic Number = 1 - overhead% - profit% ≈ 0.654 → GM target ≈ 0.346

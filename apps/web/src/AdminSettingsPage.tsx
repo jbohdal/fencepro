@@ -229,6 +229,21 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
       </div>
 
       <div>
+        <h3 className="text-xs font-semibold text-gray-500 mb-1">Crew time</h3>
+        <p className="text-xs text-gray-500 mb-4">Quotes show man hours and crew time on hourly and subcontractor jobs, for scheduling.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Men on a crew</label>
+            <input type="number" step="1" min="1" max="20" className={inputCls} value={p.crewSize ?? 3} onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 1) setP('crewSize', v) }} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Hours in a crew day</label>
+            <input type="number" step="0.5" min="1" max="24" className={inputCls} value={p.crewHoursPerDay ?? 10} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 1) setP('crewHoursPerDay', v) }} />
+          </div>
+        </div>
+      </div>
+
+      <div>
         <h3 className="text-xs font-semibold text-gray-500 mb-4">Commission</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>

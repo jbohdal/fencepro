@@ -846,6 +846,14 @@ export default function QuoteBuilder({
                   <span className="text-xs text-gray-500">Projected man hours</span>
                   <span className="text-xl font-bold text-gray-900">{adjustedMH.toFixed(1)}</span>
                 </div>
+                {adjustedMH > 0 && (
+                  <div className="flex justify-between items-center mt-1" data-crew-time>
+                    <span className="text-xs text-gray-500">Crew time ({priced.crewSize} men)</span>
+                    <span className="text-sm font-semibold text-gray-700">
+                      {priced.crewHours.toFixed(1)} hr · {priced.crewDays.toFixed(1)} {priced.crewDays.toFixed(1) === '1.0' ? 'day' : 'days'}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2">

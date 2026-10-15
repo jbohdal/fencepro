@@ -44,6 +44,9 @@ export interface PricingSettings {
   subTearOutGate?: number
   priceMethod?: PriceMethod
   commissionMode?: CommissionMode
+  /** Men on a crew and hours in a crew day, for crew time on a quote. */
+  crewSize?: number
+  crewHoursPerDay?: number
 }
 
 /** The parts of a fence style the engine reads. */
@@ -102,6 +105,10 @@ export interface PriceResult {
   subRate: number
   /** Projected man hours. Always computed, even on subcontractor jobs, for scheduling. */
   manHours: number
+  /** Crew time for scheduling: man hours ÷ crew size, and that in crew days. */
+  crewSize: number
+  crewHours: number
+  crewDays: number
   laborCost: number
   tearOutCost: number
   materialCost: number
@@ -177,6 +184,9 @@ export function calculatePrice(input: PriceInputs): PriceResult {
       + dblGates * num(style.mhPerDblGate, DEFAULT_MH_DBL_GATE)
     : 0
   const manHours = baseMH + extraLaborHrs
+  const crewSize = pos(pricing.crewSize) ?? 3
+  const crewHours = manHours / crewSize
+  const crewDays = crewHours / (pos(pricing.crewHoursPerDay) ?? 10)
 
   // ── Labor ──
   const requestedMode: LaborMode = o.laborMode ?? pricing.laborMode ?? 'hourly'
@@ -192,6 +202,15 @@ export function calculatePrice(input: PriceInputs): PriceResult {
     subRate = resolveSubRate(style, pricing, o.subRate)
     if (subRate <= 0 && (sections > 0 || footage > 0)) {
       notes.push('No subcontractor rate is set for this style, so install labor is $0. Set a rate in Settings → Pricing or type one on this quote.')
+    }
+    // Any piece of the job with no sub rate is called out, never charged $0 quietly.
+    const missing: string[] = []
+    if (walkGates > 0 && !(num(pricing.subWalkGate) > 0)) missing.push('walk gate')
+    if (dblGates > 0 && !(num(pricing.subDblGate) > 0)) missing.push('double gate')
+    if (tearOutSections > 0 && !(num(pricing.subTearOutSection) > 0)) missing.push('tear out section')
+    if (tearOutGates > 0 && !(num(pricing.subTearOutGate) > 0)) missing.push('tear out gate')
+    if (missing.length > 0) {
+      notes.push(`No subcontractor rate per ${missing.join(', per ')} is set, so that labor is $0. Set it in Settings → Pricing, or switch this quote to Hourly crew.`)
     }
     const units = subUnit === 'section' ? sections : footage
     laborCost = units * subRate
@@ -251,6 +270,9 @@ export function calculatePrice(input: PriceInputs): PriceResult {
     subUnit,
     subRate,
     manHours,
+    crewSize,
+    crewHours,
+    crewDays,
     laborCost: cents(laborCost),
     tearOutCost: cents(tearOutCost),
     materialCost: cents(materialCost),
