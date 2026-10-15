@@ -101,7 +101,7 @@ export default function PortalInbox() {
       {/* Connection status */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">Customer Portal</h2>
+          <h2 className="text-lg font-bold text-gray-900">Customer portal</h2>
           <p className="text-sm text-gray-400 mt-0.5">Live view of customer portal activity</p>
         </div>
         <div className="flex items-center gap-3">

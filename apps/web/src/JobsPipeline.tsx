@@ -345,9 +345,9 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
                 { label: 'Style', value: job.fenceStyle },
                 { label: 'Sections', value: job.sections },
                 { label: 'Total Feet', value: `${job.totalFeet} ft` },
-                { label: 'Walk Gates', value: job.walkGates },
+                { label: 'Walk gates', value: job.walkGates },
                 { label: 'Dbl Gates', value: job.dblGates },
-                { label: 'Tear Out', value: job.tearOutSections },
+                { label: 'Tear out', value: job.tearOutSections },
               ].map(f => (
                 <div key={f.label} className="bg-gray-50 rounded-lg p-2.5">
                   <p className="text-[10px] text-gray-400">{f.label}</p>

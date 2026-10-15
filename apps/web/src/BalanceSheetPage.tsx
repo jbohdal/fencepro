@@ -248,7 +248,7 @@ function BalanceSheetEditor({ onClose, onSaved }: { onClose: () => void; onSaved
           <div className="flex justify-between items-center mb-4">
             <p className="text-sm text-gray-500">Add, edit, and delete manual balance sheet entries. Historical snapshots preserved — balance sheet can be viewed as of any past date.</p>
             <button onClick={() => { setEditing(null); setShowForm(true) }}
-              className="btn btn-primary">+ Add Entry</button>
+              className="btn btn-primary">+ Add entry</button>
           </div>
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <table className="w-full text-sm">

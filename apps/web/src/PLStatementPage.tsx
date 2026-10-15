@@ -378,7 +378,7 @@ function ManageEntriesModal({ onClose, onSaved }: { onClose: () => void; onSaved
           <div className="flex justify-between items-center mb-4">
             <p className="text-sm text-gray-500">Manual entries for items not captured by invoices or vendor bills — depreciation, owner salary, vehicle payments, etc.</p>
             <button onClick={() => { setEditing(null); setShowForm(true) }}
-              className="btn btn-primary">+ Add Entry</button>
+              className="btn btn-primary">+ Add entry</button>
           </div>
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <table className="w-full text-sm">
@@ -586,7 +586,7 @@ function exportPlPdf(pl: PlStatement) {
 <table>
   <tr><td>Fence Installation Revenue</td><td class="amt">${fmt(pl.revenue.fenceInstallation)}</td></tr>
   <tr><td>Other Revenue</td><td class="amt">${fmt(pl.revenue.otherRevenue)}</td></tr>
-  <tr class="total"><td>Total Revenue</td><td class="amt">${fmt(pl.revenue.total)}</td></tr>
+  <tr class="total"><td>Total revenue</td><td class="amt">${fmt(pl.revenue.total)}</td></tr>
 </table>
 <div class="section">Cost of Goods Sold</div>
 <table>
@@ -594,7 +594,7 @@ function exportPlPdf(pl: PlStatement) {
   <tr><td>Direct Labor</td><td class="amt">${fmt(pl.cogs.directLabor)}</td></tr>
   <tr><td>Subcontractors</td><td class="amt">${fmt(pl.cogs.subcontractors)}</td></tr>
   <tr><td>Equipment</td><td class="amt">${fmt(pl.cogs.equipment)}</td></tr>
-  <tr class="total"><td>Total COGS</td><td class="amt">${fmt(pl.cogs.total)}</td></tr>
+  <tr class="total"><td>Total cost</td><td class="amt">${fmt(pl.cogs.total)}</td></tr>
   <tr class="total"><td>Gross Profit</td><td class="amt">${fmt(pl.grossProfit)}</td></tr>
   <tr><td>Gross Margin %</td><td class="amt">${fmtPct(pl.grossMargin)}</td></tr>
 </table>

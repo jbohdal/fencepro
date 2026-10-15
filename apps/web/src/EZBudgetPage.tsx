@@ -120,7 +120,7 @@ function DashboardTab() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-6">
-        <h3 className="text-sm font-semibold text-gray-500 mb-4">Recent Quotes</h3>
+        <h3 className="text-sm font-semibold text-gray-500 mb-4">Recent quotes</h3>
         {data.recentQuotes.length === 0 ? (
           <p className="text-gray-400 text-sm text-center py-4">No quotes yet</p>
         ) : (
@@ -204,7 +204,7 @@ function ServicesTab() {
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <h2 className="text-lg font-semibold text-gray-900">Service Catalog</h2>
-        <button onClick={startNew} className="btn btn-primary self-start lg:self-auto">+ Add Service</button>
+        <button onClick={startNew} className="btn btn-primary self-start lg:self-auto">+ Add service</button>
       </div>
 
       {editing && (

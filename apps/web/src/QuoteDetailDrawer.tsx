@@ -182,8 +182,8 @@ export default function QuoteDetailDrawer({
           <section className="grid grid-cols-4 gap-3 text-sm">
             <div><p className="text-[10px] text-gray-400 font-bold">Corners</p><p className="font-medium text-gray-900">{quote.corners}</p></div>
             <div><p className="text-[10px] text-gray-400 font-bold">Ends</p><p className="font-medium text-gray-900">{quote.ends}</p></div>
-            <div><p className="text-[10px] text-gray-400 font-bold">Walk Gates</p><p className="font-medium text-gray-900">{quote.walkGates}</p></div>
-            <div><p className="text-[10px] text-gray-400 font-bold">Double Gates</p><p className="font-medium text-gray-900">{quote.dblGates}</p></div>
+            <div><p className="text-[10px] text-gray-400 font-bold">Walk gates</p><p className="font-medium text-gray-900">{quote.walkGates}</p></div>
+            <div><p className="text-[10px] text-gray-400 font-bold">Double gates</p><p className="font-medium text-gray-900">{quote.dblGates}</p></div>
           </section>
 
           {/* Internal pricing breakdown */}
@@ -191,10 +191,10 @@ export default function QuoteDetailDrawer({
             <section>
               <p className="text-xs font-bold text-gray-400 mb-2">Pricing (Internal)</p>
               <div className="bg-gray-50 rounded-xl p-4 space-y-1 text-sm">
-                <div className="flex justify-between"><span className="text-gray-600">Material Cost</span><span>{fmt(quote.materialCost)}</span></div>
-                <div className="flex justify-between"><span className="text-gray-600">Labor Cost</span><span>{fmt(quote.laborCost)}</span></div>
-                <div className="flex justify-between"><span className="text-gray-600">Tear Out</span><span>{fmt(quote.tearOutCost)}</span></div>
-                <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total COGS</span><span>{fmt(quote.totalCOGS)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-600">Material cost</span><span>{fmt(quote.materialCost)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-600">Labor cost</span><span>{fmt(quote.laborCost)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-600">Tear out</span><span>{fmt(quote.tearOutCost)}</span></div>
+                <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total cost</span><span>{fmt(quote.totalCOGS)}</span></div>
                 <div className="flex justify-between font-bold text-orange-700 border-t border-gray-200 pt-1 mt-1"><span>Quote Price</span><span>{fmt(quote.finalPrice)}</span></div>
                 <div className="flex justify-between pt-1 text-xs text-gray-500"><span>Gross Margin</span><span>{fmtPct(quote.gmPct)}</span></div>
               </div>

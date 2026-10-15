@@ -433,8 +433,8 @@ export default function EZBudgetWidget({ apiBase }: EZBudgetWidgetProps) {
                     <div className="flex justify-between"><span className="text-gray-500">Style</span><span className="font-medium">{selectedService.name}</span></div>
                     <div className="flex justify-between"><span className="text-gray-500">Height</span><span className="font-medium">{height}</span></div>
                     <div className="flex justify-between"><span className="text-gray-500">Quantity</span><span className="font-medium">{quantity} {selectedService.unitLabel}</span></div>
-                    {extras.walkGates > 0 && <div className="flex justify-between"><span className="text-gray-500">Walk Gates</span><span className="font-medium">{extras.walkGates}</span></div>}
-                    {extras.doubleGates > 0 && <div className="flex justify-between"><span className="text-gray-500">Double Gates</span><span className="font-medium">{extras.doubleGates}</span></div>}
+                    {extras.walkGates > 0 && <div className="flex justify-between"><span className="text-gray-500">Walk gates</span><span className="font-medium">{extras.walkGates}</span></div>}
+                    {extras.doubleGates > 0 && <div className="flex justify-between"><span className="text-gray-500">Double gates</span><span className="font-medium">{extras.doubleGates}</span></div>}
                   </div>
 
                   {lineItems.length > 0 && (

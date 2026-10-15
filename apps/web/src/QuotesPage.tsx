@@ -341,10 +341,10 @@ function QuoteDrawer({
             <p className="text-xs font-semibold text-gray-400 mb-3">Pricing</p>
             <div className="space-y-2">
               {[
-                { label: 'Material Cost', value: fmt(quote.materialCost) },
-                { label: 'Labor Cost',    value: fmt(quote.laborCost) },
-                { label: 'Tear Out',      value: fmt(quote.tearOutCost) },
-                { label: 'Total COGS',    value: fmt(quote.totalCOGS), bold: true },
+                { label: 'Material cost', value: fmt(quote.materialCost) },
+                { label: 'Labor cost',    value: fmt(quote.laborCost) },
+                { label: 'Tear out',      value: fmt(quote.tearOutCost) },
+                { label: 'Total cost',    value: fmt(quote.totalCOGS), bold: true },
               ].map(r => (
                 <div key={r.label} className="flex justify-between">
                   <span className={`text-sm ${r.bold ? 'text-white font-semibold' : 'text-gray-400'}`}>{r.label}</span>
@@ -376,9 +376,9 @@ function QuoteDrawer({
                 { label: 'Sections',   value: quote.sections },
                 { label: 'Corners',    value: quote.corners },
                 { label: 'Ends',       value: quote.ends },
-                { label: 'Walk Gates', value: quote.walkGates },
+                { label: 'Walk gates', value: quote.walkGates },
                 { label: 'Dbl Gates',  value: quote.dblGates },
-                { label: 'Tear Out',   value: `${quote.tearOutSections} sec` },
+                { label: 'Tear out',   value: `${quote.tearOutSections} sec` },
               ].map(r => (
                 <div key={r.label} className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-400">{r.label}</p>
@@ -558,7 +558,7 @@ export default function QuotesPage({
             <p className="text-4xl mb-3">📋</p>
             <p className="text-gray-500 font-medium">{localQuotes.length === 0 ? 'No quotes yet' : 'No quotes match your filters'}</p>
             {localQuotes.length === 0 && (
-              <button onClick={onNewQuote} className="mt-4 text-orange-500 text-sm hover:underline">Create your first quote</button>
+              <button onClick={onNewQuote} className="mt-4 text-orange-500 text-sm hover:underline">Create the first quote</button>
             )}
           </div>
         ) : (

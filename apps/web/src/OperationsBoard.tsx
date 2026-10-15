@@ -603,7 +603,7 @@ function OpsCard({
         {job.scheduledDate ? (
           <span className="text-gray-500">📅 {job.scheduledDate}{today ? ' • Today' : ''}</span>
         ) : (
-          <span className="text-orange-600 font-semibold">Unscheduled</span>
+          <span className="text-amber-700 font-semibold">Unscheduled</span>
         )}
         {weatherAlert && <span title="Rain forecast" className="text-cyan-600">🌧</span>}
       </div>
@@ -887,7 +887,7 @@ function OpsListView({
                   <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-[200px]">{j.address || '—'}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{j.fenceType || '—'}</td>
                   <td className="px-3 py-2"><span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: hex }}>{j.opsStageLabel}</span></td>
-                  <td className="px-3 py-2 text-xs">{j.scheduledDate ? <span className="text-gray-700">{j.scheduledDate}</span> : <span className="text-orange-600 font-semibold">Unscheduled</span>}</td>
+                  <td className="px-3 py-2 text-xs">{j.scheduledDate ? <span className="text-gray-700">{j.scheduledDate}</span> : <span className="text-amber-700 font-semibold">Unscheduled</span>}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{j.crewAssigned || '—'}</td>
                   <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{fmtUSD(j.contractValue)}</td>
                   <td className="px-3 py-2"><MiniProgress jobId={j.id} colorHex={hex} /></td>

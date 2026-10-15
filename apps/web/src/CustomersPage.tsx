@@ -478,7 +478,7 @@ function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[600px] max-h-[90vh] overflow-y-auto p-5 mx-4 space-y-4 modal-responsive">
-        <div className="flex justify-between"><h2 className="font-bold text-gray-900 text-lg">Create Invoice</h2><button onClick={onClose} className="text-gray-400 text-xl">×</button></div>
+        <div className="flex justify-between"><h2 className="font-bold text-gray-900 text-lg">Create invoice</h2><button onClick={onClose} className="text-gray-400 text-xl">×</button></div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="block text-xs text-gray-500 mb-1">Invoice #</label><input value={invoiceNumber} readOnly className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50" /></div>
           <div><label className="block text-xs text-gray-500 mb-1">Due Date</label><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
@@ -507,7 +507,7 @@ function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { 
         <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Internal notes..." rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
-          <button onClick={save} className="btn btn-primary flex-1">Create Invoice</button>
+          <button onClick={save} className="btn btn-primary flex-1">Create invoice</button>
         </div>
       </div>
     </div>
@@ -916,10 +916,10 @@ function CustomerDetail({
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4 mt-5">
           {[
-            { label: 'Total Revenue', value: fmt(totalRevenue) },
+            { label: 'Total revenue', value: fmt(totalRevenue) },
             { label: 'Quotes', value: String(allQuoteCount) },
             { label: 'Jobs', value: String(jobs.length) },
-            { label: 'Customer Since', value: customer.createdAt },
+            { label: 'Customer since', value: customer.createdAt },
           ].map(s => (
             <div key={s.label} className="bg-gray-50 rounded-xl p-3">
               <p className="text-xs text-gray-400">{s.label}</p>
@@ -952,7 +952,7 @@ function CustomerDetail({
         {activeTab === 'overview' && (
           <div className="space-y-6 max-w-2xl">
             <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
-              <h3 className="font-bold text-gray-900">Contact Details</h3>
+              <h3 className="font-bold text-gray-900">Contact details</h3>
               {[
                 { label: 'Service Address', value: customer.serviceAddress },
                 customer.billingDifferent ? { label: 'Billing Address', value: customer.billingAddress } : null,
@@ -994,7 +994,7 @@ function CustomerDetail({
                       <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Quoted</th>
                       <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Labor</th>
                       <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">50% Dep</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Tear Out</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Tear out</th>
                       <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Rep</th>
                       <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Sold</th>
                     </tr>
@@ -1058,7 +1058,7 @@ function CustomerDetail({
             {quotes.length === 0 && importedQuotes.length === 0 && (
               <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
                 <p className="text-gray-400 text-sm mb-3">No quotes yet</p>
-                <button onClick={() => onNewQuote(customer)} className="text-orange-500 text-sm hover:underline">Create first quote</button>
+                <button onClick={() => onNewQuote(customer)} className="text-orange-500 text-sm hover:underline">Create the first quote</button>
               </div>
             )}
           </div>
@@ -1463,7 +1463,7 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
         <div className="px-4 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-gray-900">Customers</h2>
-            <button onClick={() => { setSelectedId(null); setMode('new') }} className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">+ New</button>
+            <button onClick={() => { setSelectedId(null); setMode('new') }} className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">+ New customer</button>
           </div>
           <input
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
@@ -1731,7 +1731,7 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-semibold text-gray-900">Customer Portal</p>
+            <p className="text-sm font-semibold text-gray-900">Customer portal</p>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${chipClass}`}>{stateLabel}</span>
           </div>
           <p className="text-xs text-gray-500 mt-0.5">{bodyText}</p>

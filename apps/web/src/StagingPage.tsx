@@ -624,7 +624,7 @@ export default function StagingPage() {
         {[
           { label: 'Total Jobs',      value: String(jobs.filter(j => j.status !== 'Job Complete').length), sub: 'in staging',       color: 'text-gray-900'   },
           { label: 'Pipeline Value',  value: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalValue), sub: 'active jobs', color: 'text-green-600' },
-          { label: 'Total Sections',  value: String(totalSections),  sub: 'pending install', color: 'text-blue-600'   },
+          { label: 'Total sections',  value: String(totalSections),  sub: 'pending install', color: 'text-blue-600'   },
           { label: 'Locates Expired', value: String(expiredCount),   sub: expiredCount > 0 ? 'need renewal' : 'all good', color: expiredCount > 0 ? 'text-red-500' : 'text-green-600' },
           { label: 'Expiring Soon',   value: String(expiringSoonCount), sub: 'within 7 days', color: expiringSoonCount > 0 ? 'text-yellow-600' : 'text-green-600' },
         ].map(s => (

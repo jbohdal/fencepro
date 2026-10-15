@@ -110,7 +110,10 @@ async function desktop(browser) {
   /* 2. pipeline card */
   s = await open(browser, false)
   await nav(s, 'Sales Pipeline')
-  const target = inAppt.find(l => !list.some(a => a.crmContactId === l.customerId && ['scheduled', 'confirmed', 'rescheduled'].includes(a.status) && a.startAt))
+  // Any card whose customer has nothing booked (the Appointment column first).
+  const unbooked = l => l.customerId && !list.some(a => a.crmContactId === l.customerId && a.startAt && ['scheduled', 'confirmed', 'rescheduled'].includes(a.status))
+  const pool = [...inAppt, ...pipeline.leads.filter(l => !['Appointment', 'First Contact'].includes(l.stage))]
+  const target = pool.find(unbooked)
   const card = s.page.locator(`[data-kanban-card="${target.id}"]`)
   await card.scrollIntoViewIfNeeded()
   await card.locator('[data-card-book]').click()
@@ -139,7 +142,7 @@ async function desktop(browser) {
 
   /* 3. global button */
   s = await open(browser, false)
-  const third = inAppt.find(l => l.id !== target.id && !list.some(a => a.crmContactId === l.customerId && a.startAt && ['scheduled', 'confirmed', 'rescheduled'].includes(a.status)))
+  const third = pool.find(l => l.id !== target.id && unbooked(l) && !list.some(a => a.crmContactId === l.customerId))
   await s.page.locator('[data-global-appointment]').click()
   await s.page.locator('[data-customer-search]').fill(`${third.firstName} ${third.lastName}`.trim())
   await s.page.locator('[data-booking-dialog] button:has-text("' + third.firstName + '")').first().click()
@@ -188,7 +191,9 @@ async function phone(browser) {
   console.log('\n── phone (412x915) ──')
   const pipeline = await api('/api/pipeline')
   const list = await api('/api/appointments')
-  const card = pipeline.leads.find(l => l.stage === 'Appointment' && l.customerId && !list.some(a => a.crmContactId === l.customerId && a.startAt))
+  // A customer with nothing booked, from the Appointment column first.
+  const free = l => l.customerId && !list.some(a => a.crmContactId === l.customerId && a.startAt)
+  const card = pipeline.leads.find(l => l.stage === 'Appointment' && free(l))
   // Booked for later today, as the next thing on the Today screen.
   const start = new Date(Date.now() + 20 * 60_000)
   const made = await api('/api/appointments', { method: 'POST', body: JSON.stringify({ crmContactId: card.customerId, type: 'estimate', assignedTo: 'Jonathan Bohdal', startAt: start.toISOString(), endAt: new Date(start.getTime() + 3_600_000).toISOString(), notes: 'Gate code 1234 (test)' }) })
@@ -242,19 +247,24 @@ async function phoneBooking(browser) {
 
 /** The tests start from cards in First Contact. If the copy has too few, move some
  *  Lost Sale cards there first (dev copy only), through the normal version checked save. */
-async function ensureFirstContact(token, need = 3) {
-  const get = async () => (await (await fetch(`${API}/api/pipeline`, { headers: { Authorization: `Bearer ${token}` } })).json()).data
-  const d = await get()
-  const have = d.leads.filter(l => l.stage === 'First Contact' && l.customerId).length
+// Repeated runs use up the cards these tests need, so on the test copy move
+// Lost Sale cards into the stage (only customers with nothing booked when asked).
+async function ensureCards(token, stage, need, onlyUnbooked = false) {
+  const get = async path => (await (await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } })).json()).data
+  const d = await get('/api/pipeline')
+  const booked = onlyUnbooked ? new Set((await get('/api/appointments')).filter(a => a.startAt).map(a => a.crmContactId)) : new Set()
+  const ok = l => l.customerId && !booked.has(l.customerId)
+  const have = d.leads.filter(l => l.stage === stage && ok(l)).length
   if (have >= need) return
-  const pick = d.leads.filter(l => l.stage === 'Lost Sale' && l.customerId).slice(0, need - have)
-  const upsert = pick.map(l => ({ lead: { ...l, stage: 'First Contact', lastMoved: new Date().toISOString().slice(0, 10) } }))
+  const pick = d.leads.filter(l => l.stage === 'Lost Sale' && ok(l)).slice(0, need - have)
+  const upsert = pick.map(l => ({ lead: { ...l, stage, lastMoved: new Date().toISOString().slice(0, 10) } }))
   const r = await fetch(`${API}/api/pipeline`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ upsert, remove: [], baseVersion: d.version }) })
-  console.log(`setup: moved ${pick.length} Lost Sale card(s) to First Contact on the test copy (${r.status})`)
+  console.log(`setup: moved ${pick.length} Lost Sale card(s) to ${stage} on the test copy (${r.status})`)
 }
 
 const browser = await chromium.launch()
-await ensureFirstContact(TOKEN)
+await ensureCards(TOKEN, 'First Contact', 3)
+await ensureCards(TOKEN, 'Appointment', 3, true)
 const only = process.env.E2E_ONLY || ''
 try {
   if (!only || only === 'desktop') await desktop(browser)

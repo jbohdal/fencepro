@@ -206,7 +206,7 @@ function SettingsModal({
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-700">Crews</h3>
-              <button onClick={addCrew} className="text-xs text-orange-500 hover:underline">+ Add Crew</button>
+              <button onClick={addCrew} className="text-xs text-orange-500 hover:underline">+ Add crew</button>
             </div>
             <div className="space-y-2">
               {crews.map((crew, i) => (
@@ -241,7 +241,7 @@ function SettingsModal({
             <button
               onClick={() => { onSave({ workDays, crews }); onClose() }}
               className="btn btn-primary flex-1"
-            >Save Settings</button>
+            >Save settings</button>
           </div>
         </div>
       </div>

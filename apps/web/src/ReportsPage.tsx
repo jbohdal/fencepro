@@ -1688,7 +1688,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                   </div>
                 ))}
                 <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
-                  <span className="text-sm font-semibold text-gray-900">Total COGS</span>
+                  <span className="text-sm font-semibold text-gray-900">Total cost</span>
                   <span className="text-sm font-bold text-gray-900">{fmt(totalCOGS)}</span>
                 </div>
               </div>
@@ -1920,7 +1920,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               <p className="text-3xl font-bold text-blue-700">{repeatStats.repeatCount}</p>
               <div className="mt-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-500">Total Revenue</span>
+                  <span className="text-sm text-gray-500">Total revenue</span>
                   <span className="text-sm font-bold text-gray-900">{fmt(repeatStats.repeatRevenue)}</span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -1952,7 +1952,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               <p className="text-3xl font-bold text-gray-700">{repeatStats.oneTimeCount}</p>
               <div className="mt-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-500">Total Revenue</span>
+                  <span className="text-sm text-gray-500">Total revenue</span>
                   <span className="text-sm font-bold text-gray-900">{fmt(repeatStats.oneTimeRevenue)}</span>
                 </div>
                 <div className="flex items-center justify-between">

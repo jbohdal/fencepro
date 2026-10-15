@@ -182,7 +182,7 @@ function CostAJobModal({
                 <div><p className="text-gray-400 text-xs">Labor Hrs</p><p className="font-bold">{selectedQuote.adjLaborHrs?.toFixed(1) || '—'}</p></div>
                 <div><p className="text-gray-400 text-xs">Labor $</p><p className="font-bold">{fmt(selectedQuote.laborCost)}</p></div>
                 <div><p className="text-gray-400 text-xs">Materials</p><p className="font-bold">{fmt(selectedQuote.materialCost)}</p></div>
-                <div><p className="text-gray-400 text-xs">Total COGS</p><p className="font-bold">{fmt(selectedQuote.totalCOGS)}</p></div>
+                <div><p className="text-gray-400 text-xs">Total cost</p><p className="font-bold">{fmt(selectedQuote.totalCOGS)}</p></div>
               </div>
             </div>
           )}

@@ -594,7 +594,7 @@ td{border-bottom:1px solid #eee;font-size:11px}
   <div class="legend-item"><div class="swatch" style="background:#f97316"></div> Fence Line</div>
   <div class="legend-item"><div class="swatch" style="background:#6366f1;border-style:dashed"></div> Property</div>
   <div class="legend-item"><div class="swatch" style="background:#dc2626"></div> Utility</div>
-  <div class="legend-item"><div class="swatch" style="background:#9333ea"></div> Tear Out</div>
+  <div class="legend-item"><div class="swatch" style="background:#9333ea"></div> Tear out</div>
 </div>
 ${linesSummary ? `<table><thead><tr><th>Fence Runs</th><th style="text-align:right">Length</th></tr></thead><tbody>${linesSummary}
 <tr style="font-weight:800;border-top:2px solid #111"><td style="padding:6px 8px">Total Fence</td><td style="padding:6px 8px;text-align:right">${totalFence.toFixed(1)} ft</td></tr>

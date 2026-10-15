@@ -1007,7 +1007,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               <div className="bg-white rounded-2xl border border-gray-200 p-5">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h3 className="font-semibold text-gray-900">Revenue Goal Progress</h3>
+                    <h3 className="font-semibold text-gray-900">Revenue goal</h3>
                     <p className="text-xs text-gray-400 mt-0.5">{fmt(ytdRevenue)} of {fmt(revenueGoal)} annual goal</p>
                   </div>
                   <div className="text-right">
@@ -1029,7 +1029,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 {/* Recent quotes */}
                 <div className="bg-white rounded-2xl border border-gray-200">
                   <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                    <h3 className="font-semibold text-gray-900">Recent Quotes</h3>
+                    <h3 className="font-semibold text-gray-900">Recent quotes</h3>
                     <button onClick={() => setActive('Quotes')} className="btn btn-quiet btn-sm">All quotes</button>
                   </div>
                   <div className="divide-y divide-gray-50">
@@ -1054,7 +1054,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 {/* This month at a glance */}
                 <div className="bg-white rounded-2xl border border-gray-200">
                   <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                    <h3 className="font-semibold text-gray-900">This Month at a Glance</h3>
+                    <h3 className="font-semibold text-gray-900">This month at a glance</h3>
                     <span className="text-xs text-gray-400">{new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
                   </div>
                   <div className="px-6 py-5 space-y-4">

@@ -892,7 +892,7 @@ function BundleEditor({
       <div className="flex gap-2 pt-2">
         <button onClick={onCancel} className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancel</button>
         <button disabled={!name} onClick={() => onSave({ ...bundle, name, description, items: bundleItems })}
-          className="btn btn-primary flex-1">Save Bundle</button>
+          className="btn btn-primary flex-1">Save bundle</button>
       </div>
     </div>
   )
@@ -929,7 +929,7 @@ function BundlesTab() {
           <p className="text-sm text-gray-400 mt-0.5">Preset collections of inventory items for quotes.</p>
         </div>
         <button onClick={() => setEditing({ id: '', name: '', description: '', items: [] })}
-          className="btn btn-primary">+ New Bundle</button>
+          className="btn btn-primary">+ New bundle</button>
       </div>
       {bundles.length === 0 ? (
         <div className="text-center py-24 border border-dashed border-gray-200 rounded-2xl">

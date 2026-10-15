@@ -144,7 +144,7 @@ function getJobTags(job: SchedulableJob): Tag[] {
     tags.push({ label: 'No Materials', bg: 'bg-red-50', text: 'text-red-500' })
 
   // Tear out
-  if (job.tearOut) tags.push({ label: 'Tear Out', bg: 'bg-purple-100', text: 'text-purple-700' })
+  if (job.tearOut) tags.push({ label: 'Tear out', bg: 'bg-purple-100', text: 'text-purple-700' })
 
   // Locates
   if (job.locatesExpDate) {
@@ -448,7 +448,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
                 { key: 'vinyl', label: 'Vinyl' },
                 { key: 'chainlink', label: 'CL' },
                 { key: 'aluminum', label: 'Alum' },
-                { key: 'tearout', label: 'Tear Out' },
+                { key: 'tearout', label: 'Tear out' },
               ].map(f => (
                 <button key={f.key} onClick={() => setFilterType(f.key)}
                   className={`text-[10px] px-2 py-1 rounded-full font-semibold ${filterType === f.key ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
@@ -581,7 +581,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-green-500" /> Ready / Loaded</div>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Materials Ordered</div>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-orange-500" /> Needs Attention</div>
-            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-purple-500" /> Tear Out</div>
+            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-purple-500" /> Tear out</div>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-gray-400" /> On Hold</div>
           </div>
 

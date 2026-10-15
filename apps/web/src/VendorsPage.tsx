@@ -71,7 +71,7 @@ export default function VendorsPage() {
           <p className="text-sm text-gray-500 mt-1">Manage vendor contacts, bills, and payments.</p>
         </div>
         <button onClick={() => { setEditingVendor(null); setShowVendorForm(true) }}
-          className="btn btn-primary">+ Add Vendor</button>
+          className="btn btn-primary">+ Add vendor</button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -507,7 +507,7 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
           <button onClick={onCancel} className="text-sm text-gray-600 hover:text-gray-900 px-4 py-2">Cancel</button>
-          <button onClick={handleSave} className="btn btn-primary">Save Bill</button>
+          <button onClick={handleSave} className="btn btn-primary">Save bill</button>
         </div>
       </div>
     </div>

@@ -185,7 +185,7 @@ function SaveModal({
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto mx-4 lg:mx-0 modal-responsive">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="font-bold text-gray-900">Save Quote</h2>
+          <h2 className="font-bold text-gray-900">Save quote</h2>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
@@ -341,7 +341,7 @@ function SaveModal({
               disabled={!canSubmit}
               className="btn btn-primary flex-1"
             >
-              Save Quote
+              Save quote
             </button>
           </div>
         </div>
@@ -640,7 +640,7 @@ export default function QuoteBuilder({
           <div className="flex-1 min-w-0 px-4 md:px-8 py-5 md:py-6 space-y-6 md:border-r border-gray-100 md:overflow-y-auto md:max-h-[80vh]">
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 mb-3">Customer Name</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Customer name</h3>
               <input
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 placeholder="Customer name (required when saving)"
@@ -650,7 +650,7 @@ export default function QuoteBuilder({
             </div>
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 mb-3">Fence Style</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Fence style</h3>
               <select
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 value={styleId}
@@ -685,7 +685,7 @@ export default function QuoteBuilder({
 
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-semibold text-gray-500">Fence Runs (ft)</h3>
+                <h3 className="text-xs font-semibold text-gray-500">Fence runs (ft)</h3>
                 <button onClick={addRun} className="text-orange-500 text-xs hover:underline">+ Add run</button>
               </div>
               <div className="space-y-2">
@@ -817,8 +817,8 @@ export default function QuoteBuilder({
               <h3 className="text-xs font-semibold text-gray-500 mb-3">Gates</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: 'Walk Gates',   val: walkGates, set: setWalkGates },
-                  { label: 'Double Gates', val: dblGates,  set: setDblGates },
+                  { label: 'Walk gates',   val: walkGates, set: setWalkGates },
+                  { label: 'Double gates', val: dblGates,  set: setDblGates },
                 ].map(f => (
                   <div key={f.label}>
                     <label className="text-xs text-gray-400 mb-1 block">{f.label}</label>
@@ -829,7 +829,7 @@ export default function QuoteBuilder({
             </div>
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 mb-3">Tear Out</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Tear out</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'Sections', val: tearOutSec,   set: setTearOutSec },
@@ -920,30 +920,30 @@ export default function QuoteBuilder({
 
           <div className="w-full md:w-80 flex flex-col bg-gray-50 md:rounded-r-2xl border-t md:border-t-0 border-gray-200">
             <div className="px-6 py-6 space-y-3 border-b border-gray-200">
-              <h3 className="text-xs font-semibold text-gray-500">Live Quote</h3>
+              <h3 className="text-xs font-semibold text-gray-500">Live quote</h3>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs text-gray-500">Total Sections</span>
+                  <span className="text-xs text-gray-500">Total sections</span>
                   <span className="text-xl font-bold text-gray-900">{sections}</span>
                 </div>
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs text-gray-500">Total Footage</span>
+                  <span className="text-xs text-gray-500">Total footage</span>
                   <span className="text-sm font-semibold text-gray-700">
                     {totalFootage} ft
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-xs text-gray-500">Projected MH</span>
+                  <span className="text-xs text-gray-500">Projected man hours</span>
                   <span className="text-xl font-bold text-gray-900">{adjustedMH.toFixed(1)}</span>
                 </div>
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2">
                 {[
-                  { label: 'Material Cost', val: fmt(materialCost) },
+                  { label: 'Material cost', val: fmt(materialCost) },
                   { label: priced.laborMode === 'flat' ? 'Labor (flat)' : priced.laborMode === 'subcontractor' ? `Labor (sub, $${priced.subRate}/${priced.subUnit === 'section' ? 'sec' : 'ft'})` : 'Labor Cost', val: fmt(laborCost) },
-                  { label: 'Tear Out',      val: fmt(tearOutCost) },
+                  { label: 'Tear out',      val: fmt(tearOutCost) },
                 ].map(row => (
                   <div key={row.label} className="flex justify-between text-sm">
                     <span className="text-gray-500">{row.label}</span>
@@ -951,7 +951,7 @@ export default function QuoteBuilder({
                   </div>
                 ))}
                 <div className="border-t border-gray-100 pt-2 flex justify-between text-sm font-semibold">
-                  <span className="text-gray-700">Total COGS</span>
+                  <span className="text-gray-700">Total cost</span>
                   <span className="text-gray-900">{fmt(totalCOGS)}</span>
                 </div>
               </div>
@@ -998,7 +998,7 @@ export default function QuoteBuilder({
 
               <div className={`bg-white rounded-xl border border-gray-200 p-4 ${priced.priceMethod === 'manual' ? 'opacity-40' : ''}`}>
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs text-gray-500">Price Adjust</span>
+                  <span className="text-xs text-gray-500">Price adjust</span>
                   <span className={`text-sm font-semibold ${priceAdjust >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                     {priceAdjust >= 0 ? '+' : ''}{(priceAdjust * 100).toFixed(0)}%
                   </span>

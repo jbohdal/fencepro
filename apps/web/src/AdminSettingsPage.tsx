@@ -343,7 +343,7 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
             </button>
           ))}
         </div>
-        <button onClick={addStyle} className="text-sm text-orange-500 border border-orange-300 rounded-lg px-3 py-2 hover:bg-orange-50">+ Add Style</button>
+        <button onClick={addStyle} className="text-sm text-orange-500 border border-orange-300 rounded-lg px-3 py-2 hover:bg-orange-50">+ Add style</button>
       </div>
 
       <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">

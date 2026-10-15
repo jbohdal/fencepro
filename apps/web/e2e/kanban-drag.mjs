@@ -51,7 +51,7 @@ async function open(browser, phone) {
     await page.fill('input[type="password"]', PASSWORD)
     await page.click('button[type="submit"]')
   }
-  await page.waitForSelector('text=Revenue Goal Progress', { timeout: 25000 })
+  await page.waitForSelector(phone ? '[data-tabbar]' : '[data-global-appointment]', { timeout: 30000 })
   await goPipeline(s)
   s.touch = phone ? await ctx.newCDPSession(page) : null
   return s
@@ -302,7 +302,7 @@ async function run(browser, phone) {
   check(`${size}: the eye icon opens the quick view with its stage picker`, drawer)
   await shot(s, '5-quick-view')
   await s.page.keyboard.press('Escape')
-  await s.page.reload(); await s.page.waitForSelector('text=Revenue Goal Progress', { timeout: 25000 }); await goPipeline(s)
+  await s.page.reload(); await s.page.waitForSelector(s.phone ? '[data-tabbar]' : '[data-global-appointment]', { timeout: 30000 }); await goPipeline(s)
   await showCard(s, 'Appointment')
   const kc = s.page.locator(`[data-kanban-card="${k}"]`)
   if (phone) await kc.tap({ position: { x: 60, y: 14 } }); else await kc.click({ position: { x: 60, y: 14 } })
@@ -314,7 +314,7 @@ async function run(browser, phone) {
   /* collapsed columns are remembered on this device */
   await s.page.locator(`${col('First Contact')} > button`).click()
   await s.page.locator(`${col(strip)} button`).click(); await sleep(200)
-  await s.page.reload(); await s.page.waitForSelector('text=Revenue Goal Progress', { timeout: 25000 }); await goPipeline(s)
+  await s.page.reload(); await s.page.waitForSelector(s.phone ? '[data-tabbar]' : '[data-global-appointment]', { timeout: 30000 }); await goPipeline(s)
   const remembered = await s.page.locator('[data-kanban-col][data-collapsed="true"]').evaluateAll(els => els.map(e => e.dataset.kanbanCol))
   check(`${size}: collapsed columns are remembered after a reload`, remembered.includes('First Contact') && !remembered.includes(strip), remembered.join(', '))
   check(`${size}: every move is still there after the reload`,

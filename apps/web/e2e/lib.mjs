@@ -50,7 +50,7 @@ export async function login(s, password = PASSWORD) {
 
 /** Wait until the app has loaded every module's data and shows the dashboard. */
 export async function ready(s) {
-  await s.page.waitForSelector('text=Revenue Goal Progress', { timeout: 25000 })
+  await s.page.waitForSelector(s.phone ? '[data-tabbar]' : '[data-global-appointment]', { timeout: 30000 })
 }
 
 export async function nav(s, label) {
