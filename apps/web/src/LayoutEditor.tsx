@@ -5,8 +5,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Pencil, Trash2, Plus, Image as ImageIcon, Mic } from 'lucide-react'
-import { parseSpokenSides } from './quoteChecks'
+import { Pencil, Trash2, Plus, Image as ImageIcon } from 'lucide-react'
 import FtInPad from './FtInPad'
 import SitePlan from './SitePlan'
 import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX } from './sitePlanGeometry'
@@ -42,8 +41,6 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   /** Runs (same order as result.runs) that need a tape measure check. */
   tapeFlags?: boolean[]
 }) {
-  const [listening, setListening] = useState(false)
-  const [heard, setHeard] = useState('')
   const [pad, setPad] = useState<PadTarget | null>(null)
   const [aerialOn, setAerialOn] = useState(false)
   const [aerialAddress, setAerialAddress] = useState(address ?? '')
@@ -195,33 +192,6 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     onChange({ ...layout!, plan: { points: pts, aerial: { lat: at.lat, lng: at.lng, halfM, address: aerialAddress.trim() } } })
     setAerialOn(true)
   }
-  // Voice entry: the browser's own speech recognition (free); hidden when the
-  // browser has none.
-  const Speech: any = typeof window !== 'undefined' ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) : null
-  function listen() {
-    if (!Speech || !layout) return
-    const rec = new Speech()
-    rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1
-    setListening(true); setHeard('')
-    rec.onresult = (e: any) => applySpoken(String(e.results?.[0]?.[0]?.transcript || ''))
-    rec.onerror = () => { setListening(false); setHeard('Did not catch that. Tap the mic and try again.') }
-    rec.onend = () => setListening(false)
-    rec.start()
-  }
-  function applySpoken(text: string) {
-    const said = parseSpokenSides(text, layout!.sides.map(s => s.name))
-    if (said.length === 0) { setHeard(`Heard "${text}" but no side names. Say a side name, then its length.`); return }
-    onChange({
-      ...layout!,
-      sides: layout!.sides.map(s => {
-        const hit = said.find(x => x.name === s.name)
-        if (!hit) return s
-        return { ...s, on: true, lengthIn: hit.lengthIn || s.lengthIn, gate: hit.gate ? { type: hit.gate.type, widthIn: hit.gate.widthIn, position: s.gate?.position ?? 'middle' } : s.gate }
-      }),
-    })
-    setHeard(`Heard "${text}". Filled in ${said.map(x => x.name).join(', ')}.`)
-  }
-
   function tapSide(id: string) {
     document.querySelector(`[data-side-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     setPad({ sideId: id, field: 'length' })
@@ -235,16 +205,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-700"><span className="font-semibold">{SHAPE_LABEL[layout.shape]}</span>{result ? ` · ${formatFtIn(result.totalIn)} of yard` : ''}</p>
         <div className="flex items-center gap-1">
-          {Speech && (
-            <button type="button" onClick={listen} disabled={listening} className="btn btn-secondary btn-sm" data-voice>
-              <Mic size={16} aria-hidden="true" /> {listening ? 'Listening…' : 'Say the sides'}
-            </button>
-          )}
           <button type="button" onClick={changeShape} className="btn btn-quiet btn-sm">Change shape</button>
         </div>
       </div>
-      {heard && <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-voice-heard>{heard}</p>}
-      {Speech && !heard && <p className="text-xs text-gray-500 -mt-1">Say it like: "left side one twenty, back one fifty, right return thirty with a four foot gate".</p>}
 
       <div className="relative" data-plan-wrap>
         <SitePlan

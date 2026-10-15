@@ -156,7 +156,7 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
       {plan.street && !aerial && (
         <g>
           <line x1={24} y1={H - 22} x2={W - 24} y2={H - 22} stroke={GRAY} strokeWidth={2} strokeDasharray="14 8" />
-          <text x={W / 2} y={H - 6} textAnchor="middle" fontSize={11} fontWeight={700} letterSpacing={3} fill={GRAY}>STREET</text>
+          <text x={W / 2} y={H - 6} textAnchor="middle" fontSize={11} fontWeight={700} letterSpacing={3} fill={GRAY}>STREET SIDE</text>
         </g>
       )}
       <text x={12} y={18} fontSize={10.5} fill={GRAY} style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3}>Not to scale for permitting</text>

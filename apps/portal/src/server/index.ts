@@ -32,6 +32,7 @@ import appointmentRoutes from './routes/appointments.js'
 import pricingRoutes from './routes/pricing.js'
 import quoteApiRoutes from './routes/quotes-api.js'
 import savedQuoteRoutes from './routes/saved-quotes.js'
+import { publicProposal, stylePhotos } from './routes/proposal.js'
 import savedJobRoutes from './routes/saved-jobs.js'
 import scheduleRoutes from './routes/schedule.js'
 import pipelineRoutes from './routes/pipeline.js'
@@ -157,6 +158,9 @@ app.use('/api/appointments', appointmentRoutes)
 app.use('/api/pricing-rules', pricingRoutes)
 app.use('/api/quotes', quoteApiRoutes)
 app.use('/api/saved-quotes', savedQuoteRoutes)
+app.use('/api/style-photos', stylePhotos)
+// Customer proposals: the one path meant for the public door (see routes/proposal.ts).
+app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/pipeline', pipelineRoutes)

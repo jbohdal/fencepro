@@ -17,6 +17,11 @@ import { deriveLayout, formatFtIn, postSpacing, type YardLayout } from './yardLa
 import LayoutEditor from './LayoutEditor'
 import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type NamedRun } from './quoteChecks'
 import { getQuotes } from './quoteStore'
+import { renderToStaticMarkup } from 'react-dom/server'
+import SitePlan from './SitePlan'
+import { compareStyles, priceOption, buildProposal } from './proposal'
+import { getContractSections } from './contractStore'
+import { listStylePhotos } from './stylePhotosApi'
 
 // Settings are read when the builder opens (not when the app loads), so a
 // change in Settings → Pricing or Fence Styles applies to the next quote
@@ -400,6 +405,13 @@ export default function QuoteBuilder({
     return () => window.removeEventListener(INVENTORY_UPDATED_EVENT, onInv)
   }, [])
   const [showPullSheet, setShowPullSheet] = useState(true)
+  // Options offered on the proposal besides this quote's own style.
+  const [offer, setOffer] = useState<string[]>(() => (init?.proposal?.options ?? []).slice(1).map(o => o.fenceStyle))
+  const [showCompare, setShowCompare] = useState(false)
+  const [photoIds, setPhotoIds] = useState<Record<string, string>>({})
+  useEffect(() => {
+    listStylePhotos().then(list => setPhotoIds(Object.fromEntries(list.map(p => [p.styleName, p.id])))).catch(() => {})
+  }, [])
   const [showSaveModal, setShowSaveModal] = useState(false)
   // Use `||` instead of `??` so an empty-string id (from callers that
   // preseed a "new quote" with id: '') also falls through to a fresh uid.
@@ -487,6 +499,10 @@ export default function QuoteBuilder({
   const runWidths = effRuns.map((_, i) => (isAutoMix ? (calc.perRunRail[i] === '6ft' ? 6 : 8) : widthFt))
   const tapeRunFlags = style ? tapeFlags(namedRuns, runWidths) : []
   const pastQuotes = useMemo(() => getQuotes(), [])
+  // Compare options: the same yard as the styles that make sense for this one.
+  const compareRows = useMemo(() => (showCompare && style && sections > 0
+    ? compareStyles(style, FENCE_STYLES).map(s => ({ style: s, option: priceOption(calcInput, s) }))
+    : []), [showCompare, style, sections, JSON.stringify(calcInput), invTick])  // eslint-disable-line react-hooks/exhaustive-deps
   const quoteWarnings = [
     ...(style ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout ? gateChecks(yard) : []),
@@ -566,6 +582,17 @@ export default function QuoteBuilder({
       notes: data.notes,
       leadTemp: data.leadTemp ?? 0,
       pricing: cleanOverrides(pricingOverrides),
+      proposal: style ? buildProposal({
+        input: calcInput,
+        styles: [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)],
+        ownPrice: adjPrice,
+        company: { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' },
+        customer: { name: data.customerName, address: data.customerAddress },
+        planSvg: fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} />) : undefined,
+        warranty: getContractSections().find(x => x.key === 'warranty' && x.visible !== false)?.body ?? '',
+        settings: cfg.proposal ?? {},
+        photoIds,
+      }) : undefined,
     }
     setShowSaveModal(false)
     onSave(quote)
@@ -1015,6 +1042,41 @@ export default function QuoteBuilder({
                   </p>
                 )}
               </div>
+
+              {style && sections > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4" data-compare>
+                  <button type="button" className="btn btn-secondary w-full" onClick={() => setShowCompare(v => !v)} data-compare-toggle>
+                    {showCompare ? 'Hide options' : 'Compare options'}
+                  </button>
+                  {showCompare && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs text-gray-600">The same yard, priced each way. Tick the ones to offer on the proposal.</p>
+                      {compareRows.length <= 1 && <p className="text-sm text-gray-600">No other options make sense for this style.</p>}
+                      {compareRows.map(({ style: s, option: o }, i) => {
+                        const own = i === 0
+                        const price = own ? adjPrice : o.finalPrice
+                        const diff = price - adjPrice
+                        return (
+                          <label key={s.id} className={`flex items-start gap-3 rounded-lg border p-3 ${own ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}`} data-compare-row={s.name}>
+                            <input type="checkbox" className="mt-1 w-5 h-5 accent-orange-500" checked={own || offer.includes(s.name)} disabled={own}
+                              onChange={e => setOffer(list => e.target.checked ? [...list, s.name] : list.filter(n => n !== s.name))} />
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-sm font-semibold text-gray-900">{o.label}</span>
+                              <span className="block text-xs text-gray-600">{s.name} · {o.sections} sections · {fmt(o.perFoot)}/ft</span>
+                            </span>
+                            <span className="text-right shrink-0">
+                              <span className="block text-sm font-bold tabular-nums">{fmt(price)}</span>
+                              <span className={`block text-xs font-semibold ${own ? 'text-gray-600' : diff < 0 ? 'text-green-700' : 'text-gray-600'}`}>
+                                {own ? 'this quote' : diff < 0 ? `saves ${fmt(-diff)}` : `+${fmt(diff)}`}
+                              </span>
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="flex justify-between items-center">

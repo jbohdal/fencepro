@@ -1671,6 +1671,11 @@ model SavedQuote {
   acceptedAt        DateTime?
   acceptedBy        String? // typed name or display name from the accept form
   acceptedSignature String? // base64 data URL of the signature image, if any
+  // Proposal sent to the customer: the options offered (priced snapshots), the
+  // drawn site plan and the words shown, frozen when the quote was saved.
+  proposal          Json?
+  // Which proposal option the customer chose when accepting (index into proposal.options).
+  chosenOption      Int?
 
   archivedAt DateTime?
   createdAt  DateTime  @default(now())
@@ -2023,4 +2028,17 @@ model IntakeLead {
 
   @@unique([source, sourceRef])
   @@index([accountId, status])
+}
+
+// ── Style photos for proposals (one per fence style, set in Settings) ──
+model StylePhoto {
+  id        String   @id @default(uuid())
+  accountId String
+  styleName String
+  mime      String
+  data      Bytes
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([accountId, styleName])
 }

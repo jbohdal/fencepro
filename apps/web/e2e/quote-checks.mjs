@@ -1,10 +1,9 @@
-// Warnings that prevent bad quotes, and voice entry, in a browser on the dev copy.
+// Warnings that prevent bad quotes, in a browser on the dev copy.
 //
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 \
 //   E2E_ACCESS_TOKEN=<dev staff token> node e2e/quote-checks.mjs
 //
-// Nothing is saved. Voice entry uses a stand-in for the browser's speech
-// recognition that "hears" a fixed sentence.
+// Nothing is saved.
 
 import { chromium } from 'playwright'
 
@@ -25,12 +24,6 @@ try {
   const ctx = await browser.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
   await ctx.addInitScript(t => {
     localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e')
-    // Stand-in speech recognition: "hears" Jonathan's example sentence.
-    const Fake = class {
-      start() { setTimeout(() => { this.onresult?.({ results: [[{ transcript: 'left side one twenty, back one fifty, right return thirty with a four foot gate' }]] }); this.onend?.() }, 50) }
-      stop() {}
-    }
-    for (const k of ['webkitSpeechRecognition', 'SpeechRecognition']) Object.defineProperty(window, k, { value: Fake, configurable: true, writable: true })
   }, TOKEN)
   const page = await ctx.newPage()
   const errors = []
@@ -83,29 +76,9 @@ try {
   if (SHOTS) { await b.locator('text=Check before you quote').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${SHOTS}/2-phone-warnings.png` }) }
   check('warnings never block saving', await page.locator('[data-quote-sticky] button:has-text("Save quote")').isEnabled())
 
-  // Voice entry fills the sides.
-  await b.locator('button[aria-label="Close"]').click(); await sleep(300)
-  await page.locator('button:has-text("New quote"):visible').first().click()
-  await b.locator('[data-shape="backyard"]').click()
-  await b.locator('[data-voice]').click(); await sleep(500)
-  const heard = (await b.locator('[data-voice-heard]').textContent()).trim()
-  const len = async name => (await b.locator(`[data-side="${name}"] [data-side-length]`).textContent()).trim()
-  check('voice: fills left side, back and right return', heard.includes('Filled in Left side, Back, Right return'), heard)
-  check('voice: lengths 120, 150 and 30', (await len('Left side')).startsWith("120' 0\"") && (await len('Back')).startsWith("150' 0\"") && (await len('Right return')).startsWith("30' 0\""))
-  check('voice: a 4 ft walk gate on the right return', (await b.locator('[data-side="Right return"] [data-gate-width]').textContent()).includes("4' 0\""))
-  if (SHOTS) { await b.locator('[data-voice-heard]').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${SHOTS}/3-phone-voice-entry.png` }) }
   check('no page errors', errors.length === 0, errors.join(' | '))
   await ctx.close()
 
-  // Without speech recognition the button is hidden.
-  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 } })
-  await ctx2.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e'); for (const k of ['webkitSpeechRecognition', 'SpeechRecognition']) Object.defineProperty(window, k, { value: undefined, configurable: true, writable: true }) }, TOKEN)
-  const p2 = await ctx2.newPage()
-  await p2.goto(APP); await p2.waitForSelector('[data-global-appointment]', { timeout: 30000 }); await sleep(800)
-  await p2.locator('button:has-text("New quote"):visible').first().click()
-  await p2.locator('[data-quote-builder] [data-shape="backyard"]').click()
-  check('no speech recognition: no voice button', await p2.locator('[data-voice]').count() === 0)
-  await ctx2.close()
 } catch (e) {
   check('test run finished', false, String(e).split('\n').slice(0, 3).join(' '))
 } finally {

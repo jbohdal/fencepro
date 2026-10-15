@@ -18,6 +18,7 @@ import { toast } from './toast'
 import { TEMPLATES, getDefaultTemplateKey, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
 import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import RunSpacingTable from './RunSpacingTable'
+import ProposalSend from './ProposalSend'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 
 const fmt = (n: number) =>
@@ -137,6 +138,13 @@ export default function QuoteDetailDrawer({
                   </div>
                 ))}
               </div>
+            </section>
+          )}
+
+          {internalView && (
+            <section>
+              <p className="text-xs font-bold text-gray-500 mb-2">Proposal</p>
+              <ProposalSend quote={quote} />
             </section>
           )}
 

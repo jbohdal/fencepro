@@ -107,6 +107,8 @@ export interface AppConfig {
   customerTags: string[]
   pipelineStages: string[]
   railOptimizer?: RailOptimizerConfig
+  /** Customer proposals: what's included, deposit, financing. See proposal.ts. */
+  proposal?: ProposalSettings
   /** Appointment types' lengths, the team, and when slots are suggested. See appointmentLogic. */
   appointments?: Partial<AppointmentSettings>
 }
@@ -222,6 +224,7 @@ export function getRailOptimizerConfig(cfg: AppConfig = getConfig()): RailOptimi
 // needing one-by-one updates. The canonical source of truth is the cloud
 // blob; the mirror is updated on every save and on initBusinessState().
 
+import type { ProposalSettings } from './proposal'
 import { getBusinessField, setBusinessField } from './businessStateStore'
 import { withDefaults, type AppointmentSettings } from './appointmentLogic'
 

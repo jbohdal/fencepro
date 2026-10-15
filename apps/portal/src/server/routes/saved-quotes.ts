@@ -34,7 +34,7 @@ const router = Router()
 
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
-async function requireUser(req: any, res: any, next: any) {
+export async function requireUser(req: any, res: any, next: any) {
   const auth = req.headers.authorization
   if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
   try {
@@ -54,7 +54,7 @@ async function requireUser(req: any, res: any, next: any) {
   }
 }
 
-function requireAccount(req: any, res: any, next: any) {
+export function requireAccount(req: any, res: any, next: any) {
   if (!req.user?.crmAccountId) {
     res.status(403).json({ success: false, error: 'Your user is not linked to a company; ask an admin to assign you to one.' })
     return
@@ -82,6 +82,8 @@ const quoteSchema = z.object({
   fenceStyle: z.string().default(''),
   runs: z.array(z.number()).default([]),
   runRails: z.array(z.enum(['auto', '6ft', '8ft'])).optional().nullable(),
+  // Proposal options and words, frozen at save (see web/src/proposal.ts).
+  proposal: z.object({ version: z.number(), options: z.array(z.object({}).passthrough()).max(12) }).passthrough().optional().nullable(),
   // Yard layout as drawn plus each run's sections (see web/src/yardLayout.ts).
   layout: z.object({
     yard: z.object({ shape: z.string(), closed: z.boolean(), sides: z.array(z.object({}).passthrough()).max(60) }).passthrough().nullable(),
@@ -197,6 +199,7 @@ router.post('/', requireUser, requireAccount, async (req: any, res) => {
         runs: toJsonValue(data.runs),
         runRails: toNullableJson(data.runRails),
         layout: toNullableJson(data.layout),
+        proposal: toNullableJson(data.proposal),
         pricing: toNullableJson(data.pricing),
         corners: data.corners,
         ends: data.ends,
@@ -253,6 +256,7 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
         runs: toJsonValue(data.runs),
         runRails: toNullableJson(data.runRails),
         layout: toNullableJson(data.layout),
+        proposal: toNullableJson(data.proposal),
         pricing: toNullableJson(data.pricing),
         corners: data.corners,
         ends: data.ends,
@@ -331,6 +335,7 @@ router.post('/sync', requireUser, requireAccount, async (req: any, res) => {
               runs: toJsonValue(q.runs),
               runRails: toNullableJson(q.runRails),
               layout: toNullableJson(q.layout),
+              proposal: toNullableJson(q.proposal),
               pricing: toNullableJson(q.pricing),
               pullSheet: toJsonValue(q.pullSheet),
             },
@@ -363,6 +368,7 @@ router.post('/sync', requireUser, requireAccount, async (req: any, res) => {
             runs: toJsonValue(q.runs),
             runRails: toNullableJson(q.runRails),
               layout: toNullableJson(q.layout),
+              proposal: toNullableJson(q.proposal),
             pricing: toNullableJson(q.pricing),
             corners: q.corners,
             ends: q.ends,
@@ -409,6 +415,8 @@ router.post('/:id/share-token', requireUser, requireAccount, async (req: any, re
       res.status(404).json({ success: false, error: 'Quote not found' })
       return
     }
+    // A link already sent keeps working; ?new=1 replaces it.
+    if (existing.shareToken && req.query.new !== '1') { res.json({ success: true, data: { shareToken: existing.shareToken, quoteId: existing.id } }); return }
     const token = crypto.randomBytes(24).toString('base64url')
     const updated = await prisma.savedQuote.update({
       where: { id: existing.id },
@@ -453,7 +461,10 @@ router.get('/share/:token', async (req: any, res) => {
 function forCustomer<T extends Record<string, any>>(q: T) {
   const { materialCost, laborCost, tearOutCost, totalCOGS, gmPct, pullSheet, pricing, ownerId, adjLaborHrs, ...rest } = q
   void materialCost; void laborCost; void tearOutCost; void totalCOGS; void gmPct; void pullSheet; void pricing; void ownerId; void adjLaborHrs
-  return { ...rest, materialCost: 0, laborCost: 0, tearOutCost: 0, totalCOGS: 0, gmPct: 0, pullSheet: [], pricing: null, adjLaborHrs: 0 }
+  const proposal = rest.proposal && typeof rest.proposal === 'object' && Array.isArray((rest.proposal as any).options)
+    ? { ...(rest.proposal as any), options: (rest.proposal as any).options.map(({ snapshot, ...o }: any) => { void snapshot; return o }) }
+    : rest.proposal
+  return { ...rest, proposal, materialCost: 0, laborCost: 0, tearOutCost: 0, totalCOGS: 0, gmPct: 0, pullSheet: [], pricing: null, adjLaborHrs: 0 }
 }
 
 // ── Public accept by share token (no auth) ──

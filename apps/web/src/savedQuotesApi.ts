@@ -6,6 +6,7 @@
  * table at /api/saved-quotes and are scoped by CrmAccount on the server.
  */
 
+import type { QuoteProposal } from './proposal'
 import type { QuoteLayoutRecord } from './yardLayout'
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
@@ -30,6 +31,7 @@ export interface SavedQuotePayload {
   runs?: number[]
   runRails?: Array<'auto' | '6ft' | '8ft'> | null
   layout?: QuoteLayoutRecord | null
+  proposal?: QuoteProposal | null
   corners?: number
   ends?: number
   walkGates?: number
@@ -54,7 +56,7 @@ export interface SavedQuotePayload {
   pricing?: QuotePricingOverrides | null
 }
 
-export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'id' | 'pricing'>> {
+export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing'>> {
   id: string
   pricing: QuotePricingOverrides | null
   accountId: string
@@ -62,6 +64,8 @@ export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmC
   crmContactId: string | null
   runRails: Array<'auto' | '6ft' | '8ft'> | null
   layout: QuoteLayoutRecord | null
+  proposal: QuoteProposal | null
+  chosenOption: number | null
   shareToken: string | null
   firstViewedAt: string | null
   viewCount: number
@@ -213,6 +217,7 @@ export async function migrateLocalQuotesOnce(): Promise<void> {
           runs: Array.isArray(q.runs) ? q.runs : [],
           runRails: Array.isArray(q.runRails) ? q.runRails : undefined,
           layout: q.layout && typeof q.layout === 'object' ? q.layout : undefined,
+          proposal: q.proposal && typeof q.proposal === 'object' ? q.proposal : undefined,
           corners: q.corners || 0,
           ends: q.ends || 0,
           walkGates: q.walkGates || 0,

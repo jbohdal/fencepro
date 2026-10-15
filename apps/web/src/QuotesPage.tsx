@@ -1,3 +1,4 @@
+import type { QuoteProposal } from './proposal'
 import type { QuoteLayoutRecord } from './yardLayout'
 import { useState, useMemo, useEffect } from 'react'
 import type { LineItem } from './materialCalculator'
@@ -28,6 +29,11 @@ export interface SavedQuote {
   runRails?: Array<'auto' | '6ft' | '8ft'>
   /** The yard layout and each run's sections, on quotes saved since layouts. */
   layout?: QuoteLayoutRecord
+  /** The proposal frozen at save, and the option the customer chose. */
+  proposal?: QuoteProposal
+  chosenOption?: number | null
+  acceptedAt?: string
+  acceptedBy?: string
   corners: number
   ends: number
   walkGates: number
