@@ -13,8 +13,10 @@ import { getConfig } from './configStore'
 import { getRailOptimizerConfig } from './configStore'
 import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
 import { sectionWidthForStyle } from './materialCalculator'
-import { deriveLayout, postSpacing, type YardLayout } from './yardLayout'
+import { deriveLayout, formatFtIn, postSpacing, type YardLayout } from './yardLayout'
 import LayoutEditor from './LayoutEditor'
+import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type NamedRun } from './quoteChecks'
+import { getQuotes } from './quoteStore'
 
 // Settings are read when the builder opens (not when the app loads), so a
 // change in Settings → Pricing or Fence Styles applies to the next quote
@@ -478,7 +480,21 @@ export default function QuoteBuilder({
   const gmColor     = gmPct >= gmGood ? 'text-green-600' : gmPct >= gmWarn ? 'text-yellow-500' : 'text-red-500'
   const defaultSubRate = resolveSubRate(cfgStyle, cfg.pricing)
   const commissionPctLabel = `${Math.round((cfg.pricing.commissionSalesman ?? 0) * 1000) / 10}%`
-  const quoteWarnings = [...materials.warnings, ...priced.notes]
+  // Help that prevents bad quotes: plain warnings, never a block.
+  const namedRuns: NamedRun[] = fromLayout
+    ? layoutResult!.runs.map(r => ({ ft: r.ft, label: `${r.sideName}${r.pieces > 1 ? ` piece ${r.piece}` : ''} (${formatFtIn(r.inches)})` }))
+    : effRuns.map((r, i) => ({ ft: r.ft, label: `Run ${i + 1} (${formatFtIn(r.ft * 12)})` }))
+  const runWidths = effRuns.map((_, i) => (isAutoMix ? (calc.perRunRail[i] === '6ft' ? 6 : 8) : widthFt))
+  const tapeRunFlags = style ? tapeFlags(namedRuns, runWidths) : []
+  const pastQuotes = useMemo(() => getQuotes(), [])
+  const quoteWarnings = [
+    ...(style ? tapeChecks(namedRuns, runWidths) : []),
+    ...(fromLayout ? gateChecks(yard) : []),
+    ...materials.warnings,
+    ...priced.notes,
+    ...[style && sections > 0 ? marginCheck(priced.gmPct, cfg.margins?.good ?? 0.34, priced.price) : null,
+        style && sections > 0 ? perFootCheck(priced.pricePerFoot, style.name, pastQuotes, quoteIdRef.current) : null].filter((x): x is string => !!x),
+  ]
 
   function addRun() { setRuns(r => [...r, { ft: '', rail: 'auto' }]) }
   function removeRun(i: number) { setRuns(r => r.filter((_, idx) => idx !== i)) }
@@ -604,6 +620,7 @@ export default function QuoteBuilder({
                   nearIn={widthFt * 12}
                   hasStyle={!!style}
                   widthFt={widthFt}
+                  tapeFlags={tapeRunFlags}
                   address={init?.customerAddress || getCustomers().find(c => `${c.firstName} ${c.lastName}`.trim().toLowerCase() === customerName.trim().toLowerCase())?.serviceAddress || ''}
                 />
               )}
@@ -866,10 +883,13 @@ export default function QuoteBuilder({
                 type="button"
                 role="switch"
                 aria-checked={hasSalesman}
+                aria-label="Salesman on this job"
                 onClick={() => setHasSalesman(h => !h)}
-                className={`relative inline-flex flex-shrink-0 w-11 h-6 p-0 rounded-full border-0 cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-orange-300 ${hasSalesman ? 'bg-orange-500' : 'bg-gray-300'}`}
+                className="shrink-0 w-14 h-12 grid place-items-center rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-300"
               >
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${hasSalesman ? 'translate-x-5' : 'translate-x-0'}`} />
+                <span className={`relative block w-11 h-6 rounded-full transition-colors ${hasSalesman ? 'bg-orange-500' : 'bg-gray-300'}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${hasSalesman ? 'translate-x-5' : 'translate-x-0'}`} />
+                </span>
               </button>
             </div>
 
