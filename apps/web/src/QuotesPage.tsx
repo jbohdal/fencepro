@@ -1,3 +1,4 @@
+import type { QuoteLayoutRecord } from './yardLayout'
 import { useState, useMemo, useEffect } from 'react'
 import type { LineItem } from './materialCalculator'
 import type { QuotePricingOverrides } from './pricingEngine'
@@ -25,6 +26,8 @@ export interface SavedQuote {
    *  decide on render"; '6ft' / '8ft' is a user lock or resolved snapshot.
    *  Absent on quotes saved before Milestone B. */
   runRails?: Array<'auto' | '6ft' | '8ft'>
+  /** The yard layout and each run's sections, on quotes saved since layouts. */
+  layout?: QuoteLayoutRecord
   corners: number
   ends: number
   walkGates: number

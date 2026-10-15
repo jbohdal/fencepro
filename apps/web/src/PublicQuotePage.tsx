@@ -41,6 +41,7 @@ function recordToSavedQuote(r: SavedQuoteRecord): SavedQuote & QuotePresentation
     fenceStyle: r.fenceStyle,
     runs: Array.isArray(r.runs) ? r.runs : [],
     runRails: r.runRails || undefined,
+    layout: r.layout || undefined,
     corners: r.corners,
     ends: r.ends,
     walkGates: r.walkGates,

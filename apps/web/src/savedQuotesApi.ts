@@ -6,6 +6,7 @@
  * table at /api/saved-quotes and are scoped by CrmAccount on the server.
  */
 
+import type { QuoteLayoutRecord } from './yardLayout'
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import type { LineItem } from './materialCalculator'
@@ -28,6 +29,7 @@ export interface SavedQuotePayload {
   fenceStyle?: string
   runs?: number[]
   runRails?: Array<'auto' | '6ft' | '8ft'> | null
+  layout?: QuoteLayoutRecord | null
   corners?: number
   ends?: number
   walkGates?: number
@@ -52,13 +54,14 @@ export interface SavedQuotePayload {
   pricing?: QuotePricingOverrides | null
 }
 
-export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'id' | 'pricing'>> {
+export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'id' | 'pricing'>> {
   id: string
   pricing: QuotePricingOverrides | null
   accountId: string
   ownerId: string | null
   crmContactId: string | null
   runRails: Array<'auto' | '6ft' | '8ft'> | null
+  layout: QuoteLayoutRecord | null
   shareToken: string | null
   firstViewedAt: string | null
   viewCount: number
@@ -209,6 +212,7 @@ export async function migrateLocalQuotesOnce(): Promise<void> {
           fenceStyle: q.fenceStyle || '',
           runs: Array.isArray(q.runs) ? q.runs : [],
           runRails: Array.isArray(q.runRails) ? q.runRails : undefined,
+          layout: q.layout && typeof q.layout === 'object' ? q.layout : undefined,
           corners: q.corners || 0,
           ends: q.ends || 0,
           walkGates: q.walkGates || 0,

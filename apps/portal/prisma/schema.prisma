@@ -1630,6 +1630,7 @@ model SavedQuote {
   fenceStyle      String  @default("")
   runs            Json // number[] of run lengths in feet
   runRails        Json? // ('auto' | '6ft' | '8ft')[] for vinyl auto-mix
+  layout          Json? // { yard: YardLayout | null, runSections: number[] } (web/src/yardLayout.ts)
   corners         Int     @default(0)
   ends            Int     @default(0)
   walkGates       Int     @default(0)

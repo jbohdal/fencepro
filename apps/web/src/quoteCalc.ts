@@ -205,3 +205,22 @@ export function widthComparison(input: QuoteCalcInput, styles: QuoteStyle[]): { 
   if (!s6 || !s8) return null
   return { at6: priceWith(s6), at8: priceWith(s8) }
 }
+
+/**
+ * Sections in each run of a saved quote, as it was priced. Quotes saved with
+ * a layout record them; for older quotes the width is the one whose per run
+ * total matches the sections the quote was priced with.
+ */
+export function savedRunSections(
+  quote: { runs?: number[]; sections?: number; fenceStyle?: string; layout?: { runSections?: number[] } | null },
+  savedWidth?: number,
+): number[] {
+  const runs = quote.runs ?? []
+  const rec = quote.layout?.runSections
+  if (Array.isArray(rec) && rec.length === runs.length) return rec
+  const today = sectionWidthForStyle(quote.fenceStyle ?? '', savedWidth)
+  const at = (w: number) => runs.map(ft => sectionsForRun(ft, w))
+  const sum = (w: number) => at(w).reduce((s, n) => s + n, 0)
+  const width = [today, 6, 8, 10, 4].find(w => sum(w) === quote.sections) ?? today
+  return at(width)
+}

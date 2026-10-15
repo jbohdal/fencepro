@@ -218,7 +218,11 @@ async function phone(browser) {
   const builderName = await s.page.evaluate(() => [...document.querySelectorAll('input')].map(e => e.value).join(' | '))
   // Saving needs a style and a run, as for any quote; the save step then shows the property and notes.
   await s.page.locator('select:has(option:has-text("Privacy"))').first().selectOption({ index: 1 }).catch(e => console.log('style:', String(e).slice(0, 120)))
-  await s.page.locator('input[placeholder^="Leng"]').first().fill('180').catch(() => {})
+  // A new quote starts on the yard layout: one straight 180 ft side.
+  await s.page.locator('[data-shape="straight"]').click().catch(e => console.log('shape:', String(e).slice(0, 120)))
+  await s.page.locator('[data-side-length]').first().click().catch(() => {})
+  for (const k of ['1', '8', '0']) await s.page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click().catch(() => {})
+  await s.page.locator('[data-ftin-pad] [data-pad-done]').click().catch(() => {})
   await s.page.locator('button:has-text("Update Quote"), button:has-text("Save Quote")').first().click().catch(() => {})
   await sleep(600)
   const values = builderName + ' | ' + await s.page.evaluate(() => [...document.querySelectorAll('input, textarea')].map(e => e.value).join(' | '))

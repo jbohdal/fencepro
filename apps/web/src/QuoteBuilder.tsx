@@ -12,6 +12,9 @@ import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
 import { getRailOptimizerConfig } from './configStore'
 import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
+import { sectionWidthForStyle } from './materialCalculator'
+import { deriveLayout, postSpacing, type YardLayout } from './yardLayout'
+import LayoutEditor from './LayoutEditor'
 
 // Settings are read when the builder opens (not when the app loads), so a
 // change in Settings → Pricing or Fence Styles applies to the next quote
@@ -363,6 +366,11 @@ export default function QuoteBuilder({
       ? init.runs.map((ft, i) => ({ ft: String(ft), rail: init.runRails?.[i] ?? 'auto' }))
       : [{ ft: '', rail: 'auto' }]
   )
+  // Layout first quoting: a new quote starts from the yard shape; a quote
+  // saved with a layout reopens on it; older quotes open on the run list.
+  const [entry, setEntry]               = useState<'layout' | 'advanced'>(() =>
+    init?.layout?.yard ? 'layout' : (init?.runs?.length ? 'advanced' : 'layout'))
+  const [yard, setYard]                 = useState<YardLayout | null>(init?.layout?.yard ?? null)
   const [corners, setCorners]           = useState(init?.corners ?? 0)
   const [ends, setEnds]                 = useState(init?.ends ?? 0)
   const [walkGates, setWalkGates]       = useState(init?.walkGates ?? 0)
@@ -413,10 +421,20 @@ export default function QuoteBuilder({
     costFactor: priceMethod === 'cost_factor' ? numOrUndef(factorStr) : undefined,
     finalPrice: numOrUndef(finalPriceStr),
   }
+  // Section width decides where a gate "near the house" sits: one section in.
+  const widthFt = style ? (style.autoRailMix ? 8 : sectionWidthForStyle(style.name, style.panelWidth)) : 8
+  const layoutResult = useMemo(() => (entry === 'layout' && yard ? deriveLayout(yard, widthFt * 12) : null), [entry, yard, widthFt])
+  // What reaches the quote math: the layout's runs and posts, or the typed run list.
+  const fromLayout = !!layoutResult
+  const effRuns = fromLayout ? layoutResult!.runs.map(r => ({ ft: r.ft, rail: 'auto' as const })) : runs.map(r => ({ ft: parseFloat(r.ft) || 0, rail: r.rail }))
+  const effCorners = fromLayout ? layoutResult!.corners : corners
+  const effEnds = fromLayout ? layoutResult!.ends : ends
+  const effWalk = fromLayout ? layoutResult!.walkGates : walkGates
+  const effDbl = fromLayout ? layoutResult!.dblGates : dblGates
   const calcInput: QuoteCalcInput = {
     style,
-    runs: runs.map(r => ({ ft: parseFloat(r.ft) || 0, rail: r.rail })),
-    corners, ends, walkGates, dblGates,
+    runs: effRuns,
+    corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
     tearOutSections: tearOutSec, tearOutGates,
     extraLaborHrs: parseFloat(adjLaborHrs) || 0,
     hasSalesman,
@@ -436,7 +454,17 @@ export default function QuoteBuilder({
 
   const materialItems: LineItem[] = materials.items
   const materialCost = useMemo(() => totalMaterialCost(materialItems), [materialItems])
-  const totalFootage = runs.reduce((s, r) => s + (parseFloat(r.ft) || 0), 0)
+  const totalFootage = Math.round(effRuns.reduce((s, r) => s + r.ft, 0) * 100) / 100
+
+  /** Switch to the typed run list, starting from what the layout produced. */
+  function toAdvanced() {
+    if (layoutResult) {
+      setRuns(layoutResult.runs.length ? layoutResult.runs.map(r => ({ ft: String(r.ft), rail: 'auto' })) : [{ ft: '', rail: 'auto' }])
+      setCorners(layoutResult.corners); setEnds(layoutResult.ends)
+      setWalkGates(layoutResult.walkGates); setDblGates(layoutResult.dblGates)
+    }
+    setEntry('advanced')
+  }
   const adjustedMH  = priced.manHours
   const laborCost   = priced.laborCost
   const tearOutCost = priced.tearOutCost
@@ -491,18 +519,19 @@ export default function QuoteBuilder({
       leadSource: data.leadSource,
       salesRep: data.salesRep,
       fenceStyle: style?.name ?? '',
-      runs: runs.map(r => parseFloat(r.ft) || 0).filter(f => f > 0),
+      runs: effRuns.map(r => r.ft).filter(f => f > 0),
       // Persist per-run rail decisions for auto-mix quotes so reload reproduces
       // the exact pull sheet (and so user overrides survive).
       runRails: isAutoMix
-        ? runs
-            .filter(r => (parseFloat(r.ft) || 0) > 0)
-            .map(r => r.rail ?? 'auto')
+        ? effRuns.filter(r => r.ft > 0).map(r => r.rail ?? 'auto')
         : undefined,
-      corners,
-      ends,
-      walkGates,
-      dblGates,
+      // The yard as drawn, and each run's sections, so the quote redraws and
+      // the crew sees post spacing exactly as priced.
+      layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0) },
+      corners: effCorners,
+      ends: effEnds,
+      walkGates: effWalk,
+      dblGates: effDbl,
       tearOutSections: tearOutSec,
       tearOutGates,
       adjLaborHrs: parseFloat(adjLaborHrs) || 0,
@@ -559,6 +588,25 @@ export default function QuoteBuilder({
               />
             </div>
 
+            <div data-yard-section>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-semibold text-gray-500">{entry === 'layout' ? 'Yard layout' : 'Fence runs (advanced)'}</h3>
+                {entry === 'layout'
+                  ? <button type="button" onClick={toAdvanced} className="btn btn-quiet btn-sm" data-to-advanced>Advanced: type runs</button>
+                  : <button type="button" onClick={() => setEntry('layout')} className="btn btn-quiet btn-sm" data-to-layout>{yard ? 'Back to the yard layout' : 'Use a yard layout'}</button>}
+              </div>
+              {entry === 'layout' && (
+                <LayoutEditor
+                  layout={yard}
+                  onChange={setYard}
+                  result={layoutResult}
+                  runSections={calc.perRunSections}
+                  nearIn={widthFt * 12}
+                  hasStyle={!!style}
+                />
+              )}
+            </div>
+
             <div>
               <h3 className="text-xs font-semibold text-gray-500 mb-3">Fence style</h3>
               <select
@@ -593,6 +641,7 @@ export default function QuoteBuilder({
               </select>
             </div>
 
+            {entry === 'advanced' && (<>
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-semibold text-gray-500">Fence runs (ft)</h3>
@@ -633,12 +682,13 @@ export default function QuoteBuilder({
                           ))}
                         </div>
                       )}
-                      <span className={`text-xs font-medium w-24 text-right ${isOverridden ? 'text-blue-600' : 'text-orange-500'}`}>
+                      <span className={`text-xs font-medium w-32 text-right leading-tight ${isOverridden ? 'text-blue-600' : 'text-orange-600'}`}>
                         {ft > 0
                           ? isAutoMix
                             ? `${resolvedRail} · ${sectionsThisRun} sec`
                             : `= ${sectionsThisRun} sec`
                           : ''}
+                        {ft > 0 && sectionsThisRun > 0 && <span className="block text-gray-600 font-normal">posts {postSpacing(ft, sectionsThisRun)} apart</span>}
                       </span>
                       {runs.length > 1 && (
                         <button onClick={() => removeRun(i)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
@@ -648,6 +698,42 @@ export default function QuoteBuilder({
                 })}
               </div>
 
+            </div>
+
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Layout</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Corners', val: corners, set: setCorners },
+                  { label: 'Ends',    val: ends,    set: setEnds },
+                ].map(f => (
+                  <div key={f.label}>
+                    <label className="text-xs text-gray-400 mb-1 block">{f.label}</label>
+                    <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={f.val} onChange={e => f.set(Number(e.target.value))} />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Gates</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Walk gates',   val: walkGates, set: setWalkGates },
+                  { label: 'Double gates', val: dblGates,  set: setDblGates },
+                ].map(f => (
+                  <div key={f.label}>
+                    <label className="text-xs text-gray-400 mb-1 block">{f.label}</label>
+                    <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={f.val} onChange={e => f.set(Number(e.target.value))} />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            </>)}
+
+            {/* 6 ft or 8 ft per run (both entry modes) */}
+            <div>
               {/* Smart Rail Optimizer (advisory) */}
               {showOptimizer && optimizerResult && (
                 <div className="mt-4 bg-orange-50 border border-orange-200 rounded-xl p-4">
@@ -705,36 +791,6 @@ export default function QuoteBuilder({
                   </div>
                 </div>
               )}
-            </div>
-
-            <div>
-              <h3 className="text-xs font-semibold text-gray-500 mb-3">Layout</h3>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: 'Corners', val: corners, set: setCorners },
-                  { label: 'Ends',    val: ends,    set: setEnds },
-                ].map(f => (
-                  <div key={f.label}>
-                    <label className="text-xs text-gray-400 mb-1 block">{f.label}</label>
-                    <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={f.val} onChange={e => f.set(Number(e.target.value))} />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-xs font-semibold text-gray-500 mb-3">Gates</h3>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: 'Walk gates',   val: walkGates, set: setWalkGates },
-                  { label: 'Double gates', val: dblGates,  set: setDblGates },
-                ].map(f => (
-                  <div key={f.label}>
-                    <label className="text-xs text-gray-400 mb-1 block">{f.label}</label>
-                    <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={f.val} onChange={e => f.set(Number(e.target.value))} />
-                  </div>
-                ))}
-              </div>
             </div>
 
             <div>
@@ -817,8 +873,8 @@ export default function QuoteBuilder({
 
             <QuoteOptionsPanel inputs={{
               quoteId: quoteIdRef.current,
-              runs: runs.map(r => parseFloat(r.ft) || 0).filter(f => f > 0),
-              corners, ends, walkGates, dblGates,
+              runs: effRuns.map(r => r.ft).filter(f => f > 0),
+              corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
               tearOutSections: tearOutSec, tearOutGates,
               adjLaborHrs: parseFloat(adjLaborHrs) || 0,
               hasSalesman, priceAdjust,
@@ -997,7 +1053,7 @@ export default function QuoteBuilder({
       {/* Phone: the price and Save always in reach at the bottom. */}
       {!showSaveModal && <div className="md:hidden fixed inset-x-0 bottom-0 z-[60] bg-white border-t border-gray-200 px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] flex items-center gap-3" data-quote-sticky>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-gray-600">Customer price</p>
+          <p className="text-xs font-semibold text-gray-600 truncate">{totalFootage > 0 ? `${totalFootage} ft · ${sections} sections` : 'Customer price'}</p>
           <p className="text-xl font-bold tabular-nums text-gray-900">{fmt(adjPrice)}</p>
         </div>
         <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg">{init ? 'Update quote' : 'Save quote'}</button>

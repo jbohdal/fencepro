@@ -20,6 +20,7 @@ import { getPortalAccessStatus, loadAccountsSoon, sendPortalInvite, resendPortal
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity, getCustomers, upsertCustomer, deleteCustomer as storeDeleteCustomer, bulkImportCustomers } from './customerStore'
 import { getQuotes } from './quoteStore'
+import RunSpacingTable from './RunSpacingTable'
 import { getJobs } from './jobStore'
 import { getPipeline } from './pipelineStore'
 import { loadPipeline } from './JobsPage'
@@ -709,6 +710,15 @@ function CustomerPullSheetsTab({ customerId }: { customerId: string }) {
             <h3 className="font-semibold text-gray-900">{viewing.quoteName} — Pull Sheet v{viewing.versionNumber}</h3>
             <button onClick={() => setViewingId(null)} className="text-xs text-gray-400">Close</button>
           </div>
+          {(() => {
+            const q = getQuotes().find(x => x.id === viewing.quoteId)
+            return q && q.runs?.length ? (
+              <div className="mb-4">
+                <p className="text-xs font-semibold text-gray-600 mb-1">Runs and post spacing</p>
+                <RunSpacingTable quote={q} />
+              </div>
+            ) : null
+          })()}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
