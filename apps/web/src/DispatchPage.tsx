@@ -576,7 +576,7 @@ export default function DispatchPage() {
                   <StatCard label="Total Feet" value={todayStats.totalFeet.toLocaleString()} />
                   <StatCard label="Unassigned" value={todayStats.unassigned} highlight={todayStats.unassigned > 0} />
                 </div>
-                <p className="text-xs text-gray-400 mb-2 font-semibold uppercase tracking-wide">
+                <p className="text-xs text-gray-400 mb-2 font-semibold">
                   Contract Value: {fmt(todayStats.totalValue)}
                 </p>
 
@@ -629,7 +629,7 @@ function StatCard({ label, value, highlight }: { label: string; value: string | 
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${highlight ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'}`}>
       <p className={`text-lg font-bold ${highlight ? 'text-red-600' : 'text-gray-900'}`}>{value}</p>
-      <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide mt-0.5">{label}</p>
+      <p className="text-[10px] text-gray-400 font-semibold mt-0.5">{label}</p>
     </div>
   )
 }
@@ -797,7 +797,7 @@ function WeekTimeline({
           const isToday = ds === toDateStr(new Date())
           return (
             <div key={ds} className={`flex-1 text-center py-2 border-r border-gray-200 ${isToday ? 'bg-orange-50' : ''}`}>
-              <p className="text-[10px] text-gray-400 font-semibold uppercase">
+              <p className="text-[10px] text-gray-400 font-semibold">
                 {d.toLocaleDateString('en-US', { weekday: 'short' })}
               </p>
               <p className={`text-sm font-bold ${isToday ? 'text-orange-600' : 'text-gray-700'}`}>
@@ -939,7 +939,7 @@ function JobDetailPanel({
       {/* Quick actions */}
       <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
         <div className="flex-1">
-          <label className="text-[10px] text-gray-400 font-semibold uppercase block mb-0.5">Crew</label>
+          <label className="text-[10px] text-gray-400 font-semibold block mb-0.5">Crew</label>
           <select
             value={job.crewAssigned}
             onChange={e => onReassign(job.id, e.target.value)}
@@ -952,7 +952,7 @@ function JobDetailPanel({
           </select>
         </div>
         <div className="flex-1">
-          <label className="text-[10px] text-gray-400 font-semibold uppercase block mb-0.5">Date</label>
+          <label className="text-[10px] text-gray-400 font-semibold block mb-0.5">Date</label>
           <input
             type="date"
             value={job.scheduledDate}

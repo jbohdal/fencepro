@@ -174,7 +174,7 @@ export default function SitePlansPage() {
               )}
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Lines ({viewing.lines?.length || 0})</p>
+                  <p className="text-xs font-bold text-gray-500">Lines ({viewing.lines?.length || 0})</p>
                   <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
                     {(viewing.lines || []).map((l: any, i: number) => (
                       <div key={i} className="flex items-center gap-2 text-xs">
@@ -186,7 +186,7 @@ export default function SitePlansPage() {
                   </div>
                 </div>
                 <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Markers ({viewing.markers?.length || 0})</p>
+                  <p className="text-xs font-bold text-gray-500">Markers ({viewing.markers?.length || 0})</p>
                   <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
                     {(viewing.markers || []).map((m: any, i: number) => (
                       <div key={i} className="flex items-center gap-2 text-xs">
@@ -200,7 +200,7 @@ export default function SitePlansPage() {
               </div>
               {viewing.notes && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                  <p className="text-xs font-bold text-yellow-800 uppercase">Notes</p>
+                  <p className="text-xs font-bold text-yellow-800">Notes</p>
                   <p className="text-sm text-yellow-900 whitespace-pre-wrap mt-1">{viewing.notes}</p>
                 </div>
               )}

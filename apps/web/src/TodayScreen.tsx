@@ -132,7 +132,7 @@ function NextCard({ a, onComplete }: { a: Appointment; onComplete: () => void })
   return (
     <div className="bg-white rounded-2xl border-2 border-orange-400 shadow-sm p-5 space-y-3" data-next-appointment>
       <div className="flex items-center justify-between">
-        <span className="text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full text-white" style={{ background: TYPE_COLORS[a.type] }}>{TYPE_SHORT[a.type]}</span>
+        <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: TYPE_COLORS[a.type] }}>{TYPE_SHORT[a.type]}</span>
         <span className="text-lg font-bold text-gray-900">{a.allDay ? 'All day' : fmtTime(a.startAt!)}</span>
       </div>
       <div>

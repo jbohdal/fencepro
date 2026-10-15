@@ -117,22 +117,22 @@ export default function PLStatementPage() {
       {/* KPI summary row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Revenue</p>
+          <p className="text-xs font-semibold text-gray-400">Revenue</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">{fmt(pl.revenue.total)}</p>
           <p className="text-xs text-gray-400 mt-1">{period.label}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Gross Profit</p>
+          <p className="text-xs font-semibold text-gray-400">Gross Profit</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">{fmt(pl.grossProfit)}</p>
           <p className="text-xs text-gray-400 mt-1">Margin: {fmtPct(pl.grossMargin)}</p>
         </div>
         <div className={`rounded-2xl border p-5 ${positive ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">EBITDA</p>
+          <p className="text-xs font-semibold text-gray-500">EBITDA</p>
           <p className={`text-2xl font-bold mt-1 ${positive ? 'text-green-700' : 'text-red-700'}`}>{fmt(pl.ebitda)}</p>
           <p className="text-xs text-gray-500 mt-1">Margin: {fmtPct(pl.ebitdaMargin)}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Net Income</p>
+          <p className="text-xs font-semibold text-gray-400">Net Income</p>
           <p className={`text-2xl font-bold mt-1 ${pl.netIncome >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(pl.netIncome)}</p>
           <p className="text-xs text-gray-400 mt-1">After D&amp;A, interest, tax</p>
         </div>
@@ -191,7 +191,7 @@ function SummaryView({ pl }: { pl: PlStatement }) {
 
         <div className={`px-4 lg:px-6 py-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 ${positive ? 'bg-green-50' : 'bg-red-50'}`}>
           <div>
-            <p className={`text-sm font-bold uppercase tracking-wide ${positive ? 'text-green-800' : 'text-red-800'}`}>EBITDA</p>
+            <p className={`text-sm font-bold ${positive ? 'text-green-800' : 'text-red-800'}`}>EBITDA</p>
             <p className="text-xs text-gray-600 mt-0.5">Earnings before interest, taxes, depreciation &amp; amortization</p>
           </div>
           <div className="text-left lg:text-right">
@@ -214,7 +214,7 @@ function SummaryView({ pl }: { pl: PlStatement }) {
 }
 
 function Section({ label }: { label: string }) {
-  return <div className="px-6 py-2 bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-widest">{label}</div>
+  return <div className="px-6 py-2 bg-gray-50 text-xs font-bold text-gray-500">{label}</div>
 }
 
 function Row({ label, amount, indent = 0, bold, highlight }: { label: string; amount: number; indent?: number; bold?: boolean; highlight?: 'positive' | 'negative' | 'neutral' }) {
@@ -256,7 +256,7 @@ function MonthlyView({ monthly }: { monthly: PlStatement[] }) {
 
       <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
         <table className="w-full text-xs">
-          <thead className="bg-gray-50 text-[10px] uppercase font-semibold text-gray-500 tracking-widest">
+          <thead className="bg-gray-50 text-[10px] font-semibold text-gray-500">
             <tr>
               <th className="px-4 py-3 text-left">Line Item</th>
               {labels.map((l, i) => (
@@ -383,7 +383,7 @@ function ManageEntriesModal({ onClose, onSaved }: { onClose: () => void; onSaved
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
-                <tr className="text-xs text-gray-500 uppercase font-semibold">
+                <tr className="text-xs text-gray-500 font-semibold">
                   <th className="px-4 py-2 text-left">Period</th>
                   <th className="px-4 py-2 text-left">Category</th>
                   <th className="px-4 py-2 text-left">Label</th>
@@ -456,33 +456,33 @@ function EntryForm({ initial, onCancel, onSaved }: { initial: PlManualEntry | nu
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-gray-500 font-semibold uppercase">Month</label>
+              <label className="text-xs text-gray-500 font-semibold">Month</label>
               <select value={periodMonth} onChange={e => setPeriodMonth(parseInt(e.target.value))}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1">
                 {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-500 font-semibold uppercase">Year</label>
+              <label className="text-xs text-gray-500 font-semibold">Year</label>
               <input type="number" value={periodYear} onChange={e => setPeriodYear(parseInt(e.target.value))}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase">Category</label>
+            <label className="text-xs text-gray-500 font-semibold">Category</label>
             <select value={category} onChange={e => setCategory(e.target.value as PlCategory)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1">
               {PL_CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase">Label</label>
+            <label className="text-xs text-gray-500 font-semibold">Label</label>
             <input type="text" value={label} onChange={e => setLabel(e.target.value)}
               placeholder="e.g. Owner Salary, Truck Lease"
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase">Amount ($)</label>
+            <label className="text-xs text-gray-500 font-semibold">Amount ($)</label>
             <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
           </div>
@@ -491,7 +491,7 @@ function EntryForm({ initial, onCancel, onSaved }: { initial: PlManualEntry | nu
             <span>Recurring monthly (auto-copy to each new month)</span>
           </label>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase">Notes</label>
+            <label className="text-xs text-gray-500 font-semibold">Notes</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
           </div>
@@ -559,9 +559,9 @@ function exportPlPdf(pl: PlStatement) {
   const company = (() => {
     try {
       const raw = localStorage.getItem('fencepro_config')
-      if (raw) { const c = JSON.parse(raw); return c.company?.name || 'EZBiz' }
+      if (raw) { const c = JSON.parse(raw); return c.company?.name || 'Getter Done Fence' }
     } catch {}
-    return 'EZBiz'
+    return 'Getter Done Fence'
   })()
 
   const html = `

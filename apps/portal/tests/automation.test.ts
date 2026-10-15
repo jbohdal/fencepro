@@ -245,7 +245,7 @@ describe('Automation Engine — actions', () => {
     await fireAutomations('rain_day_flagged', { jobId: 'j1', customerPhone: '+13215550100', customerName: 'Ana' })
     expect(smsCalls).toHaveLength(1)
     expect(smsCalls[0].to).toBe('+13215550100')
-    expect(smsCalls[0].body).toContain('GD Fence Pro')
+    expect(smsCalls[0].body).toContain('Getter Done Fence')
   })
 
   it('send_sms fails with SMS_SERVICE_NOT_CONFIGURED when Twilio not set', async () => {

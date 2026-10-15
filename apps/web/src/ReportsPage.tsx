@@ -661,7 +661,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
         ].map(kpi => (
           <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{kpi.label}</p>
+              <p className="text-xs font-semibold text-gray-400">{kpi.label}</p>
               <span className="text-lg">{kpi.icon}</span>
             </div>
             <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
@@ -983,12 +983,12 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Style</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Jobs</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Revenue</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">% of Total</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Avg Margin</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Avg Deal</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Style</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Jobs</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Revenue</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">% of Total</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg Margin</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg Deal</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1087,12 +1087,12 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Style</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Date</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Price</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Margin</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">#</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Customer</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Style</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Date</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Price</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Margin</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1136,7 +1136,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                 { label: 'Lost', value: String(lostQ), sub: fmt(yearQuotes.filter(q => q.status === 'LOST').reduce((s, q) => s + q.finalPrice, 0)), color: 'text-red-500' },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{kpi.label}</p>
+                  <p className="text-xs font-semibold text-gray-400 mb-2">{kpi.label}</p>
                   <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
                   <p className="text-xs text-gray-400 mt-1">{kpi.sub}</p>
                 </div>
@@ -1268,12 +1268,12 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Source</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Quotes</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Sold</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Close Rate</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Revenue</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Avg Margin</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Source</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Quotes</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Sold</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Close Rate</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Revenue</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg Margin</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1350,13 +1350,13 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Rep</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Quotes</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Sold</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Close Rate</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Revenue</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Avg Deal</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Avg Margin</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Rep</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Quotes</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Sold</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Close Rate</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Revenue</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg Deal</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg Margin</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1414,7 +1414,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               }
               return (
                 <div key={p.status} className={`rounded-2xl border-2 p-5 ${colors[p.status]}`}>
-                  <p className={`text-xs font-semibold uppercase tracking-wide ${textColors[p.status]}`}>{p.status}</p>
+                  <p className={`text-xs font-semibold ${textColors[p.status]}`}>{p.status}</p>
                   <p className={`text-3xl font-bold mt-2 ${textColors[p.status]}`}>{p.count}</p>
                   <p className="text-sm font-semibold text-gray-700 mt-1">{fmt(p.value)}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
@@ -1532,7 +1532,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                 { label: 'Variance', value: `${variance >= 0 ? '+' : ''}${fmt(variance)}`, sub: onTrack ? 'Ahead of target' : 'Behind target', color: onTrack ? 'text-green-600' : 'text-red-500' },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{kpi.label}</p>
+                  <p className="text-xs font-semibold text-gray-400 mb-2">{kpi.label}</p>
                   <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
                   <p className="text-xs text-gray-400 mt-1">{kpi.sub}</p>
                 </div>
@@ -1745,7 +1745,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                 { label: 'Monthly Avg', value: fmt(budgetOverhead.total / 12), sub: `${budgetOverhead.items.length} expense categories`, color: 'text-blue-600' },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{kpi.label}</p>
+                  <p className="text-xs font-semibold text-gray-400 mb-2">{kpi.label}</p>
                   <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
                   <p className="text-xs text-gray-400 mt-1">{kpi.sub}</p>
                 </div>
@@ -1775,11 +1775,11 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Category</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Type</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Annual</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Monthly</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">% of Overhead</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Category</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Type</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Annual</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Monthly</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">% of Overhead</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1827,7 +1827,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               { label: 'Avg Jobs / Customer', value: customerRevenue.length > 0 ? (allSoldQuotes.length / customerRevenue.length).toFixed(1) : '0', sub: 'repeat factor', color: 'text-orange-500' },
             ].map(kpi => (
               <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{kpi.label}</p>
+                <p className="text-xs font-semibold text-gray-400 mb-2">{kpi.label}</p>
                 <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
                 <p className="text-xs text-gray-400 mt-1">{kpi.sub}</p>
               </div>
@@ -1842,13 +1842,13 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Jobs</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Revenue</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Avg Deal</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Avg Margin</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Styles</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">#</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Customer</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Jobs</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Revenue</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg Deal</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg Margin</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Styles</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1986,12 +1986,12 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Jobs</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Lifetime Revenue</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Avg Deal</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">First Job</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Last Job</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Customer</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Jobs</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Lifetime Revenue</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg Deal</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">First Job</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Last Job</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -2046,12 +2046,12 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <table className="w-full text-sm table-responsive-cards">
               <thead>
                 <tr className="bg-gray-50 text-left">
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Segment</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Customers</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">% of Customers</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Revenue</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">% of Revenue</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase text-right">Avg / Customer</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500">Segment</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Customers</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">% of Customers</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Revenue</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">% of Revenue</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg / Customer</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -2158,10 +2158,10 @@ function OptionConversionReport() {
         </div>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs uppercase text-gray-500 font-semibold">Quotes w/ Options</p><p className="text-2xl font-bold text-gray-900 mt-1">{totalPresented}</p></div>
-        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs uppercase text-gray-500 font-semibold">Accepted</p><p className="text-2xl font-bold text-green-700 mt-1">{totalAccepted}</p></div>
-        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs uppercase text-gray-500 font-semibold">Conversion</p><p className="text-2xl font-bold text-orange-600 mt-1">{(conversionRate * 100).toFixed(1)}%</p></div>
-        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs uppercase text-gray-500 font-semibold">Top Tier</p><p className="text-2xl font-bold text-gray-900 mt-1 capitalize">{avgTier}</p></div>
+        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs text-gray-500 font-semibold">Quotes w/ Options</p><p className="text-2xl font-bold text-gray-900 mt-1">{totalPresented}</p></div>
+        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs text-gray-500 font-semibold">Accepted</p><p className="text-2xl font-bold text-green-700 mt-1">{totalAccepted}</p></div>
+        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs text-gray-500 font-semibold">Conversion</p><p className="text-2xl font-bold text-orange-600 mt-1">{(conversionRate * 100).toFixed(1)}%</p></div>
+        <div className="bg-gray-50 rounded-xl p-4"><p className="text-xs text-gray-500 font-semibold">Top Tier</p><p className="text-2xl font-bold text-gray-900 mt-1 capitalize">{avgTier}</p></div>
       </div>
       {totalAccepted > 0 && (
         <div className="mt-4 grid grid-cols-3 gap-3">
@@ -2170,7 +2170,7 @@ function OptionConversionReport() {
             const rev = revenueByTier.get(tier) || 0
             return (
               <div key={tier} className="border border-gray-200 rounded-xl p-4">
-                <p className="text-xs uppercase font-bold text-gray-500 tracking-widest">{tier}</p>
+                <p className="text-xs font-bold text-gray-500">{tier}</p>
                 <p className="text-lg font-bold text-gray-900 mt-1">{count} sold</p>
                 <p className="text-xs text-gray-500">{fmt(rev / 100)} revenue</p>
               </div>

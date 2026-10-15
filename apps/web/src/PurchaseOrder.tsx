@@ -15,7 +15,7 @@ function loadCompany(): CompanyInfo {
       if (cfg.company) return cfg.company
     }
   } catch { /* fall through */ }
-  return { name: 'GD Fence Pro', phone: '', email: '', address: '', city: '', state: 'FL', zip: '' }
+  return { name: 'Getter Done Fence', phone: '', email: '', address: '', city: '', state: 'FL', zip: '' }
 }
 
 /* ───────── PO generator ───────── */
@@ -87,7 +87,7 @@ export function generatePO(quote: SavedQuote, vendor?: string, notes?: string) {
 
 <div class="header">
   <div>
-    <div class="company-name">${esc(co.name || 'GD Fence Pro')}</div>
+    <div class="company-name">${esc(co.name || 'Getter Done Fence')}</div>
     <div class="company-info">
       ${co.address ? esc(co.address) + '<br>' : ''}${co.city ? esc(co.city) + ', ' : ''}${esc(co.state)} ${esc(co.zip)}
       ${co.phone ? '<br>' + esc(co.phone) : ''}

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { getConfig } from './configStore'
 import { openBooking } from './BookingDialog'
 import { NextAppointmentBadge, CustomerAppointmentsTab } from './AppointmentWidgets'
 import {
@@ -223,7 +224,7 @@ function CustomerForm({
 
       <div className="px-8 py-6 space-y-8 max-w-2xl">
         <div>
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Contact Info</h3>
+          <h3 className="text-xs font-semibold text-gray-500 mb-4">Contact Info</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">First Name</label>
@@ -245,7 +246,7 @@ function CustomerForm({
         </div>
 
         <div>
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Addresses</h3>
+          <h3 className="text-xs font-semibold text-gray-500 mb-4">Addresses</h3>
           <div className="space-y-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Service Address — where the fence is being installed</label>
@@ -275,7 +276,7 @@ function CustomerForm({
         </div>
 
         <div>
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Lead Source</h3>
+          <h3 className="text-xs font-semibold text-gray-500 mb-4">Lead Source</h3>
           <div className="flex flex-wrap gap-2">
             {LEAD_SOURCES.map(src => (
               <button key={src} onClick={() => setForm(f => ({ ...f, leadSource: f.leadSource === src ? '' : src }))} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${form.leadSource === src ? 'bg-orange-500 border-orange-500 text-white' : 'border-gray-200 text-gray-600 hover:border-orange-300'}`}>{src}</button>
@@ -284,7 +285,7 @@ function CustomerForm({
         </div>
 
         <div>
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Tags</h3>
+          <h3 className="text-xs font-semibold text-gray-500 mb-4">Tags</h3>
           <div className="flex flex-wrap gap-2">
             {TAG_OPTIONS.map(tag => (
               <button key={tag} onClick={() => toggle(tag)} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${form.tags.includes(tag) ? 'bg-gray-900 border-gray-900 text-white' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}>{tag}</button>
@@ -293,7 +294,7 @@ function CustomerForm({
         </div>
 
         <div>
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Sales Info</h3>
+          <h3 className="text-xs font-semibold text-gray-500 mb-4">Sales Info</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Sales Rep</label>
@@ -311,7 +312,7 @@ function CustomerForm({
         </div>
 
         <div>
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Notes</h3>
+          <h3 className="text-xs font-semibold text-gray-500 mb-4">Notes</h3>
           <textarea className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none" rows={4} placeholder="HOA requirements, gate swing direction, dog fence, access notes..." value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
         </div>
       </div>
@@ -363,7 +364,7 @@ function CustomerBillingTab({ customerId, customerName, customerEmail }: { custo
           </div>
           {/* Aging */}
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase mb-3">Aging Summary</h3>
+            <h3 className="text-xs font-semibold text-gray-500 mb-3">Aging Summary</h3>
             <div className="grid grid-cols-5 gap-2 text-center text-sm">
               <div><p className="text-xs text-gray-400">Current</p><p className="font-semibold text-green-600">{fmtD(summary.agingCurrent)}</p></div>
               <div><p className="text-xs text-gray-400">1-30d</p><p className="font-semibold text-yellow-600">{fmtD(summary.aging1to30)}</p></div>
@@ -776,7 +777,7 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
 
       {/* Job list */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 grid grid-cols-7 gap-2 text-xs font-medium text-gray-500 uppercase">
+        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 grid grid-cols-7 gap-2 text-xs font-medium text-gray-500">
           <div className="col-span-2">Job</div><div>Est. COGS</div><div>Actual</div><div>Variance</div><div>Est. GM</div><div>Actual GM</div>
         </div>
         <div className="divide-y divide-gray-50">
@@ -871,10 +872,10 @@ function CustomerDetail({
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900 break-words">{customer.firstName} {customer.lastName}</h2>
                 {quotes.some(q => q.status === 'SOLD') && (
-                  <span className="text-[10px] font-bold uppercase tracking-widest bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Signed / Sold</span>
+                  <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Signed / Sold</span>
                 )}
                 {!quotes.some(q => q.status === 'SOLD') && quotes.some(q => q.status === 'SENT') && (
-                  <span className="text-[10px] font-bold uppercase tracking-widest bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Quote Sent</span>
+                  <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Quote Sent</span>
                 )}
               </div>
               <div className="flex items-center gap-3 mt-1 flex-wrap">
@@ -893,10 +894,16 @@ function CustomerDetail({
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => openBooking({ customerId: customer.id })} data-book-appointment className="bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold px-4 py-2 rounded-lg flex-1 lg:flex-none min-h-[44px] lg:min-h-0">Book appointment</button>
-            <button onClick={() => onNewQuote(customer)} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg flex-1 lg:flex-none min-h-[44px] lg:min-h-0">+ New Quote</button>
-            <button onClick={onEdit} className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 flex-1 lg:flex-none min-h-[44px] lg:min-h-0">Edit</button>
-            <button onClick={() => onDelete(customer.id)} className="border border-red-200 text-red-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-red-50 flex-1 lg:flex-none min-h-[44px] lg:min-h-0">Delete</button>
+            <button onClick={() => openBooking({ customerId: customer.id })} data-book-appointment className="btn btn-secondary flex-1 lg:flex-none">Book appointment</button>
+            <button onClick={() => onNewQuote(customer)} className="btn btn-primary flex-1 lg:flex-none">+ New quote</button>
+            <button onClick={onEdit} className="btn btn-quiet">Edit</button>
+            {/* Delete lives behind "More" and a confirmation, never one tap away. */}
+            <details className="relative" data-customer-more>
+              <summary className="btn btn-quiet list-none [&::-webkit-details-marker]:hidden" aria-label="More actions">More ▾</summary>
+              <div className="absolute right-0 mt-1 w-48 panel p-1 z-20">
+                <button onClick={() => onDelete(customer.id)} className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-semibold text-red-700 hover:bg-red-50">Delete customer…</button>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -969,20 +976,20 @@ function CustomerDetail({
             {importedQuotes.length > 0 && (
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                 <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Imported Quote History</p>
+                  <p className="text-xs font-semibold text-gray-500">Imported Quote History</p>
                   <p className="text-xs text-gray-400">{importedQuotes.length} records</p>
                 </div>
                 <table className="w-full text-sm table-responsive-cards">
                   <thead className="border-b border-gray-100">
                     <tr>
-                      <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400 uppercase">Type</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase">Sections</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase">Quoted</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase">Labor</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase">50% Dep</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase">Tear Out</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase">Rep</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase">Sold</th>
+                      <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400">Type</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Sections</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Quoted</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Labor</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">50% Dep</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Tear Out</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Rep</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Sold</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -996,7 +1003,7 @@ function CustomerDetail({
                         <td data-label="Tear Out" className="px-4 py-2.5 text-right">
                           {q.tearOut ? <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Yes</span> : <span className="text-xs text-gray-300">No</span>}
                         </td>
-                        <td data-label="Rep" className="px-4 py-2.5 text-right text-gray-500 text-xs uppercase">{q.salesRep || '—'}</td>
+                        <td data-label="Rep" className="px-4 py-2.5 text-right text-gray-500 text-xs">{q.salesRep || '—'}</td>
                         <td data-label="Sold" className="px-4 py-2.5 text-right text-gray-400 text-xs">{q.soldDate || '—'}</td>
                       </tr>
                     ))}
@@ -1008,17 +1015,17 @@ function CustomerDetail({
             {quotes.length > 0 && (
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                 <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quotes from EZBiz</p>
+                  <p className="text-sm font-semibold text-gray-600">Quotes from {getConfig().company.name || 'Getter Done Fence'}</p>
                 </div>
                 <table className="w-full text-sm table-responsive-cards">
                   <thead className="border-b border-gray-100">
                     <tr>
-                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase">Type</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Sections</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Price</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Margin</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Date</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Status</th>
+                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400">Type</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Sections</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Price</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Margin</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Date</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1063,11 +1070,11 @@ function CustomerDetail({
                 <table className="w-full text-sm table-responsive-cards">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Type</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Sections</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Value</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Scheduled</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Stage</th>
+                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">Type</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Sections</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Value</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Scheduled</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stage</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1267,7 +1274,9 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
   }
 
   function handleDelete(id: string) {
-    if (!confirm('Delete this customer?')) return
+    const c = customers.find(x => x.id === id)
+    const name = c ? `${c.firstName} ${c.lastName}`.trim() : 'this customer'
+    if (!confirm(`Delete ${name}?\n\nTheir customer record is removed. This cannot be undone from here.`)) return
     storeDeleteCustomer(id)
     if (selectedId === id) { setSelectedId(null); setMode('view') }
   }
@@ -1491,7 +1500,6 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
                     {c.tags.length > 2 && <span className="text-xs text-gray-400">+{c.tags.length - 2}</span>}
                   </div>
                 )}
-                <button onClick={e => { e.stopPropagation(); handleDelete(c.id) }} title="Delete customer" className="absolute right-3 top-3 text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
               </div>
             )
           })}
@@ -1599,8 +1607,8 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
     const link = buildActivationLink(rawToken)
     const tpl = getEmailTemplate('portal_welcome')
     const companyName = (() => {
-      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.name || 'EZBiz' } catch {}
-      return 'EZBiz'
+      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.name || 'Getter Done Fence' } catch {}
+      return 'Getter Done Fence'
     })()
     const companyPhone = (() => {
       try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.phone || '' } catch {}
@@ -1716,7 +1724,7 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold text-gray-900">Customer Portal</p>
-            <span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full ${chipClass}`}>{stateLabel}</span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${chipClass}`}>{stateLabel}</span>
           </div>
           <p className="text-xs text-gray-500 mt-0.5">{bodyText}</p>
         </div>
@@ -1724,8 +1732,8 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
       <div className="flex gap-2 flex-wrap">
         {status.state === 'none' && (
           <button onClick={handleSend} disabled={!customer.email}
-            className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold px-4 py-2 rounded-lg whitespace-nowrap">
-            Send Portal Invite
+            className="btn btn-secondary">
+            Send portal invite
           </button>
         )}
         {status.state === 'invited' && (

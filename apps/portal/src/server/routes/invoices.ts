@@ -7,7 +7,7 @@ import { auditLog } from '../middleware/audit.js'
 
 const router = Router()
 
-const COMPANY_NAME = process.env.COMPANY_NAME || 'EZBiz'
+const COMPANY_NAME = process.env.COMPANY_NAME || 'Getter Done Fence'
 const COMPANY_ADDRESS = process.env.COMPANY_ADDRESS || ''
 const COMPANY_CITY_STATE_ZIP = process.env.COMPANY_CITY_STATE_ZIP || ''
 const COMPANY_PHONE = process.env.COMPANY_PHONE || ''

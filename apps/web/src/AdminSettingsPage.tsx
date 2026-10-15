@@ -34,7 +34,7 @@ function CompanyTab({ config, onChange }: { config: AppConfig; onChange: (c: App
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Company Details</h3>
+        <h3 className="text-xs font-semibold text-gray-500 mb-4">Company Details</h3>
         <div className="space-y-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Company Name</label>
@@ -76,7 +76,7 @@ function CompanyTab({ config, onChange }: { config: AppConfig; onChange: (c: App
       </div>
 
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Branding</h3>
+        <h3 className="text-xs font-semibold text-gray-500 mb-4">Branding</h3>
         <div className="space-y-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Logo URL</label>
@@ -103,7 +103,7 @@ function CompanyTab({ config, onChange }: { config: AppConfig; onChange: (c: App
       </div>
 
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Customer Support Contact</h3>
+        <h3 className="text-xs font-semibold text-gray-500 mb-4">Customer Support Contact</h3>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Support Email</label>
@@ -157,7 +157,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
   return (
     <div className="space-y-8 max-w-2xl">
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">How jobs are priced</h3>
+        <h3 className="text-xs font-semibold text-gray-500 mb-1">How jobs are priced</h3>
         <p className="text-xs text-gray-400 mb-4">These are the defaults for a new quote. Every quote can switch labor and price method on its own, and a saved quote keeps the choices it was saved with.</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
@@ -185,7 +185,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
       </div>
 
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Subcontractor rates</h3>
+        <h3 className="text-xs font-semibold text-gray-500 mb-1">Subcontractor rates</h3>
         <p className="text-xs text-gray-400 mb-4">Used when a quote's labor is set to Subcontractor. A rate on the style (Fence Styles tab) wins, then the category rate here, then the default.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
@@ -214,7 +214,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
       </div>
 
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Hourly labor</h3>
+        <h3 className="text-xs font-semibold text-gray-500 mb-4">Hourly labor</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Man-Hour Rate</label>
@@ -228,7 +228,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
       </div>
 
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Commission</h3>
+        <h3 className="text-xs font-semibold text-gray-500 mb-4">Commission</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Salesman Commission</label>
@@ -248,7 +248,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
       </div>
 
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Tear-Out Costs</h3>
+        <h3 className="text-xs font-semibold text-gray-500 mb-4">Tear-Out Costs</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Per Fence Section</label>
@@ -268,7 +268,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
       </div>
 
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Margin Thresholds</h3>
+        <h3 className="text-xs font-semibold text-gray-500 mb-4">Margin Thresholds</h3>
         <p className="text-xs text-gray-400 mb-3">Controls color coding on quotes and dashboard</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
@@ -350,16 +350,16 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
         <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Category</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20" title="Magic number: cost ÷ this = price">Magic #</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Sec/MH</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Panel</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Walk Gate</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Dbl Gate</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24" title="Subcontractor pay per foot or section for this style">Sub Rate</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24" title="Customer price per foot, used when a quote is priced per foot">$ / Ft</th>
-              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-16">Active</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Name</th>
+              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-28">Category</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20" title="Magic number: cost ÷ this = price">Magic #</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20">Sec/MH</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20">Panel</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24">Walk Gate</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24">Dbl Gate</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Subcontractor pay per foot or section for this style">Sub Rate</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Customer price per foot, used when a quote is priced per foot">$ / Ft</th>
+              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-16">Active</th>
               <th className="w-10" />
             </tr>
           </thead>
@@ -533,7 +533,7 @@ function OptimizerTab({ config, onChange }: { config: AppConfig; onChange: (c: A
   return (
     <div className="space-y-8 max-w-2xl">
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Smart Rail Optimization</h3>
+        <h3 className="text-xs font-semibold text-gray-500 mb-2">Smart Rail Optimization</h3>
         <p className="text-sm text-gray-500 mb-6">
           For vinyl jobs, recommends 6ft or 8ft rails per run to minimize material cost and maximize productivity.
           Recommendation only — does not yet drive the pull-sheet quantities (Milestone B will land that).

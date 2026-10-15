@@ -22,10 +22,10 @@ import {
 function loadCompanyInfo() {
   try {
     const r = localStorage.getItem('fencepro_config')
-    if (!r) return { name: 'EZBiz', phone: '', email: '' }
+    if (!r) return { name: 'Getter Done Fence', phone: '', email: '' }
     const cfg = JSON.parse(r)
-    return cfg.company || { name: 'EZBiz' }
-  } catch { return { name: 'EZBiz' } }
+    return cfg.company || { name: 'Getter Done Fence' }
+  } catch { return { name: 'Getter Done Fence' } }
 }
 
 function recordToSavedQuote(r: SavedQuoteRecord): SavedQuote & QuotePresentation {

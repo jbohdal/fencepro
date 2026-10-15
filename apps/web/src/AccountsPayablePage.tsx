@@ -86,7 +86,7 @@ export default function AccountsPayablePage() {
       {/* Aging report */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 font-semibold text-sm text-gray-900">Vendor Aging Report</div>
-        <div className="px-6 py-2 bg-gray-50 border-b border-gray-100 grid grid-cols-8 gap-2 text-xs font-semibold text-gray-500 uppercase">
+        <div className="px-6 py-2 bg-gray-50 border-b border-gray-100 grid grid-cols-8 gap-2 text-xs font-semibold text-gray-500">
           <div className="col-span-2">Vendor</div>
           <div className="text-right">Current</div>
           <div className="text-right">1-30</div>
@@ -210,7 +210,7 @@ export default function AccountsPayablePage() {
 function Card({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5">
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{label}</p>
+      <p className="text-xs font-semibold text-gray-400">{label}</p>
       <p className={`text-2xl font-bold mt-1 ${color || 'text-gray-900'}`}>{value}</p>
     </div>
   )
@@ -244,21 +244,21 @@ function PayBillModal({ bill, onClose, onSaved }: { bill: VendorBill; onClose: (
         </div>
         <div className="p-6 space-y-4">
           <div className="bg-gray-50 rounded-lg p-3 text-sm">
-            <p className="text-gray-500 text-xs uppercase font-semibold">Paying Bill</p>
+            <p className="text-gray-500 text-xs font-semibold">Paying Bill</p>
             <p className="font-medium text-gray-900">{bill.billNumber} · {bill.vendorName}</p>
             <p className="text-xs text-gray-500 mt-1">Balance: {fmt(bill.balanceDueCents)}</p>
           </div>
-          <div><label className="text-xs text-gray-500 font-semibold uppercase block mb-1">Amount ($)</label>
+          <div><label className="text-xs text-gray-500 font-semibold block mb-1">Amount ($)</label>
             <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
-          <div><label className="text-xs text-gray-500 font-semibold uppercase block mb-1">Method</label>
+          <div><label className="text-xs text-gray-500 font-semibold block mb-1">Method</label>
             <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as VendorPaymentMethod)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
               <option value="check">Check</option><option value="ach">ACH</option><option value="wire">Wire</option><option value="credit_card">Credit Card</option><option value="cash">Cash</option><option value="other">Other</option>
             </select></div>
-          <div><label className="text-xs text-gray-500 font-semibold uppercase block mb-1">Reference</label>
+          <div><label className="text-xs text-gray-500 font-semibold block mb-1">Reference</label>
             <input value={referenceNumber} onChange={e => setReferenceNumber(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
-          <div><label className="text-xs text-gray-500 font-semibold uppercase block mb-1">Date</label>
+          <div><label className="text-xs text-gray-500 font-semibold block mb-1">Date</label>
             <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
-          <div><label className="text-xs text-gray-500 font-semibold uppercase block mb-1">Notes</label>
+          <div><label className="text-xs text-gray-500 font-semibold block mb-1">Notes</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
@@ -283,8 +283,8 @@ function exportAgingCsv(aging: ReturnType<typeof getVendorAging>) {
 
 function exportAgingPdf(aging: ReturnType<typeof getVendorAging>, summary: ReturnType<typeof getAPSummary>) {
   const company = (() => {
-    try { const raw = localStorage.getItem('fencepro_config'); if (raw) { const c = JSON.parse(raw); return c.company?.name || 'EZBiz' } } catch {}
-    return 'EZBiz'
+    try { const raw = localStorage.getItem('fencepro_config'); if (raw) { const c = JSON.parse(raw); return c.company?.name || 'Getter Done Fence' } } catch {}
+    return 'Getter Done Fence'
   })()
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>AP Aging Report</title>
 <style>body{font-family:-apple-system,Segoe UI,sans-serif;padding:32px;color:#1f2937}h1{margin:0;font-size:20px}h2{margin:4px 0 16px;font-size:12px;color:#6b7280}.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:16px 0}.card{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.card .l{font-size:9px;color:#6b7280;text-transform:uppercase;font-weight:700}.card .v{font-size:16px;font-weight:700;margin-top:4px}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#f9fafb;padding:6px;font-size:9px;text-transform:uppercase;color:#6b7280;text-align:left;font-weight:700}td{padding:6px;border-bottom:1px solid #f3f4f6}td.r{text-align:right;font-variant-numeric:tabular-nums}tr.total td{font-weight:700;background:#f9fafb}</style></head><body>

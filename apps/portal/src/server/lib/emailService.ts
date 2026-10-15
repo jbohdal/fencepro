@@ -12,10 +12,10 @@ const SMTP_HOST = process.env.SMTP_HOST || ''
 const SMTP_PORT = process.env.SMTP_PORT || '587'
 const SMTP_USER = process.env.SMTP_USER || ''
 const SMTP_PASS = process.env.SMTP_PASS || ''
-const SMTP_FROM = process.env.SMTP_FROM || process.env.COMPANY_NAME || 'EZBiz'
+const SMTP_FROM = process.env.SMTP_FROM || process.env.COMPANY_NAME || 'Getter Done Fence'
 const SMTP_FROM_EMAIL = process.env.SMTP_FROM_EMAIL || 'noreply@ezbiz.app'
 const SMTP_REPLY_TO = process.env.SMTP_REPLY_TO || ''
-const COMPANY_NAME = process.env.COMPANY_NAME || 'GD Fence Pro'
+const COMPANY_NAME = process.env.COMPANY_NAME || 'Getter Done Fence'
 
 // Sendgrid API as primary (simpler than raw SMTP via fetch)
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || ''

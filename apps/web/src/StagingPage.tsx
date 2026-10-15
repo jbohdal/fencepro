@@ -112,7 +112,7 @@ function JobDrawer({
 
         <div className="px-6 py-5 space-y-5">
           <div>
-            <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Move to Status</p>
+            <p className="text-xs text-gray-400 mb-2 font-medium">Move to Status</p>
             <div className="flex flex-wrap gap-1.5">
               {STAGING_STATUSES.map(s => {
                 const c = STATUS_COLORS[s] ?? { bg: 'bg-gray-100', text: 'text-gray-600', dot: 'bg-gray-400' }
@@ -130,7 +130,7 @@ function JobDrawer({
           </div>
 
           <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Job Details</p>
+            <p className="text-xs font-semibold text-gray-500">Job Details</p>
             {editing ? (
               <div className="space-y-2">
                 <input className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="Client Name" value={form.clientName} onChange={e => setForm(f => ({ ...f, clientName: e.target.value }))} />
@@ -168,7 +168,7 @@ function JobDrawer({
           </div>
 
           <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Dates</p>
+            <p className="text-xs font-semibold text-gray-500">Dates</p>
             {editing ? (
               <div className="space-y-2">
                 <div>
@@ -202,7 +202,7 @@ function JobDrawer({
           </div>
 
           <div>
-            <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Notes</p>
+            <p className="text-xs text-gray-400 mb-2 font-medium">Notes</p>
             {editing ? (
               <textarea className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none" rows={4} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
             ) : (
@@ -500,14 +500,14 @@ function ListView({ jobs, onJobClick }: { jobs: StagingJob[], onJobClick: (job: 
           <table className="w-full text-sm table-responsive-cards">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Client</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Type</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Area</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Sec</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Price</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Locates Exp</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Contract</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">Client</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Type</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Area</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Sec</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Price</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Locates Exp</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Contract</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -629,7 +629,7 @@ export default function StagingPage() {
           { label: 'Expiring Soon',   value: String(expiringSoonCount), sub: 'within 7 days', color: expiringSoonCount > 0 ? 'text-yellow-600' : 'text-green-600' },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-2xl border border-gray-200 p-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{s.label}</p>
+            <p className="text-xs font-semibold text-gray-400 mb-1">{s.label}</p>
             <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
             <p className="text-xs text-gray-400 mt-0.5">{s.sub}</p>
           </div>

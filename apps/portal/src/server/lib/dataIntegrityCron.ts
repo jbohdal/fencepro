@@ -101,9 +101,9 @@ export async function recordDailySnapshot(): Promise<{ snapshot: Awaited<ReturnT
   if (alerts.length > 0 && ADMIN_EMAIL) {
     await sendEmail({
       to: ADMIN_EMAIL,
-      subject: 'ALERT — Unexpected data decrease detected in EZBiz',
+      subject: 'ALERT — Unexpected data decrease detected in EZ Biz',
       body: buildEmailHtml(`
-        <p><strong>EZBiz daily data-integrity check found unusual decreases:</strong></p>
+        <p><strong>EZ Biz daily data-integrity check found unusual decreases:</strong></p>
         <ul>${alerts.map((a) => `<li>${a}</li>`).join('')}</ul>
         <p>Please log in to the Admin → Audit Log to investigate. If this looks wrong, restore from a recent backup before continuing.</p>
         <p>Today's counts:</p>
@@ -132,9 +132,9 @@ export async function checkBackupStaleness(): Promise<void> {
   if (ADMIN_EMAIL) {
     await sendEmail({
       to: ADMIN_EMAIL,
-      subject: 'ALERT — EZBiz backup is stale (>25h)',
+      subject: 'ALERT — EZ Biz backup is stale (>25h)',
       body: buildEmailHtml(`
-        <p>The EZBiz daily backup hasn't successfully run in over 25 hours.</p>
+        <p>The EZ Biz daily backup hasn't successfully run in over 25 hours.</p>
         <p>Last completed: <strong>${lastWhen}</strong></p>
         <p>Run the backup manually on the VPS:</p>
         <pre style="background:#f3f4f6;padding:12px;border-radius:6px;">cd /var/www/fencepro/repo &amp;&amp; node --import tsx apps/portal/scripts/backup-database.ts</pre>

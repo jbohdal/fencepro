@@ -71,7 +71,7 @@ export default function PendingOrdersPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* list */}
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-widest">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 text-xs font-semibold text-gray-500">
             Orders ({orders.length})
           </div>
           {orders.length === 0 ? (
@@ -88,7 +88,7 @@ export default function PendingOrdersPage() {
                       <p className="text-[10px] text-gray-400 mt-0.5">{new Date(o.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="text-right">
-                      <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${STATUS_COLORS[o.status]}`}>{o.status}</span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[o.status]}`}>{o.status}</span>
                       <p className="text-sm font-bold text-gray-900 mt-1">{fmt(o.totalCostCents)}</p>
                     </div>
                   </div>
@@ -142,13 +142,13 @@ function OrderDetail({ order, onAdvance, onRemove }: {
             <p className="text-xs text-gray-500 mt-0.5">{order.quoteName}</p>
             <p className="text-[10px] text-gray-400 mt-1">Created {new Date(order.createdAt).toLocaleString()}</p>
           </div>
-          <span className={`text-[10px] font-bold uppercase px-3 py-1 rounded-full ${STATUS_COLORS[order.status]}`}>{order.status}</span>
+          <span className={`text-[10px] font-bold px-3 py-1 rounded-full ${STATUS_COLORS[order.status]}`}>{order.status}</span>
         </div>
       </div>
 
       {warnings.length > 0 && (
         <div className="mx-6 mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-          <p className="text-xs font-bold text-yellow-800 uppercase tracking-widest">⚠ Low stock on {warnings.length} item{warnings.length === 1 ? '' : 's'}</p>
+          <p className="text-xs font-bold text-yellow-800">⚠ Low stock on {warnings.length} item{warnings.length === 1 ? '' : 's'}</p>
           <ul className="mt-2 text-xs text-yellow-900 space-y-0.5">
             {warnings.map((w, i) => (
               <li key={i}>{w.itemName}: need {w.required}, have {w.available} (short {w.short})</li>
@@ -160,7 +160,7 @@ function OrderDetail({ order, onAdvance, onRemove }: {
       <div className="px-6 py-4 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-xs text-gray-500 uppercase font-semibold border-b border-gray-100">
+            <tr className="text-xs text-gray-500 font-semibold border-b border-gray-100">
               <th className="text-left py-2">Item</th>
               <th className="text-right py-2">Required</th>
               <th className="text-right py-2">Received</th>

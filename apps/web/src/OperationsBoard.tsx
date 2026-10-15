@@ -791,7 +791,7 @@ function AnalyticsStrip({ metrics }: { metrics: Array<{ label: string; value: st
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-3">
       {metrics.map(m => (
         <div key={m.label} className={`bg-white rounded-xl border ${m.highlight === 'orange' ? 'border-orange-300' : 'border-gray-200'} px-3 py-2`}>
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide truncate">{m.label}</p>
+          <p className="text-[10px] font-semibold text-gray-400 truncate">{m.label}</p>
           <p className={`text-base font-bold mt-0.5 ${m.highlight === 'orange' ? 'text-orange-600' : 'text-gray-900'}`}>{m.value}</p>
         </div>
       ))}
@@ -849,15 +849,15 @@ function OpsListView({
                   onChange={e => onBulkChange(new Set(e.target.checked ? rows.map(r => r.id) : []))} />
               </th>
               <Th label="Customer" onClick={() => setSort('name')} active={sortCol === 'name'} dir={sortDir} />
-              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Address</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Style</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Address</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Style</th>
               <Th label="Stage" onClick={() => setSort('stage')} active={sortCol === 'stage'} dir={sortDir} />
               <Th label="Scheduled" onClick={() => setSort('date')} active={sortCol === 'date'} dir={sortDir} />
-              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Crew</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Crew</th>
               <Th label="Value" onClick={() => setSort('value')} active={sortCol === 'value'} dir={sortDir} align="right" />
-              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Progress</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Progress</th>
               <Th label="Days" onClick={() => setSort('days')} active={sortCol === 'days'} dir={sortDir} />
-              <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Actions</th>
+              <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -960,7 +960,7 @@ function MiniProgress({ jobId, colorHex }: { jobId: string; colorHex: string }) 
 
 function Th({ label, onClick, active, dir, align }: { label: string; onClick: () => void; active: boolean; dir: 'asc' | 'desc'; align?: 'right' }) {
   return (
-    <th className={`px-3 py-2 text-xs font-semibold text-gray-500 uppercase ${align === 'right' ? 'text-right' : 'text-left'}`}>
+    <th className={`px-3 py-2 text-xs font-semibold text-gray-500 ${align === 'right' ? 'text-right' : 'text-left'}`}>
       <button onClick={onClick} className={`hover:text-gray-700 ${active ? 'text-orange-600' : ''}`}>{label} {active && (dir === 'asc' ? '↑' : '↓')}</button>
     </th>
   )

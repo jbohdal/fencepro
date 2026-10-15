@@ -81,23 +81,23 @@ export default function JobsPipeline() {
       {/* Header KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase">Active Jobs</p>
+          <p className="text-xs text-gray-400 font-semibold">Active Jobs</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">{stats.activeJobs}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase">Contract Value</p>
+          <p className="text-xs text-gray-400 font-semibold">Contract Value</p>
           <p className="text-2xl font-bold text-green-600 mt-1">{fmt(stats.totalContractValue)}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase">Collected</p>
+          <p className="text-xs text-gray-400 font-semibold">Collected</p>
           <p className="text-2xl font-bold text-blue-600 mt-1">{fmt(stats.totalPaid)}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase">Outstanding</p>
+          <p className="text-xs text-gray-400 font-semibold">Outstanding</p>
           <p className="text-2xl font-bold text-orange-600 mt-1">{fmt(stats.totalOutstanding)}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase">On Hold</p>
+          <p className="text-xs text-gray-400 font-semibold">On Hold</p>
           <p className={`text-2xl font-bold mt-1 ${stats.byStatus.on_hold > 0 ? 'text-red-500' : 'text-gray-300'}`}>{stats.byStatus.on_hold}</p>
         </div>
       </div>
@@ -130,7 +130,7 @@ export default function JobsPipeline() {
                 <div className={`rounded-t-xl px-3 py-2 flex items-center justify-between ${cfg.bgColor}`}>
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm">{cfg.icon}</span>
-                    <span className={`text-xs font-bold uppercase tracking-wide ${cfg.color}`}>{cfg.label}</span>
+                    <span className={`text-xs font-bold ${cfg.color}`}>{cfg.label}</span>
                   </div>
                   <span className={`text-xs font-bold ${cfg.color}`}>{colJobs.length}</span>
                 </div>
@@ -170,13 +170,13 @@ export default function JobsPipeline() {
           <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-28">Style</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-24">Status</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-20">Crew</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-24">Date</th>
-                <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-24">Contract</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-24">Payment</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Customer</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-28">Style</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-24">Status</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-20">Crew</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-24">Date</th>
+                <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24">Contract</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-24">Payment</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -297,7 +297,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
 
           {/* Move to specific status */}
           <div>
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Move To</p>
+            <p className="text-xs text-gray-400 font-semibold mb-2">Move To</p>
             <div className="flex flex-wrap gap-1.5">
               {[...STATUS_ORDER, 'on_hold' as JobStatus].filter(s => s !== job.status).map(s => {
                 const sc = STATUS_CONFIG[s]
@@ -339,7 +339,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
 
           {/* Scope */}
           <div>
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Scope of Work</p>
+            <p className="text-xs text-gray-400 font-semibold mb-2">Scope of Work</p>
             <div className="grid grid-cols-3 gap-2">
               {[
                 { label: 'Style', value: job.fenceStyle },
@@ -359,7 +359,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
 
           {/* Operations — Staging */}
           <div>
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Materials & Staging</p>
+            <p className="text-xs text-gray-400 font-semibold mb-2">Materials & Staging</p>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Materials Status</span>
@@ -390,7 +390,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
 
           {/* Scheduling */}
           <div>
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Scheduling</p>
+            <p className="text-xs text-gray-400 font-semibold mb-2">Scheduling</p>
             <div className="space-y-2">
               <div className="flex items-center gap-3">
                 <label className="text-sm text-gray-600 w-24 shrink-0">Crew</label>
@@ -413,7 +413,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
 
           {/* Payment */}
           <div>
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Payment</p>
+            <p className="text-xs text-gray-400 font-semibold mb-2">Payment</p>
             <div className="space-y-2">
               <div className="flex items-center gap-3">
                 <label className="text-sm text-gray-600 w-24 shrink-0">Invoice #</label>
@@ -440,7 +440,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
 
           {/* Notes */}
           <div>
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Notes</p>
+            <p className="text-xs text-gray-400 font-semibold mb-2">Notes</p>
             <textarea className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-400"
               rows={3} placeholder="Job notes..." value={job.notes}
               onChange={e => onUpdate(job.id, { notes: e.target.value })} />

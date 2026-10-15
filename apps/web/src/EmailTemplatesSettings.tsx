@@ -18,7 +18,7 @@ const PREVIEW_DATA: Record<string, string> = {
   quote_link: 'https://yourapp.example.com/quote/abc123',
   fence_style: "6' White Vinyl Privacy",
   scheduled_date: 'May 14, 2026',
-  company_name: 'EZ Biz',
+  company_name: 'Getter Done Fence',
   company_phone: '(352) 555-0100',
   rep_name: 'Jonathan',
   invoice_number: 'INV-2054',
@@ -111,18 +111,18 @@ export default function EmailTemplatesSettings() {
         ) : (
           <>
             <div>
-              <label className="text-xs text-gray-500 font-semibold uppercase block mb-1">Subject</label>
+              <label className="text-xs text-gray-500 font-semibold block mb-1">Subject</label>
               <input value={active.subject} onChange={e => update({ subject: e.target.value })}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
             </div>
             <div>
-              <label className="text-xs text-gray-500 font-semibold uppercase block mb-1">Body (HTML)</label>
+              <label className="text-xs text-gray-500 font-semibold block mb-1">Body (HTML)</label>
               <textarea ref={bodyRef} value={active.body} onChange={e => update({ body: e.target.value })}
                 rows={14}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" />
             </div>
             <div>
-              <p className="text-xs text-gray-500 font-semibold uppercase mb-2">Insert Merge Tag</p>
+              <p className="text-xs text-gray-500 font-semibold mb-2">Insert Merge Tag</p>
               <div className="flex flex-wrap gap-1.5">
                 {ALL_MERGE_TAGS.map(tag => (
                   <button key={tag} onClick={() => insertTag(tag)}

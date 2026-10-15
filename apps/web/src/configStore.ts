@@ -145,7 +145,7 @@ const DEFAULT_FENCE_STYLES: FenceStyle[] = [
 
 const DEFAULT_CONFIG: AppConfig = {
   company: {
-    name: 'EZBiz',
+    name: 'Getter Done Fence',
     phone: '',
     email: '',
     address: '',

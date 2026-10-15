@@ -30,10 +30,10 @@ import { LOCAL_API_ORIGIN } from './apiOrigin'
 function readCompanyInfo() {
   try {
     const r = localStorage.getItem('fencepro_config')
-    if (!r) return { name: 'EZBiz', phone: '', email: '', address: '', portal: {} as any }
+    if (!r) return { name: 'Getter Done Fence', phone: '', email: '', address: '', portal: {} as any }
     const cfg = JSON.parse(r)
     return { ...cfg.company, portal: cfg.portal || {} }
-  } catch { return { name: 'EZBiz', phone: '', email: '', address: '', portal: {} as any } }
+  } catch { return { name: 'Getter Done Fence', phone: '', email: '', address: '', portal: {} as any } }
 }
 
 function accentColor() {
@@ -110,7 +110,7 @@ export default function CustomerPortalApp({ route }: { route: string }) {
       </main>
       <footer className="border-t border-gray-200 bg-white">
         <div className="max-w-6xl mx-auto px-6 py-4 text-xs text-gray-500 flex flex-wrap gap-4 justify-between">
-          <span>© {new Date().getFullYear()} {company.name || 'EZBiz'}</span>
+          <span>© {new Date().getFullYear()} {company.name || 'Getter Done Fence'}</span>
           <span>
             {company.portal?.supportEmail && <a href={`mailto:${company.portal.supportEmail}`} className="hover:underline">{company.portal.supportEmail}</a>}
             {company.portal?.supportPhone && <span className="ml-3">{company.portal.supportPhone}</span>}
@@ -240,13 +240,13 @@ function LoginPage({ company, accent }: { company: any; accent: string }) {
         </div>
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4 shadow-sm">
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase mb-1 block">Email</label>
+            <label className="text-xs text-gray-500 font-semibold mb-1 block">Email</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2"
               style={{ ['--tw-ring-color' as any]: accent }} />
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase mb-1 block">Password</label>
+            <label className="text-xs text-gray-500 font-semibold mb-1 block">Password</label>
             <input type="password" value={password} onChange={e => setPasswordValue(e.target.value)} required
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2"
               style={{ ['--tw-ring-color' as any]: accent }} />
@@ -352,13 +352,13 @@ function ActivatePage({ company, accent, onActivated }: { company: any; accent: 
         ) : (
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4 shadow-sm">
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase mb-1 block">Password</label>
+            <label className="text-xs text-gray-500 font-semibold mb-1 block">Password</label>
             <input type="password" minLength={8} value={password} onChange={e => setPasswordValue(e.target.value)} required
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2" />
             <p className="text-[10px] text-gray-400 mt-1">At least 8 characters.</p>
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase mb-1 block">Confirm Password</label>
+            <label className="text-xs text-gray-500 font-semibold mb-1 block">Confirm Password</label>
             <input type="password" minLength={8} value={confirm} onChange={e => setConfirm(e.target.value)} required
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2" />
           </div>
@@ -408,7 +408,7 @@ function DashboardPage({ session, customer, accent, company }: { session: Portal
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {activeJob && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-widest font-bold" style={{ color: accent }}>Active Project</p>
+            <p className="text-xs font-bold" style={{ color: accent }}>Active Project</p>
             <p className="text-lg font-bold text-gray-900 mt-1">{activeJob.fenceStyle || activeJob.type || 'Project'}</p>
             <p className="text-sm text-gray-500 mt-1">{friendlyStage(activeJob.status || activeJob.stage)}</p>
             {activeJob.scheduledDate && <p className="text-xs text-gray-500 mt-2">📅 Scheduled {activeJob.scheduledDate}</p>}
@@ -418,7 +418,7 @@ function DashboardPage({ session, customer, accent, company }: { session: Portal
         )}
         {pendingQuotes.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-widest font-bold" style={{ color: accent }}>Quotes Awaiting Review</p>
+            <p className="text-xs font-bold" style={{ color: accent }}>Quotes Awaiting Review</p>
             <p className="text-3xl font-black text-gray-900 mt-1">{pendingQuotes.length}</p>
             <p className="text-sm text-gray-500 mt-1">{pendingQuotes[0].fenceStyle || ''} · ${pendingQuotes[0].finalPrice?.toLocaleString() || 0}</p>
             <a href="#/portal/quotes" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>Review and Accept →</a>
@@ -426,7 +426,7 @@ function DashboardPage({ session, customer, accent, company }: { session: Portal
         )}
         {outstanding > 0 && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-widest font-bold" style={{ color: accent }}>Balance Due</p>
+            <p className="text-xs font-bold" style={{ color: accent }}>Balance Due</p>
             <p className="text-3xl font-black text-gray-900 mt-1">${(outstanding / 100).toLocaleString()}</p>
             <a href="#/portal/invoices" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>View Invoices →</a>
           </div>
@@ -435,7 +435,7 @@ function DashboardPage({ session, customer, accent, company }: { session: Portal
 
       {activity.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
-          <p className="text-xs uppercase tracking-widest font-bold text-gray-500 mb-3">Recent Activity</p>
+          <p className="text-xs font-bold text-gray-500 mb-3">Recent Activity</p>
           <ul className="space-y-2">
             {activity.map(a => (
               <li key={a.id} className="text-sm text-gray-700 flex items-start gap-2">
@@ -492,7 +492,7 @@ function QuotesPage({ session, accent }: { session: PortalAccount; customer: any
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-xl font-bold text-gray-900">${Math.round(q.finalPrice || 0).toLocaleString()}</p>
-                  <span className={`inline-block text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${statusBg}`}>{statusLabel}</span>
+                  <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBg}`}>{statusLabel}</span>
                 </div>
                 <QuoteViewButton quoteId={q.id} accent={accent} />
               </div>
@@ -598,7 +598,7 @@ function InvoicesPage({ session, accent }: { session: PortalAccount; customer: a
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Invoices &amp; Payments</h1>
         <div className="text-right">
-          <p className="text-xs text-gray-500 uppercase font-bold tracking-widest">Total Outstanding</p>
+          <p className="text-xs text-gray-500 font-bold">Total Outstanding</p>
           <p className="text-2xl font-black" style={{ color: outstanding > 0 ? accent : '#10b981' }}>${(outstanding / 100).toLocaleString()}</p>
         </div>
       </div>
@@ -617,7 +617,7 @@ function InvoicesPage({ session, accent }: { session: PortalAccount; customer: a
                 </div>
                 <div className="text-right">
                   <p className="font-bold text-gray-900">${((i.totalCents || 0) / 100).toLocaleString()}</p>
-                  <span className={`inline-block text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${statusBg}`}>{status}</span>
+                  <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBg}`}>{status}</span>
                 </div>
                 {i.balanceDueCents > 0 && (
                   <button className="text-xs text-white px-3 py-2 rounded-lg hover:opacity-90" style={{ backgroundColor: accent }}>Pay Now</button>
@@ -672,7 +672,7 @@ function DocumentsPage({ accent }: { session: PortalAccount; customer: any; acce
     <div className="space-y-5">
       <h1 className="text-2xl font-bold text-gray-900">Documents</h1>
       <div className="bg-white border border-gray-200 rounded-2xl p-5">
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Upload a Document</p>
+        <p className="text-xs font-bold text-gray-500 mb-2">Upload a Document</p>
         <p className="text-xs text-gray-500 mb-3">HOA approvals, property surveys, or anything else you'd like to share with us. PDF / DOCX / PNG / JPG up to 25MB.</p>
         <div className="flex gap-2">
           <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (optional)"
@@ -885,7 +885,7 @@ function AccountPage({ session, customer, accent }: { session: PortalAccount; cu
     <div className="space-y-5">
       <h1 className="text-2xl font-bold text-gray-900">My Account</h1>
       <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Your Info</p>
+        <p className="text-xs font-bold text-gray-500 mb-3">Your Info</p>
         <div className="space-y-1 text-sm">
           <p><span className="text-gray-500">Name:</span> {customer?.firstName} {customer?.lastName}</p>
           <p><span className="text-gray-500">Email:</span> {session.email}</p>
@@ -895,7 +895,7 @@ function AccountPage({ session, customer, accent }: { session: PortalAccount; cu
         <p className="text-xs text-gray-400 mt-3">To update your info, send us a message.</p>
       </div>
       <form onSubmit={changePw} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-3">
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Change Password</p>
+        <p className="text-xs font-bold text-gray-500">Change Password</p>
         <input type="password" value={pw1} onChange={e => setPw1(e.target.value)} placeholder="New password"
           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
         <input type="password" value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Confirm new password"

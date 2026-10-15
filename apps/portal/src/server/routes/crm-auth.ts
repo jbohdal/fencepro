@@ -359,15 +359,15 @@ router.post('/invite', async (req, res) => {
     // the recipient sees the original https://yourdomain.com URL instead of
     // SendGrid's `urlNNNN.www.yourdomain.com` rewrite (which can SSL-fail).
     const inviteUrl = buildFrontendUrl(`/accept-invite?token=${rawToken}&email=${encodeURIComponent(email)}`)
-    const companyName = process.env.COMPANY_NAME || 'EZBiz'
+    const companyName = process.env.COMPANY_NAME || 'Getter Done Fence'
     const inviterName = `${payloadFirstName(payload)}`.trim() || 'A teammate'
     const roleLabel = data.role.replace(/_/g, ' ')
     await sendEmail({
       to: email,
-      subject: `You've been invited to join ${companyName} on EZBiz`,
+      subject: `You've been invited to join ${companyName} on EZ Biz`,
       body: buildEmailHtml(`
         <p>Hi ${data.firstName},</p>
-        <p>${inviterName} has invited you to join <strong>${companyName}</strong> on EZBiz as <strong>${roleLabel}</strong>.</p>
+        <p>${inviterName} has invited you to join <strong>${companyName}</strong> on EZ Biz as <strong>${roleLabel}</strong>.</p>
         <p style="margin: 24px 0;"><a href="${inviteUrl}" style="display:inline-block;background:#f97316;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;">Accept Invitation &amp; Set Password</a></p>
         <p style="color:#64748b;font-size:13px;">If the button doesn't work, copy and paste this link into your browser:<br><span style="color:#475569;word-break:break-all;">${inviteUrl}</span></p>
         <p style="color:#94a3b8;font-size:13px;">This invitation expires in ${INVITE_EXPIRY_HOURS} hours.</p>
@@ -422,15 +422,15 @@ router.post('/invite/:userId/resend', async (req, res) => {
     })
 
     const inviteUrl = buildFrontendUrl(`/accept-invite?token=${rawToken}&email=${encodeURIComponent(user.email)}`)
-    const companyName = process.env.COMPANY_NAME || 'EZBiz'
+    const companyName = process.env.COMPANY_NAME || 'Getter Done Fence'
     const inviterName = `${payloadFirstName(payload)}`.trim()
     const roleLabel = (user.role || '').replace(/_/g, ' ')
     await sendEmail({
       to: user.email,
-      subject: `Reissued: your invitation to ${companyName} on EZBiz`,
+      subject: `Reissued: your invitation to ${companyName} on EZ Biz`,
       body: buildEmailHtml(`
         <p>Hi ${user.firstName},</p>
-        <p>${inviterName} has resent your invitation to join <strong>${companyName}</strong> on EZBiz as <strong>${roleLabel}</strong>.</p>
+        <p>${inviterName} has resent your invitation to join <strong>${companyName}</strong> on EZ Biz as <strong>${roleLabel}</strong>.</p>
         <p style="margin: 24px 0;"><a href="${inviteUrl}" style="display:inline-block;background:#f97316;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;">Accept Invitation &amp; Set Password</a></p>
         <p style="color:#64748b;font-size:13px;">If the button doesn't work, copy this link into your browser:<br><span style="color:#475569;word-break:break-all;">${inviteUrl}</span></p>
         <p style="color:#94a3b8;font-size:13px;">This invitation expires in ${INVITE_EXPIRY_HOURS} hours.</p>
@@ -474,13 +474,13 @@ router.post('/invites/resend-all-pending', async (req, res) => {
           },
         })
         const inviteUrl = buildFrontendUrl(`/accept-invite?token=${rawToken}&email=${encodeURIComponent(user.email)}`)
-        const companyName = process.env.COMPANY_NAME || 'EZBiz'
+        const companyName = process.env.COMPANY_NAME || 'Getter Done Fence'
         await sendEmail({
           to: user.email,
-          subject: `Reissued: your invitation to ${companyName} on EZBiz`,
+          subject: `Reissued: your invitation to ${companyName} on EZ Biz`,
           body: buildEmailHtml(`
             <p>Hi ${user.firstName},</p>
-            <p>We've reissued your invitation to <strong>${companyName}</strong> on EZBiz. The previous link may not have worked due to a temporary delivery issue.</p>
+            <p>We've reissued your invitation to <strong>${companyName}</strong> on EZ Biz. The previous link may not have worked due to a temporary delivery issue.</p>
             <p style="margin: 24px 0;"><a href="${inviteUrl}" style="display:inline-block;background:#f97316;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;">Accept Invitation &amp; Set Password</a></p>
             <p style="color:#64748b;font-size:13px;">If the button doesn't work, copy this link:<br><span style="color:#475569;word-break:break-all;">${inviteUrl}</span></p>
             <p style="color:#94a3b8;font-size:13px;">This invitation expires in ${INVITE_EXPIRY_HOURS} hours.</p>

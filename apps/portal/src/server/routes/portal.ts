@@ -115,7 +115,7 @@ function buildActivationUrl(rawToken: string): string {
 }
 
 function companyName(): string {
-  return process.env.COMPANY_NAME || 'EZBiz'
+  return process.env.COMPANY_NAME || 'Getter Done Fence'
 }
 
 function companyPhone(): string {

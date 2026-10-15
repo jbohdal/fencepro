@@ -102,7 +102,7 @@ export default function IntegrationsPage() {
               const items = integrations.filter(i => i.category === cat)
               return (
                 <div key={cat}>
-                  <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">{cat}</h2>
+                  <h2 className="text-sm font-semibold text-gray-500 mb-3">{cat}</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {items.map(integ => (
                       <div key={integ.slug} className={`bg-white rounded-2xl border ${integ.isActive ? 'border-green-200' : 'border-gray-200'} p-5 relative`}>
@@ -259,7 +259,7 @@ function ApiKeysSection() {
 
       {/* Keys table */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
-        <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4 text-xs font-medium text-gray-500 uppercase min-w-[640px]">
+        <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4 text-xs font-medium text-gray-500 min-w-[640px]">
           <div className="col-span-3">Name</div><div className="col-span-2">Key</div><div className="col-span-2">Scope</div>
           <div className="col-span-2">Created</div><div className="col-span-1">Requests</div><div className="col-span-2 text-right">Actions</div>
         </div>

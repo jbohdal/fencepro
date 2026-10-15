@@ -123,19 +123,19 @@ export default function PortalInbox() {
       {/* KPIs */}
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase">Open Tickets</p>
+          <p className="text-xs text-gray-400 font-semibold">Open Tickets</p>
           <p className={`text-2xl font-bold mt-1 ${openTickets.length > 0 ? 'text-orange-600' : 'text-green-600'}`}>{openTickets.length}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase">Total Tickets</p>
+          <p className="text-xs text-gray-400 font-semibold">Total Tickets</p>
           <p className="text-2xl font-bold mt-1 text-gray-900">{tickets.length}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase">Documents</p>
+          <p className="text-xs text-gray-400 font-semibold">Documents</p>
           <p className="text-2xl font-bold mt-1 text-blue-600">{documents.length}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase">New Today</p>
+          <p className="text-xs text-gray-400 font-semibold">New Today</p>
           <p className={`text-2xl font-bold mt-1 ${newDocs.length > 0 ? 'text-orange-600' : 'text-gray-300'}`}>{newDocs.length}</p>
         </div>
       </div>
@@ -176,11 +176,11 @@ export default function PortalInbox() {
                 <table className="w-full text-sm table-responsive-cards">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase w-4" />
-                      <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Subject</th>
-                      <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-28">Status</th>
-                      <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-16">Replies</th>
-                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase w-28">Created</th>
+                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 w-4" />
+                      <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500">Subject</th>
+                      <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-28">Status</th>
+                      <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-16">Replies</th>
+                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 w-28">Created</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -221,9 +221,9 @@ export default function PortalInbox() {
                 <table className="w-full text-sm table-responsive-cards">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">File</th>
-                      <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-36">Uploaded By</th>
-                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase w-28">Date</th>
+                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">File</th>
+                      <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-36">Uploaded By</th>
+                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 w-28">Date</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">

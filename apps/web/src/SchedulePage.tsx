@@ -443,7 +443,7 @@ export default function SchedulePage() {
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               {settings.workDays.map(d => (
-                <th key={d} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                <th key={d} className="text-left px-4 py-3 text-xs font-semibold text-gray-500">
                   {DAY_FULL[d]}
                 </th>
               ))}

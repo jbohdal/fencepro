@@ -639,7 +639,7 @@ export default function QuoteBuilder({
           <div className="flex-1 px-8 py-6 space-y-6 border-r border-gray-100 overflow-y-auto max-h-[80vh]">
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Customer Name</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Customer Name</h3>
               <input
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 placeholder="Customer name (required when saving)"
@@ -649,7 +649,7 @@ export default function QuoteBuilder({
             </div>
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Fence Style</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Fence Style</h3>
               <select
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 value={styleId}
@@ -684,7 +684,7 @@ export default function QuoteBuilder({
 
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fence Runs (ft)</h3>
+                <h3 className="text-xs font-semibold text-gray-500">Fence Runs (ft)</h3>
                 <button onClick={addRun} className="text-orange-500 text-xs hover:underline">+ Add run</button>
               </div>
               <div className="space-y-2">
@@ -744,7 +744,7 @@ export default function QuoteBuilder({
                 <div className="mt-4 bg-orange-50 border border-orange-200 rounded-xl p-4">
                   <div className="flex items-start justify-between mb-3">
                     <div>
-                      <h4 className="text-xs font-bold text-orange-700 uppercase tracking-wide">Smart Rail Recommendation</h4>
+                      <h4 className="text-xs font-bold text-orange-700">Smart Rail Recommendation</h4>
                       <p className="text-xs text-gray-500 mt-0.5">
                         Per-run rail-width suggestion. Currently advisory — does not yet drive the pull sheet.
                       </p>
@@ -770,7 +770,7 @@ export default function QuoteBuilder({
 
                   <div className="grid grid-cols-3 gap-2 pt-3 border-t border-orange-200">
                     <div>
-                      <p className="text-[10px] text-gray-500 uppercase">Mix</p>
+                      <p className="text-[10px] text-gray-500">Mix</p>
                       <p className="text-sm font-bold text-gray-900">
                         {optimizerResult.totals.runs6ft} × 6ft / {optimizerResult.totals.runs8ft} × 8ft
                       </p>
@@ -779,14 +779,14 @@ export default function QuoteBuilder({
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] text-gray-500 uppercase">Material vs all-6ft</p>
+                      <p className="text-[10px] text-gray-500">Material vs all-6ft</p>
                       <p className={`text-sm font-bold ${optimizerResult.totals.materialSavings > 0 ? 'text-green-600' : 'text-gray-700'}`}>
                         {optimizerResult.totals.materialSavings > 0 ? `-$${optimizerResult.totals.materialSavings.toFixed(2)}` : '$0.00'}
                       </p>
                       <p className="text-[10px] text-gray-400">{optimizerResult.totals.materialSavings > 0 ? 'savings' : 'no change'}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] text-gray-500 uppercase">Sections vs all-6ft</p>
+                      <p className="text-[10px] text-gray-500">Sections vs all-6ft</p>
                       <p className={`text-sm font-bold ${optimizerResult.totals.sectionsSavedVsAll6ft > 0 ? 'text-green-600' : 'text-gray-700'}`}>
                         {optimizerResult.totals.sectionsSavedVsAll6ft > 0 ? `-${optimizerResult.totals.sectionsSavedVsAll6ft}` : '0'}
                       </p>
@@ -798,7 +798,7 @@ export default function QuoteBuilder({
             </div>
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Layout</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Layout</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'Corners', val: corners, set: setCorners },
@@ -813,7 +813,7 @@ export default function QuoteBuilder({
             </div>
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Gates</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Gates</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'Walk Gates',   val: walkGates, set: setWalkGates },
@@ -828,7 +828,7 @@ export default function QuoteBuilder({
             </div>
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Tear Out</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Tear Out</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'Sections', val: tearOutSec,   set: setTearOutSec },
@@ -843,7 +843,7 @@ export default function QuoteBuilder({
             </div>
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Labor</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Labor</h3>
               <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-3">
                 {([['hourly', 'Hourly crew'], ['subcontractor', 'Subcontractor']] as const).map(([mode, label]) => (
                   <button
@@ -919,7 +919,7 @@ export default function QuoteBuilder({
 
           <div className="w-80 flex flex-col bg-gray-50 rounded-r-2xl">
             <div className="px-6 py-6 space-y-3 border-b border-gray-200">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Live Quote</h3>
+              <h3 className="text-xs font-semibold text-gray-500">Live Quote</h3>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="flex justify-between items-center mb-1">
@@ -1047,7 +1047,7 @@ export default function QuoteBuilder({
             {showPullSheet && materialItems.length > 0 && (
               <div className="flex-1 overflow-y-auto px-6 py-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pull Sheet</h3>
+                  <h3 className="text-xs font-semibold text-gray-500">Pull Sheet</h3>
                   <span className="text-xs text-gray-400">{materialItems.length} items</span>
                 </div>
                 <div className="space-y-1">

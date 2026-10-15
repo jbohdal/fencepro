@@ -205,7 +205,7 @@ function PipelineAnalytics({ quotes }: { quotes: SavedQuote[] }) {
           { label: 'Avg Margin',     value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'no costed quotes yet' : quotes.filter(q => q.gmPct >= 0.34).length + ' above target' },
         ].map(s => (
           <div key={s.label} className={`rounded-2xl p-4 ${s.accent ? 'bg-orange-500' : 'bg-white border border-gray-200'}`}>
-            <p className={`text-xs font-semibold uppercase tracking-wide mb-1 ${s.accent ? 'text-orange-100' : 'text-gray-400'}`}>{s.label}</p>
+            <p className={`text-xs font-semibold mb-1 ${s.accent ? 'text-orange-100' : 'text-gray-400'}`}>{s.label}</p>
             <p className={`text-xl font-bold ${s.accent ? 'text-white' : 'text-gray-900'}`}>{s.value}</p>
             <p className={`text-xs mt-0.5 ${s.accent ? 'text-orange-200' : 'text-gray-400'}`}>{s.sub}</p>
           </div>
@@ -301,12 +301,12 @@ function QuoteDrawer({
 
         <div className="px-6 py-5 space-y-6">
           <div>
-            <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Lead Temperature</p>
+            <p className="text-xs text-gray-400 mb-2 font-medium">Lead Temperature</p>
             <FlameRating value={quote.leadTemp ?? 0} onChange={v => onTempChange(quote.id, v)} />
           </div>
 
           <div>
-            <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Status</p>
+            <p className="text-xs text-gray-400 mb-2 font-medium">Status</p>
             <div className="flex gap-2">
               {STATUS_OPTIONS.map(s => (
                 <button
@@ -321,7 +321,7 @@ function QuoteDrawer({
           </div>
 
           <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Customer</p>
+            <p className="text-xs font-semibold text-gray-500">Customer</p>
             {[
               { label: 'Name',        value: quote.customerName },
               { label: 'Phone',       value: quote.customerPhone },
@@ -338,7 +338,7 @@ function QuoteDrawer({
           </div>
 
           <div className="bg-gray-900 rounded-xl p-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Pricing</p>
+            <p className="text-xs font-semibold text-gray-400 mb-3">Pricing</p>
             <div className="space-y-2">
               {[
                 { label: 'Material Cost', value: fmt(quote.materialCost) },
@@ -370,7 +370,7 @@ function QuoteDrawer({
           )}
 
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Job Details</p>
+            <p className="text-xs font-semibold text-gray-500 mb-3">Job Details</p>
             <div className="grid grid-cols-3 gap-3">
               {[
                 { label: 'Sections',   value: quote.sections },
@@ -397,7 +397,7 @@ function QuoteDrawer({
 
           {quote.pullSheet?.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              <p className="text-xs font-semibold text-gray-500 mb-3">
                 Material Pull Sheet ({quote.pullSheet.length} items)
               </p>
               <div className="border border-gray-200 rounded-xl overflow-hidden">
@@ -433,7 +433,7 @@ function QuoteDrawer({
 
           {quote.notes && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Notes</p>
+              <p className="text-xs font-semibold text-gray-500 mb-2">Notes</p>
               <p className="text-sm text-gray-700 bg-gray-50 rounded-xl p-3">{quote.notes}</p>
             </div>
           )}
@@ -563,15 +563,15 @@ export default function QuotesPage({
           <table className="w-full text-sm table-responsive-cards">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Style</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Sections</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Price</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Margin</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Heat</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Rep</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Date</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">Customer</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Style</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Sections</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Price</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Margin</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Heat</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Rep</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Date</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -592,7 +592,7 @@ export default function QuotesPage({
                   <td className="px-4 py-3" data-label="Heat" onClick={e => e.stopPropagation()}>
                     <FlameRating value={q.leadTemp ?? 0} onChange={v => handleTempChange(q.id, v)} />
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-500 text-xs uppercase" data-label="Rep">{q.salesRep || '—'}</td>
+                  <td className="px-4 py-3 text-right text-gray-500 text-xs" data-label="Rep">{q.salesRep || '—'}</td>
                   <td className="px-4 py-3 text-right text-gray-400 text-xs" data-label="Date">{q.date}</td>
                   <td className="px-4 py-3 text-right" data-label="Status">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[q.status]}`}>{q.status}</span>
@@ -653,7 +653,7 @@ export default function QuotesPage({
                 </select>
               </div>
               <div className="bg-gray-50 rounded-xl p-3 max-h-48 overflow-y-auto">
-                <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Items to pull</p>
+                <p className="text-xs text-gray-400 font-semibold mb-2">Items to pull</p>
                 {pullConfirm.pullSheet.slice(0, 15).map((item, i) => (
                   <div key={i} className="flex justify-between text-xs py-0.5">
                     <span className="text-gray-700 truncate pr-2">{item.item}</span>

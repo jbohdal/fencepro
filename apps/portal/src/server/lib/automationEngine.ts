@@ -137,7 +137,7 @@ export async function fireAutomations(
       job_stage: event.toStage || '',
       deal_stage: event.toStage || '',
       job_id: event.jobId || '',
-      company_name: process.env.COMPANY_NAME || 'GD Fence Pro',
+      company_name: process.env.COMPANY_NAME || 'Getter Done Fence',
       quote_price: event.quotePrice ? `$${event.quotePrice.toLocaleString()}` : '',
       quote_total: event.quotePrice ? `$${event.quotePrice.toLocaleString()}` : '',
       invoice_amount: event.invoiceAmount != null ? `$${event.invoiceAmount.toLocaleString()}` : '',

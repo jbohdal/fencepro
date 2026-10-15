@@ -92,7 +92,7 @@ export default function BalanceSheetPage() {
           <p className="text-sm text-gray-500 mt-1">Assets, liabilities, and equity. A/R and A/P auto-populate from live data.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-xs text-gray-500 font-semibold uppercase">As of</label>
+          <label className="text-xs text-gray-500 font-semibold">As of</label>
           <input type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)}
             className="text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
           <button onClick={() => setShowEditor(true)}
@@ -129,7 +129,7 @@ export default function BalanceSheetPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Assets */}
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 font-bold uppercase text-xs tracking-widest text-gray-500">Assets</div>
+          <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 font-bold text-xs text-gray-500">Assets</div>
           <div className="divide-y divide-gray-50">
             <SubHeader label="Current Assets" />
             {byCategory.current_asset.map(e => (
@@ -163,7 +163,7 @@ export default function BalanceSheetPage() {
 
         {/* Liabilities + Equity */}
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 font-bold uppercase text-xs tracking-widest text-gray-500">Liabilities &amp; Equity</div>
+          <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 font-bold text-xs text-gray-500">Liabilities &amp; Equity</div>
           <div className="divide-y divide-gray-50">
             <SubHeader label="Current Liabilities" />
             <BsRow label="Accounts Payable" amount={ap} autoLabel />
@@ -208,7 +208,7 @@ export default function BalanceSheetPage() {
 }
 
 function SubHeader({ label }: { label: string }) {
-  return <div className="px-6 py-2 text-xs uppercase tracking-wider font-semibold text-gray-500 bg-gray-50">{label}</div>
+  return <div className="px-6 py-2 text-xs font-semibold text-gray-500 bg-gray-50">{label}</div>
 }
 
 function BsRow({ label, amount, bold, autoLabel }: { label: string; amount: number; bold?: boolean; autoLabel?: boolean }) {
@@ -216,7 +216,7 @@ function BsRow({ label, amount, bold, autoLabel }: { label: string; amount: numb
     <div className={`px-6 py-2 flex justify-between items-center text-sm ${bold ? 'bg-gray-50 font-semibold' : ''}`}>
       <span className={`${bold ? 'text-gray-900' : 'text-gray-600'}`} style={{ paddingLeft: bold ? 0 : 16 }}>
         {label}
-        {autoLabel && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded uppercase">Auto</span>}
+        {autoLabel && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Auto</span>}
       </span>
       <span className={bold ? 'text-gray-900' : 'text-gray-700'}>{fmt(amount)}</span>
     </div>
@@ -253,7 +253,7 @@ function BalanceSheetEditor({ onClose, onSaved }: { onClose: () => void; onSaved
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
-                <tr className="text-xs text-gray-500 uppercase font-semibold">
+                <tr className="text-xs text-gray-500 font-semibold">
                   <th className="px-4 py-2 text-left">As Of</th>
                   <th className="px-4 py-2 text-left">Category</th>
                   <th className="px-4 py-2 text-left">Label</th>
@@ -313,30 +313,30 @@ function BsEntryForm({ initial, onCancel, onSaved }: { initial: BalanceSheetEntr
         </div>
         <div className="p-6 space-y-4">
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase">As Of Date</label>
+            <label className="text-xs text-gray-500 font-semibold">As Of Date</label>
             <input type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase">Category</label>
+            <label className="text-xs text-gray-500 font-semibold">Category</label>
             <select value={category} onChange={e => setCategory(e.target.value as BalanceSheetCategory)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1">
               {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase">Label</label>
+            <label className="text-xs text-gray-500 font-semibold">Label</label>
             <input type="text" value={label} onChange={e => setLabel(e.target.value)}
               placeholder="e.g. Cash, Equipment, Vehicle Loan"
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase">Amount ($)</label>
+            <label className="text-xs text-gray-500 font-semibold">Amount ($)</label>
             <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase">Notes</label>
+            <label className="text-xs text-gray-500 font-semibold">Notes</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
           </div>
@@ -361,8 +361,8 @@ function exportBsPdf(ctx: {
   totalEquity: number; totalLiabEquity: number; diff: number; balanced: boolean;
 }) {
   const company = (() => {
-    try { const raw = localStorage.getItem('fencepro_config'); if (raw) { const c = JSON.parse(raw); return c.company?.name || 'EZBiz' } } catch {}
-    return 'EZBiz'
+    try { const raw = localStorage.getItem('fencepro_config'); if (raw) { const c = JSON.parse(raw); return c.company?.name || 'Getter Done Fence' } } catch {}
+    return 'Getter Done Fence'
   })()
   const rows = (items: BalanceSheetEntry[]) => items.map(e => `<tr><td>${e.label}</td><td class="amt">${fmt(e.amountCents)}</td></tr>`).join('')
 

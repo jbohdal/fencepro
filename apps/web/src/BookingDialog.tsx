@@ -194,7 +194,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                 <p className="text-sm bg-gray-50 rounded-lg p-3 text-gray-700">{confirmationText(booked, company)}</p>
                 <div className="flex flex-wrap gap-2">
                   {booked.customerPhone && <a href={smsLink(booked.customerPhone, confirmationText(booked, company))} className="px-3 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold">Text it</a>}
-                  {booked.customerEmail && <a href={mailtoLink(booked.customerEmail, `Your ${TYPE_SHORT[booked.type].toLowerCase()} with ${company.name || 'GD Fence Pro'}`, confirmationText(booked, company))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700">Email it</a>}
+                  {booked.customerEmail && <a href={mailtoLink(booked.customerEmail, `Your ${TYPE_SHORT[booked.type].toLowerCase()} with ${company.name || 'Getter Done Fence'}`, confirmationText(booked, company))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700">Email it</a>}
                   <button onClick={() => downloadIcs(booked)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700">Calendar invite (.ics)</button>
                 </div>
               </div>

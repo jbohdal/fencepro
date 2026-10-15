@@ -177,7 +177,7 @@ function CostAJobModal({
           {/* Estimate preview */}
           {selectedQuote && (
             <div className="bg-gray-50 rounded-xl p-4">
-              <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Quote Estimate</p>
+              <p className="text-xs text-gray-400 font-semibold mb-2">Quote Estimate</p>
               <div className="grid grid-cols-4 gap-3 text-sm">
                 <div><p className="text-gray-400 text-xs">Labor Hrs</p><p className="font-bold">{selectedQuote.adjLaborHrs?.toFixed(1) || '—'}</p></div>
                 <div><p className="text-gray-400 text-xs">Labor $</p><p className="font-bold">{fmt(selectedQuote.laborCost)}</p></div>
@@ -367,7 +367,7 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
           {/* Variance table */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-gray-400 font-semibold uppercase">Variance Breakdown</span>
+              <span className="text-xs text-gray-400 font-semibold">Variance Breakdown</span>
               <div className="flex gap-4 text-xs text-gray-400">
                 <span className="w-20 text-right">Estimate</span>
                 <span className="w-20 text-right">Actual</span>
@@ -390,7 +390,7 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
           {/* Crew breakdown */}
           {e.crew.length > 0 && (
             <div>
-              <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Crew Breakdown</p>
+              <p className="text-xs text-gray-400 font-semibold mb-2">Crew Breakdown</p>
               <div className="bg-gray-50 rounded-xl overflow-hidden">
                 <table className="w-full text-sm table-responsive-cards">
                   <thead>
@@ -419,7 +419,7 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
           {/* Notes */}
           {e.notes && (
             <div>
-              <p className="text-xs text-gray-400 font-semibold uppercase mb-1">Notes</p>
+              <p className="text-xs text-gray-400 font-semibold mb-1">Notes</p>
               <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3">{e.notes}</p>
             </div>
           )}
@@ -562,27 +562,27 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
       {stats && (
         <div className="grid grid-cols-5 gap-4">
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-1">Jobs Costed</p>
+            <p className="text-xs text-gray-400 font-semibold mb-1">Jobs Costed</p>
             <p className="text-2xl font-bold text-gray-900">{costedJobs.length}</p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-1">Avg Labor Hr Variance</p>
+            <p className="text-xs text-gray-400 font-semibold mb-1">Avg Labor Hr Variance</p>
             <p className={`text-2xl font-bold ${varianceColor(stats.avgLaborVar / 10)}`}>
               {stats.avgLaborVar >= 0 ? '+' : ''}{stats.avgLaborVar.toFixed(1)} hrs
             </p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-1">Avg Material Variance</p>
+            <p className="text-xs text-gray-400 font-semibold mb-1">Avg Material Variance</p>
             <p className={`text-2xl font-bold ${varianceColor(stats.avgMaterialVar)}`}>
               {stats.avgMaterialVar >= 0 ? '+' : ''}{fmtPct(stats.avgMaterialVar)}
             </p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-1">Avg Est GM</p>
+            <p className="text-xs text-gray-400 font-semibold mb-1">Avg Est GM</p>
             <p className="text-2xl font-bold text-gray-500">{fmtPct(stats.avgEstGM)}</p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-1">Avg Actual GM</p>
+            <p className="text-xs text-gray-400 font-semibold mb-1">Avg Actual GM</p>
             <p className={`text-2xl font-bold ${stats.avgActGM >= 0.34 ? 'text-green-600' : stats.avgActGM >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
               {fmtPct(stats.avgActGM)}
             </p>
@@ -593,7 +593,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
       {/* Insights */}
       {insights.length > 0 && (
         <div className="bg-orange-50 border border-orange-200 rounded-2xl p-5">
-          <p className="text-xs font-semibold text-orange-600 uppercase mb-2">Insights from {costedJobs.length} costed jobs</p>
+          <p className="text-xs font-semibold text-orange-600 mb-2">Insights from {costedJobs.length} costed jobs</p>
           <ul className="space-y-1.5">
             {insights.map((msg, i) => (
               <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
@@ -614,11 +614,11 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
           <table className="w-full text-sm table-responsive-cards">
             <thead className="bg-gray-50">
               <tr>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Style</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Jobs</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Avg Labor Hr Var</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Avg Material Var</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Avg Actual GM</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500">Style</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Jobs</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Avg Labor Hr Var</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Avg Material Var</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Avg Actual GM</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -651,15 +651,15 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
         <table className="w-full text-sm table-responsive-cards">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Style</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Price</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Est COGS</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Act COGS</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase">COGS Var</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Est GM</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Act GM</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-10" />
+              <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">Customer</th>
+              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500">Style</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500">Price</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500">Est COGS</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500">Act COGS</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500">COGS Var</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500">Est GM</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500">Act GM</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-10" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">

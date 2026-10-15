@@ -280,7 +280,7 @@ export default function BulkImportModal({ onClose, onComplete }: { onClose: () =
               )}
 
               <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 grid grid-cols-3 gap-4 text-xs font-medium text-gray-500 uppercase">
+                <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 grid grid-cols-3 gap-4 text-xs font-medium text-gray-500">
                   <div>Inventory Field</div>
                   <div>File Column</div>
                   <div>Sample Value</div>

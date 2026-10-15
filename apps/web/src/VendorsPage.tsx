@@ -77,7 +77,7 @@ export default function VendorsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* List */}
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-widest">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 text-xs font-semibold text-gray-500">
             All Vendors ({vendors.length})
           </div>
           {vendors.length === 0 ? (
@@ -96,7 +96,7 @@ export default function VendorsPage() {
                       <p className={`text-sm font-bold ${overdue > 0 ? 'text-red-600' : outstanding > 0 ? 'text-orange-500' : 'text-gray-400'}`}>
                         {outstanding > 0 ? fmt(outstanding) : '—'}
                       </p>
-                      {overdue > 0 && <p className="text-[10px] text-red-500 uppercase font-bold">overdue</p>}
+                      {overdue > 0 && <p className="text-[10px] text-red-500 font-bold">overdue</p>}
                     </div>
                   </div>
                 </button>
@@ -169,7 +169,7 @@ function VendorDetail({ vendor, onReload, onEdit, onDelete }: {
 
       <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
         <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Outstanding Balance</p>
+          <p className="text-xs font-semibold text-gray-500">Outstanding Balance</p>
           <p className={`text-2xl font-bold ${outstanding > 0 ? 'text-orange-600' : 'text-gray-400'}`}>{fmt(outstanding)}</p>
         </div>
         <button onClick={() => { setEditingBill(null); setShowBillForm(true) }}
@@ -226,7 +226,7 @@ function BillsList({ bills, onEdit, onRecordPayment, onApprove, onVoid }: {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm table-responsive-cards">
-        <thead className="text-xs text-gray-500 uppercase font-semibold tracking-widest">
+        <thead className="text-xs text-gray-500 font-semibold">
           <tr className="border-b border-gray-100">
             <th className="px-3 py-2 text-left">Bill #</th>
             <th className="px-3 py-2 text-left">Date</th>
@@ -247,7 +247,7 @@ function BillsList({ bills, onEdit, onRecordPayment, onApprove, onVoid }: {
               <td data-label="Balance" className={`px-3 py-2 text-right font-semibold ${b.balanceDueCents > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
                 {fmt(b.balanceDueCents)}
               </td>
-              <td data-label="Status" className="px-3 py-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${STATUS_COLORS[b.status]}`}>{b.status}</span></td>
+              <td data-label="Status" className="px-3 py-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[b.status]}`}>{b.status}</span></td>
               <td data-label="Actions" className="px-3 py-2 text-right">
                 <button onClick={() => onEdit(b)} className="text-blue-600 hover:underline text-xs mr-2">Edit</button>
                 {b.status === 'received' && (
@@ -288,7 +288,7 @@ function PaymentsList({ payments }: { payments: VendorPayment[] }) {
 function VendorInfo({ vendor }: { vendor: VendorContact }) {
   const row = (label: string, value?: string) => value ? (
     <div className="grid grid-cols-3 gap-2 py-2 border-b border-gray-50">
-      <div className="text-xs text-gray-500 uppercase font-semibold tracking-wide">{label}</div>
+      <div className="text-xs text-gray-500 font-semibold">{label}</div>
       <div className="col-span-2 text-sm text-gray-900">{value}</div>
     </div>
   ) : null
@@ -373,7 +373,7 @@ function VendorForm({ initial, onCancel, onSaved }: { initial: VendorContact | n
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="text-xs text-gray-500 font-semibold uppercase block mb-1">{label}</label>{children}</div>
+  return <div><label className="text-xs text-gray-500 font-semibold block mb-1">{label}</label>{children}</div>
 }
 
 // ── Bill form ──
@@ -475,10 +475,10 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
 
           {/* Line items */}
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase block mb-2">Line Items</label>
+            <label className="text-xs text-gray-500 font-semibold block mb-2">Line Items</label>
             <div className="border border-gray-200 rounded-lg overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
+                <thead className="bg-gray-50 text-xs text-gray-500">
                   <tr><th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-right">Unit Cost</th><th className="px-3 py-2 text-right">Total</th><th></th></tr>
                 </thead>
                 <tbody>
@@ -551,7 +551,7 @@ function PaymentForm({ bill, vendor, onCancel, onSaved }: { bill: VendorBill; ve
         </div>
         <div className="p-6 space-y-4">
           <div className="bg-gray-50 rounded-lg p-3 text-sm">
-            <p className="text-gray-500 text-xs uppercase font-semibold">Paying Bill</p>
+            <p className="text-gray-500 text-xs font-semibold">Paying Bill</p>
             <p className="font-medium text-gray-900">{bill.billNumber} · {vendor.name}</p>
             <p className="text-xs text-gray-500 mt-1">Balance: {fmt(bill.balanceDueCents)}</p>
           </div>

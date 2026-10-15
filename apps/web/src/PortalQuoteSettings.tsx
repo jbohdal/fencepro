@@ -106,7 +106,7 @@ export default function PortalQuoteSettings() {
       </div>
 
       <section className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
-        <h4 className="text-sm font-bold text-gray-700 uppercase tracking-widest">Portal Branding</h4>
+        <h4 className="text-sm font-bold text-gray-700">Portal Branding</h4>
         <Field label="Portal Welcome Message">
           <textarea value={s.portal.welcomeMessage} onChange={e => update('portal', { welcomeMessage: e.target.value })} rows={2}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
@@ -119,7 +119,7 @@ export default function PortalQuoteSettings() {
       </section>
 
       <section className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3">
-        <h4 className="text-sm font-bold text-gray-700 uppercase tracking-widest">Portal Permissions</h4>
+        <h4 className="text-sm font-bold text-gray-700">Portal Permissions</h4>
         <Toggle label="Allow customers to upload documents" checked={s.portal.allowCustomerUploads} onChange={v => update('portal', { allowCustomerUploads: v })} />
         <Toggle label="Allow customers to send messages" checked={s.portal.allowCustomerMessages} onChange={v => update('portal', { allowCustomerMessages: v })} />
         <Toggle label="Show invoice amounts to customers" checked={s.portal.showInvoiceAmounts} onChange={v => update('portal', { showInvoiceAmounts: v })} />
@@ -127,7 +127,7 @@ export default function PortalQuoteSettings() {
       </section>
 
       <section className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
-        <h4 className="text-sm font-bold text-gray-700 uppercase tracking-widest">Quote Defaults</h4>
+        <h4 className="text-sm font-bold text-gray-700">Quote Defaults</h4>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Field label="Default Template">
             <select value={s.quote.defaultTemplate} onChange={e => update('quote', { defaultTemplate: e.target.value as TemplateKey })}
@@ -155,7 +155,7 @@ export default function PortalQuoteSettings() {
       </section>
 
       <section className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3">
-        <h4 className="text-sm font-bold text-gray-700 uppercase tracking-widest">Notifications</h4>
+        <h4 className="text-sm font-bold text-gray-700">Notifications</h4>
         <Toggle label="Notify rep when a customer views a quote" checked={s.notifications.notifyRepOnQuoteView} onChange={v => update('notifications', { notifyRepOnQuoteView: v })} />
         <Toggle label="Notify rep when a customer accepts a quote" checked={s.notifications.notifyRepOnQuoteAccept} onChange={v => update('notifications', { notifyRepOnQuoteAccept: v })} />
         <Toggle label="Notify customer when project is scheduled" checked={s.notifications.notifyCustomerOnSchedule} onChange={v => update('notifications', { notifyCustomerOnSchedule: v })} />
@@ -166,7 +166,7 @@ export default function PortalQuoteSettings() {
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">{label}</label>{children}</div>
+  return <div><label className="text-xs font-semibold text-gray-500 block mb-1">{label}</label>{children}</div>
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {

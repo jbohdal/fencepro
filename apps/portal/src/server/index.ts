@@ -269,7 +269,7 @@ printEnvValidation()
 const isVercel = process.env.VERCEL === '1'
 if (!isVercel) {
   const server = app.listen(PORT, HOST, () => {
-    console.log(`🚀 EZBiz Portal API running on port ${PORT}`)
+    console.log(`🚀 EZ Biz API running on port ${PORT}`)
     console.log(`   CORS origin: ${CLIENT_URL}`)
     console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`)
     console.log('   Follow-up cron: use /api/cron/follow-ups endpoint (or setInterval for local dev)')

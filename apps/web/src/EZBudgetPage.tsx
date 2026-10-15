@@ -109,7 +109,7 @@ function DashboardTab() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-6">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase mb-4">Quotes by Status</h3>
+        <h3 className="text-sm font-semibold text-gray-500 mb-4">Quotes by Status</h3>
         <div className="flex flex-wrap gap-2">
           {['draft', 'sent', 'viewed', 'accepted', 'declined', 'expired'].map(s => (
             <span key={s} className={`px-3 py-1.5 rounded-full text-xs font-medium ${statusColor(s)}`}>
@@ -120,7 +120,7 @@ function DashboardTab() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-6">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase mb-4">Recent Quotes</h3>
+        <h3 className="text-sm font-semibold text-gray-500 mb-4">Recent Quotes</h3>
         {data.recentQuotes.length === 0 ? (
           <p className="text-gray-400 text-sm text-center py-4">No quotes yet</p>
         ) : (
@@ -361,7 +361,7 @@ function QuotesTab() {
               </div>
               {selected.lineItems?.length > 0 && (
                 <div>
-                  <p className="text-xs text-gray-500 font-semibold uppercase mb-2">Line Items</p>
+                  <p className="text-xs text-gray-500 font-semibold mb-2">Line Items</p>
                   {selected.lineItems.map((li: any) => (
                     <div key={li.id} className="flex justify-between text-sm"><span className="text-gray-600">{li.label} x{li.quantity}</span><span className="font-medium">{cents(li.totalCents)}</span></div>
                   ))}
@@ -369,7 +369,7 @@ function QuotesTab() {
                 </div>
               )}
               <div>
-                <p className="text-xs text-gray-500 font-semibold uppercase mb-2">Status</p>
+                <p className="text-xs text-gray-500 font-semibold mb-2">Status</p>
                 <div className="grid grid-cols-3 gap-1">
                   {['draft', 'sent', 'viewed', 'accepted', 'declined', 'expired'].map(s => (
                     <button key={s} onClick={() => updateStatus(selected.id, s)} disabled={selected.status === s}
@@ -380,7 +380,7 @@ function QuotesTab() {
               {selected.requestOnSite && <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center text-sm font-medium text-amber-700">On-site estimate requested</div>}
               {selected.photos?.length > 0 && (
                 <div>
-                  <p className="text-xs text-gray-500 font-semibold uppercase mb-2">Photos</p>
+                  <p className="text-xs text-gray-500 font-semibold mb-2">Photos</p>
                   <div className="grid grid-cols-3 gap-1">{selected.photos.map((u: string, i: number) => <img key={i} src={u} alt="" className="w-full aspect-square object-cover rounded-lg" />)}</div>
                 </div>
               )}
@@ -471,7 +471,7 @@ function SettingsTab() {
 // ════════════════════════════════════════
 
 function KpiCard({ label, value, accent }: { label: string; value: string | number; accent?: boolean }) {
-  return <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400 uppercase">{label}</p><p className={`text-2xl font-bold ${accent ? 'text-orange-600' : 'text-gray-900'}`}>{value}</p></div>
+  return <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">{label}</p><p className={`text-2xl font-bold ${accent ? 'text-orange-600' : 'text-gray-900'}`}>{value}</p></div>
 }
 
 function Empty({ title, desc, action, onAction }: { title: string; desc: string; action?: string; onAction?: () => void }) {

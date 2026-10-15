@@ -152,9 +152,9 @@ export default function CustomerFilesTab({
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">File</th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Size</th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Uploaded</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">File</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Size</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Uploaded</th>
                     <th className="w-10" />
                   </tr>
                 </thead>
@@ -191,14 +191,14 @@ export default function CustomerFilesTab({
           {legacyFiles.length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
               <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Site Plans &amp; Local Files</p>
+                <p className="text-xs font-semibold text-gray-500">Site Plans &amp; Local Files</p>
               </div>
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">File</th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Size</th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Uploaded</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">File</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Size</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Uploaded</th>
                     <th className="w-10" />
                   </tr>
                 </thead>

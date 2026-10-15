@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
 import QuoteBuilder from './QuoteBuilder'
+import { Banknote, BarChart3, Boxes, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, type LucideIcon } from 'lucide-react'
 import AdminPage from './AdminPage'
 import AdminSettingsPage from './AdminSettingsPage'
 import BudgetPage from './BudgetPage'
@@ -71,7 +72,7 @@ export type UserRole = 'owner' | 'admin' | 'salesman' | 'ops_manager' | 'shop'
 
 interface NavItem {
   name: string
-  icon: string
+  icon: LucideIcon
   roles: UserRole[]  // which roles can see this item
 }
 
@@ -84,48 +85,48 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Sales',
     items: [
-      { name: 'Sales Pipeline', icon: '🔨', roles: ['owner', 'admin', 'salesman'] },
-      { name: 'Appointments',   icon: '📅', roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
-      { name: 'Today',          icon: '☀️', roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
-      { name: 'Dashboard',      icon: '📊', roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
-      { name: 'Customers',      icon: '👥', roles: ['owner', 'admin', 'salesman'] },
-      { name: 'Quotes',         icon: '📋', roles: ['owner', 'admin', 'salesman'] },
+      { name: 'Sales Pipeline',  icon: Kanban, roles: ['owner', 'admin', 'salesman'] },
+      { name: 'Appointments',    icon: CalendarDays, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
+      { name: 'Today',           icon: Sun, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
+      { name: 'Dashboard',       icon: LayoutDashboard, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
+      { name: 'Customers',       icon: Users, roles: ['owner', 'admin', 'salesman'] },
+      { name: 'Quotes',          icon: ClipboardList, roles: ['owner', 'admin', 'salesman'] },
     ],
   },
   {
     label: 'Operations',
     items: [
-      { name: 'Operations', icon: '🔧', roles: ['owner', 'admin', 'ops_manager', 'shop'] },
-      { name: 'Schedule',   icon: '📅', roles: ['owner', 'admin', 'ops_manager'] },
-      { name: 'Dispatch',   icon: '📍', roles: ['owner', 'admin', 'ops_manager'] },
-      { name: 'Site Plans',  icon: '🗺', roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
-      { name: 'Inventory',  icon: '📦', roles: ['owner', 'admin', 'ops_manager', 'shop'] },
+      { name: 'Operations',  icon: Wrench, roles: ['owner', 'admin', 'ops_manager', 'shop'] },
+      { name: 'Schedule',    icon: CalendarClock, roles: ['owner', 'admin', 'ops_manager'] },
+      { name: 'Dispatch',    icon: MapPin, roles: ['owner', 'admin', 'ops_manager'] },
+      { name: 'Site Plans',   icon: Map, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
+      { name: 'Inventory',   icon: Package, roles: ['owner', 'admin', 'ops_manager', 'shop'] },
     ],
   },
   {
     label: 'Finance',
     items: [
-      { name: 'P&L Statement',     icon: '📊', roles: ['owner', 'admin'] },
-      { name: 'Balance Sheet',     icon: '📑', roles: ['owner', 'admin'] },
-      { name: 'Cash Flow',         icon: '💸', roles: ['owner', 'admin'] },
-      { name: 'Billing',           icon: '💳', roles: ['owner', 'admin'] },
-      { name: 'Accounts Payable',  icon: '🧾', roles: ['owner', 'admin', 'ops_manager'] },
-      { name: 'Vendors',           icon: '🏢', roles: ['owner', 'admin', 'ops_manager'] },
-      { name: 'Reports',           icon: '📈', roles: ['owner', 'admin'] },
-      { name: 'Budget',            icon: '💰', roles: ['owner'] },
+      { name: 'P&L Statement',      icon: TrendingUp, roles: ['owner', 'admin'] },
+      { name: 'Balance Sheet',      icon: Scale, roles: ['owner', 'admin'] },
+      { name: 'Cash Flow',          icon: Banknote, roles: ['owner', 'admin'] },
+      { name: 'Billing',            icon: CreditCard, roles: ['owner', 'admin'] },
+      { name: 'Accounts Payable',   icon: Receipt, roles: ['owner', 'admin', 'ops_manager'] },
+      { name: 'Vendors',            icon: Building2, roles: ['owner', 'admin', 'ops_manager'] },
+      { name: 'Reports',            icon: BarChart3, roles: ['owner', 'admin'] },
+      { name: 'Budget',             icon: PiggyBank, roles: ['owner'] },
     ],
   },
   {
     label: 'Admin',
     items: [
-      { name: 'Team',          icon: '👥', roles: ['owner', 'admin'] },
-      { name: 'Bundles',       icon: '📦', roles: ['owner', 'admin'] },
-      { name: 'EZ Budget',     icon: '💲', roles: ['owner', 'admin'] },
-      { name: 'Automations',   icon: '⚡', roles: ['owner', 'admin'] },
-      { name: 'Integrations', icon: '🔌', roles: ['owner', 'admin'] },
-      { name: 'Portal',       icon: '🌐', roles: ['owner', 'admin'] },
-      { name: 'Audit Log',    icon: '🛡️', roles: ['owner', 'admin'] },
-      { name: 'Settings',     icon: '⚙️', roles: ['owner', 'admin'] },
+      { name: 'Team',           icon: UserCog, roles: ['owner', 'admin'] },
+      { name: 'Bundles',        icon: Boxes, roles: ['owner', 'admin'] },
+      { name: 'EZ Budget',      icon: Calculator, roles: ['owner', 'admin'] },
+      { name: 'Automations',    icon: Zap, roles: ['owner', 'admin'] },
+      { name: 'Integrations',  icon: Plug, roles: ['owner', 'admin'] },
+      { name: 'Portal',        icon: Globe, roles: ['owner', 'admin'] },
+      { name: 'Audit Log',     icon: ShieldCheck, roles: ['owner', 'admin'] },
+      { name: 'Settings',      icon: Settings, roles: ['owner', 'admin'] },
     ],
   },
 ]
@@ -184,7 +185,13 @@ function loadCompanyName(): string {
       if (cfg.company?.name) return cfg.company.name
     }
   } catch { /* fall through */ }
-  return 'EZBiz'
+  return 'Getter Done Fence'
+}
+
+/** Good morning, afternoon or evening, by the Florida clock. */
+function greeting(): string {
+  const h = Number(new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }))
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
 }
 
 function loadUserProfile(): { name: string; role: UserRole } {
@@ -710,11 +717,11 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const ytdGoal            = revenueGoal * (thisMonth + 1) / 12
 
   const kpis = [
-    { label: 'Revenue YTD', value: fmt(ytdRevenue), sub: `${fmtPct(ytdRevenue / revenueGoal)} of ${fmt(revenueGoal)} goal`, sub2: `Sold, not installed: ${fmt(openSold.total)} (${openSold.count} ${openSold.count === 1 ? 'job' : 'jobs'})`, icon: '💰', color: ytdRevenue >= ytdGoal ? 'text-green-600' : 'text-orange-500' },
-    { label: 'Sold This Month', value: String(monthSold), sub: `${monthQuotes.length} quoted · ${monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%'} close rate`, icon: '📋', color: 'text-blue-600' },
-    { label: 'Open Quotes', value: String(openQuotes), sub: fmt(quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)), icon: '⏳', color: 'text-orange-500' },
-    { label: 'Active Pipeline', value: String(activePipeline), sub: 'leads in progress', icon: '🔨', color: 'text-purple-600' },
-    { label: 'Avg Gross Margin', value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'No costed quotes yet' : avgMargin >= 0.34 ? 'Above target ✓' : 'Below target ⚠', icon: '📈', color: avgMargin === null ? 'text-gray-400' : avgMargin >= 0.34 ? 'text-green-600' : 'text-yellow-600' },
+    { label: 'Revenue this year', value: fmt(ytdRevenue), sub: `${fmtPct(ytdRevenue / revenueGoal)} of the ${fmt(revenueGoal)} goal`, sub2: `Sold, not installed: ${fmt(openSold.total)} (${openSold.count} ${openSold.count === 1 ? 'job' : 'jobs'})`, tone: 'hero' as const },
+    { label: 'Sold this month', value: String(monthSold), sub: `${monthQuotes.length} quoted · ${monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%'} close rate`, tone: 'plain' as const },
+    { label: 'Open quotes', value: String(openQuotes), sub: fmt(quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)), tone: 'plain' as const },
+    { label: 'Active pipeline', value: String(activePipeline), sub: 'leads in progress', tone: 'plain' as const },
+    { label: 'Average margin', value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'Needs quotes with costs' : avgMargin >= 0.34 ? 'On target' : 'Below the 34% target', tone: avgMargin !== null && avgMargin < 0.34 ? 'bad' as const : 'plain' as const },
   ]
 
   const budgetBuckets = [
@@ -732,27 +739,30 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       {/* ═══ MOBILE NAV OVERLAY + DRAWER (hidden on desktop via CSS) ═══ */}
       <div className={`mobile-nav-backdrop ${mobileMenuOpen ? 'open' : ''}`} onClick={() => setMobileMenuOpen(false)} />
       <div className={`mobile-nav-drawer bg-gray-900 flex flex-col ${mobileMenuOpen ? 'open' : ''}`}>
-        <div className="border-b border-gray-700 px-5 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-white text-lg font-bold tracking-tight">{companyName}</h1>
-            <p className="text-gray-500 text-xs mt-0.5">Management Platform</p>
+        <div className="border-b border-white/10 px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="" className="w-10 h-10 rounded-lg bg-white object-contain shrink-0" />
+            <div>
+              <p className="text-white text-base font-extrabold leading-tight [font-stretch:112%]">{companyName}</p>
+              <p className="text-[#9C8FB5] text-xs mt-0.5">EZ Biz</p>
+            </div>
           </div>
-          <button onClick={() => setMobileMenuOpen(false)} className="text-gray-400 hover:text-white text-2xl leading-none p-1">×</button>
+          <button onClick={() => setMobileMenuOpen(false)} aria-label="Close menu" className="text-[#CFC4E2] hover:text-white text-2xl leading-none w-11 h-11 grid place-items-center">×</button>
         </div>
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
           {visibleGroups.map(group => (
             <div key={group.label}>
-              <p className="px-3 mb-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-widest">{group.label}</p>
+              <p className="px-3 mb-1.5 text-xs font-semibold text-[#9C8FB5]">{group.label}</p>
               <div className="space-y-0.5">
                 {group.items.map(item => (
                   <button
                     key={item.name}
                     onClick={() => { setActive(item.name); setMobileMenuOpen(false) }}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                      active === item.name ? 'bg-orange-500 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                      active === item.name ? 'bg-orange-500 text-white font-semibold' : 'text-[#CFC4E2] hover:bg-white/10 hover:text-white'
                     }`}
                   >
-                    <span>{item.icon}</span>
+                    <item.icon size={18} strokeWidth={2} aria-hidden="true" />
                     <span>{item.name}</span>
                   </button>
                 ))}
@@ -760,7 +770,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             </div>
           ))}
         </nav>
-        <div className="border-t border-gray-700 px-4 py-3">
+        <div className="border-t border-white/10 px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-full bg-orange-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
               {userProfile.name.charAt(0).toUpperCase()}
@@ -770,7 +780,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               <select
                 value={role}
                 onChange={e => handleRoleChange(e.target.value as UserRole)}
-                className="bg-transparent text-gray-400 text-xs outline-none cursor-pointer hover:text-gray-300 -ml-0.5"
+                className="bg-transparent text-[#CFC4E2] text-xs outline-none cursor-pointer hover:text-white -ml-0.5"
               >
                 {(Object.entries(ROLE_LABELS) as [UserRole, string][]).map(([k, v]) => (
                   <option key={k} value={k} className="bg-gray-900 text-gray-300">{v}</option>
@@ -778,10 +788,10 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               </select>
             </div>
           </div>
-          <button onClick={onChangePassword} className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
+          <button onClick={onChangePassword} className="mt-2 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
             Change password
           </button>
-          <button onClick={onLogout} className="mt-1 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
+          <button onClick={onLogout} className="mt-1 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
             Sign out
           </button>
         </div>
@@ -791,13 +801,16 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       <div className={`sidebar-desktop ${sidebarW} bg-gray-900 flex flex-col transition-all duration-200 shrink-0`}>
 
         {/* Brand */}
-        <div className={`border-b border-gray-700 flex items-center ${sidebarCollapsed ? 'px-3 py-4 justify-center' : 'px-5 py-4'}`}>
+        <div className={`border-b border-white/10 flex items-center ${sidebarCollapsed ? 'px-3 py-4 justify-center' : 'px-5 py-4'}`}>
           {sidebarCollapsed ? (
-            <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center text-white text-sm font-bold">{companyName.charAt(0).toUpperCase()}</div>
+            <img src="/logo.png" alt={companyName} className="w-9 h-9 rounded-lg bg-white object-contain" />
           ) : (
-            <div>
-              <h1 className="text-white text-lg font-bold tracking-tight">{companyName}</h1>
-              <p className="text-gray-500 text-xs mt-0.5">Management Platform</p>
+            <div className="flex items-center gap-3">
+              <img src="/logo.png" alt="" className="w-10 h-10 rounded-lg bg-white object-contain shrink-0" />
+              <div className="min-w-0">
+                <p className="text-white text-[15px] font-extrabold leading-tight [font-stretch:112%]">{companyName}</p>
+                <p className="text-[#9C8FB5] text-xs mt-0.5">EZ Biz</p>
+              </div>
             </div>
           )}
         </div>
@@ -807,7 +820,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {visibleGroups.map(group => (
             <div key={group.label}>
               {!sidebarCollapsed && (
-                <p className="px-3 mb-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-widest">{group.label}</p>
+                <p className="px-3 mb-1.5 text-xs font-semibold text-[#9C8FB5]">{group.label}</p>
               )}
               <div className="space-y-0.5">
                 {group.items.map(item => (
@@ -819,11 +832,11 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                       sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2'
                     } ${
                       active === item.name
-                        ? 'bg-orange-500 text-white font-medium'
-                        : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                        ? 'bg-orange-500 text-white font-semibold'
+                        : 'text-[#CFC4E2] hover:bg-white/10 hover:text-white'
                     }`}
                   >
-                    <span className={sidebarCollapsed ? 'text-lg' : ''}>{item.icon}</span>
+                    <item.icon size={18} strokeWidth={2} aria-hidden="true" />
                     {!sidebarCollapsed && <span>{item.name}</span>}
                   </button>
                 ))}
@@ -833,18 +846,18 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         </nav>
 
         {/* Collapse toggle */}
-        <div className="px-2 py-2 border-t border-gray-700">
+        <div className="px-2 py-2 border-t border-white/10">
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors text-sm"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[#9C8FB5] hover:text-white hover:bg-white/10 transition-colors text-sm"
           >
-            {sidebarCollapsed ? '▶' : '◀'}
+            {sidebarCollapsed ? <ChevronsRight size={18} aria-hidden="true" /> : <ChevronsLeft size={18} aria-hidden="true" />}
             {!sidebarCollapsed && <span className="text-xs">Collapse</span>}
           </button>
         </div>
 
         {/* User profile + role */}
-        <div className={`border-t border-gray-700 ${sidebarCollapsed ? 'px-2 py-3' : 'px-4 py-3'}`}>
+        <div className={`border-t border-white/10 ${sidebarCollapsed ? 'px-2 py-3' : 'px-4 py-3'}`}>
           {sidebarCollapsed ? (
             <div className="w-8 h-8 mx-auto rounded-full bg-orange-500 flex items-center justify-center text-white text-sm font-bold">
               {userProfile.name.charAt(0).toUpperCase()}
@@ -859,7 +872,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 <select
                   value={role}
                   onChange={e => handleRoleChange(e.target.value as UserRole)}
-                  className="bg-transparent text-gray-400 text-xs outline-none cursor-pointer hover:text-gray-300 -ml-0.5"
+                  className="bg-transparent text-[#CFC4E2] text-xs outline-none cursor-pointer hover:text-white -ml-0.5"
                 >
                   {(Object.entries(ROLE_LABELS) as [UserRole, string][]).map(([k, v]) => (
                     <option key={k} value={k} className="bg-gray-900 text-gray-300">{v}</option>
@@ -870,10 +883,10 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           )}
           {!sidebarCollapsed && (
             <>
-              <button onClick={onChangePassword} className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
+              <button onClick={onChangePassword} className="mt-2 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
                 Change password
               </button>
-              <button onClick={onLogout} className="mt-1 w-full text-xs text-gray-500 hover:text-gray-300 text-left">
+              <button onClick={onLogout} className="mt-1 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
                 Sign out
               </button>
             </>
@@ -889,9 +902,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           <div className="flex items-center gap-4">
             {/* Hamburger — mobile only (hidden on desktop via CSS) */}
             <button onClick={() => setMobileMenuOpen(true)} className="mobile-only text-gray-600 hover:text-gray-900 p-1 -ml-2">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-              </svg>
+              <Menu size={24} aria-hidden="true" />
             </button>
             <h2 className="text-lg font-semibold text-gray-900">{active}</h2>
           </div>
@@ -915,9 +926,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             </button>
 
             {/* Book an appointment from any page */}
-            <button onClick={() => openBooking()} data-global-appointment
-              className="bg-white border border-orange-300 text-orange-600 hover:bg-orange-50 text-sm font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap">
-              + Appointment
+            <button onClick={() => openBooking()} data-global-appointment className="btn btn-secondary btn-sm">
+              <Plus size={16} aria-hidden="true" /> Appointment
             </button>
 
             {/* Action buttons */}
@@ -991,21 +1001,28 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
           {active === 'Dashboard' && (
             <div className="space-y-6">
-              <DashboardAppointments />
-              {/* KPI strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                {kpis.map(kpi => (
-                  <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{kpi.label}</p>
-                      <span className="text-lg">{kpi.icon}</span>
-                    </div>
-                    <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
-                    <p className="text-xs text-gray-400 mt-1">{kpi.sub}</p>
-                    {'sub2' in kpi && kpi.sub2 && <p className="text-xs text-gray-500 mt-0.5">{kpi.sub2}</p>}
+              <div className="page-header !mb-0">
+                <div>
+                  <h1>{greeting()}, {userProfile.name.split(' ')[0] || 'there'}</h1>
+                  <div className="facts"><span><b>{fmt(ytdRevenue)}</b> installed this year</span><span><b>{openQuotes}</b> open quotes</span></div>
+                </div>
+                <div className="actions">
+                  <button onClick={() => { setEditingQuote(null); setShowQuote(true) }} className="btn btn-secondary"><Plus size={18} aria-hidden="true" /> New quote</button>
+                  <button onClick={() => openBooking()} className="btn btn-primary"><Plus size={18} aria-hidden="true" /> Book appointment</button>
+                </div>
+              </div>
+              {/* Key numbers: one band, the most important first */}
+              <div className="panel grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 overflow-hidden">
+                {kpis.map((kpi, i) => (
+                  <div key={kpi.label} className={`p-4 sm:p-5 border-gray-200 ${i > 0 ? 'border-l' : ''} ${i > 1 ? 'max-sm:border-t' : ''} ${i === 2 ? 'max-sm:border-l-0' : ''} ${kpi.tone === 'hero' ? 'bg-orange-500 text-white col-span-2 sm:col-span-1' : ''}`}>
+                    <p className={`text-sm font-semibold ${kpi.tone === 'hero' ? 'text-[#E6DAF7]' : 'text-gray-600'}`}>{kpi.label}</p>
+                    <p className={`text-2xl sm:text-[28px] font-bold tabular-nums mt-1 tracking-tight ${kpi.tone === 'bad' ? 'text-red-700' : kpi.tone === 'hero' ? 'text-white' : 'text-gray-900'}`}>{kpi.value}</p>
+                    <p className={`text-sm mt-1 ${kpi.tone === 'hero' ? 'text-[#E6DAF7]' : 'text-gray-500'}`}>{kpi.sub}</p>
+                    {'sub2' in kpi && kpi.sub2 && <p className={`text-sm mt-0.5 ${kpi.tone === 'hero' ? 'text-[#E6DAF7]' : 'text-gray-500'}`}>{kpi.sub2}</p>}
                   </div>
                 ))}
               </div>
+              <DashboardAppointments />
 
               {/* Revenue goal progress */}
               <div className="bg-white rounded-2xl border border-gray-200 p-5">
@@ -1034,7 +1051,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 <div className="bg-white rounded-2xl border border-gray-200">
                   <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                     <h3 className="font-semibold text-gray-900">Recent Quotes</h3>
-                    <button onClick={() => setActive('Quotes')} className="text-orange-500 text-sm hover:underline">View all</button>
+                    <button onClick={() => setActive('Quotes')} className="btn btn-quiet btn-sm">All quotes</button>
                   </div>
                   <div className="divide-y divide-gray-50">
                     {recentQuotes.length === 0 ? (
@@ -1043,12 +1060,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                       <div key={q.id} className="px-6 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50" onClick={() => handleOpenQuote(q)}>
                         <div>
                           <p className="text-sm font-medium text-gray-900">{q.customerName}</p>
-                          <p className="text-xs text-gray-400">{q.fenceStyle} · {q.sections} sec · {q.date}</p>
+                          <p className="text-sm text-gray-500">{[q.fenceStyle, q.sections ? `${q.sections} sections` : '', q.date].filter(Boolean).join(' · ')}</p>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className={`text-sm ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</span>
+                          {q.totalCOGS > 0 && <span className={`text-sm ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</span>}
                           <span className="text-sm font-semibold text-gray-900">{fmt(q.finalPrice)}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[q.status]}`}>{q.status}</span>
+                          <span className={`chip ${STATUS_COLORS[q.status]}`}>{q.status.charAt(0) + q.status.slice(1).toLowerCase()}</span>
                         </div>
                       </div>
                     ))}
@@ -1129,7 +1146,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                     onClick={r.action}
                     className="w-full flex items-center gap-3 px-5 py-3 hover:bg-orange-50 text-left transition-colors"
                   >
-                    <span className="text-gray-400 text-xs w-16 shrink-0 uppercase font-semibold">
+                    <span className="text-gray-400 text-xs w-16 shrink-0 font-semibold">
                       {r.type === 'page' ? '📄' : r.type === 'quote' ? '📋' : '👤'}
                     </span>
                     <div className="flex-1 min-w-0">

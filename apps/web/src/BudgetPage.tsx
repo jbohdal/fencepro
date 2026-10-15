@@ -296,7 +296,7 @@ function TabBar({ tabs, active, onChange }: { tabs: string[], active: string, on
 function StatCard({ label, value, sub, accent }: { label: string, value: string, sub?: string, accent?: boolean }) {
   return (
     <div className={`rounded-2xl p-5 ${accent ? 'bg-orange-500' : 'bg-white border border-gray-200'}`}>
-      <p className={`text-xs font-semibold uppercase tracking-wide mb-1 ${accent ? 'text-orange-100' : 'text-gray-400'}`}>{label}</p>
+      <p className={`text-xs font-semibold mb-1 ${accent ? 'text-orange-100' : 'text-gray-400'}`}>{label}</p>
       <p className={`text-2xl font-bold ${accent ? 'text-white' : 'text-gray-900'}`}>{value}</p>
       {sub && <p className={`text-xs mt-1 ${accent ? 'text-orange-200' : 'text-gray-400'}`}>{sub}</p>}
     </div>
@@ -371,7 +371,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
       {/* Magic Number */}
       <div className="bg-gray-900 rounded-2xl p-4 lg:p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <p className="text-gray-400 text-xs font-semibold uppercase tracking-widest mb-2">Magic Number — Cost of Goods Target</p>
+          <p className="text-gray-400 text-xs font-semibold mb-2">Magic Number — Cost of Goods Target</p>
           <p className="text-4xl lg:text-7xl font-black text-white leading-none">{fmtPct(magicNumber)}</p>
           <p className="text-gray-500 text-xs mt-1">Price = COGS ÷ {fmtPct(magicNumber)} → implied GM of {fmtPct(impliedGM)}</p>
           <div className="flex flex-wrap gap-4 lg:gap-6 mt-4">
@@ -408,7 +408,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
           </div>
         </div>
         <div className="text-left lg:text-right">
-          <p className="text-gray-500 text-xs uppercase tracking-wide mb-2">Annual Revenue Goal</p>
+          <p className="text-gray-500 text-xs mb-2">Annual Revenue Goal</p>
           <input
             type="number"
             className="text-2xl lg:text-4xl font-black text-orange-400 bg-transparent text-left lg:text-right outline-none w-full lg:w-56 border-b-2 border-gray-700 focus:border-orange-400 transition-colors pb-1"
@@ -647,9 +647,9 @@ function HistoricTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
         <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-16">Year</th>
-              {MONTHS.map(m => <th key={m} className="text-right px-1 py-3 text-xs font-semibold text-gray-500 uppercase">{m}</th>)}
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Total</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-16">Year</th>
+              {MONTHS.map(m => <th key={m} className="text-right px-1 py-3 text-xs font-semibold text-gray-500">{m}</th>)}
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Total</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -1136,7 +1136,7 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
             {editingCatIdx === idx ? (
               <input
                 autoFocus
-                className="text-xs font-bold uppercase tracking-wide bg-transparent outline-none border-b border-current w-full mb-1"
+                className="text-xs font-bold bg-transparent outline-none border-b border-current w-full mb-1"
                 value={cat}
                 onChange={e => renameCategory(idx, e.target.value)}
                 onBlur={() => setEditingCatIdx(null)}
@@ -1144,7 +1144,7 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
               />
             ) : (
               <p
-                className="text-xs font-semibold uppercase tracking-wide opacity-70 cursor-pointer hover:opacity-100"
+                className="text-xs font-semibold opacity-70 cursor-pointer hover:opacity-100"
                 onClick={() => setEditingCatIdx(idx)}
                 title="Click to rename"
               >
@@ -1184,17 +1184,17 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
       {/* Chart of accounts table */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
         <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between min-w-[640px]">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Chart of Accounts</p>
+          <p className="text-xs font-semibold text-gray-500">Chart of Accounts</p>
           <p className="text-xs text-gray-400">Click name to rename · hover for controls</p>
         </div>
         <table className="w-full text-sm min-w-[640px]">
           <thead className="border-b border-gray-100">
             <tr>
-              <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400 uppercase">Expense</th>
-              <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-400 uppercase w-36">Category</th>
-              <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-400 uppercase w-36">Annual</th>
-              <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-400 uppercase w-28">Monthly</th>
-              <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-400 uppercase w-16">% Rev</th>
+              <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400">Expense</th>
+              <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-400 w-36">Category</th>
+              <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-400 w-36">Annual</th>
+              <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-400 w-28">Monthly</th>
+              <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-400 w-16">% Rev</th>
               <th className="w-20" />
             </tr>
           </thead>
@@ -1204,7 +1204,7 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
             <React.Fragment key={cat}>
                <tr className="bg-gray-50">
                     <td colSpan={6} className="px-5 py-2">
-                      <span className={`text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${getCategoryColor(categories, cat)}`}>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${getCategoryColor(categories, cat)}`}>
                         {cat}
                       </span>
                     </td>
@@ -1286,13 +1286,13 @@ function CrewTab({ state, onChange }: { state: BudgetState, onChange: (s: Budget
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-8">#</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Name</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-36">Role</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-28">$/hr</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-28">Hrs/yr</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-32">Annual Cost</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-20">% Rev</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-8">#</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Name</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-36">Role</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 w-28">$/hr</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 w-28">Hrs/yr</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 w-32">Annual Cost</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 w-20">% Rev</th>
               <th className="w-10" />
             </tr>
           </thead>
@@ -1436,7 +1436,7 @@ function KPIsTab({ state }: { state: BudgetState }) {
       {/* Hero KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-gray-900 rounded-2xl p-5 sm:col-span-2">
-          <p className="text-gray-400 text-xs font-semibold uppercase tracking-wide mb-1">Revenue vs Goal (from Sold Quotes)</p>
+          <p className="text-gray-400 text-xs font-semibold mb-1">Revenue vs Goal (from Sold Quotes)</p>
           <div className="flex items-baseline gap-3">
             <p className="text-white text-3xl font-black">{fmt(totalRevenue)}</p>
             <p className="text-gray-400 text-sm">of {fmt(revenueGoal)}</p>
@@ -1492,14 +1492,14 @@ function KPIsTab({ state }: { state: BudgetState }) {
         <table className="w-full text-sm min-w-[800px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Month</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Goal</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Actual</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Variance</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Quoted</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Sold</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Close %</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Avg GM</th>
+              <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">Month</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Goal</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Actual</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Variance</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Quoted</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Sold</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Close %</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Avg GM</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">

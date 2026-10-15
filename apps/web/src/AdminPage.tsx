@@ -72,7 +72,7 @@ function DashboardTab() {
           { label: 'Out of Stock', value: String(summary.outOfStockCount), sub: 'zero quantity on hand', color: summary.outOfStockCount > 0 ? 'text-red-500' : 'text-green-600' },
         ].map(kpi => (
           <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{kpi.label}</p>
+            <p className="text-xs font-semibold text-gray-400 mb-1">{kpi.label}</p>
             <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
             <p className="text-xs text-gray-400 mt-1">{kpi.sub}</p>
           </div>
@@ -305,12 +305,12 @@ function CatalogTab() {
         <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Item Name</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-32">Category</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-28">Unit Cost</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-20">On Hand</th>
-              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-28">Thresholds</th>
-              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-24">Barcodes</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Item Name</th>
+              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-32">Category</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-28">Unit Cost</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20">On Hand</th>
+              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-28">Thresholds</th>
+              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-24">Barcodes</th>
               <th className="w-8" />
             </tr>
           </thead>
@@ -320,7 +320,7 @@ function CatalogTab() {
               <tr className="bg-gray-50 cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleGroup(group.key)}>
                 <td colSpan={7} className="px-4 py-2">
                   <span className="text-gray-400 text-xs mr-2">{isCollapsed(group.key) ? '▸' : '▾'}</span>
-                  <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">{group.key === NEW_ITEMS_GROUP ? 'New, not saved yet' : group.key}</span>
+                  <span className="text-xs font-bold text-gray-600">{group.key === NEW_ITEMS_GROUP ? 'New, not saved yet' : group.key}</span>
                   <span className="text-xs text-gray-400 ml-2">{group.items.length}</span>
                 </td>
               </tr>
@@ -391,7 +391,7 @@ function CatalogTab() {
                     <tr key={`${item.id}-thresholds`} className="bg-orange-50">
                       <td colSpan={7} className="px-6 py-3">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-semibold text-orange-700 uppercase tracking-wide">Per-Location Reorder Points</span>
+                          <span className="text-xs font-semibold text-orange-700">Per-Location Reorder Points</span>
                           <span className="text-xs text-gray-400">— alert triggers when a location's qty drops to or below its threshold</span>
                         </div>
                         <div className="flex flex-wrap gap-3">
@@ -537,7 +537,7 @@ function StockMovementTab() {
       <div className="grid grid-cols-2 gap-3">
         {/* Barcode scanner */}
         <div className="space-y-1">
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+          <label className="text-xs font-semibold text-gray-500 flex items-center gap-1.5">
             <span>📷</span> Scan Barcode
           </label>
           <input
@@ -556,7 +556,7 @@ function StockMovementTab() {
 
         {/* Text search */}
         <div className="space-y-1">
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Search by Name</label>
+          <label className="text-xs font-semibold text-gray-500">Search by Name</label>
           <div className="relative">
             <input className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               placeholder="Search items to add to batch..." value={search} onChange={e => setSearch(e.target.value)} />
@@ -581,9 +581,9 @@ function StockMovementTab() {
           <table className="w-full text-sm min-w-[520px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Item</th>
-                <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-28">Qty</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-48">Note</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Item</th>
+                <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-28">Qty</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-48">Note</th>
                 <th className="w-8" />
               </tr>
             </thead>
@@ -673,13 +673,13 @@ function TransactionsTab() {
         <table className="w-full text-sm min-w-[840px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Date</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Item</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-24">Type</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-24">Location</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-16">Delta</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase w-16">After</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Notes</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Date</th>
+              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500">Item</th>
+              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-24">Type</th>
+              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-24">Location</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-16">Delta</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-16">After</th>
+              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500">Notes</th>
               <th className="w-8" />
             </tr>
           </thead>
@@ -853,10 +853,10 @@ function BundleEditor({
           <table className="w-full text-sm min-w-[520px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Item</th>
-                <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500 uppercase w-24">Qty</th>
-                <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 uppercase w-28">Scale</th>
-                <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500 uppercase w-24">Subtotal</th>
+                <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Item</th>
+                <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500 w-24">Qty</th>
+                <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-28">Scale</th>
+                <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500 w-24">Subtotal</th>
                 <th className="w-8" />
               </tr>
             </thead>

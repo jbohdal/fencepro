@@ -200,7 +200,7 @@ function SitePlanViewer({ siteplanId }: { siteplanId: string }) {
         <p className="text-sm text-gray-500">{plan.address || ''} · Created {new Date(plan.createdAt).toLocaleDateString()}</p>
         <div className="mt-4 grid grid-cols-2 gap-4">
           <div className="bg-gray-50 rounded-xl p-4">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Lines</p>
+            <p className="text-xs font-bold text-gray-500">Lines</p>
             <p className="text-3xl font-black text-gray-900">{plan.lines?.length || 0}</p>
             <div className="mt-3 space-y-1">
               {(plan.lines || []).slice(0, 10).map((l: any, i: number) => (
@@ -213,7 +213,7 @@ function SitePlanViewer({ siteplanId }: { siteplanId: string }) {
             </div>
           </div>
           <div className="bg-gray-50 rounded-xl p-4">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Markers</p>
+            <p className="text-xs font-bold text-gray-500">Markers</p>
             <p className="text-3xl font-black text-gray-900">{plan.markers?.length || 0}</p>
             <div className="mt-3 space-y-1">
               {(plan.markers || []).slice(0, 10).map((m: any, i: number) => (
@@ -228,7 +228,7 @@ function SitePlanViewer({ siteplanId }: { siteplanId: string }) {
         </div>
         {plan.notes && (
           <div className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-3">
-            <p className="text-xs font-bold text-blue-800 uppercase">Notes</p>
+            <p className="text-xs font-bold text-blue-800">Notes</p>
             <p className="text-sm text-blue-900 whitespace-pre-wrap mt-1">{plan.notes}</p>
           </div>
         )}

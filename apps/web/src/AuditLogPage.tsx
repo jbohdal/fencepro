@@ -131,12 +131,12 @@ export default function AuditLogPage() {
         <table className="w-full text-sm table-responsive-cards">
           <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
             <tr>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase w-44">When</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">User</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Action</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Entity</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">ID</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase">IP</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500 w-44">When</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">User</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Action</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Entity</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">ID</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">IP</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -156,11 +156,11 @@ export default function AuditLogPage() {
                     <td data-label="" colSpan={6} className="px-3 py-3 bg-gray-50">
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                         <div>
-                          <p className="text-[10px] font-semibold text-gray-500 uppercase mb-1">Before</p>
+                          <p className="text-[10px] font-semibold text-gray-500 mb-1">Before</p>
                           <pre className="text-xs bg-white border border-gray-200 rounded-lg p-2 overflow-x-auto max-h-64">{r.oldValues ? JSON.stringify(r.oldValues, null, 2) : '—'}</pre>
                         </div>
                         <div>
-                          <p className="text-[10px] font-semibold text-gray-500 uppercase mb-1">After</p>
+                          <p className="text-[10px] font-semibold text-gray-500 mb-1">After</p>
                           <pre className="text-xs bg-white border border-gray-200 rounded-lg p-2 overflow-x-auto max-h-64">{r.newValues ? JSON.stringify(r.newValues, null, 2) : '—'}</pre>
                         </div>
                       </div>

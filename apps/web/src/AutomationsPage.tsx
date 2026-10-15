@@ -285,7 +285,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
           <p className="text-sm text-gray-500">When should this automation fire?</p>
           {TRIGGER_GROUPS.map(g => (
             <div key={g.label}>
-              <p className="text-xs font-semibold text-gray-400 uppercase mb-2">{g.label}</p>
+              <p className="text-xs font-semibold text-gray-400 mb-2">{g.label}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {g.triggers.map(t => (
                   <button key={t.value} onClick={() => setTriggerType(t.value)}
@@ -519,7 +519,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
 
           {/* Preview */}
           <div className="bg-gray-50 rounded-xl p-4 mt-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Preview</p>
+            <p className="text-xs font-semibold text-gray-400 mb-2">Preview</p>
             <p className="text-sm text-gray-700">
               <span className="font-medium">When</span> {triggerLabel(triggerType)}
               {triggerConfig.toStage && <> → <span className="font-medium text-blue-600">{triggerConfig.toStage}</span></>}

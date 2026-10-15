@@ -10,7 +10,7 @@
 import prisma from './prisma.js'
 import { sendFollowUp } from './sms.js'
 
-const COMPANY_NAME = process.env.COMPANY_NAME || 'EZBiz'
+const COMPANY_NAME = process.env.COMPANY_NAME || 'Getter Done Fence'
 
 interface FollowUpTemplate {
   delayHours: number

@@ -91,7 +91,7 @@ export default function QuoteDetailDrawer({
           <div>
             <div className="flex items-center gap-3">
               <h2 className="text-xl font-bold text-gray-900">Quote #{quote.id.slice(-6).toUpperCase()}</h2>
-              <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>{status.label}</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>{status.label}</span>
             </div>
             <p className="text-sm text-gray-500 mt-1">{quote.customerName} · {quote.date}</p>
           </div>
@@ -102,7 +102,7 @@ export default function QuoteDetailDrawer({
           {/* Top price bar */}
           <div className="bg-gradient-to-r from-orange-50 to-white rounded-2xl border border-orange-100 p-6 flex items-end justify-between">
             <div>
-              <p className="text-xs uppercase tracking-widest font-bold text-orange-600">Quote Price</p>
+              <p className="text-xs font-bold text-orange-600">Quote Price</p>
               <p className="text-4xl font-black text-gray-900 mt-2">{fmt0(quote.finalPrice)}</p>
               <p className="text-xs text-gray-500 mt-1">{quote.fenceStyle}</p>
             </div>
@@ -115,7 +115,7 @@ export default function QuoteDetailDrawer({
 
           {/* Customer block */}
           <section>
-            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Customer</p>
+            <p className="text-xs font-bold text-gray-400 mb-2">Customer</p>
             <div className="bg-gray-50 rounded-xl p-4 text-sm">
               <p className="font-semibold text-gray-900">{quote.customerName}</p>
               <p className="text-gray-500">{quote.customerAddress || '—'}</p>
@@ -126,11 +126,11 @@ export default function QuoteDetailDrawer({
           {/* Options present */}
           {options.length > 0 && (
             <section>
-              <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Good / Better / Best Options</p>
+              <p className="text-xs font-bold text-gray-400 mb-2">Good / Better / Best Options</p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {options.map(o => (
                   <div key={o.id} className={`rounded-xl border p-3 ${o.isRecommended ? 'border-orange-400 ring-2 ring-orange-200' : 'border-gray-200'}`}>
-                    <p className="text-[10px] uppercase font-bold text-gray-500">{o.tierLabel}</p>
+                    <p className="text-[10px] font-bold text-gray-500">{o.tierLabel}</p>
                     <p className="text-lg font-bold text-gray-900">{fmt0(o.quotePriceCents / 100)}</p>
                     <p className="text-xs text-gray-500">{o.footage} ft · {fmt(o.pricePerFootCents / 100)}/ft</p>
                     {o.status === 'accepted' && <p className="text-[10px] text-green-700 mt-1">✓ Accepted {o.acceptedBy ? `by ${o.acceptedBy}` : ''}</p>}
@@ -150,10 +150,10 @@ export default function QuoteDetailDrawer({
             const totalSections = perRunSections.reduce((s, n) => s + n, 0)
             return (
               <section>
-                <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Run Breakdown</p>
+                <p className="text-xs font-bold text-gray-400 mb-2">Run Breakdown</p>
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-[10px] uppercase font-semibold text-gray-400 tracking-widest border-b border-gray-100">
+                    <tr className="text-[10px] font-semibold text-gray-400 border-b border-gray-100">
                       <th className="text-left py-2">Run</th>
                       <th className="text-right py-2">Footage</th>
                       <th className="text-right py-2">Sections</th>
@@ -180,16 +180,16 @@ export default function QuoteDetailDrawer({
 
           {/* Gates + corners */}
           <section className="grid grid-cols-4 gap-3 text-sm">
-            <div><p className="text-[10px] uppercase text-gray-400 font-bold">Corners</p><p className="font-medium text-gray-900">{quote.corners}</p></div>
-            <div><p className="text-[10px] uppercase text-gray-400 font-bold">Ends</p><p className="font-medium text-gray-900">{quote.ends}</p></div>
-            <div><p className="text-[10px] uppercase text-gray-400 font-bold">Walk Gates</p><p className="font-medium text-gray-900">{quote.walkGates}</p></div>
-            <div><p className="text-[10px] uppercase text-gray-400 font-bold">Double Gates</p><p className="font-medium text-gray-900">{quote.dblGates}</p></div>
+            <div><p className="text-[10px] text-gray-400 font-bold">Corners</p><p className="font-medium text-gray-900">{quote.corners}</p></div>
+            <div><p className="text-[10px] text-gray-400 font-bold">Ends</p><p className="font-medium text-gray-900">{quote.ends}</p></div>
+            <div><p className="text-[10px] text-gray-400 font-bold">Walk Gates</p><p className="font-medium text-gray-900">{quote.walkGates}</p></div>
+            <div><p className="text-[10px] text-gray-400 font-bold">Double Gates</p><p className="font-medium text-gray-900">{quote.dblGates}</p></div>
           </section>
 
           {/* Internal pricing breakdown */}
           {internalView && (
             <section>
-              <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Pricing (Internal)</p>
+              <p className="text-xs font-bold text-gray-400 mb-2">Pricing (Internal)</p>
               <div className="bg-gray-50 rounded-xl p-4 space-y-1 text-sm">
                 <div className="flex justify-between"><span className="text-gray-600">Material Cost</span><span>{fmt(quote.materialCost)}</span></div>
                 <div className="flex justify-between"><span className="text-gray-600">Labor Cost</span><span>{fmt(quote.laborCost)}</span></div>
@@ -204,7 +204,7 @@ export default function QuoteDetailDrawer({
           {/* Pull sheet (internal) */}
           {internalView && quote.pullSheet?.length > 0 && (
             <section>
-              <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Pull Sheet</p>
+              <p className="text-xs font-bold text-gray-400 mb-2">Pull Sheet</p>
               <div className="bg-gray-50 rounded-xl p-3 max-h-48 overflow-y-auto">
                 {quote.pullSheet.map((li, i) => (
                   <div key={i} className="flex justify-between py-1 text-xs border-b border-gray-100 last:border-0">
@@ -218,14 +218,14 @@ export default function QuoteDetailDrawer({
 
           {quote.notes && (
             <section>
-              <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Notes</p>
+              <p className="text-xs font-bold text-gray-400 mb-2">Notes</p>
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{quote.notes}</p>
             </section>
           )}
 
           {shareUrl && (
             <section className="bg-blue-50 border border-blue-200 rounded-xl p-3">
-              <p className="text-xs font-bold uppercase tracking-widest text-blue-700">Customer Share Link</p>
+              <p className="text-xs font-bold text-blue-700">Customer Share Link</p>
               <p className="text-xs font-mono text-blue-900 mt-1 break-all">{shareUrl}</p>
             </section>
           )}
@@ -278,7 +278,7 @@ function TemplatePicker({ quote, onChange }: { quote: SavedQuote & QuotePresenta
     <>
       <div className="flex items-center justify-between gap-3">
         <div className="flex-1">
-          <p className="text-[10px] font-bold uppercase text-gray-500 tracking-widest mb-1.5">Quote Template</p>
+          <p className="text-[10px] font-bold text-gray-500 mb-1.5">Quote Template</p>
           <div className="flex gap-1.5 flex-wrap">
             {(Object.values(TEMPLATES)).map(t => (
               <button key={t.key} onClick={() => saveTemplate(t.key)}
@@ -340,7 +340,7 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
     quote_link: shareUrl,
     fence_style: quote.fenceStyle,
     rep_name: quote.salesRep || '',
-    company_name: (company as any).name || 'EZBiz',
+    company_name: (company as any).name || 'Getter Done Fence',
     company_phone: (company as any).phone || '',
   }
   const rendered = renderTemplate(tpl, mergeData)
@@ -384,17 +384,17 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
         </div>
         <div className="p-6 space-y-4">
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase mb-1 block">To</label>
+            <label className="text-xs text-gray-500 font-semibold mb-1 block">To</label>
             <input value={to} onChange={e => setTo(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase mb-1 block">Subject</label>
+            <label className="text-xs text-gray-500 font-semibold mb-1 block">Subject</label>
             <input value={subject} onChange={e => setSubject(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-semibold uppercase mb-1 block">Body</label>
+            <label className="text-xs text-gray-500 font-semibold mb-1 block">Body</label>
             <textarea value={body} onChange={e => setBody(e.target.value)}
               rows={10}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" />

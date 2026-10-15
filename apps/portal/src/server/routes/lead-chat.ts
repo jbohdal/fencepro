@@ -19,7 +19,7 @@ const router = Router()
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const AI_MODEL = process.env.AI_CHAT_MODEL || 'claude-sonnet-4-20250514'
-const COMPANY_NAME = process.env.COMPANY_NAME || 'GD Fence Pro'
+const COMPANY_NAME = process.env.COMPANY_NAME || 'Getter Done Fence'
 
 // ── Load knowledge base entries from database ──
 async function loadKnowledgeBase(): Promise<string> {

@@ -646,7 +646,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
         {/* ── Toolbox sidebar ── */}
         <div className="w-48 bg-white border-r border-gray-200 flex flex-col shrink-0">
           <div className="p-3 border-b border-gray-100">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Drawing Tools</p>
+            <p className="text-[10px] font-bold text-gray-400 mb-2">Drawing Tools</p>
             <div className="space-y-1">
               {(Object.entries(MODE_CONFIG) as [DrawMode, typeof MODE_CONFIG[DrawMode]][]).map(([key, cfg]) => (
                 <button
@@ -665,7 +665,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
 
           {/* Color palette */}
           <div className="p-3 border-b border-gray-100">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Color</p>
+            <p className="text-[10px] font-bold text-gray-400 mb-2">Color</p>
             <div className="grid grid-cols-5 gap-1.5">
               <button onClick={() => setPaletteColor('')}
                 className={`h-7 rounded-lg border-2 transition-all flex items-center justify-center text-[10px] font-bold ${paletteColor === '' ? 'border-orange-500 ring-2 ring-orange-200' : 'border-gray-200'}`}
@@ -686,7 +686,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
             </div>
             {mode === 'utility' && (
               <div className="mt-3">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Utility Type</p>
+                <p className="text-[10px] font-bold text-gray-400 mb-1.5">Utility Type</p>
                 <div className="grid grid-cols-2 gap-1">
                   {UTILITY_KINDS.map(k => (
                     <button key={k.kind} onClick={() => { setUtilityKind(k.kind); setPaletteColor('') }}
@@ -703,7 +703,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
 
           {/* Actions */}
           <div className="p-3 border-b border-gray-100 space-y-1">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Actions</p>
+            <p className="text-[10px] font-bold text-gray-400 mb-2">Actions</p>
             <button onClick={() => finishActiveLine()} disabled={activePoints.length < 2}
               className="w-full text-xs text-left px-2.5 py-1.5 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-30">
               ✓ Finish Line
@@ -718,7 +718,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
 
           {/* Notes */}
           <div className="p-3 flex-1 flex flex-col">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Notes</p>
+            <p className="text-[10px] font-bold text-gray-400 mb-2">Notes</p>
             <textarea
               className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-orange-400"
               placeholder="Job notes, special instructions..."
@@ -743,11 +743,11 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
           {showEditPopover && (selectedLineId || selectedMarkerId) && (
             <div className="absolute top-3 right-3 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-64 z-50">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-bold text-gray-700 uppercase tracking-widest">Edit Element</p>
+                <p className="text-xs font-bold text-gray-700">Edit Element</p>
                 <button onClick={() => { setShowEditPopover(false); setSelectedLineId(null); setSelectedMarkerId(null) }}
                   className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
               </div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Change Color</p>
+              <p className="text-[10px] font-bold text-gray-400 mb-1">Change Color</p>
               <div className="grid grid-cols-5 gap-1 mb-2">
                 {PALETTE_COLORS.map(c => (
                   <button key={c.value} onClick={() => {

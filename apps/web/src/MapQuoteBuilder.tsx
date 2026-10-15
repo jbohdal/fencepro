@@ -414,7 +414,7 @@ export default function MapQuoteBuilder({ onUseData, onClose }: MapQuoteBuilderP
               <div className="mt-3 flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2.5">
                 <span className="text-orange-500 text-lg shrink-0">🏠</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] uppercase font-bold text-orange-600 tracking-widest">Selected Property</p>
+                  <p className="text-[10px] font-bold text-orange-600">Selected Property</p>
                   <p className="text-sm font-medium text-gray-900 truncate" title={address}>{address}</p>
                 </div>
                 <button onClick={handleClearSelection}

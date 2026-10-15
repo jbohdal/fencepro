@@ -266,7 +266,7 @@ export function QuickAddModal({
             <div className="w-20">
               <label className="text-xs text-gray-500 mb-1 block">State</label>
               <input
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-orange-400"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 placeholder="FL"
                 maxLength={2}
                 value={state}
@@ -379,7 +379,7 @@ export function LeadDrawer({
 
           {/* Stage mover */}
           <div>
-            <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Move to Stage</p>
+            <p className="text-xs text-gray-400 mb-2 font-medium">Move to Stage</p>
             <div className="flex flex-wrap gap-1.5">
               {stages.map(s => (
                 <button
@@ -399,7 +399,7 @@ export function LeadDrawer({
 
           {/* Lead temp */}
           <div>
-            <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Lead Temperature</p>
+            <p className="text-xs text-gray-400 mb-2 font-medium">Lead Temperature</p>
             <div className="flex gap-1">
               {[1,2,3,4,5].map(i => (
                 <button
@@ -415,7 +415,7 @@ export function LeadDrawer({
 
           {/* Contact info */}
           <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Contact</p>
+            <p className="text-xs font-semibold text-gray-500">Contact</p>
             {editing ? (
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
@@ -445,7 +445,7 @@ export function LeadDrawer({
 
           {/* Job info */}
           <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Job Info</p>
+            <p className="text-xs font-semibold text-gray-500">Job Info</p>
             {editing ? (
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
@@ -484,7 +484,7 @@ export function LeadDrawer({
 
           {/* Notes */}
           <div>
-            <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Notes</p>
+            <p className="text-xs text-gray-400 mb-2 font-medium">Notes</p>
             {editing ? (
               <textarea
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
@@ -549,7 +549,7 @@ function PipelineCard({
             {lead.firstName} {lead.lastName}
           </p>
           {(lead.stage === 'Job Complete' || (lead as any).isCompleted) && (
-            <span className="inline-block mt-1 text-[10px] font-bold uppercase tracking-widest bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+            <span className="inline-block mt-1 text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
               ✓ Completed
             </span>
           )}

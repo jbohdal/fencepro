@@ -54,7 +54,7 @@ function loadLogoDataUrl(url: string): Promise<string | null> {
 
 async function exportInvoicePdf(inv: Invoice) {
   const company = getCompanyInfo()
-  const companyName: string = company.name || 'EZBiz'
+  const companyName: string = company.name || 'Getter Done Fence'
   const addrParts = [company.address, [company.city, company.state, company.zip].filter(Boolean).join(', ')].filter(Boolean)
   const contactParts = [company.phone, company.email].filter(Boolean)
 
@@ -229,7 +229,7 @@ async function exportInvoicePdf(inv: Invoice) {
 
 async function exportStatementPdf(invoices: Invoice[]) {
   const company = getCompanyInfo()
-  const companyName: string = company.name || 'EZBiz'
+  const companyName: string = company.name || 'Getter Done Fence'
   const addrParts = [company.address, [company.city, company.state, company.zip].filter(Boolean).join(', ')].filter(Boolean)
   const contactParts = [company.phone, company.email].filter(Boolean)
 
@@ -412,11 +412,11 @@ export default function BillingPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400 uppercase">Outstanding</p><p className="text-2xl font-bold text-gray-900">{fmtD(totalOutstanding)}</p></div>
-        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400 uppercase">Overdue</p><p className="text-2xl font-bold text-red-600">{fmtD(totalOverdue)}</p></div>
-        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400 uppercase">Due This Week</p><p className="text-2xl font-bold text-orange-600">{fmtD(dueThisWeek)}</p></div>
-        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400 uppercase">Total Invoices</p><p className="text-2xl font-bold text-gray-900">{invoices.length}</p></div>
-        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400 uppercase">Customers w/ Balance</p><p className="text-2xl font-bold text-gray-900">{arData.length}</p></div>
+        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Outstanding</p><p className="text-2xl font-bold text-gray-900">{fmtD(totalOutstanding)}</p></div>
+        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Overdue</p><p className="text-2xl font-bold text-red-600">{fmtD(totalOverdue)}</p></div>
+        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Due This Week</p><p className="text-2xl font-bold text-orange-600">{fmtD(dueThisWeek)}</p></div>
+        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Total Invoices</p><p className="text-2xl font-bold text-gray-900">{invoices.length}</p></div>
+        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Customers w/ Balance</p><p className="text-2xl font-bold text-gray-900">{arData.length}</p></div>
       </div>
 
       {/* Tabs */}
@@ -429,7 +429,7 @@ export default function BillingPage() {
       {/* Aging Report */}
       {tab === 'ar' && (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-8 gap-2 text-xs font-medium text-gray-500 uppercase">
+          <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-8 gap-2 text-xs font-medium text-gray-500">
             <div className="col-span-2">Customer</div><div className="text-right">Current</div><div className="text-right">1-30</div><div className="text-right">31-60</div><div className="text-right">61-90</div><div className="text-right">90+</div><div className="text-right">Total</div>
           </div>
           {arData.length === 0 ? (
@@ -488,7 +488,7 @@ export default function BillingPage() {
             <span className="text-sm text-gray-400">{filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? 's' : ''}</span>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase">
+            <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500">
               <div className="col-span-3">Invoice</div>
               <div className="col-span-3">Customer</div>
               <div className="text-right col-span-2">Amount</div>

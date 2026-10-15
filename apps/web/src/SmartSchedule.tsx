@@ -508,7 +508,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
           {/* Cluster summary (when clusters are on) */}
           {showClusters && clusters.length > 0 && (
             <div className="p-3 border-b border-gray-100 space-y-1.5">
-              <p className="text-[10px] font-bold text-gray-400 uppercase">{clusters.length} groups</p>
+              <p className="text-[10px] font-bold text-gray-400">{clusters.length} groups</p>
               {clusters.map((cl, ci) => {
                 const color = CLUSTER_COLORS[ci % CLUSTER_COLORS.length]
                 const isSel = selectedCluster === ci
@@ -577,7 +577,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
 
           {/* Legend */}
           <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur rounded-lg px-3 py-2 shadow-lg text-[10px] space-y-1">
-            <p className="font-bold text-gray-500 uppercase">Map Legend</p>
+            <p className="font-bold text-gray-500">Map Legend</p>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-green-500" /> Ready / Loaded</div>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Materials Ordered</div>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-orange-500" /> Needs Attention</div>

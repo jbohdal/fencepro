@@ -87,7 +87,7 @@ function OperationsView() {
     return (
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">{title}</p>
+          <p className="text-xs font-bold text-gray-500">{title}</p>
           <span className="text-xs text-gray-400">{list.length}</span>
         </div>
         {list.length === 0 ? (
@@ -115,7 +115,7 @@ function OperationsView() {
                       <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="text-[10px] uppercase font-semibold text-gray-500 tracking-widest">
+                          <tr className="text-[10px] font-semibold text-gray-500">
                             <th className="text-left py-1.5">Item</th>
                             <th className="text-right py-1.5">Required</th>
                             <th className="text-right py-1.5">On Hand</th>

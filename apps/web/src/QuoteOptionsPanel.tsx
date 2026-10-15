@@ -177,14 +177,14 @@ function OptionEditCard({ option, onAdjustPrice, onToggleRecommended, onDelete }
   return (
     <div className={`border rounded-xl p-4 relative ${option.isRecommended ? 'border-orange-400 ring-2 ring-orange-200' : 'border-gray-200'}`}>
       {option.isRecommended && (
-        <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-[10px] uppercase font-bold px-3 py-0.5 rounded-full">Recommended</div>
+        <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-[10px] font-bold px-3 py-0.5 rounded-full">Recommended</div>
       )}
       {option.badgeLabel && !option.isRecommended && (
-        <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-[10px] uppercase font-bold px-3 py-0.5 rounded-full">{option.badgeLabel}</div>
+        <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-[10px] font-bold px-3 py-0.5 rounded-full">{option.badgeLabel}</div>
       )}
 
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] uppercase font-bold text-gray-500 tracking-widest">{option.tierLabel}</span>
+        <span className="text-[10px] font-bold text-gray-500">{option.tierLabel}</span>
         {option.status !== 'draft' && (
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
             option.status === 'accepted' ? 'bg-green-100 text-green-700' :
@@ -317,17 +317,17 @@ function CustomerCard({ option, onAccept, readOnly }: { option: QuoteOption; onA
   return (
     <div className={`relative border rounded-3xl p-5 lg:p-8 flex flex-col transition-transform ${isRecommended ? 'lg:-translate-y-2' : ''} ${cardBg}`}>
       {isRecommended && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-xs uppercase font-bold tracking-widest px-4 py-1 rounded-full shadow">
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-xs font-bold px-4 py-1 rounded-full shadow">
           ★ Recommended
         </div>
       )}
       {option.badgeLabel && !isRecommended && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-xs uppercase font-bold tracking-widest px-4 py-1 rounded-full shadow">
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-xs font-bold px-4 py-1 rounded-full shadow">
           {option.badgeLabel}
         </div>
       )}
 
-      <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">{option.tierLabel}</p>
+      <p className="text-sm font-bold text-gray-500">{option.tierLabel}</p>
 
       <div className="mt-4 pb-5 border-b border-gray-100">
         <p className="text-5xl font-black text-gray-900">{fmt(option.quotePriceCents)}</p>
@@ -346,7 +346,7 @@ function CustomerCard({ option, onAccept, readOnly }: { option: QuoteOption; onA
 
       {option.addonSnapshot.filter(a => a.isIncludedByDefault).length > 0 && (
         <div className="mt-4 pt-4 border-t border-gray-100">
-          <p className="text-xs uppercase font-bold text-gray-400 tracking-wider mb-2">Included Add-Ons</p>
+          <p className="text-xs font-bold text-gray-400 mb-2">Included Add-Ons</p>
           <ul className="space-y-1.5">
             {option.addonSnapshot.filter(a => a.isIncludedByDefault).map(a => (
               <li key={a.id} className="text-sm text-gray-700 flex justify-between"><span>{a.addonName}</span><span className="text-gray-400">Included</span></li>
@@ -357,7 +357,7 @@ function CustomerCard({ option, onAccept, readOnly }: { option: QuoteOption; onA
 
       {option.addonSnapshot.filter(a => !a.isIncludedByDefault).length > 0 && (
         <div className="mt-4 pt-4 border-t border-gray-100">
-          <p className="text-xs uppercase font-bold text-gray-400 tracking-wider mb-2">Optional Add-Ons</p>
+          <p className="text-xs font-bold text-gray-400 mb-2">Optional Add-Ons</p>
           <ul className="space-y-1.5">
             {option.addonSnapshot.filter(a => !a.isIncludedByDefault).map(a => (
               <li key={a.id} className="text-sm text-gray-500 flex justify-between"><span>{a.addonName}</span><span>+{fmt(a.addonPriceCents)}</span></li>

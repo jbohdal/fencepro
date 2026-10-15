@@ -298,23 +298,23 @@ export default function OperationsPage() {
       {/* KPI strip */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 uppercase">Active Jobs</p>
+          <p className="text-xs text-gray-400">Active Jobs</p>
           <p className="text-2xl font-bold text-gray-900">{active.length}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 uppercase">Total Jobs</p>
+          <p className="text-xs text-gray-400">Total Jobs</p>
           <p className="text-2xl font-bold text-gray-900">{jobs.length}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 uppercase">Contract Value</p>
+          <p className="text-xs text-gray-400">Contract Value</p>
           <p className="text-2xl font-bold text-gray-900">{fmt(totalContract)}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 uppercase">Collected</p>
+          <p className="text-xs text-gray-400">Collected</p>
           <p className="text-2xl font-bold text-green-600">{fmt(totalPaid)}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-400 uppercase">On Hold</p>
+          <p className="text-xs text-gray-400">On Hold</p>
           <p className="text-2xl font-bold text-red-600">{onHold.length}</p>
         </div>
       </div>
@@ -531,7 +531,7 @@ function OpsCard({ job, stage, onSelect, onAdvance, onDragStart }: {
 function ListView({ jobs, onSelect, onAdvance }: { jobs: UnifiedJob[]; onSelect: (j: UnifiedJob) => void; onAdvance: (j: UnifiedJob) => void }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 hidden lg:grid grid-cols-12 gap-4 text-xs font-medium text-gray-500 uppercase tracking-wide">
+      <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 hidden lg:grid grid-cols-12 gap-4 text-xs font-medium text-gray-500">
         <div className="col-span-3">Customer</div>
         <div className="col-span-2">Fence Type</div>
         <div className="col-span-2">Stage</div>
@@ -729,7 +729,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{title}</h3>
+      <h3 className="text-xs font-semibold text-gray-400 mb-2">{title}</h3>
       <div className="space-y-1.5">{children}</div>
     </div>
   )

@@ -1,4 +1,111 @@
 @import "tailwindcss";
+@import "@fontsource-variable/archivo/wdth.css";
+
+/* ═══════════════════════════════════════════════
+   GETTER DONE FENCE DESIGN SYSTEM (option 1, brand)
+   The app's long-standing "orange" accent is remapped to the logo's purple,
+   and the greys to warm brand neutrals dark enough to read, so every screen
+   picks up the brand from one place. New and rebuilt screens use the
+   component classes below (.btn, .chip, .panel, .page-header).
+   ═══════════════════════════════════════════════ */
+@theme {
+  --font-sans: 'Archivo Variable', 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Brand purple, sampled from the logo (#5E28A1 = 500). */
+  --color-orange-50: #F7F3FD;
+  --color-orange-100: #EFE8FA;
+  --color-orange-200: #DED0F2;
+  --color-orange-300: #C9B8E6;
+  --color-orange-400: #9D7BD0;
+  --color-orange-500: #5E28A1;
+  --color-orange-600: #4E1F88;
+  --color-orange-700: #3F186F;
+  --color-orange-800: #321359;
+  --color-orange-900: #250E43;
+  --color-orange-950: #170829;
+
+  /* Brand neutrals: a touch of the purple, and secondary text dark enough for AA. */
+  --color-gray-50: #F6F4FA;
+  --color-gray-100: #F0EDF5;
+  --color-gray-200: #E2DCEC;
+  --color-gray-300: #CBC4D6;
+  --color-gray-400: #746C80;
+  --color-gray-500: #5F5769;
+  --color-gray-600: #4D4558;
+  --color-gray-700: #3A3344;
+  --color-gray-800: #261F2E;
+  --color-gray-900: #1C1030;
+  --color-gray-950: #120A20;
+
+  --color-brand: #5E28A1;
+  --color-brand-hover: #4E1F88;
+  --color-brand-press: #3F186F;
+  --color-brand-soft: #EFE8FA;
+  --color-ink: #16121D;
+  --color-sidebar: #1C1030;
+}
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; }
+  body { color: var(--color-ink); background: var(--color-gray-50); font-feature-settings: 'tnum' 0; }
+  h1, h2 { font-stretch: 112%; letter-spacing: -0.01em; }
+  h1 { font-weight: 800; }
+  button, [role='button'], a[href], select, summary, label[for] { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  :focus-visible { outline: 3px solid var(--color-brand); outline-offset: 2px; border-radius: 4px; }
+  .tabular, td, .num { font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  }
+}
+
+@layer components {
+  /* Buttons: obviously clickable, with hover, pressed and focus states. One primary per screen. */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; height: 2.5rem; padding: 0 1rem; border-radius: 10px;
+    font-weight: 600; font-size: .875rem; line-height: 1; white-space: nowrap; border: 1px solid transparent; user-select: none;
+    transition: background-color .12s, box-shadow .12s, transform .06s, border-color .12s; }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; }
+  .btn-primary { background: var(--color-brand); color: #fff; box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 2px 6px rgba(94,40,161,.32); }
+  .btn-primary:hover:not(:disabled) { background: var(--color-brand-hover); }
+  .btn-primary:active:not(:disabled) { background: var(--color-brand-press); box-shadow: 0 1px 2px rgba(63,24,111,.35) inset; }
+  .btn-secondary { background: #fff; color: var(--color-brand-press); border: 1.5px solid #C9B8E6; }
+  .btn-secondary:hover:not(:disabled) { background: #F4EEFC; border-color: #9D7BD0; }
+  .btn-quiet { background: transparent; color: var(--color-brand); padding: 0 .75rem; }
+  .btn-quiet:hover:not(:disabled) { background: #F1EBFA; text-decoration: underline; text-underline-offset: 3px; }
+  .btn-danger { background: #fff; color: #B42318; border: 1.5px solid currentColor; }
+  .btn-danger:hover:not(:disabled) { background: #FDECEA; }
+  .btn-danger-solid { background: #B42318; color: #fff; }
+  .btn-danger-solid:hover:not(:disabled) { background: #912018; }
+  .btn-sm { height: 2rem; padding: 0 .75rem; font-size: .8125rem; border-radius: 8px; }
+  .btn-lg { height: 3rem; padding: 0 1.25rem; font-size: 1rem; }
+  .btn-icon { width: 2.5rem; padding: 0; }
+  .btn-icon.btn-lg { width: 3rem; }
+
+  /* Chips: status at a glance, never shouting. */
+  .chip { display: inline-flex; align-items: center; gap: .375rem; height: 1.5rem; padding: 0 .5625rem; border-radius: 999px; font-size: .75rem; font-weight: 600;
+    background: #F0EDF5; color: #4D4558; white-space: nowrap; }
+  .chip-ok { background: #E5F4EC; color: #12704A; }
+  .chip-warn { background: #FFF2D6; color: #8A5300; }
+  .chip-bad { background: #FDECEA; color: #B42318; }
+  .chip-info { background: #E6EFFB; color: #1D5FB8; }
+  .chip-brand { background: #EFE8FA; color: #5E28A1; }
+
+  /* Panels and page headers */
+  .panel { background: #fff; border: 1px solid #E2DCEC; border-radius: 14px; box-shadow: 0 1px 2px rgba(22,18,29,.05); }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .875rem 1.125rem; border-bottom: 1px solid #E2DCEC; }
+  .panel-head h2 { font-size: 1.0625rem; font-weight: 800; }
+  .page-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: .75rem 1rem; margin-bottom: 1.25rem; }
+  .page-header h1 { font-size: 1.625rem; line-height: 1.15; color: var(--color-ink); }
+  .page-header .facts { display: flex; flex-wrap: wrap; gap: .25rem 1.125rem; margin-top: .375rem; font-size: .875rem; color: #4D4558; }
+  .page-header .facts b { color: var(--color-ink); font-weight: 700; }
+  .page-header .actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+
+  /* Skeleton loading */
+  .skeleton { background: linear-gradient(90deg, #F0EDF5 25%, #E2DCEC 37%, #F0EDF5 63%); background-size: 400% 100%; animation: skeleton 1.4s ease infinite; border-radius: 8px; }
+}
+@keyframes skeleton { 0% { background-position: 100% 50% } 100% { background-position: 0 50% } }
+
 
 /* ═══════════════════════════════════════════════
    MOBILE RESPONSIVE LAYER

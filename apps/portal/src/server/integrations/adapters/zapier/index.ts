@@ -40,7 +40,7 @@ const adapter: IntegrationAdapter = {
         event: 'test',
         source: 'ezbiz_crm',
         timestamp: new Date().toISOString(),
-        data: { message: 'This is a test webhook from EZBiz' },
+        data: { message: 'This is a test webhook from EZ Biz' },
       }
 
       const res = await fetch(webhookUrl, {

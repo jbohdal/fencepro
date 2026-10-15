@@ -140,10 +140,10 @@ function BundleCard({ bundle, onEdit, onDelete, onClone, onToggleActive }: {
     <div className="border border-gray-200 rounded-xl p-4 flex flex-col">
       <div className="flex items-start justify-between mb-2">
         <div>
-          <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${TIER_COLORS[bundle.tier]}`}>{bundle.tier}</span>
-          {bundle.isRecommended && <span className="ml-2 text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200">Recommended</span>}
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${TIER_COLORS[bundle.tier]}`}>{bundle.tier}</span>
+          {bundle.isRecommended && <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200">Recommended</span>}
         </div>
-        {!bundle.isActive && <span className="text-[10px] uppercase font-bold text-gray-400">Inactive</span>}
+        {!bundle.isActive && <span className="text-[10px] font-bold text-gray-400">Inactive</span>}
       </div>
       <h4 className="font-bold text-gray-900">{bundle.name}</h4>
       {bundle.highlightBadge && <p className="text-xs text-orange-500 font-semibold mt-0.5">{bundle.highlightBadge}</p>}
@@ -405,5 +405,5 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="text-xs text-gray-500 font-semibold uppercase block mb-1">{label}</label>{children}</div>
+  return <div><label className="text-xs text-gray-500 font-semibold block mb-1">{label}</label>{children}</div>
 }

@@ -132,7 +132,7 @@ export function QuickChangeOrderModal({
           {/* Line items */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs text-gray-500 font-semibold uppercase">Line Items</label>
+              <label className="text-xs text-gray-500 font-semibold">Line Items</label>
               <button onClick={addItem} className="text-xs text-orange-500 hover:text-orange-600 font-semibold">+ Add line</button>
             </div>
             <div className="space-y-2">
@@ -268,7 +268,7 @@ export function ChangeOrderPanel({ quoteId, originalPrice }: { quoteId: string; 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Change Orders</p>
+        <p className="text-xs font-semibold text-gray-500">Change Orders</p>
         <button
           onClick={() => setShowModal(true)}
           className="text-xs bg-orange-500 hover:bg-orange-600 text-white font-semibold px-3 py-1.5 rounded-lg"

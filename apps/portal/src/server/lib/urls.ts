@@ -100,9 +100,9 @@ export function printEnvValidation(): void {
       import('./emailService.js').then(({ sendEmail, buildEmailHtml }) => {
         sendEmail({
           to: adminEmail,
-          subject: 'ALERT — EZBiz API failed env validation at startup',
+          subject: 'ALERT — EZ Biz API failed env validation at startup',
           body: buildEmailHtml(`
-            <p>The EZBiz API process detected critical environment issues at startup:</p>
+            <p>The EZ Biz API process detected critical environment issues at startup:</p>
             <ul>${critical.map(m => `<li>${m}</li>`).join('')}</ul>
             ${warnings.length > 0 ? `<p>Warnings:</p><ul>${warnings.map(m => `<li>${m}</li>`).join('')}</ul>` : ''}
             <p>${process.env.NODE_ENV === 'production' ? 'In production the process refuses to start with critical errors.' : 'In development the process started anyway. Fix before promoting to production.'}</p>

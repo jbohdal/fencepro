@@ -123,7 +123,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
         {/* Logo / Brand */}
         <div className="text-center mb-8">
           <div className="w-14 h-14 rounded-2xl bg-orange-500 flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4">EZ</div>
-          <h1 className="text-2xl font-bold text-white">EZBiz</h1>
+          <h1 className="text-2xl font-bold text-white">Getter Done Fence</h1>
           <p className="text-gray-500 text-sm mt-1">Service Business Management Platform</p>
         </div>
 

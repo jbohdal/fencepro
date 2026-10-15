@@ -322,7 +322,7 @@ const digits = (p: string) => (p || '').replace(/\D/g, '')
 
 export function confirmationText(a: Pick<Appointment, 'customerName' | 'startAt' | 'allDay' | 'address' | 'type' | 'assignedTo'>, company: { name: string; phone: string }): string {
   const what = a.type === 'estimate' ? 'your fence estimate' : `your ${TYPE_SHORT[a.type as AppointmentType]?.toLowerCase() || 'appointment'}`
-  return `Hi ${firstName(a.customerName)}, this is ${firstName(a.assignedTo) === 'there' ? 'the team' : firstName(a.assignedTo)} with ${company.name || 'GD Fence Pro'}. ` +
+  return `Hi ${firstName(a.customerName)}, this is ${firstName(a.assignedTo) === 'there' ? 'the team' : firstName(a.assignedTo)} with ${company.name || 'Getter Done Fence'}. ` +
     `You're all set for ${what} on ${longWhen(a)}${a.address ? ` at ${a.address}` : ''}. ` +
     `If anything changes, call or text ${company.phone || 'us'}.`
 }
@@ -332,7 +332,7 @@ export const mailtoLink = (email: string, subject: string, body: string) =>
   `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 
 export function onMyWayText(customerName: string, minutes: number, company: { name: string }, person = 'Jonathan'): string {
-  return `Hi ${firstName(customerName)}, this is ${firstName(person)} with ${company.name || 'GD Fence Pro'}, I'm on my way and should be there in about ${Math.max(1, Math.round(minutes))} minutes.`
+  return `Hi ${firstName(customerName)}, this is ${firstName(person)} with ${company.name || 'Getter Done Fence'}, I'm on my way and should be there in about ${Math.max(1, Math.round(minutes))} minutes.`
 }
 
 /** Directions from wherever the phone is. No key needed. */
@@ -357,7 +357,7 @@ export function buildIcs(a: Pick<Appointment, 'id' | 'startAt' | 'endAt' | 'allD
   const when = a.allDay
     ? [`DTSTART;VALUE=DATE:${floridaDate(start).replace(/-/g, '')}`, `DTEND;VALUE=DATE:${addDays(floridaDate(new Date(end.getTime() - 1)), 1).replace(/-/g, '')}`]
     : [`DTSTART:${icsStamp(start)}`, `DTEND:${icsStamp(end)}`]
-  const title = `${a.type === 'estimate' ? 'Fence estimate' : TYPE_SHORT[a.type as AppointmentType] || 'Appointment'} with ${company.name || 'GD Fence Pro'}`
+  const title = `${a.type === 'estimate' ? 'Fence estimate' : TYPE_SHORT[a.type as AppointmentType] || 'Appointment'} with ${company.name || 'Getter Done Fence'}`
   return [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//EZ Biz//Appointments//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     'BEGIN:VEVENT', `UID:${a.id}@ezbiz`, `DTSTAMP:${icsStamp(now)}`, ...when,

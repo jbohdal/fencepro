@@ -154,14 +154,14 @@ describe('call back times said on the phone', () => {
 })
 
 describe('what Jonathan sends himself', () => {
-  const company = { name: 'GD Fence Pro', phone: '(352) 789-4314' }
+  const company = { name: 'Getter Done Fence', phone: '(352) 789-4314' }
   test('the confirmation has the day, time, address and phone', () => {
     const t = confirmationText(appt(), company)
-    expect(t).toBe('Hi Pat, this is Jonathan with GD Fence Pro. You\'re all set for your fence estimate on Tuesday, October 20 at 10:00 AM at 1 Main St, Belleview, FL. If anything changes, call or text (352) 789-4314.')
+    expect(t).toBe('Hi Pat, this is Jonathan with Getter Done Fence. You\'re all set for your fence estimate on Tuesday, October 20 at 10:00 AM at 1 Main St, Belleview, FL. If anything changes, call or text (352) 789-4314.')
     expect(smsLink('(352) 555-0123', 'hi there')).toBe('sms:3525550123?body=hi%20there')
   })
   test('the on my way text', () => {
-    expect(onMyWayText('Pat Lee', 17.4, company)).toBe('Hi Pat, this is Jonathan with GD Fence Pro, I\'m on my way and should be there in about 17 minutes.')
+    expect(onMyWayText('Pat Lee', 17.4, company)).toBe('Hi Pat, this is Jonathan with Getter Done Fence, I\'m on my way and should be there in about 17 minutes.')
   })
   test('the calendar invite is a valid event in UTC', () => {
     const ics = buildIcs(appt(), company, new Date('2026-10-14T12:00:00Z'))
