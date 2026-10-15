@@ -196,7 +196,7 @@ function PipelineAnalytics({ quotes }: { quotes: SavedQuote[] }) {
 
   return (
     <div className="space-y-4 mb-4">
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { label: 'Total Quoted',   value: String(totalOpp),  sub: 'all time' },
           { label: 'Closed',         value: String(totalSold), sub: fmtPct(closingRate) + ' close rate', accent: true },
@@ -212,7 +212,7 @@ function PipelineAnalytics({ quotes }: { quotes: SavedQuote[] }) {
         ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="col-span-1 bg-white rounded-2xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-bold text-gray-900 text-sm">{year} Pipeline</h3>
@@ -514,6 +514,8 @@ export default function QuotesPage({
 
   return (
     <div>
+      {/* Phone: the page's primary action (the header buttons are for the computer). */}
+      <button onClick={onNewQuote} className="btn btn-primary w-full md:hidden mb-4">+ New quote</button>
       <PipelineAnalytics quotes={localQuotes} />
 
       <div className="bg-white rounded-2xl border border-gray-200 p-3 lg:p-4 mb-4 flex flex-col lg:flex-row lg:items-center gap-3 lg:flex-wrap">
@@ -624,7 +626,7 @@ export default function QuotesPage({
 
       {/* Pull result toast */}
       {pullResult && (
-        <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-semibold">
+        <div className="fixed bottom-6 right-6 max-md:bottom-[calc(84px+env(safe-area-inset-bottom))] max-md:right-4 z-50 bg-green-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-semibold">
           {pullResult}
         </div>
       )}

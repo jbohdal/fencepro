@@ -617,13 +617,13 @@ export default function QuoteBuilder({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center overflow-y-auto py-6">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl mx-4">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center overflow-y-auto md:py-6" data-quote-builder>
+      <div className="bg-white md:rounded-2xl shadow-2xl w-full max-w-6xl md:mx-4 min-h-full md:min-h-0 pb-24 md:pb-0">
 
-        <div className="flex items-center justify-between px-8 py-5 border-b border-gray-200">
+        <div className="flex items-center justify-between gap-3 px-4 md:px-8 py-3 md:py-5 border-b border-gray-200 sticky top-0 md:static bg-white z-10">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">{init ? 'Edit Quote' : 'New Quote'}</h2>
-            <p className="text-sm text-gray-400 mt-0.5">EZ-Quote Builder</p>
+            <h2 className="text-xl font-bold text-gray-900">{init ? 'Edit quote' : 'New quote'}</h2>
+            <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
           </div>
           <div className="flex items-center gap-3">
             {materialItems.length > 0 && (
@@ -631,12 +631,13 @@ export default function QuoteBuilder({
                 {showPullSheet ? 'Hide Pull Sheet' : 'Show Pull Sheet'} ({materialItems.length} items)
               </button>
             )}
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+            <button onClick={onClose} aria-label="Close" className="text-gray-500 hover:text-gray-800 text-3xl leading-none w-12 h-12 grid place-items-center">×</button>
           </div>
         </div>
 
-        <div className="flex gap-0">
-          <div className="flex-1 px-8 py-6 space-y-6 border-r border-gray-100 overflow-y-auto max-h-[80vh]">
+        {/* One column on the phone: inputs, then the live quote; two side by side on a computer. */}
+        <div className="flex flex-col md:flex-row gap-0">
+          <div className="flex-1 min-w-0 px-4 md:px-8 py-5 md:py-6 space-y-6 md:border-r border-gray-100 md:overflow-y-auto md:max-h-[80vh]">
 
             <div>
               <h3 className="text-xs font-semibold text-gray-500 mb-3">Customer Name</h3>
@@ -917,7 +918,7 @@ export default function QuoteBuilder({
             }} />
           </div>
 
-          <div className="w-80 flex flex-col bg-gray-50 rounded-r-2xl">
+          <div className="w-full md:w-80 flex flex-col bg-gray-50 md:rounded-r-2xl border-t md:border-t-0 border-gray-200">
             <div className="px-6 py-6 space-y-3 border-b border-gray-200">
               <h3 className="text-xs font-semibold text-gray-500">Live Quote</h3>
 
@@ -1070,6 +1071,15 @@ export default function QuoteBuilder({
           </div>
         </div>
       </div>
+
+      {/* Phone: the price and Save always in reach at the bottom. */}
+      {!showSaveModal && <div className="md:hidden fixed inset-x-0 bottom-0 z-[60] bg-white border-t border-gray-200 px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] flex items-center gap-3" data-quote-sticky>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-gray-600">Customer price</p>
+          <p className="text-xl font-bold tabular-nums text-gray-900">{fmt(adjPrice)}</p>
+        </div>
+        <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg">{init ? 'Update quote' : 'Save quote'}</button>
+      </div>}
 
       {showSaveModal && (
         <SaveModal

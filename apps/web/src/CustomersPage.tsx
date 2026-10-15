@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { getConfig } from './configStore'
+import { Phone, MessageSquare, Navigation } from 'lucide-react'
 import { openBooking } from './BookingDialog'
 import { NextAppointmentBadge, CustomerAppointmentsTab } from './AppointmentWidgets'
 import {
@@ -883,6 +884,12 @@ function CustomerDetail({
                 {customer.email && <span className="text-sm text-gray-500 break-all">✉️ {customer.email}</span>}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2"><PipelineStageSelect customerId={customer.id} /><NextAppointmentBadge customerId={customer.id} /></div>
+              {/* One tap to reach the customer or the property */}
+              <div className="flex flex-wrap gap-2 mt-3" data-contact-actions>
+                {customer.phone && <a href={`tel:${customer.phone.replace(/[^\d+]/g, '')}`} className="btn btn-secondary btn-sm"><Phone size={16} aria-hidden="true" /> Call</a>}
+                {customer.phone && <a href={`sms:${customer.phone.replace(/[^\d+]/g, '')}`} className="btn btn-secondary btn-sm"><MessageSquare size={16} aria-hidden="true" /> Text</a>}
+                {customer.serviceAddress && <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(customer.serviceAddress)}`} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm"><Navigation size={16} aria-hidden="true" /> Navigate</a>}
+              </div>
               <div className="flex gap-1.5 mt-2 flex-wrap">
                 {customer.tags.map(tag => (
                   <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{tag}</span>

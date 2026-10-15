@@ -39,7 +39,8 @@ export default function MapView({ points, height = 260, onMove, className = '' }
 
   useEffect(() => {
     if (!box.current || map.current) return
-    const m = L.map(box.current, { zoomControl: true, attributionControl: true }).setView(OCALA, 10)
+    // No zoom animations: a map closed mid-animation (a dialog shut quickly) would otherwise throw.
+    const m = L.map(box.current, { zoomControl: true, attributionControl: true, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false }).setView(OCALA, 10)
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -47,8 +48,8 @@ export default function MapView({ points, height = 260, onMove, className = '' }
     layer.current = L.layerGroup().addTo(m)
     map.current = m
     // The map is often drawn inside a dialog that is still sizing itself.
-    const t = setTimeout(() => m.invalidateSize(), 150)
-    return () => { clearTimeout(t); m.remove(); map.current = null; layer.current = null }
+    const t = setTimeout(() => { if (map.current === m) m.invalidateSize() }, 150)
+    return () => { clearTimeout(t); m.stop(); m.off(); m.remove(); map.current = null; layer.current = null }
   }, [])
 
   const key = JSON.stringify(points.map(p => [p.id, p.lat, p.lng, p.label, p.color, p.draggable]))

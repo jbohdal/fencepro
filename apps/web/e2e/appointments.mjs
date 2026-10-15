@@ -51,11 +51,14 @@ async function open(browser, phone, startUrl = APP) {
   if (!TOKEN) {
     await page.fill('input[type="email"]', EMAIL); await page.fill('input[type="password"]', PASSWORD); await page.click('button[type="submit"]')
   }
-  await page.waitForSelector('[data-global-appointment]', { timeout: 30000 }); await sleep(800)
+  await page.waitForSelector(phone ? '[data-tabbar]' : '[data-global-appointment]', { timeout: 30000 }); await sleep(800)
   return s
 }
 async function nav(s, label) {
-  if (s.phone) await s.page.locator('button.mobile-only').first().click()
+  // On the phone: the tab bar, or More for everything else.
+  const TAB = { 'Sales Pipeline': 'Pipeline', Today: 'Today', Customers: 'Customers', Appointments: 'Schedule' }
+  if (s.phone && TAB[label]) { await s.page.locator(`[data-tabbar] button:has-text("${TAB[label]}")`).click(); await sleep(600); return }
+  if (s.phone) await s.page.locator('[data-tabbar] button:has-text("More")').click()
   await s.page.locator(`span:text-is("${label}"):visible`).first().click()
   await sleep(600)
 }
@@ -63,7 +66,13 @@ async function nav(s, label) {
 async function bookFirstSuggestion(s) {
   const dlg = s.page.locator('[data-booking-dialog]')
   await dlg.waitFor()
-  await dlg.locator('[data-suggestions] button').first().waitFor({ timeout: 10000 })
+  // A day that is already full has no suggestions: try the next days, as a person would.
+  for (let i = 0; i < 8; i++) {
+    if (await dlg.locator('[data-suggestions] button').first().waitFor({ timeout: 3000 }).then(() => true, () => false)) break
+    const d = new Date((await dlg.locator('[data-field="date"]').inputValue()) + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 1)
+    await dlg.locator('[data-field="date"]').fill(d.toISOString().slice(0, 10))
+  }
+  await dlg.locator('[data-suggestions] button').first().waitFor({ timeout: 5000 })
   const picked = (await dlg.locator('[data-suggestions] button').first().innerText()).split('·')[0].trim()
   await dlg.locator('[data-suggestions] button').first().click()
   await dlg.locator('[data-save]').click()

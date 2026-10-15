@@ -27,6 +27,7 @@ import { getChecklistProgress } from './checklistStore'
 import { toast } from './toast'
 import { BottomSheet } from './SalesPipelineBoard'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
+import { Search, SlidersHorizontal } from 'lucide-react'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -492,7 +493,7 @@ export default function OperationsBoard() {
       {isMobile && (
         <button
           onClick={() => toast.info('New Job', 'Create a quote and mark it as Sold to add it to the operations board.')}
-          className="fixed bottom-6 right-6 z-30 w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-3xl font-light shadow-2xl flex items-center justify-center"
+          className="fixed bottom-6 right-6 max-md:bottom-[calc(84px+env(safe-area-inset-bottom))] max-md:right-4 z-30 w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-3xl font-light shadow-2xl flex items-center justify-center"
           aria-label="New Job"
         >+</button>
       )}
@@ -693,8 +694,8 @@ function ControlsBar({
           <p className="text-xs text-gray-500 truncate">{activeCount} active · {scheduledThisWeek} this week</p>
         </div>
         <div className="flex items-center gap-1.5">
-          <button onClick={() => setOpenSearch(o => !o)} className="p-2 rounded-lg border border-gray-200 text-gray-500" aria-label="Search">🔍</button>
-          <button onClick={() => setOpenFilter(o => !o)} className="p-2 rounded-lg border border-gray-200 text-gray-500" aria-label="Filter">⚙</button>
+          <button onClick={() => setOpenSearch(o => !o)} className="btn btn-secondary btn-icon" aria-label="Search this board"><Search size={18} aria-hidden="true" /></button>
+          <button onClick={() => setOpenFilter(o => !o)} className="btn btn-secondary btn-icon" aria-label="Filter and sort"><SlidersHorizontal size={18} aria-hidden="true" /></button>
           <ViewToggle value={view} onChange={onViewChange} />
         </div>
         {openSearch && (

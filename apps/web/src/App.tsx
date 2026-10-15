@@ -1,42 +1,42 @@
-import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
+import { useState, useMemo, useRef, useEffect, Fragment, lazy, Suspense } from 'react'
 import QuoteBuilder from './QuoteBuilder'
 import { Banknote, BarChart3, Boxes, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
 import AdminPage from './AdminPage'
-import AdminSettingsPage from './AdminSettingsPage'
-import BudgetPage from './BudgetPage'
+const AdminSettingsPage = lazy(() => import('./AdminSettingsPage'))
+const BudgetPage = lazy(() => import('./BudgetPage'))
 import CustomersPage from './CustomersPage'
 import QuotesPage, { type SavedQuote } from './QuotesPage'
 import JobsPage from './JobsPage'
 import SalesPipelineBoard, { markPipelineReturn } from './SalesPipelineBoard'
-import OperationsBoard from './OperationsBoard'
-import AuditLogPage from './AuditLogPage'
+const OperationsBoard = lazy(() => import('./OperationsBoard'))
+const AuditLogPage = lazy(() => import('./AuditLogPage'))
 import StagingPage from './StagingPage'
-import SchedulePage from './SchedulePage'
-import ReportsPage from './ReportsPage'
-import MapQuoteBuilder from './MapQuoteBuilder'
+const SchedulePage = lazy(() => import('./SchedulePage'))
+const ReportsPage = lazy(() => import('./ReportsPage'))
+const MapQuoteBuilder = lazy(() => import('./MapQuoteBuilder'))
 import type { MapFenceData } from './MapQuoteBuilder'
-import SitePlanTool from './SitePlanTool'
+const SitePlanTool = lazy(() => import('./SitePlanTool'))
 import JobsPipeline from './JobsPipeline'
-import PortalInbox from './PortalInbox'
-import SmartSchedule from './SmartSchedule'
-import DispatchPage from './DispatchPage'
-import EZBudgetPage from './EZBudgetPage'
-import AutomationsPage from './AutomationsPage'
-import IntegrationsPage from './IntegrationsPage'
-import TeamManagementPage from './TeamManagementPage'
-import BillingPage from './BillingPage'
+const PortalInbox = lazy(() => import('./PortalInbox'))
+const SmartSchedule = lazy(() => import('./SmartSchedule'))
+const DispatchPage = lazy(() => import('./DispatchPage'))
+const EZBudgetPage = lazy(() => import('./EZBudgetPage'))
+const AutomationsPage = lazy(() => import('./AutomationsPage'))
+const IntegrationsPage = lazy(() => import('./IntegrationsPage'))
+const TeamManagementPage = lazy(() => import('./TeamManagementPage'))
+const BillingPage = lazy(() => import('./BillingPage'))
 import OperationsPage from './OperationsPage'
 import LoginPage from './LoginPage'
 import ChangePasswordPage from './ChangePasswordPage'
-import PLStatementPage from './PLStatementPage'
-import BalanceSheetPage from './BalanceSheetPage'
-import VendorsPage from './VendorsPage'
-import AccountsPayablePage from './AccountsPayablePage'
-import BundlesPage from './BundlesPage'
+const PLStatementPage = lazy(() => import('./PLStatementPage'))
+const BalanceSheetPage = lazy(() => import('./BalanceSheetPage'))
+const VendorsPage = lazy(() => import('./VendorsPage'))
+const AccountsPayablePage = lazy(() => import('./AccountsPayablePage'))
+const BundlesPage = lazy(() => import('./BundlesPage'))
 import PublicPresentationPage from './PublicPresentationPage'
-import PendingOrdersPage from './PendingOrdersPage'
-import SitePlansPage from './SitePlansPage'
-import InventoryPage from './InventoryPage'
+const PendingOrdersPage = lazy(() => import('./PendingOrdersPage'))
+const SitePlansPage = lazy(() => import('./SitePlansPage'))
+const InventoryPage = lazy(() => import('./InventoryPage'))
 import CustomerPortalApp from './CustomerPortalApp'
 import NotificationBell from './NotificationBell'
 import MessagesInbox from './MessagesInbox'
@@ -61,7 +61,7 @@ import { createPendingOrderFromQuote, checkStockForOrder } from './pendingOrderS
 import { fireQuoteSold } from './automationTrigger'
 import { installedRevenueForYear, soldNotInstalled, averageMargin } from './quoteStats'
 import { initAppointments, isAppointmentsHydrated } from './appointmentsStore'
-import AppointmentsPage from './AppointmentsPage'
+const AppointmentsPage = lazy(() => import('./AppointmentsPage'))
 import TodayScreen from './TodayScreen'
 import { BookingHost, openBooking } from './BookingDialog'
 import GlobalSearch from './GlobalSearch'
@@ -188,6 +188,17 @@ function loadCompanyName(): string {
     }
   } catch { /* fall through */ }
   return 'Getter Done Fence'
+}
+
+/** Shown for the moment a page's code is still on its way (it loads on first use). */
+function PageLoading() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-label="Loading">
+      <div className="skeleton h-9 w-64" />
+      <div className="skeleton h-28 w-full" />
+      <div className="grid gap-4 md:grid-cols-2"><div className="skeleton h-48" /><div className="skeleton h-48" /></div>
+    </div>
+  )
 }
 
 /** Good morning, afternoon or evening, by the Florida clock. */
@@ -853,17 +864,24 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Top header bar */}
-        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-4">
+        <div className="bg-white border-b border-gray-200 px-3 md:px-6 h-14 md:h-auto md:py-3 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2 md:gap-4 min-w-0">
             {/* Hamburger — mobile only (hidden on desktop via CSS) */}
-            <button onClick={() => setMobileMenuOpen(true)} className="mobile-only text-gray-600 hover:text-gray-900 p-1 -ml-2">
+            <button onClick={() => setMobileMenuOpen(true)} aria-label="Open menu" className="mobile-only max-md:!hidden text-gray-600 hover:text-gray-900 w-11 h-11 grid place-items-center -ml-2">
               <Menu size={24} aria-hidden="true" />
             </button>
             {/* Pages with their own header show their title there; the bar shows it only on the phone. */}
-            <h2 className={`text-lg font-bold text-gray-900 ${PAGES_WITH_HEADER.has(active) ? 'lg:hidden' : ''}`}>{active}</h2>
+            {PAGES_WITH_HEADER.has(active) ? (
+              <span className="flex items-center gap-2 min-w-0 lg:hidden">
+                <img src="/logo.png" alt="" className="w-8 h-8 rounded-md object-contain" />
+                <span className="text-base font-extrabold text-gray-900 truncate [font-stretch:112%]">{companyName}</span>
+              </span>
+            ) : (
+              <h2 className="text-lg font-bold text-gray-900 truncate">{active}</h2>
+            )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 md:gap-3 shrink-0">
             <MessagesInbox onNavigateToCustomer={(customerId) => {
               setActive('Customers')
               setTimeout(() => {
@@ -874,13 +892,16 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             {/* Command search */}
             <button
               onClick={() => { setSearchOpen(true); setTimeout(() => searchRef.current?.focus(), 50) }}
-              className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-3 h-9 text-sm text-gray-600 transition-colors w-80" data-header-search
+              aria-label="Search"
+              className="flex items-center justify-center md:justify-start gap-2 md:bg-gray-100 hover:bg-gray-200 md:border border-gray-200 rounded-lg md:px-3 w-11 h-11 md:h-9 text-sm text-gray-600 transition-colors md:w-80" data-header-search
             >
-              <Search size={16} aria-hidden="true" />
-              <span className="flex-1 text-left">Search customers, quotes, jobs</span>
-              <kbd className="text-[10px] bg-gray-200 text-gray-400 px-1.5 py-0.5 rounded font-mono">⌘K</kbd>
+              <Search size={20} className="md:w-4 md:h-4" aria-hidden="true" />
+              <span className="flex-1 text-left hidden md:inline">Search customers, quotes, jobs</span>
+              <kbd className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded font-mono hidden md:inline">⌘K</kbd>
             </button>
 
+            {/* On the phone these live in the pages and the tab bar instead. */}
+            <div data-topbar-actions className="hidden md:flex items-center gap-3">
             {/* Book an appointment from any page */}
             <button onClick={() => openBooking()} data-global-appointment className="btn btn-secondary btn-sm">
               <Plus size={16} aria-hidden="true" /> Appointment
@@ -907,16 +928,18 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                   onClick={() => { setEditingQuote(null); setShowQuote(true) }}
                   className="btn btn-primary"
                 >
-                  + New Quote
+                  + New quote
                 </button>
               </div>
             )}
+            </div>
           </div>
         </div>
 
         {/* Page content */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-8 py-4 md:py-6 max-md:pb-[calc(92px+env(safe-area-inset-bottom))]">
           {/* Keyed so the open page reloads its data after another device's changes are merged in. */}
+          <Suspense fallback={<PageLoading />}>
           <Fragment key={dataEpoch}>
           {active === 'Team' && <TeamManagementPage />}
           {active === 'EZ Budget' && <EZBudgetPage />}
@@ -1075,6 +1098,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             </div>
           )}
           </Fragment>
+          </Suspense>
         </div>
       </div>
 
@@ -1096,22 +1120,35 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       {/* ═══ BOOKING DIALOG (opened from anywhere with openBooking) ═══ */}
       <BookingHost />
 
+      {/* ═══ PHONE TAB BAR ═══ */}
+      <nav data-tabbar aria-label="Main" className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-white border-t border-gray-200 grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
+        {([['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Customers', Users, 'Customers'], ['Schedule', CalendarDays, 'Appointments']] as const).map(([label, Icon, page]) => (
+          <button key={label} onClick={() => setActive(page)} aria-current={active === page ? 'page' : undefined}
+            className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${active === page ? 'text-orange-500' : 'text-gray-500'}`}>
+            <span className={`grid place-items-center h-8 w-14 rounded-full ${active === page ? 'bg-orange-100' : ''}`}><Icon size={22} aria-hidden="true" /></span>{label}
+          </button>
+        ))}
+        <button onClick={() => setMobileMenuOpen(true)} className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${mobileMenuOpen ? 'text-orange-500' : 'text-gray-500'}`}>
+          <span className="grid place-items-center h-8 w-14 rounded-full"><Menu size={22} aria-hidden="true" /></span>More
+        </button>
+      </nav>
+
       {/* ═══ SMART SCHEDULE ═══ */}
       {showSmartSchedule && (
-        <SmartSchedule onClose={() => setShowSmartSchedule(false)} />
+        <Suspense fallback={null}><SmartSchedule onClose={() => setShowSmartSchedule(false)} /></Suspense>
       )}
 
       {/* ═══ SITE PLAN TOOL ═══ */}
       {showSitePlan && (
-        <SitePlanTool onClose={() => setShowSitePlan(false)} />
+        <Suspense fallback={null}><SitePlanTool onClose={() => setShowSitePlan(false)} /></Suspense>
       )}
 
       {/* ═══ MAP QUOTE MODAL ═══ */}
       {showMapQuote && (
-        <MapQuoteBuilder
+        <Suspense fallback={null}><MapQuoteBuilder
           onUseData={handleMapQuoteData}
           onClose={() => setShowMapQuote(false)}
-        />
+        /></Suspense>
       )}
 
       {/* ═══ QUOTE BUILDER MODAL ═══ */}

@@ -58,8 +58,8 @@ async function open(browser, phone) {
 }
 
 async function goPipeline(s) {
-  if (s.phone) await s.page.locator('button.mobile-only').first().click()
-  await s.page.locator('span:text-is("Sales Pipeline"):visible').first().click()
+  if (s.phone) await s.page.locator('[data-tabbar] button:has-text("Pipeline")').click()
+  else await s.page.locator('span:text-is("Sales Pipeline"):visible').first().click()
   await s.page.waitForSelector('[data-kanban-board]', { timeout: 15000 })
   await sleep(500)
 }

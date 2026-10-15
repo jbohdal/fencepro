@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { Phone, Navigation } from 'lucide-react'
 import { getAppointments, updateAppointment, APPOINTMENTS_UPDATED } from './appointmentsStore'
 import { getAppointmentSettings, getConfig } from './configStore'
 import { getQuotesForCustomer } from './quoteStore'
@@ -79,15 +80,23 @@ export default function TodayScreen() {
       {todays.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 divide-y divide-gray-100">
           {todays.map(a => (
-            <button key={a.id} onClick={() => (isOpen(a) ? setClosing(a) : openBooking({ appointmentId: a.id }))} className="w-full text-left px-4 py-3 flex items-center gap-3">
-              <span className="w-1.5 self-stretch rounded" style={{ background: TYPE_COLORS[a.type] }} />
-              <span className="w-16 text-sm font-semibold text-gray-900">{a.allDay ? 'All day' : fmtTime(a.startAt!)}</span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm text-gray-900 truncate">{a.customerName}</span>
-                <span className="block text-xs text-gray-500 truncate">{TYPE_SHORT[a.type]} · {a.address}</span>
-              </span>
-              <span className="text-[11px] text-gray-500">{a.outcome ? OUTCOME_LABELS[a.outcome] : STATUS_LABELS[a.status]}</span>
-            </button>
+            <div key={a.id} className="px-4 py-3 flex gap-3">
+              <span className="w-1.5 self-stretch rounded shrink-0" style={{ background: TYPE_COLORS[a.type] }} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-gray-900 tabular-nums whitespace-nowrap">{a.allDay ? 'All day' : fmtTime(a.startAt!)}</span>
+                  <span className="text-sm text-gray-600 truncate">{TYPE_SHORT[a.type]} · {a.outcome ? OUTCOME_LABELS[a.outcome] : STATUS_LABELS[a.status]}</span>
+                  <span className="ml-auto flex gap-1.5 shrink-0">
+                    {a.customerPhone && <a href={`tel:${a.customerPhone.replace(/[^\d+]/g, '')}`} aria-label={`Call ${a.customerName}`} className="btn btn-secondary btn-icon"><Phone size={18} aria-hidden="true" /></a>}
+                    <a href={directionsUrl(a)} target="_blank" rel="noreferrer" aria-label={`Navigate to ${a.customerName}`} className="btn btn-secondary btn-icon"><Navigation size={18} aria-hidden="true" /></a>
+                  </span>
+                </div>
+                <button onClick={() => (isOpen(a) ? setClosing(a) : openBooking({ appointmentId: a.id }))} className="block w-full text-left mt-1">
+                  <span className="block text-[15px] font-semibold text-gray-900">{a.customerName}</span>
+                  <span className="block text-sm text-gray-600">{a.address || 'No address'}</span>
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       )}

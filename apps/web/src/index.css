@@ -335,3 +335,16 @@
 }
 /* Long press picks a card up on a phone: no text selection or callout menu. */
 .kanban-card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+
+/* ═══ PHONE FIRST (up to 767px) ═══
+   Everything tappable is at least 48px, text fields are 16px so the phone
+   does not zoom in, and nothing pushes the page sideways. */
+@media (max-width: 767px) {
+  html, body { overflow-x: hidden; }
+  .btn, .btn-sm, .btn-lg { height: 3rem; }
+  button, a.btn, [role='button'], summary { min-height: 48px; }
+  button[aria-label], a[aria-label] { min-width: 48px; }
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']), select, textarea { min-height: 48px; font-size: 16px; }
+  input[type='checkbox'], input[type='radio'] { width: 22px; height: 22px; }
+  .kanban-card button { min-height: 44px; min-width: 44px; }
+}
