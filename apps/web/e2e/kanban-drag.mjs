@@ -364,7 +364,21 @@ async function mergeCheck(browser) {
 }
 
 // Playwright hides scrollbars in headless mode; the board's own scrollbar is part of what is checked.
+/** The tests start from cards in First Contact. If the copy has too few, move some
+ *  Lost Sale cards there first (dev copy only), through the normal version checked save. */
+async function ensureFirstContact(token, need = 3) {
+  const get = async () => (await (await fetch(`${API}/api/pipeline`, { headers: { Authorization: `Bearer ${token}` } })).json()).data
+  const d = await get()
+  const have = d.leads.filter(l => l.stage === 'First Contact' && l.customerId).length
+  if (have >= need) return
+  const pick = d.leads.filter(l => l.stage === 'Lost Sale' && l.customerId).slice(0, need - have)
+  const upsert = pick.map(l => ({ lead: { ...l, stage: 'First Contact', lastMoved: new Date().toISOString().slice(0, 10) } }))
+  const r = await fetch(`${API}/api/pipeline`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ upsert, remove: [], baseVersion: d.version }) })
+  console.log(`setup: moved ${pick.length} Lost Sale card(s) to First Contact on the test copy (${r.status})`)
+}
+
 const browser = await chromium.launch({ ignoreDefaultArgs: ['--hide-scrollbars'] })
+await ensureFirstContact(TOKEN, 6)
 const only = process.env.E2E_ONLY || ''
 try {
   if (!only || only === 'desktop') await (await run(browser, false)).ctx.close()

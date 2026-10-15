@@ -314,7 +314,7 @@ export function QuickAddModal({
             <button
               onClick={handleAdd}
               disabled={!firstName.trim()}
-              className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white text-sm font-semibold py-2.5 rounded-xl"
+              className="btn btn-primary flex-1"
             >
               Add Lead
             </button>
@@ -369,7 +369,7 @@ export function LeadDrawer({
                 <button onClick={() => { setForm({ ...lead }); setEditing(false) }} className="border border-gray-200 text-gray-600 text-sm px-3 py-1.5 rounded-lg">Cancel</button>
               </>
             ) : (
-              <button onClick={() => setEditing(true)} className="border border-gray-200 text-gray-600 text-sm px-3 py-1.5 rounded-lg hover:bg-gray-50">Edit</button>
+              <button onClick={() => setEditing(true)} className="btn btn-secondary">Edit</button>
             )}
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-1">×</button>
           </div>
@@ -918,7 +918,7 @@ export default function JobsPage() {
         </div>
         <button
           onClick={() => setAddingToStage(stages[0])}
-          className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg self-start lg:self-auto"
+          className="btn btn-primary self-start lg:self-auto"
         >
           + New Lead
         </button>

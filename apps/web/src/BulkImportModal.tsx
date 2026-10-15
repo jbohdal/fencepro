@@ -320,9 +320,9 @@ export default function BulkImportModal({ onClose, onComplete }: { onClose: () =
               </div>
 
               <div className="flex gap-2">
-                <button onClick={() => setStep('upload')} className="border border-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-50">← Back</button>
+                <button onClick={() => setStep('upload')} className="btn btn-secondary">← Back</button>
                 <button onClick={() => setStep('preview')} disabled={!mapping.name}
-                  className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-medium disabled:opacity-40">
+                  className="btn btn-primary disabled:opacity-40">
                   Preview →
                 </button>
               </div>
@@ -376,9 +376,9 @@ export default function BulkImportModal({ onClose, onComplete }: { onClose: () =
               )}
 
               <div className="flex gap-2">
-                <button onClick={() => setStep('map')} className="border border-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-50">← Back</button>
+                <button onClick={() => setStep('map')} className="btn btn-secondary">← Back</button>
                 <button onClick={processImport} disabled={processing}
-                  className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-medium disabled:opacity-40">
+                  className="btn btn-primary disabled:opacity-40">
                   {processing ? 'Importing...' : `Import ${sheet.rowCount} Rows`}
                 </button>
               </div>
@@ -424,7 +424,7 @@ export default function BulkImportModal({ onClose, onComplete }: { onClose: () =
               )}
 
               <button onClick={() => { onComplete(); onClose() }}
-                className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-medium">
+                className="btn btn-primary">
                 Done
               </button>
             </div>

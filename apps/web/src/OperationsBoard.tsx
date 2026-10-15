@@ -390,7 +390,7 @@ export default function OperationsBoard() {
     <div className="flex flex-col h-full">
       <ControlsBar
         title="Operations"
-        primaryLabel="+ New Job"
+        primaryLabel="+ New job"
         onPrimary={() => toast.info('New Job', 'Create a quote and mark it as Sold to add it to the operations board.')}
         view={view} onViewChange={setView}
         search={search} onSearchChange={setSearch}
@@ -457,6 +457,7 @@ export default function OperationsBoard() {
                   else moveJobToStage(j, next.key)
                 }
               }}
+              onComplete={() => setConfirmComplete(j)}
               onRainDay={() => {
                 if (window.confirm(`Flag ${j.customerName} as Rain Day / Hold?`)) {
                   if (j.rawJob) updateJob(j.id, { holdReason: 'Rain Day', status: 'on_hold' as JobStatus })
@@ -542,7 +543,7 @@ export default function OperationsBoard() {
 function slug(s: string) { return s.replace(/[^a-z0-9]+/gi, '-').toLowerCase() }
 
 function OpsCard({
-  job, onClick, isMobile, highlightToday, showStageBadge, faded, onNextStage, onRainDay,
+  job, onClick, isMobile, highlightToday, showStageBadge, faded, onNextStage, onRainDay, onComplete,
 }: {
   job: UnifiedJob
   onClick: () => void
@@ -552,6 +553,8 @@ function OpsCard({
   faded: boolean
   onNextStage: () => void
   onRainDay: () => void
+  /** Asks first, like dropping the card on Complete. */
+  onComplete: () => void
 }) {
   const stageInfo = OPS_STAGES.find(s => s.key === job.opsStage)
   const hex = stageInfo ? (stageColorHex[stageInfo.color] || '#9ca3af') : '#9ca3af'
@@ -628,7 +631,8 @@ function OpsCard({
           {menuOpen && (
             <div onClick={e => e.stopPropagation()} className="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg text-xs z-20">
               <button onClick={onClick} className="block w-full text-left px-3 py-2 hover:bg-gray-50">View / Edit</button>
-              <button onClick={onNextStage} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to Next Stage</button>
+              <button onClick={onNextStage} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to next stage</button>
+              {job.source === 'job' && job.opsStage !== 'completed' && <button onClick={onComplete} className="block w-full text-left px-3 py-2 hover:bg-gray-50 font-semibold text-green-700">Mark complete</button>}
               <button onClick={onRainDay} className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600">Flag Rain Day</button>
             </div>
           )}
@@ -726,41 +730,44 @@ function ControlsBar({
     )
   }
   return (
-    <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-      <div className="flex items-center gap-3 min-w-0">
-        <h1 className="text-lg font-bold text-gray-900 truncate">{title}</h1>
-        <span className="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-semibold">{activeCount} Active</span>
-        <span className="text-xs px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 font-semibold">{scheduledThisWeek} This Week</span>
+    <div className="mb-3">
+      <div className="page-header !mb-3">
+        <div className="min-w-0">
+          <h1>{title}</h1>
+          <div className="facts"><span><b>{activeCount}</b> active jobs</span><span><b>{scheduledThisWeek}</b> scheduled this week</span></div>
+        </div>
+        <div className="actions">
+          <ViewToggle value={view} onChange={onViewChange} />
+          <button onClick={onToggleAnalytics} className="btn btn-quiet">{analyticsOpen ? 'Hide numbers' : 'Show numbers'}</button>
+          <button onClick={onPrimary} className="btn btn-primary">{primaryLabel}</button>
+        </div>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
-        <input value={search} onChange={e => onSearchChange(e.target.value)} placeholder="Search..." className="w-56 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400" />
-        <select value={stageFilter} onChange={e => onStageFilterChange(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+        <input value={search} onChange={e => onSearchChange(e.target.value)} placeholder="Search..." aria-label="Search jobs" className="w-64 border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white" />
+        <select value={stageFilter} onChange={e => onStageFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All stages</option>
           {OPS_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
-        <select value={crewFilter} onChange={e => onCrewFilterChange(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+        <select value={crewFilter} onChange={e => onCrewFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All crews</option>
           {crewOptions.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
-        <select value={styleFilter} onChange={e => onStyleFilterChange(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+        <select value={styleFilter} onChange={e => onStyleFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All styles</option>
           {styleOptions.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
-        <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+        <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="scheduled">Sort: Scheduled</option>
           <option value="value">Sort: Value</option>
           <option value="name">Sort: Customer</option>
           <option value="days_in_stage">Sort: Days in stage</option>
         </select>
-        <label className="flex items-center gap-1 text-xs px-2 py-1.5 border border-gray-200 rounded-lg cursor-pointer">
+        <label className="flex items-center gap-1.5 text-sm h-9 px-2.5 border border-gray-300 rounded-lg cursor-pointer bg-white">
           <input type="checkbox" checked={highlightToday} onChange={e => onHighlightTodayChange(e.target.checked)} />Today
         </label>
-        <label className="flex items-center gap-1 text-xs px-2 py-1.5 border border-gray-200 rounded-lg cursor-pointer">
+        <label className="flex items-center gap-1.5 text-sm h-9 px-2.5 border border-gray-300 rounded-lg cursor-pointer bg-white">
           <input type="checkbox" checked={showCompleted} onChange={e => onShowCompletedChange(e.target.checked)} />Completed
         </label>
-        <ViewToggle value={view} onChange={onViewChange} />
-        <button onClick={onToggleAnalytics} className="text-xs text-gray-500 hover:text-orange-600 px-2 py-1.5 border border-gray-200 rounded-lg">{analyticsOpen ? '▴ Hide' : '▾ Analytics'}</button>
-        <button onClick={onPrimary} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-3 py-1.5 rounded-lg">{primaryLabel}</button>
       </div>
     </div>
   )
@@ -770,7 +777,7 @@ function ViewToggle({ value, onChange }: { value: ViewMode; onChange: (v: ViewMo
   return (
     <div className="flex bg-gray-100 rounded-lg p-0.5">
       {(['board', 'list'] as const).map(v => (
-        <button key={v} onClick={() => onChange(v)} className={`px-3 py-1 rounded-md text-xs font-semibold capitalize transition ${value === v ? 'bg-white text-gray-900 shadow' : 'text-gray-500'}`}>{v}</button>
+        <button key={v} onClick={() => onChange(v)} className={`px-3 h-8 rounded-md text-sm font-semibold capitalize transition ${value === v ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'}`}>{v}</button>
       ))}
     </div>
   )
@@ -973,8 +980,8 @@ function ConfirmModal({ title, body, confirmLabel, onConfirm, onCancel }: { titl
         <h3 className="text-base font-bold text-gray-900">{title}</h3>
         <p className="text-sm text-gray-600 mt-1.5">{body}</p>
         <div className="flex justify-end gap-2 mt-4">
-          <button onClick={onCancel} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={onConfirm} className="px-3 py-1.5 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-semibold">{confirmLabel}</button>
+          <button onClick={onCancel} className="btn btn-secondary">Cancel</button>
+          <button onClick={onConfirm} className="btn btn-primary">{confirmLabel}</button>
         </div>
       </div>
     </div>

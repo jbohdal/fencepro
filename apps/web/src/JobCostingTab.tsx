@@ -296,7 +296,7 @@ function CostAJobModal({
           <button
             onClick={handleSave}
             disabled={!quoteId}
-            className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold px-6 py-2 rounded-xl text-sm transition-colors"
+            className="btn btn-primary"
           >
             {editEntry ? 'Update' : 'Save Job Cost'}
           </button>
@@ -552,7 +552,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
         </div>
         <button
           onClick={() => { setEditEntry(null); setShowModal(true) }}
-          className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm px-4 py-2.5 rounded-xl"
+          className="btn btn-primary"
         >
           + Cost a Job
         </button>

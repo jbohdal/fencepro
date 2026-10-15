@@ -239,9 +239,9 @@ export default function QuoteDetailDrawer({
         {/* Actions */}
         <div className="sticky bottom-0 bg-white border-t border-gray-100 px-8 py-4 flex flex-wrap gap-2 justify-end">
           {onEdit && (
-            <button onClick={onEdit} className="text-sm border border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg">Edit</button>
+            <button onClick={onEdit} className="btn btn-secondary">Edit</button>
           )}
-          <button onClick={handleCopyShareLink} className="text-sm border border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg">Copy Share Link</button>
+          <button onClick={handleCopyShareLink} className="btn btn-secondary">Copy Share Link</button>
           {quote.status !== 'SOLD' && quote.status !== 'LOST' && (
             <button onClick={() => setSendOpen(true)} className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium">Send to Customer</button>
           )}
@@ -290,7 +290,7 @@ function TemplatePicker({ quote, onChange }: { quote: SavedQuote & QuotePresenta
           </div>
         </div>
         <button onClick={() => setPreviewOpen(true)}
-          className="text-sm border border-gray-300 text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded-lg h-fit">
+          className="btn btn-secondary">
           Preview Quote
         </button>
       </div>
@@ -403,7 +403,7 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
           <button onClick={onClose} className="text-sm text-gray-600 hover:text-gray-900 px-4 py-2">Cancel</button>
-          <button onClick={handleSend} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg">Send</button>
+          <button onClick={handleSend} className="btn btn-primary">Send</button>
         </div>
       </div>
     </div>

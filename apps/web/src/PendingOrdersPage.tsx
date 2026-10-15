@@ -201,7 +201,7 @@ function OrderDetail({ order, onAdvance, onRemove }: {
           <button onClick={() => onAdvance(order, 'received')} className="text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg">Mark Received</button>
         )}
         {order.status !== 'cancelled' && order.status !== 'received' && (
-          <button onClick={() => onAdvance(order, 'cancelled')} className="text-sm border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-1.5 rounded-lg">Cancel Order</button>
+          <button onClick={() => onAdvance(order, 'cancelled')} className="btn btn-secondary">Cancel Order</button>
         )}
         <button onClick={() => onRemove(order)} className="text-sm text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg">Delete</button>
       </div>

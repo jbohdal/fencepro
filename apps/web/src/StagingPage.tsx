@@ -104,7 +104,7 @@ function JobDrawer({
                 <button onClick={() => { setForm({ ...job }); setEditing(false) }} className="border border-gray-200 text-gray-600 text-sm px-3 py-1.5 rounded-lg">Cancel</button>
               </>
             ) : (
-              <button onClick={() => setEditing(true)} className="border border-gray-200 text-gray-600 text-sm px-3 py-1.5 rounded-lg hover:bg-gray-50">Edit</button>
+              <button onClick={() => setEditing(true)} className="btn btn-secondary">Edit</button>
             )}
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-1">×</button>
           </div>
@@ -349,7 +349,7 @@ function PushQuoteModal({
 
           <div className="flex gap-2 pt-1">
             <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
-            <button onClick={handlePush} disabled={!selected} className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white text-sm font-semibold py-2.5 rounded-xl">Push to Staging</button>
+            <button onClick={handlePush} disabled={!selected} className="btn btn-primary flex-1">Push to Staging</button>
           </div>
         </div>
       </div>
@@ -647,7 +647,7 @@ export default function StagingPage() {
           <button onClick={() => setView('kanban')} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${view === 'kanban' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>Board</button>
           <button onClick={() => setView('list')} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${view === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>List</button>
         </div>
-        <button onClick={() => setShowPushModal(true)} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg ml-auto">
+        <button onClick={() => setShowPushModal(true)} className="btn btn-primary ml-auto">
           + Push Sold Quote
         </button>
       </div>

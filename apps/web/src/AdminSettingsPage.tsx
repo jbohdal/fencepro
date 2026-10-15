@@ -478,7 +478,7 @@ function EditableListTab({
           onChange={e => setNewItem(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && add()}
         />
-        <button onClick={add} disabled={!newItem.trim()} className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white text-sm font-semibold px-4 py-2 rounded-lg">Add</button>
+        <button onClick={add} disabled={!newItem.trim()} className="btn btn-primary">Add</button>
       </div>
 
       <div className="border border-gray-200 rounded-xl overflow-hidden">

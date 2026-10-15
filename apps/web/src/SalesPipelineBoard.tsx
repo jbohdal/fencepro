@@ -29,6 +29,7 @@ import { leadValue, pipelineMetrics } from './pipelineValue'
 import { useMergedRefresh } from './useMergedRefresh'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 import { openBooking } from './BookingDialog'
+import { CalendarPlus, CalendarDays, Eye } from 'lucide-react'
 import { moveCard } from './appointmentPipeline'
 import { useAppointmentList } from './TodayScreen'
 import { isOpen, needsOutcome, shortWhen, type Appointment } from './appointmentLogic'
@@ -539,7 +540,7 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
         sortMode={sortMode} onSortChange={setSortMode}
         repOptions={repOptions} repFilter={repFilter} onRepFilterChange={setRepFilter}
         styleOptions={styleOptions} styleFilter={styleFilter} onStyleFilterChange={setStyleFilter}
-        primaryLabel="+ New Lead"
+        primaryLabel="+ New lead"
         onPrimary={() => setAddingToStage(stages[0])}
         analyticsOpen={analyticsOpen}
         onToggleAnalytics={() => setAnalyticsOpen(o => !o)}
@@ -733,19 +734,19 @@ function PipelineCard({
             onClick={e => { e.stopPropagation(); onBook() }}
             className="px-1 rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50"
             title="Book appointment" aria-label="Book appointment" data-card-book
-          >📅</button>
+          ><CalendarPlus size={16} aria-hidden="true" /></button>
           <button
             onClick={e => { e.stopPropagation(); onQuickView() }}
             className="px-1 rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50"
             title="Quick view" aria-label="Quick view"
-          >👁</button>
+          ><Eye size={16} aria-hidden="true" /></button>
         </span>
       </div>
 
       {(next || overdue || (!next && lead.stage === 'First Contact' && INTAKE_SOURCES.has(lead.leadSource))) && (
         <div className="flex flex-wrap items-center gap-1.5 mt-2">
           {next && (
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700" data-card-next>📅 {shortWhen(next)}</span>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700" data-card-next><CalendarDays size={12} className="inline -mt-0.5 mr-1" aria-hidden="true" />{shortWhen(next)}</span>
           )}
           {overdue && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700" data-card-needs-outcome>Needs outcome</span>}
           {!next && lead.stage === 'First Contact' && INTAKE_SOURCES.has(lead.leadSource) && (
@@ -849,32 +850,32 @@ function ControlsBar({
     )
   }
   return (
-    <div className="flex items-center justify-between gap-3 mb-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <h1 className="text-lg font-bold text-gray-900 truncate">{title}</h1>
-        <span className="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-semibold">{totalLabel}</span>
-        {secondaryLabel && <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold">{secondaryLabel}</span>}
-        <span className="text-xs text-gray-400">{countLabel}</span>
+    <div className="mb-3">
+      <div className="page-header !mb-3">
+        <div className="min-w-0">
+          <h1>{title}</h1>
+          <div className="facts"><span>{totalLabel}</span>{secondaryLabel && <span>{secondaryLabel}</span>}<span>{countLabel}</span></div>
+        </div>
+        <div className="actions">
+          <ViewToggle value={view} onChange={onViewChange} />
+          <button onClick={onToggleAnalytics} className="btn btn-quiet">{analyticsOpen ? 'Hide numbers' : 'Show numbers'}</button>
+          <button onClick={onPrimary} className="btn btn-primary">{primaryLabel}</button>
+        </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <input value={search} onChange={e => onSearchChange(e.target.value)}
-          placeholder="Search..." className="w-56 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400" />
-        <select value={repFilter} onChange={e => onRepFilterChange(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+          placeholder="Search..." aria-label="Search this pipeline" className="w-64 border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white" />
+        <select value={repFilter} onChange={e => onRepFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All reps</option>
           {repOptions.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
-        <select value={styleFilter} onChange={e => onStyleFilterChange(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+        <select value={styleFilter} onChange={e => onStyleFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All styles</option>
           {styleOptions.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
-        <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+        <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white" aria-label="Sort">
           {SORT_MODES.map(m => <option key={m} value={m}>{SORT_LABELS[m]}</option>)}
         </select>
-        <ViewToggle value={view} onChange={onViewChange} />
-        <button onClick={onToggleAnalytics} className="text-xs text-gray-500 hover:text-orange-600 px-2 py-1.5 border border-gray-200 rounded-lg">
-          {analyticsOpen ? '▴ Hide' : '▾ Analytics'}
-        </button>
-        <button onClick={onPrimary} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-3 py-1.5 rounded-lg">{primaryLabel}</button>
       </div>
     </div>
   )
@@ -885,7 +886,7 @@ function ViewToggle({ value, onChange }: { value: ViewMode; onChange: (v: ViewMo
     <div className="flex bg-gray-100 rounded-lg p-0.5">
       {(['board', 'list'] as const).map(v => (
         <button key={v} onClick={() => onChange(v)}
-          className={`px-3 py-1 rounded-md text-xs font-semibold capitalize transition ${value === v ? 'bg-white text-gray-900 shadow' : 'text-gray-500'}`}>
+          className={`px-3 h-8 rounded-md text-sm font-semibold capitalize transition ${value === v ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'}`}>
           {v}
         </button>
       ))}
@@ -1067,8 +1068,8 @@ function ConfirmModal({ title, body, confirmLabel, onConfirm, onCancel }: { titl
         <h3 className="text-base font-bold text-gray-900">{title}</h3>
         <p className="text-sm text-gray-600 mt-1.5">{body}</p>
         <div className="flex justify-end gap-2 mt-4">
-          <button onClick={onCancel} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={onConfirm} className="px-3 py-1.5 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-semibold">{confirmLabel}</button>
+          <button onClick={onCancel} className="btn btn-secondary">Cancel</button>
+          <button onClick={onConfirm} className="btn btn-primary">{confirmLabel}</button>
         </div>
       </div>
     </div>

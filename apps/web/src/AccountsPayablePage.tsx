@@ -70,7 +70,7 @@ export default function AccountsPayablePage() {
           <button onClick={() => exportAgingPdf(aging, summary)}
             className="text-sm bg-gray-900 hover:bg-gray-800 text-white px-4 py-2 rounded-lg">Export PDF</button>
           <button onClick={() => exportAgingCsv(aging)}
-            className="text-sm bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg">Export CSV</button>
+            className="btn btn-primary">Export CSV</button>
         </div>
       </div>
 

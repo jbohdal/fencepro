@@ -763,7 +763,7 @@ function LocationsTab() {
           <option value="virtual">Virtual</option>
         </select>
         <button onClick={addLocation} disabled={!newName.trim()}
-          className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold text-sm px-4 py-2 rounded-lg">
+          className="btn btn-primary">
           + Add
         </button>
       </div>
@@ -892,7 +892,7 @@ function BundleEditor({
       <div className="flex gap-2 pt-2">
         <button onClick={onCancel} className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancel</button>
         <button disabled={!name} onClick={() => onSave({ ...bundle, name, description, items: bundleItems })}
-          className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white font-semibold py-2 rounded-xl text-sm">Save Bundle</button>
+          className="btn btn-primary flex-1">Save Bundle</button>
       </div>
     </div>
   )
@@ -929,7 +929,7 @@ function BundlesTab() {
           <p className="text-sm text-gray-400 mt-0.5">Preset collections of inventory items for quotes.</p>
         </div>
         <button onClick={() => setEditing({ id: '', name: '', description: '', items: [] })}
-          className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm px-4 py-2 rounded-lg">+ New Bundle</button>
+          className="btn btn-primary">+ New Bundle</button>
       </div>
       {bundles.length === 0 ? (
         <div className="text-center py-24 border border-dashed border-gray-200 rounded-2xl">
@@ -952,7 +952,7 @@ function BundlesTab() {
                     </div>
                   </div>
                   <div className="flex gap-2 ml-4">
-                    <button onClick={() => setEditing(b)} className="text-sm text-gray-500 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50">Edit</button>
+                    <button onClick={() => setEditing(b)} className="btn btn-secondary">Edit</button>
                     <button onClick={() => deleteBundle(b.id)} className="text-sm text-red-400 border border-red-100 rounded-lg px-3 py-1.5 hover:bg-red-50">Delete</button>
                   </div>
                 </div>

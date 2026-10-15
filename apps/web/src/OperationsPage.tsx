@@ -709,7 +709,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           ) : (
             <>
               <button onClick={onAdvance} disabled={job.opsStage === 'paid'}
-                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-40">
+                className="btn btn-primary flex-1 disabled:opacity-40">
                 Advance Stage →
               </button>
               <button onClick={onHold}

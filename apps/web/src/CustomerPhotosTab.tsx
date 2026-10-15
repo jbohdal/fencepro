@@ -160,7 +160,7 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
         </div>
         <div className="flex gap-2">
           <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-            className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white text-sm font-medium px-4 py-2 rounded-lg">
+            className="btn btn-primary">
             {uploading ? 'Uploading…' : '+ Upload Photos'}
           </button>
           <input ref={fileInputRef} type="file" multiple accept={ACCEPT_ATTR}

@@ -76,7 +76,7 @@ export default function ChangePasswordPage({
           <button type="button" onClick={onCancel} className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-lg hover:bg-gray-50">
             {forced ? 'Sign out' : 'Cancel'}
           </button>
-          <button type="submit" disabled={saving || !current || !next || !confirm} className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white text-sm font-semibold py-2.5 rounded-lg">
+          <button type="submit" disabled={saving || !current || !next || !confirm} className="btn btn-primary flex-1">
             {saving ? 'Saving...' : 'Save password'}
           </button>
         </div>

@@ -99,7 +99,7 @@ export default function SitePlansPage() {
           <p className="text-sm text-gray-400 mt-0.5">{plans.length} saved plan{plans.length === 1 ? '' : 's'} · click a card to open the viewer.</p>
         </div>
         <button onClick={() => setShowCreate(true)}
-          className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm px-5 py-2.5 rounded-xl">
+          className="btn btn-primary">
           + Create New Site Plan
         </button>
       </div>
@@ -162,7 +162,7 @@ export default function SitePlansPage() {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => { setEditing(viewing); setViewing(null) }}
-                  className="text-sm bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg">Edit Site Plan</button>
+                  className="btn btn-primary">Edit Site Plan</button>
                 <button onClick={() => setViewing(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
               </div>
             </div>

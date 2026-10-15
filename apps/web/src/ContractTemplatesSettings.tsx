@@ -88,7 +88,7 @@ export default function ContractTemplatesSettings() {
       {dirty && (
         <div className="flex justify-end">
           <button onClick={handleSave}
-            className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg">
+            className="btn btn-primary">
             Save Changes
           </button>
         </div>

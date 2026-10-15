@@ -217,7 +217,7 @@ export function QuickChangeOrderModal({
                 onSave(co)
               }}
               disabled={!canSave}
-              className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-colors"
+              className="btn btn-primary"
             >
               Approve & Save
             </button>

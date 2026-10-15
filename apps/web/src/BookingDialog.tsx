@@ -336,7 +336,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
               {warnings.map(w => <p key={w} className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-lg px-3 py-2" data-warning>⚠ {w}</p>)}
 
               <button onClick={save} disabled={!customerId || saving || (!allDay && !time)} data-save
-                className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-bold">
+                className="btn btn-primary btn-lg w-full disabled:opacity-40">
                 {saving ? 'Saving…' : existing ? 'Save changes' : 'Book'}
               </button>
               {!allDay && !time && <p className="text-[11px] text-gray-400 text-center">Pick a time, or one of the best open times.</p>}

@@ -154,7 +154,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
         </div>
         <h3 className="font-bold text-gray-900 mb-1">No customer selected</h3>
         <p className="text-sm text-gray-400 mb-4">Select a customer from the list or create a new one</p>
-        <button onClick={onNew} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg">
+        <button onClick={onNew} className="btn btn-primary">
           + New Customer
         </button>
       </div>
@@ -209,13 +209,13 @@ function CustomerForm({
           <p className="text-sm text-gray-400 mt-0.5">Fill in the details below</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={onCancel} className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50">
+          <button onClick={onCancel} className="btn btn-secondary">
             Cancel
           </button>
           <button
             disabled={!canSave}
             onClick={() => onSave(form, bookNow)}
-            className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white text-sm font-semibold px-4 py-2 rounded-lg"
+            className="btn btn-primary"
           >
             Save Customer
           </button>
@@ -380,7 +380,7 @@ function CustomerBillingTab({ customerId, customerName, customerEmail }: { custo
         <div className="space-y-3">
           <div className="flex justify-between">
             <p className="text-sm text-gray-500">{invoices.length} invoice{invoices.length !== 1 ? 's' : ''}</p>
-            <button onClick={() => setShowCreateInvoice(true)} className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium">+ Create Invoice</button>
+            <button onClick={() => setShowCreateInvoice(true)} className="btn btn-primary">+ Create Invoice</button>
           </div>
           {invoices.length === 0 ? (
             <div className="text-center py-8 text-gray-400 text-sm">No invoices yet</div>
@@ -506,7 +506,7 @@ function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { 
         <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Internal notes..." rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
-          <button onClick={save} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl">Create Invoice</button>
+          <button onClick={save} className="btn btn-primary flex-1">Create Invoice</button>
         </div>
       </div>
     </div>
@@ -619,7 +619,7 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
         <textarea value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Add a note..." rows={3}
           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-orange-400 outline-none" />
         <div className="flex justify-end mt-2">
-          <button onClick={handleCreate} disabled={!newNote.trim()} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium disabled:opacity-40">Add Note</button>
+          <button onClick={handleCreate} disabled={!newNote.trim()} className="btn btn-primary disabled:opacity-40">Add Note</button>
         </div>
       </div>
 
@@ -1220,6 +1220,7 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
     function onSelect(e: any) {
       const id = e?.detail?.customerId
       const tab = e?.detail?.tab
+      if (e?.detail?.newCustomer) { setSelectedId(null); setMode('new'); return }
       if (typeof id === 'string') {
         setSelectedId(id)
         setMode('view')
@@ -1743,14 +1744,14 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
               Resend Invite
             </button>
             <button onClick={handleCopyLink}
-              className="border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm px-3 py-2 rounded-lg whitespace-nowrap">
+              className="btn btn-secondary">
               Copy Link
             </button>
           </>
         )}
         {status.state === 'active' && (
           <a href={`${window.location.origin}/#/portal/login`} target="_blank" rel="noreferrer"
-            className="border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm px-3 py-2 rounded-lg whitespace-nowrap">
+            className="btn btn-secondary">
             Open Portal
           </a>
         )}

@@ -5,6 +5,7 @@
  */
 
 import { useState } from 'react'
+import { CalendarDays } from 'lucide-react'
 import { getConfig, saveConfig, getAppointmentSettings } from './configStore'
 import {
   APPOINTMENT_TYPES, TYPE_LABELS, TYPE_SHORT, TYPE_COLORS, STATUS_LABELS, OUTCOME_LABELS, floridaDate, isOpen, needsOutcome, nextFor,
@@ -26,7 +27,7 @@ export function NextAppointmentBadge({ customerId }: { customerId: string }) {
   return (
     <button onClick={() => openBooking({ appointmentId: next.id })} data-next-badge
       className="text-[11px] font-semibold px-2 py-0.5 rounded-full text-white" style={{ background: TYPE_COLORS[next.type] }}>
-      📅 {TYPE_SHORT[next.type]} {shortWhen(next)}
+      <CalendarDays size={12} className="inline -mt-0.5 mr-1" aria-hidden="true" />{TYPE_SHORT[next.type]} {shortWhen(next)}
     </button>
   )
 }

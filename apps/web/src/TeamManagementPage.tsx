@@ -77,7 +77,7 @@ export default function TeamManagementPage() {
           <p className="text-sm text-gray-500 mt-1">Invite members, manage roles, and monitor access.</p>
         </div>
         <button onClick={() => setShowInvite(true)}
-          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium self-start lg:self-auto">
+          className="btn btn-primary self-start lg:self-auto">
           + Invite Team Member
         </button>
       </div>
@@ -286,7 +286,7 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
           <button type="button" onClick={onClose}
             className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
           <button type="submit" disabled={saving || !firstName || !lastName || !email}
-            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-40">
+            className="btn btn-primary flex-1 disabled:opacity-40">
             {saving ? 'Sending invite...' : 'Send Invite'}
           </button>
         </div>
@@ -379,7 +379,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
         <div className="flex gap-2 pt-2">
           <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
           <button onClick={handleSave} disabled={saving}
-            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-40">
+            className="btn btn-primary flex-1 disabled:opacity-40">
             {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>

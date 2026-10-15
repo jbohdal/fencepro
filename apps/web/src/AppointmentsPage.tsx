@@ -72,7 +72,7 @@ export default function AppointmentsPage() {
             <option value="">All types</option>
             {APPOINTMENT_TYPES.map(t => <option key={t} value={t}>{TYPE_SHORT[t]}</option>)}
           </select>
-          <button onClick={() => openBooking({ date })} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-3 py-1.5 rounded-lg">+ Appointment</button>
+          <button onClick={() => openBooking({ date })} className="btn btn-primary">+ Appointment</button>
         </div>
       </div>
 

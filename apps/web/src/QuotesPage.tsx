@@ -294,7 +294,7 @@ function QuoteDrawer({
           </div>
           <div className="flex items-center gap-2">
             <POButton quote={quote} />
-            <button onClick={onEdit} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-3 py-1.5 rounded-lg">Edit Quote</button>
+            <button onClick={onEdit} className="btn btn-primary">Edit Quote</button>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
           </div>
         </div>
@@ -545,7 +545,7 @@ export default function QuotesPage({
             >{c}</button>
           ))}
         </div>
-        <button onClick={onNewQuote} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg w-full lg:w-auto lg:ml-auto">
+        <button onClick={onNewQuote} className="btn btn-primary w-full lg:w-auto lg:ml-auto">
           + New Quote
         </button>
       </div>
@@ -674,7 +674,7 @@ export default function QuotesPage({
               </button>
               <button
                 onClick={handlePullConfirm}
-                className="bg-orange-500 hover:bg-orange-600 text-white font-semibold px-5 py-2 rounded-xl text-sm"
+                className="btn btn-primary"
               >
                 Pull from Inventory
               </button>

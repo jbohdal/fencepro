@@ -804,7 +804,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
             </div>
             <div className="flex gap-2">
               <button onClick={() => setShowSaveModal(false)} className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-xl text-sm">Cancel</button>
-              <button onClick={handleSave} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2 rounded-xl text-sm">Save</button>
+              <button onClick={handleSave} className="btn btn-primary flex-1">Save</button>
             </div>
           </div>
         </div>

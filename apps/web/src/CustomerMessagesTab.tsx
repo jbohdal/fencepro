@@ -119,7 +119,7 @@ export default function CustomerMessagesTab({ customerId, sender }: { customerId
         <button
           type="submit"
           disabled={sending || draft.trim().length === 0}
-          className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white text-sm font-semibold px-5 rounded-xl"
+          className="btn btn-primary"
         >
           {sending ? 'Sending…' : 'Send'}
         </button>

@@ -248,7 +248,7 @@ function BalanceSheetEditor({ onClose, onSaved }: { onClose: () => void; onSaved
           <div className="flex justify-between items-center mb-4">
             <p className="text-sm text-gray-500">Add, edit, and delete manual balance sheet entries. Historical snapshots preserved — balance sheet can be viewed as of any past date.</p>
             <button onClick={() => { setEditing(null); setShowForm(true) }}
-              className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg">+ Add Entry</button>
+              className="btn btn-primary">+ Add Entry</button>
           </div>
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <table className="w-full text-sm">
@@ -344,7 +344,7 @@ function BsEntryForm({ initial, onCancel, onSaved }: { initial: BalanceSheetEntr
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
           <button onClick={onCancel} className="text-sm text-gray-600 hover:text-gray-900 px-4 py-2">Cancel</button>
           <button onClick={handleSave}
-            className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg">Save</button>
+            className="btn btn-primary">Save</button>
         </div>
       </div>
     </div>

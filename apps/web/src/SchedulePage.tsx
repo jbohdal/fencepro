@@ -240,7 +240,7 @@ function SettingsModal({
             <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
             <button
               onClick={() => { onSave({ workDays, crews }); onClose() }}
-              className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl"
+              className="btn btn-primary flex-1"
             >Save Settings</button>
           </div>
         </div>
@@ -421,9 +421,9 @@ export default function SchedulePage() {
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div className="flex items-center gap-3">
-          <button onClick={prevMonth} className="border border-gray-200 rounded-lg px-3 py-2 text-sm hover:bg-gray-50">&larr;</button>
+          <button onClick={prevMonth} className="btn btn-secondary">&larr;</button>
           <h2 className="text-lg font-bold text-gray-900 flex-1 lg:w-48 text-center">{monthName}</h2>
-          <button onClick={nextMonth} className="border border-gray-200 rounded-lg px-3 py-2 text-sm hover:bg-gray-50">&rarr;</button>
+          <button onClick={nextMonth} className="btn btn-secondary">&rarr;</button>
         </div>
         <div className="flex gap-2 flex-wrap">
           <div className="flex gap-1.5 items-center flex-wrap mr-2 lg:mr-4">
@@ -434,7 +434,7 @@ export default function SchedulePage() {
               </div>
             ))}
           </div>
-          <button onClick={() => setShowSettings(true)} className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50">Settings</button>
+          <button onClick={() => setShowSettings(true)} className="btn btn-secondary">Settings</button>
         </div>
       </div>
 

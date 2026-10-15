@@ -391,7 +391,7 @@ export default function MapQuoteBuilder({ onUseData, onClose }: MapQuoteBuilderP
           <button
             onClick={handleUse}
             disabled={runs.length === 0}
-            className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold text-sm px-5 py-2 rounded-lg transition-colors"
+            className="btn btn-primary"
           >
             Use in Quote Builder
           </button>

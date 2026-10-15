@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
 import QuoteBuilder from './QuoteBuilder'
-import { Banknote, BarChart3, Boxes, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, type LucideIcon } from 'lucide-react'
+import { Banknote, BarChart3, Boxes, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
 import AdminPage from './AdminPage'
 import AdminSettingsPage from './AdminSettingsPage'
 import BudgetPage from './BudgetPage'
@@ -64,6 +64,7 @@ import { initAppointments, isAppointmentsHydrated } from './appointmentsStore'
 import AppointmentsPage from './AppointmentsPage'
 import TodayScreen from './TodayScreen'
 import { BookingHost, openBooking } from './BookingDialog'
+import GlobalSearch from './GlobalSearch'
 import { DashboardAppointments } from './AppointmentWidgets'
 
 /* ───────── role system ───────── */
@@ -132,6 +133,7 @@ const NAV_GROUPS: NavGroup[] = [
 ]
 
 const ALL_NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items)
+const PAGES_WITH_HEADER = new Set(['Dashboard', 'Sales Pipeline', 'Operations', 'Jobs', 'Staging', 'Appointments', 'Today', 'Settings', 'Billing', 'Inventory', 'P&L Statement'])
 
 const ROLE_LABELS: Record<UserRole, string> = {
   owner: 'Owner',
@@ -208,12 +210,6 @@ function saveUserProfile(profile: { name: string; role: UserRole }) {
 
 /* ───────── command search ───────── */
 
-interface SearchResult {
-  type: 'customer' | 'quote' | 'page'
-  label: string
-  sub: string
-  action: () => void
-}
 
 /* ═══════════════════════════════════════════════
    APP SHELL
@@ -633,52 +629,11 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     setShowQuote(true)
   }
 
-  /* ── Search results ── */
-
-  const searchResults: SearchResult[] = useMemo(() => {
-    if (!searchQuery.trim() || searchQuery.length < 2) return []
-    const q = searchQuery.toLowerCase()
-    const results: SearchResult[] = []
-
-    // Pages
-    ALL_NAV_ITEMS.filter(i => i.roles.includes(role)).forEach(item => {
-      if (item.name.toLowerCase().includes(q)) {
-        results.push({ type: 'page', label: item.name, sub: 'Page', action: () => { setActive(item.name); setSearchOpen(false); setSearchQuery('') } })
-      }
-    })
-
-    // Quotes
-    quotes.forEach(quote => {
-      if (quote.customerName.toLowerCase().includes(q) || quote.fenceStyle.toLowerCase().includes(q)) {
-        results.push({
-          type: 'quote',
-          label: quote.customerName,
-          sub: `${quote.fenceStyle} · ${fmt(quote.finalPrice)} · ${quote.status}`,
-          action: () => { handleOpenQuote(quote); setSearchOpen(false); setSearchQuery('') },
-        })
-      }
-    })
-
-    // Customers
-    getCustomers().forEach(c => {
-      const name = `${c.firstName || ''} ${c.lastName || ''}`.trim()
-      if (name.toLowerCase().includes(q) || (c.phone || '').includes(q)) {
-        results.push({
-          type: 'customer',
-          label: name,
-          sub: c.phone || c.email || 'Customer',
-          action: () => {
-            setActive('Customers')
-            setSearchOpen(false)
-            setSearchQuery('')
-            try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { customerId: c.id } })) } catch {}
-          },
-        })
-      }
-    })
-
-    return results.slice(0, 12)
-  }, [searchQuery, quotes, role])
+  /* ── Search ── */
+  function openCustomerFromAnywhere(customerId: string, tab?: string) {
+    setActive('Customers')
+    setTimeout(() => { try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { customerId, tab } })) } catch {} }, 50)
+  }
 
   /* ── Dashboard stats ── */
 
@@ -904,7 +859,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             <button onClick={() => setMobileMenuOpen(true)} className="mobile-only text-gray-600 hover:text-gray-900 p-1 -ml-2">
               <Menu size={24} aria-hidden="true" />
             </button>
-            <h2 className="text-lg font-semibold text-gray-900">{active}</h2>
+            {/* Pages with their own header show their title there; the bar shows it only on the phone. */}
+            <h2 className={`text-lg font-bold text-gray-900 ${PAGES_WITH_HEADER.has(active) ? 'lg:hidden' : ''}`}>{active}</h2>
           </div>
 
           <div className="flex items-center gap-3">
@@ -918,10 +874,10 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             {/* Command search */}
             <button
               onClick={() => { setSearchOpen(true); setTimeout(() => searchRef.current?.focus(), 50) }}
-              className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-500 transition-colors w-64"
+              className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-3 h-9 text-sm text-gray-600 transition-colors w-80" data-header-search
             >
-              <span className="text-gray-400">🔍</span>
-              <span className="flex-1 text-left">Search...</span>
+              <Search size={16} aria-hidden="true" />
+              <span className="flex-1 text-left">Search customers, quotes, jobs</span>
               <kbd className="text-[10px] bg-gray-200 text-gray-400 px-1.5 py-0.5 rounded font-mono">⌘K</kbd>
             </button>
 
@@ -949,7 +905,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 </button>
                 <button
                   onClick={() => { setEditingQuote(null); setShowQuote(true) }}
-                  className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  className="btn btn-primary"
                 >
                   + New Quote
                 </button>
@@ -1124,49 +1080,17 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ COMMAND SEARCH OVERLAY ═══ */}
       {searchOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 bg-black/40" onClick={() => setSearchOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-[520px] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-200">
-              <span className="text-gray-400">🔍</span>
-              <input
-                ref={searchRef}
-                className="flex-1 text-sm outline-none placeholder-gray-400"
-                placeholder="Search customers, quotes, or pages..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                autoFocus
-              />
-              <kbd className="text-[10px] bg-gray-100 text-gray-400 px-2 py-1 rounded font-mono">ESC</kbd>
-            </div>
-            {searchResults.length > 0 && (
-              <div className="max-h-80 overflow-y-auto">
-                {searchResults.map((r, i) => (
-                  <button
-                    key={i}
-                    onClick={r.action}
-                    className="w-full flex items-center gap-3 px-5 py-3 hover:bg-orange-50 text-left transition-colors"
-                  >
-                    <span className="text-gray-400 text-xs w-16 shrink-0 font-semibold">
-                      {r.type === 'page' ? '📄' : r.type === 'quote' ? '📋' : '👤'}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{r.label}</p>
-                      <p className="text-xs text-gray-400 truncate">{r.sub}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-            {searchQuery.length >= 2 && searchResults.length === 0 && (
-              <div className="px-5 py-8 text-center text-gray-400 text-sm">No results for "{searchQuery}"</div>
-            )}
-            {searchQuery.length < 2 && (
-              <div className="px-5 py-6 text-center text-gray-400 text-xs">
-                Type to search customers, quotes, or pages
-              </div>
-            )}
-          </div>
-        </div>
+        <GlobalSearch
+          onClose={() => { setSearchOpen(false); setSearchQuery('') }}
+          quotes={quotes}
+          jobs={jobs}
+          pages={ALL_NAV_ITEMS.filter(i => i.roles.includes(role)).map(i => i.name)}
+          openCustomer={openCustomerFromAnywhere}
+          openQuote={q => handleOpenQuote(q as SavedQuote)}
+          newQuoteFor={c => { if (c) openQuoteFor(c); else { setEditingQuote(null); setShowQuote(true) } }}
+          newCustomer={() => { setActive('Customers'); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { newCustomer: true } })) } catch {} }, 50) }}
+          goTo={p => setActive(p)}
+        />
       )}
 
       {/* ═══ BOOKING DIALOG (opened from anywhere with openBooking) ═══ */}

@@ -856,7 +856,7 @@ function OverheadDrawer({
               <button
                 onClick={handleSingle}
                 disabled={!label.trim()}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
+                className="btn btn-primary w-full"
               >
                 Add Expense
               </button>
@@ -894,7 +894,7 @@ function OverheadDrawer({
               <button
                 onClick={handleBulk}
                 disabled={!bulkText.trim()}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
+                className="btn btn-primary w-full"
               >
                 Import Items
               </button>
@@ -1122,7 +1122,7 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
           </div>
           <button
             onClick={() => setShowDrawer(true)}
-            className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm px-4 py-2.5 rounded-xl"
+            className="btn btn-primary"
           >
             + Add Expense
           </button>

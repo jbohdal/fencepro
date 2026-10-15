@@ -71,7 +71,7 @@ export default function VendorsPage() {
           <p className="text-sm text-gray-500 mt-1">Manage vendor contacts, bills, and payments.</p>
         </div>
         <button onClick={() => { setEditingVendor(null); setShowVendorForm(true) }}
-          className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg">+ Add Vendor</button>
+          className="btn btn-primary">+ Add Vendor</button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -173,7 +173,7 @@ function VendorDetail({ vendor, onReload, onEdit, onDelete }: {
           <p className={`text-2xl font-bold ${outstanding > 0 ? 'text-orange-600' : 'text-gray-400'}`}>{fmt(outstanding)}</p>
         </div>
         <button onClick={() => { setEditingBill(null); setShowBillForm(true) }}
-          className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg">+ Create Bill</button>
+          className="btn btn-primary">+ Create Bill</button>
       </div>
 
       <div className="border-b border-gray-100 px-6">
@@ -365,7 +365,7 @@ function VendorForm({ initial, onCancel, onSaved }: { initial: VendorContact | n
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
           <button onClick={onCancel} className="text-sm text-gray-600 hover:text-gray-900 px-4 py-2">Cancel</button>
-          <button onClick={handleSave} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg">Save</button>
+          <button onClick={handleSave} className="btn btn-primary">Save</button>
         </div>
       </div>
     </div>
@@ -507,7 +507,7 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
           <button onClick={onCancel} className="text-sm text-gray-600 hover:text-gray-900 px-4 py-2">Cancel</button>
-          <button onClick={handleSave} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg">Save Bill</button>
+          <button onClick={handleSave} className="btn btn-primary">Save Bill</button>
         </div>
       </div>
     </div>

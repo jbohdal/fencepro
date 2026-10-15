@@ -146,7 +146,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
                 <PasswordInput value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
               </div>
               <button type="submit" disabled={loading}
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 rounded-lg text-sm disabled:opacity-50 transition">
+                className="btn btn-primary w-full disabled:opacity-50">
                 {loading ? 'Signing in...' : 'Sign In'}
               </button>
               <button type="button" onClick={() => { setView('forgot'); setError(''); setSuccess('') }}
@@ -168,7 +168,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
                   className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 outline-none" placeholder="you@company.com" />
               </div>
               <button type="submit" disabled={loading}
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 rounded-lg text-sm disabled:opacity-50">
+                className="btn btn-primary w-full disabled:opacity-50">
                 {loading ? 'Sending...' : 'Send Reset Link'}
               </button>
               <button type="button" onClick={() => { setView('login'); setError(''); setSuccess('') }}
@@ -197,7 +197,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
                 <PasswordInput value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="••••••••" />
               </div>
               <button type="submit" disabled={loading}
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 rounded-lg text-sm disabled:opacity-50">
+                className="btn btn-primary w-full disabled:opacity-50">
                 {loading ? 'Setting up...' : 'Set Password & Sign In'}
               </button>
             </form>
@@ -218,7 +218,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
                 <PasswordInput value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
               </div>
               <button type="submit" disabled={loading}
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 rounded-lg text-sm disabled:opacity-50">
+                className="btn btn-primary w-full disabled:opacity-50">
                 {loading ? 'Resetting...' : 'Reset Password'}
               </button>
             </form>

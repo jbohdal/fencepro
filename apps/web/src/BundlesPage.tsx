@@ -69,7 +69,7 @@ export default function BundlesPage() {
             ))}
           </div>
           <button onClick={() => { setEditing(null); setShowForm(true) }}
-            className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg">+ New Bundle</button>
+            className="btn btn-primary">+ New Bundle</button>
         </div>
       </div>
 
@@ -397,7 +397,7 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2 sticky bottom-0 bg-white">
           <button onClick={onCancel} className="text-sm text-gray-600 hover:text-gray-900 px-4 py-2">Cancel</button>
-          <button onClick={handleSave} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg">Save Bundle</button>
+          <button onClick={handleSave} className="btn btn-primary">Save Bundle</button>
         </div>
       </div>
     </div>

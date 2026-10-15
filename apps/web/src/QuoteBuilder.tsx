@@ -339,7 +339,7 @@ function SaveModal({
             <button
               onClick={handleSubmit}
               disabled={!canSubmit}
-              className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white text-sm font-semibold py-2.5 rounded-xl"
+              className="btn btn-primary flex-1"
             >
               Save Quote
             </button>
@@ -1037,7 +1037,7 @@ export default function QuoteBuilder({
               <button
                 disabled={!canSave}
                 onClick={() => setShowSaveModal(true)}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors text-sm"
+                className="btn btn-primary btn-lg w-full"
               >
                 {init ? 'Update Quote' : 'Save Quote'}
               </button>

@@ -190,7 +190,7 @@ export default function IntegrationsPage() {
                 <button onClick={() => handleTest(connecting)}
                   className="border border-blue-200 text-blue-600 text-sm py-2.5 px-4 rounded-xl hover:bg-blue-50">Test</button>
                 <button onClick={() => handleConnect(connecting)}
-                  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl">Connect</button>
+                  className="btn btn-primary flex-1">Connect</button>
               </div>
             </div>
           </div>
@@ -240,7 +240,7 @@ function ApiKeysSection() {
     <div className="space-y-4">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <p className="text-sm text-gray-500">Manage API keys for external integrations and developer access.</p>
-        <button onClick={() => setCreating(true)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium self-start lg:self-auto">+ Generate Key</button>
+        <button onClick={() => setCreating(true)} className="btn btn-primary self-start lg:self-auto">+ Generate Key</button>
       </div>
 
       {/* Generated key alert (show once) */}
@@ -312,7 +312,7 @@ function ApiKeysSection() {
             </div>
             <div className="flex gap-2 pt-2">
               <button onClick={() => setCreating(false)} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
-              <button onClick={generate} disabled={!newKeyName.trim()} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-40">Generate</button>
+              <button onClick={generate} disabled={!newKeyName.trim()} className="btn btn-primary flex-1 disabled:opacity-40">Generate</button>
             </div>
           </div>
         </div>

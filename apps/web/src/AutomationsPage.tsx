@@ -116,7 +116,7 @@ export default function AutomationsPage() {
             Run Log
           </button>
           <button onClick={startCreate}
-            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium">
+            className="btn btn-primary">
             + New Automation
           </button>
         </div>
@@ -272,7 +272,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
           <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional description..." rows={2}
             className="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-orange-300 outline-none" />
           <button onClick={() => setStep(2)} disabled={!name.trim()}
-            className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-medium disabled:opacity-40">
+            className="btn btn-primary disabled:opacity-40">
             Next →
           </button>
         </div>
@@ -298,7 +298,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
           ))}
           <div className="flex gap-2">
             <button onClick={() => setStep(1)} className="border border-gray-200 text-gray-700 px-6 py-2 rounded-lg text-sm hover:bg-gray-50">← Back</button>
-            <button onClick={() => setStep(3)} className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-medium">Next →</button>
+            <button onClick={() => setStep(3)} className="btn btn-primary">Next →</button>
           </div>
         </div>
       )}
@@ -344,7 +344,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
 
           <div className="flex gap-2">
             <button onClick={() => setStep(2)} className="border border-gray-200 text-gray-700 px-6 py-2 rounded-lg text-sm hover:bg-gray-50">← Back</button>
-            <button onClick={() => setStep(4)} className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-medium">Next →</button>
+            <button onClick={() => setStep(4)} className="btn btn-primary">Next →</button>
           </div>
         </div>
       )}
@@ -474,7 +474,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
 
           <div className="flex gap-2">
             <button onClick={() => setStep(3)} className="border border-gray-200 text-gray-700 px-6 py-2 rounded-lg text-sm hover:bg-gray-50">← Back</button>
-            <button onClick={() => setStep(5)} className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-medium">Next →</button>
+            <button onClick={() => setStep(5)} className="btn btn-primary">Next →</button>
           </div>
         </div>
       )}
@@ -511,7 +511,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
             <div className="flex flex-wrap gap-2">
               <button onClick={() => setStep(4)} className="border border-gray-200 text-gray-700 px-6 py-2 rounded-lg text-sm hover:bg-gray-50">← Back</button>
               <button onClick={save} disabled={saving}
-                className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-2 rounded-lg text-sm font-medium disabled:opacity-40">
+                className="btn btn-primary disabled:opacity-40">
                 {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Create Automation'}
               </button>
             </div>

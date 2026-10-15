@@ -280,7 +280,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
           <div className="flex gap-2">
             {job.status !== 'paid' && job.status !== 'on_hold' && nextCfg && (
               <button onClick={() => onAdvance(job.id)}
-                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 rounded-xl text-sm">
+                className="btn btn-primary flex-1">
                 Advance to {nextCfg.icon} {nextCfg.label}
               </button>
             )}
@@ -289,7 +289,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
                 Resume Job
               </button>
             ) : job.status !== 'paid' && (
-              <button onClick={() => onHold(job.id)} className="border border-gray-300 text-gray-500 font-semibold py-2.5 rounded-xl text-sm px-4 hover:bg-gray-50">
+              <button onClick={() => onHold(job.id)} className="btn btn-secondary">
                 Hold
               </button>
             )}

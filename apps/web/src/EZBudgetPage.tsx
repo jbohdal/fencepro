@@ -204,7 +204,7 @@ function ServicesTab() {
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <h2 className="text-lg font-semibold text-gray-900">Service Catalog</h2>
-        <button onClick={startNew} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium self-start lg:self-auto">+ Add Service</button>
+        <button onClick={startNew} className="btn btn-primary self-start lg:self-auto">+ Add Service</button>
       </div>
 
       {editing && (
@@ -233,8 +233,8 @@ function ServicesTab() {
           </div>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> Active</label>
           <div className="flex gap-2">
-            <button onClick={save} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium">Save</button>
-            <button onClick={() => setEditing(null)} className="border border-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+            <button onClick={save} className="btn btn-primary">Save</button>
+            <button onClick={() => setEditing(null)} className="btn btn-secondary">Cancel</button>
           </div>
         </div>
       )}
@@ -475,7 +475,7 @@ function KpiCard({ label, value, accent }: { label: string; value: string | numb
 }
 
 function Empty({ title, desc, action, onAction }: { title: string; desc: string; action?: string; onAction?: () => void }) {
-  return <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center"><p className="text-gray-500 font-medium mb-1">{title}</p><p className="text-sm text-gray-400 mb-4">{desc}</p>{action && onAction && <button onClick={onAction} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium">{action}</button>}</div>
+  return <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center"><p className="text-gray-500 font-medium mb-1">{title}</p><p className="text-sm text-gray-400 mb-4">{desc}</p>{action && onAction && <button onClick={onAction} className="btn btn-primary">{action}</button>}</div>
 }
 
 function Inp({ label, value, set, ph }: { label: string; value: string; set: (v: string) => void; ph?: string }) {

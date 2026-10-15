@@ -109,7 +109,7 @@ export default function QuoteOptionsPanel({ inputs }: { inputs: JobInputsForOpti
             <button onClick={() => setShowPresentation(true)}
               className="text-sm bg-gray-900 hover:bg-gray-800 text-white px-3 py-1.5 rounded-lg">Customer View</button>
             <button onClick={handleShare}
-              className="text-sm bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg">Share Link</button>
+              className="btn btn-primary">Share Link</button>
           </div>
         )}
       </div>
@@ -126,7 +126,7 @@ export default function QuoteOptionsPanel({ inputs }: { inputs: JobInputsForOpti
             {groups.map(g => <option key={g.name} value={g.name}>{g.name} ({g.bundles.length} tier{g.bundles.length === 1 ? '' : 's'})</option>)}
           </select>
           <button onClick={handleGenerate} disabled={!selectedGroup || inputs.runs.length === 0}
-            className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white text-sm font-medium px-4 py-2 rounded-lg">
+            className="btn btn-primary">
             Generate Options
           </button>
         </div>

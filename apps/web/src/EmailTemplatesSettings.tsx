@@ -96,7 +96,7 @@ export default function EmailTemplatesSettings() {
               {preview ? 'Hide Preview' : 'Preview'}
             </button>
             <button onClick={handleReset} className="text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50">Reset to default</button>
-            <button onClick={handleSave} className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg">Save</button>
+            <button onClick={handleSave} className="btn btn-primary">Save</button>
           </div>
         </div>
 
