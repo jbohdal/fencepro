@@ -9,12 +9,13 @@ import EmailTemplatesSettings from './EmailTemplatesSettings'
 import ContractTemplatesSettings from './ContractTemplatesSettings'
 import PortalQuoteSettings from './PortalQuoteSettings'
 import ProposalSettings from './ProposalSettings'
+import VoiceSettings from './VoiceSettings'
 import { toast } from './toast'
 import { sectionWidthForStyle, styleHasPartsList } from './materialCalculator'
 import CalendarSyncSettings from './CalendarSyncSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'voice'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -631,6 +632,7 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'contract_templates', label: 'Contract Templates' },
   { key: 'portal_quote',       label: 'Portal & Quotes' },
   { key: 'proposals',          label: 'Proposals' },
+  { key: 'voice',              label: 'Voice' },
   { key: 'appointments',       label: 'Appointments' },
   { key: 'calendar',           label: 'Google Calendar' },
 ]
@@ -734,6 +736,7 @@ export default function AdminSettingsPage() {
           {tab === 'contract_templates' && <ContractTemplatesSettings />}
           {tab === 'portal_quote' && <PortalQuoteSettings />}
           {tab === 'proposals' && <ProposalSettings config={config} onChange={handleChange} />}
+          {tab === 'voice' && <VoiceSettings config={config} onChange={handleChange} />}
           {tab === 'calendar' && <CalendarSyncSettings />}
           {tab === 'appointments' && <AppointmentSettingsTab />}
         </div>

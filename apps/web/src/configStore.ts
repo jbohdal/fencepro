@@ -107,6 +107,8 @@ export interface AppConfig {
   customerTags: string[]
   pipelineStages: string[]
   railOptimizer?: RailOptimizerConfig
+  /** Voice entry: read back, speaking speed, and who has the Voice switch on. See VoicePanel. */
+  voice?: { readBack?: boolean; rate?: number; onFor?: string[] }
   /** Customer proposals: what's included, deposit, financing. See proposal.ts. */
   proposal?: ProposalSettings
   /** Appointment types' lengths, the team, and when slots are suggested. See appointmentLogic. */

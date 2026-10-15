@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Pencil, Trash2, Plus, Image as ImageIcon } from 'lucide-react'
+import { Pencil, Trash2, Plus, Image as ImageIcon, Mic } from 'lucide-react'
 import FtInPad from './FtInPad'
 import SitePlan from './SitePlan'
 import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX } from './sitePlanGeometry'
@@ -26,7 +26,7 @@ const SHAPES: Array<{ shape: YardShape; hint: string; path: string }> = [
 
 type PadTarget = { sideId: string; field: 'length' | 'gateWidth' | 'gateDistance' | 'skipLength' | 'skipDistance' }
 
-export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [] }: {
+export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide }: {
   layout: YardLayout | null
   onChange: (l: YardLayout | null) => void
   result: LayoutResult | null
@@ -40,6 +40,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   widthFt: number
   /** Runs (same order as result.runs) that need a tape measure check. */
   tapeFlags?: boolean[]
+  /** With Voice on: one quick spoken entry for a side. */
+  onVoiceSide?: (sideName: string) => void
 }) {
   const [pad, setPad] = useState<PadTarget | null>(null)
   const [aerialOn, setAerialOn] = useState(false)
@@ -278,11 +280,17 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
 
             {s.on && (
               <div className="mt-3 space-y-3">
+                <div className="flex gap-2">
                 <button type="button" onClick={() => setPad({ sideId: s.id, field: 'length' })} data-side-length
-                  className={`w-full h-14 rounded-xl border-2 text-left px-4 flex items-center justify-between ${s.lengthIn > 0 ? 'border-gray-300' : 'border-orange-400 bg-orange-50'}`}>
+                  className={`flex-1 min-w-0 h-14 rounded-xl border-2 text-left px-4 flex items-center justify-between ${s.lengthIn > 0 ? 'border-gray-300' : 'border-orange-400 bg-orange-50'}`}>
                   <span className={`text-2xl font-bold tabular-nums ${s.lengthIn > 0 ? 'text-gray-900' : 'text-orange-700 text-base'}`}>{s.lengthIn > 0 ? formatFtIn(s.lengthIn) : 'Tap to enter the length'}</span>
                   <span className="text-xs text-gray-500">{s.gate ? 'measure across the gate' : 'end to end'}</span>
                 </button>
+                {onVoiceSide && (
+                  <button type="button" className="shrink-0 w-14 h-14 rounded-xl border-2 border-orange-300 bg-white grid place-items-center text-orange-700" aria-label={`Say the ${s.name.toLowerCase()}`}
+                    onClick={() => onVoiceSide(s.name)} data-side-mic><Mic size={22} aria-hidden="true" /></button>
+                )}
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <label className="block">

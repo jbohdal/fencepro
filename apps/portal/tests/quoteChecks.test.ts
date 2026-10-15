@@ -1,7 +1,7 @@
-/** Warnings that catch bad quotes, and voice entry of sides. */
+/** Warnings that catch bad quotes. Voice entry is tested in voiceParser.test.ts. */
 
 import { describe, test, expect } from 'vitest'
-import { tapeChecks, gateChecks, marginCheck, normalPerFoot, perFootCheck, parseSpokenSides } from '../../web/src/quoteChecks'
+import { tapeChecks, gateChecks, marginCheck, normalPerFoot, perFootCheck } from '../../web/src/quoteChecks'
 import { layoutForShape } from '../../web/src/yardLayout'
 
 describe('tape measure check', () => {
@@ -49,25 +49,5 @@ describe('price per foot against past quotes', () => {
     expect(perFootCheck(50, 'WV-ND 6\'x8\' Privacy', past)).toMatch(/^\$50\.00 a foot is far above your past WV-ND 6'x8' Privacy quotes \(usually \$30\.00 to \$38\.00 a foot, from 10 past quotes\)/)
     expect(perFootCheck(20, 'WV-ND 6\'x8\' Privacy', past)).toMatch(/far below/)
     expect(perFootCheck(36, 'WV-ND 6\'x8\' Privacy', past)).toBeNull()
-  })
-})
-
-describe('voice entry', () => {
-  const names = ['Left return', 'Left side', 'Back', 'Right side', 'Right return']
-  test("Jonathan's example", () => {
-    expect(parseSpokenSides('left side one twenty, back one fifty, right return thirty with a four foot gate', names)).toEqual([
-      { name: 'Left side', lengthIn: 1440 },
-      { name: 'Back', lengthIn: 1800 },
-      { name: 'Right return', lengthIn: 360, gate: { type: 'walk', widthIn: 48 } },
-    ])
-  })
-  test('digits, feet and inches, double gates', () => {
-    expect(parseSpokenSides('Back 150 feet 6 inches. Left return 30 with a 10 foot double gate', names)).toEqual([
-      { name: 'Back', lengthIn: 1806 },
-      { name: 'Left return', lengthIn: 360, gate: { type: 'double', widthIn: 120 } },
-    ])
-    expect(parseSpokenSides('right side a hundred and five and a half', names)).toEqual([{ name: 'Right side', lengthIn: 1266 }])
-    expect(parseSpokenSides('left side eighty four, back two oh five', names)).toEqual([{ name: 'Left side', lengthIn: 1008 }, { name: 'Back', lengthIn: 2460 }])
-    expect(parseSpokenSides('back one hundred twelve with a walk gate', names)).toEqual([{ name: 'Back', lengthIn: 1344, gate: { type: 'walk', widthIn: 48 } }])
   })
 })

@@ -2046,3 +2046,41 @@ model StylePhoto {
 
   @@unique([accountId, styleName])
 }
+
+// ── Voice clips: recorded on a phone when live voice could not work, ──
+// transcribed on this Mac with whisper.cpp, deleted after 30 days.
+model VoiceClip {
+  id         String    @id @default(uuid())
+  accountId  String
+  userId     String?
+  // The quote's id: saved, or still being written (the builder's own id).
+  quoteKey   String
+  // The side the clip is for, when it was recorded from that side's footage.
+  hint       String?
+  mime       String
+  path       String
+  bytes      Int       @default(0)
+  // waiting → transcribing → done | failed
+  status     String    @default("waiting")
+  transcript String?
+  error      String?
+  appliedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([accountId, quoteKey])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// What a phone's browser can do for voice (Settings → Voice → Voice check).
+model VoiceCheck {
+  id        String   @id @default(uuid())
+  accountId String
+  userId    String?
+  userAgent String
+  results   Json
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+}

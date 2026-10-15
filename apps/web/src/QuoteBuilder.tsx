@@ -15,6 +15,9 @@ import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCal
 import { sectionWidthForStyle } from './materialCalculator'
 import { deriveLayout, formatFtIn, postSpacing, type YardLayout } from './yardLayout'
 import LayoutEditor from './LayoutEditor'
+import VoicePanel, { type VoiceHandle } from './VoicePanel'
+import { fetchCurrentUser } from './crmAuth'
+import { saveConfig } from './configStore'
 import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type NamedRun } from './quoteChecks'
 import { getQuotes } from './quoteStore'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -409,6 +412,21 @@ export default function QuoteBuilder({
   // Options offered on the proposal besides this quote's own style.
   const [offer, setOffer] = useState<string[]>(() => (init?.proposal?.options ?? []).slice(1).map(o => o.fenceStyle))
   const [showCompare, setShowCompare] = useState(false)
+  // Voice: off by default, remembered per user (Settings → Voice).
+  const [userId, setUserId] = useState<string | null>(null)
+  useEffect(() => { fetchCurrentUser().then(u => setUserId(u?.id ?? null)).catch(() => {}) }, [])
+  const [voiceOn, setVoiceOn] = useState(false)
+  useEffect(() => { if (userId) setVoiceOn(!!getConfig().voice?.onFor?.includes(userId)) }, [userId])
+  const voiceRef = useRef<VoiceHandle | null>(null)
+  const [voiceNotes, setVoiceNotes] = useState<string[]>([])
+  function toggleVoice(on: boolean) {
+    setVoiceOn(on)
+    if (!userId) return
+    const c = getConfig()
+    const onFor = new Set(c.voice?.onFor ?? [])
+    if (on) onFor.add(userId); else onFor.delete(userId)
+    saveConfig({ ...c, voice: { ...(c.voice ?? {}), onFor: [...onFor] } })
+  }
   const [tierPrefs, setTierPrefs] = useState<TierPrefs>(() => ({
     off: (init?.proposal?.tierPrefs?.off ?? []) as TierKey[],
     swap: (init?.proposal?.tierPrefs?.swap ?? {}) as TierPrefs['swap'],
@@ -474,6 +492,7 @@ export default function QuoteBuilder({
   const materialItems: LineItem[] = materials.items
   const materialCost = useMemo(() => totalMaterialCost(materialItems), [materialItems])
   const totalFootage = Math.round(effRuns.reduce((s, r) => s + r.ft, 0) * 100) / 100
+  const totalsRef = useRef({ footage: 0, sections: 0, price: 0 })
 
   /** Switch to the typed run list, starting from what the layout produced. */
   function toAdvanced() {
@@ -496,6 +515,7 @@ export default function QuoteBuilder({
   const gmWarn      = cfg.margins?.warning ?? 0.27
   const gmColor     = gmPct >= gmGood ? 'text-green-600' : gmPct >= gmWarn ? 'text-yellow-500' : 'text-red-500'
   const defaultSubRate = resolveSubRate(cfgStyle, cfg.pricing)
+  totalsRef.current = { footage: totalFootage, sections, price: adjPrice }
   const commissionPctLabel = `${Math.round((cfg.pricing.commissionSalesman ?? 0) * 1000) / 10}%`
   // Help that prevents bad quotes: plain warnings, never a block.
   const namedRuns: NamedRun[] = fromLayout
@@ -632,6 +652,29 @@ export default function QuoteBuilder({
         <div className="flex flex-col md:flex-row gap-0">
           <div className="flex-1 min-w-0 px-4 md:px-8 py-5 md:py-6 space-y-6 md:border-r border-gray-100 md:overflow-y-auto md:max-h-[80vh]">
 
+            <VoicePanel
+              ref={voiceRef}
+              on={voiceOn}
+              onToggle={toggleVoice}
+              layout={entry === 'layout' ? yard : null}
+              setLayout={fn => setYard(prev => fn(prev))}
+              widthFt={style ? widthFt : null}
+              styles={FENCE_STYLES}
+              currentStyle={style}
+              onStyle={id => setStyleId(id)}
+              totals={() => totalsRef.current}
+              onNote={text => setVoiceNotes(n => [...n, text])}
+              quoteKey={quoteIdRef.current}
+              readBack={cfg.voice?.readBack !== false}
+              rate={cfg.voice?.rate ?? 1}
+            />
+            {voiceNotes.length > 0 && (
+              <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-sm" data-voice-notes>
+                <p className="text-xs font-semibold text-gray-600 mb-1">Crew notes (saved with the quote)</p>
+                {voiceNotes.map((n, i) => <p key={i}>{n}</p>)}
+              </div>
+            )}
+
             <div>
               <h3 className="text-xs font-semibold text-gray-500 mb-3">Customer name</h3>
               <input
@@ -659,6 +702,7 @@ export default function QuoteBuilder({
                   hasStyle={!!style}
                   widthFt={widthFt}
                   tapeFlags={tapeRunFlags}
+                  onVoiceSide={voiceOn ? name => voiceRef.current?.quick(name) : undefined}
                   address={init?.customerAddress || getCustomers().find(c => `${c.firstName} ${c.lastName}`.trim().toLowerCase() === customerName.trim().toLowerCase())?.serviceAddress || ''}
                 />
               )}
@@ -1196,7 +1240,7 @@ export default function QuoteBuilder({
           initialCustomerName={customerName}
           initialCustomerId={init?.customerId}
           initialAddress={init?.customerAddress}
-          initialNotes={init?.notes}
+          initialNotes={[init?.notes, ...voiceNotes.map(n => `Crew note: ${n}`)].filter(Boolean).join('\n')}
           onCancel={() => setShowSaveModal(false)}
           onSave={handleSave}
         />
