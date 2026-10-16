@@ -6,6 +6,7 @@ import {
 import type { Job, JobStatus, MaterialsStatus } from './jobStore'
 import { getApprovedCOTotal } from './ChangeOrders'
 import { syncJob } from './portalSync'
+import { useBackLayer } from './nav'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -242,6 +243,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
   onUpdate: (id: string, updates: Partial<Job>) => void
   onMoveToStatus: (id: string, status: JobStatus) => void
 }) {
+  useBackLayer(onClose, { key: 'job-drawer' })
   const cfg = STATUS_CONFIG[job.status]
   const coTotal = getApprovedCOTotal(job.quoteId)
 

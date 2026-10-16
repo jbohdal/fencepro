@@ -28,6 +28,7 @@ import { toast } from './toast'
 import { BottomSheet } from './SalesPipelineBoard'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 import { Search, SlidersHorizontal } from 'lucide-react'
+import { useBackLayer, useScreenMemory, useNav, takeOpenedParam } from './nav'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -116,11 +117,22 @@ export default function OperationsBoard() {
   const [highlightToday, setHighlightToday] = useState<boolean>(() => localStorage.getItem(TODAY_HIGHLIGHT_KEY) !== '0')
   const [showCompleted, setShowCompleted] = useState<boolean>(() => localStorage.getItem(SHOW_COMPLETED_KEY) === '1')
 
-  const [search, setSearch] = useState('')
-  const [crewFilter, setCrewFilter] = useState('')
-  const [stageFilter, setStageFilter] = useState('')
-  const [styleFilter, setStyleFilter] = useState('')
+  // Filters come back when Back returns to the board.
+  type Memory = { search: string; crewFilter: string; stageFilter: string; styleFilter: string }
+  const remembered = useScreenMemory<Memory>('operations', (): Memory => ({ search, crewFilter, stageFilter, styleFilter }))
+  const [search, setSearch] = useState<string>(remembered?.search ?? '')
+  const [crewFilter, setCrewFilter] = useState<string>(remembered?.crewFilter ?? '')
+  const [stageFilter, setStageFilter] = useState<string>(remembered?.stageFilter ?? '')
+  const [styleFilter, setStyleFilter] = useState<string>(remembered?.styleFilter ?? '')
   const [selected, setSelected] = useState<UnifiedJob | null>(null)
+  // A job named in the address (?job=<id>) opens: a reload, a link, or Back onto it.
+  const nav = useNav()
+  useEffect(() => {
+    const id = nav.params.get('job') ?? takeOpenedParam('job')
+    if (!id || selected?.id === id) return
+    const j = jobs.find(x => x.id === id)
+    if (j) setSelected(j)
+  }, [nav])  // eslint-disable-line react-hooks/exhaustive-deps
   const [confirmComplete, setConfirmComplete] = useState<UnifiedJob | null>(null)
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
   const [isMobile, setIsMobile] = useState(isMobileViewport)
@@ -975,6 +987,7 @@ function Th({ label, onClick, active, dir, align }: { label: string; onClick: ()
 }
 
 function ConfirmModal({ title, body, confirmLabel, onConfirm, onCancel }: { title: string; body: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void }) {
+  useBackLayer(onCancel, { key: 'confirm-modal' })
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
       <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 modal-responsive">

@@ -5,6 +5,7 @@ import { getPipeline, savePipeline as storeSavePipeline } from './pipelineStore'
 import { toast } from './toast'
 import { applySignedContractTransition } from './signedContractFlow'
 import { PRE_SALE_STAGES, PRODUCTION_STAGES, CLOSING_STAGES, DEAD_STAGES } from './pipelineValue'
+import { useBackLayer } from './nav'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -145,6 +146,7 @@ export function QuickAddModal({
   onAdd: (lead: PipelineLead) => void
   onClose: () => void
 }) {
+  useBackLayer(onClose, { key: 'quick-add-modal' })
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName]   = useState('')
   const [phone, setPhone]         = useState('')
@@ -340,6 +342,7 @@ export function LeadDrawer({
   onUpdate: (lead: PipelineLead) => void
   onDelete: (id: string) => void
 }) {
+  useBackLayer(onClose, { key: 'lead-drawer' })
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<PipelineLead>({ ...lead })
 

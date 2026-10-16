@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from './toast'
 import { cloudStorage } from './cloudStorage'
+import { useBackLayer } from './nav'
 
 export interface CustomerFileShape {
   id: string
@@ -43,6 +44,7 @@ export default function FileViewerModal({ file, siblingImages = [], onClose, onD
   onClose: () => void
   onDelete?: (id: string) => void
 }) {
+  useBackLayer(onClose, { key: 'file-viewer-modal' })
   const kind = classify(file)
   const url = file.url || file.dataUrl
 

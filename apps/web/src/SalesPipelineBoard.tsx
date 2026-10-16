@@ -33,6 +33,10 @@ import { CalendarPlus, CalendarDays, Eye, Search, SlidersHorizontal } from 'luci
 import { moveCard } from './appointmentPipeline'
 import { useAppointmentList } from './TodayScreen'
 import { isOpen, needsOutcome, shortWhen, type Appointment } from './appointmentLogic'
+import PipelineCardWindow, { type QuoteCustomer } from './PipelineCardWindow'
+import QuoteDetailDrawer from './QuoteDetailDrawer'
+import type { SavedQuote } from './QuotesPage'
+import { navigate, useNav, useScreenMemory, takeOpenedParam, BackClose } from './nav'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -131,18 +135,20 @@ function isMobileViewport() {
   return window.matchMedia('(max-width: 767px)').matches
 }
 
-// Filters and scroll position of the board, kept only in memory so "Back to
-// pipeline" on the customer page lands where the user left off.
-let leftAt: { search: string; repFilter: string; styleFilter: string; scrollTop: number; boardLeft: number; columnTops: Record<string, number> } | null = null
-let returning = false
+// What Back gives the board back: its filters and where it was scrolled to.
+interface PipelineMemory { search: string; repFilter: string; styleFilter: string; boardLeft: number; columnTops: Record<string, number> }
 
-/** Call just before showing the pipeline again from "Back to pipeline". */
-export function markPipelineReturn() { returning = true }
-
-export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?: (customerId: string) => void } = {}) {
+export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
+  /** A new quote, filled in with this customer. */
+  onNewQuote?: (c: QuoteCustomer) => void
+  /** Edit a quote in the quote builder. */
+  onOpenQuote?: (q: SavedQuote) => void
+} = {}) {
   const initial = loadPipeline()
-  // Decided once per mount: a normal visit to the pipeline starts fresh.
-  const [restore] = useState(() => { const r = returning ? leftAt : null; returning = false; return r })
+  const restore = useScreenMemory<PipelineMemory>('pipeline', (): PipelineMemory => ({
+    search, repFilter, styleFilter, boardLeft: boardEl()?.scrollLeft ?? 0,
+    columnTops: Object.fromEntries(columnScrollers().map(c => [c.key, c.el?.scrollTop ?? 0])),
+  }))
   const [leads, setLeads] = useState<PipelineLead[]>(initial.leads)
   const [stages, setStages] = useState<string[]>(initial.stages)
 
@@ -158,6 +164,9 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
   const [repFilter, setRepFilter] = useState(restore?.repFilter ?? '')
   const [styleFilter, setStyleFilter] = useState(restore?.styleFilter ?? '')
   const [selected, setSelected] = useState<PipelineLead | null>(null)
+  // The card window, and a quote opened from it.
+  const [cardId, setCardId] = useState<string | null>(null)
+  const [openQuote, setOpenQuote] = useState<SavedQuote | null>(null)
   const [addingToStage, setAddingToStage] = useState<string | null>(null)
   const [confirmSold, setConfirmSold] = useState<{ lead: PipelineLead; fromStage: string } | null>(null)
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
@@ -177,7 +186,6 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
 
   useLayoutEffect(() => {
     if (!restore) return
-    const el = scroller(); if (el) el.scrollTop = restore.scrollTop
     const board = boardEl(); if (board) board.scrollLeft = restore.boardLeft
     for (const c of columnScrollers()) if (c.el) c.el.scrollTop = restore.columnTops[c.key] ?? 0
   }, [restore])
@@ -199,18 +207,23 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
   }, [leads, dataTick])
   const valueOf = (l: PipelineLead) => values.get(l.id) ?? 0
 
-  /** A card opens the full customer page; a lead with no customer record still gets the side panel. */
-  function openLead(lead: PipelineLead) {
-    if (onOpenCustomer && lead.customerId && getCustomerById(lead.customerId)) {
-      leftAt = {
-        search, repFilter, styleFilter, scrollTop: scroller()?.scrollTop ?? 0,
-        boardLeft: boardEl()?.scrollLeft ?? 0,
-        columnTops: Object.fromEntries(columnScrollers().map(c => [c.key, c.el?.scrollTop ?? 0])),
-      }
-      onOpenCustomer(lead.customerId)
-    } else {
-      setSelected(lead)
-    }
+  /** A card opens its window: quote, call, text, navigate, book, notes and stage in one place. */
+  function openLead(lead: PipelineLead) { setCardId(lead.id) }
+  // A card named in the address (?card=<id>) opens: a reload, a link, or Back onto it.
+  const nav = useNav()
+  useEffect(() => {
+    const id = nav.params.get('card') ?? takeOpenedParam('card')
+    if (id && id !== cardId && leads.some(l => l.id === id)) setCardId(id)
+  }, [nav])  // eslint-disable-line react-hooks/exhaustive-deps
+  const cardLead = cardId ? leads.find(l => l.id === cardId) ?? null : null
+  const cardQuotes = useMemo(() => (cardLead?.customerId
+    ? (getQuotes() as SavedQuote[]).filter(q => q.customerId === cardLead.customerId).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+    : []), [cardLead?.customerId, dataTick])  // eslint-disable-line react-hooks/exhaustive-deps
+  /** The window's stage picker: Signed Contract asks first, as a drop there does. */
+  function pickStage(lead: PipelineLead, stage: string) {
+    if (stage === lead.stage) return
+    if (stage === 'Signed Contract') setConfirmSold({ lead, fromStage: lead.stage })
+    else moveLead(lead, stage)
   }
 
   /* ── viewport listener ── */
@@ -632,6 +645,30 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
         >+</button>
       )}
 
+      {/* The card's window */}
+      {cardLead && (
+        <PipelineCardWindow
+          lead={cardLead} stages={stages} quotes={cardQuotes}
+          next={cardLead.customerId ? apptInfo.next.get(cardLead.customerId) ?? null : null}
+          onClose={() => setCardId(null)}
+          onNewQuote={c => onNewQuote?.(c)}
+          onOpenQuote={q => setOpenQuote(q)}
+          onBook={() => bookFor(cardLead)}
+          onMoveStage={st => pickStage(cardLead, st)}
+          onEditLead={() => setSelected(cardLead)}
+          onOpenCustomer={cardLead.customerId && getCustomerById(cardLead.customerId)
+            ? () => navigate(`/customers/${encodeURIComponent(cardLead.customerId!)}`, { from: 'Sales Pipeline' }) : null}
+        />
+      )}
+      {openQuote && (
+        <QuoteDetailDrawer
+          quote={openQuote}
+          onClose={() => setOpenQuote(null)}
+          onEdit={onOpenQuote ? () => onOpenQuote(openQuote) : undefined}
+          onChange={() => setOpenQuote((getQuotes() as SavedQuote[]).find(q => q.id === openQuote.id) ?? null)}
+        />
+      )}
+
       {/* Slide-over / Bottom sheet */}
       {selected && (
         isMobile ? (
@@ -661,6 +698,7 @@ export default function SalesPipelineBoard({ onOpenCustomer }: { onOpenCustomer?
       )}
 
       {/* Signed Contract confirmation */}
+      {confirmSold && <BackClose name="confirm-sold" onClose={() => setConfirmSold(null)} />}
       {confirmSold && (
         <ConfirmModal
           title="Mark this deal as sold?"
@@ -765,7 +803,7 @@ function PipelineCard({
           >⋯</button>
           {menuOpen && (
             <div onClick={e => e.stopPropagation()} className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg text-xs z-20">
-              <button onClick={onClick} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Open customer</button>
+              <button onClick={onClick} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Open</button>
               <button onClick={onQuickView} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Quick view</button>
               <button onClick={onNextStage} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to Next Stage</button>
               <button onClick={onMarkLost} className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600">Mark Lost</button>

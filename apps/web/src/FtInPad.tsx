@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import { Delete } from 'lucide-react'
+import { useBackLayer } from './nav'
 
 export default function FtInPad({ title, valueIn, onDone, onClose, nextLabel }: {
   title: string
@@ -16,6 +17,7 @@ export default function FtInPad({ title, valueIn, onDone, onClose, nextLabel }: 
   /** Shown on the Next button, e.g. "Next: Back". Hidden when absent. */
   nextLabel?: string
 }) {
+  useBackLayer(onClose, { key: 'ft-in-pad' })
   const startFt = valueIn > 0 ? Math.floor(valueIn / 12) : 0
   const startIn = valueIn > 0 ? Math.round((valueIn - startFt * 12) * 8) / 8 : 0
   const [ft, setFt] = useState(valueIn > 0 ? String(startFt) : '')

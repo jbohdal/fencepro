@@ -11,6 +11,7 @@ import {
   refreshOverdueBills, recordVendorPayment,
   type VendorBill, type VendorBillCategory, type VendorPaymentMethod,
 } from './vendorStore'
+import { useBackLayer } from './nav'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -217,6 +218,7 @@ function Card({ label, value, color }: { label: string; value: string; color?: s
 }
 
 function PayBillModal({ bill, onClose, onSaved }: { bill: VendorBill; onClose: () => void; onSaved: () => void }) {
+  useBackLayer(onClose, { key: 'pay-bill-modal' })
   const [amount, setAmount] = useState((bill.balanceDueCents / 100).toFixed(2))
   const [paymentMethod, setPaymentMethod] = useState<VendorPaymentMethod>('check')
   const [referenceNumber, setReferenceNumber] = useState('')

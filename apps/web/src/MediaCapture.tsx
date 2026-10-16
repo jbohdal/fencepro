@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { X, Camera, Video, Square } from 'lucide-react'
 import { addCapture, storageWarning, CATEGORIES, type Category, type LocalMedia, type MediaMeta } from './mediaStore'
 import { watchLocation, watchHeading, type Fix } from './sensors'
+import { useBackLayer } from './nav'
 
 /** "video/webm;codecs=vp8,opus" → "video/webm" (what the Mac stores). */
 export const baseMime = (m: string) => m.split(';')[0].trim().toLowerCase()
@@ -20,6 +21,7 @@ export default function MediaCapture({ where, defaultCategory, onDone, onClose }
   onDone: (taken: LocalMedia[]) => void
   onClose: () => void
 }) {
+  useBackLayer(onClose, { key: 'media-capture' })
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const stream = useRef<MediaStream | null>(null)
   const recorder = useRef<MediaRecorder | null>(null)

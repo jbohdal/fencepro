@@ -163,6 +163,7 @@ function getCategoryColor(categories: string[], cat: string): string {
 }
 
 import { getBusinessField, setBusinessField } from './businessStateStore'
+import { useBackLayer } from './nav'
 
 const STORAGE_KEY = 'fencepro_budget'
 
@@ -721,6 +722,7 @@ function OverheadDrawer({
   onAdd: (items: OverheadAccount[]) => void
   onClose: () => void
 }) {
+  useBackLayer(onClose, { key: 'overhead-drawer' })
   const [mode, setMode] = useState<'single' | 'bulk'>('single')
   const [label, setLabel] = useState('')
   const [annual, setAnnual] = useState('')

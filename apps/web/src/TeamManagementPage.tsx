@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { authFetch } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { useBackLayer } from './nav'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/crm-auth'
 
@@ -213,6 +214,7 @@ export default function TeamManagementPage() {
 // ── Invite Modal ──
 
 function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: () => void }) {
+  useBackLayer(onClose, { key: 'invite-modal' })
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
@@ -300,6 +302,7 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
 // ── Edit User Modal ──
 
 function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: () => void; onSaved: () => void }) {
+  useBackLayer(onClose, { key: 'edit-user-modal' })
   const [firstName, setFirstName] = useState(user.firstName)
   const [lastName, setLastName] = useState(user.lastName)
   const [phone, setPhone] = useState(user.phone || '')

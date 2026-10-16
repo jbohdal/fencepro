@@ -15,6 +15,7 @@ import {
 } from './vendorStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import { toast } from './toast'
+import { useBackLayer } from './nav'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(c / 100)
@@ -308,6 +309,7 @@ function VendorInfo({ vendor }: { vendor: VendorContact }) {
 // ── Vendor form ──
 
 function VendorForm({ initial, onCancel, onSaved }: { initial: VendorContact | null; onCancel: () => void; onSaved: (v: VendorContact) => void }) {
+  useBackLayer(onCancel, { key: 'vendor-form' })
   const [name, setName] = useState(initial?.name ?? '')
   const [contactName, setContactName] = useState(initial?.contactName ?? '')
   const [phone, setPhone] = useState(initial?.phone ?? '')
@@ -382,6 +384,7 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
   initial: VendorBill | null; vendor: VendorContact;
   onCancel: () => void; onSaved: () => void;
 }) {
+  useBackLayer(onCancel, { key: 'bill-form' })
   const [billNumber, setBillNumber] = useState(initial?.billNumber ?? '')
   const [billDate, setBillDate] = useState(initial?.billDate ?? new Date().toISOString().slice(0, 10))
   const [dueDate, setDueDate] = useState(initial?.dueDate ?? computeDueDate(vendor.paymentTerms))
@@ -524,6 +527,7 @@ function computeDueDate(terms: PaymentTerms): string {
 // ── Payment form ──
 
 function PaymentForm({ bill, vendor, onCancel, onSaved }: { bill: VendorBill; vendor: VendorContact; onCancel: () => void; onSaved: () => void }) {
+  useBackLayer(onCancel, { key: 'payment-form' })
   const [amount, setAmount] = useState((bill.balanceDueCents / 100).toFixed(2))
   const [paymentMethod, setPaymentMethod] = useState<VendorPaymentMethod>('check')
   const [referenceNumber, setReferenceNumber] = useState('')

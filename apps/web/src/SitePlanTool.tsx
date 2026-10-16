@@ -5,6 +5,7 @@ import type { LatLng } from './geoUtils'
 import { toast } from './toast'
 import { getCustomers } from './customerStore'
 import { cloudStorage } from './cloudStorage'
+import { BackClose } from './nav'
 
 interface CustomerLite { id: string; firstName: string; lastName: string; phone?: string }
 function loadCustomers(): CustomerLite[] {
@@ -783,6 +784,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
       </div>
 
       {/* ── Save modal ── */}
+      {showSaveModal && <BackClose name="save-plan" onClose={() => setShowSaveModal(false)} />}
       {showSaveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowSaveModal(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-[420px] max-h-[90vh] overflow-y-auto p-6 space-y-4 modal-responsive" onClick={e => e.stopPropagation()}>
@@ -811,6 +813,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
       )}
 
       {/* ── Plan list modal ── */}
+      {showPlanList && <BackClose name="plan-list" onClose={() => setShowPlanList(false)} />}
       {showPlanList && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowPlanList(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[60vh] overflow-hidden mx-4 lg:mx-0 modal-responsive" onClick={e => e.stopPropagation()}>

@@ -21,6 +21,7 @@ import {
 import { applyOutcome } from './appointmentPipeline'
 import { openBooking } from './BookingDialog'
 import { toast } from './toast'
+import { useBackLayer } from './nav'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
 const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
@@ -172,6 +173,7 @@ const OUTCOME_CHOICES: AppointmentOutcome[] = ['ready_to_quote', 'needs_follow_u
 
 /** What happened. Closes the appointment and moves the pipeline card when it should. */
 export function OutcomeForm({ a, onClose }: { a: Appointment; onClose: () => void }) {
+  useBackLayer(onClose, { key: 'outcome-form' })
   const [outcome, setOutcome] = useState<AppointmentOutcome | null>(null)
   const [notes, setNotes] = useState('')
   const [feet, setFeet] = useState('')

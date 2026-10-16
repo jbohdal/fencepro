@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import type { SavedQuote } from './QuotesPage'
 import { getQuotes } from './quoteStore'
 import { cloudStorage } from './cloudStorage'
+import { useBackLayer } from './nav'
 
 /* ───────── types ───────── */
 
@@ -110,6 +111,7 @@ function CostAJobModal({
   onClose: () => void
   editEntry?: JobCostEntry | null
 }) {
+  useBackLayer(onClose, { key: 'cost-a-job-modal' })
   const [quoteId, setQuoteId] = useState(editEntry?.quoteId || '')
   const [completionDate, setCompletionDate] = useState(editEntry?.completionDate || new Date().toISOString().slice(0, 10))
   const [actualLaborHrs, setActualLaborHrs] = useState(String(editEntry?.actualLaborHrs || ''))
@@ -309,6 +311,7 @@ function CostAJobModal({
 /* ───────── Job Detail Drawer ───────── */
 
 function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void }) {
+  useBackLayer(onClose, { key: 'job-detail-drawer' })
   const { quote: q, entry: e } = job
   const actualLaborCost = e.crew.length > 0
     ? e.crew.reduce((s, c) => s + c.hours * c.rate, 0)

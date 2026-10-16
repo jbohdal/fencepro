@@ -8,6 +8,7 @@ import { toast } from './toast'
 import SitePlanTool from './SitePlanTool'
 import { getCustomers } from './customerStore'
 import { cloudStorage } from './cloudStorage'
+import { BackClose } from './nav'
 
 interface SavedPlan {
   id: string
@@ -152,6 +153,7 @@ export default function SitePlansPage() {
       )}
 
       {/* Read-only viewer */}
+      {viewing && <BackClose name="plan-view" onClose={() => setViewing(null)} />}
       {viewing && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6" onClick={() => setViewing(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-y-auto modal-responsive" onClick={e => e.stopPropagation()}>

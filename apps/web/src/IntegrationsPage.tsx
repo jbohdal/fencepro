@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { BackClose } from './nav'
 
 const API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/integrations'
 const hdrs: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -159,6 +160,7 @@ export default function IntegrationsPage() {
       {view === 'webhooks' && <WebhookLogsSection />}
 
       {/* Connect Modal */}
+      {connecting && <BackClose name="connect" onClose={() => setConnecting(null)} />}
       {connecting && (() => {
         const integ = integrations.find(i => i.slug === connecting)
         if (!integ) return null
@@ -292,6 +294,7 @@ function ApiKeysSection() {
       </div>
 
       {/* Create modal */}
+      {creating && <BackClose name="new-api-key" onClose={() => setCreating(false)} />}
       {creating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[400px] max-h-[90vh] overflow-y-auto p-4 lg:p-6 mx-4 lg:mx-0 space-y-4 modal-responsive">

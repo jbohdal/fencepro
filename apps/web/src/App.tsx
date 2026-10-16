@@ -1,5 +1,5 @@
 import UploadBadge from './UploadBadge'
-import { useState, useMemo, useRef, useEffect, Fragment, lazy, Suspense } from 'react'
+import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment, lazy, Suspense } from 'react'
 import QuoteBuilder from './QuoteBuilder'
 import { Banknote, BarChart3, Boxes, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
 import AdminPage from './AdminPage'
@@ -8,7 +8,8 @@ const BudgetPage = lazy(() => import('./BudgetPage'))
 import CustomersPage from './CustomersPage'
 import QuotesPage, { type SavedQuote } from './QuotesPage'
 import JobsPage from './JobsPage'
-import SalesPipelineBoard, { markPipelineReturn } from './SalesPipelineBoard'
+import SalesPipelineBoard from './SalesPipelineBoard'
+import { startNav, navigate, useNav, pagePath, pageForPath, takeOpenedParam, savedScroll, BackClose } from './nav'
 const OperationsBoard = lazy(() => import('./OperationsBoard'))
 const AuditLogPage = lazy(() => import('./AuditLogPage'))
 import StagingPage from './StagingPage'
@@ -134,6 +135,8 @@ const NAV_GROUPS: NavGroup[] = [
 ]
 
 const ALL_NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items)
+// Every page the app can show, for its address (/customers, /pipeline, ...).
+const PAGE_NAMES = [...new Set([...ALL_NAV_ITEMS.map(i => i.name), 'Jobs', 'Staging'])]
 const PAGES_WITH_HEADER = new Set(['Dashboard', 'Sales Pipeline', 'Operations', 'Jobs', 'Staging', 'Appointments', 'Today', 'Settings', 'Billing', 'Inventory', 'P&L Statement'])
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -395,24 +398,40 @@ export default function App() {
 }
 
 function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; onLogout: () => void; onChangePassword: () => void }) {
-  // Links from outside the app: ?customer=<id> (a calendar event's "Open in EZ
-  // Biz") opens that customer; ?settings=calendar (back from Google) opens Settings.
-  const [active, setActive]             = useState(() => {
+  // Every screen has its own address, so Back, reloads and links work (see
+  // nav.ts). Links from outside the app: ?customer=<id> (a calendar event's
+  // "Open in EZ Biz") opens that customer; ?settings=calendar (back from
+  // Google) opens Settings.
+  useState(() => {
     const q = new URLSearchParams(window.location.search)
-    return q.get('customer') ? 'Customers' : q.get('settings') ? 'Settings' : 'Dashboard'
+    const id = q.get('customer')
+    if (id) { q.delete('customer'); startNav(`/customers/${encodeURIComponent(id)}${q.toString() ? `?${q}` : ''}${window.location.hash}`) }
+    else if (q.get('settings') && window.location.pathname === '/') startNav(`/settings${window.location.search}${window.location.hash}`)
+    else startNav()
+    return true
   })
+  const nav = useNav()
+  const active = pageForPath(nav.path, PAGE_NAMES)
+  const setActive = (page: string) => navigate(pagePath(page))
   const [showQuote, setShowQuote]       = useState(false)
   const [editingQuote, setEditingQuote] = useState<SavedQuote | null>(null)
   const [quotes, setQuotes]             = useState<SavedQuote[]>(loadQuotes)
   const [jobs, setJobs]                 = useState<Job[]>(getJobs)
-  // Customer opened from a pipeline card; drives "Back to pipeline" on the customer page.
-  const [pipelineCustomerId, setPipelineCustomerId] = useState<string | null>(null)
-  const [linkedCustomerId, setLinkedCustomerId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('customer'))
-  useEffect(() => {
-    // The customer id has been read; take it out of the address bar. (?settings is tidied by the Settings page.)
-    if (new URLSearchParams(window.location.search).get('customer')) window.history.replaceState(null, '', window.location.pathname + window.location.hash)
-  }, [])
-  useEffect(() => { if (active !== 'Customers') { setPipelineCustomerId(null); setLinkedCustomerId(null) } }, [active])
+  // Back to a screen puts its scroll back; a new screen starts at the top.
+  const pageScroll = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    const el = pageScroll.current
+    if (!el) return
+    const want = savedScroll() ?? 0
+    el.scrollTop = want
+    // Pages that draw after loading: keep trying for a moment.
+    let tries = 0, frame = 0
+    const again = () => { if (el.scrollTop !== want && tries++ < 40) { el.scrollTop = want; frame = requestAnimationFrame(again) } }
+    frame = requestAnimationFrame(again)
+    const stop = () => cancelAnimationFrame(frame)
+    el.addEventListener('wheel', stop, { once: true }); el.addEventListener('touchstart', stop, { once: true })
+    return () => { stop(); el.removeEventListener('wheel', stop); el.removeEventListener('touchstart', stop) }
+  }, [nav.path])
 
   // When a save was refused and another device's changes were merged in (see
   // syncGuard), the page on screen may still hold its own older copy of that
@@ -641,10 +660,25 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     setShowQuote(true)
   }
 
+  // A quote named in the address opens: after a reload, from a link, or when
+  // Back or Forward lands on it. ?quote=<id>, or ?quote=new&for=<customer>.
+  useEffect(() => {
+    const q = nav.params.get('quote') ?? takeOpenedParam('quote')
+    const forId = nav.params.get('for') ?? takeOpenedParam('for')
+    if (!q || showQuote) return
+    if (q === 'new') {
+      const c = forId ? getCustomers().find(x => x.id === forId) : null
+      if (c) openQuoteFor(c); else { setEditingQuote(null); setShowQuote(true) }
+      return
+    }
+    const found = getQuoteById(q) ?? quotes.find(x => x.id === q)
+    if (found) handleOpenQuote(found as SavedQuote)
+  }, [nav])  // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ── Search ── */
   function openCustomerFromAnywhere(customerId: string, tab?: string) {
-    setActive('Customers')
-    setTimeout(() => { try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { customerId, tab } })) } catch {} }, 50)
+    navigate(`/customers/${encodeURIComponent(customerId)}`)
+    if (tab) setTimeout(() => { try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { customerId, tab } })) } catch {} }, 50)
   }
 
   /* ── Dashboard stats ── */
@@ -705,6 +739,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ MOBILE NAV OVERLAY + DRAWER (hidden on desktop via CSS) ═══ */}
       <div className={`mobile-nav-backdrop ${mobileMenuOpen ? 'open' : ''}`} onClick={() => setMobileMenuOpen(false)} />
+      {mobileMenuOpen && <BackClose name="menu" onClose={() => setMobileMenuOpen(false)} />}
       <div className={`mobile-nav-drawer bg-gray-900 flex flex-col ${mobileMenuOpen ? 'open' : ''}`}>
         <div className="border-b border-white/10 px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -883,12 +918,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           </div>
 
           <div className="flex items-center gap-1 md:gap-3 shrink-0">
-            <MessagesInbox onNavigateToCustomer={(customerId) => {
-              setActive('Customers')
-              setTimeout(() => {
-                try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { customerId, tab: 'messages' } })) } catch {}
-              }, 50)
-            }} />
+            <MessagesInbox onNavigateToCustomer={(customerId) => openCustomerFromAnywhere(customerId, 'messages')} />
             <UploadBadge />
             <NotificationBell />
             {/* Command search */}
@@ -939,7 +969,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         </div>
 
         {/* Page content */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-8 py-4 md:py-6 max-md:pb-[calc(92px+env(safe-area-inset-bottom))]">
+        <div ref={pageScroll} data-page-scroll className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-8 py-4 md:py-6 max-md:pb-[calc(92px+env(safe-area-inset-bottom))]">
           {/* Keyed so the open page reloads its data after another device's changes are merged in. */}
           <Suspense fallback={<PageLoading />}>
           <Fragment key={dataEpoch}>
@@ -961,15 +991,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Bundles'   && <BundlesPage />}
           {active === 'Cash Flow' && <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center"><p className="text-4xl mb-3">💸</p><h2 className="text-lg font-bold text-gray-900">Cash Flow</h2><p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">Cash Flow statement coming soon. For now, check the P&amp;L Statement and Accounts Receivable/Payable dashboards.</p></div>}
           {active === 'Customers' && <CustomersPage
-            openCustomerId={pipelineCustomerId || linkedCustomerId}
-            onBack={pipelineCustomerId ? () => { markPipelineReturn(); setActive('Sales Pipeline') } : undefined}
-            backLabel="Back to pipeline"
             onNewQuote={(c) => {
             if (c) openQuoteFor(c)
             else { setEditingQuote(null); setShowQuote(true) }
           }} />}
           {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={handleOpenQuote} onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
-          {active === 'Sales Pipeline' && <SalesPipelineBoard onOpenCustomer={(id) => { setPipelineCustomerId(id); setActive('Customers') }} />}
+          {active === 'Sales Pipeline' && <SalesPipelineBoard onNewQuote={c => openQuoteFor(c)} onOpenQuote={q => handleOpenQuote(q)} />}
           {active === 'Operations'     && <OperationsBoard />}
           {active === 'Jobs'           && <OperationsBoard />}
           {active === 'Staging'        && <OperationsBoard />}
@@ -1105,6 +1132,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       </div>
 
       {/* ═══ COMMAND SEARCH OVERLAY ═══ */}
+      {searchOpen && <BackClose name="search" onClose={() => { setSearchOpen(false); setSearchQuery('') }} />}
       {searchOpen && (
         <GlobalSearch
           onClose={() => { setSearchOpen(false); setSearchQuery('') }}
@@ -1114,7 +1142,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           openCustomer={openCustomerFromAnywhere}
           openQuote={q => handleOpenQuote(q as SavedQuote)}
           newQuoteFor={c => { if (c) openQuoteFor(c); else { setEditingQuote(null); setShowQuote(true) } }}
-          newCustomer={() => { setActive('Customers'); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { newCustomer: true } })) } catch {} }, 50) }}
+          newCustomer={() => navigate('/customers/new')}
           goTo={p => setActive(p)}
         />
       )}
@@ -1137,17 +1165,17 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ SMART SCHEDULE ═══ */}
       {showSmartSchedule && (
-        <Suspense fallback={null}><SmartSchedule onClose={() => setShowSmartSchedule(false)} /></Suspense>
+        <Suspense fallback={null}><BackClose name="smart-schedule" onClose={() => setShowSmartSchedule(false)} /><SmartSchedule onClose={() => setShowSmartSchedule(false)} /></Suspense>
       )}
 
       {/* ═══ SITE PLAN TOOL ═══ */}
       {showSitePlan && (
-        <Suspense fallback={null}><SitePlanTool onClose={() => setShowSitePlan(false)} /></Suspense>
+        <Suspense fallback={null}><BackClose name="site-plan-tool" onClose={() => setShowSitePlan(false)} /><SitePlanTool onClose={() => setShowSitePlan(false)} /></Suspense>
       )}
 
       {/* ═══ MAP QUOTE MODAL ═══ */}
       {showMapQuote && (
-        <Suspense fallback={null}><MapQuoteBuilder
+        <Suspense fallback={null}><BackClose name="map-quote" onClose={() => setShowMapQuote(false)} /><MapQuoteBuilder
           onUseData={handleMapQuoteData}
           onClose={() => setShowMapQuote(false)}
         /></Suspense>

@@ -23,6 +23,7 @@ import {
 } from './appointmentLogic'
 import { applyBooking } from './appointmentPipeline'
 import MapView, { type MapPoint } from './MapView'
+import { useBackLayer } from './nav'
 
 export interface BookingRequest {
   customerId?: string
@@ -67,6 +68,7 @@ function useAppointments() {
 }
 
 function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => void }) {
+  useBackLayer(onClose, { key: 'booking-dialog' })
   const settings = getAppointmentSettings()
   const company = getConfig().company
   const existing = req.appointmentId ? getAppointment(req.appointmentId) : null

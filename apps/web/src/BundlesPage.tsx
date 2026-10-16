@@ -11,6 +11,7 @@ import {
   type QuoteBundle, type BundleTier, type PricingMethod, type BundleInclusion, type BundleAddon,
 } from './bundleStore'
 import { getConfig, type FenceStyle } from './configStore'
+import { useBackLayer } from './nav'
 
 const uid = () => Math.random().toString(36).slice(2, 9)
 const fmt = (c: number) =>
@@ -177,6 +178,7 @@ function BundleCard({ bundle, onEdit, onDelete, onClone, onToggleActive }: {
 // ── Bundle form modal ──
 
 function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | null; onCancel: () => void; onSaved: () => void }) {
+  useBackLayer(onCancel, { key: 'bundle-form' })
   const cfg = getConfig()
   const styles = cfg.fenceStyles.filter(s => s.isActive)
 

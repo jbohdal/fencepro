@@ -30,8 +30,16 @@ const check = (name, ok, detail = '') => { results.push({ name, ok }); console.l
 let token = TOKEN
 const api = async (path, init = {}) => {
   const r = await fetch(`${API}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers || {}) } })
-  return (await r.json()).data
+  const data = (await r.json()).data
+  // The test copy can hold cards whose customer was since deleted; they have no
+  // customer page to book from, so the tests never pick them.
+  if (path === '/api/pipeline' && data?.leads) {
+    if (!contactIds) { const c = (await (await fetch(`${API}/api/crm-contacts?limit=10000`, { headers: { Authorization: `Bearer ${token}` } })).json()).data; contactIds = new Set((c?.contacts ?? c ?? []).map(x => x.id)) }
+    data.leads = data.leads.filter(l => !l.customerId || contactIds.has(l.customerId))
+  }
+  return data
 }
+let contactIds = null
 const floridaDate = d => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
 const cardOf = async customerId => (await api('/api/pipeline')).leads.find(l => l.customerId === customerId)
 

@@ -8,6 +8,7 @@
 
 import { useState } from 'react'
 import { changePassword } from './crmAuth'
+import { useBackLayer } from './nav'
 
 export default function ChangePasswordPage({
   forced,
@@ -20,6 +21,7 @@ export default function ChangePasswordPage({
   /** Sign out (forced) or close (dialog). */
   onCancel: () => void
 }) {
+  useBackLayer(() => { if (!forced) onCancel() }, { key: 'change-password-page' })
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')

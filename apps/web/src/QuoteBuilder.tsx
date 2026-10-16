@@ -27,6 +27,7 @@ import { compareStyles, priceOption, buildProposal, optionLabel } from './propos
 import { resolveTiers, tierOptions, isVinylStyle, DEFAULT_TIERS, DEFAULT_POPULAR, type TierPrefs, type TierKey } from './tiers'
 import { getContractSections } from './contractStore'
 import { listStylePhotos } from './stylePhotosApi'
+import { useBackLayer, useLeaveWarning, BackClose } from './nav'
 
 // Settings are read when the builder opens (not when the app loads), so a
 // change in Settings → Pricing or Fence Styles applies to the next quote
@@ -441,6 +442,23 @@ export default function QuoteBuilder({
     listStylePhotos().then(list => setPhotoIds(Object.fromEntries(list.map(p => [p.styleName, p.id])))).catch(() => {})
   }, [])
   const [showSaveModal, setShowSaveModal] = useState(false)
+
+  // Unsaved work: anything changed since the builder opened (after it settles).
+  // Back, the close button and closing the tab ask before it is dropped.
+  const workRef = useRef('')
+  workRef.current = JSON.stringify([styleId, runs, entry, yard, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, adjLaborHrs, priceAdjust, hasSalesman,
+    laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, offer, tierPrefs, voiceNotes])
+  const startWork = useRef<string | null>(null)
+  useEffect(() => { const t = setTimeout(() => { startWork.current = workRef.current }, 400); return () => clearTimeout(t) }, [])
+  const dirty = () => startWork.current !== null && workRef.current !== startWork.current
+  const okToLeave = () => !dirty() || window.confirm('Leave without saving?\n\nThe changes to this quote have not been saved.')
+  // Its own address: ?quote=<id>, or ?quote=new&for=<customer>, so a reload or a link reopens it.
+  useBackLayer(onClose, {
+    key: 'quote',
+    params: init?.id ? { quote: init.id } : { quote: 'new', ...(init?.customerId ? { for: init.customerId } : {}) },
+    guard: okToLeave,
+  })
+  useLeaveWarning(dirty)
   // Use `||` instead of `??` so an empty-string id (from callers that
   // preseed a "new quote" with id: '') also falls through to a fresh uid.
   const quoteIdRef = useRef<string>(init?.id || newId())
@@ -649,7 +667,7 @@ export default function QuoteBuilder({
                 {showPullSheet ? 'Hide Pull Sheet' : 'Show Pull Sheet'} ({materialItems.length} items)
               </button>
             )}
-            <button onClick={onClose} aria-label="Close" className="text-gray-500 hover:text-gray-800 text-3xl leading-none w-12 h-12 grid place-items-center">×</button>
+            <button onClick={() => { if (okToLeave()) onClose() }} aria-label="Close" className="text-gray-500 hover:text-gray-800 text-3xl leading-none w-12 h-12 grid place-items-center" data-quote-close>×</button>
           </div>
         </div>
 
@@ -1256,6 +1274,7 @@ export default function QuoteBuilder({
         <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg">{init ? 'Update quote' : 'Save quote'}</button>
       </div>}
 
+      {showSaveModal && <BackClose name="save-quote" onClose={() => setShowSaveModal(false)} />}
       {showSaveModal && (
         <SaveModal
           initialCustomerName={customerName}

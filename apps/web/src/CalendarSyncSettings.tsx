@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { toast } from './toast'
+import { replaceUrl } from './nav'
 
 const API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/google-calendar'
 
@@ -52,7 +53,7 @@ export default function CalendarSyncSettings() {
     const result = q.get('gcal')
     if (result === 'connected') toast.success('Google Calendar connected', `${q.get('detail') || ''}. Press "Push all upcoming" to start sending events.`)
     if (result === 'error') toast.error('Google Calendar was not connected', q.get('detail') || 'Try again.')
-    if (result) window.history.replaceState(null, '', window.location.pathname + window.location.hash)
+    if (result) replaceUrl(window.location.pathname + window.location.hash)
   }, [])
 
   async function connect() {

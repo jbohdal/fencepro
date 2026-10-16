@@ -16,6 +16,7 @@ import {
   getPlEntries, createPlEntry, updatePlEntry, deletePlEntry, ensureRecurringForPeriod,
   type PlManualEntry, type PlCategory,
 } from './financeStore'
+import { useBackLayer } from './nav'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -352,6 +353,7 @@ function Sparklines({ labels, series }: { labels: string[]; series: { data: numb
 // ── Manage Entries modal ──
 
 function ManageEntriesModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  useBackLayer(onClose, { key: 'manage-entries-modal' })
   const [entries, setEntries] = useState<PlManualEntry[]>(() => getPlEntries())
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<PlManualEntry | null>(null)
@@ -425,6 +427,7 @@ function ManageEntriesModal({ onClose, onSaved }: { onClose: () => void; onSaved
 }
 
 function EntryForm({ initial, onCancel, onSaved }: { initial: PlManualEntry | null; onCancel: () => void; onSaved: () => void }) {
+  useBackLayer(onCancel, { key: 'entry-form' })
   const now = new Date()
   const [periodMonth, setPeriodMonth] = useState(initial?.periodMonth ?? now.getMonth() + 1)
   const [periodYear, setPeriodYear] = useState(initial?.periodYear ?? now.getFullYear())

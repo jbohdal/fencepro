@@ -17,6 +17,7 @@ import {
 import { autoCaption } from './autoCaption'
 import { fetchCurrentUser } from './crmAuth'
 import type { YardLayout } from './yardLayout'
+import { useBackLayer } from './nav'
 
 export type Where = { quoteKey?: string; jobId?: string; customerId?: string }
 
@@ -237,6 +238,7 @@ function MediaViewer({ item, layout, me, onClose, onChange, onPin, onMarkup, onF
   onFrame: (blob: Blob) => Promise<string>
   onDelete: () => void
 }) {
+  useBackLayer(onClose, { key: 'media-viewer' })
   const [caption, setCaption] = useState(item.caption)
   const [showOriginal, setShowOriginal] = useState(false)
   const [markup, setMarkup] = useState<string | null>(null)

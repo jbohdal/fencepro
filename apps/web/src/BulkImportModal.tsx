@@ -8,6 +8,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { parseFile, autoMapColumns, INVENTORY_FIELDS, getImportTemplates, saveImportTemplate, saveImportLogEntry, getImportLog, type ParsedSheet, type ColumnMappingTemplate, type ImportLogEntry } from './csvParser'
 import { getInventory, saveInventory, type InventoryItem } from './inventoryStore'
+import { useBackLayer } from './nav'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -21,6 +22,7 @@ interface ImportResult {
 }
 
 export default function BulkImportModal({ onClose, onComplete }: { onClose: () => void; onComplete: () => void }) {
+  useBackLayer(onClose, { key: 'bulk-import-modal' })
   const [step, setStep] = useState<Step>('upload')
   const [sheet, setSheet] = useState<ParsedSheet | null>(null)
   const [mapping, setMapping] = useState<Record<string, string>>({})

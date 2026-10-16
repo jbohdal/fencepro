@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { cloudStorage } from './cloudStorage'
+import { useBackLayer } from './nav'
 
 /* ───────── types ───────── */
 
@@ -69,6 +70,7 @@ export function QuickChangeOrderModal({
   onSave: (co: ChangeOrder) => void
   onClose: () => void
 }) {
+  useBackLayer(onClose, { key: 'quick-change-order-modal' })
   const [items, setItems] = useState<ChangeOrderItem[]>([
     { id: uid(), description: '', amount: 0, type: 'ADD' },
   ])

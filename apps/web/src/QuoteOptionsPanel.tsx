@@ -12,6 +12,7 @@ import {
 import { calculateBundleOption } from './bundleEngine'
 import { fireTrigger } from './automationTrigger'
 import type { QuotePricingOverrides } from './pricingEngine'
+import { useBackLayer } from './nav'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -244,6 +245,7 @@ function OptionEditCard({ option, onAdjustPrice, onToggleRecommended, onDelete }
 // ── Customer Presentation Modal ──
 
 export function CustomerPresentationModal({ quoteId, onClose }: { quoteId: string; onClose: () => void }) {
+  useBackLayer(onClose, { key: 'customer-presentation-modal' })
   const options = useMemo(() => getOptionsForQuote(quoteId), [quoteId])
   return (
     <div className="fixed inset-0 z-50 bg-gray-900 flex flex-col">

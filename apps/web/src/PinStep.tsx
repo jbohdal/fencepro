@@ -13,6 +13,7 @@ import { aerialUrl, aerialFtPerPx, AERIAL_PX } from './sitePlanGeometry'
 import { deriveLayout, type YardLayout, type PlanPoint } from './yardLayout'
 import { feetFrom, watchHeading, askForCompass } from './sensors'
 import type { MediaPin } from './mediaStore'
+import { useBackLayer } from './nav'
 
 /** Which way a compass heading points on this plan (0 = up the page), or null. */
 export function planAngle(layout: YardLayout, heading: number | null | undefined): number | null {
@@ -33,6 +34,7 @@ export default function PinStep({ layout, onLayout, count, gps, heading, existin
   onPin: (pin: MediaPin) => void
   onSkip: () => void
 }) {
+  useBackLayer(onSkip, { key: 'pin-step' })
   const aerial = layout.plan?.aerial
   const suggested = aerial && gps ? feetFrom(aerial, gps) : null
   const [spot, setSpot] = useState<PlanPoint | null>(suggested)

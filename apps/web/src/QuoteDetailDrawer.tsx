@@ -20,6 +20,7 @@ import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import RunSpacingTable from './RunSpacingTable'
 import ProposalSend from './ProposalSend'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
+import { useBackLayer, BackClose } from './nav'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -48,6 +49,8 @@ export default function QuoteDetailDrawer({
   internalView?: boolean
 }) {
   const [sendOpen, setSendOpen] = useState(false)
+  // Its own address (?qv=<quote>): Back closes it, a reload reopens it.
+  useBackLayer(onClose, { key: 'qv', params: { qv: quote.id } })
   const status = STATUS_STYLES[quote.status]
   const totalFootage = useMemo(() => (quote.runs || []).reduce((a, b) => a + b, 0), [quote.runs])
   const options = useMemo(() => getOptionsForQuote(quote.id), [quote.id])
@@ -238,6 +241,7 @@ export default function QuoteDetailDrawer({
           )}
         </div>
 
+        {sendOpen && <BackClose name="send-quote" onClose={() => setSendOpen(false)} />}
         {sendOpen && (
           <SendQuoteModal quote={quote} onClose={() => setSendOpen(false)}
             onSent={() => { setSendOpen(false); onChange?.() }} />
@@ -280,6 +284,7 @@ function TemplatePicker({ quote, onChange }: { quote: SavedQuote & QuotePresenta
         </button>
       </div>
 
+      {previewOpen && <BackClose name="quote-preview" onClose={() => setPreviewOpen(false)} />}
       {previewOpen && (
         <div className="fixed inset-0 z-[60] bg-black/70 flex flex-col" onClick={() => setPreviewOpen(false)}>
           <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200" onClick={e => e.stopPropagation()}>

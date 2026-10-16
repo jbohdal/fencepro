@@ -8,6 +8,7 @@ import {
 } from './scheduleStore'
 import { cloudStorage } from './cloudStorage'
 import { useMergedRefresh } from './useMergedRefresh'
+import { useBackLayer, BackClose } from './nav'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -161,6 +162,7 @@ function SettingsModal({
   onSave: (s: ScheduleSettings) => void
   onClose: () => void
 }) {
+  useBackLayer(onClose, { key: 'settings-modal' })
   const [workDays, setWorkDays] = useState<number[]>([...settings.workDays])
   const [crews, setCrews]       = useState<Crew[]>([...settings.crews])
 
@@ -629,6 +631,7 @@ export default function SchedulePage() {
       </div>
 
       {/* Rain Day Modal with Cascade */}
+      {rainDayJob && <BackClose name="rain-day" onClose={() => setRainDayJob(null)} />}
       {rainDayJob && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[560px] max-h-[85vh] overflow-y-auto p-4 lg:p-6 mx-4 lg:mx-0 space-y-4 modal-responsive">

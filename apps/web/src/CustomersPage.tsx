@@ -32,6 +32,7 @@ import {
   type CrmContactNoteRecord,
 } from './crmContactsApi'
 import { cloudStorage } from './cloudStorage'
+import { navigate, goBack, useNav, useScreenMemory, takeOpenedParam, openedFrom, BackClose, useBackLayer } from './nav'
 
 interface Customer {
   id: string
@@ -448,6 +449,7 @@ function CustomerBillingTab({ customerId, customerName, customerEmail }: { custo
 }
 
 function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { customerId: string; customerName: string; onClose: () => void; onCreated: () => void }) {
+  useBackLayer(onClose, { key: 'create-invoice-modal' })
   const [title, setTitle] = useState('')
   const [invoiceNumber] = useState(nextInvoiceNumber())
   const [dueDate, setDueDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0, 10) })
@@ -518,6 +520,7 @@ function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { 
 }
 
 function RecordPaymentModal({ invoiceId, customerId, customerName, onClose, onRecorded }: { invoiceId: string; customerId: string; customerName: string; onClose: () => void; onRecorded: () => void }) {
+  useBackLayer(onClose, { key: 'record-payment-modal' })
   const inv = getInvoicesForCustomer(customerId).find(i => i.id === invoiceId)
   const [amount, setAmount] = useState(inv ? inv.balanceDueCents / 100 : 0)
   const [method, setMethod] = useState<string>('check')
@@ -863,7 +866,10 @@ function CustomerDetail({
   initialTab?: string | null
   onTabConsumed?: () => void
 }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'appointments' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files' | 'photos' | 'messages'>('overview')
+  type Tab = 'overview' | 'appointments' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files' | 'photos' | 'messages'
+  // Back to this customer comes back to the tab that was open.
+  const rememberedTab = useScreenMemory<{ id: string; tab: Tab }>('customer-tab', (): { id: string; tab: Tab } => ({ id: customer.id, tab: activeTab }))
+  const [activeTab, setActiveTab] = useState<Tab>(rememberedTab?.id === customer.id ? rememberedTab.tab : 'overview')
 
   useEffect(() => {
     if (initialTab && ['overview','appointments','quotes','jobs','costing','billing','notes','pullsheets','files','photos','messages'].includes(initialTab)) {
@@ -950,7 +956,7 @@ function CustomerDetail({
           {(['overview', 'appointments', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files', 'photos', 'messages'] as const).map(t => (
             <button
               key={t}
-              onClick={() => setActiveTab(t)}
+              onClick={() => setActiveTab(t)} data-customer-tab={t}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-all whitespace-nowrap shrink-0 ${activeTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
             >
               {t}
@@ -1166,13 +1172,8 @@ function CustomerDetail({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function CustomersPage({ onNewQuote, openCustomerId, onBack, backLabel }: {
+export default function CustomersPage({ onNewQuote }: {
   onNewQuote?: (customer?: Customer) => void
-  /** Open straight on this customer (used when arriving from a pipeline card). */
-  openCustomerId?: string | null
-  /** When set, a back button returns to where the user came from. */
-  onBack?: () => void
-  backLabel?: string
 }) {
   const [importedQuotes, setImportedQuotes] = useState<ImportedQuote[]>(() => {
     try {
@@ -1233,25 +1234,36 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
       return raw ? JSON.parse(raw) : []
     } catch { return [] }
   })
-  const [selectedId, setSelectedId] = useState<string | null>(openCustomerId ?? null)
-  const [mode, setMode] = useState<'view' | 'new' | 'edit'>('view')
-  const [search, setSearch] = useState('')
+  // The customer on screen is in the address: /customers/<id>, /customers/new.
+  const nav = useNav()
+  const routeId = (() => { const seg = nav.path.split('/'); return seg[1] === 'customers' && seg[2] ? decodeURIComponent(seg[2]) : null })()
+  const selectedId = routeId === 'new' ? null : routeId
+  const [editing, setEditing] = useState(false)
+  const mode: 'view' | 'new' | 'edit' = routeId === 'new' ? 'new' : editing && selectedId ? 'edit' : 'view'
+  useEffect(() => { setEditing(false) }, [selectedId])
+  const select = (id: string | null) => navigate(id ? `/customers/${encodeURIComponent(id)}` : '/customers')
+  const remembered = useScreenMemory<{ search: string }>('customers', (): { search: string } => ({ search }))
+  const [search, setSearch] = useState<string>(remembered?.search ?? '')
   const [drawerQuote, setDrawerQuote] = useState<SavedQuote | null>(null)
   const [viewerFile, setViewerFile] = useState<CustomerFile | null>(null)
   const [forcedTab, setForcedTab] = useState<string | null>(null)
 
+  // A quote named in the address (?qv=<id>) opens: a reload, a link, or Back onto it.
   useEffect(() => {
-    if (openCustomerId) { setSelectedId(openCustomerId); setMode('view') }
-  }, [openCustomerId])
+    const qv = nav.params.get('qv') ?? takeOpenedParam('qv')
+    if (!qv || drawerQuote?.id === qv) return
+    const full = getQuotes().find(q => q.id === qv)
+    if (full) setDrawerQuote(full as SavedQuote)
+  }, [nav])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     function onSelect(e: any) {
       const id = e?.detail?.customerId
       const tab = e?.detail?.tab
-      if (e?.detail?.newCustomer) { setSelectedId(null); setMode('new'); return }
+      if (e?.detail?.newCustomer) { navigate('/customers/new'); return }
       if (typeof id === 'string') {
-        setSelectedId(id)
-        setMode('view')
+        if (!window.location.pathname.startsWith(`/customers/${encodeURIComponent(id)}`)) navigate(`/customers/${encodeURIComponent(id)}`)
+        setEditing(false)
         if (typeof tab === 'string') setForcedTab(tab)
       }
     }
@@ -1284,8 +1296,9 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
       // For new customers the store also seeds the pipeline + fires the
       // customer_created automation, so we skip those here on the new path.
       const { customer } = upsertCustomer(c)
-      setSelectedId(customer.id)
-      setMode('view')
+      // A new customer takes the place of the "new customer" screen in the history.
+      if (isNew) navigate(`/customers/${encodeURIComponent(customer.id)}`, { replace: true })
+      setEditing(false)
       if (isNew && bookEstimate) openBooking({ customerId: customer.id, type: 'estimate' })
 
       if (isNew) {
@@ -1307,7 +1320,7 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
     const name = c ? `${c.firstName} ${c.lastName}`.trim() : 'this customer'
     if (!confirm(`Delete ${name}?\n\nTheir customer record is removed. This cannot be undone from here.`)) return
     storeDeleteCustomer(id)
-    if (selectedId === id) { setSelectedId(null); setMode('view') }
+    if (selectedId === id) navigate('/customers', { replace: true })
   }
 
   function handleCSVImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1484,7 +1497,7 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
         <div className="px-4 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-gray-900">Customers</h2>
-            <button onClick={() => { setSelectedId(null); setMode('new') }} className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">+ New customer</button>
+            <button onClick={() => navigate('/customers/new')} className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">+ New customer</button>
           </div>
           <input
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
@@ -1508,7 +1521,7 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
             return (
               <div
                 key={c.id}
-                onClick={() => { setSelectedId(c.id); setMode('view') }}
+                onClick={() => { if (c.id !== selectedId) select(c.id) }}
                 className={`w-full text-left px-4 py-3.5 hover:bg-gray-50 transition-colors group relative cursor-pointer ${isSelected ? 'bg-orange-50 border-r-2 border-orange-500' : ''}`}
               >
                 <div className="flex items-center gap-3">
@@ -1542,18 +1555,19 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
       {/* Detail pane: hidden on <lg unless something is selected. The mobile
           back button below the lg breakpoint takes the user back to the list. */}
       <div className={`${detailVisible ? 'flex' : 'hidden lg:flex'} flex-col flex-1 min-w-0`}>
-        {onBack && (
+        {openedFrom() && detailVisible && (
           <button
-            onClick={onBack}
+            onClick={() => goBack('/customers')}
             className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 text-sm font-semibold text-orange-600 hover:bg-orange-50"
+            data-back-to={openedFrom()}
           >
             <span aria-hidden>←</span>
-            <span>{backLabel || 'Back'}</span>
+            <span>Back to {openedFrom() === 'Sales Pipeline' ? 'pipeline' : openedFrom()!.toLowerCase()}</span>
           </button>
         )}
-        {detailVisible && !onBack && (
+        {detailVisible && !openedFrom() && (
           <button
-            onClick={() => { setSelectedId(null); setMode('view') }}
+            onClick={() => goBack('/customers')}
             className="lg:hidden flex items-center gap-2 px-4 py-3 border-b border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
             aria-label="Back to customers list"
           >
@@ -1561,9 +1575,10 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
             <span>Back to customers</span>
           </button>
         )}
-        {mode === 'new' && <CustomerForm onSave={handleSave} onCancel={() => setMode('view')} />}
-        {mode === 'edit' && selected && <CustomerForm initial={selected} onSave={handleSave} onCancel={() => setMode('view')} />}
-        {mode === 'view' && !selected && <EmptyState onNew={() => setMode('new')} />}
+        {mode === 'new' && <CustomerForm onSave={handleSave} onCancel={() => goBack('/customers')} />}
+        {mode === 'edit' && selected && <BackClose name="edit-customer" onClose={() => setEditing(false)} />}
+        {mode === 'edit' && selected && <CustomerForm initial={selected} onSave={handleSave} onCancel={() => setEditing(false)} />}
+        {mode === 'view' && !selected && <EmptyState onNew={() => navigate('/customers/new')} />}
         {mode === 'view' && selected && (
           <CustomerDetail
             customer={selected}
@@ -1571,7 +1586,7 @@ export default function CustomersPage({ onNewQuote, openCustomerId, onBack, back
             importedQuotes={customerImportedQuotes}
             jobs={customerJobs}
             files={customerFiles}
-            onEdit={() => setMode('edit')}
+            onEdit={() => setEditing(true)}
             onNewQuote={(c) => onNewQuote?.(c)}
             onDelete={handleDelete}
             onDeleteFile={id => setFiles(prev => {

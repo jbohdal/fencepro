@@ -16,6 +16,7 @@ import {
   type PortalPhotoRow,
 } from './portalApiClient'
 import { cloudStorage } from './cloudStorage'
+import { useBackLayer } from './nav'
 
 const ACCEPTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif']
 const ACCEPT_ATTR = 'image/jpeg,image/png,image/webp,image/heic,image/heif,image/gif'
@@ -262,6 +263,7 @@ function PhotoCard({ photo, onOpen, onDelete, onDownload }: {
 function Lightbox({ photos, index, onClose, onPrev, onNext }: {
   photos: PortalPhotoRow[]; index: number; onClose: () => void; onPrev: () => void; onNext: () => void;
 }) {
+  useBackLayer(onClose, { key: 'lightbox' })
   const p = photos[index]
   const src = resolveFileUrl(p.fileUrl)
   useEffect(() => {

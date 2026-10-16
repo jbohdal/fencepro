@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Undo2, Redo2, X } from 'lucide-react'
+import { useBackLayer } from './nav'
 
 type Tool = 'arrow' | 'line' | 'circle' | 'box' | 'pen' | 'text' | 'measure'
 interface Pt { x: number; y: number }
@@ -17,6 +18,7 @@ const COLORS: Array<[string, string]> = [['#5E28A1', 'Purple'], ['#DC2626', 'Red
 const TOOLS: Array<[Tool, string]> = [['arrow', 'Arrow'], ['line', 'Line'], ['circle', 'Circle'], ['box', 'Box'], ['pen', 'Draw'], ['text', 'Text'], ['measure', 'Measure']]
 
 export default function MarkupEditor({ src, onSave, onClose }: { src: string; onSave: (blob: Blob) => Promise<void> | void; onClose: () => void }) {
+  useBackLayer(onClose, { key: 'markup-editor' })
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [img, setImg] = useState<HTMLImageElement | null>(null)

@@ -22,8 +22,13 @@ self.addEventListener('fetch', e => {
     e.respondWith(caches.open(CACHE).then(async c => (await c.match(req)) || fetch(req).then(r => { if (r.ok) c.put(req, r.clone()); return r })))
     return
   }
-  // The app page: the network first, the saved copy when there is no signal.
-  if (req.mode === 'navigate' && url.pathname === '/') {
-    e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put('/', copy)); return r }).catch(() => caches.match('/')))
+  // The app page, at any of its screens' addresses (/customers/<id>, ...): the
+  // network first, the saved copy when there is no signal. Public pages under
+  // /p/ are the server's own and are never answered from here.
+  if (req.mode === 'navigate' && !url.pathname.startsWith('/p/')) {
+    e.respondWith(fetch(req).then(r => {
+      if (r.ok && url.pathname === '/') { const copy = r.clone(); caches.open(CACHE).then(c => c.put('/', copy)) }
+      return r
+    }).catch(() => caches.match('/')))
   }
 })

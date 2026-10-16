@@ -10,6 +10,7 @@ import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import { getQuotes, updateQuote } from './quoteStore'
 import { averageMargin } from './quoteStats'
+import { useBackLayer, BackClose, useScreenMemory, useNav, takeOpenedParam } from './nav'
 
 export interface SavedQuote {
   id: string
@@ -296,6 +297,7 @@ function QuoteDrawer({
   onStatusChange: (id: string, status: SavedQuote['status']) => void
   onTempChange: (id: string, temp: number) => void
 }) {
+  useBackLayer(onClose, { key: 'quote-drawer' })
   return (
     <div className="fixed inset-0 z-40 flex">
       <div className="flex-1 bg-black/30" onClick={onClose} />
@@ -465,10 +467,21 @@ export default function QuotesPage({
   onOpenQuote: (q: SavedQuote) => void
   onNewQuote: () => void
 }) {
-  const [search, setSearch]             = useState('')
-  const [statusFilter, setStatusFilter] = useState('All')
-  const [categoryFilter, setCategoryFilter] = useState('All')
+  // Filters come back when Back returns to this list.
+  type Memory = { search: string; statusFilter: string; categoryFilter: string }
+  const remembered = useScreenMemory<Memory>('quotes', (): Memory => ({ search, statusFilter, categoryFilter }))
+  const [search, setSearch]             = useState<string>(remembered?.search ?? '')
+  const [statusFilter, setStatusFilter] = useState<string>(remembered?.statusFilter ?? 'All')
+  const [categoryFilter, setCategoryFilter] = useState<string>(remembered?.categoryFilter ?? 'All')
   const [selectedQuote, setSelectedQuote] = useState<SavedQuote | null>(null)
+  // A quote named in the address (?qv=<id>) opens: a reload, a link, or Back onto it.
+  const nav = useNav()
+  useEffect(() => {
+    const qv = nav.params.get('qv') ?? takeOpenedParam('qv')
+    if (!qv || selectedQuote?.id === qv) return
+    const q = getQuotes().find(x => x.id === qv)
+    if (q) setSelectedQuote(q as SavedQuote)
+  }, [nav])  // eslint-disable-line react-hooks/exhaustive-deps
   const [pullConfirm, setPullConfirm]   = useState<SavedQuote | null>(null)
   const [pullLocationId, setPullLocationId] = useState('')
   const [pullResult, setPullResult]     = useState<string | null>(null)
@@ -645,6 +658,7 @@ export default function QuotesPage({
       )}
 
       {/* Pull from inventory confirmation */}
+      {pullConfirm && <BackClose name="pull-confirm" onClose={() => setPullConfirm(null)} />}
       {pullConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setPullConfirm(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-[440px] overflow-hidden modal-responsive" onClick={e => e.stopPropagation()}>

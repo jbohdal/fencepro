@@ -12,6 +12,7 @@ import {
 } from './financeStore'
 import { getInvoices } from './billingStore'
 import { getBills } from './vendorStore'
+import { useBackLayer } from './nav'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -226,6 +227,7 @@ function BsRow({ label, amount, bold, autoLabel }: { label: string; amount: numb
 // ── Editor modal ──
 
 function BalanceSheetEditor({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  useBackLayer(onClose, { key: 'balance-sheet-editor' })
   const [entries, setEntries] = useState<BalanceSheetEntry[]>(() => getBsEntries())
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<BalanceSheetEntry | null>(null)
@@ -289,6 +291,7 @@ function BalanceSheetEditor({ onClose, onSaved }: { onClose: () => void; onSaved
 }
 
 function BsEntryForm({ initial, onCancel, onSaved }: { initial: BalanceSheetEntry | null; onCancel: () => void; onSaved: () => void }) {
+  useBackLayer(onCancel, { key: 'bs-entry-form' })
   const [asOfDate, setAsOfDate] = useState(initial?.asOfDate ?? new Date().toISOString().slice(0, 10))
   const [category, setCategory] = useState<BalanceSheetCategory>(initial?.category ?? 'current_asset')
   const [label, setLabel] = useState(initial?.label ?? '')

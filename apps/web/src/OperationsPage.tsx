@@ -12,6 +12,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { getJobs, updateJob, advanceJob, holdJob, unholdJob, type Job, type JobStatus } from './jobStore'
 import { fireOpsStageChange } from './automationTrigger'
 import { onJobCompleted } from './jobCompleteFlow'
+import { useBackLayer } from './nav'
 
 // ── Unified operations stages ──
 
@@ -591,6 +592,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   onMoveStage: (stage: string) => void
   onUpdate: (updates: Partial<Job>) => void
 }) {
+  // Its own address (?job=<id>): Back closes it, a reload reopens it.
+  useBackLayer(onClose, { key: 'job', params: { job: job.id } })
   const stage = OPS_STAGES.find(s => s.key === job.opsStage)
   const isJobSource = job.source === 'job'
 

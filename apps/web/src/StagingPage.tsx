@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import type { SavedQuote } from './QuotesPage'
 import { getQuotes } from './quoteStore'
 import { cloudStorage } from './cloudStorage'
+import { useBackLayer } from './nav'
 
 export interface StagingJob {
   id: string
@@ -82,6 +83,7 @@ function JobDrawer({
   onUpdate: (job: StagingJob) => void
   onDelete: (id: string) => void
 }) {
+  useBackLayer(onClose, { key: 'job-drawer' })
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<StagingJob>({ ...job })
   const colors = STATUS_COLORS[job.status] ?? { bg: 'bg-gray-50', text: 'text-gray-700', dot: 'bg-gray-400' }
@@ -233,6 +235,7 @@ function PushQuoteModal({
   onPush: (job: StagingJob) => void
   existingJobIds: Set<string>
 }) {
+  useBackLayer(onClose, { key: 'push-quote-modal' })
   const soldQuotes = loadSoldQuotes().filter(q => !existingJobIds.has(q.id))
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<SavedQuote | null>(null)
