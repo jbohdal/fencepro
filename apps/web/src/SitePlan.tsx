@@ -23,7 +23,10 @@ export interface AerialBackdrop {
   sizePx: number
 }
 
-export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title }: {
+/** A photo pin on the plan: where it was taken and which way it faced (degrees, 0 = up the page). */
+export interface PlanPin { id: string; x: number; y: number; angle?: number | null; count?: number; highlight?: boolean }
+
+export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title, pins, onPinTap, onPlanTap }: {
   layout: YardLayout
   result?: LayoutResult
   runSections?: number[]
@@ -33,6 +36,10 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   aerial?: AerialBackdrop | null
   onPointsChange?: (points: PlanPoint[]) => void
   title?: string
+  pins?: PlanPin[]
+  onPinTap?: (id: string) => void
+  /** Tapping the plan (not a side) gives the spot in plan feet: "where were you standing?" */
+  onPlanTap?: (pt: PlanPoint) => void
 }) {
   const plan = useMemo(() => buildPlan(layout, result, runSections, widthFt), [layout, result, runSections, widthFt])
   const svgRef = useRef<SVGSVGElement | null>(null)
@@ -41,11 +48,14 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   // Feet → screen.
   const pad = 64
   let W: number, H: number, toX: (x: number) => number, toY: (y: number) => number, ftPerPx: number
+  let fromX: (sx: number) => number, fromY: (sy: number) => number
   if (aerial) {
     W = H = aerial.sizePx
     ftPerPx = aerial.ftPerPx
     toX = x => W / 2 + x / ftPerPx
     toY = y => H / 2 - y / ftPerPx
+    fromX = sx => (sx - W / 2) * ftPerPx
+    fromY = sy => (H / 2 - sy) * ftPerPx
   } else {
     const b = plan.bounds
     const bw = Math.max(b.maxX - b.minX, 10), bh = Math.max(b.maxY - b.minY, 10)
@@ -56,6 +66,8 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     const offX = (W - bw * s) / 2, offY = pad
     toX = x => offX + (x - b.minX) * s
     toY = y => offY + (b.maxY - y) * s
+    fromX = sx => (sx - offX) / s + b.minX
+    fromY = sy => b.maxY - (sy - offY) / s
   }
   const P = (p: PlanPoint) => `${toX(p.x).toFixed(1)},${toY(p.y).toFixed(1)}`
 
@@ -65,6 +77,13 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     const m = svg.getScreenCTM()!.inverse()
     const q = pt.matrixTransform(m)
     return { x: (q.x - W / 2) * ftPerPx, y: (H / 2 - q.y) * ftPerPx }
+  }
+  function planTap(e: React.MouseEvent) {
+    if (!onPlanTap || drag.current) return
+    const svg = svgRef.current!
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
+    const q = pt.matrixTransform(svg.getScreenCTM()!.inverse())
+    onPlanTap({ x: fromX(q.x), y: fromY(q.y) })
   }
   function startDrag(e: React.PointerEvent, index: number | 'all') {
     if (!onPointsChange) return
@@ -85,7 +104,8 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none touch-none bg-white rounded-xl border border-gray-200"
-      role="img" aria-label={title ?? 'Site plan'} data-site-plan onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
+      role="img" aria-label={title ?? 'Site plan'} data-site-plan onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
+      onClick={onPlanTap ? planTap : undefined} style={onPlanTap ? { cursor: 'crosshair' } : undefined}>
       {aerial && <image href={aerial.href} x={0} y={0} width={W} height={H} preserveAspectRatio="none" opacity={0.9} />}
 
       {plan.house && !aerial && (
@@ -139,6 +159,30 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
         if (p.kind === 'line') return <circle key={i} cx={x} cy={y} r={3.2} fill="white" stroke={PURPLE} strokeWidth={1.8} />
         return <circle key={i} cx={x} cy={y} r={5.5} fill={p.kind === 'gate' ? INK : PURPLE} stroke="white" strokeWidth={1.5} />
       })}
+
+      {pins?.map(pn => {
+        const x = toX(pn.x), y = toY(pn.y)
+        const hasDir = typeof pn.angle === 'number' && Number.isFinite(pn.angle)
+        const r = ((pn.angle ?? 0) * Math.PI) / 180
+        const tip = { x: x + Math.sin(r) * 22, y: y - Math.cos(r) * 22 }
+        const side = (d: number) => ({ x: x + Math.sin(r + d) * 9, y: y - Math.cos(r + d) * 9 })
+        const color = pn.highlight ? '#B45309' : INK
+        return (
+          <g key={pn.id} onClick={e => { if (onPinTap) { e.stopPropagation(); onPinTap(pn.id) } }} style={onPinTap ? { cursor: 'pointer' } : undefined} data-plan-pin={pn.id}>
+            {hasDir && <polygon points={`${tip.x},${tip.y} ${side(Math.PI / 2).x},${side(Math.PI / 2).y} ${side(-Math.PI / 2).x},${side(-Math.PI / 2).y}`} fill={color} opacity={0.85} />}
+            <circle cx={x} cy={y} r={9} fill={color} stroke="white" strokeWidth={2} />
+            {(pn.count ?? 1) > 1 && <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fontWeight={700} fill="white">{pn.count}</text>}
+            {onPinTap && <circle cx={x} cy={y} r={22} fill="transparent" />}
+          </g>
+        )
+      })}
+
+      {aerial && (
+        <g aria-label="North">
+          <path d={`M${W - 28},${44} l8,-22 l8,22 l-8,-6 z`} fill={INK} stroke="white" strokeWidth={1.5} />
+          <text x={W - 20} y={60} textAnchor="middle" fontSize={12} fontWeight={700} fill={INK} style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3}>N</text>
+        </g>
+      )}
 
       {aerial && onPointsChange && (
         <g>

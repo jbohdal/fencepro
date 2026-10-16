@@ -1,3 +1,4 @@
+import UploadBadge from './UploadBadge'
 import { useState, useMemo, useRef, useEffect, Fragment, lazy, Suspense } from 'react'
 import QuoteBuilder from './QuoteBuilder'
 import { Banknote, BarChart3, Boxes, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
@@ -888,6 +889,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { customerId, tab: 'messages' } })) } catch {}
               }, 50)
             }} />
+            <UploadBadge />
             <NotificationBell />
             {/* Command search */}
             <button

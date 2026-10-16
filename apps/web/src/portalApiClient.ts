@@ -70,6 +70,19 @@ export async function listPortalPhotos(): Promise<PortalPhotoRow[]> {
   } catch { return [] }
 }
 
+export interface PortalMediaRow { id: string; kind: 'photo' | 'video'; caption: string; category: string; takenAt: string; url: string; originalUrl: string; previewUrl: string | null; thumbUrl: string | null }
+
+/** Photos and video the company shared with this customer (marked Customer). */
+export async function listPortalMedia(): Promise<PortalMediaRow[]> {
+  try {
+    const res = await fetch(`${apiBase()}/api/portal/media`, { headers: portalAuthHeaders() })
+    const json = await res.json()
+    if (!json.success) return []
+    const base = apiBase()
+    return (json.data as PortalMediaRow[]).map(m => ({ ...m, url: base + m.url, originalUrl: base + m.originalUrl, previewUrl: m.previewUrl && base + m.previewUrl, thumbUrl: m.thumbUrl && base + m.thumbUrl }))
+  } catch { return [] }
+}
+
 export async function deletePortalPhoto(id: string): Promise<boolean> {
   try {
     const res = await fetch(`${apiBase()}/api/portal/photos/${id}`, {

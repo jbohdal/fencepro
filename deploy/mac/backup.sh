@@ -1,6 +1,13 @@
 #!/bin/bash
 # Nightly backup for the Mac install: the ezbiz database and the uploads
-# folder, kept for 14 days. Run by the com.ezbiz.backup launch agent.
+# folder (photos, video, files), kept for 14 days. Run by the
+# com.ezbiz.backup launch agent.
+#
+# Uploads are kept as daily snapshots made with rsync --link-dest: each night
+# copies only what is new, and a photo or video that has not changed is a hard
+# link to the same file, so 14 days of snapshots cost about one copy of the
+# folder plus what changed. Each snapshot folder is a complete copy to restore
+# from.
 #
 #   EZBIZ_BACKUP_DIR        where backups go            (default ~/ezbiz-backups)
 #   EZBIZ_BACKUP_COPY_DIR   optional second copy, for example an external
@@ -22,7 +29,7 @@ mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 
 db_file="$BACKUP_DIR/ezbiz-db_$stamp.dump"
-up_file="$BACKUP_DIR/ezbiz-uploads_$stamp.tar.gz"
+snap_root="$BACKUP_DIR/uploads-snapshots"
 
 # Write to a .part name first, so a backup that was cut short never looks whole.
 "$PG_BIN/pg_dump" --format=custom --no-owner --dbname="$DB_NAME" --file="$db_file.part"
@@ -31,10 +38,17 @@ up_file="$BACKUP_DIR/ezbiz-uploads_$stamp.tar.gz"
 mv "$db_file.part" "$db_file"
 say "database: $db_file ($(du -h "$db_file" | cut -f1))"
 
+snap=""
 if [ -d "$UPLOADS_DIR" ]; then
-  tar -czf "$up_file.part" -C "$(dirname "$UPLOADS_DIR")" "$(basename "$UPLOADS_DIR")"
-  mv "$up_file.part" "$up_file"
-  say "uploads:  $up_file ($(du -h "$up_file" | cut -f1))"
+  mkdir -p "$snap_root"
+  snap="$snap_root/$stamp"
+  link=()
+  if [ -d "$snap_root/latest" ]; then link=(--link-dest="$snap_root/latest/"); fi
+  # Leave out uploads still arriving from a phone; they are whole once finished.
+  rsync -a --exclude 'media/incoming/' ${link[@]+"${link[@]}"} "$UPLOADS_DIR/" "$snap.part/"
+  mv "$snap.part" "$snap"
+  ln -sfn "$snap" "$snap_root/latest"
+  say "uploads:  $snap ($(du -sh "$snap" | cut -f1) as a folder; new space used today: $(du -sh "$snap_root" | cut -f1) for all snapshots)"
 else
   say "uploads:  no folder at $UPLOADS_DIR, skipped"
 fi
@@ -42,7 +56,8 @@ fi
 if [ -n "$COPY_DIR" ]; then
   if [ -d "$COPY_DIR" ]; then
     cp -p "$db_file" "$COPY_DIR/"
-    if [ -f "$up_file" ]; then cp -p "$up_file" "$COPY_DIR/"; fi
+    # Uploads: kept the same as tonight's snapshot (new and changed files only).
+    if [ -n "$snap" ]; then rsync -a "$snap/" "$COPY_DIR/ezbiz-uploads/"; fi
     find "$COPY_DIR" -maxdepth 1 -type f -name 'ezbiz-*' -mtime +"$KEEP_DAYS" -delete
     say "copy:     $COPY_DIR"
   else
@@ -52,4 +67,8 @@ fi
 
 # Only this script's own files, only in the backup folder.
 find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'ezbiz-db_*.dump' -o -name 'ezbiz-uploads_*.tar.gz' -o -name '*.part' \) -mtime +"$KEEP_DAYS" -delete
+if [ -d "$snap_root" ]; then
+  find "$snap_root" -mindepth 1 -maxdepth 1 -type d -name '20*' -mtime +"$KEEP_DAYS" -exec rm -rf {} +
+  find "$snap_root" -mindepth 1 -maxdepth 1 -type d -name '*.part' -exec rm -rf {} +
+fi
 say "done. $(find "$BACKUP_DIR" -maxdepth 1 -name 'ezbiz-db_*.dump' | wc -l | tr -d ' ') database backups on hand."

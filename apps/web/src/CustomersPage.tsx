@@ -1,3 +1,4 @@
+import MediaGallery from './MediaGallery'
 import { useState, useCallback, useEffect } from 'react'
 import { getConfig } from './configStore'
 import { Phone, MessageSquare, Navigation } from 'lucide-react'
@@ -1136,7 +1137,13 @@ function CustomerDetail({
         )}
 
         {activeTab === 'photos' && (
-          <CustomerPhotosTab customerId={customer.id} uploadedBy="user" />
+          <div className="space-y-6">
+            <MediaGallery where={{ customerId: customer.id }} defaultCategory="Site walk" title="Photos and video" />
+            <div>
+              <p className="text-sm font-semibold text-gray-900 mb-2">Customer uploads and older photos</p>
+              <CustomerPhotosTab customerId={customer.id} uploadedBy="user" />
+            </div>
+          </div>
         )}
 
         {activeTab === 'files' && (

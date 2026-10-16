@@ -194,8 +194,14 @@ async function phone(browser) {
   // A customer with nothing booked, from the Appointment column first.
   const free = l => l.customerId && !list.some(a => a.crmContactId === l.customerId && a.startAt)
   const card = pipeline.leads.find(l => l.stage === 'Appointment' && free(l))
-  // Booked for later today, as the next thing on the Today screen.
-  const start = new Date(Date.now() + 20 * 60_000)
+  // Today leads with the first appointment still open, so earlier ones are
+  // closed out first (on the test copy), then this one is booked a few
+  // minutes from now: the next thing on the Today screen at any hour.
+  const start = new Date(Date.now() + 3 * 60_000)
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0)
+  for (const a of list.filter(a => a.startAt && new Date(a.startAt) >= dayStart && new Date(a.startAt) < start && ['scheduled', 'confirmed', 'on_my_way', 'rescheduled'].includes(a.status))) {
+    await api(`/api/appointments/${a.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'no_show', baseVersion: a.version }) })
+  }
   const made = await api('/api/appointments', { method: 'POST', body: JSON.stringify({ crmContactId: card.customerId, type: 'estimate', assignedTo: 'Jonathan Bohdal', startAt: start.toISOString(), endAt: new Date(start.getTime() + 3_600_000).toISOString(), notes: 'Gate code 1234 (test)' }) })
   const s = await open(browser, true)
   await nav(s, 'Today')

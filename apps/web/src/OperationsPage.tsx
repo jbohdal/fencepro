@@ -5,6 +5,8 @@
  * Kanban board + list view with full detail panel.
  */
 
+import MediaGallery, { type ShownMedia } from './MediaGallery'
+import { getQuotes } from './quoteStore'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { getJobs, updateJob, advanceJob, holdJob, unholdJob, type Job, type JobStatus } from './jobStore'
 import { fireOpsStageChange } from './automationTrigger'
@@ -635,6 +637,12 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           </div>
         </Section>
 
+        {isJobSource && (
+          <Section title="Photos and video">
+            <JobMedia job={job} />
+          </Section>
+        )}
+
         {/* Readiness Checklist */}
         <Section title="Milestone Checklist">
           {isJobSource ? <MilestoneChecklist jobId={job.id} /> : <p className="text-xs text-gray-400">Only available for Job records.</p>}
@@ -814,5 +822,14 @@ function MilestoneChecklist({ jobId }: { jobId: string }) {
         </label>
       ))}
     </div>
+  )
+}
+
+/** A job's photos and video, with pins on its quote's site plan. */
+function JobMedia({ job }: { job: UnifiedJob }) {
+  const quote = job.rawJob?.quoteId ? getQuotes().find(q => q.id === job.rawJob!.quoteId) : undefined
+  const [, setItems] = useState<ShownMedia[]>([])
+  return (
+    <MediaGallery where={{ jobId: job.id }} layout={quote?.layout?.yard ?? null} defaultCategory="Progress" title="Photos and video" onItems={setItems} />
   )
 }

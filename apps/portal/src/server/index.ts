@@ -34,6 +34,8 @@ import quoteApiRoutes from './routes/quotes-api.js'
 import savedQuoteRoutes from './routes/saved-quotes.js'
 import { publicProposal, stylePhotos } from './routes/proposal.js'
 import voiceRoutes from './routes/voice.js'
+import mediaRoutes from './routes/media.js'
+import { startMediaWorker } from './lib/media.js'
 import { startVoiceWorker } from './lib/voiceTranscribe.js'
 import savedJobRoutes from './routes/saved-jobs.js'
 import scheduleRoutes from './routes/schedule.js'
@@ -162,6 +164,7 @@ app.use('/api/quotes', quoteApiRoutes)
 app.use('/api/saved-quotes', savedQuoteRoutes)
 app.use('/api/style-photos', stylePhotos)
 app.use('/api/voice', voiceRoutes)
+app.use('/api/media', mediaRoutes)
 // Customer proposals: the one path meant for the public door (see routes/proposal.ts).
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
@@ -266,6 +269,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // ── Start ──
 ensureUploadDir()
 startVoiceWorker().catch(err => console.error('[voice] worker:', err))
+startMediaWorker().catch(err => console.error('[media] worker:', err))
 
 // Validate critical env vars. In production this exits the process if APP_URL,
 // DATABASE_URL, JWT_SECRET, or JWT_REFRESH_SECRET are missing or look like

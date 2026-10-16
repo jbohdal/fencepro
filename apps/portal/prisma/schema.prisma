@@ -2084,3 +2084,66 @@ model VoiceCheck {
 
   @@index([accountId])
 }
+
+// ── Photos and video on quotes, jobs and customers (Stage 6) ──
+// Files live on this Mac under UPLOAD_DIR/media. The original is always kept;
+// a marked up copy and, for video, a smaller copy for viewing sit beside it.
+model MediaItem {
+  id          String    @id @default(uuid())
+  accountId   String
+  // Made on the phone, so an upload that is sent twice makes one item.
+  clientId    String    @unique
+  kind        String // photo | video
+  mime        String
+  path        String
+  bytes       Int       @default(0)
+  markupPath  String?
+  previewPath String? // smaller video for viewing (ffmpeg)
+  thumbPath   String?
+  width       Int?
+  height      Int?
+  durationMs  Int?
+  quoteKey    String?
+  jobId       String?
+  customerId  String?
+  takenBy     String?
+  takenById   String?
+  takenAt     DateTime
+  lat         Float?
+  lng         Float?
+  accuracyM   Float?
+  // Compass direction the phone faced, degrees from north.
+  heading     Float?
+  caption     String    @default("")
+  category    String    @default("Site walk")
+  // internal | crew | customer
+  visibility  String    @default("internal")
+  // Where it was taken on the site plan: { x, y } in plan feet, and the
+  // direction it faced on the plan (degrees, 0 = up the page) when known.
+  pin         Json?
+  // processing | ready | failed
+  status      String    @default("processing")
+  // Crew uploads from the install packet land as Internal until marked.
+  source      String    @default("staff")
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([accountId, quoteKey])
+  @@index([accountId, jobId])
+  @@index([accountId, customerId])
+}
+
+// A resumable upload in progress: bytes arrive in chunks, so a big video
+// that loses signal carries on where it stopped.
+model MediaUpload {
+  clientId  String   @id
+  accountId String
+  userId    String?
+  size      Int
+  received  Int      @default(0)
+  path      String
+  meta      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

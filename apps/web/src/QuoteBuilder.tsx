@@ -16,6 +16,7 @@ import { sectionWidthForStyle } from './materialCalculator'
 import { deriveLayout, formatFtIn, postSpacing, type YardLayout } from './yardLayout'
 import LayoutEditor from './LayoutEditor'
 import VoicePanel, { type VoiceHandle } from './VoicePanel'
+import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { fetchCurrentUser } from './crmAuth'
 import { saveConfig } from './configStore'
 import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type NamedRun } from './quoteChecks'
@@ -419,6 +420,10 @@ export default function QuoteBuilder({
   useEffect(() => { if (userId) setVoiceOn(!!getConfig().voice?.onFor?.includes(userId)) }, [userId])
   const voiceRef = useRef<VoiceHandle | null>(null)
   const [voiceNotes, setVoiceNotes] = useState<string[]>([])
+  // Photos and video: pins on the plan, and which one a tapped pin opens.
+  const [mediaItems, setMediaItems] = useState<ShownMedia[]>([])
+  const [openMedia, setOpenMedia] = useState<string | null>(null)
+  const [cameraSignal, setCameraSignal] = useState(0)
   function toggleVoice(on: boolean) {
     setVoiceOn(on)
     if (!userId) return
@@ -664,6 +669,7 @@ export default function QuoteBuilder({
               onStyle={id => setStyleId(id)}
               totals={() => totalsRef.current}
               onNote={text => setVoiceNotes(n => [...n, text])}
+              onPhoto={() => setCameraSignal(n => n + 1)}
               quoteKey={quoteIdRef.current}
               readBack={cfg.voice?.readBack !== false}
               rate={cfg.voice?.rate ?? 1}
@@ -703,9 +709,24 @@ export default function QuoteBuilder({
                   widthFt={widthFt}
                   tapeFlags={tapeRunFlags}
                   onVoiceSide={voiceOn ? name => voiceRef.current?.quick(name) : undefined}
+                  pins={mediaItems.filter(m => m.pin).map(m => ({ id: m.key, x: m.pin!.x, y: m.pin!.y, angle: m.pin!.angle ?? null }))}
+                  onPinTap={id => setOpenMedia(id)}
                   address={init?.customerAddress || getCustomers().find(c => `${c.firstName} ${c.lastName}`.trim().toLowerCase() === customerName.trim().toLowerCase())?.serviceAddress || ''}
                 />
               )}
+            </div>
+
+            <div data-quote-media>
+              <MediaGallery
+                where={{ quoteKey: quoteIdRef.current }}
+                layout={entry === 'layout' ? yard : null}
+                onLayout={l => setYard(l)}
+                defaultCategory="Site walk"
+                onItems={setMediaItems}
+                openKey={openMedia}
+                onOpened={() => setOpenMedia(null)}
+                cameraSignal={cameraSignal}
+              />
             </div>
 
             <div>

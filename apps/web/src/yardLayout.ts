@@ -67,6 +67,9 @@ export interface YardLayout {
   plan?: {
     points?: PlanPoint[] | null
     aerial?: { lat: number; lng: number; halfM: number; address: string } | null
+    /** Compass heading (degrees) of "up the page", from standing at the house
+     *  and pointing the phone at the back fence. Used without an aerial photo. */
+    facingRef?: number | null
   } | null
 }
 

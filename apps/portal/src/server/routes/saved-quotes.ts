@@ -62,6 +62,13 @@ export function requireAccount(req: any, res: any, next: any) {
   next()
 }
 
+
+/** Photos taken while the quote was written follow it to its customer. */
+async function linkQuoteMedia(q: { id: string; accountId: string; crmContactId: string | null }) {
+  if (!q.crmContactId) return
+  await prisma.mediaItem.updateMany({ where: { accountId: q.accountId, quoteKey: q.id, customerId: null }, data: { customerId: q.crmContactId } }).catch(() => {})
+}
+
 // ── Schemas ──
 
 const lineItemSchema = z.object({
@@ -225,6 +232,7 @@ router.post('/', requireUser, requireAccount, async (req: any, res) => {
       },
     })
     await audit(req, 'create', 'SavedQuote', created.id, { newValues: created })
+    await linkQuoteMedia(created)
     res.status(201).json({ success: true, data: created })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
@@ -282,6 +290,7 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
       },
     })
     await audit(req, 'update', 'SavedQuote', updated.id, { oldValues: existing, newValues: updated })
+    await linkQuoteMedia(updated)
     res.json({ success: true, data: updated })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }

@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react'
 import { Pencil, Trash2, Plus, Image as ImageIcon, Mic } from 'lucide-react'
 import FtInPad from './FtInPad'
-import SitePlan from './SitePlan'
+import SitePlan, { type PlanPin } from './SitePlan'
 import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX } from './sitePlanGeometry'
 import { lookupPosition } from './appointmentsStore'
 import {
@@ -26,7 +26,7 @@ const SHAPES: Array<{ shape: YardShape; hint: string; path: string }> = [
 
 type PadTarget = { sideId: string; field: 'length' | 'gateWidth' | 'gateDistance' | 'skipLength' | 'skipDistance' }
 
-export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide }: {
+export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap }: {
   layout: YardLayout | null
   onChange: (l: YardLayout | null) => void
   result: LayoutResult | null
@@ -42,6 +42,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   tapeFlags?: boolean[]
   /** With Voice on: one quick spoken entry for a side. */
   onVoiceSide?: (sideName: string) => void
+  /** Photo pins on the plan; tapping one opens its photos. */
+  pins?: PlanPin[]
+  onPinTap?: (id: string) => void
 }) {
   const [pad, setPad] = useState<PadTarget | null>(null)
   const [aerialOn, setAerialOn] = useState(false)
@@ -220,6 +223,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           onSideTap={tapSide}
           aerial={photo && photoReady === photo ? { href: photo, ftPerPx: aerialFtPerPx(aerial!.halfM), sizePx: AERIAL_PX } : null}
           onPointsChange={pts => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: pts } })}
+          pins={pins}
+          onPinTap={onPinTap}
         />
         {photo && photoReady !== photo && !aerialMsg && (
           <p className="absolute inset-x-0 top-8 mx-auto w-fit bg-white/90 rounded-lg px-3 py-1.5 text-sm text-gray-700 shadow">Loading the aerial photo. It can take 20 seconds.</p>

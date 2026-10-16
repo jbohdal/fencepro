@@ -773,6 +773,7 @@ function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent:
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">{error}</div>
       )}
+      <SharedMedia accent={accent} />
       {loading ? (
         <p className="text-sm text-gray-400 text-center py-10">Loading…</p>
       ) : photos.length === 0 ? (
@@ -959,4 +960,29 @@ function readActivityFor(customerId: string): any[] {
     const all: any[] = r ? JSON.parse(r) : []
     return all.filter((a: any) => a.customerId === customerId)
   } catch { return [] }
+}
+
+/** Photos and video from the company, with their captions (only items marked Customer). */
+function SharedMedia({ accent }: { accent: string }) {
+  const [items, setItems] = useState<import('./portalApiClient').PortalMediaRow[]>([])
+  useEffect(() => { import('./portalApiClient').then(m => m.listPortalMedia()).then(setItems) }, [])
+  if (items.length === 0) return null
+  return (
+    <section className="space-y-3" data-portal-media>
+      <h2 className="text-lg font-semibold text-gray-900">From {readCompanyInfo().name || "Getter Done Fence"}</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {items.map(m => (
+          <figure key={m.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+            {m.kind === 'video'
+              ? <video src={m.previewUrl ?? m.originalUrl} poster={m.thumbUrl ?? undefined} controls playsInline className="w-full max-h-80 bg-black" />
+              : <a href={m.url} target="_blank" rel="noreferrer"><img src={m.url} alt={m.caption || m.category} className="w-full max-h-80 object-cover" loading="lazy" /></a>}
+            <figcaption className="p-3 text-sm text-gray-700">
+              <span className="block text-xs font-semibold" style={{ color: accent }}>{m.category}</span>
+              {m.caption}
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    </section>
+  )
 }

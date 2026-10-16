@@ -38,6 +38,8 @@ interface Props {
   onStyle: (styleId: string) => void
   totals: () => { footage: number; sections: number; price: number }
   onNote: (text: string) => void
+  /** Opens the camera. */
+  onPhoto?: () => void
   quoteKey: string
   readBack: boolean
   rate: number
@@ -171,7 +173,10 @@ const VoicePanel = forwardRef<VoiceHandle, Props>(function VoicePanel(p, ref) {
         continue
       }
       if (it.kind === 'note') { pr.current.onNote(it.text); await sayBack('Note added.'); continue }
-      if (it.kind === 'photo') { await say('Photos are added with the camera in the next update. Your note can say what to photograph.'); continue }
+      if (it.kind === 'photo') {
+        if (pr.current.onPhoto) { stopFlag.current = true; pr.current.onPhoto(); return 'stop' }
+        await say('The camera is not available here.'); continue
+      }
       if (it.kind === 'style') {
         const s = styleFor(it)
         if (s) { pr.current.onStyle(s.id); await sayBack(`Style: ${s.name}.`) } else await say('There is no style like that in Settings.')

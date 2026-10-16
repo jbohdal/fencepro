@@ -16,6 +16,7 @@
  *   - Passwords: bcrypt (12 rounds)
  */
 
+import { serializeMedia } from '../lib/media.js'
 import { Router, type Request, type Response } from 'express'
 import crypto from 'crypto'
 import fs from 'fs'
@@ -606,6 +607,23 @@ router.get('/photos', requirePortalAuth, async (req: PortalAuthRequest, res) => 
     res.json({ success: true, data: photos.map(serializePhoto) })
   } catch (err) {
     console.error('[portal-photos-list]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// Photos and video the company marked Customer (Stage 6 media), for the portal.
+router.get('/media', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const customerId = req.portalAccount!.crmCustomerId
+    const quotes = await prisma.savedQuote.findMany({ where: { crmContactId: customerId }, select: { id: true } })
+    const items = await prisma.mediaItem.findMany({
+      where: { deletedAt: null, visibility: 'customer', OR: [{ customerId }, ...(quotes.length ? [{ quoteKey: { in: quotes.map(q => q.id) } }] : [])] },
+      orderBy: { takenAt: 'asc' },
+    })
+    // Only what a customer should see: no who took it or where they stood.
+    res.json({ success: true, data: items.map(m => { const x = serializeMedia(m); return { id: x.id, kind: x.kind, caption: x.caption, category: x.category, takenAt: x.takenAt, url: x.markupUrl ?? x.url, originalUrl: x.url, previewUrl: x.previewUrl, thumbUrl: x.thumbUrl } }) })
+  } catch (err) {
+    console.error('[portal-media]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })
   }
 })
