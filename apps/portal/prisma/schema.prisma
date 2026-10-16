@@ -2147,3 +2147,22 @@ model MediaUpload {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// ── Install packet for the crew: one private link per job (Stage 7) ──
+model InstallPacket {
+  id           String    @id @default(uuid())
+  accountId    String
+  jobId        String    @unique
+  token        String    @unique
+  // What the crew sees about the fence, drawn by the app when sent (plan,
+  // runs with spacing, counts, gates, pull sheet quantities, notes). Never
+  // prices, margins or sub pay.
+  snapshot     Json
+  disabledAt   DateTime?
+  // Filled in by the crew on the packet.
+  locateTicket String?
+  locateDate   String?
+  sentAt       DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}

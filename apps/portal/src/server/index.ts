@@ -35,6 +35,7 @@ import savedQuoteRoutes from './routes/saved-quotes.js'
 import { publicProposal, stylePhotos } from './routes/proposal.js'
 import voiceRoutes from './routes/voice.js'
 import mediaRoutes from './routes/media.js'
+import { packetPublic, packetStaff } from './routes/installPacket.js'
 import { startMediaWorker } from './lib/media.js'
 import { startVoiceWorker } from './lib/voiceTranscribe.js'
 import savedJobRoutes from './routes/saved-jobs.js'
@@ -165,7 +166,9 @@ app.use('/api/saved-quotes', savedQuoteRoutes)
 app.use('/api/style-photos', stylePhotos)
 app.use('/api/voice', voiceRoutes)
 app.use('/api/media', mediaRoutes)
-// Customer proposals: the one path meant for the public door (see routes/proposal.ts).
+app.use('/api/install-packets', packetStaff)
+// Crew install packets and customer proposals: the paths meant for the public door.
+app.use('/p/i', packetPublic)
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/schedule', scheduleRoutes)

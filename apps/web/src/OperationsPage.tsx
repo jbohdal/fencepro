@@ -7,6 +7,7 @@
 
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { getQuotes } from './quoteStore'
+import { InstallPacketPanel } from './installPacket'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { getJobs, updateJob, advanceJob, holdJob, unholdJob, type Job, type JobStatus } from './jobStore'
 import { fireOpsStageChange } from './automationTrigger'
@@ -640,6 +641,13 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {isJobSource && (
           <Section title="Photos and video">
             <JobMedia job={job} />
+          </Section>
+        )}
+
+        {isJobSource && (
+          <Section title="Install packet">
+            <InstallPacketPanel jobId={job.id} job={{ fenceStyle: job.fenceType, notes: job.notes, walkGates: job.rawJob?.walkGates, dblGates: job.rawJob?.dblGates, customerName: job.customerName }}
+              quote={job.rawJob?.quoteId ? getQuotes().find(q => q.id === job.rawJob!.quoteId) : undefined} />
           </Section>
         )}
 

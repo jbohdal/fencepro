@@ -28,7 +28,10 @@ const extFor = (mime: string) => ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'im
 
 // ── Viewing: signed links, no login header (an <img> cannot send one) ──
 
-router.get('/f/:id/:variant', async (req, res) => {
+router.get('/f/:id/:variant', (req, res) => serveSignedMedia(req, res))
+
+/** A signed media link: checks the signature, then sends the file with Range support. */
+export async function serveSignedMedia(req: any, res: any) {
   const { id, variant } = req.params
   if (!checkMediaSig(id, variant, String(req.query.e || ''), String(req.query.s || ''))) { res.status(403).end(); return }
   const m = await prisma.mediaItem.findUnique({ where: { id } }).catch(() => null)
@@ -37,7 +40,7 @@ router.get('/f/:id/:variant', async (req, res) => {
   if (!file || !fs.existsSync(file)) { res.status(404).end(); return }
   const type = variant === 'thumb' || variant === 'markup' ? 'image/jpeg' : variant === 'preview' ? 'video/mp4' : m.mime
   sendWithRange(req, res, file, type)
-})
+}
 
 /** Serves a file, honoring Range so video plays (and seeks) on an iPhone. */
 function sendWithRange(req: any, res: any, file: string, type: string) {

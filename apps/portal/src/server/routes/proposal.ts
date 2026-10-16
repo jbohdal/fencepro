@@ -41,12 +41,12 @@ export const stylePhotos = Router()
 
 // ── Helpers ──
 
-const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+export const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 const money = (n: number) => '$' + Math.round(n || 0).toLocaleString('en-US')
 const money2 = (n: number) => '$' + (n || 0).toFixed(2)
 
 /** Only our own drawing: an <svg> with no scripts, handlers or links. */
-function safeSvg(svg: unknown): string {
+export function safeSvg(svg: unknown): string {
   if (typeof svg !== 'string' || !/^\s*<svg[\s>]/i.test(svg) || svg.length > 400_000) return ''
   if (/<script|<foreignObject|\son\w+\s*=|javascript:|<iframe|<a[\s>]|href\s*=\s*["'](?!#)/i.test(svg)) return ''
   return svg
@@ -77,7 +77,7 @@ interface Proposal {
   options: ProposalOption[]
 }
 
-function logoPath(): string | null {
+export function logoPath(): string | null {
   const candidates = [
     process.env.WEB_DIST_DIR && path.join(process.env.WEB_DIST_DIR, 'logo.png'),
     path.resolve(process.cwd(), '../web/dist/logo.png'),
@@ -304,7 +304,7 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string): stri
   return page(`Fence proposal for ${p.customer?.name || q.customerName}`, body, nonce, script)
 }
 
-const CSS = `
+export const CSS = `
 :root{--p:#5E28A1;--pd:#4E1F88;--ink:#1C1030;--g:#5F5769;--line:#E2DCEC;--bg:#F6F4FA}
 *{box-sizing:border-box}body{margin:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
 .top{display:flex;gap:12px;align-items:center;padding:14px 16px;background:#fff;border-bottom:1px solid var(--line)}
