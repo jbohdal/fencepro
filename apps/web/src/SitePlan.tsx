@@ -4,11 +4,12 @@
  * posts as filled dots, line posts as open dots at the real section spacing,
  * gate swings as dashed arcs, skips as gray dashed lines, the house as a gray
  * box and the street marked. Optionally on top of an aerial photo, where the
- * corners can be dragged onto the yard.
+ * corners can be dragged onto the yard. On the plain drawing the corner posts
+ * can be dragged for odd yards; the labels keep the typed lengths.
  */
 
-import { useMemo, useRef } from 'react'
-import { buildPlan, planVertices } from './sitePlanGeometry'
+import { useMemo, useRef, useState } from 'react'
+import { buildPlan, planVertices, type Plan } from './sitePlanGeometry'
 import type { LayoutResult, PlanPoint, YardLayout } from './yardLayout'
 
 const PURPLE = '#5E28A1'
@@ -43,7 +44,9 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
 }) {
   const plan = useMemo(() => buildPlan(layout, result, runSections, widthFt), [layout, result, runSections, widthFt])
   const svgRef = useRef<SVGSVGElement | null>(null)
-  const drag = useRef<{ index: number | 'all'; start: PlanPoint; points: PlanPoint[] } | null>(null)
+  const drag = useRef<{ index: number | 'all'; start: PlanPoint; points: PlanPoint[]; moved: boolean } | null>(null)
+  // While a corner is dragged the drawing keeps its scale, so the corner stays under the finger.
+  const [heldBounds, setHeldBounds] = useState<Plan['bounds'] | null>(null)
 
   // Feet → screen.
   const pad = 64
@@ -57,10 +60,12 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     fromX = sx => (sx - W / 2) * ftPerPx
     fromY = sy => (H / 2 - sy) * ftPerPx
   } else {
-    const b = plan.bounds
+    const b = heldBounds ?? plan.bounds
     const bw = Math.max(b.maxX - b.minX, 10), bh = Math.max(b.maxY - b.minY, 10)
     W = 640
-    const s = Math.min((W - 2 * pad) / bw, 420 / bh)
+    // Room at the sides for the labels beside the side runs ("Left side · 15 sec").
+    const padX = 120
+    const s = Math.min((W - 2 * padX) / bw, 420 / bh)
     H = Math.max(240, bh * s + 2 * pad + (plan.street ? 28 : 0))
     ftPerPx = 1 / s
     const offX = (W - bw * s) / 2, offY = pad
@@ -76,7 +81,7 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
     const m = svg.getScreenCTM()!.inverse()
     const q = pt.matrixTransform(m)
-    return { x: (q.x - W / 2) * ftPerPx, y: (H / 2 - q.y) * ftPerPx }
+    return { x: fromX(q.x), y: fromY(q.y) }
   }
   function planTap(e: React.MouseEvent) {
     if (!onPlanTap || drag.current) return
@@ -88,17 +93,26 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   function startDrag(e: React.PointerEvent, index: number | 'all') {
     if (!onPointsChange) return
     e.stopPropagation()
-    ;(e.target as Element).setPointerCapture(e.pointerId)
-    drag.current = { index, start: svgPoint(e), points: planVertices(layout).map(p => ({ ...p })) }
+    try { (e.target as Element).setPointerCapture(e.pointerId) } catch { /* a pointer the browser no longer tracks */ }
+    if (!aerial) setHeldBounds(plan.bounds)
+    drag.current = { index, start: svgPoint(e), points: planVertices(layout).map(p => ({ ...p })), moved: false }
   }
   function moveDrag(e: React.PointerEvent) {
     const d = drag.current
     if (!d || !onPointsChange) return
     const now = svgPoint(e)
     const dx = now.x - d.start.x, dy = now.y - d.start.y
+    // A tap on a corner is not a drag.
+    if (!d.moved && Math.hypot(dx, dy) / ftPerPx < 4) return
+    d.moved = true
     onPointsChange(d.points.map((p, i) => (d.index === 'all' || d.index === i ? { x: p.x + dx, y: p.y + dy } : p)))
   }
-  const endDrag = () => { drag.current = null }
+  const endDrag = () => {
+    // Swallow the click that follows a drag so it is not a tap on a side.
+    if (drag.current?.moved) setTimeout(() => { drag.current = null }, 0)
+    else drag.current = null
+    setHeldBounds(null)
+  }
 
   const center = plan.vertices.reduce((t, p) => ({ x: t.x + p.x / plan.vertices.length, y: t.y + p.y / plan.vertices.length }), { x: 0, y: 0 })
 
@@ -111,8 +125,12 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
       {plan.house && !aerial && (
         <g>
           <polygon points={plan.house.map(P).join(' ')} fill={LIGHT} stroke={GRAY} strokeWidth={1.5} opacity={aerial ? 0.75 : 1} />
-          <text x={plan.house.reduce((t, p) => t + toX(p.x), 0) / plan.house.length} y={plan.house.reduce((t, p) => t + toY(p.y), 0) / plan.house.length + 5}
+          <text x={plan.house.reduce((t, p) => t + toX(p.x), 0) / plan.house.length} y={plan.house.reduce((t, p) => t + toY(p.y), 0) / plan.house.length + (plan.houseNotToScale ? -2 : 5)}
             textAnchor="middle" fontSize={14} fontWeight={600} fill={INK}>House</text>
+          {plan.houseNotToScale && (
+            <text x={plan.house.reduce((t, p) => t + toX(p.x), 0) / plan.house.length} y={plan.house.reduce((t, p) => t + toY(p.y), 0) / plan.house.length + 13}
+              textAnchor="middle" fontSize={11} fill={GRAY} data-house-not-to-scale>house not to scale</text>
+          )}
         </g>
       )}
 
@@ -196,6 +214,11 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
           </g>
         </g>
       )}
+
+      {!aerial && onPointsChange && plan.corners.map(i => plan.vertices[i] && (
+        <circle key={`drag-${i}`} cx={toX(plan.vertices[i].x)} cy={toY(plan.vertices[i].y)} r={14} fill="transparent" stroke={PURPLE} strokeOpacity={0.35} strokeWidth={1.5}
+          strokeDasharray="3 3" style={{ cursor: 'grab' }} onPointerDown={e => startDrag(e, i)} onClick={e => e.stopPropagation()} data-plan-corner={i} />
+      ))}
 
       {plan.street && !aerial && (
         <g>

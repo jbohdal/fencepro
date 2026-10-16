@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import { Pencil, Trash2, Plus, Image as ImageIcon, Mic } from 'lucide-react'
 import FtInPad from './FtInPad'
 import SitePlan, { type PlanPin } from './SitePlan'
-import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX } from './sitePlanGeometry'
+import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX, buildPlan, layoutSignature, returnHouseEnd } from './sitePlanGeometry'
 import { lookupPosition } from './appointmentsStore'
 import {
   layoutForShape, newSideId, joinedFromPrev, joinsNext, neighborName, formatFtIn, postSpacing,
@@ -24,7 +24,7 @@ const SHAPES: Array<{ shape: YardShape; hint: string; path: string }> = [
   { shape: 'custom', hint: 'Add sides one by one', path: 'M6 30 L16 10 L32 14 L42 28' },
 ]
 
-type PadTarget = { sideId: string; field: 'length' | 'gateWidth' | 'gateDistance' | 'skipLength' | 'skipDistance' }
+type PadTarget = { sideId: string; field: 'length' | 'gateWidth' | 'gateDistance' | 'skipLength' | 'skipDistance' | 'meetDistance' }
 
 export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap }: {
   layout: YardLayout | null
@@ -156,6 +156,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     : pad.field === 'gateWidth' ? padSide.gate?.widthIn ?? 0
     : pad.field === 'gateDistance' ? padSide.gate?.distanceIn ?? 0
     : pad.field === 'skipLength' ? padSide.skip?.lengthIn ?? 0
+    : pad.field === 'meetDistance' ? padSide.meetsHouse?.distanceIn ?? 0
     : padSide.skip?.distanceIn ?? 0
   const nextSideFor = (id: string) => {
     const i = idx(id)
@@ -169,6 +170,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     if (pad.field === 'gateDistance' && padSide.gate) updateSide(padSide.id, { gate: { ...padSide.gate, position: 'distance', distanceIn: inches } })
     if (pad.field === 'skipLength' && padSide.skip) updateSide(padSide.id, { skip: { ...padSide.skip, lengthIn: inches } })
     if (pad.field === 'skipDistance' && padSide.skip) updateSide(padSide.id, { skip: { ...padSide.skip, position: 'distance', distanceIn: inches } })
+    if (pad.field === 'meetDistance') updateSide(padSide.id, { meetsHouse: { at: 'distance', distanceIn: inches } })
     setPad(next && padNext ? { sideId: padNext.id, field: 'length' } : null)
   }
 
@@ -202,6 +204,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     setPad({ sideId: id, field: 'length' })
   }
 
+  const onPhoto = !!(photo && photoReady === photo)
+  // Measurements that cannot all be true at once: a gentle note, the plan still draws.
+  const planNotes = buildPlan(layout, result ?? undefined, runSections, widthFt).notes
   const selectCls = 'w-full border border-gray-300 rounded-lg px-3 h-11 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400'
   const counted = result?.counted
 
@@ -221,8 +226,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           runSections={runSections}
           widthFt={widthFt}
           onSideTap={tapSide}
-          aerial={photo && photoReady === photo ? { href: photo, ftPerPx: aerialFtPerPx(aerial!.halfM), sizePx: AERIAL_PX } : null}
-          onPointsChange={pts => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: pts } })}
+          aerial={onPhoto ? { href: photo!, ftPerPx: aerialFtPerPx(aerial!.halfM), sizePx: AERIAL_PX } : null}
+          // Dragging only moves the drawing; on the plain plan it holds until a length changes.
+          onPointsChange={pts => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: pts, pointsFor: onPhoto ? null : layoutSignature(layout) } })}
           pins={pins}
           onPinTap={onPinTap}
         />
@@ -230,7 +236,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           <p className="absolute inset-x-0 top-8 mx-auto w-fit bg-white/90 rounded-lg px-3 py-1.5 text-sm text-gray-700 shadow">Loading the aerial photo. It can take 20 seconds.</p>
         )}
       </div>
-      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{aerialOn && photoReady ? ' Drag the corners onto the yard; the center button moves the whole plan.' : ''}</p>
+      {planNotes.map((n, k) => <p key={k} className="text-sm text-amber-900 bg-amber-50 rounded-lg px-3 py-2" data-plan-note>{n}</p>)}
+      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{onPhoto ? ' Drag the corners onto the yard; the center button moves the whole plan.' : ' Drag a corner to match an odd yard; footage and price stay as typed.'}</p>
       <div className="flex flex-wrap items-center gap-2" data-aerial>
         {!aerialOn ? (
           <>
@@ -242,7 +249,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           <button type="button" className="btn btn-secondary" onClick={() => setAerialOn(false)} data-aerial-hide>Hide aerial photo</button>
         )}
         {layout.plan?.points && (
-          <button type="button" className="btn btn-quiet btn-sm" onClick={() => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: aerialOn ? centeredVertices(layout) : null } })}>Reset the drawing</button>
+          <button type="button" className="btn btn-quiet btn-sm" data-plan-reset onClick={() => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: aerialOn ? centeredVertices(layout) : null, pointsFor: null } })}>Reset the drawing</button>
         )}
         {aerialMsg && <p className="w-full text-sm text-amber-800">{aerialMsg}</p>}
       </div>
@@ -307,6 +314,22 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                     {finishSelect('end', endF, nextOn, endJoined)}
                   </label>
                 </div>
+
+                {returnHouseEnd(layout, i) && (
+                  <label className="block">
+                    <span className="text-xs text-gray-600 mb-1 block">Meets the house at</span>
+                    <select className={selectCls} value={s.meetsHouse?.at ?? 'back'} data-meets-house
+                      onChange={e => {
+                        const v = e.target.value as 'back' | 'front' | 'distance'
+                        if (v === 'distance') setPad({ sideId: s.id, field: 'meetDistance' })
+                        else updateSide(s.id, { meetsHouse: v === 'back' ? null : { at: v } })
+                      }}>
+                      <option value="back">The back corner of the house</option>
+                      <option value="front">The front corner of the house</option>
+                      <option value="distance">{s.meetsHouse?.at === 'distance' ? `${formatFtIn(s.meetsHouse.distanceIn ?? 0)} from the back corner` : 'Type a distance from the back corner'}</option>
+                    </select>
+                  </label>
+                )}
 
                 <div>
                   <span className="text-xs text-gray-600 mb-1 block">Gate on this side?</span>
@@ -421,7 +444,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
       {pad && padSide && (
         <FtInPad
           key={`${pad.sideId}-${pad.field}`}
-          title={pad.field === 'length' ? `${padSide.name} length` : pad.field === 'gateWidth' ? `${padSide.name} gate width` : pad.field === 'skipLength' ? `${padSide.name} skip length` : `${padSide.name}: distance from the start`}
+          title={pad.field === 'length' ? `${padSide.name} length` : pad.field === 'gateWidth' ? `${padSide.name} gate width` : pad.field === 'skipLength' ? `${padSide.name} skip length` : pad.field === 'meetDistance' ? `${padSide.name}: meets the house this far from its back corner` : `${padSide.name}: distance from the start`}
           valueIn={padValue}
           onDone={padDone}
           onClose={() => setPad(null)}

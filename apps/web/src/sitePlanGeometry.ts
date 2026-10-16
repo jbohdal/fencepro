@@ -2,13 +2,19 @@
  * Site plan geometry: where each side, post, gate swing, skip and the house
  * go, in feet with y pointing up. Pure; SitePlan.tsx draws what this returns.
  *
- * Sides are laid end to end in their drawing direction at their measured
- * length (a side with no length yet gets a short stand-in). Corners dragged
- * by hand (layout.plan.points) replace the computed ones. The drawing is a
- * picture of the job, not a survey.
+ * A backyard is drawn from the house out: the house square and level at the
+ * bottom, each return level from the house to its side, each side straight
+ * back at its own length, and the back joining the two side ends (at an angle
+ * when the sides differ). A front yard is the same upside down, with no
+ * returns. Other shapes lay their sides end to end in their drawing
+ * direction. A side with no length yet gets a short stand-in.
+ *
+ * Corners dragged by hand (layout.plan.points) replace the computed ones,
+ * only in the drawing: footage, sections and price always come from the typed
+ * lengths. The drawing is a picture of the job, not a survey.
  */
 
-import { deriveLayout, formatFtIn, type LayoutResult, type PlanPoint, type YardLayout } from './yardLayout'
+import { deriveLayout, formatFtIn, type LayoutResult, type PlanPoint, type YardLayout, type YardSide } from './yardLayout'
 
 export interface PlanPost { x: number; y: number; kind: 'corner' | 'end' | 'gate' | 'line' }
 export interface PlanSegment { a: PlanPoint; b: PlanPoint }
@@ -34,6 +40,12 @@ export interface Plan {
   sides: PlanSide[]
   posts: PlanPost[]
   house: PlanPoint[] | null
+  /** The house is a stand-in size: no returns, or they leave too little room. */
+  houseNotToScale: boolean
+  /** Measurements that cannot all be true at once ("Check these measurements"). */
+  notes: string[]
+  /** Corners (vertex indexes) that can be dragged on the plain drawing. */
+  corners: number[]
   /** Where the street is, below the drawing, for shapes that have a front. */
   street: boolean
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
@@ -54,11 +66,123 @@ function heading(layout: YardLayout, i: number): number {
   return d[i % d.length]
 }
 
-/** The corners where sides meet, in feet: sides+1 points (open) or sides (closed). */
-export function autoVertices(layout: YardLayout): PlanPoint[] {
-  const lengths = layout.sides.map(s => s.lengthIn / 12)
-  const longest = Math.max(0, ...lengths)
-  const standIn = Math.max(20, longest * 0.3)
+// Feet. A house drawn at a stand-in size is never narrower than MIN_HOUSE_FT
+// of real room between the returns.
+const HOUSE_DEPTH_FT = 30
+const MIN_HOUSE_FT = 12
+const STANDIN_HOUSE_FT = 40
+
+/** The standard backyard: Left return, Left side, Back, Right side, Right return. */
+export function isStandardBackyard(layout: YardLayout): boolean {
+  return layout.shape === 'backyard' && !layout.closed && layout.sides.length === 5
+}
+function isStandardFront(layout: YardLayout): boolean {
+  return layout.shape === 'front' && !layout.closed && layout.sides.length === 3
+}
+
+/** Which end of side i meets the house as a backyard return, if it is one. */
+export function returnHouseEnd(layout: YardLayout, i: number): 'start' | 'end' | null {
+  if (!isStandardBackyard(layout)) return null
+  const s = layout.sides[i]
+  if (i === 0 && s.startFinish === 'house') return 'start'
+  if (i === 4 && s.endFinish === 'house') return 'end'
+  return null
+}
+
+interface AutoGeometry {
+  vertices: PlanPoint[]
+  house: PlanPoint[] | null
+  houseNotToScale: boolean
+  notes: string[]
+}
+
+function standInFt(layout: YardLayout): number {
+  const longest = Math.max(0, ...layout.sides.map(s => s.lengthIn / 12))
+  return Math.max(20, longest * 0.3)
+}
+const fmtFt = (ft: number) => formatFtIn(ft * 12)
+const rect = (x0: number, x1: number, y0: number, y1: number): PlanPoint[] =>
+  [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }]
+
+/**
+ * How wide the yard is when the line across the far end is `across` long and
+ * its two ends are `rise` apart front to back. When the far side is too short
+ * to reach, a width is still given so something sensible is drawn, with a note.
+ */
+function yardWidth(across: number | null, rise: number, fallback: number, names: [string, string, string], notes: string[]): number {
+  if (across === null) return fallback
+  if (across + 1e-6 >= Math.abs(rise)) return Math.sqrt(Math.max(0, across * across - rise * rise))
+  notes.push(`Check these measurements: the ${names[0]} (${fmtFt(across)}) is shorter than the difference between the ${names[1]} and the ${names[2]} (${fmtFt(Math.abs(rise))}).`)
+  return Math.max(fallback, across)
+}
+
+function backyardGeometry(layout: YardLayout): AutoGeometry {
+  const [lrS, lsS, backS, rsS, rrS] = layout.sides
+  const standIn = standInFt(layout)
+  const len = (s: YardSide) => (!s.on ? 0 : s.lengthIn > 0 ? s.lengthIn / 12 : standIn)
+  const lr = len(lrS), left = len(lsS), right = len(rsS), rr = len(rrS)
+  const notes: string[] = []
+
+  // Where each return meets the house: its back corner (y = 0), its front
+  // corner, or a typed distance toward the street from the back corner.
+  const dist = (s: YardSide) => (s.on && s.meetsHouse?.at === 'distance' ? Math.max(0, (s.meetsHouse.distanceIn ?? 0) / 12) : 0)
+  const depth = Math.max(HOUSE_DEPTH_FT, dist(lrS) + 8, dist(rrS) + 8)
+  const meetY = (s: YardSide) => (!s.on ? 0 : s.meetsHouse?.at === 'front' ? -depth : s.meetsHouse?.at === 'distance' ? -dist(s) : 0)
+  const yL = meetY(lrS), yR = meetY(rrS)
+
+  // The back joins the tops of the two sides: width from the back's length
+  // and how far apart the tops are front to back.
+  const rise = (yR + right) - (yL + left)
+  const back = backS.on ? len(backS) : null
+  const W = yardWidth(back, rise, lr + rr + STANDIN_HOUSE_FT, ['back', 'left side', 'right side'], notes)
+  const xL = -W / 2, xR = W / 2
+
+  // The house fills the room between the returns; with no returns, or too
+  // little room, a stand-in house is centered and marked not to scale.
+  const room = W - lr - rr
+  const noReturns = lr === 0 && rr === 0
+  let house: PlanPoint[]
+  let houseNotToScale = false
+  if (!noReturns && room >= MIN_HOUSE_FT) {
+    house = rect(xL + lr, xR - rr, 0, -depth)
+  } else {
+    houseNotToScale = true
+    const hw = Math.max(20, Math.min(STANDIN_HOUSE_FT, (noReturns ? W : Math.max(room, 0)) * 0.6 || STANDIN_HOUSE_FT))
+    house = rect(-hw / 2, hw / 2, 0, -depth)
+    if (!noReturns && room < 0) notes.push(`Check these measurements: the two returns (${fmtFt(lr + rr)}) are wider than the yard (${fmtFt(W)}).`)
+  }
+
+  const vertices = [
+    { x: xL + lr, y: yL }, { x: xL, y: yL }, { x: xL, y: yL + left },
+    { x: xR, y: yR + right }, { x: xR, y: yR }, { x: xR - rr, y: yR },
+  ]
+  return { vertices, house, houseNotToScale, notes }
+}
+
+function frontGeometry(layout: YardLayout): AutoGeometry {
+  const [lsS, frontS, rsS] = layout.sides
+  const standIn = standInFt(layout)
+  const len = (s: YardSide) => (!s.on ? 0 : s.lengthIn > 0 ? s.lengthIn / 12 : standIn)
+  const left = len(lsS), right = len(rsS)
+  const notes: string[] = []
+  // The sides run from the front of the house toward the street; the front
+  // joins their ends.
+  const front = frontS.on ? len(frontS) : null
+  const W = yardWidth(front, right - left, STANDIN_HOUSE_FT, ['front', 'left side', 'right side'], notes)
+  const xL = -W / 2, xR = W / 2
+  const houseNotToScale = W < MIN_HOUSE_FT
+  const hw = houseNotToScale ? STANDIN_HOUSE_FT : W
+  return {
+    vertices: [{ x: xL, y: 0 }, { x: xL, y: -left }, { x: xR, y: -right }, { x: xR, y: 0 }],
+    house: rect(-hw / 2, hw / 2, HOUSE_DEPTH_FT, 0),
+    houseNotToScale,
+    notes,
+  }
+}
+
+/** Sides laid end to end in their drawing directions. */
+function chainVertices(layout: YardLayout): PlanPoint[] {
+  const standIn = standInFt(layout)
   const pts: PlanPoint[] = [{ x: 0, y: 0 }]
   layout.sides.forEach((s, i) => {
     const L = s.lengthIn > 0 ? s.lengthIn / 12 : standIn
@@ -71,13 +195,42 @@ export function autoVertices(layout: YardLayout): PlanPoint[] {
   return pts
 }
 
+function autoGeometry(layout: YardLayout): AutoGeometry {
+  const g = isStandardBackyard(layout) ? backyardGeometry(layout) : isStandardFront(layout) ? frontGeometry(layout) : null
+  if (!g) return { vertices: chainVertices(layout), house: null, houseNotToScale: false, notes: [] }
+  // The first side starts at x = 0, as plans have always been drawn, so photo
+  // pins saved on earlier quotes stay where they were put.
+  const dx = -g.vertices[0].x
+  const move = (p: PlanPoint) => ({ x: p.x + dx, y: p.y })
+  return { ...g, vertices: g.vertices.map(move), house: g.house?.map(move) ?? null }
+}
+
+/** The corners where sides meet, in feet: sides+1 points (open) or sides (closed). */
+export function autoVertices(layout: YardLayout): PlanPoint[] {
+  return autoGeometry(layout).vertices
+}
+
 export function vertexCount(layout: YardLayout): number {
   return layout.closed && layout.sides.length > 1 ? layout.sides.length : layout.sides.length + 1
 }
 
+/** The measurements the drawing depends on; a corner dragged for other measurements no longer applies. */
+export function layoutSignature(layout: YardLayout): string {
+  return JSON.stringify(layout.sides.map(s => [s.on ? 1 : 0, s.lengthIn, s.startFinish, s.endFinish, s.meetsHouse?.at ?? '', s.meetsHouse?.distanceIn ?? 0]))
+}
+
 export function planVertices(layout: YardLayout): PlanPoint[] {
   const custom = layout.plan?.points
-  return custom && custom.length === vertexCount(layout) ? custom : autoVertices(layout)
+  const forNow = layout.plan?.pointsFor == null || layout.plan.pointsFor === layoutSignature(layout)
+  return custom && custom.length === vertexCount(layout) && forNow ? custom : autoVertices(layout)
+}
+
+/** Vertex indexes that are corner posts (where a side turns into the next). */
+export function cornerVertices(layout: YardLayout, result: LayoutResult = deriveLayout(layout)): number[] {
+  const n = vertexCount(layout)
+  const out: number[] = []
+  layout.sides.forEach((s, i) => { if (s.on && result.sides[i]?.finishes.end === 'corner') out.push((i + 1) % n) })
+  return out
 }
 
 const lerp = (a: PlanPoint, b: PlanPoint, t: number): PlanPoint => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
@@ -153,10 +306,13 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
     })
   })
 
-  // The house: a gray box on the house side of the line between where the
-  // fence meets it (one meeting point gets a box beside it).
+  // The house: square and level, from the typed measurements (never from
+  // dragged corners). Other shapes: a gray box beside where the fence meets it.
+  const auto = autoGeometry(layout)
   let house: PlanPoint[] | null = null
-  if (housePts.length >= 2) {
+  if (auto.house) {
+    house = auto.house
+  } else if (housePts.length >= 2) {
     const p = housePts[0], q = housePts[housePts.length - 1]
     const span = Math.hypot(q.x - p.x, q.y - p.y)
     const d = unit(q.x - p.x, q.y - p.y)
@@ -177,7 +333,13 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
     minX: Math.min(...all.map(p => p.x)), maxX: Math.max(...all.map(p => p.x)),
     minY: Math.min(...all.map(p => p.y)), maxY: Math.max(...all.map(p => p.y)),
   }
-  return { vertices: v, sides, posts, house, street: ['backyard', 'front', 'perimeter'].includes(layout.shape), bounds }
+  return {
+    vertices: v, sides, posts, house,
+    houseNotToScale: !!house && !!auto.house && auto.houseNotToScale,
+    notes: auto.notes,
+    corners: cornerVertices(layout, result),
+    street: ['backyard', 'front', 'perimeter'].includes(layout.shape), bounds,
+  }
 }
 
 // ── Aerial photo ──────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
 
 import { describe, test, expect } from 'vitest'
 import { layoutForShape, deriveLayout, type YardLayout } from '../../web/src/yardLayout'
-import { buildPlan, autoVertices, centeredVertices, aerialFtPerPx, aerialUrl } from '../../web/src/sitePlanGeometry'
+import { buildPlan, autoVertices, centeredVertices, aerialFtPerPx, aerialUrl, layoutSignature, planVertices } from '../../web/src/sitePlanGeometry'
 
 const ft = (n: number) => n * 12
 
@@ -73,6 +73,137 @@ describe('site plan posts match the priced posts', () => {
     l.sides[0].lengthIn = ft(50)
     l.plan = { points: [{ x: 5, y: 5 }, { x: 40, y: 30 }] }
     expect(buildPlan(l, deriveLayout(l)).vertices).toEqual([{ x: 5, y: 5 }, { x: 40, y: 30 }])
+  })
+})
+
+function yard(left: number, right: number, back: number, lr = 30, rr = 30): YardLayout {
+  const l = layoutForShape('backyard')
+  ;[lr, left, back, right, rr].forEach((n, i) => { l.sides[i].lengthIn = ft(n) })
+  return l
+}
+const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
+const level = (pts: Array<{ x: number; y: number }>) => {
+  // Every edge of the house is either flat or straight up and down.
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length]
+    if (Math.abs(a.x - b.x) > 1e-9 && Math.abs(a.y - b.y) > 1e-9) return false
+  }
+  return true
+}
+
+describe('backyard drawing: the house is level, the sides go straight back, the back takes up the difference', () => {
+  test('left 120, right 100, back 150, returns 30 and 30', () => {
+    const l = yard(120, 100, 150)
+    const plan = buildPlan(l, deriveLayout(l))
+    const v = plan.vertices
+    // House square and level at the bottom, its back wall at y = 0, between the returns.
+    expect(plan.house).toHaveLength(4)
+    expect(level(plan.house!)).toBe(true)
+    const hx = plan.house!.map(p => p.x), hy = plan.house!.map(p => p.y)
+    expect(Math.max(...hy)).toBeCloseTo(0, 9)
+    expect(plan.houseNotToScale).toBe(false)
+    // Width from the back and the difference in the sides: sqrt(150² − 20²).
+    const width = Math.sqrt(150 ** 2 - 20 ** 2)
+    expect(v[3].x - v[1].x).toBeCloseTo(width, 6)
+    expect(Math.max(...hx) - Math.min(...hx)).toBeCloseTo(width - 60, 6)
+    // Returns level from the house to the sides, meeting the house at its back corners.
+    expect(v[0]).toEqual({ x: Math.min(...hx), y: 0 })
+    expect(v[5]).toEqual({ x: Math.max(...hx), y: 0 })
+    expect(v[1].y).toBe(0); expect(v[4].y).toBe(0)
+    // Sides straight back at their own lengths; the back joins their ends at an angle.
+    expect(v[2].x).toBe(v[1].x); expect(v[3].x).toBe(v[4].x)
+    expect(dist(v[0], v[1])).toBeCloseTo(30, 9)
+    expect(dist(v[1], v[2])).toBeCloseTo(120, 9)
+    expect(dist(v[2], v[3])).toBeCloseTo(150, 9)
+    expect(dist(v[3], v[4])).toBeCloseTo(100, 9)
+    expect(dist(v[4], v[5])).toBeCloseTo(30, 9)
+    expect(v[2].y - v[3].y).toBeCloseTo(20, 9)
+    // Labels are the typed lengths.
+    expect(plan.sides.map(s => s.label)).toEqual([`30' 0"`, `120' 0"`, `150' 0"`, `100' 0"`, `30' 0"`])
+    expect(plan.sides.map(s => s.sublabel.split(' · ')[0])).toEqual(['Left return', 'Left side', 'Back', 'Right side', 'Right return'])
+    expect(plan.notes).toEqual([])
+  })
+
+  test('equal sides still draw a clean rectangle', () => {
+    const l = yard(120, 120, 150)
+    const v = buildPlan(l, deriveLayout(l)).vertices
+    // Drawn from where the left return meets the house, as before.
+    expect(v).toEqual([{ x: 0, y: 0 }, { x: -30, y: 0 }, { x: -30, y: 120 }, { x: 120, y: 120 }, { x: 120, y: 0 }, { x: 90, y: 0 }])
+    expect(buildPlan(l, deriveLayout(l)).house).toEqual([{ x: 0, y: 0 }, { x: 90, y: 0 }, { x: 90, y: -30 }, { x: 0, y: -30 }])
+  })
+
+  test('a return can meet the house at its front corner or a typed distance', () => {
+    const l = yard(120, 120, 150)
+    l.sides[0].meetsHouse = { at: 'front' }
+    l.sides[4].meetsHouse = { at: 'distance', distanceIn: ft(10) }
+    const plan = buildPlan(l, deriveLayout(l))
+    const v = plan.vertices
+    expect(v[0].y).toBe(-30); expect(v[1].y).toBe(-30)
+    expect(v[4].y).toBe(-10); expect(v[5].y).toBe(-10)
+    expect(dist(v[1], v[2])).toBeCloseTo(120, 9)
+    expect(dist(v[2], v[3])).toBeCloseTo(150, 9)
+    expect(level(plan.house!)).toBe(true)
+    // The returns end on the house walls.
+    expect(v[0].x).toBeCloseTo(Math.min(...plan.house!.map(p => p.x)), 9)
+    expect(v[5].x).toBeCloseTo(Math.max(...plan.house!.map(p => p.x)), 9)
+  })
+
+  test('measurements that cannot fit still draw, with a gentle note', () => {
+    const l = yard(120, 40, 50)
+    const plan = buildPlan(l, deriveLayout(l))
+    expect(plan.notes[0]).toMatch(/^Check these measurements: the back \(50' 0"\) is shorter than the difference/)
+    expect(plan.vertices.every(p => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true)
+    expect(level(plan.house!)).toBe(true)
+  })
+
+  test('no returns: a stand-in house, centered and marked not to scale', () => {
+    const l = yard(100, 100, 120)
+    l.sides[0].on = false; l.sides[4].on = false
+    l.sides[1].startFinish = 'house'; l.sides[3].endFinish = 'house'
+    const plan = buildPlan(l, deriveLayout(l))
+    expect(plan.houseNotToScale).toBe(true)
+    const hx = plan.house!.map(p => p.x), v = plan.vertices
+    expect((Math.min(...hx) + Math.max(...hx)) / 2).toBeCloseTo((v[1].x + v[4].x) / 2, 9)
+    expect(level(plan.house!)).toBe(true)
+  })
+
+  test('returns that leave too little room for the house: stand-in house', () => {
+    const l = yard(100, 100, 70, 30, 30)
+    expect(buildPlan(l, deriveLayout(l)).houseNotToScale).toBe(true)
+  })
+
+  test('dragging a corner moves the drawing only, until a length changes', () => {
+    const l = yard(120, 100, 150)
+    const before = deriveLayout(l)
+    const pts = autoVertices(l).map(p => ({ ...p }))
+    pts[2] = { x: pts[2].x - 15, y: pts[2].y + 6 }
+    l.plan = { points: pts, pointsFor: layoutSignature(l) }
+    const after = deriveLayout(l)
+    expect(planVertices(l)[2]).toEqual(pts[2])
+    expect(after.runs.map(r => r.ft)).toEqual(before.runs.map(r => r.ft))
+    expect(after.corners).toBe(before.corners)
+    expect(buildPlan(l, after).sides[1].label).toBe(`120' 0"`)
+    // A typed length changes: the typed numbers win and the drawing is redrawn from them.
+    l.sides[1].lengthIn = ft(110)
+    expect(planVertices(l)).toEqual(autoVertices(l))
+  })
+
+  test('the corner posts are the ones that can be dragged', () => {
+    const l = yard(120, 100, 150)
+    expect(buildPlan(l, deriveLayout(l)).corners).toEqual([1, 2, 3, 4])
+  })
+
+  test('a front yard: house level at the top, the front angled when the sides differ', () => {
+    const l = layoutForShape('front')
+    ;[40, 60, 30].forEach((n, i) => { l.sides[i].lengthIn = ft(n) })
+    const plan = buildPlan(l, deriveLayout(l))
+    const v = plan.vertices
+    expect(level(plan.house!)).toBe(true)
+    expect(Math.min(...plan.house!.map(p => p.y))).toBe(0)
+    expect(dist(v[0], v[1])).toBeCloseTo(40, 9)
+    expect(dist(v[1], v[2])).toBeCloseTo(60, 9)
+    expect(dist(v[2], v[3])).toBeCloseTo(30, 9)
+    expect(v[0].y).toBe(0); expect(v[3].y).toBe(0)
   })
 })
 

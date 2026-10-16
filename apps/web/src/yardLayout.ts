@@ -50,6 +50,14 @@ export interface YardSide {
   skip?: SideSkip | null
   /** Drawing direction in degrees (0 = right, 90 = up the page), for the site plan. */
   heading?: number
+  /** A backyard return: where it meets the house (drawing only). Back corner when unset. */
+  meetsHouse?: HouseMeet | null
+}
+
+export interface HouseMeet {
+  at: 'back' | 'front' | 'distance'
+  /** For 'distance': inches from the house's back corner toward the street. */
+  distanceIn?: number
 }
 
 /** Point on the site plan, in feet, y up. */
@@ -66,6 +74,10 @@ export interface YardLayout {
   /** Site plan drawing: corners dragged by hand, and the aerial photo it sits on. */
   plan?: {
     points?: PlanPoint[] | null
+    /** The measurements the dragged corners were drawn for (see layoutSignature).
+     *  When the lengths change after, the drag no longer applies. Unset on the
+     *  aerial photo, where corners are placed on the picture. */
+    pointsFor?: string | null
     aerial?: { lat: number; lng: number; halfM: number; address: string } | null
     /** Compass heading (degrees) of "up the page", from standing at the house
      *  and pointing the phone at the back fence. Used without an aerial photo. */
