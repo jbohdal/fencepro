@@ -1,4 +1,4 @@
-// Open every pipeline card, every customer and every quote on LIVE, read only,
+// Open every pipeline card, customer, quote and job on LIVE, read only,
 // and list any that error.
 //
 //   node e2e/live-readonly.mjs [cards|customers|quotes ...]   (all three by default)
@@ -25,7 +25,7 @@ const env = Object.fromEntries(fs.readFileSync(`${HOME}/ezbiz/apps/portal/.env`,
 const row = execSync(`PGOPTIONS='-c default_transaction_read_only=on' /opt/homebrew/opt/postgresql@16/bin/psql -d ezbiz -AtF '|' -c "select id,email,role,\\"firstName\\",\\"lastName\\",\\"crmAccountId\\" from \\"CrmUser\\" where email='jbohdal@gdfencepro.com'"`).toString().trim().split('|')
 const TOKEN = jwt.sign({ sub: row[0], email: row[1], role: row[2], firstName: row[3], lastName: row[4], crmAccountId: row[5] }, env.JWT_SECRET, { expiresIn: '3h' })
 
-const WHAT = process.argv.slice(2).length ? process.argv.slice(2) : ['cards', 'customers', 'quotes']
+const WHAT = process.argv.slice(2).length ? process.argv.slice(2) : ['cards', 'customers', 'quotes', 'jobs']
 const WORKERS = 3
 const MAX_PER_MIN = 280
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -115,12 +115,20 @@ try {
     totals.quotes = qs.length
     plan.push(...qs.map(q => ({ kind: 'quote', name: q.customerName, id: q.id, url: `/quotes?qv=${encodeURIComponent(q.id)}`, expect: 'div.fixed.inset-0.z-50.flex' })))
   }
-  if (process.env.LIMIT) { const n = +process.env.LIMIT; const by = k => plan.filter(p => p.kind === k).slice(0, n); plan.splice(0, plan.length, ...by('card'), ...by('customer'), ...by('quote')) }
+  if (WHAT.includes('jobs')) {
+    const d = await get('/api/saved-jobs')
+    const js = (Array.isArray(d) ? d : d?.jobs ?? []).filter(j => !j.archivedAt)
+    totals.jobs = js.length
+    // Operations at desktop size opens the job in the side panel.
+    plan.push(...js.map(j => ({ kind: 'job', name: j.customerName, id: j.id, url: `/operations?job=${encodeURIComponent(j.id)}`, expect: 'div.fixed.inset-y-0.right-0.z-50' })))
+  }
+  if (process.env.LIMIT) { const n = +process.env.LIMIT; const by = k => plan.filter(p => p.kind === k).slice(0, n); plan.splice(0, plan.length, ...by('card'), ...by('customer'), ...by('quote'), ...by('job')) }
   // A check on the checker: records that do not exist must be reported.
   if (process.env.CONTROL) plan.push(
     { kind: 'card', name: 'CONTROL missing card', id: 'nope', url: '/pipeline?card=nope-123', expect: '[data-card-window="nope-123"]' },
     { kind: 'customer', name: 'CONTROL missing customer', id: 'nope', url: '/customers/nope-123', expect: '[data-customer-tab="overview"]' },
     { kind: 'quote', name: 'CONTROL missing quote', id: 'nope', url: '/quotes?qv=nope-123', expect: 'div.fixed.inset-0.z-50.flex' },
+    { kind: 'job', name: 'CONTROL missing job', id: 'nope', url: '/operations?job=nope-123', expect: 'div.fixed.inset-y-0.right-0.z-50' },
   )
   const per = Math.ceil(plan.length / WORKERS)
   await Promise.all(Array.from({ length: WORKERS }, (_, w) => worker(browser, plan.slice(w * per, (w + 1) * per), `worker ${w + 1}`)))
@@ -130,7 +138,7 @@ try {
 
 const day = new Date().toISOString().slice(0, 10)
 const lines = [
-  `Live, read only: every pipeline card, customer and quote opened (${day})`,
+  `Live, read only: every pipeline card, customer, quote and job opened (${day})`,
   `Opened: ${Object.entries(totals).map(([k, v]) => `${v} ${k}`).join(', ')} in ${Math.round((Date.now() - t0) / 60000)} minutes.`,
   `Changes the app tried to send just from being opened (all stopped): ${blocked.length ? [...new Set(blocked)].map(b => `${b} x${blocked.filter(x => x === b).length}`).join('; ') : 'none'}`,
   `Problems: ${problems.length}`,

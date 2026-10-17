@@ -121,6 +121,8 @@ Status key:
 * Those 4 kept 30 days, then deleted on Nov 16 (after that night's backup, only if still archived and nothing new points at them); dashboard reminder on Nov 15 with "Keep them" to cancel. Marilyn Clarke's newer copy added (5 records). **LIVE** (Oct 17; schedule set on live)
 * Marilyn Clarke: the two records merged into the older one (Mar 25 2024), spelled Clarke on the record and her quotes; the newer record kept, archived. **LIVE** (Oct 17)
 * Confirm no test records ("E2E") exist on live: none found Oct 17. **LIVE**
+* Full check Oct 17 (night): every browser test passes on dev; field test 240 of 240 (Android emulator and phone size Chrome; good, slow, no and dropping signal); live read only crawl opened all 1,721 cards, 3,690 customers, 1,942 quotes and 660 jobs with 0 problems (report in ~/Downloads/live-readonly-2026-10-17.txt). Opening a job for the first time saves its default checklist (Locate, Permit...); by design, noted. **LIVE**
+* Dispatch map: Google shows "This page can't load Google Maps correctly" on live (the Maps key has no billing project). Switch Dispatch to the free maps the Appointments page uses, or hide the map. **NEEDS JONATHAN** (pick one)
 * Crew sees the photo they just uploaded; note authors by name; pop up messages at the bottom, never over the save status; one "Photos and video" heading on a job. **LIVE** (Oct 17)
 
 ## 11. Storage and backups
