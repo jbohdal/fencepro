@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Pencil, Trash2, Plus, Image as ImageIcon, Mic } from 'lucide-react'
+import { Pencil, Trash2, Plus, Image as ImageIcon, Mic, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import FtInPad from './FtInPad'
 import SitePlan, { type PlanPin } from './SitePlan'
 import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX, buildPlan, layoutSignature, returnHouseEnd } from './sitePlanGeometry'
@@ -26,7 +26,21 @@ const SHAPES: Array<{ shape: YardShape; hint: string; path: string }> = [
 
 type PadTarget = { sideId: string; field: 'length' | 'gateWidth' | 'gateDistance' | 'skipLength' | 'skipDistance' | 'meetDistance' }
 
-export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap }: {
+/** How a side's ends finish, in one line ("Corner at both ends"). */
+export function endsLine(start: EndFinish, end: EndFinish): string {
+  const label = (f: EndFinish) => (f === 'free' ? 'Stops' : FINISH_LABEL[f])
+  if (start === end) return `${label(start)} at both ends`
+  return `${label(start)} at the start, ${label(end).toLowerCase()} at the end`
+}
+
+/** The next side to fill in after `id`: the next one that is on and has no length, going round. */
+export function nextEmptySide(layout: YardLayout, id: string | null): YardSide | null {
+  const i = id ? layout.sides.findIndex(s => s.id === id) : -1
+  const order = [...layout.sides.slice(i + 1), ...layout.sides.slice(0, Math.max(0, i))]
+  return order.find(s => s.on && !(s.lengthIn > 0)) ?? null
+}
+
+export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap, openSideId, onOpenSide }: {
   layout: YardLayout | null
   onChange: (l: YardLayout | null) => void
   result: LayoutResult | null
@@ -45,8 +59,22 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   /** Photo pins on the plan; tapping one opens its photos. */
   pins?: PlanPin[]
   onPinTap?: (id: string) => void
+  /** The one side shown open (the quote builder's Next side moves it); without these the editor keeps its own. */
+  openSideId?: string | null
+  onOpenSide?: (id: string | null) => void
 }) {
   const [pad, setPad] = useState<PadTarget | null>(null)
+  const [openLocal, setOpenLocal] = useState<string | null>(null)
+  const openId = openSideId !== undefined ? openSideId : openLocal
+  const setOpen = (id: string | null) => { if (onOpenSide) onOpenSide(id); else setOpenLocal(id) }
+  // "More options" for the open side (ends, house, gate size, gaps, rename, off, remove).
+  const [moreFor, setMoreFor] = useState<string | null>(null)
+  // An opened side scrolls into view, so its buttons never need a scroll to reach.
+  useEffect(() => {
+    if (!openId) return
+    const t = setTimeout(() => document.querySelector(`[data-side-id="${openId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60)
+    return () => clearTimeout(t)
+  }, [openId])
   const [aerialOn, setAerialOn] = useState(false)
   const [aerialAddress, setAerialAddress] = useState(address ?? '')
   const [aerialMsg, setAerialMsg] = useState('')
@@ -66,6 +94,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   // Corner handles only while the drawing is being adjusted (or lined up on the aerial photo).
   const [adjusting, setAdjusting] = useState(false)
   const [editCounts, setEditCounts] = useState(false)
+  // The aerial photo's address box opens only when asked for, to keep the yard step short.
+  const [aerialForm, setAerialForm] = useState(false)
 
   if (!layout) {
     return (
@@ -136,8 +166,10 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     if (joined) sides[sides.length - 1].endFinish = 'corner'
     // A new side turns a quarter to the right of the last one on the plan.
     const heading = last ? (((last.heading ?? 0) - 90) % 360 + 360) % 360 : 0
-    sides.push({ id: newSideId(), name: `Side ${sides.length + 1}`, on: true, lengthIn: 0, startFinish: joined ? 'corner' : 'free', endFinish: 'free', gate: null, skip: null, heading })
+    const added: YardSide = { id: newSideId(), name: `Side ${sides.length + 1}`, on: true, lengthIn: 0, startFinish: joined ? 'corner' : 'free', endFinish: 'free', gate: null, skip: null, heading }
+    sides.push(added)
     set({ ...layout!, sides })
+    setOpen(added.id)
   }
 
   function removeSide(i: number) {
@@ -176,6 +208,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     if (pad.field === 'skipLength' && padSide.skip) updateSide(padSide.id, { skip: { ...padSide.skip, lengthIn: inches } })
     if (pad.field === 'skipDistance' && padSide.skip) updateSide(padSide.id, { skip: { ...padSide.skip, position: 'distance', distanceIn: inches } })
     if (pad.field === 'meetDistance') updateSide(padSide.id, { meetsHouse: { at: 'distance', distanceIn: inches } })
+    if (next && padNext) setOpen(padNext.id)
     setPad(next && padNext ? { sideId: padNext.id, field: 'length' } : null)
   }
 
@@ -205,8 +238,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     setAerialOn(true)
   }
   function tapSide(id: string) {
-    document.querySelector(`[data-side-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    setPad({ sideId: id, field: 'length' })
+    setOpen(id)
   }
 
   const onPhoto = !!(photo && photoReady === photo)
@@ -245,18 +277,22 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
       <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{onPhoto ? ' Drag the corners onto the yard; the center button moves the whole plan.' : adjusting ? ' Drag a corner to match an odd yard; footage and price stay as typed.' : ''}</p>
       <div className="flex flex-wrap items-center gap-2" data-aerial>
         {!onPhoto && (
-          <button type="button" className={`btn ${adjusting ? 'btn-primary' : 'btn-secondary'} min-h-[48px]`} onClick={() => setAdjusting(a => !a)} data-plan-adjust>
+          <button type="button" className={`btn ${adjusting ? 'btn-primary' : 'btn-quiet'} btn-sm`} onClick={() => setAdjusting(a => !a)} data-plan-adjust>
             {adjusting ? 'Done adjusting' : 'Adjust the drawing'}
           </button>
         )}
         {!aerialOn ? (
-          <>
-            <input className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 h-11 text-sm" placeholder="Property address for the aerial photo"
-              value={aerialAddress} onChange={e => setAerialAddress(e.target.value)} data-aerial-address />
-            <button type="button" className="btn btn-secondary" onClick={showAerial} data-aerial-show><ImageIcon size={18} aria-hidden="true" /> Show aerial photo</button>
-          </>
+          aerialForm || aerialMsg ? (
+            <>
+              <input className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 h-11 text-sm" placeholder="Property address for the aerial photo"
+                value={aerialAddress} onChange={e => setAerialAddress(e.target.value)} data-aerial-address />
+              <button type="button" className="btn btn-secondary" onClick={showAerial} data-aerial-show><ImageIcon size={18} aria-hidden="true" /> Show aerial photo</button>
+            </>
+          ) : (
+            <button type="button" className="btn btn-quiet btn-sm" onClick={() => setAerialForm(true)} data-aerial-open><ImageIcon size={16} aria-hidden="true" /> Aerial photo</button>
+          )
         ) : (
-          <button type="button" className="btn btn-secondary" onClick={() => setAerialOn(false)} data-aerial-hide>Hide aerial photo</button>
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setAerialOn(false)} data-aerial-hide>Hide aerial photo</button>
         )}
         {layout.plan?.points && (
           <button type="button" className="btn btn-quiet btn-sm" data-plan-reset onClick={() => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: aerialOn ? centeredVertices(layout) : null, pointsFor: null } })}>Reset the drawing</button>
@@ -265,6 +301,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
       </div>
       {aerialOn && <p className="text-xs text-gray-500 -mt-1">Aerial photo: USGS National Map (NAIP), public domain.</p>}
 
+      <div className="rounded-2xl border border-gray-200 bg-white divide-y divide-gray-100 overflow-hidden" data-side-list>
       {layout.sides.map((s, i) => {
         const r = result?.sides[i]
         const startJoined = joinedFromPrev(layout, i)
@@ -274,6 +311,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
         const startF = r?.finishes.start ?? s.startFinish
         const endF = r?.finishes.end ?? s.endFinish
         const runsHere = sideRuns.get(s.id) ?? []
+        const open = openId === s.id
+        const more = moreFor === s.id
+        const done = s.on && s.lengthIn > 0
         const finishSelect = (which: 'start' | 'end', value: EndFinish, canCorner: boolean, joined: boolean) => (
           <select className={selectCls} value={value} onChange={e => setFinish(i, which, e.target.value as EndFinish)} data-finish={which}>
             {canCorner && <option value="corner">Corner{joined || canCorner ? ` (joins ${neighborName(layout, i, which)})` : ''}</option>}
@@ -281,128 +321,56 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           </select>
         )
         return (
-          <div key={s.id} className={`rounded-2xl border bg-white p-3 sm:p-4 scroll-mt-24 ${s.on ? 'border-gray-200' : 'border-dashed border-gray-300 bg-gray-50'}`} data-side={s.name} data-side-id={s.id}>
-            <div className="flex items-center gap-2">
-              <button type="button" role="switch" aria-checked={s.on} aria-label={`${s.name} ${s.on ? 'on' : 'off'}`} onClick={() => toggleSide(i)}
-                className="shrink-0 w-14 h-12 grid place-items-center rounded-lg" data-side-toggle>
-                <span className={`relative block w-12 h-7 rounded-full transition-colors ${s.on ? 'bg-orange-500' : 'bg-gray-300'}`}>
-                  <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform ${s.on ? 'translate-x-5' : ''}`} />
-                </span>
-              </button>
-              {renaming === s.id ? (
-                <input autoFocus defaultValue={s.name} className="flex-1 min-w-0 border border-orange-300 rounded-lg px-2 h-10 text-base font-semibold"
-                  onBlur={e => { updateSide(s.id, { name: e.target.value.trim() || s.name }); setRenaming(null) }}
-                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
-              ) : (
-                <p className={`flex-1 min-w-0 text-base font-semibold truncate ${s.on ? 'text-gray-900' : 'text-gray-500'}`}>{s.name}{!s.on && <span className="font-normal text-sm"> · off</span>}</p>
-              )}
-              <button type="button" className="btn btn-quiet btn-icon" aria-label={`Rename ${s.name}`} onClick={() => setRenaming(s.id)}><Pencil size={18} aria-hidden="true" /></button>
-              <button type="button" className="btn btn-quiet btn-icon" aria-label={`Remove ${s.name}`} onClick={() => removeSide(i)}><Trash2 size={18} aria-hidden="true" /></button>
-            </div>
+          <div key={s.id} className={`scroll-mt-24 scroll-mb-40 ${open ? 'bg-orange-50/40' : ''}`} data-side={s.name} data-side-id={s.id} data-side-open={open ? 'true' : undefined}>
+            <button type="button" onClick={() => setOpen(open ? null : s.id)} aria-expanded={open} data-side-row={s.name}
+              className="w-full min-h-[52px] flex items-center gap-3 px-3 text-left">
+              <span className={`shrink-0 w-6 h-6 rounded-full grid place-items-center ${done ? 'bg-green-600 text-white' : s.on ? 'border-2 border-gray-300' : 'border-2 border-dashed border-gray-300'}`} aria-hidden="true">
+                {done && <Check size={14} strokeWidth={3} />}
+              </span>
+              <span className={`flex-1 min-w-0 truncate text-base font-semibold ${s.on ? 'text-gray-900' : 'text-gray-500'}`}>{s.name}{!s.on && <span className="font-normal text-sm"> · off</span>}</span>
+              {s.on && s.gate && <span className="shrink-0 text-xs font-semibold text-orange-800 bg-orange-100 rounded-full px-2 py-0.5" data-side-gate>{GATE_LABEL[s.gate.type]}</span>}
+              <span className={`shrink-0 tabular-nums text-sm ${done ? 'text-gray-900 font-semibold' : 'text-gray-400'}`} data-side-len>{done ? formatFtIn(s.lengthIn) : s.on ? 'no length' : ''}</span>
+            </button>
 
-            {s.on && (
-              <div className="mt-3 space-y-3">
+            {open && !s.on && (
+              <div className="px-3 pb-3 flex items-center gap-2">
+                <p className="flex-1 text-sm text-gray-600">This side is off: no fence here.</p>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => toggleSide(i)} data-side-toggle>Turn on</button>
+              </div>
+            )}
+
+            {open && s.on && (
+              <div className="px-3 pb-3 space-y-3" data-side-body>
                 <div className="flex gap-2">
-                <button type="button" onClick={() => setPad({ sideId: s.id, field: 'length' })} data-side-length
-                  className={`flex-1 min-w-0 h-14 rounded-xl border-2 text-left px-4 flex items-center justify-between ${s.lengthIn > 0 ? 'border-gray-300' : 'border-orange-400 bg-orange-50'}`}>
-                  <span className={`text-2xl font-bold tabular-nums ${s.lengthIn > 0 ? 'text-gray-900' : 'text-orange-700 text-base'}`}>{s.lengthIn > 0 ? formatFtIn(s.lengthIn) : 'Tap to enter the length'}</span>
-                  <span className="text-xs text-gray-500">{s.gate ? 'measure across the gate' : 'end to end'}</span>
-                </button>
-                {onVoiceSide && (
-                  <button type="button" className="shrink-0 w-14 h-14 rounded-xl border-2 border-orange-300 bg-white grid place-items-center text-orange-700" aria-label={`Say the ${s.name.toLowerCase()}`}
-                    onClick={() => onVoiceSide(s.name)} data-side-mic><Mic size={22} aria-hidden="true" /></button>
-                )}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <label className="block">
-                    <span className="text-xs text-gray-600 mb-1 block">Start</span>
-                    {finishSelect('start', startF, prevOn, startJoined)}
-                  </label>
-                  <label className="block">
-                    <span className="text-xs text-gray-600 mb-1 block">End</span>
-                    {finishSelect('end', endF, nextOn, endJoined)}
-                  </label>
-                </div>
-
-                {returnHouseEnd(layout, i) && (
-                  <label className="block">
-                    <span className="text-xs text-gray-600 mb-1 block">Meets the house at</span>
-                    <select className={selectCls} value={s.meetsHouse?.at ?? 'back'} data-meets-house
-                      onChange={e => {
-                        const v = e.target.value as 'back' | 'front' | 'distance'
-                        if (v === 'distance') setPad({ sideId: s.id, field: 'meetDistance' })
-                        else updateSide(s.id, { meetsHouse: v === 'back' ? null : { at: v } })
-                      }}>
-                      <option value="back">The back corner of the house</option>
-                      <option value="front">The front corner of the house</option>
-                      <option value="distance">{s.meetsHouse?.at === 'distance' ? `${formatFtIn(s.meetsHouse.distanceIn ?? 0)} from the back corner` : 'Type a distance from the back corner'}</option>
-                    </select>
-                  </label>
-                )}
-
-                <div>
-                  <span className="text-xs text-gray-600 mb-1 block">Gate on this side?</span>
-                  <div className="grid grid-cols-3 gap-1 bg-gray-100 rounded-xl p-1" data-gate-choice>
-                    {([null, 'walk', 'double'] as Array<GateType | null>).map(t => (
-                      <button key={t ?? 'none'} type="button"
-                        onClick={() => updateSide(s.id, { gate: t ? { type: t, widthIn: s.gate?.type === t ? s.gate.widthIn : GATE_WIDTH_IN[t], position: s.gate?.position ?? 'middle', distanceIn: s.gate?.distanceIn } : null })}
-                        className={`h-11 rounded-lg text-sm font-semibold ${(s.gate?.type ?? null) === t ? 'bg-white text-orange-700 shadow-sm' : 'text-gray-600'}`}>
-                        {t ? GATE_LABEL[t] : 'No gate'}
-                      </button>
-                    ))}
-                  </div>
-                  {s.gate && (
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      <button type="button" onClick={() => setPad({ sideId: s.id, field: 'gateWidth' })} className="h-11 rounded-lg border border-gray-300 px-3 text-left text-sm" data-gate-width>
-                        <span className="text-gray-600">Width </span><span className="font-semibold text-gray-900">{formatFtIn(s.gate.widthIn)}</span>
-                      </button>
-                      <select className={selectCls} value={s.gate.position} data-gate-position
-                        onChange={e => {
-                          const v = e.target.value as typeof s.gate.position
-                          if (v === 'distance') setPad({ sideId: s.id, field: 'gateDistance' })
-                          else updateSide(s.id, { gate: { ...s.gate!, position: v } })
-                        }}>
-                        <option value="middle">In the middle</option>
-                        <option value="start">{cap(FINISH_NEAR[startF])}</option>
-                        <option value="end">{cap(FINISH_NEAR[endF])}</option>
-                        <option value="distance">{s.gate.position === 'distance' ? `${formatFtIn(s.gate.distanceIn ?? 0)} from the start` : 'Type a distance from the start'}</option>
-                      </select>
-                    </div>
+                  <button type="button" onClick={() => setPad({ sideId: s.id, field: 'length' })} data-side-length
+                    className={`flex-1 min-w-0 h-14 rounded-xl border-2 text-left px-4 flex items-center justify-between ${s.lengthIn > 0 ? 'border-gray-300 bg-white' : 'border-orange-400 bg-orange-50'}`}>
+                    <span className={`text-2xl font-bold tabular-nums ${s.lengthIn > 0 ? 'text-gray-900' : 'text-orange-700 text-base'}`}>{s.lengthIn > 0 ? formatFtIn(s.lengthIn) : 'Tap to enter the length'}</span>
+                    <span className="text-xs text-gray-500">{s.gate ? 'across the gate' : 'end to end'}</span>
+                  </button>
+                  {onVoiceSide && (
+                    <button type="button" className="shrink-0 w-14 h-14 rounded-xl border-2 border-orange-300 bg-white grid place-items-center text-orange-700" aria-label={`Say the ${s.name.toLowerCase()}`}
+                      onClick={() => onVoiceSide(s.name)} data-side-mic><Mic size={22} aria-hidden="true" /></button>
                   )}
                 </div>
 
-                {s.skip ? (
-                  <div className="rounded-xl bg-gray-50 border border-gray-200 p-2 space-y-2" data-skip>
-                    <div className="grid grid-cols-2 gap-1 bg-gray-100 rounded-lg p-1">
-                      {(['existing', 'none'] as const).map(k => (
-                        <button key={k} type="button" onClick={() => updateSide(s.id, { skip: { ...s.skip!, kind: k } })}
-                          className={`h-10 rounded-md text-sm font-semibold ${s.skip!.kind === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'}`}>
-                          {k === 'existing' ? 'Existing fence here' : 'No fence here'}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                      <button type="button" onClick={() => setPad({ sideId: s.id, field: 'skipLength' })} className="h-11 rounded-lg border border-gray-300 bg-white px-3 text-left text-sm" data-skip-length>
-                        <span className="text-gray-600">Length </span><span className="font-semibold text-gray-900">{s.skip.lengthIn > 0 ? formatFtIn(s.skip.lengthIn) : 'tap'}</span>
-                      </button>
-                      <select className={selectCls} value={s.skip.position}
-                        onChange={e => e.target.value === 'distance' ? setPad({ sideId: s.id, field: 'skipDistance' }) : updateSide(s.id, { skip: { ...s.skip!, position: 'middle' } })}>
-                        <option value="middle">In the middle</option>
-                        <option value="distance">{s.skip.position === 'distance' ? `${formatFtIn(s.skip.distanceIn ?? 0)} from the start` : 'Type a distance from the start'}</option>
-                      </select>
-                      <button type="button" className="btn btn-quiet btn-icon" aria-label="Remove the skip" onClick={() => updateSide(s.id, { skip: null })}><Trash2 size={18} aria-hidden="true" /></button>
-                    </div>
-                    <p className="text-xs text-gray-600">Not charged. Each piece of new fence gets its own end post here.</p>
-                  </div>
-                ) : (
-                  <button type="button" className="btn btn-quiet btn-sm" data-add-skip
-                    onClick={() => { updateSide(s.id, { skip: { kind: 'existing', lengthIn: 0, position: 'middle' } }); setPad({ sideId: s.id, field: 'skipLength' }) }}>
-                    <Plus size={16} aria-hidden="true" /> Existing fence or a gap on this side
-                  </button>
-                )}
+                <div className="grid grid-cols-3 gap-1 bg-gray-100 rounded-xl p-1" data-gate-choice>
+                  {([null, 'walk', 'double'] as Array<GateType | null>).map(t => (
+                    <button key={t ?? 'none'} type="button"
+                      onClick={() => updateSide(s.id, { gate: t ? { type: t, widthIn: s.gate?.type === t ? s.gate.widthIn : GATE_WIDTH_IN[t], position: s.gate?.position ?? 'middle', distanceIn: s.gate?.distanceIn } : null })}
+                      className={`h-11 rounded-lg text-sm font-semibold ${(s.gate?.type ?? null) === t ? 'bg-white text-orange-700 shadow-sm' : 'text-gray-600'}`}>
+                      {t ? GATE_LABEL[t] : 'No gate'}
+                    </button>
+                  ))}
+                </div>
 
-                {runsHere.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <p className="flex-1 text-sm text-gray-700" data-side-ends>{endsLine(startF, endF)}{s.gate ? ` · ${formatFtIn(s.gate.widthIn)} gate ${s.gate.position === 'middle' ? 'in the middle' : s.gate.position === 'distance' ? `${formatFtIn(s.gate.distanceIn ?? 0)} from the start` : FINISH_NEAR[s.gate.position === 'start' ? startF : endF]}` : ''}</p>
+                  <button type="button" className="btn btn-quiet btn-sm shrink-0" onClick={() => setMoreFor(more ? null : s.id)} aria-expanded={more} data-side-more>
+                    More options {more ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+                  </button>
+                </div>
+
+                {runsHere.length > 0 && (hasStyle || runsHere.length > 1 || runsHere.some(r => r.tape)) && (
                   <div className="text-sm text-gray-700 space-y-0.5" data-side-runs>
                     {runsHere.map((run, k) => (
                       <p key={k} className="tabular-nums">
@@ -414,11 +382,103 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                   </div>
                 )}
                 {r?.notes.map((n, k) => <p key={k} className="text-sm text-amber-800 bg-amber-50 rounded-lg px-2 py-1">{cap(n)}</p>)}
+
+                {more && (
+                  <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-3" data-side-options>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label className="block">
+                        <span className="text-xs text-gray-600 mb-1 block">Start</span>
+                        {finishSelect('start', startF, prevOn, startJoined)}
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-gray-600 mb-1 block">End</span>
+                        {finishSelect('end', endF, nextOn, endJoined)}
+                      </label>
+                    </div>
+
+                    {returnHouseEnd(layout, i) && (
+                      <label className="block">
+                        <span className="text-xs text-gray-600 mb-1 block">Meets the house at</span>
+                        <select className={selectCls} value={s.meetsHouse?.at ?? 'back'} data-meets-house
+                          onChange={e => {
+                            const v = e.target.value as 'back' | 'front' | 'distance'
+                            if (v === 'distance') setPad({ sideId: s.id, field: 'meetDistance' })
+                            else updateSide(s.id, { meetsHouse: v === 'back' ? null : { at: v } })
+                          }}>
+                          <option value="back">The back corner of the house</option>
+                          <option value="front">The front corner of the house</option>
+                          <option value="distance">{s.meetsHouse?.at === 'distance' ? `${formatFtIn(s.meetsHouse.distanceIn ?? 0)} from the back corner` : 'Type a distance from the back corner'}</option>
+                        </select>
+                      </label>
+                    )}
+
+                    {s.gate && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" onClick={() => setPad({ sideId: s.id, field: 'gateWidth' })} className="h-11 rounded-lg border border-gray-300 px-3 text-left text-sm" data-gate-width>
+                          <span className="text-gray-600">Gate width </span><span className="font-semibold text-gray-900">{formatFtIn(s.gate.widthIn)}</span>
+                        </button>
+                        <select className={selectCls} value={s.gate.position} data-gate-position
+                          onChange={e => {
+                            const v = e.target.value as typeof s.gate.position
+                            if (v === 'distance') setPad({ sideId: s.id, field: 'gateDistance' })
+                            else updateSide(s.id, { gate: { ...s.gate!, position: v } })
+                          }}>
+                          <option value="middle">In the middle</option>
+                          <option value="start">{cap(FINISH_NEAR[startF])}</option>
+                          <option value="end">{cap(FINISH_NEAR[endF])}</option>
+                          <option value="distance">{s.gate.position === 'distance' ? `${formatFtIn(s.gate.distanceIn ?? 0)} from the start` : 'Type a distance from the start'}</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {s.skip ? (
+                      <div className="rounded-xl bg-gray-50 border border-gray-200 p-2 space-y-2" data-skip>
+                        <div className="grid grid-cols-2 gap-1 bg-gray-100 rounded-lg p-1">
+                          {(['existing', 'none'] as const).map(k => (
+                            <button key={k} type="button" onClick={() => updateSide(s.id, { skip: { ...s.skip!, kind: k } })}
+                              className={`h-10 rounded-md text-sm font-semibold ${s.skip!.kind === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'}`}>
+                              {k === 'existing' ? 'Existing fence here' : 'No fence here'}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                          <button type="button" onClick={() => setPad({ sideId: s.id, field: 'skipLength' })} className="h-11 rounded-lg border border-gray-300 bg-white px-3 text-left text-sm" data-skip-length>
+                            <span className="text-gray-600">Length </span><span className="font-semibold text-gray-900">{s.skip.lengthIn > 0 ? formatFtIn(s.skip.lengthIn) : 'tap'}</span>
+                          </button>
+                          <select className={selectCls} value={s.skip.position}
+                            onChange={e => e.target.value === 'distance' ? setPad({ sideId: s.id, field: 'skipDistance' }) : updateSide(s.id, { skip: { ...s.skip!, position: 'middle' } })}>
+                            <option value="middle">In the middle</option>
+                            <option value="distance">{s.skip.position === 'distance' ? `${formatFtIn(s.skip.distanceIn ?? 0)} from the start` : 'Type a distance from the start'}</option>
+                          </select>
+                          <button type="button" className="btn btn-quiet btn-icon" aria-label="Remove the skip" onClick={() => updateSide(s.id, { skip: null })}><Trash2 size={18} aria-hidden="true" /></button>
+                        </div>
+                        <p className="text-xs text-gray-600">Not charged. Each piece of new fence gets its own end post here.</p>
+                      </div>
+                    ) : (
+                      <button type="button" className="btn btn-quiet btn-sm" data-add-skip
+                        onClick={() => { updateSide(s.id, { skip: { kind: 'existing', lengthIn: 0, position: 'middle' } }); setPad({ sideId: s.id, field: 'skipLength' }) }}>
+                        <Plus size={16} aria-hidden="true" /> Existing fence or a gap on this side
+                      </button>
+                    )}
+
+                    {renaming === s.id && (
+                      <input autoFocus defaultValue={s.name} aria-label="Side name" className="w-full border border-orange-300 rounded-lg px-3 h-11 text-base font-semibold"
+                        onBlur={e => { updateSide(s.id, { name: e.target.value.trim() || s.name }); setRenaming(null) }}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setRenaming(s.id)}><Pencil size={16} aria-hidden="true" /> Rename</button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => toggleSide(i)} data-side-toggle aria-label={`${s.name} on`}>Turn this side off</button>
+                      <button type="button" className="btn btn-quiet btn-sm text-red-700" onClick={() => removeSide(i)} aria-label={`Remove ${s.name}`}><Trash2 size={16} aria-hidden="true" /> Delete side</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )
       })}
+      </div>
 
       <button type="button" onClick={addSide} className="btn btn-secondary w-full" data-add-side><Plus size={18} aria-hidden="true" /> Add a side</button>
 

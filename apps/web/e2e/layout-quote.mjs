@@ -56,6 +56,7 @@ try {
   await tap(p.locator('button:has-text("New quote"):visible').first())
   const b = p.locator('[data-quote-builder]')
   await b.locator('input[placeholder^="Customer name"]').fill('Layout test (e2e)')
+  await tap(b.locator('[data-step="yard"]'))
   await tap(b.locator('[data-shape="backyard"]'))
   // Lengths: tap the first side, then Next through the rest.
   await tap(b.locator('[data-side="Left return"] [data-side-length]'))
@@ -63,9 +64,13 @@ try {
     for (const k of keys) await tap(p.locator(`[data-ftin-pad] [data-pad-key="${k}"]`))
     await tap(p.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]'))
   }
-  await tap(b.locator('[data-side="Left return"] [data-gate-choice] button:has-text("Walk gate")'))
+  // One side open at a time: the right return is open after the last length; then the left return.
   await tap(b.locator('[data-side="Right return"] [data-gate-choice] button:has-text("Double gate")'))
+  await tap(b.locator('[data-side-row="Left return"]'))
+  await tap(b.locator('[data-side="Left return"] [data-gate-choice] button:has-text("Walk gate")'))
+  await tap(b.locator('[data-step="style"]'))
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "WV-ND 6'x8' Privacy" }); taps += 1
+  await tap(b.locator('[data-step="yard"]'))
   await sleep(500)
   const secs = Math.round((Date.now() - t0) / 1000)
 
@@ -79,7 +84,7 @@ try {
   check('phone: backyard with two gated returns gives 57 sections', sections === '57', sections)
   check('phone: posts are counted from the finishes: 4 corner, 6 end (4 at gates)', /^4 corner · 6 end \(4 at gates\)/.test(posts), posts)
   check('phone: the left return is split around its gate, with post spacing', /Piece 1: 13' 0" = 2 sections, posts 6' 6" apart/.test(leftRuns), leftRuns)
-  check('phone: quoted in under 2 minutes of tapping', taps <= 25, `${taps} taps, ${secs}s for the test robot`)
+  check('phone: quoted in under 2 minutes of tapping (30 taps or fewer, step tabs included)', taps <= 30, `${taps} taps, ${secs}s for the test robot`)
 
   // Site plan: drawn as typed, with every post the quote is priced with.
   const plan = b.locator('[data-site-plan]').first()
@@ -95,8 +100,7 @@ try {
   check('phone: footage, sections, house, street and the permitting note are on the plan',
     ['150\' 0"', 'Back · 19 sec', 'House', 'STREET', 'Not to scale for permitting', "4' walk gate", "10' double gate"].every(t => drawn.text.includes(t)), drawn.text.slice(0, 200))
   await p.locator('[data-plan-side="Back"]').click({ force: true }); await sleep(400)
-  check('phone: tapping a side on the plan opens its length', (await p.locator('[data-ftin-pad]').getAttribute('aria-label')) === 'Length of Back length')
-  await p.locator('[data-ftin-pad] button:has-text("Cancel")').click()
+  check('phone: tapping a side on the plan opens that side', (await b.locator('[data-side-open="true"]').getAttribute('data-side')) === 'Back')
 
   // The same job typed as a run list prices the same.
   await b.locator('[data-to-advanced]').click(); await sleep(300)
@@ -108,11 +112,12 @@ try {
   check('back to the layout keeps the sides', (await total()) === '57')
 
   // Pinned totals on the phone.
-  const sticky = (await p.locator('[data-quote-sticky]').textContent()).trim()
+  await b.locator('[data-step="price"]').click(); await sleep(300)
+  const sticky = (await p.locator('[data-quote-bar]').textContent()).trim()
   check('phone: footage, sections and price pinned at the bottom', sticky.includes('436 ft · 57 sections') && sticky.includes(layoutPrice), sticky)
 
   // Save to a dev customer.
-  await p.locator('[data-quote-sticky] button:has-text("Save quote")').click()
+  await p.locator('[data-quote-bar] [data-save-open]').click()
   await p.locator('input[placeholder="Name, phone, or email..."]').fill('Shawn Collins'); await sleep(400)
   await p.locator('text=Shawn Collins').last().click()
   await p.locator('button:has-text("Save quote")').last().click()

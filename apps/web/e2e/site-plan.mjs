@@ -68,6 +68,8 @@ try {
   page.on('dialog', d => { asked = d.message(); d.accept() })
   const openQuote = async id => {
     await page.goto(`${APP}/quotes?quote=${id}`)
+    // A saved quote opens on its price; the plan is on the Yard step.
+    await page.locator('[data-quote-builder] [data-step="yard"]').click({ timeout: 30000 })
     await page.waitForSelector('[data-plan-wrap] svg', { timeout: 30000 }); await sleep(1200)
     await page.locator('[data-plan-wrap]').scrollIntoViewIfNeeded()
   }
@@ -97,10 +99,14 @@ try {
   // Meets the house at the front corner.
   await openQuote(await quote('E2E Plan front corner', yard(120, 100, 150, { a: { meetsHouse: { at: 'front' } } })))
   const leftReturn = page.locator('[data-side="Left return"]')
+  // "Meets the house at" is behind More options on the open side.
+  const moreFor = async name => { await page.locator(`[data-side-row="${name}"]`).click(); await sleep(200); await page.locator(`[data-side="${name}"] [data-side-more]`).click(); await sleep(200) }
+  await moreFor('Left return')
   check('a return has "Meets the house at"', (await leftReturn.locator('[data-meets-house]').inputValue()) === 'front' && (await page.locator('[data-side="Back"] [data-meets-house]').count()) === 0)
   g = await geometry(page)
   check('the house stays level with a return at its front corner', level(g.pts))
   await shot('3-meets-front-corner')
+  await moreFor('Right return')
   await page.locator('[data-side="Right return"] [data-meets-house]').selectOption('front'); await sleep(400)
   g = await geometry(page)
   check('changing "Meets the house at" redraws, house still level', level(g.pts) && Math.round(g.corners[0][1]) === Math.round(g.corners[3][1]))

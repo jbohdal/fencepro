@@ -94,6 +94,7 @@ async function pipelineFlow(browser, phone) {
   // Unsaved quote work is never dropped without asking.
   await card.click(); await sleep(800)
   await page.locator('[data-card-new-quote]').click(); await sleep(1200)
+  await page.locator('[data-quote-builder] [data-step="yard"]').click(); await sleep(300)
   await page.locator('[data-shape="backyard"]').click(); await sleep(500)
   let asked = ''
   page.once('dialog', d => { asked = d.message(); d.dismiss() })
@@ -105,6 +106,7 @@ async function pipelineFlow(browser, phone) {
   check(`${tag}: answering Yes closes it, back to the card window`, !(await visible(page, '[data-quote-builder]')) && await visible(page, '[data-card-window]'))
   // The close button asks too.
   await page.locator('[data-card-new-quote]').click(); await sleep(1200)
+  await page.locator('[data-quote-builder] [data-step="yard"]').click(); await sleep(300)
   await page.locator('[data-shape="straight"]').click(); await sleep(400)
   asked = ''
   page.once('dialog', d => { asked = d.message(); d.dismiss() })

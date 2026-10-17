@@ -33,12 +33,16 @@ try {
   const b = page.locator('[data-quote-builder]')
   const warnings = async () => (await b.locator('text=Check before you quote').locator('xpath=..').textContent().catch(() => '')) || ''
 
+  const go = async k => { await b.locator(`[data-step="${k}"]`).click(); await sleep(200) }
   // Tape measure: 80 ft at 8 ft wide.
+  await go('yard')
   await b.locator('[data-shape="straight"]').click()
   await b.locator('[data-side-length]').first().click()
   for (const k of ['8', '0']) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
   await page.locator('[data-ftin-pad] [data-pad-done]').click()
+  await go('style')
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "WV-ND 6'x8' Privacy" }); await sleep(400)
+  await go('yard')
   const w1 = await warnings()
   check('80 ft at 8 ft wide asks for a tape measure check', w1.includes("Fence (80' 0\"): Check this run with a tape measure. A few inches either way changes the section count."), w1.slice(0, 160))
   check('and marks the run on its side', await b.locator('[data-tape-flag]').count() === 1)
@@ -66,6 +70,7 @@ try {
   await b.locator('[data-side-length]').first().click()
   for (const k of ['1', '5', '0']) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
   await page.locator('[data-ftin-pad] [data-pad-done]').click()
+  await go('price')
   await b.locator('input[placeholder="Calculated"]').last().fill('1500'); await sleep(400)
   const w2 = await warnings()
   check('a low typed price warns about margin', /Margin is -?\d+\.\d%, under your 34% target in Settings\./.test(w2), w2.slice(0, 200))
@@ -74,7 +79,7 @@ try {
   // (the warning itself is covered by tests/quoteChecks.test.ts).
   check('price per foot stays quiet without 5 past quotes with footage for the style', !w2.includes('a foot is far'), w2.slice(0, 300))
   if (SHOTS) { await b.locator('text=Check before you quote').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${SHOTS}/2-phone-warnings.png` }) }
-  check('warnings never block saving', await page.locator('[data-quote-sticky] button:has-text("Save quote")').isEnabled())
+  check('warnings never block saving', await page.locator('[data-quote-bar] [data-save-open]').isEnabled())
 
   check('no page errors', errors.length === 0, errors.join(' | '))
   await ctx.close()

@@ -71,14 +71,18 @@ try {
   await p.goto(APP); await p.waitForSelector('[data-tabbar]', { timeout: 30000 }); await sleep(800)
   await p.locator('button:has-text("New quote"):visible').first().click()
   const b = p.locator('[data-quote-builder]')
+  await b.locator('[data-step="yard"]').click()
   await b.locator('[data-shape="backyard"]').click()
   await b.locator('[data-side="Left return"] [data-side-length]').click()
   for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '2', '0'], 0], [['3', '0'], 1]]) {
     for (const k of keys) await p.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
     await p.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
   }
+  await b.locator('[data-side-row="Left return"]').click()
   await b.locator('[data-side="Left return"] [data-gate-choice] button:has-text("Walk gate")').click()
+  await b.locator('[data-step="style"]').click()
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: OWN }); await sleep(400)
+  await b.locator('[data-step="price"]').click()
   // Good, Better, Best show under the price with no taps.
   const tierNames = await b.locator('[data-tier]').evaluateAll(els => els.map(e => e.getAttribute('data-tier')))
   const tierPrice = async k => Number((await b.locator(`[data-tier="${k}"] [data-tier-price]`).textContent()).replace(/[^\d.]/g, ''))
@@ -96,7 +100,7 @@ try {
   await b.locator(`[data-compare-row="${TAN}"] input`).check()
   await b.locator(`[data-compare-row="${SIX}"] input`).check()
   if (SHOTS) { await b.locator('[data-compare]').scrollIntoViewIfNeeded(); await p.screenshot({ path: `${SHOTS}/2-phone-compare-options.png` }) }
-  await p.locator('[data-quote-sticky] button:has-text("Save quote")').click()
+  await p.locator('[data-quote-bar] [data-save-open]').click()
   await p.locator('input[placeholder="Name, phone, or email..."]').fill('Shawn Collins'); await sleep(400)
   await p.locator('text=Shawn Collins').last().click()
   await p.locator('button:has-text("Save quote")').last().click(); await sleep(2500)

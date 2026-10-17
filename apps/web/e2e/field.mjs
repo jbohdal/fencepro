@@ -205,13 +205,17 @@ async function flowA(dev, signal, proxy) {
   await page.locator('[data-card-new-quote]').click()
   const b = page.locator('[data-quote-builder]')
   await b.waitFor()
+  await b.locator('[data-step="yard"]').click()
   await b.locator('[data-shape="backyard"]').click()
   await b.locator('[data-side="Left return"] [data-side-length]').click()
   for (const [keys, last2] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '0', '0'], 0], [['3', '0'], 1]]) {
     for (const k of keys) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
     await page.locator(last2 ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
   }
+  await b.locator('[data-step="style"]').click()
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "WV-ND 6'x8' Privacy" })
+  // Photos have their own button in the bottom bar.
+  await page.locator('[data-photos-open]').click()
   await b.locator('[data-media-camera]').click()
   await page.locator('[data-capture-preview]').waitFor({ timeout: 20000 })
   await sleep(800)
@@ -221,6 +225,8 @@ async function flowA(dev, signal, proxy) {
   if (await page.locator('[data-pin-skip]').waitFor({ timeout: 10000 }).then(() => true, () => false)) { await page.locator('[data-pin-skip]').click(); await sleep(400) }
   check('3 photos taken and shown', await b.locator('[data-media-item]').count() >= 3, String(await b.locator('[data-media-item]').count()))
   await shot(dev, '2-quote-with-photos')
+  await page.locator('[data-photos-done]').click()
+  await b.locator('[data-step="price"]').click()
   await page.locator('[data-save-open]').click()
   await sleep(800)
   check('the save form does not open the keyboard over Save when the customer is already chosen', await page.evaluate(() => document.activeElement?.tagName !== 'INPUT'))

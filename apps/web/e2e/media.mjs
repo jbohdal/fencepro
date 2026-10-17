@@ -60,17 +60,22 @@ try {
   await page.goto(APP); await page.waitForSelector('[data-tabbar]', { timeout: 30000 }); await sleep(800)
   await page.locator('button:has-text("New quote"):visible').first().click()
   const b = page.locator('[data-quote-builder]')
+  await b.locator('[data-step="yard"]').click()
   await b.locator('[data-shape="backyard"]').click()
   await b.locator('[data-side="Left return"] [data-side-length]').click()
   for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '2', '0'], 0], [['3', '0'], 1]]) {
     for (const k of keys) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
     await page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
   }
+  await b.locator('[data-side-row="Left return"]').click()
   await b.locator('[data-side="Left return"] [data-gate-choice] button:has-text("Walk gate")').click()
+  await b.locator('[data-step="style"]').click()
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "WV-ND 6'x8' Privacy" })
+  await b.locator('[data-step="yard"]').click()
 
   // ── Offline: two photos and a short video in the in-app camera ──
   await ctx.setOffline(true)
+  await page.locator('[data-photos-open]').click()
   await b.locator('[data-media-camera]').click()
   await page.locator('[data-capture-preview]').waitFor()
   await sleep(800)
@@ -143,7 +148,9 @@ try {
   check('gallery: several files picked at once, uploaded', await b.locator('[data-media-item="uploaded"]').count() === 5)
 
   // ── Save the quote for the customer: the photos follow ──
-  await page.locator('[data-quote-sticky] button:has-text("Save quote")').click()
+  await page.locator('[data-photos-done]').click()
+  await b.locator('[data-step="price"]').click()
+  await page.locator('[data-quote-bar] [data-save-open]').click()
   await page.locator('input[placeholder="Name, phone, or email..."]').fill(CUSTOMER); await sleep(400)
   await page.locator(`text=${CUSTOMER}`).last().click()
   await page.locator('button:has-text("Save quote")').last().click(); await sleep(2500)

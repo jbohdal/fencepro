@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { Camera } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
 import { resolveSubRate, cleanOverrides } from './pricingEngine'
@@ -15,7 +16,7 @@ import { getRailOptimizerConfig } from './configStore'
 import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
 import { sectionWidthForStyle } from './materialCalculator'
 import { deriveLayout, formatFtIn, postSpacing, type YardLayout } from './yardLayout'
-import LayoutEditor from './LayoutEditor'
+import LayoutEditor, { nextEmptySide } from './LayoutEditor'
 import VoicePanel, { type VoiceHandle } from './VoicePanel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { fetchCurrentUser } from './crmAuth'
@@ -355,6 +356,11 @@ function SaveModal({
 
 // ── QuoteBuilder ──────────────────────────────────────────────────────────────
 
+type StepKey = 'customer' | 'yard' | 'style' | 'price'
+const STEPS: Array<{ key: StepKey; label: string }> = [
+  { key: 'customer', label: 'Customer' }, { key: 'yard', label: 'Yard' }, { key: 'style', label: 'Style' }, { key: 'price', label: 'Price' },
+]
+
 export default function QuoteBuilder({
   onClose,
   onSave,
@@ -418,6 +424,11 @@ export default function QuoteBuilder({
     return () => window.removeEventListener(INVENTORY_UPDATED_EVENT, onInv)
   }, [])
   const [showPullSheet, setShowPullSheet] = useState(true)
+  // One step on screen at a time: a new quote starts with the customer, a saved one on its price.
+  const [step, setStep] = useState<StepKey>(() => (init?.id ? 'price' : 'customer'))
+  // The one side of the yard shown open (Next side moves it on).
+  const [openSide, setOpenSide] = useState<string | null>(null)
+  const [photosOpen, setPhotosOpen] = useState(false)
   // Options offered on the proposal besides this quote's own style.
   const [offer, setOffer] = useState<string[]>(() => (init?.proposal?.options ?? []).slice(1).map(o => o.fenceStyle))
   const [showCompare, setShowCompare] = useState(false)
@@ -591,6 +602,32 @@ export default function QuoteBuilder({
   const categories = [...new Set(FENCE_STYLES.map(s => s.category))]
   const canSave = styleId && sections > 0
 
+  // A yard shape just picked opens on its first side.
+  useEffect(() => {
+    if (yard && step === 'yard' && !openSide) setOpenSide(nextEmptySide(yard, null)?.id ?? null)
+  }, [yard?.shape])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Steps and the bottom bar ──
+  const sidesOn = yard ? yard.sides.filter(s => s.on).length : 0
+  const sidesDone = yard ? yard.sides.filter(s => s.on && s.lengthIn > 0).length : 0
+  const nextSide = entry === 'layout' && yard ? nextEmptySide(yard, openSide) : null
+  function goStep(k: StepKey) {
+    setStep(k)
+    // The Yard step opens on the first side still to fill in.
+    if (k === 'yard' && entry === 'layout' && yard && !openSide) setOpenSide(nextEmptySide(yard, null)?.id ?? null)
+    document.querySelector('[data-quote-builder]')?.scrollTo({ top: 0 })
+  }
+  const barNextLabel = step === 'customer' ? 'Next: Yard' : step === 'yard' ? (nextSide ? 'Next side' : 'Next: Style') : 'Next: Price'
+  function barNext() {
+    if (step === 'customer') return goStep('yard')
+    if (step === 'yard') {
+      // This side is already saved as it was typed; on to the next empty one, or the style.
+      if (nextSide) { setOpenSide(nextSide.id); return }
+      return goStep('style')
+    }
+    goStep('price')
+  }
+
   // The 6 ft / 8 ft picker's per run choice. On auto mix styles it drives the
   // pull sheet; on locked 6 ft tall vinyl it is shown for information.
   const showOptimizer = optSettings.enabled && optSettings.showDetailsInBuilder && !!calc.optimizer
@@ -679,18 +716,27 @@ export default function QuoteBuilder({
           </div>
           <div className="flex items-center gap-3">
             {materialItems.length > 0 && (
-              <button onClick={() => setShowPullSheet(p => !p)} className="text-sm text-orange-500 border border-orange-300 rounded-lg px-3 py-1.5 hover:bg-orange-50">
-                {showPullSheet ? 'Hide Pull Sheet' : 'Show Pull Sheet'} ({materialItems.length} items)
+              <button onClick={() => { if (step !== 'price') { setShowPullSheet(true); goStep('price') } else setShowPullSheet(p => !p) }} className="text-sm text-orange-500 border border-orange-300 rounded-lg px-3 py-1.5 hover:bg-orange-50">
+                <span className="hidden sm:inline">{showPullSheet && step === 'price' ? 'Hide Pull Sheet' : 'Show Pull Sheet'} ({materialItems.length} items)</span>
+                <span className="sm:hidden">Pull sheet ({materialItems.length})</span>
               </button>
             )}
             <button onClick={() => { if (okToLeave()) onClose() }} aria-label="Close" className="text-gray-500 hover:text-gray-800 text-3xl leading-none w-12 h-12 grid place-items-center" data-quote-close>×</button>
           </div>
         </div>
 
-        {/* One column on the phone: inputs, then the live quote; two side by side on a computer. */}
-        <div className="flex flex-col md:flex-row gap-0">
-          <div className="flex-1 min-w-0 px-4 md:px-8 py-5 md:py-6 space-y-6 md:border-r border-gray-100 md:overflow-y-auto md:max-h-[80vh]">
+        <div className="flex gap-1 px-2 md:px-6 pt-2 pb-0 border-b border-gray-200 bg-white " role="tablist" data-steps>
+          {STEPS.map((st, n) => (
+            <button key={st.key} type="button" role="tab" aria-selected={step === st.key} onClick={() => goStep(st.key)} data-step={st.key}
+              className={`flex-1 min-h-[48px] px-1 text-sm font-semibold border-b-[3px] -mb-px ${step === st.key ? 'border-orange-500 text-gray-900' : 'border-transparent text-gray-500'}`}>
+              <span className="text-xs font-normal mr-1 hidden sm:inline">{n + 1}.</span>{st.label}
+            </button>
+          ))}
+        </div>
 
+        {/* One step at a time; the others stay mounted (hidden) so nothing typed is lost. */}
+        <div className="px-4 md:px-8 py-5 md:py-6 pb-44 md:pb-40 max-w-3xl mx-auto w-full">
+          <div className={step === 'customer' ? 'space-y-6' : 'hidden'} data-step-panel="customer">
             <VoicePanel
               ref={voiceRef}
               on={voiceOn}
@@ -725,6 +771,9 @@ export default function QuoteBuilder({
               />
             </div>
 
+          </div>
+
+          <div className={step === 'yard' ? 'space-y-6' : 'hidden'} data-step-panel="yard">
             <div data-yard-section>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-semibold text-gray-500">{entry === 'layout' ? 'Yard layout' : 'Fence runs (advanced)'}</h3>
@@ -745,56 +794,11 @@ export default function QuoteBuilder({
                   onVoiceSide={voiceOn ? name => voiceRef.current?.quick(name) : undefined}
                   pins={mediaItems.filter(m => m.pin).map(m => ({ id: m.key, x: m.pin!.x, y: m.pin!.y, angle: m.pin!.angle ?? null }))}
                   onPinTap={id => setOpenMedia(id)}
+                  openSideId={openSide}
+                  onOpenSide={setOpenSide}
                   address={init?.customerAddress || getCustomers().find(c => `${c.firstName} ${c.lastName}`.trim().toLowerCase() === customerName.trim().toLowerCase())?.serviceAddress || ''}
                 />
               )}
-            </div>
-
-            <div data-quote-media>
-              <MediaGallery
-                where={{ quoteKey: quoteIdRef.current }}
-                layout={entry === 'layout' ? yard : null}
-                onLayout={l => setYard(l)}
-                defaultCategory="Site walk"
-                onItems={setMediaItems}
-                openKey={openMedia}
-                onOpened={() => setOpenMedia(null)}
-                cameraSignal={cameraSignal}
-              />
-            </div>
-
-            <div>
-              <h3 className="text-xs font-semibold text-gray-500 mb-3">Fence style</h3>
-              <select
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                value={styleId}
-                onChange={e => setStyleId(e.target.value)}
-              >
-                <option value="">Select a fence style...</option>
-                {/* Auto-mix styles surface first — optimizer picks 6'/8' per run */}
-                {(() => {
-                  const autoStyles = FENCE_STYLES.filter(s => (s as any).autoRailMix)
-                  return autoStyles.length > 0 ? (
-                    <optgroup label="Vinyl Privacy — Auto-mix (recommended)">
-                      {autoStyles.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </optgroup>
-                  ) : null
-                })()}
-                {categories.map(cat => {
-                  const styles = FENCE_STYLES.filter(s => s.category === cat && !(s as any).autoRailMix)
-                  if (styles.length === 0) return null
-                  const label = cat === 'Vinyl' ? 'Vinyl — Locked width' : cat
-                  return (
-                    <optgroup key={cat} label={label}>
-                      {styles.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </optgroup>
-                  )
-                })}
-              </select>
             </div>
 
             {entry === 'advanced' && (<>
@@ -949,6 +953,43 @@ export default function QuoteBuilder({
               )}
             </div>
 
+          </div>
+
+          <div className={step === 'style' ? 'space-y-6' : 'hidden'} data-step-panel="style">
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Fence style</h3>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                value={styleId}
+                onChange={e => setStyleId(e.target.value)}
+              >
+                <option value="">Select a fence style...</option>
+                {/* Auto-mix styles surface first — optimizer picks 6'/8' per run */}
+                {(() => {
+                  const autoStyles = FENCE_STYLES.filter(s => (s as any).autoRailMix)
+                  return autoStyles.length > 0 ? (
+                    <optgroup label="Vinyl Privacy — Auto-mix (recommended)">
+                      {autoStyles.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </optgroup>
+                  ) : null
+                })()}
+                {categories.map(cat => {
+                  const styles = FENCE_STYLES.filter(s => s.category === cat && !(s as any).autoRailMix)
+                  if (styles.length === 0) return null
+                  const label = cat === 'Vinyl' ? 'Vinyl — Locked width' : cat
+                  return (
+                    <optgroup key={cat} label={label}>
+                      {styles.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </optgroup>
+                  )
+                })}
+              </select>
+            </div>
+
             <div>
               <h3 className="text-xs font-semibold text-gray-500 mb-3">Tear out</h3>
               <div className="grid grid-cols-2 gap-3">
@@ -1031,125 +1072,7 @@ export default function QuoteBuilder({
             </div>
           </div>
 
-          <div className="w-full md:w-80 flex flex-col bg-gray-50 md:rounded-r-2xl border-t md:border-t-0 border-gray-200">
-            <div className="px-6 py-6 space-y-3 border-b border-gray-200">
-              <h3 className="text-xs font-semibold text-gray-500">Live quote</h3>
-
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs text-gray-500">Total sections</span>
-                  <span className="text-xl font-bold text-gray-900">{sections}</span>
-                </div>
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs text-gray-500">Total footage</span>
-                  <span className="text-sm font-semibold text-gray-700">
-                    {totalFootage} ft
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-gray-500">Projected man hours</span>
-                  <span className="text-xl font-bold text-gray-900">{adjustedMH.toFixed(1)}</span>
-                </div>
-                {adjustedMH > 0 && (
-                  <div className="flex justify-between items-center mt-1" data-crew-time>
-                    <span className="text-xs text-gray-500">Crew time ({priced.crewSize} men)</span>
-                    <span className="text-sm font-semibold text-gray-700">
-                      {priced.crewHours.toFixed(1)} hr · {priced.crewDays.toFixed(1)} {priced.crewDays.toFixed(1) === '1.0' ? 'day' : 'days'}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2">
-                {[
-                  { label: 'Material cost', val: fmt(materialCost) },
-                  { label: priced.laborMode === 'flat' ? 'Labor (flat)' : priced.laborMode === 'subcontractor' ? `Labor (sub, $${priced.subRate}/${priced.subUnit === 'section' ? 'sec' : 'ft'})` : 'Labor Cost', val: fmt(laborCost) },
-                  { label: 'Tear out',      val: fmt(tearOutCost) },
-                ].map(row => (
-                  <div key={row.label} className="flex justify-between text-sm">
-                    <span className="text-gray-500">{row.label}</span>
-                    <span className="text-gray-900 font-medium">{row.val}</span>
-                  </div>
-                ))}
-                <div className="border-t border-gray-100 pt-2 flex justify-between text-sm font-semibold">
-                  <span className="text-gray-700">Total cost</span>
-                  <span className="text-gray-900">{fmt(totalCOGS)}</span>
-                </div>
-              </div>
-
-              {quoteWarnings.length > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
-                  <p className="text-xs font-semibold text-amber-800">Check before you quote</p>
-                  {quoteWarnings.map((w, i) => (
-                    <p key={i} className="text-xs text-amber-800 leading-snug">{w}</p>
-                  ))}
-                </div>
-              )}
-
-              {staleParts.length > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5" data-stale-prices>
-                  <p className="text-xs font-semibold text-amber-800">
-                    {staleParts.length} part{staleParts.length === 1 ? '' : 's'} on this quote {staleParts.length === 1 ? 'has a price' : 'have prices'} older than {staleMonths} months or never confirmed
-                  </p>
-                  {staleParts.slice(0, 6).map(({ item }) => (
-                    <p key={item.id} className="text-xs text-amber-800 leading-snug" data-stale-part={item.name}>{item.name.replace(/^\*/, '')} · {priceAgeLabel(item)}</p>
-                  ))}
-                  {staleParts.length > 6 && <p className="text-xs text-amber-800">and {staleParts.length - 6} more</p>}
-                  <button type="button" className="btn btn-quiet btn-sm" data-stale-open
-                    onClick={() => { if (okToLeave()) navigate(`/inventory?items=${encodeURIComponent(staleParts.map(p => p.item.id).join(','))}`) }}>
-                    Open in Inventory
-                  </button>
-                </div>
-              )}
-
-              <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">Price from</span>
-                  <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5">
-                    {([['cost_factor', 'Cost'], ['per_foot', 'Per foot']] as const).map(([m, label]) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => setPriceMethod(m)}
-                        className={`text-[11px] font-semibold px-2 py-1 rounded ${priceMethod === m ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
-                      >{label}</button>
-                    ))}
-                  </div>
-                </div>
-                {priceMethod === 'cost_factor' ? (
-                  <div>
-                    <label className="text-xs text-gray-400 mb-1 block">Target Margin for this quote</label>
-                    {/* Typed as a percent (44 or 44%); kept on the quote as the number price is divided into. */}
-                    <PercentField value={factorStr ? Math.round((1 - parseFloat(factorStr)) * 10000) / 100 : undefined} min={1} max={95}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                      placeholder={`${cfgStyle ? targetMarginPct(cfgStyle) : 36}% from the style`} data-quote-target-margin
-                      onChange={v => setFactorStr(v == null ? '' : String((100 - v) / 100))} />
-                  </div>
-                ) : (
-                  <div>
-                    <label className="text-xs text-gray-400 mb-1 block">Price per foot ($)</label>
-                    <input type="number" min={0} step="0.25" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder={cfgStyle?.pricePerFoot ? `${cfgStyle.pricePerFoot} from style` : 'No price set for this style'} value={perFootStr} onChange={e => setPerFootStr(e.target.value)} />
-                  </div>
-                )}
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">Set final price by hand ($)</label>
-                  <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="Calculated" value={finalPriceStr} onChange={e => setFinalPriceStr(e.target.value)} />
-                </div>
-              </div>
-
-              <div className={`bg-white rounded-xl border border-gray-200 p-4 ${priced.priceMethod === 'manual' ? 'opacity-40' : ''}`}>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs text-gray-500">Price adjust</span>
-                  <span className={`text-sm font-semibold ${priceAdjust >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                    {priceAdjust >= 0 ? '+' : ''}{(priceAdjust * 100).toFixed(0)}%
-                  </span>
-                </div>
-                <input type="range" min={-20} max={20} step={1} value={priceAdjust * 100} onChange={e => setPriceAdjust(Number(e.target.value) / 100)} className="w-full accent-orange-500" />
-                <div className="flex justify-between text-xs text-gray-400 mt-1">
-                  <span>-20%</span><span>0%</span><span>+20%</span>
-                </div>
-              </div>
-
+          <div className={step === 'price' ? 'space-y-3' : 'hidden'} data-step-panel="price">
               <div className="bg-gray-900 rounded-xl p-4">
                 <p className="text-gray-400 text-xs mb-1">{priced.priceMethod === 'manual' ? 'Price (set by hand)' : 'Adjusted Price'}</p>
                 <p className="text-white text-3xl font-bold" data-quote-price>{fmt(adjPrice)}</p>
@@ -1199,6 +1122,144 @@ export default function QuoteBuilder({
                 </div>
               )}
 
+              <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} />
+
+              {quoteWarnings.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
+                  <p className="text-xs font-semibold text-amber-800">Check before you quote</p>
+                  {quoteWarnings.map((w, i) => (
+                    <p key={i} className="text-xs text-amber-800 leading-snug">{w}</p>
+                  ))}
+                </div>
+              )}
+
+              {staleParts.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5" data-stale-prices>
+                  <p className="text-xs font-semibold text-amber-800">
+                    {staleParts.length} part{staleParts.length === 1 ? '' : 's'} on this quote {staleParts.length === 1 ? 'has a price' : 'have prices'} older than {staleMonths} months or never confirmed
+                  </p>
+                  {staleParts.slice(0, 6).map(({ item }) => (
+                    <p key={item.id} className="text-xs text-amber-800 leading-snug" data-stale-part={item.name}>{item.name.replace(/^\*/, '')} · {priceAgeLabel(item)}</p>
+                  ))}
+                  {staleParts.length > 6 && <p className="text-xs text-amber-800">and {staleParts.length - 6} more</p>}
+                  <button type="button" className="btn btn-quiet btn-sm" data-stale-open
+                    onClick={() => { if (okToLeave()) navigate(`/inventory?items=${encodeURIComponent(staleParts.map(p => p.item.id).join(','))}`) }}>
+                    Open in Inventory
+                  </button>
+                </div>
+              )}
+
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-500">Gross Margin</span>
+                  <span className={`text-2xl font-bold ${gmColor}`}>{(gmPct * 100).toFixed(1)}%</span>
+                </div>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-xs text-gray-400">Margin $</span>
+                  <span className={`text-sm font-semibold ${gmColor}`}>{fmt(grossMargin)}</span>
+                </div>
+                <div className="mt-2">
+                  <div className="w-full bg-gray-100 rounded-full h-1.5">
+                    <div className={`h-1.5 rounded-full transition-all ${gmPct >= gmGood ? 'bg-green-500' : gmPct >= gmWarn ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(gmPct * 100, 100))}%` }} />
+                  </div>
+                  <p className={`text-xs mt-1 ${gmColor}`}>
+                    {gmPct >= gmGood ? '✓ Above target' : gmPct >= gmWarn ? '⚠ Below target' : '✗ Danger zone'}
+                  </p>
+                </div>
+              </div>
+
+              <h3 className="text-xs font-semibold text-gray-500">Live quote</h3>
+
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs text-gray-500">Total sections</span>
+                  <span className="text-xl font-bold text-gray-900">{sections}</span>
+                </div>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs text-gray-500">Total footage</span>
+                  <span className="text-sm font-semibold text-gray-700">
+                    {totalFootage} ft
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-500">Projected man hours</span>
+                  <span className="text-xl font-bold text-gray-900">{adjustedMH.toFixed(1)}</span>
+                </div>
+                {adjustedMH > 0 && (
+                  <div className="flex justify-between items-center mt-1" data-crew-time>
+                    <span className="text-xs text-gray-500">Crew time ({priced.crewSize} men)</span>
+                    <span className="text-sm font-semibold text-gray-700">
+                      {priced.crewHours.toFixed(1)} hr · {priced.crewDays.toFixed(1)} {priced.crewDays.toFixed(1) === '1.0' ? 'day' : 'days'}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2">
+                {[
+                  { label: 'Material cost', val: fmt(materialCost) },
+                  { label: priced.laborMode === 'flat' ? 'Labor (flat)' : priced.laborMode === 'subcontractor' ? `Labor (sub, $${priced.subRate}/${priced.subUnit === 'section' ? 'sec' : 'ft'})` : 'Labor Cost', val: fmt(laborCost) },
+                  { label: 'Tear out',      val: fmt(tearOutCost) },
+                ].map(row => (
+                  <div key={row.label} className="flex justify-between text-sm">
+                    <span className="text-gray-500">{row.label}</span>
+                    <span className="text-gray-900 font-medium">{row.val}</span>
+                  </div>
+                ))}
+                <div className="border-t border-gray-100 pt-2 flex justify-between text-sm font-semibold">
+                  <span className="text-gray-700">Total cost</span>
+                  <span className="text-gray-900">{fmt(totalCOGS)}</span>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">Price from</span>
+                  <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5">
+                    {([['cost_factor', 'Cost'], ['per_foot', 'Per foot']] as const).map(([m, label]) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setPriceMethod(m)}
+                        className={`text-[11px] font-semibold px-2 py-1 rounded ${priceMethod === m ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+                      >{label}</button>
+                    ))}
+                  </div>
+                </div>
+                {priceMethod === 'cost_factor' ? (
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Target Margin for this quote</label>
+                    {/* Typed as a percent (44 or 44%); kept on the quote as the number price is divided into. */}
+                    <PercentField value={factorStr ? Math.round((1 - parseFloat(factorStr)) * 10000) / 100 : undefined} min={1} max={95}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                      placeholder={`${cfgStyle ? targetMarginPct(cfgStyle) : 36}% from the style`} data-quote-target-margin
+                      onChange={v => setFactorStr(v == null ? '' : String((100 - v) / 100))} />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Price per foot ($)</label>
+                    <input type="number" min={0} step="0.25" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder={cfgStyle?.pricePerFoot ? `${cfgStyle.pricePerFoot} from style` : 'No price set for this style'} value={perFootStr} onChange={e => setPerFootStr(e.target.value)} />
+                  </div>
+                )}
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Set final price by hand ($)</label>
+                  <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="Calculated" value={finalPriceStr} onChange={e => setFinalPriceStr(e.target.value)} />
+                </div>
+              </div>
+
+              <div className={`bg-white rounded-xl border border-gray-200 p-4 ${priced.priceMethod === 'manual' ? 'opacity-40' : ''}`}>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs text-gray-500">Price adjust</span>
+                  <span className={`text-sm font-semibold ${priceAdjust >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {priceAdjust >= 0 ? '+' : ''}{(priceAdjust * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <input type="range" min={-20} max={20} step={1} value={priceAdjust * 100} onChange={e => setPriceAdjust(Number(e.target.value) / 100)} className="w-full accent-orange-500" />
+                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <span>-20%</span><span>0%</span><span>+20%</span>
+                </div>
+              </div>
+
               {style && sections > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4" data-compare>
                   <button type="button" className="btn btn-secondary w-full" onClick={() => setShowCompare(v => !v)} data-compare-toggle>
@@ -1234,27 +1295,6 @@ export default function QuoteBuilder({
                 </div>
               )}
 
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Gross Margin</span>
-                  <span className={`text-2xl font-bold ${gmColor}`}>{(gmPct * 100).toFixed(1)}%</span>
-                </div>
-                <div className="flex justify-between items-center mt-1">
-                  <span className="text-xs text-gray-400">Margin $</span>
-                  <span className={`text-sm font-semibold ${gmColor}`}>{fmt(grossMargin)}</span>
-                </div>
-                <div className="mt-2">
-                  <div className="w-full bg-gray-100 rounded-full h-1.5">
-                    <div className={`h-1.5 rounded-full transition-all ${gmPct >= gmGood ? 'bg-green-500' : gmPct >= gmWarn ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(gmPct * 100, 100))}%` }} />
-                  </div>
-                  <p className={`text-xs mt-1 ${gmColor}`}>
-                    {gmPct >= gmGood ? '✓ Above target' : gmPct >= gmWarn ? '⚠ Below target' : '✗ Danger zone'}
-                  </p>
-                </div>
-              </div>
-
-              <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} />
-
               <button
                 disabled={!canSave}
                 onClick={() => setShowSaveModal(true)}
@@ -1263,8 +1303,6 @@ export default function QuoteBuilder({
                 {init?.id ? 'Update quote' : 'Save quote'}
               </button>
               {!canSave && <p className="text-xs text-gray-400 text-center">Select a style and enter at least one run</p>}
-            </div>
-
             {showPullSheet && materialItems.length > 0 && (
               <div className="flex-1 overflow-y-auto px-6 py-4">
                 <div className="flex items-center justify-between mb-3">
@@ -1292,14 +1330,54 @@ export default function QuoteBuilder({
         </div>
       </div>
 
-      {/* Phone: the price and Save always in reach at the bottom. */}
-      {!showSaveModal && <div className="md:hidden fixed inset-x-0 bottom-0 z-[60] bg-white border-t border-gray-200 px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] flex items-center gap-3" data-quote-sticky>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-gray-600 truncate">{totalFootage > 0 ? `${totalFootage} ft · ${sections} sections` : 'Customer price'}</p>
-          <p className="text-xl font-bold tabular-nums text-gray-900">{fmt(adjPrice)}</p>
+      {/* Photos and video: their own sheet, opened from the bottom bar; kept mounted so uploads carry on. */}
+      <div className={photosOpen ? 'fixed inset-0 z-[70] bg-black/50 flex items-end md:items-center justify-center' : 'hidden'} data-photos-sheet>
+        <div className="bg-white w-full md:max-w-2xl max-h-[88vh] overflow-y-auto rounded-t-2xl md:rounded-2xl p-4 pb-[calc(16px+env(safe-area-inset-bottom))]">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-bold text-gray-900">Photos and video</h3>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setPhotosOpen(false)} data-photos-done>Done</button>
+          </div>
+            <div data-quote-media>
+              <MediaGallery
+                where={{ quoteKey: quoteIdRef.current }}
+                layout={entry === 'layout' ? yard : null}
+                onLayout={l => setYard(l)}
+                defaultCategory="Site walk"
+                onItems={setMediaItems}
+                openKey={openMedia}
+                onOpened={() => setOpenMedia(null)}
+                cameraSignal={cameraSignal}
+              />
+            </div>
+
         </div>
-        <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
-      </div>}
+      </div>
+      {photosOpen && <BackClose name="quote-photos" onClose={() => setPhotosOpen(false)} />}
+
+      {/* Pinned bottom bar: progress, totals, the running price, Photos and the one next step. */}
+      {!showSaveModal && (
+        <div className="fixed inset-x-0 bottom-0 z-[60] bg-white border-t border-gray-200 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] px-3 md:px-6 pt-2 pb-[calc(10px+env(safe-area-inset-bottom))]" data-quote-bar>
+          <div className="max-w-3xl mx-auto">
+            <p className="text-xs font-semibold text-gray-600 truncate tabular-nums" data-bar-facts>
+              {step === 'yard' && entry === 'layout' && yard
+                ? `${sidesDone} of ${sidesOn} sides · ${totalFootage} ft · ${effCorners} corner, ${effEnds} end`
+                : totalFootage > 0 ? `${totalFootage} ft · ${sections} sections · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
+            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-xl font-bold tabular-nums text-gray-900 min-w-0 mr-auto" data-bar-price>{fmt(adjPrice)}</p>
+              <button type="button" className="btn btn-secondary shrink-0 min-h-[48px] px-3" onClick={() => setPhotosOpen(true)} data-photos-open aria-label={`Photos and video (${mediaItems.length})`}>
+                <Camera size={18} aria-hidden="true" /><span className="tabular-nums">{mediaItems.length}</span>
+              </button>
+              {step === 'price' ? (
+                <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg shrink-0" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
+              ) : (
+                <button type="button" onClick={barNext} className="btn btn-primary btn-lg shrink-0" data-bar-next>{barNextLabel}</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {showSaveModal && <BackClose name="save-quote" onClose={() => setShowSaveModal(false)} />}
       {showSaveModal && (
