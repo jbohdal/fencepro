@@ -120,7 +120,7 @@ export default function OperationsStagesSettings() {
               <input type="checkbox" checked={s.isActive} onChange={e => update(s.id, { isActive: e.target.checked })} />
               Active
             </label>
-            <button onClick={() => remove(s)} className="text-red-500 hover:bg-red-50 rounded px-2 py-1">×</button>
+            <button onClick={() => remove(s)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-red-500 hover:bg-red-50 rounded px-2 py-1">×</button>
           </div>
         ))}
       </div>

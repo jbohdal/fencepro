@@ -747,7 +747,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-bold text-gray-700">Edit Element</p>
                 <button onClick={() => { setShowEditPopover(false); setSelectedLineId(null); setSelectedMarkerId(null) }}
-                  className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+                  className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
               </div>
               <p className="text-[10px] font-bold text-gray-400 mb-1">Change Color</p>
               <div className="grid grid-cols-5 gap-1 mb-2">
@@ -820,7 +820,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[60vh] overflow-hidden mx-4 lg:mx-0 modal-responsive" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
               <h3 className="font-bold text-gray-900">Saved Site Plans</h3>
-              <button onClick={() => setShowPlanList(false)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              <button onClick={() => setShowPlanList(false)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl">×</button>
             </div>
             <div className="overflow-y-auto max-h-[50vh]">
               {savedPlans.length === 0 ? (
@@ -834,7 +834,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
                     <p className="text-xs text-gray-400">{plan.lines.length} lines · {plan.markers.length} markers</p>
                   </div>
                   <button onClick={e => { e.stopPropagation(); deletePlan(plan.id) }}
-                    className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg">×</button>
+                    className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg">×</button>
                 </div>
               ))}
             </div>

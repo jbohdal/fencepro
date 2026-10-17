@@ -288,7 +288,7 @@ packetPublic.post('/:token/media', crewUpload.single('file'), async (req: any, r
 })
 
 const PACKET_CSS = `
-a[href^="tel:"],.maplink{white-space:nowrap;display:inline-block;padding:13px 0;margin:-13px 0}
+a[href^="tel:"],.maplink{white-space:nowrap;display:inline-block;padding:15px 0;margin:-15px 0}
 .maplink{white-space:normal}
 .printbtn{margin-left:auto;min-height:48px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:0 12px;font-weight:700;color:var(--p)}
 .maplink{color:var(--p);font-weight:700}.notes{border-color:#FACC15;background:#FFFBEB}

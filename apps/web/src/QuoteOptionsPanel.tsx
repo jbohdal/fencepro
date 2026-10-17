@@ -202,7 +202,7 @@ function OptionEditCard({ option, onAdjustPrice, onToggleRecommended, onDelete }
             <button onClick={() => { onAdjustPrice(Math.round(parseFloat(priceEdit) * 100)); setEditing(false) }}
               className="text-xs bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded">✓</button>
             <button onClick={() => { setPriceEdit((option.quotePriceCents / 100).toFixed(2)); setEditing(false) }}
-              className="text-xs text-gray-500 px-1">×</button>
+              className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-xs text-gray-500 px-1">×</button>
           </div>
         ) : (
           <button onClick={() => setEditing(true)} className="text-2xl font-bold text-gray-900 hover:text-orange-600 transition-colors text-left">

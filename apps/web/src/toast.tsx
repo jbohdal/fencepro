@@ -81,7 +81,7 @@ export function ToastContainer() {
             {m.body && <p className="text-xs opacity-90 mt-0.5 whitespace-pre-wrap">{m.body}</p>}
           </div>
           <button onClick={() => dismiss(m.id)}
-            className="text-white/70 hover:text-white leading-none text-lg -mr-1">×</button>
+            className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-white/70 hover:text-white leading-none text-lg -mr-1">×</button>
         </div>
       ))}
     </div>

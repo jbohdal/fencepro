@@ -57,8 +57,9 @@ export function SyncBadge() {
     const read = () => { waitingCount().then(setPhotos).catch(() => {}) }
     read()
     window.addEventListener(MEDIA_EVENT, read)
-    const t = setInterval(read, 15_000)
-    return () => { window.removeEventListener(MEDIA_EVENT, read); clearInterval(t) }
+    const off = subscribe(read)
+    const t = setInterval(read, 5_000)
+    return () => { window.removeEventListener(MEDIA_EVENT, read); off(); clearInterval(t) }
   }, [])
   const ops = allOps()
   const failed = ops.filter(o => o.state === 'failed').length

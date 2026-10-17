@@ -118,7 +118,8 @@ let signedOut = false
 const listeners = new Set<() => void>()
 let version = 0
 
-const BACKOFF_MS = [1_000, 3_000, 8_000, 15_000, 30_000, 60_000]
+// Never more than 20 s between tries, so a phone back in signal sends soon even when the phone does not say so.
+const BACKOFF_MS = [1_000, 3_000, 6_000, 10_000, 15_000, 20_000]
 const SEND_TIMEOUT_MS = 30_000
 
 function emit() { version += 1; listeners.forEach(f => { try { f() } catch { /* a screen that is going away */ } }) }
@@ -151,7 +152,8 @@ export async function startOutbox(accountId: string | null, opts: { storage?: Ou
     // The app was just opened: what waited goes now, not after its old wait.
     for (const op of ops) { op.nextAt = undefined; lastStamp = Math.max(lastStamp, op.createdAt) }
     if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => { lastNetworkFail = 0; emit(); kick() })
+      // Signal back: everything waiting goes now, not after its wait.
+      window.addEventListener('online', () => { lastNetworkFail = 0; for (const op of ops) op.nextAt = undefined; emit(); kick() })
       // Losing signal changes what the screen says, even before anything is tried.
       window.addEventListener('offline', () => emit())
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') kick() })

@@ -384,7 +384,7 @@ function CatalogTab() {
                       )}
                     </td>
                     <td className="px-2 py-2.5">
-                      <button onClick={() => deleteItem(item.id)} className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
+                      <button onClick={() => deleteItem(item.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
                     </td>
                   </tr>
                   {isThresholdExpanded && (
@@ -601,7 +601,7 @@ function StockMovementTab() {
                       placeholder="Optional note..." value={line.note} onChange={e => updateLine(line.itemId, 'note', e.target.value)} />
                   </td>
                   <td className="px-2 py-2.5">
-                    <button onClick={() => removeLine(line.itemId)} className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
+                    <button onClick={() => removeLine(line.itemId)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
                   </td>
                 </tr>
               ))}
@@ -783,7 +783,7 @@ function LocationsTab() {
                 className={`text-xs px-3 py-1 rounded-lg border font-medium ${loc.isActive ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-200 text-gray-500'}`}>
                 {loc.isActive ? 'Active' : 'Inactive'}
               </button>
-              <button onClick={() => removeLocation(loc.id)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+              <button onClick={() => removeLocation(loc.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
             </div>
           </div>
         ))}
@@ -877,7 +877,7 @@ function BundleEditor({
                   <td className="px-3 py-2 text-right font-mono text-xs">{fmt(bi.qty * getCost(bi.inventoryId))}</td>
                   <td className="px-2 py-2">
                     <button onClick={() => setBundleItems(prev => prev.filter(b => b.inventoryId !== bi.inventoryId))}
-                      className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
+                      className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
                   </td>
                 </tr>
               ))}

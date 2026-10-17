@@ -275,7 +275,7 @@ export function QuickAddModal({
               <label className="text-xs text-gray-500 mb-1 block">State</label>
               <input
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                placeholder="e.g. FL"
+                placeholder="FL"
                 maxLength={2}
                 value={state}
                 onChange={e => setState(e.target.value.toUpperCase())}
@@ -285,7 +285,7 @@ export function QuickAddModal({
               <label className="text-xs text-gray-500 mb-1 block">Zip</label>
               <input
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                placeholder="e.g. 34470"
+                placeholder="ZIP"
                 inputMode="numeric"
                 maxLength={10}
                 value={zip}
@@ -700,7 +700,7 @@ function PipelineColumn({
         </div>
         <button
           onClick={() => { if (confirm(`Delete "${stage}" stage? Leads will be moved to First Contact.`)) onDelete(stage) }}
-          className="text-gray-300 hover:text-red-400 text-sm leading-none ml-1 shrink-0"
+          className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-sm leading-none ml-1 shrink-0"
           title="Delete stage"
         >×</button>
       </div>

@@ -500,7 +500,7 @@ function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { 
               <input type="number" value={li.qty} onChange={e => updateLine(i, 'qty', parseFloat(e.target.value) || 0)} className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center" />
               <input type="number" step="0.01" value={li.price} onChange={e => updateLine(i, 'price', parseFloat(e.target.value) || 0)} placeholder="$" className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
               <span className="text-sm text-gray-600 w-20 text-right self-center">{fmtD(Math.round(li.qty * li.price * 100))}</span>
-              {lineItems.length > 1 && <button onClick={() => removeLine(i)} className="text-gray-300 hover:text-red-500">×</button>}
+              {lineItems.length > 1 && <button onClick={() => removeLine(i)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-500">×</button>}
             </div>
           ))}
         </div>

@@ -316,7 +316,7 @@ function PushQuoteModal({
                   <p className="text-sm font-semibold text-gray-900">{selected.customerName}</p>
                   <p className="text-xs text-gray-500">{selected.fenceStyle} · {selected.sections} sec · {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(selected.finalPrice)}</p>
                 </div>
-                <button onClick={() => { setSelected(null); setSearch('') }} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+                <button onClick={() => { setSelected(null); setSearch('') }} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
               </div>
             )}
           </div>

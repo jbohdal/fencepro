@@ -23,6 +23,7 @@ import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, pendingFor, type Op } from './outbox'
 import { sendJson } from './syncHttp'
 import { businessDate } from './businessDate'
+import { toast } from './toast'
 
 const EVT = 'fencepro:quotes:updated'
 const LEGACY_KEY = 'fencepro_quotes'
@@ -301,7 +302,16 @@ export async function refreshQuotes(): Promise<void> {
   if (r.json.partial) {
     if (rows.length) {
       const byId = new Map(cache.map(x => [x.id, x]))
-      for (const row of rows) { if (row.archivedAt) byId.delete(row.id); else byId.set(row.id, fromApi(row)) }
+      for (const row of rows) {
+        const was = byId.get(row.id)
+        if (row.archivedAt) { byId.delete(row.id); continue }
+        const now = fromApi(row)
+        // A customer accepted online while the app was open: say so.
+        if (was && !was.acceptedAt && now.acceptedAt) {
+          try { toast.success('Proposal accepted', `${now.customerName || 'A customer'} accepted online. The quote is Sold and the job is in Operations.`) } catch { /* no screen */ }
+        }
+        byId.set(row.id, now)
+      }
       cache = [...byId.values()]
     }
   } else cache = rows.map(fromApi)

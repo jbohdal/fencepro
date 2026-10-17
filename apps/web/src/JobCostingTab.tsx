@@ -272,7 +272,7 @@ function CostAJobModal({
                       onChange={e => updateCrew(i, 'rate', e.target.value)}
                     />
                     <span className="text-xs text-gray-400 w-16 text-right">{fmt(c.hours * c.rate)}</span>
-                    <button onClick={() => removeCrew(i)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                    <button onClick={() => removeCrew(i)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
                   </div>
                 ))}
                 <div className="text-xs text-gray-400 text-right">
@@ -691,7 +691,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                 <td data-label="Actions" className="px-2 py-3 text-right">
                   <button
                     onClick={e => { e.stopPropagation(); handleDelete(j.entry.id) }}
-                    className="text-gray-200 hover:text-red-400 text-lg leading-none"
+                    className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 text-lg leading-none"
                     title="Delete"
                   >×</button>
                 </td>

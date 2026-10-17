@@ -66,8 +66,9 @@ function relTime(iso?: string): string {
 function daysInStage(lead: PipelineLead): number {
   const since = lead.lastMoved || lead.createdAt
   if (!since) return 0
-  const ms = Date.now() - new Date(since).getTime()
-  return Math.max(0, Math.floor(ms / 86_400_000))
+  // Whole days in Florida (a plain date read as UTC was a day off every evening).
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(since) ? since : businessDate(since)
+  return Math.max(0, Math.round((Date.parse(businessDate(new Date())) - Date.parse(day)) / 86_400_000))
 }
 
 function ageBadgeClass(d: number): string {

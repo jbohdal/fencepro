@@ -346,7 +346,7 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
                     <input type="checkbox" checked={i.isFeatured} onChange={e => updateInclusion(i.id, { isFeatured: e.target.checked })} />
                     <span>Featured</span>
                   </label>
-                  <button onClick={() => removeInclusion(i.id)} className="text-red-500 hover:bg-red-50 rounded px-2 py-1">×</button>
+                  <button onClick={() => removeInclusion(i.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-red-500 hover:bg-red-50 rounded px-2 py-1">×</button>
                 </div>
               ))}
             </div>
@@ -373,7 +373,7 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
                     <input type="checkbox" checked={a.isIncludedByDefault} onChange={e => updateAddon(a.id, { isIncludedByDefault: e.target.checked })} />
                     <span>Default</span>
                   </label>
-                  <button onClick={() => removeAddon(a.id)} className="text-red-500 hover:bg-red-50 rounded px-2 py-1">×</button>
+                  <button onClick={() => removeAddon(a.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-red-500 hover:bg-red-50 rounded px-2 py-1">×</button>
                 </div>
               ))}
             </div>

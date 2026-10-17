@@ -166,7 +166,7 @@ export default function SitePlansPage() {
               <div className="flex gap-2">
                 <button onClick={() => { setEditing(viewing); setViewing(null) }}
                   className="btn btn-primary">Edit Site Plan</button>
-                <button onClick={() => setViewing(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+                <button onClick={() => setViewing(null)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
               </div>
             </div>
             <div className="p-6 space-y-4">

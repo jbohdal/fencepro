@@ -231,7 +231,7 @@ function SettingsModal({
                   {crews.length > 1 && (
                     <button
                       onClick={() => setCrews(prev => prev.filter(c => c.id !== crew.id))}
-                      className="text-gray-300 hover:text-red-400 text-lg leading-none"
+                      className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-lg leading-none"
                     >×</button>
                   )}
                 </div>

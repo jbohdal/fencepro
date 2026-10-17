@@ -590,7 +590,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
             <div className="absolute top-4 right-4 bg-white rounded-xl shadow-lg border border-gray-200 w-72 p-4">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-gray-900 text-sm">{selectedJob.customerName}</h3>
-                <button onClick={() => setSelectedJobId(null)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+                <button onClick={() => setSelectedJobId(null)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
               </div>
               <p className="text-xs text-gray-500 mb-2">{selectedJob.address}</p>
               <div className="grid grid-cols-2 gap-2 text-xs mb-2">

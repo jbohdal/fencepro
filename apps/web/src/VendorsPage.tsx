@@ -492,7 +492,7 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
                       <td className="px-2 py-1"><input type="number" step="0.01" value={li.quantity} onChange={e => updateLine(li.id, { quantity: parseFloat(e.target.value) || 0 })} className="w-20 text-right border-0 text-sm px-2 py-1 focus:bg-white focus:ring-1 focus:ring-orange-300 rounded" /></td>
                       <td className="px-2 py-1"><input type="number" step="0.01" value={(li.unitCostCents / 100).toFixed(2)} onChange={e => updateLine(li.id, { unitCostCents: Math.round(parseFloat(e.target.value) * 100) || 0 })} className="w-28 text-right border-0 text-sm px-2 py-1 focus:bg-white focus:ring-1 focus:ring-orange-300 rounded" /></td>
                       <td className="px-2 py-1 text-right font-medium">{fmt(li.totalCents)}</td>
-                      <td className="px-2 py-1"><button onClick={() => removeLine(li.id)} className="text-red-500 hover:bg-red-50 rounded px-2">×</button></td>
+                      <td className="px-2 py-1"><button onClick={() => removeLine(li.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-red-500 hover:bg-red-50 rounded px-2">×</button></td>
                     </tr>
                   ))}
                 </tbody>

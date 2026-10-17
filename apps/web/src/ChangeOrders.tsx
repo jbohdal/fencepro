@@ -166,7 +166,7 @@ export function QuickChangeOrderModal({
                     />
                   </div>
                   {items.length > 1 && (
-                    <button onClick={() => removeItem(item.id)} className="text-gray-300 hover:text-red-400 text-lg leading-none shrink-0">×</button>
+                    <button onClick={() => removeItem(item.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-lg leading-none shrink-0">×</button>
                   )}
                 </div>
               ))}
@@ -320,7 +320,7 @@ export function ChangeOrderPanel({ quoteId, originalPrice }: { quoteId: string; 
                   </span>
                   <button
                     onClick={() => handleDelete(co.id)}
-                    className="text-gray-200 hover:text-red-400 text-sm leading-none opacity-0 group-hover:opacity-100"
+                    className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 text-sm leading-none opacity-0 group-hover:opacity-100"
                   >×</button>
                 </div>
               </div>

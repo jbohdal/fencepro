@@ -793,7 +793,7 @@ function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent:
         <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-6" onClick={() => setLightboxIdx(null)}>
           <img src={resolveFileUrlSync(photos[lightboxIdx].fileUrl)} alt={photos[lightboxIdx].name}
             className="max-w-full max-h-full object-contain" />
-          <button onClick={() => setLightboxIdx(null)} className="absolute top-4 right-4 text-white text-3xl">×</button>
+          <button onClick={() => setLightboxIdx(null)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center absolute top-4 right-4 text-white text-3xl">×</button>
         </div>
       )}
     </div>

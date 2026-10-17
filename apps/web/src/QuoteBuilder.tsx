@@ -223,7 +223,7 @@ function SaveModal({
                     <p className="text-sm font-semibold text-gray-900">{selectedCustomer.firstName} {selectedCustomer.lastName}</p>
                     <p className="text-xs text-gray-500">{selectedCustomer.phone} · {selectedCustomer.serviceAddress}</p>
                   </div>
-                  <button onClick={() => { setSelectedCustomer(null); setSearch('') }} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+                  <button onClick={() => { setSelectedCustomer(null); setSearch('') }} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
                 </div>
               )}
               {search && !selectedCustomer && filtered.length === 0 && (
@@ -835,7 +835,7 @@ export default function QuoteBuilder({
                         {ft > 0 && sectionsThisRun > 0 && <span className="block text-gray-600 font-normal">posts {postSpacing(ft, sectionsThisRun)} apart</span>}
                       </span>
                       {runs.length > 1 && (
-                        <button onClick={() => removeRun(i)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                        <button onClick={() => removeRun(i)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
                       )}
                     </div>
                   )

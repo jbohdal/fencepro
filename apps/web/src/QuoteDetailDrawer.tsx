@@ -20,6 +20,7 @@ import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import RunSpacingTable from './RunSpacingTable'
 import ProposalSend from './ProposalSend'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
+import MediaGallery from './MediaGallery'
 import { useBackLayer, BackClose } from './nav'
 import { SaveStatus } from './SaveStatus'
 
@@ -168,6 +169,11 @@ export default function QuoteDetailDrawer({
             </section>
           )}
 
+          {/* Photos and video taken for this quote (site walk, gate location, ...) */}
+          <section data-quote-photos>
+            <MediaGallery where={{ quoteKey: quote.id, customerId: quote.customerId }} layout={quote.layout?.yard ?? null} />
+          </section>
+
           {/* Runs, with the post spacing the crew sets */}
           {(quote.runs || []).length > 0 && (
             <section>
@@ -244,7 +250,8 @@ export default function QuoteDetailDrawer({
           {!quote.proposal && quote.status !== 'SOLD' && quote.status !== 'LOST' && (
             <button onClick={() => setSendOpen(true)} className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium">Send to Customer</button>
           )}
-          {quote.status !== 'LOST' && (
+          {/* Not offered once the customer has accepted and signed. */}
+          {quote.status !== 'LOST' && !quote.acceptedAt && (
             <button onClick={handleMarkLost} className="text-sm text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg">Mark Lost</button>
           )}
           {quote.status !== 'SOLD' && (
@@ -307,7 +314,7 @@ function TemplatePicker({ quote, onChange }: { quote: SavedQuote & QuotePresenta
                   {t.name}
                 </button>
               ))}
-              <button onClick={() => setPreviewOpen(false)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+              <button onClick={() => setPreviewOpen(false)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto bg-gray-200" onClick={e => e.stopPropagation()}>

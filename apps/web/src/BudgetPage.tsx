@@ -1095,7 +1095,7 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
               >▼</button>
               <button
                 onClick={() => removeAccount(account.id)}
-                className="text-gray-200 hover:text-red-400 text-lg leading-none ml-1"
+                className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 text-lg leading-none ml-1"
               >×</button>
             </div>
           </td>
@@ -1157,7 +1157,7 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
             <p className="text-xs opacity-60 mt-0.5">{topLevel.length} items · {fmt(catTotal / 12)}/mo</p>
             <button
               onClick={() => removeCategory(idx)}
-              className="absolute top-2 right-2 text-current opacity-0 group-hover:opacity-40 hover:opacity-100 text-sm leading-none"
+              className="min-w-[48px] min-h-[48px] inline-grid place-items-center absolute top-2 right-2 text-current opacity-0 group-hover:opacity-40 hover:opacity-100 text-sm leading-none"
               title="Remove category"
             >×</button>
           </div>
@@ -1344,7 +1344,7 @@ function CrewTab({ state, onChange }: { state: BudgetState, onChange: (s: Budget
                     {revenueGoal > 0 ? fmtPct(annual / revenueGoal) : '—'}
                   </td>
                   <td className="px-2 py-3">
-                    <button onClick={() => removeEmp(emp.id)} className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
+                    <button onClick={() => removeEmp(emp.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
                   </td>
                 </tr>
               )

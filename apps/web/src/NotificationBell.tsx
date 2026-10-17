@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { authFetch } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { navigate } from './nav'
 
 interface Notification {
   id: string
@@ -57,6 +58,15 @@ export default function NotificationBell() {
     if (open) document.addEventListener('mousedown', onClickAway)
     return () => document.removeEventListener('mousedown', onClickAway)
   }, [open])
+
+  /** Go where the notification is about (a customer, a job). */
+  function openLink(link?: string | null) {
+    if (!link) return
+    const u = new URL(link, window.location.origin)
+    const customer = u.searchParams.get('customer')
+    setOpen(false)
+    navigate(customer ? `/customers/${encodeURIComponent(customer)}` : u.pathname + u.search)
+  }
 
   async function markRead(id: string) {
     try {
@@ -110,7 +120,7 @@ export default function NotificationBell() {
             ) : (
               <div className="divide-y divide-gray-50">
                 {notifs.map(n => (
-                  <button key={n.id} onClick={() => markRead(n.id)}
+                  <button key={n.id} onClick={() => { markRead(n.id); openLink(n.link) }}
                     className={`block w-full text-left px-4 py-3 transition-colors ${n.read ? 'bg-white hover:bg-gray-50' : 'bg-orange-50 hover:bg-orange-100'}`}>
                     <div className="flex items-start gap-2">
                       {!n.read && <span className="w-2 h-2 bg-orange-500 rounded-full mt-1.5 shrink-0" />}
