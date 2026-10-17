@@ -46,6 +46,9 @@ Status key:
 * Replace the empty Bundles page with material kits per style: 1 section (with its line post), corner post, end post, blank post, each walk gate size, each double gate size, and chain link by the foot items (rounded up per job). **SENT** (done on dev: Inventory > Material Kits replaces the Bundles tab; line post is its own kit because the first section of a run has none; one walk and one double gate size, since quotes don't carry gate widths yet)
 * Kits worked out from the current calculator (the source of truth), then proven: 6+ real jobs per style must give the identical pull sheet. Only then does the calculator read from kits. **SENT** (done on dev: 32 styles × 15 jobs (7 real yards + 8 generated), every part identical except the gate leaf correction; the old calculator stays as the test check)
 * Edit, duplicate, rename, archive kits. Editing shows which open (Draft and Sent) quotes would change, with material cost now and after. Costs always live from Inventory. **SENT** (done on dev, tested, waiting for deploy)
+* The website quote widget and the chat/phone estimate still use their own copy of the old parts lists on the server (not the kits). Move them onto the kits, or leave them as rough estimates? **NEEDS JONATHAN**
+* Old quote tier Bundles page (Good / Better / Best bundles): 0 bundles on live; its material math now reads the kits. Keep or remove? **NEEDS JONATHAN**
+* Tan no dig takes 2 donuts off per double gate (white no dig does not). Kept as the old list had it. Which is right? **NEEDS JONATHAN**
 
 ## 4. Quoting in the field
 
