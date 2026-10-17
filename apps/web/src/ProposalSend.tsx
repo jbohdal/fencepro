@@ -12,6 +12,7 @@ import { proposalUrl } from './proposal'
 import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { toast } from './toast'
+import { updateQuote } from './quoteStore'
 
 export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   const [url, setUrl] = useState<string | null>(null)
@@ -56,6 +57,8 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
     if (kind === 'text') window.location.href = smsLink(quote.customerPhone || '', message(u))
     if (kind === 'email') window.location.href = `mailto:${encodeURIComponent(quote.customerEmail || '')}?subject=${encodeURIComponent(`Your fence proposal from ${company}`)}&body=${encodeURIComponent(message(u))}`
     if (kind === 'copy') { await navigator.clipboard?.writeText(u).catch(() => {}); toast.success('Link copied') }
+    // Given to the customer (texted, emailed or copied to send): the quote is Sent. Opening it yourself is not.
+    if (kind !== 'open' && quote.status === 'DRAFT') updateQuote(quote.id, { status: 'SENT' })
   }
 
   const chosen = quote.acceptedAt != null && quote.chosenOption != null ? p.options[quote.chosenOption] : null

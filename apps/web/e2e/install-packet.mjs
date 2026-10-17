@@ -113,6 +113,7 @@ try {
   await cp.locator('#cat').selectOption('Completed'); await cp.locator('#note').fill('All done, gate swings fine')
   await cp.locator('#files').setInputFiles(PHOTO); await sleep(2500)
   check('the crew uploads a photo from the link', (await cp.locator('#upMsg').textContent()).includes('1 uploaded'))
+  check('the crew sees the photo they just sent', await cp.locator('#sent figure img').count() === 1 && (await cp.locator('#sent figcaption').textContent()).startsWith('Sent from this phone'))
   const jobMedia = await api(`/api/media?jobId=${jobId}`)
   const fromCrew = jobMedia.find(m => m.source === 'crew')
   check('it lands on the job as Internal, from the crew', !!fromCrew && fromCrew.visibility === 'internal' && fromCrew.category === 'Completed' && fromCrew.caption === 'All done, gate swings fine')

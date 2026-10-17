@@ -29,7 +29,7 @@ import { loadPipeline } from './JobsPage'
 import { changeLeadStage } from './pipelineStageChange'
 import {
   listContactNotes, createContactNote, updateContactNote, deleteContactNote,
-  type CrmContactNoteRecord, noteChangeFor } from './crmContactsApi'
+  type CrmContactNoteRecord, noteChangeFor, noteAuthor } from './crmContactsApi'
 import { cloudStorage } from './cloudStorage'
 import { navigate, goBack, useNav, useScreenMemory, takeOpenedParam, openedFrom, BackClose, useBackLayer } from './nav'
 import { SaveStatus } from './SaveStatus'
@@ -674,7 +674,7 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
                       <button onClick={() => handleDelete(n.id)} className="text-xs text-gray-400 hover:text-red-600">Delete</button>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-400 mt-2">{n.createdBy} · {new Date(n.createdAt).toLocaleString()}</p>
+                  <p className="text-xs text-gray-400 mt-2">{noteAuthor(n)} · {new Date(n.createdAt).toLocaleString()}</p>
                 </>
               )}
             </div>

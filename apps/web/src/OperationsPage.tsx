@@ -647,9 +647,9 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         </Section>
 
         {isJobSource && (
-          <Section title="Photos and video">
+          <div className="mt-5">
             <JobMedia job={job} />
-          </Section>
+          </div>
         )}
 
         {isJobSource && (

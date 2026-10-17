@@ -71,10 +71,11 @@ export function ToastContainer() {
   }
 
   return (
-    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm pointer-events-none">
+    // At the bottom, above the phone's tab bar and the quote's Save bar: never over a name or its save status at the top.
+    <div className="fixed z-[100] flex flex-col-reverse gap-2 pointer-events-none inset-x-3 bottom-[calc(108px+env(safe-area-inset-bottom))] md:inset-x-auto md:right-4 md:bottom-4 md:max-w-sm">
       {msgs.map(m => (
         <div key={m.id}
-          className={`${styles[m.kind]} rounded-xl shadow-lg px-4 py-3 flex items-start gap-3 pointer-events-auto animate-in slide-in-from-right`}>
+          className={`${styles[m.kind]} rounded-xl shadow-lg px-4 py-3 flex items-start gap-3 pointer-events-auto animate-in slide-in-from-bottom`}>
           <span className="text-lg leading-none shrink-0">{icons[m.kind]}</span>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold">{m.title}</p>

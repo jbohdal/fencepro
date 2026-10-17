@@ -184,6 +184,8 @@ try {
 } catch (e) {
   check('test run finished', false, String(e).split('\n').slice(0, 3).join(' '))
 } finally {
+  // Accepting online makes a job: remove it with the quote.
+  if (quoteId) for (const j of (await api('/api/saved-jobs')).filter(j => j.quoteId === quoteId)) await api(`/api/saved-jobs/${j.id}`, { method: 'DELETE' })
   if (quoteId) await api(`/api/saved-quotes/${quoteId}`, { method: 'DELETE' })
   if (photoId) await api(`/api/style-photos/${photoId}`, { method: 'DELETE' })
   await browser.close()

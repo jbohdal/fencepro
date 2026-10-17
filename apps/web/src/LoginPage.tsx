@@ -8,6 +8,15 @@ import { useState, useEffect } from 'react'
 import { login, acceptInvite, forgotPassword, resetPassword, type CrmUser } from './crmAuth'
 import { plainText } from './plainError'
 
+/** Sign in problems in words; not reaching the server is almost always Tailscale. */
+function signInError(err: unknown): string {
+  const m = err instanceof Error ? `${err.name} ${err.message}` : String(err ?? '')
+  if (err instanceof TypeError || /failed to fetch|load failed|networkerror|network request failed/i.test(m)) {
+    return "Can't reach EZ Biz. Check that Tailscale is on and connected on this device, then try again."
+  }
+  return plainText(err)
+}
+
 type View = 'login' | 'forgot' | 'accept-invite' | 'reset-password'
 
 function PasswordInput({
@@ -73,7 +82,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
       const { user } = await login(email, password)
       onLogin(user)
     } catch (err: any) {
-      setError(plainText(err))
+      setError(signInError(err))
     }
     setLoading(false)
   }
@@ -84,7 +93,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
     try {
       await forgotPassword(email)
       setSuccess('If an account exists with that email, a reset link has been sent.')
-    } catch (err: any) { setError(plainText(err)) }
+    } catch (err: any) { setError(signInError(err)) }
     setLoading(false)
   }
 
@@ -99,7 +108,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
       const { user } = await acceptInvite(token, email, password)
       window.history.replaceState({}, '', '/')
       onLogin(user)
-    } catch (err: any) { setError(plainText(err)) }
+    } catch (err: any) { setError(signInError(err)) }
     setLoading(false)
   }
 
@@ -114,7 +123,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
       setSuccess('Password reset successfully. You can now log in.')
       setView('login')
       setPassword(''); setConfirmPassword('')
-    } catch (err: any) { setError(plainText(err)) }
+    } catch (err: any) { setError(signInError(err)) }
     setLoading(false)
   }
 

@@ -127,6 +127,23 @@ export interface CrmContactNoteRecord {
   createdAt: string
   updatedAt: string
   deletedAt?: string | null
+  /** The writer's name (from the server). */
+  createdByName?: string | null
+}
+
+/** Who wrote a note, by name: never a login email. */
+export function noteAuthor(n: { createdByName?: string | null; createdBy?: string }): string {
+  if (n.createdByName) return n.createdByName
+  return n.createdBy && !n.createdBy.includes('@') ? n.createdBy : 'Staff'
+}
+
+/** The signed in person's name, from their sign in. */
+function myName(): string {
+  try {
+    const t = getAccessToken()
+    const p = t ? JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) : null
+    return `${p?.firstName ?? ''} ${p?.lastName ?? ''}`.trim() || 'You'
+  } catch { return 'You' }
 }
 
 export interface CrmContactNotePayload {
@@ -178,11 +195,11 @@ export async function listContactNotes(contactId: string): Promise<ShownNote[] |
 export const noteChangeFor = (contactId: string) => (op: { kind: string; payload: any }) => op.kind.startsWith('note.') && op.payload?.contactId === contactId
 
 /** Add a note: on screen and kept on this phone now, on the server as soon as it can be. */
-export async function createContactNote(contactId: string, payload: CrmContactNotePayload, by = 'You'): Promise<ShownNote> {
+export async function createContactNote(contactId: string, payload: CrmContactNotePayload, by = myName()): Promise<ShownNote> {
   const now = new Date().toISOString()
   const note: CrmContactNoteRecord = {
     id: newId(), crmContactId: contactId, accountId: '', body: payload.body, isPinned: !!payload.isPinned,
-    visibility: payload.visibility ?? 'all_staff', createdBy: by, createdAt: now, updatedAt: now,
+    visibility: payload.visibility ?? 'all_staff', createdBy: by, createdByName: by, createdAt: now, updatedAt: now,
   }
   const waitFor = pendingFor(`customer:${contactId}`).some(o => o.kind === 'customer.create') ? [`customer:${contactId}`] : []
   await enqueue<NoteCreate>({ key: noteKey(note.id), kind: 'note.create', payload: { contactId, note }, label: `Note: ${payload.body.slice(0, 40)}${payload.body.length > 40 ? '…' : ''}`, after: waitFor })

@@ -50,7 +50,8 @@ async function geometry(page) {
     const pts = house ? house.getAttribute('points').trim().split(/\s+/).map(p => p.split(',').map(Number)) : []
     const purple = [...svg.querySelectorAll('line[stroke="#5E28A1"]')].map(l => ['x1', 'y1', 'x2', 'y2'].map(k => +l.getAttribute(k)))
     const labels = [...svg.querySelectorAll('text')].map(t => t.textContent)
-    const corners = [...svg.querySelectorAll('[data-plan-corner]')].map(c => [+c.getAttribute('cx'), +c.getAttribute('cy')])
+    // Corner posts are the 12 px squares drawn on the plan (the drag handles show only while adjusting).
+    const corners = [...svg.querySelectorAll('rect[width="12"][height="12"]')].map(c => [+c.getAttribute('x') + 6, +c.getAttribute('y') + 6])
     return { pts, purple, labels, corners }
   })
 }
@@ -116,6 +117,9 @@ try {
   await openQuote(await quote('E2E Plan drag', yard(120, 100, 150)))
   const priceBefore = await page.locator('[data-quote-builder]').textContent()
   const runsBefore = await page.locator('[data-side-runs]').allTextContents()
+  g = await geometry(page)
+  check('no corner handles until Adjust the drawing is tapped', await page.locator('[data-plan-corner]').count() === 0)
+  await page.locator('[data-plan-adjust]').click(); await sleep(300)
   g = await geometry(page)
   const corner = page.locator('[data-plan-corner="2"]')
   const box = await corner.boundingBox()

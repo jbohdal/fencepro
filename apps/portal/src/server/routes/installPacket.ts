@@ -128,7 +128,7 @@ async function load(token: string) {
 }
 
 function headers(res: any, nonce: string) {
-  res.setHeader('Content-Security-Policy', `default-src 'none'; img-src 'self' data: blob:; media-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'`)
+  res.setHeader('Content-Security-Policy', `default-src 'none'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'`)
   res.setHeader('Referrer-Policy', 'no-referrer')
   res.setHeader('X-Robots-Tag', 'noindex')
   res.setHeader('Cache-Control', 'no-store')
@@ -205,6 +205,7 @@ packetPublic.get('/:token', async (req, res) => {
       <label class="field">Note (optional)<input id="note" maxlength="500"></label>
       <label class="btn filebtn">Choose photos or video<input id="files" type="file" accept="image/*,video/*" multiple hidden></label>
       <p id="upMsg" class="small"></p>
+      <div id="sent" class="media" aria-live="polite"></div>
     </section>
   </main>`
   const script = `
@@ -227,10 +228,12 @@ packetPublic.get('/:token', async (req, res) => {
         var f=list[i],fd=new FormData();fd.append('category',cat);fd.append('caption',note);fd.append('cid',ids[i]);fd.append('file',f);
         var x=new XMLHttpRequest();x.open('POST',tok+'/media');
         x.upload.onprogress=function(e){if(e.lengthComputable)msg.textContent='Uploading '+(i+1)+' of '+list.length+': '+Math.round(e.loaded/e.total*100)+'%'};
-        x.onload=function(){if(x.status>=200&&x.status<300){wait=3000;i++;next()}else if(x.status>=500){retry()}else{var e='';try{e=JSON.parse(x.responseText).error}catch(_){}msg.textContent=(e||'That file could not be uploaded.')+' Choose it again to try.'}};
+        x.onload=function(){if(x.status>=200&&x.status<300){shown(f);wait=3000;i++;next()}else if(x.status>=500){retry()}else{var e='';try{e=JSON.parse(x.responseText).error}catch(_){}msg.textContent=(e||'That file could not be uploaded.')+' Choose it again to try.'}};
         x.onerror=retry;
         x.send(fd);
       }
+      // What the crew just sent, so they can see it went (it is Internal for the office until marked).
+      function shown(f){var fig=document.createElement('figure'),el=document.createElement(f.type.indexOf('video')===0?'video':'img');el.src=URL.createObjectURL(f);if(el.tagName==='VIDEO'){el.controls=true;el.setAttribute('playsinline','')}else{el.alt=''}var cap=document.createElement('figcaption');cap.textContent='Sent from this phone: '+cat+(note?' · '+note:'');fig.appendChild(el);fig.appendChild(cap);document.getElementById('sent').appendChild(fig)}
       // No signal: keep the page open and it sends by itself.
       function retry(){msg.textContent='No signal. '+(list.length-i)+' waiting; they will send by themselves when there is signal. Keep this page open.';setTimeout(next,wait);wait=Math.min(wait*2,30000)}
       next();

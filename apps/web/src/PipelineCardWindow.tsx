@@ -20,7 +20,7 @@ import type { SavedQuote } from './QuotesPage'
 import type { Appointment } from './appointmentLogic'
 import { shortWhen, smsLink } from './appointmentLogic'
 import { getCustomerById } from './customerStore'
-import { listContactNotes, createContactNote, noteChangeFor, type CrmContactNoteRecord } from './crmContactsApi'
+import { listContactNotes, createContactNote, noteChangeFor, type CrmContactNoteRecord, noteAuthor } from './crmContactsApi'
 import { subscribe, pendingFor } from './outbox'
 import { useBackLayer } from './nav'
 import { SaveStatus, cardChange } from './SaveStatus'
@@ -170,7 +170,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
                 {lastNotes.map(n => (
                   <li key={n.id} className="text-sm text-gray-800" data-card-note>
                     <p className="whitespace-pre-wrap">{n.body}</p>
-                    <p className="text-xs text-gray-500">{n.createdBy ? `${n.createdBy} · ` : ''}{fmtDate(n.createdAt)}</p>
+                    <p className="text-xs text-gray-500">{noteAuthor(n)} · {fmtDate(n.createdAt)}</p>
                     <SaveStatus keys={[`note:${n.id}`]} quietWhenSaved className="mt-1" />
                   </li>
                 ))}

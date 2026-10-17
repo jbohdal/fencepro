@@ -613,6 +613,8 @@ function OpsCard({
       </div>
       <p className="text-xs text-gray-500 truncate">
         {city}{job.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{job.fenceType}</span></> : null}
+        {/* Two jobs for one customer are told apart by their footage. */}
+        {job.rawJob?.totalFeet ? <> · {job.rawJob.totalFeet} ft</> : null}
       </p>
 
       <div className="flex items-center gap-1.5 mt-2 text-[11px]">

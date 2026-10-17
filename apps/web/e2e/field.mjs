@@ -311,6 +311,14 @@ async function seesJobWithoutReload(page, jobName) {
 /** (b) The customer opens the proposal on their phone (no Tailscale, no login), picks Better, signs. */
 async function flowB(dev, signal, proxy, a) {
   const app = dev.page
+  // The salesman copies the proposal link from the quote: the quote is Sent from then on.
+  await app.evaluate(id => { history.pushState({ ez: 1, i: 98000, depth: 0 }, '', `/quotes?qv=${id}`); dispatchEvent(new PopStateEvent('popstate', { state: history.state })) }, a.quoteId)
+  await app.locator('[data-proposal-send] button:has-text("Copy link")').click({ timeout: 20000 }).catch(() => {})
+  let sentStatus = ''
+  for (let i = 0; i < 20 && sentStatus !== 'SENT'; i++) { await sleep(1000); sentStatus = (await api('/api/saved-quotes')).find(x => x.id === a.quoteId)?.status }
+  check('Copy link marks the quote Sent', sentStatus === 'SENT', sentStatus)
+  await app.evaluate(() => history.back())
+  await sleep(800)
   // The customer's own phone: another page. The salesman's app stays open.
   const page = await dev.newPage()
   await page.bringToFront().catch(() => {})

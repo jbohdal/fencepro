@@ -63,6 +63,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     img.src = photo
   }, [photo, photoReady])
   const [renaming, setRenaming] = useState<string | null>(null)
+  // Corner handles only while the drawing is being adjusted (or lined up on the aerial photo).
+  const [adjusting, setAdjusting] = useState(false)
   const [editCounts, setEditCounts] = useState(false)
 
   if (!layout) {
@@ -231,7 +233,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           onSideTap={tapSide}
           aerial={onPhoto ? { href: photo!, ftPerPx: aerialFtPerPx(aerial!.halfM), sizePx: AERIAL_PX } : null}
           // Dragging only moves the drawing; on the plain plan it holds until a length changes.
-          onPointsChange={pts => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: pts, pointsFor: onPhoto ? null : layoutSignature(layout) } })}
+          onPointsChange={onPhoto || adjusting ? pts => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: pts, pointsFor: onPhoto ? null : layoutSignature(layout) } }) : undefined}
           pins={pins}
           onPinTap={onPinTap}
         />
@@ -240,8 +242,13 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
         )}
       </div>
       {planNotes.map((n, k) => <p key={k} className="text-sm text-amber-900 bg-amber-50 rounded-lg px-3 py-2" data-plan-note>{n}</p>)}
-      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{onPhoto ? ' Drag the corners onto the yard; the center button moves the whole plan.' : ' Drag a corner to match an odd yard; footage and price stay as typed.'}</p>
+      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{onPhoto ? ' Drag the corners onto the yard; the center button moves the whole plan.' : adjusting ? ' Drag a corner to match an odd yard; footage and price stay as typed.' : ''}</p>
       <div className="flex flex-wrap items-center gap-2" data-aerial>
+        {!onPhoto && (
+          <button type="button" className={`btn ${adjusting ? 'btn-primary' : 'btn-secondary'} min-h-[48px]`} onClick={() => setAdjusting(a => !a)} data-plan-adjust>
+            {adjusting ? 'Done adjusting' : 'Adjust the drawing'}
+          </button>
+        )}
         {!aerialOn ? (
           <>
             <input className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 h-11 text-sm" placeholder="Property address for the aerial photo"

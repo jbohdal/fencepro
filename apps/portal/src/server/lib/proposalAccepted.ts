@@ -65,6 +65,31 @@ export async function ensureJobForAcceptedQuote(q: {
   const existing = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, archivedAt: null }, select: { id: true } })
   if (existing) return existing.id
   const runs = Array.isArray(q.runs) ? (q.runs as unknown[]).map(Number).filter(n => Number.isFinite(n)) : []
+  // The same job (same customer, sold within 60 days, price within 10%): the
+  // customer accepted another proposal for the same fence. One job, now
+  // following the quote accepted last, with a note of the change.
+  if (q.crmContactId) {
+    const since = new Date(Date.now() - 60 * 86_400_000)
+    const open = await prisma.savedJob.findMany({
+      where: { accountId: q.accountId, crmContactId: q.crmContactId, archivedAt: null, createdAt: { gte: since }, status: { notIn: ['completed', 'invoiced', 'paid'] } },
+      orderBy: { createdAt: 'desc' },
+    })
+    const same = open.find(j => j.contractValue > 0 && Math.abs(j.contractValue - q.finalPrice) <= 0.1 * Math.max(j.contractValue, q.finalPrice))
+    if (same) {
+      const day = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })
+      await prisma.savedJob.update({
+        where: { id: same.id },
+        data: {
+          quoteId: q.id, fenceStyle: q.fenceStyle, sections: q.sections, totalFeet: Math.round(runs.reduce((t, n) => t + n, 0)),
+          walkGates: q.walkGates, dblGates: q.dblGates, tearOutSections: q.tearOutSections,
+          quotePrice: q.finalPrice, contractValue: q.finalPrice, gmPct: q.gmPct,
+          notes: `${same.notes ? same.notes + '\n' : ''}${day}: the customer accepted another proposal for this job (${q.fenceStyle}, $${Math.round(q.finalPrice).toLocaleString('en-US')}); the job follows it now. It was ${same.fenceStyle}, $${Math.round(same.contractValue).toLocaleString('en-US')}.`,
+        },
+      })
+      console.log(`[proposal] quote ${q.id} accepted for the same job as ${same.id}; job follows it now`)
+      return same.id
+    }
+  }
   const job = await prisma.savedJob.create({
     data: {
       accountId: q.accountId, quoteId: q.id, crmContactId: q.crmContactId, status: 'staging',
