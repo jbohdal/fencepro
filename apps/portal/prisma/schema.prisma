@@ -321,7 +321,7 @@ model Lead {
   createdAt              DateTime     @default(now())
   updatedAt              DateTime     @updatedAt
 
-  followUps    FollowUp[]
+  followUps FollowUp[]
 
   @@index([stage])
   @@index([email])
@@ -1919,7 +1919,7 @@ model InventoryState {
   // Material kits per style that Jonathan has saved (see web materialKits.ts); styles without one use the built in kits.
   kits         Json     @default("[]")
   // Goes up by one on every save; a save built on an older version is refused (see lib/versioned.ts).
-  version   Int      @default(1)
+  version      Int      @default(1)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -2167,4 +2167,34 @@ model InstallPacket {
   sentAt       DateTime  @default(now())
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+}
+
+// Records Jonathan has agreed to delete on a date (e.g. duplicates merged
+// away, kept for 30 days first). The dashboard reminds him the day before;
+// "Keep them" cancels. Run by lib/scheduledDeletions.ts.
+model ScheduledDeletion {
+  id        String    @id @default(uuid())
+  accountId String
+  /**
+   * In plain words, for the reminder.
+   */
+  what      String
+  /**
+   * Only 'CrmContact' so far.
+   */
+  model     String
+  recordIds Json // string[]
+  /**
+   * Names shown in the reminder, same order as recordIds.
+   */
+  labels    Json      @default("[]")
+  remindOn  String // YYYY-MM-DD, Ocala time
+  deleteOn  String // YYYY-MM-DD, Ocala time
+  status    String    @default("scheduled") // scheduled | done | cancelled
+  result    String?
+  doneAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([accountId, status])
 }

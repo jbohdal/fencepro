@@ -105,7 +105,8 @@ Status key:
 * Independent reviewer acting as a salesman on full jobs, repeated until nothing serious: second pass found nothing serious. **SENT**
 * Data integrity check on live (orphan cards, duplicates, unuploaded photos): done Oct 16. **LIVE**
 * Duplicate customers merged on live Oct 17 (Sherry Smith, Ashley Rozicki, Dave Wyckoff, Rafael Rodriguez): quotes, jobs, appointments, notes moved to the older record; the newer records kept, hidden, until approved for deletion. **LIVE**
-* Marilyn Clark / Marilyn Clarke: same phone, email and address; merge only on your say. **NEEDS JONATHAN**
+* Those 4 kept 30 days, then deleted on Nov 16 (after that night's backup, only if still archived and nothing new points at them); dashboard reminder on Nov 15 with "Keep them" to cancel. **SENT** (done and tested on dev; the schedule is set on live right after the deploy)
+* Marilyn Clark / Marilyn Clarke: merge into the older record (Clark, Mar 25 2024). **NEEDS JONATHAN** (approved; waiting for which spelling her name should have)
 * Confirm no test records ("E2E") exist on live: none found Oct 17. **LIVE**
 * Crew sees the photo they just uploaded; note authors by name; pop up messages at the bottom, never over the save status; one "Photos and video" heading on a job. **SENT** (done on dev, waiting for deploy)
 

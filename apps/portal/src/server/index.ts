@@ -59,6 +59,8 @@ import adminAuditRoutes from './routes/admin-audit.js'
 import { promises as fsp } from 'fs'
 import path from 'path'
 import { startDataIntegrityCron } from './lib/dataIntegrityCron.js'
+import { startScheduledDeletions } from './lib/scheduledDeletions.js'
+import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
 import cronRoutes from './routes/cron.js'
 import portalRoutes from './routes/portal.js'
 
@@ -197,6 +199,7 @@ app.use('/api/vendor-state', vendorStateRoutes)
 app.use('/api/business-state', businessStateRoutes)
 app.use('/api/kv', kvRoutes)
 app.use('/api/intake', intakeRoutes)
+app.use('/api/scheduled-deletions', scheduledDeletionRoutes)
 app.use('/api/lead-chat', leadChatRoutes)
 app.use('/api/knowledge', knowledgeRoutes)
 app.use('/api/google-calendar', googleCalendarRoutes)
@@ -314,6 +317,9 @@ if (!isVercel) {
     }
     try { startDataIntegrityCron() } catch (err) {
       console.warn('[startup] data-integrity cron failed to start:', (err as Error).message)
+    }
+    try { startScheduledDeletions() } catch (err) {
+      console.warn('[startup] scheduled deletions failed to start:', (err as Error).message)
     }
   })
 
