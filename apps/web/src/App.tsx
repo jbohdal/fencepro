@@ -4,7 +4,7 @@ import { startLiveRefresh } from './liveRefresh'
 import './liveOverhead'
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment, lazy, Suspense } from 'react'
 import QuoteBuilder from './QuoteBuilder'
-import { Banknote, BarChart3, Boxes, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
+import { Banknote, BarChart3, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
 import AdminPage from './AdminPage'
 const AdminSettingsPage = lazy(() => import('./AdminSettingsPage'))
 const BudgetPage = lazy(() => import('./BudgetPage'))
@@ -37,8 +37,6 @@ const PLStatementPage = lazy(() => import('./PLStatementPage'))
 const BalanceSheetPage = lazy(() => import('./BalanceSheetPage'))
 const VendorsPage = lazy(() => import('./VendorsPage'))
 const AccountsPayablePage = lazy(() => import('./AccountsPayablePage'))
-const BundlesPage = lazy(() => import('./BundlesPage'))
-import PublicPresentationPage from './PublicPresentationPage'
 const PendingOrdersPage = lazy(() => import('./PendingOrdersPage'))
 const SitePlansPage = lazy(() => import('./SitePlansPage'))
 const InventoryPage = lazy(() => import('./InventoryPage'))
@@ -127,7 +125,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Admin',
     items: [
       { name: 'Team',           icon: UserCog, roles: ['owner', 'admin'] },
-      { name: 'Bundles',        icon: Boxes, roles: ['owner', 'admin'] },
       { name: 'EZ Budget',      icon: Calculator, roles: ['owner', 'admin'] },
       { name: 'Automations',    icon: Zap, roles: ['owner', 'admin'] },
       { name: 'Integrations',  icon: Plug, roles: ['owner', 'admin'] },
@@ -401,17 +398,13 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
 }
 
 export default function App() {
-  // Public presentation route: /#/present/:token — no auth required
+  // Public quote route: /#/quote/:token — no auth required
   const [hash, setHash] = useState(typeof window !== 'undefined' ? window.location.hash : '')
   useEffect(() => {
     const onHashChange = () => setHash(window.location.hash)
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
-  const presentMatch = hash.match(/^#\/present\/([a-zA-Z0-9_-]+)/)
-  if (presentMatch) {
-    return <PublicPresentationPage token={presentMatch[1]} />
-  }
   const quoteMatch = hash.match(/^#\/quote\/([a-zA-Z0-9_-]+)/)
   if (quoteMatch) {
     return <PublicQuotePage token={quoteMatch[1]} />
@@ -1023,7 +1016,6 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Balance Sheet' && <BalanceSheetPage />}
           {active === 'Accounts Payable' && <AccountsPayablePage />}
           {active === 'Vendors'   && <VendorsPage />}
-          {active === 'Bundles'   && <BundlesPage />}
           {active === 'Cash Flow' && <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center"><p className="text-4xl mb-3">💸</p><h2 className="text-lg font-bold text-gray-900">Cash Flow</h2><p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">Cash Flow statement coming soon. For now, check the P&amp;L Statement and Accounts Receivable/Payable dashboards.</p></div>}
           {active === 'Customers' && <CustomersPage
             onNewQuote={(c) => {

@@ -13,7 +13,6 @@ import { updateQuote, getQuoteById } from './quoteStore'
 import { markQuoteSold, markQuoteLost } from './signedContractFlow'
 import { ensureShareForQuote, stampSent, getShareByQuoteId } from './quoteShareStore'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
-import { getOptionsForQuote } from './bundleStore'
 import { toast } from './toast'
 import { TEMPLATES, getDefaultTemplateKey, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
 import QuoteTemplateRenderer from './QuoteTemplateRenderer'
@@ -65,7 +64,6 @@ export default function QuoteDetailDrawer({
   useBackLayer(onClose, { key: 'qv', params: { qv: quote.id } })
   const status = STATUS_STYLES[quote.status]
   const totalFootage = useMemo(() => (quote.runs || []).reduce((a, b) => a + b, 0), [quote.runs])
-  const options = useMemo(() => getOptionsForQuote(quote.id), [quote.id])
   const share = getShareByQuoteId(quote.id)
   const shareUrl = share ? `${window.location.origin}/#/quote/${share.token}` : null
 
@@ -140,22 +138,6 @@ export default function QuoteDetailDrawer({
             </div>
           </section>
 
-          {/* Options present */}
-          {options.length > 0 && (
-            <section>
-              <p className="text-xs font-bold text-gray-400 mb-2">Good / Better / Best Options</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {options.map(o => (
-                  <div key={o.id} className={`rounded-xl border p-3 ${o.isRecommended ? 'border-orange-400 ring-2 ring-orange-200' : 'border-gray-200'}`}>
-                    <p className="text-[10px] font-bold text-gray-500">{o.tierLabel}</p>
-                    <p className="text-lg font-bold text-gray-900">{fmt0(o.quotePriceCents / 100)}</p>
-                    <p className="text-xs text-gray-500">{o.footage} ft · {fmt(o.pricePerFootCents / 100)}/ft</p>
-                    {o.status === 'accepted' && <p className="text-[10px] text-green-700 mt-1">✓ Accepted {o.acceptedBy ? `by ${o.acceptedBy}` : ''}</p>}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
 
           {internalView && (
             <section>

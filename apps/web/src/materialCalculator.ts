@@ -403,7 +403,10 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     add("*Vinyl, Tan, Post, End, 5\" x 5\" x 78\"", ends, 12.90)
     add("*Vinyl, Tan, Post, Line, 5\" x 5\" x 78\"", linePosts, 12.90)
     add("*Vinyl, Tan, Post, Blank, 5\" x 5\" x 102\"", blankPosts, 16.38)
-    add('ND, Donut', totalPostCount * 2 - blankPosts * 2, 3.19)
+    // 2 per post, as on white. The blank post is set in concrete and is not in
+    // totalPostCount, so nothing more comes off for a double gate (the old
+    // "- blankPosts * 2" took it off twice; Jonathan, Oct 2026).
+    add('ND, Donut', totalPostCount * 2, 3.19)
     add("Pipe, PT40, Galv, 2-1/2\" x 8'", corners + ends + linePosts, 19.50)
 
     // Panel goods: sections plus every gate leaf (a double gate is two leaves).
@@ -979,7 +982,7 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
     add('*Vinyl, Tan, Post, End, 5" x 5" x 78"', ends, 12.90)
     add('*Vinyl, Tan, Post, Line, 5" x 5" x 78"', linePosts, 12.90)
     add('*Vinyl, Tan, Post, Blank, 5" x 5" x 102"', blankPosts, 16.38)
-    add('ND, Donut', totalPostCount * 2 - blankPosts * 2, 3.19)
+    add('ND, Donut', totalPostCount * 2, 3.19) // as white: the blank post is set in concrete, not in totalPostCount
     add('Pipe, PT40, Galv, 2-1/2" x 8\'', corners + ends + linePosts, 19.50)
   }
 

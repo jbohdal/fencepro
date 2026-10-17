@@ -1,7 +1,7 @@
 /**
  * Pricing engine — the one place a quote's labor, cost and price are computed.
  *
- * Pure: no React, no storage, no network. QuoteBuilder and bundleEngine both
+ * Pure: no React, no storage, no network. QuoteBuilder and quoteCalc
  * call it, so a change in Settings → Pricing shows up everywhere at once.
  *
  * Everything here is a setting or a per quote override, never a constant:

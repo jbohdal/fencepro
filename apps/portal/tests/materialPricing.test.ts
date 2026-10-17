@@ -98,6 +98,12 @@ describe('parts list fixes', () => {
     expect(rails(dbl) - rails(none)).toBe(2 * 2)
   })
 
+  test('tan no dig donuts match white: 2 per post, nothing taken off for a double gate', () => {
+    const donuts = (style: string, dblGates: number) => find(calculateMaterials(job(style, { walkGates: 0, dblGates })), 'ND, Donut')!.qty
+    for (const dbl of [0, 1, 2]) expect(donuts("TV-ND 6'x6' Privacy", dbl)).toBe(donuts("WV-ND 6'x6' Privacy", dbl))
+    expect(donuts("TV-ND 6'x6' Privacy", 1)).toBe(donuts("TV-ND 6'x6' Privacy", 0))
+  })
+
   test('white dig set counts both leaves of a double gate', () => {
     const none = calculateMaterials(job("WV-DS 6'x6' Privacy", { walkGates: 0, dblGates: 0 }))
     const dbl = calculateMaterials(job("WV-DS 6'x6' Privacy", { walkGates: 0, dblGates: 1 }))

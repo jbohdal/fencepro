@@ -8,7 +8,6 @@ import { normalizeItemName } from './materialCalculator'
 import { stalePartsOnQuote, priceAgeLabel, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
 import { newId } from './recordSync'
 import type { SavedQuote } from './QuotesPage'
-import QuoteOptionsPanel from './QuoteOptionsPanel'
 import { getCustomers, getCustomerById, upsertCustomer } from './customerStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
@@ -1030,17 +1029,6 @@ export default function QuoteBuilder({
                 </span>
               </button>
             </div>
-
-            <QuoteOptionsPanel inputs={{
-              quoteId: quoteIdRef.current,
-              runs: effRuns.map(r => r.ft).filter(f => f > 0),
-              corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
-              tearOutSections: tearOutSec, tearOutGates,
-              adjLaborHrs: parseFloat(adjLaborHrs) || 0,
-              hasSalesman, priceAdjust,
-              fenceStyleId: styleId,
-              pricing: pricingOverrides,
-            }} />
           </div>
 
           <div className="w-full md:w-80 flex flex-col bg-gray-50 md:rounded-r-2xl border-t md:border-t-0 border-gray-200">
