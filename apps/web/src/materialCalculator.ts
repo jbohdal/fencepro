@@ -34,6 +34,17 @@ export function priceSourceFromMap(map: Record<string, number>): MaterialPriceSo
   return (itemName: string) => norm.get(normalizeItemName(itemName))
 }
 
+/** Inventory as a price source: active items by name (ignoring case and spaces); inactive and discontinued items are left out. */
+export function inventoryPriceSource(items: ReadonlyArray<{ name: string; unitCost: unknown; status?: string }>): MaterialPriceSource {
+  const index = new Map<string, number>()
+  for (const item of items) {
+    if (item.status === 'inactive' || item.status === 'discontinued') continue
+    const cost = Number(item.unitCost)
+    index.set(normalizeItemName(item.name), Number.isFinite(cost) ? cost : 0)
+  }
+  return (itemName: string) => index.get(normalizeItemName(itemName))
+}
+
 /** Run `fn` with a different price source, then put the old one back. */
 export function withPriceSource<T>(fn: MaterialPriceSource | null, run: () => T): T {
   const was = priceSource

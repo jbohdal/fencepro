@@ -8,7 +8,7 @@
 
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
-import { setMaterialPriceSource, normalizeItemName } from './materialCalculator'
+import { setMaterialPriceSource, inventoryPriceSource } from './materialCalculator'
 import { cloudStorage } from './cloudStorage'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { stampPriceChanges, confirmPrices as confirmPricesIn } from './priceAge'
@@ -482,20 +482,16 @@ export function getPriceMap(): Record<string, number> {
 // and initInventory both replace it), so a cost edited on the Inventory page is
 // what the very next quote uses.
 let costIndexFor: InventoryItem[] | null = null
-let costIndex = new Map<string, number>()
+let costIndex: (name: string) => number | undefined = () => undefined
 
 export function getInventoryUnitCost(itemName: string): number | undefined {
   const inv = getInventory()
   if (inv !== costIndexFor) {
-    costIndex = new Map()
-    for (const item of inv) {
-      if (item.status === 'inactive' || item.status === 'discontinued') continue
-      const cost = Number(item.unitCost)
-      costIndex.set(normalizeItemName(item.name), Number.isFinite(cost) ? cost : 0)
-    }
+    // The same rule the server's estimates use (materialCalculator.inventoryPriceSource).
+    costIndex = inventoryPriceSource(inv)
     costIndexFor = inv
   }
-  return costIndex.get(normalizeItemName(itemName))
+  return costIndex(itemName)
 }
 
 setMaterialPriceSource(getInventoryUnitCost)

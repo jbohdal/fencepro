@@ -27,6 +27,7 @@ import { parseCallbackTime } from '../lib/appointments.js'
 import { recordIntake, resolveIntakeAccountId, digits } from '../lib/intake.js'
 import { verifyRetellSignature, summarizeRetellCall } from '../lib/retell.js'
 import { plainZod } from '../lib/plainZod.js'
+import { estimateJob, estimateStyleList } from '../lib/estimates.js'
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
 const money = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -82,6 +83,50 @@ quotingRouter.get('/config', readLimiter, (_req, res) => {
   res.json({ pricing: [], theme: null, quoteRange: null })
 })
 
+// Estimates from the quote builder's own math (material kits, Inventory
+// costs, Settings), so the website shows the same number the builder would.
+// Customer facing: the price only, never costs or margins.
+quotingRouter.get('/styles', readLimiter, async (_req, res) => {
+  try { res.json({ success: true, styles: await estimateStyleList() }) }
+  catch (err) { console.error('[quoting] styles error:', err); res.status(500).json({ success: false, error: 'Could not list styles' }) }
+})
+
+const estimateSchema = z.object({
+  fenceStyle: z.string().trim().min(1, 'Choose a fence style').max(120),
+  runs: z.array(z.number().positive().max(100_000)).min(1, 'Enter at least one run').max(300),
+  corners: z.number().int().min(0).max(500).default(0),
+  ends: z.number().int().min(0).max(500).default(0),
+  walkGates: z.number().int().min(0).max(50).default(0),
+  dblGates: z.number().int().min(0).max(50).default(0),
+})
+
+quotingRouter.post('/estimate', readLimiter, async (req, res) => {
+  try {
+    const job = estimateSchema.parse(req.body)
+    const e = await estimateJob(job)
+    res.json({
+      success: true, label: 'Estimate', fenceStyle: e.style.name, totalFootage: e.totalFootage, sections: e.sections,
+      estimate: Math.round(e.price), pricePerFoot: e.pricePerFoot,
+      message: `Estimate: about ${money(e.price)} for ${e.totalFootage} ft of ${e.style.name}. The final price is confirmed at a free on site visit.`,
+    })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    const msg = err instanceof Error && /Unknown fence style/.test(err.message) ? err.message : 'Could not work out an estimate'
+    if (!(err instanceof Error && /Unknown fence style/.test(err.message))) console.error('[quoting] estimate error:', err)
+    res.status(400).json({ success: false, error: msg })
+  }
+})
+
+/** The builder's estimate for a submitted widget quote, when it names a fence style the app has. */
+async function builderEstimate(data: { fenceStyle?: unknown; runs?: Array<{ lengthFeet?: number }>; layout?: { corners?: number; ends?: number }; gateConfig?: { walkGates?: number; doubleGates?: number } }): Promise<number | null> {
+  const runs = (data.runs ?? []).map(r => Number(r.lengthFeet)).filter(n => n > 0)
+  if (typeof data.fenceStyle !== 'string' || !data.fenceStyle || !runs.length) return null
+  try {
+    const e = await estimateJob({ fenceStyle: data.fenceStyle, runs, corners: data.layout?.corners ?? 0, ends: data.layout?.ends ?? 0, walkGates: data.gateConfig?.walkGates ?? 0, dblGates: data.gateConfig?.doubleGates ?? 0 })
+    return Math.round(e.price)
+  } catch { return null }
+}
+
 const latLng = z.object({ lat: z.number(), lng: z.number() })
 const submitSchema = z.object({
   userId: z.string().max(200).optional(),
@@ -118,11 +163,13 @@ quotingRouter.post('/submit', submitLimiter, async (req, res) => {
     const fence = [data.material, data.style, data.height, data.color].filter(Boolean).join(', ')
     const walk = data.gateConfig?.walkGates ?? 0
     const dbl = data.gateConfig?.doubleGates ?? 0
+    const builder = await builderEstimate(data)
     const lines = [
       'Website quote (EZ Quote)',
       `${feet} ft${fence ? ' of ' + fence : ''}`,
       (walk || dbl) ? `Gates: ${walk} walk, ${dbl} double` : 'No gates',
       typeof data.totalEstimate === 'number' ? `Budget shown to the customer: ${money(data.totalEstimate)}` : '',
+      builder !== null ? `Estimate from the quote builder's math (${data.fenceStyle}): ${money(builder)}` : '',
       `Asked for an on site estimate: ${data.requestOnSiteEstimate ? 'yes' : 'no'}`,
       data.address ? `Address: ${data.address}` : '',
       data.photos?.length ? `Photos: ${data.photos.length}\n${data.photos.join('\n')}` : '',
@@ -141,7 +188,7 @@ quotingRouter.post('/submit', submitLimiter, async (req, res) => {
       summary: lines.join('\n'),
       estimate: data.totalEstimate ?? null,
       leadSource: 'Website Quote',
-      payload: { ...data, id, submittedAt: new Date().toISOString() },
+      payload: { ...data, id, submittedAt: new Date().toISOString(), ...(builder !== null ? { builderEstimate: builder } : {}) },
     })
     res.status(201).json({ success: true, id: result.intakeId })
   } catch (err) {

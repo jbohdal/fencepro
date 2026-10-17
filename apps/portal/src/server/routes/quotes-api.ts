@@ -1,8 +1,8 @@
 /**
  * Quote Engine API
  *
- * Exposes the CRM's quote calculator as a REST API.
- * Botpress calls this to generate real quotes from project details.
+ * Estimates from the quote builder's own math (lib/estimates.ts: material
+ * kits, Inventory costs, Settings), always labeled as estimates.
  *
  * Public endpoints (Botpress webhook):
  *   POST /api/quotes/quick-estimate  — fast estimate from type + footage
@@ -12,17 +12,18 @@
 
 import { Router } from 'express'
 import { z } from 'zod'
-import { calculateQuote, quickEstimate, getAvailableStyles } from '../lib/quoteEngine.js'
+import { estimateJob, quickEstimate, estimateStyleList, type Estimate } from '../lib/estimates.js'
 import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
 // ── Available fence styles ──
-router.get('/styles', (_req, res) => {
-  res.json({
-    success: true,
-    data: getAvailableStyles(),
-  })
+router.get('/styles', async (_req, res) => {
+  try {
+    res.json({ success: true, data: await estimateStyleList() })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Could not list styles' })
+  }
 })
 
 // ── Quick estimate (Botpress calls this during conversation) ──
@@ -33,24 +34,26 @@ const quickEstimateSchema = z.object({
   dblGates: z.number().int().min(0).default(0),
 })
 
-router.post('/quick-estimate', (req, res) => {
+router.post('/quick-estimate', async (req, res) => {
   try {
     const data = quickEstimateSchema.parse(req.body)
-    const quote = quickEstimate(data.fenceStyle, data.linearFootage, data.walkGates, data.dblGates)
+    const quote = await quickEstimate(data.fenceStyle, data.linearFootage, data.walkGates, data.dblGates)
+    const price = Math.round(quote.price)
 
     // Return customer-facing data only (no internal costs/margins)
     res.json({
       success: true,
       data: {
-        fenceStyle: quote.fenceStyleDisplay,
-        category: quote.category,
+        label: 'Estimate',
+        fenceStyle: quote.style.name,
+        category: quote.style.category,
         totalFootage: quote.totalFootage,
         sections: quote.sections,
-        estimatedPrice: quote.finalPrice,
+        estimatedPrice: price,
         pricePerFoot: quote.pricePerFoot,
         walkGates: data.walkGates,
         dblGates: data.dblGates,
-        message: `Based on ${quote.totalFootage} linear feet of ${quote.fenceStyleDisplay} with ${data.walkGates} walk gate${data.walkGates !== 1 ? 's' : ''}${data.dblGates > 0 ? ` and ${data.dblGates} double gate${data.dblGates !== 1 ? 's' : ''}` : ''}, your estimated project cost is around $${quote.finalPrice.toLocaleString()}. That's about $${quote.pricePerFoot.toFixed(2)} per linear foot installed. We can confirm the exact price with a free in-person estimate — want to schedule one?`,
+        message: `Based on ${quote.totalFootage} linear feet of ${quote.style.name} with ${data.walkGates} walk gate${data.walkGates !== 1 ? 's' : ''}${data.dblGates > 0 ? ` and ${data.dblGates} double gate${data.dblGates !== 1 ? 's' : ''}` : ''}, your estimated project cost is around $${price.toLocaleString()}. That's about $${quote.pricePerFoot.toFixed(2)} per linear foot installed. We can confirm the exact price with a free in-person estimate — want to schedule one?`,
       },
     })
   } catch (err) {
@@ -78,15 +81,11 @@ const fullQuoteSchema = z.object({
   hasSalesman: z.boolean().default(false),
 })
 
-router.post('/calculate', (req, res) => {
+router.post('/calculate', async (req, res) => {
   try {
     const data = fullQuoteSchema.parse(req.body)
-    const quote = calculateQuote(data)
-
-    res.json({
-      success: true,
-      data: quote,
-    })
+    const quote: Estimate = await estimateJob({ ...data, extraLaborHrs: data.adjLaborHrs })
+    res.json({ success: true, data: quote })
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ success: false, error: plainZod(err) })

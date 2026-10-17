@@ -9,7 +9,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
-import { quickEstimate, getAvailableStyles } from '../lib/quoteEngine.js'
+import { quickEstimate, estimateStyleList } from '../lib/estimates.js'
 import { scoreLead, leadPriority } from '../lib/leadScoring.js'
 import { sendLeadConfirmation } from '../lib/sms.js'
 import { scheduleFollowUps } from '../lib/followUpScheduler.js'
@@ -49,7 +49,7 @@ async function loadKnowledgeBase(): Promise<string> {
 // ── Build the system prompt with live pricing data ──
 async function buildSystemPrompt(): Promise<string> {
   // Get real per-foot pricing from the quote engine
-  const styles = getAvailableStyles()
+  const styles = await estimateStyleList().catch(() => [] as Array<{ name: string; category: string }>)
   const samplePricing: string[] = []
 
   const samplesToRun = [
@@ -66,8 +66,8 @@ async function buildSystemPrompt(): Promise<string> {
 
   for (const s of samplesToRun) {
     try {
-      const q = quickEstimate(s.style, 100, 1, 0)
-      samplePricing.push(`- ${s.label}: ~$${q.pricePerFoot.toFixed(2)}/ft installed (100ft example: $${q.finalPrice.toLocaleString()})`)
+      const q = await quickEstimate(s.style, 100, 1, 0)
+      samplePricing.push(`- ${s.label}: ~$${q.pricePerFoot.toFixed(2)}/ft installed, estimate (100ft example: about $${Math.round(q.price).toLocaleString()})`)
     } catch { /* skip unavailable styles */ }
   }
 
@@ -200,13 +200,14 @@ async function handleToolCall(name: string, input: Record<string, unknown>, sess
       const walkGates = (input.walkGates as number) || 1
       const dblGates = (input.dblGates as number) || 0
 
-      const quote = quickEstimate(style, footage, walkGates, dblGates)
+      const quote = await quickEstimate(style, footage, walkGates, dblGates)
 
       return JSON.stringify({
-        fenceStyle: quote.fenceStyleDisplay,
+        label: 'Estimate',
+        fenceStyle: quote.style.name,
         totalFootage: quote.totalFootage,
         sections: quote.sections,
-        estimatedPrice: quote.finalPrice,
+        estimatedPrice: Math.round(quote.price),
         pricePerFoot: quote.pricePerFoot,
         walkGates,
         dblGates,

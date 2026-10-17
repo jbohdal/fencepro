@@ -18,7 +18,6 @@ import {
 } from '../../web/src/materialCalculator'
 import { calculateQuote, widthComparison, type QuoteCalcInput, type QuoteStyle } from '../../web/src/quoteCalc'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
-import { panelLengthForStyle as serverWidth } from '../src/server/lib/quoteEngine.js'
 
 const prices = JSON.parse(fs.readFileSync(new URL('./fixtures/inventory-prices-2026-10-14.json', import.meta.url), 'utf8'))
 beforeAll(() => setMaterialPriceSource(priceSourceFromMap(prices)))
@@ -61,14 +60,6 @@ describe('section width', () => {
     expect(sectionWidthForStyle('Durafence', 6)).toBe(8)
     // A style with no parts list uses the width saved in Settings.
     expect(sectionWidthForStyle('Wood shadowbox', 7)).toBe(7)
-  })
-
-  test('the server quote engine uses the same widths', () => {
-    const names = ["WV-ND 6'x6' Privacy", "WV-ND 6'x8' Privacy", "WV-ND 8'x6' Privacy", "WV-ND 8'x8' Privacy", "WV-ND Bell 4'x6'",
-      "WV-DS 6'x6' Privacy", "WV-DS 6'x8' Privacy", "WV-DS 8'x6' Privacy", "WV-DS 8'x8' Privacy", "TV-ND 6'x6' Privacy", "TV-ND 6'x8' Privacy",
-      "TV-DS 6'x6' Privacy", "TV-DS 6'x8' Privacy", "CL - 4' Galv", "CL - 6' Black", "CL - Com 6'+1'", 'Alum - ND - Emily - 48',
-      'Alum - DS - Emily - 48', 'Alum - DS - Ind Abigail', 'Durafence']
-    for (const n of names) expect([n, serverWidth(n)]).toEqual([n, sectionWidthForStyle(n)])
   })
 
   test('the quote count and the pull sheet agree on every 6x8 style', () => {

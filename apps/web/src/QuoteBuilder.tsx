@@ -1152,7 +1152,7 @@ export default function QuoteBuilder({
 
               <div className="bg-gray-900 rounded-xl p-4">
                 <p className="text-gray-400 text-xs mb-1">{priced.priceMethod === 'manual' ? 'Price (set by hand)' : 'Adjusted Price'}</p>
-                <p className="text-white text-3xl font-bold">{fmt(adjPrice)}</p>
+                <p className="text-white text-3xl font-bold" data-quote-price>{fmt(adjPrice)}</p>
                 {totalFootage > 0 && <p className="text-gray-400 text-xs mt-1">{fmt(priced.pricePerFoot)} per foot</p>}
                 {commAmt > 0 && <p className="text-gray-400 text-xs mt-1">Commission: {fmt(commAmt)}</p>}
                 {compare && (
