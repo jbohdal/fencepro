@@ -1,6 +1,7 @@
 import { SyncBadge } from './SaveStatus'
 import { startOutbox, resumeAfterSignIn } from './outbox'
 import { startLiveRefresh } from './liveRefresh'
+import './liveOverhead'
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment, lazy, Suspense } from 'react'
 import QuoteBuilder from './QuoteBuilder'
 import { Banknote, BarChart3, Boxes, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
@@ -1127,7 +1128,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                       { label: 'Close Rate', value: monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%' },
                       { label: 'Revenue Closed', value: fmt(monthQuotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0)) },
                       { label: 'Avg Deal Size', value: monthSold > 0 ? fmt(monthQuotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0) / monthSold) : '$0' },
-                      { label: 'Magic Number', value: fmtPct(magicNumber) },
+                      { label: 'Target Margin', value: fmtPct(1 - magicNumber) },
                     ].map(row => (
                       <div key={row.label} className="flex items-center justify-between">
                         <span className="text-sm text-gray-500">{row.label}</span>
@@ -1143,7 +1144,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="font-semibold text-gray-900">Budget Targets</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">Magic Number: <span className="font-bold text-gray-700">{fmtPct(magicNumber)}</span> · Revenue Goal: <span className="font-bold text-gray-700">{fmt(revenueGoal)}</span></p>
+                    <p className="text-xs text-gray-400 mt-0.5">Target Margin: <span className="font-bold text-gray-700">{fmtPct(1 - magicNumber)}</span> · Revenue Goal: <span className="font-bold text-gray-700">{fmt(revenueGoal)}</span></p>
                   </div>
                   <button onClick={() => setActive('Budget')} className="text-orange-500 text-sm hover:underline">Edit in Budget</button>
                 </div>

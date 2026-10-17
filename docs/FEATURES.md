@@ -31,11 +31,11 @@ Status key:
 * Default labor: subcontractor, paid per section. Vinyl $24 per section, same for 6 ft and 8 ft wide, same for no dig and dig set. Hourly crew option stays on every quote. **LIVE**
 * Man hour rate $25. Sections per man hour = sections ONE man installs in one hour. Vinyl no dig 1.2; dig set 0.8; 8 ft tall vinyl 0.8. **LIVE**
 * Crew time shown on quotes (crew size 3, 10 hour day, both editable). **LIVE**
-* Margins: no dig vinyl 0.56, dig set vinyl 0.60, chain link and aluminum 0.58 (no dig is the better fence, so it earns more). **LIVE** (set Oct 16; becoming Target Margin in Part 2)
-* Rename "magic number" to **Target Margin**, shown as a percent (0.56 = 44%). Price = cost ÷ (1 − Target Margin). **READY**
-* No decimals anywhere: everything as percents. Each style has a Target Profit %; Overhead % is one company number; Target Margin = Overhead + Profit. Start at 30% overhead: no dig 14% profit, dig set 10%, others 12%. **READY**
-* Live overhead from the budget once it's filled in (yearly overhead ÷ yearly revenue). **READY** (switch it on when the budget is complete)
-* "Where every dollar goes": 20 pickets, each 5% of the price, colored Materials / Labor / Overhead / Profit. Internal only. **READY**
+* Margins: no dig vinyl 0.56, dig set vinyl 0.60, chain link and aluminum 0.58 (no dig is the better fence, so it earns more). **LIVE** (set Oct 16; now shown as Target Margin 44% / 40% / 42%, same prices)
+* Rename "magic number" to **Target Margin**, shown as a percent (0.56 = 44%). Price = cost ÷ (1 − Target Margin). Typed as 44 or 44%. Price method reads "Priced from cost (Target Margin)". **SENT** (done on dev, tested: every saved quote prices the same; waiting for deploy)
+* No decimals anywhere: everything as percents. Each style has a Target Profit %; Overhead % is one company number; Target Margin = Overhead + Profit. Start at 30% overhead: no dig 14% profit, dig set 10%, others 12%. **SENT** (done on dev, tested: every saved quote prices the same; waiting for deploy)
+* Live overhead from the budget once it's filled in (yearly overhead ÷ yearly revenue), last 12 months or this year's projection, shows how it was worked out, warns on a move of more than 3 points in a month. **SENT** (done on dev; switch it on in Settings > Pricing when the budget is complete)
+* "Where every dollar goes": 20 pickets, each 5% of the price, colored Materials (brand purple) / Labor / Overhead / Profit, Commission its own slice. On the quote builder and quote view only, never the proposal or crew packet. **SENT** (done on dev, tested: every saved quote prices the same; waiting for deploy)
 * Soft warning when a quote uses a material whose price is older than 6 months; Confirm price buttons in Inventory. **READY**
 * Gate leaves: every gate leaf (4, 5 or 6 ft) uses the parts of one 6 ft wide section: 11 pickets, two 6 ft rails, U trim, no insert, plus gate hardware. A double gate is two leaves. **READY** (part of material kits)
 * Sub rates still needed: walk gate, double gate, tear out per section, tear out per gate, chain link per 10 ft section, aluminum per section. Quotes warn until they're set. **NEEDS JONATHAN**

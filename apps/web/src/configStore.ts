@@ -1,10 +1,17 @@
+import { withTargetMargins, typedOverheadPct } from './targetMargin'
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface FenceStyle {
   id: string
   name: string
   category: 'Vinyl' | 'Chainlink' | 'Commercial' | 'Aluminum' | 'Other'
+  /** What price is divided into: 1 − Target Margin (0.56 for 44%). Worked out
+   *  from Overhead % and this style's Target Profit % when the config is read;
+   *  never typed. */
   margin: number
+  /** Target Profit % for this style (14 means 14%). Target Margin = Overhead % + this. */
+  targetProfitPct?: number
   sectionsPerMH: number
   panelWidth: number
   mhPerWalkGate: number
@@ -55,6 +62,12 @@ export interface PricingConfig {
   /** Men on a crew and hours in a crew day: turns man hours into crew time. */
   crewSize: number
   crewHoursPerDay: number
+  /** Overhead % of revenue (30 means 30%), typed. One company number. */
+  overheadPct?: number
+  /** Use overhead from the budget instead: yearly overhead ÷ yearly installed revenue. */
+  liveOverhead?: { on: boolean; basis: 'last12' | 'projection' }
+  /** Live overhead as it was each month, for the "moved more than 3 points" warning. */
+  overheadHistory?: Array<{ month: string; pct: number }>
 }
 
 export interface MarginThresholds {
@@ -241,6 +254,22 @@ function mirrorToLocalStorage(cfg: AppConfig): void {
   try { localStorage.setItem(LEGACY_KEY, JSON.stringify(cfg)) } catch {}
 }
 
+/** Overhead % from the budget when switched on and the budget is filled in (set by targetMargin.ts). */
+let liveOverheadPct: ((cfg: AppConfig) => number | null) | null = null
+export function setLiveOverheadSource(fn: (cfg: AppConfig) => number | null) { liveOverheadPct = fn }
+
+export { DEFAULT_OVERHEAD_PCT, targetMarginPct, parsePercent } from './targetMargin'
+
+/** Overhead % in use: live from the budget when switched on and available, otherwise the typed one. */
+export function overheadPctOf(cfg: AppConfig): number {
+  const typed = typedOverheadPct(cfg)
+  if (cfg.pricing.liveOverhead?.on && liveOverheadPct) {
+    const live = liveOverheadPct(cfg)
+    if (live != null && Number.isFinite(live)) return live
+  }
+  return typed
+}
+
 export function getConfig(): AppConfig {
   const saved = getBusinessField('config') as Partial<AppConfig>
   const merged: AppConfig = (!saved || Object.keys(saved).length === 0)
@@ -253,10 +282,11 @@ export function getConfig(): AppConfig {
         pricing: { ...DEFAULT_CONFIG.pricing, ...(saved.pricing ?? {}) },
         margins: { ...DEFAULT_CONFIG.margins, ...(saved.margins ?? {}) },
       }
+  const out = withTargetMargins(merged, overheadPctOf(merged))
   // Keep the inline-reader mirror fresh on every read; cheap, idempotent,
   // and avoids stale defaults during the brief window after auth hydrates.
-  mirrorToLocalStorage(merged)
-  return merged
+  mirrorToLocalStorage(out)
+  return out
 }
 
 export function saveConfig(config: AppConfig): void {

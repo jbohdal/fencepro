@@ -21,6 +21,8 @@ import RunSpacingTable from './RunSpacingTable'
 import ProposalSend from './ProposalSend'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import MediaGallery from './MediaGallery'
+import DollarPickets from './DollarPickets'
+import { getConfig, overheadPctOf } from './configStore'
 import { useBackLayer, BackClose } from './nav'
 import { SaveStatus } from './SaveStatus'
 
@@ -168,6 +170,14 @@ export default function QuoteDetailDrawer({
               <QuotePlan quote={quote} caption={false} />
             </section>
           )}
+
+          {/* Internal: where every dollar of this quote goes */}
+          {quote.finalPrice > 0 && quote.totalCOGS > 0 && (() => {
+            const cfg = getConfig()
+            const pct = typeof quote.pricing?.commissionPct === 'number' ? quote.pricing.commissionPct : (quote.hasSalesman ? cfg.pricing.commissionSalesman : cfg.pricing.commissionNonSalesman) ?? 0
+            return <DollarPickets price={quote.finalPrice} materials={quote.materialCost} labor={(quote.laborCost || 0) + (quote.tearOutCost || 0)}
+              commission={quote.finalPrice * pct} overheadPct={typeof quote.pricing?.overheadPct === 'number' ? quote.pricing.overheadPct : overheadPctOf(cfg)} />
+          })()}
 
           {/* Photos and video taken for this quote (site walk, gate location, ...) */}
           <section data-quote-photos>

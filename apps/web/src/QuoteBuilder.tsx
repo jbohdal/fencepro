@@ -28,6 +28,9 @@ import { resolveTiers, tierOptions, isVinylStyle, DEFAULT_TIERS, DEFAULT_POPULAR
 import { getContractSections } from './contractStore'
 import { listStylePhotos } from './stylePhotosApi'
 import { useBackLayer, useLeaveWarning, BackClose } from './nav'
+import PercentField from './PercentField'
+import { targetMarginPct, overheadPctOf } from './configStore'
+import DollarPickets from './DollarPickets'
 import { businessDate } from './businessDate'
 
 // Settings are read when the builder opens (not when the app loads), so a
@@ -537,6 +540,8 @@ export default function QuoteBuilder({
   const commAmt     = priced.commissionAmt
   const grossMargin = priced.grossMargin
   const gmPct       = priced.gmPct
+  // Overhead % this quote is priced at (kept with it, so "where every dollar goes" does not move later).
+  const overheadNow = typeof initPricing.overheadPct === 'number' && init?.id ? initPricing.overheadPct : overheadPctOf(cfg)
   const gmGood      = cfg.margins?.good ?? 0.34
   const gmWarn      = cfg.margins?.warning ?? 0.27
   const gmColor     = gmPct >= gmGood ? 'text-green-600' : gmPct >= gmWarn ? 'text-yellow-500' : 'text-red-500'
@@ -637,7 +642,8 @@ export default function QuoteBuilder({
       date: businessDate(new Date()),
       notes: data.notes,
       leadTemp: data.leadTemp ?? 0,
-      pricing: cleanOverrides(pricingOverrides),
+      // The Target Margin it was priced at is kept, so this quote's price never moves when Settings change.
+      pricing: cleanOverrides({ ...pricingOverrides, ...(priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow }),
       proposal: style ? buildProposal({
         input: calcInput,
         styles: [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)],
@@ -1101,8 +1107,12 @@ export default function QuoteBuilder({
                 </div>
                 {priceMethod === 'cost_factor' ? (
                   <div>
-                    <label className="text-xs text-gray-400 mb-1 block">Magic number (cost ÷ this = price)</label>
-                    <input type="number" min={0.01} max={1} step="0.01" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder={`${cfgStyle?.margin ?? 0.64} from style`} value={factorStr} onChange={e => setFactorStr(e.target.value)} />
+                    <label className="text-xs text-gray-400 mb-1 block">Target Margin for this quote</label>
+                    {/* Typed as a percent (44 or 44%); kept on the quote as the number price is divided into. */}
+                    <PercentField value={factorStr ? Math.round((1 - parseFloat(factorStr)) * 10000) / 100 : undefined} min={1} max={95}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                      placeholder={`${cfgStyle ? targetMarginPct(cfgStyle) : 36}% from the style`} data-quote-target-margin
+                      onChange={v => setFactorStr(v == null ? '' : String((100 - v) / 100))} />
                   </div>
                 ) : (
                   <div>
@@ -1231,6 +1241,8 @@ export default function QuoteBuilder({
                   </p>
                 </div>
               </div>
+
+              <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} />
 
               <button
                 disabled={!canSave}

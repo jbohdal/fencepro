@@ -11,8 +11,8 @@
  *                            category, or one default) + per gate + tear out
  *              flat          a labor dollar amount typed on the quote
  *
- *   Price      cost_factor   cost ÷ the style's magic number (0.64 → cost is
- *                            64% of price)
+ *   Price      cost_factor   priced from cost: cost ÷ (100% − Target Margin),
+ *                            Target Margin = Overhead % + the style's Target Profit %
  *              per_foot      footage × the style's price per foot
  *              manual        a final price typed on the quote
  *
@@ -52,7 +52,7 @@ export interface PricingSettings {
 /** The parts of a fence style the engine reads. */
 export interface StylePricing {
   category?: string
-  /** Magic number: cost ÷ margin = price. */
+  /** 1 − Target Margin (0.56 for 44%): cost ÷ this = price. */
   margin: number
   sectionsPerMH: number
   mhPerWalkGate?: number
@@ -72,12 +72,14 @@ export interface QuotePricingOverrides {
   laborCost?: number
   priceMethod?: PriceMethod
   pricePerFoot?: number
-  /** Magic number for this quote. */
+  /** 1 − Target Margin for this quote (kept so the price never moves). */
   costFactor?: number
   commissionPct?: number
   commissionMode?: CommissionMode
   /** Final customer price typed by hand; replaces the calculated price. */
   finalPrice?: number
+  /** Overhead % the quote was priced at (for "where every dollar goes"; the engine does not use it). */
+  overheadPct?: number
 }
 
 export interface PriceInputs {

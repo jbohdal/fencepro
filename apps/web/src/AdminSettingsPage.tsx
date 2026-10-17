@@ -1,6 +1,9 @@
+import PercentField from './PercentField'
+import { liveOverhead, overheadMoved } from './liveOverhead'
+import { businessDate } from './businessDate'
 import { useState, useEffect } from 'react'
 import {
-  getConfig, saveConfig, resetConfig, getDefaultConfig,
+  getConfig, saveConfig, resetConfig, getDefaultConfig, overheadPctOf, DEFAULT_OVERHEAD_PCT,
   type AppConfig, type FenceStyle, type CompanyInfo, type PricingConfig, type MarginThresholds,
   type RailOptimizerConfig,
 } from './configStore'
@@ -157,8 +160,53 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
     onChange({ ...config, margins: { ...m, [field]: value } })
   }
 
+  // Overhead: typed, or live from the budget.
+  const typedOverhead = p.overheadPct ?? DEFAULT_OVERHEAD_PCT
+  const liveOn = !!p.liveOverhead?.on
+  const basis = p.liveOverhead?.basis ?? 'last12'
+  const live = liveOn ? liveOverhead(basis) : null
+  const moved = live ? overheadMoved(config, live) : null
+  const inUse = overheadPctOf(config)
+  function setLive(on: boolean, b = basis) {
+    const now = on ? liveOverhead(b) : null
+    // Keep this month's live number, for the "moved more than 3 points" warning.
+    const month = businessDate(new Date()).slice(0, 7)
+    const history = now ? [...(p.overheadHistory ?? []).filter(h => h.month !== month), { month, pct: now.pct }].slice(-24) : p.overheadHistory
+    onChange({ ...config, pricing: { ...p, liveOverhead: { on, basis: b }, overheadHistory: history } })
+  }
+
   return (
     <div className="space-y-8 max-w-2xl">
+      <div data-overhead>
+        <h3 className="text-xs font-semibold text-gray-500 mb-1">Overhead and Target Margin</h3>
+        <p className="text-xs text-gray-500 mb-4">Target Margin = Overhead % + each style's Target Profit % (set on the Styles tab). Price = (materials + labor) ÷ (100% − Target Margin).</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+          <label className="block">
+            <span className="text-xs text-gray-500 mb-1 block">Overhead % (typed)</span>
+            <PercentField value={typedOverhead} min={0} max={90} className={inputCls} data-overhead-typed
+              onChange={v => setP('overheadPct', v ?? DEFAULT_OVERHEAD_PCT)} />
+          </label>
+          <div>
+            <label className="flex items-center gap-3 min-h-[48px] cursor-pointer">
+              <input type="checkbox" className="w-6 h-6 accent-orange-500" checked={liveOn} onChange={e => setLive(e.target.checked)} data-overhead-live />
+              <span className="text-sm text-gray-800">Use live overhead from my budget</span>
+            </label>
+            {liveOn && (
+              <select className={inputCls} value={basis} onChange={e => setLive(true, e.target.value as 'last12' | 'projection')} data-overhead-basis>
+                <option value="last12">Installed in the last 12 months</option>
+                <option value="projection">This year's projection</option>
+              </select>
+            )}
+          </div>
+        </div>
+        <div className="mt-3 rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 text-sm" data-overhead-in-use>
+          <p className="font-semibold text-gray-900">Overhead in use: {Math.round(inUse * 10) / 10}%</p>
+          {liveOn && live && <p className="text-gray-700 mt-1">Live: {live.pct}% = {live.how}.</p>}
+          {liveOn && !live && <p className="text-amber-900 mt-1">The budget has no overhead filled in yet (or no installed revenue for that time), so the typed {typedOverhead}% is used until it does.</p>}
+          {moved && <p className="text-red-800 mt-1 font-semibold" data-overhead-moved>Live overhead moved from {moved.from}% ({moved.month}) to {live!.pct}%: more than 3 points in a month. Check the budget, and whether prices should follow.</p>}
+        </div>
+      </div>
+
       <div>
         <h3 className="text-xs font-semibold text-gray-500 mb-1">How jobs are priced</h3>
         <p className="text-xs text-gray-400 mb-4">These are the defaults for a new quote. Every quote can switch labor and price method on its own, and a saved quote keeps the choices it was saved with.</p>
@@ -173,7 +221,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Customer price</label>
             <select className={inputCls} value={p.priceMethod ?? 'cost_factor'} onChange={e => setP('priceMethod', e.target.value as PricingConfig['priceMethod'])}>
-              <option value="cost_factor">From cost (cost ÷ magic number)</option>
+              <option value="cost_factor">Priced from cost (Target Margin)</option>
               <option value="per_foot">Per foot price (set per style)</option>
             </select>
           </div>
@@ -370,7 +418,8 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Name</th>
               <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-28">Category</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20" title="Magic number: cost ÷ this = price">Magic #</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Target Margin = Overhead % + this">Target Profit</th>
+              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Overhead % + Target Profit %">Target Margin</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20">Sec/MH</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20">Panel</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24">Walk Gate</th>
@@ -397,7 +446,12 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
                   </select>
                 </td>
                 <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="0.01" min="0.01" max="0.99" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.margin} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0 && v < 1) update(style.id, { margin: Math.round(v * 1000) / 1000 }) }} />
+                  <PercentField value={style.targetProfitPct} min={0} max={80} data-style-profit={style.name}
+                    className="w-20 text-right border border-gray-200 rounded px-1 min-h-[36px] text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    onChange={v => { if (v != null) update(style.id, { targetProfitPct: v }) }} />
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs font-mono text-gray-700" data-style-target-margin={style.name}>
+                  {Math.round((overheadPctOf(config) + (style.targetProfitPct ?? 0)) * 100) / 100}%
                 </td>
                 <td className="px-3 py-2.5 text-right">
                   <input type="number" step="0.1" min="0.1" max="20" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.sectionsPerMH} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) update(style.id, { sectionsPerMH: Math.round(v * 10) / 10 }) }} />

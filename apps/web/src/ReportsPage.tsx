@@ -1695,7 +1695,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-200 p-6">
-              <h4 className="font-semibold text-gray-900 mb-3">Magic Number Check</h4>
+              <h4 className="font-semibold text-gray-900 mb-3">Target Margin Check</h4>
               {(() => {
                 const overheadPct = budget?.overheadPct || 0.30
                 const netProfitPct = budget?.netProfitPct || 0.092
@@ -1705,23 +1705,23 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                 return (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-500">Budget Magic Number</span>
-                      <span className="text-lg font-bold text-gray-900">{fmtPct(magic)}</span>
+                      <span className="text-sm text-gray-500">Target Margin (budget)</span>
+                      <span className="text-lg font-bold text-gray-900">{fmtPct(1 - magic)}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-500">Actual COGS %</span>
-                      <span className={`text-lg font-bold ${isHealthy ? 'text-green-600' : 'text-red-500'}`}>{fmtPct(actualMagic)}</span>
+                      <span className="text-sm text-gray-500">Actual margin this year</span>
+                      <span className={`text-lg font-bold ${isHealthy ? 'text-green-600' : 'text-red-500'}`}>{fmtPct(1 - actualMagic)}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-500">Variance</span>
+                      <span className="text-sm text-gray-500">Difference</span>
                       <span className={`text-lg font-bold ${isHealthy ? 'text-green-600' : 'text-red-500'}`}>
-                        {(actualMagic - magic) >= 0 ? '+' : ''}{fmtPct(actualMagic - magic)}
+                        {(magic - actualMagic) >= 0 ? '+' : ''}{fmtPct(magic - actualMagic)}
                       </span>
                     </div>
                     <div className={`p-3 rounded-lg text-sm ${isHealthy ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
                       {isHealthy
-                        ? 'COGS is within range of your magic number — pricing is on track.'
-                        : 'COGS exceeds your magic number — review pricing or cost structure.'}
+                        ? 'The margin this year is within 2 points of your Target Margin: pricing is on track.'
+                        : 'The margin this year is more than 2 points under your Target Margin: review pricing or costs.'}
                     </div>
                   </div>
                 )

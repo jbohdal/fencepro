@@ -369,12 +369,12 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
   return (
     <div className="space-y-8">
 
-      {/* Magic Number */}
+      {/* Target Margin = overhead + profit */}
       <div className="bg-gray-900 rounded-2xl p-4 lg:p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <p className="text-gray-400 text-xs font-semibold mb-2">Magic Number — Cost of Goods Target</p>
-          <p className="text-4xl lg:text-7xl font-black text-white leading-none">{fmtPct(magicNumber)}</p>
-          <p className="text-gray-500 text-xs mt-1">Price = COGS ÷ {fmtPct(magicNumber)} → implied GM of {fmtPct(impliedGM)}</p>
+          <p className="text-gray-400 text-xs font-semibold mb-2">Target Margin — overhead plus profit</p>
+          <p className="text-4xl lg:text-7xl font-black text-white leading-none">{fmtPct(impliedGM)}</p>
+          <p className="text-gray-500 text-xs mt-1">Price = (materials + labor) ÷ (100% − {fmtPct(impliedGM)}). Materials and labor are {fmtPct(magicNumber)} of the price.</p>
           <div className="flex flex-wrap gap-4 lg:gap-6 mt-4">
             <div>
               <p className="text-gray-500 text-xs">Labor Target</p>
@@ -1451,7 +1451,7 @@ function KPIsTab({ state }: { state: BudgetState }) {
           </p>
         </div>
         <StatCard label="Closing Rate" value={`${(closingRate * 100).toFixed(0)}%`} sub={`${totalSold} sold / ${totalQuoted} quoted`} accent={closingRate >= 0.40} />
-        <StatCard label="Actual Gross Margin" value={fmtPct(actualGM)} sub={`Magic # target: ${fmtPct(magicNumber)} COGS`} accent={actualGM >= (1 - magicNumber - 0.03)} />
+        <StatCard label="Actual Gross Margin" value={fmtPct(actualGM)} sub={`Target Margin: ${fmtPct(1 - magicNumber)}`} accent={actualGM >= (1 - magicNumber - 0.03)} />
       </div>
 
       {/* Actual vs Goal chart */}
