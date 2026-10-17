@@ -7,6 +7,8 @@
  */
 
 import { Router } from 'express'
+import { requireAuth, requireRole } from '../middleware/auth.js'
+import crypto from 'crypto'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { quickEstimate, estimateStyleList } from '../lib/estimates.js'
@@ -292,6 +294,29 @@ async function handleToolCall(name: string, input: Record<string, unknown>, sess
 interface ChatSession {
   messages: { role: 'user' | 'assistant'; content: string }[]
   createdAt: number
+  /** SHA-256 of the chat token the customer's browser holds (in an httpOnly cookie). */
+  tokenHash: string
+}
+
+// The session id alone does not open a chat: the browser that started it gets
+// a random chat token in an httpOnly cookie, and only that browser (or staff
+// signed in) can read or add to it.
+const CHAT_COOKIE = 'ezbiz_chat'
+const sha256 = (v: string) => crypto.createHash('sha256').update(v).digest('hex')
+function chatTokenFrom(req: any): string {
+  const raw = String(req.headers.cookie || '').split(';').map((c: string) => c.trim()).find((c: string) => c.startsWith(`${CHAT_COOKIE}=`))
+  return raw ? decodeURIComponent(raw.slice(CHAT_COOKIE.length + 1)) : ''
+}
+function ownsChat(req: any, session: ChatSession): boolean {
+  const token = chatTokenFrom(req)
+  if (!token) return false
+  const a = Buffer.from(sha256(token)), b = Buffer.from(session.tokenHash)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+function giveChatToken(req: any, res: any): string {
+  const token = crypto.randomBytes(32).toString('hex')
+  res.cookie(CHAT_COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: req.secure || req.headers['x-forwarded-proto'] === 'https', path: '/api/lead-chat', maxAge: 2 * 60 * 60 * 1000 })
+  return sha256(token)
 }
 
 const sessions = new Map<string, ChatSession>()
@@ -314,11 +339,15 @@ router.post('/message', async (req, res) => {
   try {
     const { sessionId, message } = messageSchema.parse(req.body)
 
-    // Get or create session
-    if (!sessions.has(sessionId)) {
-      sessions.set(sessionId, { messages: [], createdAt: Date.now() })
+    // A new chat gets its token; an existing one only takes messages from its own browser.
+    let session = sessions.get(sessionId)
+    if (!session) {
+      session = { messages: [], createdAt: Date.now(), tokenHash: giveChatToken(req, res) }
+      sessions.set(sessionId, session)
+    } else if (!ownsChat(req, session)) {
+      res.status(403).json({ success: false, error: 'This chat was started in another browser. Start a new chat.' })
+      return
     }
-    const session = sessions.get(sessionId)!
 
     // Add user message
     session.messages.push({ role: 'user', content: message })
@@ -340,15 +369,23 @@ router.post('/message', async (req, res) => {
   }
 })
 
-// Get session history (for page refreshes)
-router.get('/session/:sessionId', (req, res) => {
+// Get session history (for page refreshes): the customer's own browser, or staff signed in.
+function showSession(req: any, res: any, staff: boolean) {
   const sessionId = Array.isArray(req.params.sessionId) ? req.params.sessionId[0] : req.params.sessionId
   const session = sessions.get(sessionId || '')
   if (!session) {
     res.json({ success: true, data: { messages: [] } })
     return
   }
+  if (!staff && !ownsChat(req, session)) {
+    res.status(403).json({ success: false, error: 'Not your chat' })
+    return
+  }
   res.json({ success: true, data: { messages: session.messages } })
+}
+router.get('/session/:sessionId', (req: any, res, next) => {
+  if (!req.headers.authorization) { showSession(req, res, false); return }
+  requireAuth(req, res, () => requireRole('admin', 'support_agent')(req, res, () => showSession(req, res, true)))
 })
 
 // ── AI Response with tool use ──

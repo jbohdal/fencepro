@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import crypto from 'crypto'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { hashPassword, verifyPassword, generateTokens, verifyRefreshToken, getRefreshExpiry } from '../lib/auth.js'
@@ -20,6 +21,8 @@ const registerSchema = z.object({
   lastName: z.string().min(1),
   phone: z.string().optional(),
   accountId: z.string().uuid(),
+  /** From the invite link Getter Done Fence sends; there is no open sign up. */
+  inviteToken: z.string().min(16, 'Sign up works only from the invite link Getter Done Fence sends.'),
 })
 
 // ── Login ──
@@ -94,6 +97,15 @@ router.post('/register', async (req, res) => {
   try {
     const data = registerSchema.parse(req.body)
 
+    // Only from an invite: a pending, unexpired portal invite for this email.
+    const invite = await prisma.portalAccount.findFirst({
+      where: { inviteToken: crypto.createHash('sha256').update(data.inviteToken).digest('hex'), status: 'invited' },
+    })
+    if (!invite || !invite.inviteTokenExpiresAt || invite.inviteTokenExpiresAt < new Date() || invite.email.toLowerCase() !== data.email.toLowerCase()) {
+      res.status(403).json({ success: false, error: 'Sign up works only from the invite link Getter Done Fence sends. Ask us for a new one if yours has expired.' })
+      return
+    }
+
     const existing = await prisma.customer.findUnique({ where: { email: data.email } })
     if (existing) {
       res.status(409).json({ success: false, error: 'Email already registered' })
@@ -131,7 +143,9 @@ router.post('/register', async (req, res) => {
       data: { customerId: customer.id, token: tokens.refreshToken, expiresAt: getRefreshExpiry() },
     })
 
-    await writeAuditLog(customer.id, 'register', { email: data.email }, req.ip || undefined)
+    // The invite is used up.
+    await prisma.portalAccount.update({ where: { id: invite.id }, data: { inviteToken: null, inviteTokenExpiresAt: null } })
+    await writeAuditLog(customer.id, 'register', { email: data.email, portalAccountId: invite.id }, req.ip || undefined)
 
     res.status(201).json({
       success: true,
