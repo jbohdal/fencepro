@@ -32,6 +32,8 @@ export interface Estimate {
   style: { name: string; category: string }
   totalFootage: number
   sections: number
+  /** Sections in each run, same order as the runs (for the site plan). */
+  perRunSections: number[]
   materialCost: number
   laborCost: number
   tearOutCost: number

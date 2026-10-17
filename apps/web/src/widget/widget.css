@@ -1,0 +1,3 @@
+@import "../index.css";
+/* The widget builds from its own folder: look for classes in the app source too. */
+@source "..";

@@ -8,7 +8,10 @@ import { useEffect, useState } from 'react'
 import { Delete } from 'lucide-react'
 import { useBackLayer } from './nav'
 
-export default function FtInPad({ title, valueIn, onDone, onClose, nextLabel }: {
+// Inside the website widget the pad must not touch the page's history (it sits in someone else's page).
+const noLayer = (_onClose: () => void, _opts?: unknown) => {}
+
+export default function FtInPad({ title, valueIn, onDone, onClose, nextLabel, history = true }: {
   title: string
   valueIn: number
   /** Called with the length in inches. `next` is true when Next was tapped. */
@@ -16,8 +19,11 @@ export default function FtInPad({ title, valueIn, onDone, onClose, nextLabel }: 
   onClose: () => void
   /** Shown on the Next button, e.g. "Next: Back". Hidden when absent. */
   nextLabel?: string
+  /** false: Back does not close it (the website widget). */
+  history?: boolean
 }) {
-  useBackLayer(onClose, { key: 'ft-in-pad' })
+  // Fixed for the life of the pad, so the same hook runs every render.
+  ;(history ? useBackLayer : noLayer)(onClose, { key: 'ft-in-pad' })
   const startFt = valueIn > 0 ? Math.floor(valueIn / 12) : 0
   const startIn = valueIn > 0 ? Math.round((valueIn - startFt * 12) * 8) / 8 : 0
   const [ft, setFt] = useState(valueIn > 0 ? String(startFt) : '')

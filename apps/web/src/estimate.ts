@@ -39,6 +39,8 @@ export interface Estimate {
   style: FenceStyle
   totalFootage: number
   sections: number
+  /** Sections in each run, same order as the runs (for the site plan). */
+  perRunSections: number[]
   materialCost: number
   laborCost: number
   tearOutCost: number
@@ -90,6 +92,7 @@ export function estimate(data: EstimateData, job: EstimateJob): Estimate {
     style,
     totalFootage: job.runs.reduce((t, n) => t + (n > 0 ? n : 0), 0),
     sections: calc.sections,
+    perRunSections: calc.perRunSections,
     materialCost: calc.materialCost,
     laborCost: p.laborCost,
     tearOutCost: p.tearOutCost,

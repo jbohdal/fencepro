@@ -61,6 +61,7 @@ import path from 'path'
 import { startDataIntegrityCron } from './lib/dataIntegrityCron.js'
 import { startScheduledDeletions } from './lib/scheduledDeletions.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
+import quoteWidget from './routes/quote-widget.js'
 import cronRoutes from './routes/cron.js'
 import portalRoutes from './routes/portal.js'
 
@@ -189,6 +190,7 @@ app.use('/api/voice', voiceRoutes)
 app.use('/api/media', mediaRoutes)
 app.use('/api/install-packets', packetStaff)
 // Crew install packets and customer proposals: the paths meant for the public door.
+app.use('/p/quote', quoteWidget)
 app.use('/p/i', packetPublic)
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)

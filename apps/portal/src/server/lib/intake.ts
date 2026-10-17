@@ -51,12 +51,15 @@ export async function resolveIntakeAccountId(): Promise<string | null> {
 }
 
 /** Find the contact with the same phone or email, or create one. Never duplicates on a repeat caller. */
-export async function findOrCreateContact(accountId: string, input: IntakeInput): Promise<{ id: string; created: boolean; name: string }> {
+/** A transaction or the client itself: the widget finds or makes the customer inside its one save. */
+type Db = Pick<typeof prisma, 'crmContact'>
+
+export async function findOrCreateContact(accountId: string, input: Pick<IntakeInput, 'name' | 'phone' | 'email' | 'address' | 'leadSource'>, db: Db = prisma): Promise<{ id: string; created: boolean; name: string }> {
   const phone10 = digits(input.phone)
   const email = (input.email || '').trim().toLowerCase()
 
   if (email) {
-    const byEmail = await prisma.crmContact.findFirst({
+    const byEmail = await db.crmContact.findFirst({
       where: { accountId, archivedAt: null, email: { equals: email, mode: 'insensitive' } },
       select: { id: true, firstName: true, lastName: true },
     })
@@ -64,7 +67,7 @@ export async function findOrCreateContact(accountId: string, input: IntakeInput)
   }
   if (phone10.length >= 7) {
     // Phones are stored as typed ("(352) 555-0100"), so compare on digits.
-    const candidates = await prisma.crmContact.findMany({
+    const candidates = await db.crmContact.findMany({
       where: { accountId, archivedAt: null, phone: { not: null } },
       select: { id: true, phone: true, firstName: true, lastName: true },
     })
@@ -73,7 +76,7 @@ export async function findOrCreateContact(accountId: string, input: IntakeInput)
   }
 
   const { firstName, lastName } = splitName(input.name)
-  const created = await prisma.crmContact.create({
+  const created = await db.crmContact.create({
     data: {
       accountId,
       firstName,
