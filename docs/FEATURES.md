@@ -1,6 +1,6 @@
 # Getter Done Fence (EZ Biz): feature list
 
-Last updated: Oct 17, 2026 (evening) (kept by Claude Code in the repo as docs/FEATURES.md; updated with every change). One place for every feature, rule and decision, so nothing gets lost.
+Last updated: Oct 17, 2026 (night) (kept by Claude Code in the repo as docs/FEATURES.md; updated with every change). One place for every feature, rule and decision, so nothing gets lost.
 
 Status key:
 * **LIVE**: built and running on the Mac mini
@@ -108,7 +108,7 @@ Status key:
 * Cards without a customer (Dave Diamond): fixed on live Oct 16 (the only one); cause fixed so a customer and card save together or not at all. **LIVE** (Oct 17)
 * "Create customer from this lead" button. **READY**
 * Appointments with free maps, team list, linked to jobs. **LIVE**
-* Phone Schedule tab opens the install schedule with that day's appointments. **READY** (checked Oct 17: the tab opens Appointments, not the install schedule)
+* Phone Schedule tab opens the install schedule, with a day view on top: that day's installs and appointments, previous/next day, back to today; tapping an appointment opens it. **LIVE** (Oct 17)
 
 ## 10. Reliability (top priority)
 
@@ -126,13 +126,15 @@ Status key:
 ## 11. Storage and backups
 
 * Uploads folder included in the nightly backup. **LIVE**
-* Off site database backup to Google Drive (free 15 GB) with rclone. **READY**
-* Shrink media after a job is Complete for 90 days (keep the small video copy, photos to 2400 px). Dashboard warning under 50 GB free. **READY**
+* Off site database backup to Google Drive (free 15 GB) with rclone: after every backup, the newest copy goes to "EZ Biz backups" in Drive and only the last 30 are kept; if Drive is not connected the backup on the Mac still runs and says so. **NEEDS JONATHAN** (code is live; one time Google sign in with `rclone config`)
+* Shrink media after a job is Complete for 90 days (setting in Settings > Company > Photos and video): videos keep only the small viewing copy, photos go to 2400 px on the long side, marked up copies untouched; twice a day, once per item. Dashboard warning under 50 GB free. **LIVE** (Oct 17)
+* Space estimate (Oct 17): 182 GB free. Without shrinking about 63 GB a year (2 years to the warning, 3 to full); with shrinking about 20 GB a year (about 6 years to the warning, 8 to full).
 * External drive for media copies (1 to 2 TB). **LATER** (when affordable)
 
 ## 12. Calendar, reports, loose ends
 
-* Google Calendar one way sync, its own calendar named Getter Done Fence. **NEEDS JONATHAN** (code is live; connect it on live, then rotate the client secret)
-* Revenue check: dashboard vs schedule sheet (~$571k this year), label Reports' "Revenue (Sold)". **NEEDS JONATHAN** (confirm the number)
-* Reports cleanup (emoji, mismatched number colors). **READY** (checked Oct 17: not done)
+* Google Calendar one way sync, its own calendar named Getter Done Fence. The calendar live already made ("GD Fence Pro") is renamed to Getter Done Fence at the next sync, so no reconnect is needed. **NEEDS JONATHAN** (check Settings > Google Calendar, then rotate the client secret)
+* Revenue check: dashboard $631,637.54 (94 jobs installed in 2026) vs the GD Schedule sheet $571,633.06. The $60,004.48 gap is exactly 5 jobs marked installed Oct 14 after the sheet export (Tieman, Madsen, Tracy, Pahl, Hofmann: $50,676) and 6 jobs not on the sheet (White, Trademark Metals, Simoneaux, Warwick, Bethin, Martin: $9,328). Reports' card renamed "Sold this period (quotes)". **LIVE** (Oct 17)
+* Reports cleanup: no emoji; numbers green good, amber below target, red bad, otherwise dark gray. Gross profit and margin count only sold quotes that have costs (the GD Schedule imports have none) and say how many were left out. **LIVE** (Oct 17)
+* Finish setup card on the dashboard (owner only): each item ticks itself off from the data (sub rates, Abigail width, Inventory prices, Pahl/Madsen/Tieman paid, the 10 off schedule jobs, schedule customers with no contact, Google Calendar, phone voice checks, Xcode, UptimeRobot, Google Drive backups); gone when all are done. **LIVE** (Oct 17)
 * Open jobs to close out: Diane Pahl, Madsen, Tieman; 10 off schedule jobs tagged; contact info for schedule created customers. **NEEDS JONATHAN**

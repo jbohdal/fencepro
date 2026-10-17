@@ -6,7 +6,7 @@
  * /api/admin/audit-log.csv with the same filters.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { plainText } from './plainError'
@@ -143,8 +143,8 @@ export default function AuditLogPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {rows.map(r => (
-              <>
-                <tr key={r.id} onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+              <Fragment key={r.id}>
+                <tr onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
                   className="hover:bg-gray-50 cursor-pointer">
                   <td data-label="When" className="px-3 py-2 text-xs text-gray-600">{fmt(r.createdAt)}</td>
                   <td data-label="User" className="px-3 py-2 text-xs">{r.userEmail || r.userId || '—'}</td>
@@ -170,7 +170,7 @@ export default function AuditLogPage() {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
             {!loading && rows.length === 0 && (
               <tr><td data-label="" colSpan={6} className="px-6 py-12 text-center text-gray-400 text-sm">No audit log entries match your filters.</td></tr>

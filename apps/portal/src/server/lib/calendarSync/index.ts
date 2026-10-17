@@ -18,9 +18,13 @@ import { buildDesiredEvents, type LeadRow, type SpecInputs } from './spec.js'
 const DEBOUNCE_MS = 2_000
 const RETRY_EVERY_MS = 5 * 60_000
 
+/** The company's calendar in Google. It was "GD Fence Pro" until Oct 17, 2026. */
+export const DEFAULT_CALENDAR_NAME = 'Getter Done Fence'
+const OLD_DEFAULT_NAME = 'GD Fence Pro'
+
 /** Only the live install (~/ezbiz) may write to the real calendar. Every other copy gets "(TEST)". */
 export function calendarName(cwd: string = process.cwd(), home: string = os.homedir(), configured: string | null | undefined = process.env.GOOGLE_CALENDAR_NAME): string {
-  const base = (configured || 'GD Fence Pro').trim()
+  const base = (configured || DEFAULT_CALENDAR_NAME).trim()
   const liveRoot = path.join(home, 'ezbiz')
   const here = path.resolve(cwd)
   const isLive = here === liveRoot || here.startsWith(liveRoot + path.sep)
@@ -125,6 +129,14 @@ export function syncCalendarNow(accountId: string, opts: { activate?: boolean } 
   const next = prev.catch(() => {}).then(async () => {
     let state = await prisma.calendarSyncState.findUnique({ where: { accountId } })
     if (!googleConfigured() || !state?.googleEmail || !state.calendarId) return null
+    // Live only, once: the calendar made under the old name takes the company name, events and all.
+    if (state.calendarName === OLD_DEFAULT_NAME && calendarName() === DEFAULT_CALENDAR_NAME) {
+      try {
+        await (await googleApiFor(state.googleEmail)).renameCalendar(state.calendarId, DEFAULT_CALENDAR_NAME)
+        state = await prisma.calendarSyncState.update({ where: { accountId }, data: { calendarName: DEFAULT_CALENDAR_NAME } })
+        console.log(`[calendar] renamed "${OLD_DEFAULT_NAME}" to "${DEFAULT_CALENDAR_NAME}" in Google`)
+      } catch (err) { console.error('[calendar] could not rename the calendar:', String((err as Error)?.message || err)) }
+    }
     // A copy of the live database (the dev copy) carries live's calendar. Only a
     // calendar with this copy's own name is ever written to.
     if (state.calendarName !== calendarName()) { console.error(`[calendar] not syncing: connected calendar "${state.calendarName}" is not this copy's "${calendarName()}". Connect again under Settings, Google Calendar.`); return null }

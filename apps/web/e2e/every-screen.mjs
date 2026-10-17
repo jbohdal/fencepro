@@ -1,6 +1,6 @@
 // Opens every screen and reports console errors, failed requests and blank pages.
 import { chromium, newSession, login, sleep, nav, ready } from './lib.mjs'
-const PAGES = ['Sales Pipeline','Dashboard','Customers','Quotes','Operations','Schedule','Dispatch','Site Plans','Inventory','P&L Statement','Balance Sheet','Cash Flow','Billing','Accounts Payable','Vendors','Reports','Budget','Team','Bundles','EZ Budget','Automations','Integrations','Portal','Audit Log','Settings']
+const PAGES = ['Sales Pipeline','Dashboard','Customers','Quotes','Operations','Schedule','Dispatch','Site Plans','Inventory','P&L Statement','Balance Sheet','Cash Flow','Billing','Accounts Payable','Vendors','Reports','Budget','Team','EZ Budget','Automations','Integrations','Portal','Audit Log','Settings']
 const browser = await chromium.launch()
 const a = await newSession(browser, 'A')
 await login(a)

@@ -307,9 +307,15 @@ async function run(browser, phone) {
   const kc = s.page.locator(`[data-kanban-card="${k}"]`)
   if (phone) await kc.tap({ position: { x: 60, y: 14 } }); else await kc.click({ position: { x: 60, y: 14 } })
   await sleep(700)
+  // A card click opens the card window; its "Customer page" button opens the full page.
+  const win = (await s.page.locator("[data-card-window]").count()) > 0
+  if (win) await s.page.locator('[data-card-open-customer]').click()
+  await sleep(700)
   const onCustomer = await s.page.locator('text=/Back to pipeline/i').count()
-  check(`${size}: a card click opens the full customer page`, onCustomer > 0)
+  check(`${size}: a card click opens the card window, and Customer page opens the full customer page`, win && onCustomer > 0)
   if (onCustomer) { await s.page.locator('text=/Back to pipeline/i').first().click(); await s.page.waitForSelector('[data-kanban-board]'); await sleep(300) }
+  // Back returns to the card window it came from; close it.
+  if (await s.page.locator('[data-card-window]').count()) { await s.page.locator('[data-card-window] button[aria-label="Close"]').first().click(); await sleep(300) }
 
   /* collapsed columns are remembered on this device */
   await s.page.locator(`${col('First Contact')} > button`).click()

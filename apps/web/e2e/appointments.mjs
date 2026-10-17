@@ -233,13 +233,17 @@ async function phone(browser) {
   // The builder opens on the customer; its save step carries the property and what was measured.
   const builderName = await s.page.evaluate(() => [...document.querySelectorAll('input')].map(e => e.value).join(' | '))
   // Saving needs a style and a run, as for any quote; the save step then shows the property and notes.
-  await s.page.locator('select:has(option:has-text("Privacy"))').first().selectOption({ index: 1 }).catch(e => console.log('style:', String(e).slice(0, 120)))
-  // A new quote starts on the yard layout: one straight 180 ft side.
-  await s.page.locator('[data-shape="straight"]').click().catch(e => console.log('shape:', String(e).slice(0, 120)))
-  await s.page.locator('[data-side-length]').first().click().catch(() => {})
-  for (const k of ['1', '8', '0']) await s.page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click().catch(() => {})
-  await s.page.locator('[data-ftin-pad] [data-pad-done]').click().catch(() => {})
-  await s.page.locator('button:has-text("Update Quote"), button:has-text("Save Quote")').first().click().catch(() => {})
+  // The quote screen is in 4 steps: Yard (one straight 180 ft side), Style, Price, then Save.
+  const go = async loc => { await loc.click(); await sleep(300) }
+  await go(s.page.locator('[data-step="yard"]')).catch(e => console.log('yard:', String(e).slice(0, 120)))
+  await go(s.page.locator('[data-shape="straight"]')).catch(e => console.log('shape:', String(e).slice(0, 120)))
+  await go(s.page.locator('[data-side-length]').first()).catch(() => {})
+  for (const k of ['1', '8', '0']) await go(s.page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`)).catch(() => {})
+  await go(s.page.locator('[data-ftin-pad] [data-pad-done]')).catch(() => {})
+  await go(s.page.locator('[data-step="style"]')).catch(() => {})
+  await s.page.locator('[data-step-panel="style"] select').first().selectOption({ index: 1 }).catch(e => console.log('style:', String(e).slice(0, 120)))
+  await go(s.page.locator('[data-step="price"]')).catch(() => {})
+  await go(s.page.locator('[data-quote-bar] [data-save-open]')).catch(e => console.log('save:', String(e).slice(0, 120)))
   await sleep(600)
   const values = builderName + ' | ' + await s.page.evaluate(() => [...document.querySelectorAll('input, textarea')].map(e => e.value).join(' | '))
   if (SHOTS) await s.page.screenshot({ path: `${SHOTS}/phone-quote-save.png` })

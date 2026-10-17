@@ -83,6 +83,16 @@ function CompanyTab({ config, onChange }: { config: AppConfig; onChange: (c: App
       </div>
 
       <div>
+        <h3 className="text-xs font-semibold text-gray-500 mb-1">Photos and video</h3>
+        <p className="text-xs text-gray-400 mb-4">To save space on the Mac: this many days after a job is Complete, each video keeps only its small viewing copy and photos are made 2400 px on the long side. Marked up photos are never changed.</p>
+        <label className="text-xs text-gray-500 mb-1 block">Make smaller after (days)</label>
+        <input type="number" min={30} max={3650} step={1} data-media-shrink-days
+          className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+          value={config.media?.shrinkAfterDays ?? 90}
+          onChange={e => { const n = Math.round(Number(e.target.value)); if (n >= 30 && n <= 3650) onChange({ ...config, media: { ...(config.media ?? {}), shrinkAfterDays: n } }) }} />
+      </div>
+
+      <div>
         <h3 className="text-xs font-semibold text-gray-500 mb-4">Branding</h3>
         <div className="space-y-4">
           <div>
@@ -707,7 +717,12 @@ const TABS: { key: AdminTab; label: string }[] = [
 
 export default function AdminSettingsPage() {
   // ?settings=calendar opens this tab: Google sends the browser back with it after connecting.
-  const [tab, setTab] = useState<AdminTab>(() => (new URLSearchParams(window.location.search).get('settings') === 'calendar' ? 'calendar' : 'company'))
+  // ?tab=pricing (links from the Finish setup card) or the older ?settings=calendar.
+  const [tab, setTab] = useState<AdminTab>(() => {
+    const q = new URLSearchParams(window.location.search)
+    const want = q.get('tab') || q.get('settings')
+    return (TABS.some(t => t.key === want) ? want : 'company') as AdminTab
+  })
   const [config, setConfig] = useState<AppConfig>(getConfig)
   const [saved, setSaved] = useState(false)
   const [dirty, setDirty] = useState(false)

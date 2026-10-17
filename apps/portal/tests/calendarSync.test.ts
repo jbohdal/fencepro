@@ -266,10 +266,10 @@ describe('which calendar', () => {
   test('only the live install uses the real calendar name; every other copy gets (TEST)', async () => {
     const { calendarName } = await import('../src/server/lib/calendarSync/index')
     const HOME = '/Users/someone'
-    expect(calendarName(`${HOME}/ezbiz/apps/portal`, HOME, null)).toBe('GD Fence Pro')
-    expect(calendarName(`${HOME}/Downloads/project/apps/portal`, HOME, null)).toBe('GD Fence Pro (TEST)')
-    expect(calendarName(`${HOME}/Downloads/project/apps/portal`, HOME, 'GD Fence Pro')).toBe('GD Fence Pro (TEST)')
-    expect(calendarName(`${HOME}/Downloads/project/apps/portal`, HOME, 'GD Fence Pro (TEST)')).toBe('GD Fence Pro (TEST)')
-    expect(calendarName(`${HOME}/ezbiz-copy/apps/portal`, HOME, null)).toBe('GD Fence Pro (TEST)')
+    expect(calendarName(`${HOME}/ezbiz/apps/portal`, HOME, null)).toBe('Getter Done Fence')
+    expect(calendarName(`${HOME}/Downloads/project/apps/portal`, HOME, null)).toBe('Getter Done Fence (TEST)')
+    expect(calendarName(`${HOME}/Downloads/project/apps/portal`, HOME, 'Getter Done Fence')).toBe('Getter Done Fence (TEST)')
+    expect(calendarName(`${HOME}/Downloads/project/apps/portal`, HOME, 'Getter Done Fence (TEST)')).toBe('Getter Done Fence (TEST)')
+    expect(calendarName(`${HOME}/ezbiz-copy/apps/portal`, HOME, null)).toBe('Getter Done Fence (TEST)')
   })
 })

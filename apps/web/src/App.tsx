@@ -53,6 +53,7 @@ import { initSchedule, isScheduleHydrated } from './scheduleStore'
 import { initPipeline, getPipeline, isPipelineHydrated } from './pipelineStore'
 import { initInventory, isInventoryHydrated } from './inventoryStore'
 import DeletionReminder from './DeletionReminder'
+import FinishSetup, { DiskWarning } from './FinishSetup'
 import { initVendors, isVendorsHydrated } from './vendorStore'
 import { initBusinessState, isBusinessStateHydrated } from './businessStateStore'
 import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
@@ -1038,6 +1039,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Dashboard' && (
             <div className="space-y-6">
               <DeletionReminder />
+              <DiskWarning />
+              {role === 'owner' && <FinishSetup />}
               <div className="page-header !mb-0">
                 <div>
                   <h1>{greeting()}, {userProfile.name.split(' ')[0] || 'there'}</h1>
@@ -1181,7 +1184,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ PHONE TAB BAR ═══ */}
       <nav data-tabbar aria-label="Main" className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-white border-t border-gray-200 grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
-        {([['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Customers', Users, 'Customers'], ['Schedule', CalendarDays, 'Appointments']] as const).map(([label, Icon, page]) => (
+        {([['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Customers', Users, 'Customers'], ['Schedule', CalendarDays, ALL_NAV_ITEMS.find(i => i.name === 'Schedule')?.roles.includes(role) ? 'Schedule' : 'Appointments']] as const).map(([label, Icon, page]) => (
           <button key={label} onClick={() => setActive(page)} aria-current={active === page ? 'page' : undefined}
             className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${active === page ? 'text-orange-500' : 'text-gray-500'}`}>
             <span className={`grid place-items-center h-8 w-14 rounded-full ${active === page ? 'bg-orange-100' : ''}`}><Icon size={22} aria-hidden="true" /></span>{label}

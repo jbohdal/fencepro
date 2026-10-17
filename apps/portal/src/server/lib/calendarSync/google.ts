@@ -98,6 +98,7 @@ function eventBody(spec: CalendarEventSpec): calendar_v3.Schema$Event {
 export interface GoogleCalendarApi extends CalendarApi {
   createCalendar(name: string): Promise<string>
   calendarExists(calendarId: string): Promise<boolean>
+  renameCalendar(calendarId: string, name: string): Promise<void>
 }
 
 export async function googleApiFor(email: string): Promise<GoogleCalendarApi> {
@@ -116,6 +117,9 @@ export async function googleApiFor(email: string): Promise<GoogleCalendarApi> {
       const { data } = await cal.calendars.insert({ requestBody: { summary: name, timeZone: TIME_ZONE, description: 'Estimates and installs from EZ Biz. Managed by EZ Biz: changes made here are overwritten.' } })
       if (!data.id) throw new Error('Google did not return an id for the new calendar.')
       return data.id
+    },
+    async renameCalendar(calendarId, name) {
+      await cal.calendars.patch({ calendarId, requestBody: { summary: name } })
     },
     async calendarExists(calendarId) {
       try { await cal.calendars.get({ calendarId }); return true }

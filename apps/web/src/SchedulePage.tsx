@@ -9,6 +9,7 @@ import {
 import { cloudStorage } from './cloudStorage'
 import { useMergedRefresh } from './useMergedRefresh'
 import { useBackLayer, BackClose } from './nav'
+import ScheduleDay from './ScheduleDay'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -421,6 +422,8 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-6">
+      {/* One day at a time: installs and that day's appointments (the phone's Schedule tab lands here). */}
+      <ScheduleDay jobs={jobs} crews={settings.crews} />
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div className="flex items-center gap-3">
           <button onClick={prevMonth} className="btn btn-secondary">&larr;</button>

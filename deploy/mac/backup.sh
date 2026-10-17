@@ -76,3 +76,7 @@ if [ -d "$snap_root" ]; then
   find "$snap_root" -mindepth 1 -maxdepth 1 -type d -name '*.part' -exec rm -rf {} +
 fi
 say "done. $(find "$BACKUP_DIR" -maxdepth 1 -name 'ezbiz-db_*.dump' | wc -l | tr -d ' ') database backups on hand."
+
+# Off site: the newest database backup to Google Drive (keeps the last 30 there).
+# A problem there never fails the backup itself, which is already safe on the Mac.
+bash "$(dirname "$0")/offsite-backup.sh" || say "offsite: the Google Drive copy did not go; the backup on the Mac is fine" 

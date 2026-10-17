@@ -129,6 +129,8 @@ export interface AppConfig {
   proposal?: ProposalSettings
   /** Appointment types' lengths, the team, and when slots are suggested. See appointmentLogic. */
   appointments?: Partial<AppointmentSettings>
+  /** Photos and video kept smaller once a job has been Complete this long (server lib/mediaShrink.ts). */
+  media?: { shrinkAfterDays?: number }
 }
 
 // Defaults live in configDefaults.ts (pure: the server's estimates use them too).

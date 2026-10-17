@@ -29,14 +29,20 @@ scripts refuse to run unless both URLs are localhost.
    npx tsx scripts/create-owner.ts you@example.com 'a-test-password' 'Your Name' 'Test Co'
    JWT_SECRET=local-test-secret JWT_REFRESH_SECRET=local-test-refresh \
      EZ_QUOTE_WIDGET_TOKEN=test-widget-token RETELL_API_KEY=key_test \
-     DISABLE_CRON=1 PORT=4000 npx tsx src/server/index.ts
+     DISABLE_CRON=1 PORT=4003 npx tsx src/server/index.ts
    ```
+
+   Never port 4000: on the Mac mini that is the live server.
 
 2. The web app, in another terminal:
 
    ```bash
-   cd apps/web && npx vite --port 5173
+   cd apps/web && VITE_API_PORT=4003 npx vite --port 5274
    ```
+
+   Then set `APP_URL=http://localhost:5274 API_URL=http://localhost:5274` (the
+   web server passes /api on to 4003, and the tests watch requests by that
+   address).
 
 3. Playwright, once:
 

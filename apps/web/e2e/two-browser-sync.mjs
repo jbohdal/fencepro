@@ -165,7 +165,7 @@ check('the change made with the expired token is on the server', rate === 27, St
 const c = await newSession(browser, 'C')
 await c.ctx.route('**/api/inventory-state', route => route.request().method() === 'GET' ? route.abort() : route.continue())
 await login(c); await ready(c)
-const banner = await c.page.locator('text=Could not load').first().innerText().catch(() => '')
+const banner = await c.page.locator('text=/did not load/').first().innerText().catch(() => '')
 const before2 = c.log.api.length
 await c.page.evaluate(async () => {
   const imp = name => { const hit = performance.getEntriesByType('resource').map(e => e.name).filter(n => n.includes('/src/' + name)).pop(); return import(hit ? hit.replace(location.origin, '') : '/src/' + name) }

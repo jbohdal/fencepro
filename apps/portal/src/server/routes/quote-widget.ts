@@ -51,8 +51,13 @@ const photoLimiter = rateLimit({ windowMs: 60 * 60_000, max: 40, standardHeaders
 const api = Router()
 api.use(express.json({ limit: '256kb' }))
 
-api.get('/config', readLimiter, async (_req, res) => {
+api.get('/config', readLimiter, async (req, res) => {
   try {
+    // The free outside monitor (UptimeRobot) checks this address; noted for the Finish setup list.
+    if (/UptimeRobot/i.test(String(req.headers['user-agent'] || ''))) {
+      const accountId = await resolveIntakeAccountId()
+      if (accountId) await prisma.accountKeyValue.upsert({ where: { accountId_key: { accountId, key: 'uptimeRobotSeenAt' } }, create: { accountId, key: 'uptimeRobotSeenAt', value: new Date().toISOString() }, update: { value: new Date().toISOString() } }).catch(() => {})
+    }
     const accountId = await resolveIntakeAccountId()
     const [styles, photos, account] = await Promise.all([
       estimateStyleList(),

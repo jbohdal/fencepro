@@ -2127,6 +2127,8 @@ model MediaItem {
   status      String    @default("processing")
   // Crew uploads from the install packet land as Internal until marked.
   source      String    @default("staff")
+  /// Made smaller after its job was Complete long enough (lib/mediaShrink.ts).
+  shrunkAt    DateTime?
   deletedAt   DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

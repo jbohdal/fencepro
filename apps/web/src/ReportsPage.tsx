@@ -19,9 +19,9 @@ function fenceCategory(style: string): string {
 }
 
 function marginColor(pct: number) {
-  if (pct >= 0.34) return 'text-green-600'
-  if (pct >= 0.27) return 'text-yellow-600'
-  return 'text-red-500'
+  if (pct >= 0.34) return 'text-green-700'
+  if (pct >= 0.27) return 'text-amber-700'
+  return 'text-red-700'
 }
 
 function marginBg(pct: number) {
@@ -269,12 +269,16 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
   // ── KPIs ──
   const ytdRevenue = soldQuotes.reduce((s, q) => s + q.finalPrice, 0)
   const ytdTarget = budgetByPeriod.reduce((a, b) => a + b, 0)
-  const avgMargin = soldQuotes.length > 0
-    ? soldQuotes.reduce((s, q) => s + q.gmPct, 0) / soldQuotes.length : 0
+  // Quotes imported from the GD Schedule have a price but no costs; profit and margin use only quotes that have costs.
+  const costedQuotes = soldQuotes.filter(q => q.totalCOGS > 0)
+  const uncosted = soldQuotes.length - costedQuotes.length
+  const avgMargin = costedQuotes.length > 0
+    ? costedQuotes.reduce((s, q) => s + q.gmPct, 0) / costedQuotes.length : 0
   const avgDeal = soldQuotes.length > 0
     ? ytdRevenue / soldQuotes.length : 0
   const totalCOGS = soldQuotes.reduce((s, q) => s + q.totalCOGS, 0)
-  const grossProfit = ytdRevenue - totalCOGS
+  const grossProfit = costedQuotes.reduce((s, q) => s + q.finalPrice, 0) - totalCOGS
+  const costNote = uncosted ? `; ${uncosted} sold without costs left out` : ''
 
   // ── Margin by fence style ──
   const styleBreakdown = useMemo(() => {
@@ -432,17 +436,17 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
   }, [yearQuotes])
 
   const TABS_TIER1 = [
-    { key: 'revenue' as const, label: 'Revenue', icon: '💰' },
-    { key: 'margin' as const, label: 'Margins', icon: '📊' },
-    { key: 'style' as const, label: 'By Style', icon: '🏠' },
-    { key: 'deals' as const, label: 'Deal Size', icon: '📐' },
+    { key: 'revenue' as const, label: 'Revenue' },
+    { key: 'margin' as const, label: 'Margins' },
+    { key: 'style' as const, label: 'By Style' },
+    { key: 'deals' as const, label: 'Deal Size' },
   ]
 
   const TABS_TIER2 = [
-    { key: 'close_rate' as const, label: 'Close Rate', icon: '🎯' },
-    { key: 'lead_source' as const, label: 'Lead Sources', icon: '📡' },
-    { key: 'sales_rep' as const, label: 'Sales Reps', icon: '👤' },
-    { key: 'pipeline' as const, label: 'Pipeline', icon: '🔄' },
+    { key: 'close_rate' as const, label: 'Close Rate' },
+    { key: 'lead_source' as const, label: 'Lead Sources' },
+    { key: 'sales_rep' as const, label: 'Sales Reps' },
+    { key: 'pipeline' as const, label: 'Pipeline' },
   ]
 
   // ═══ TIER 3: Budget Variance data ═══
@@ -499,9 +503,9 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
   }, [ytdRevenue, actualCostBreakdown, budgetOverhead, budget])
 
   const TABS_TIER3 = [
-    { key: 'budget_rev' as const, label: 'Revenue vs Goal', icon: '🎯' },
-    { key: 'budget_cost' as const, label: 'Cost Breakdown', icon: '💸' },
-    { key: 'budget_overhead' as const, label: 'Overhead', icon: '🏢' },
+    { key: 'budget_rev' as const, label: 'Revenue vs Goal' },
+    { key: 'budget_cost' as const, label: 'Cost Breakdown' },
+    { key: 'budget_overhead' as const, label: 'Overhead' },
   ]
 
   // ═══ TIER 4: Customer Intelligence data ═══
@@ -571,9 +575,9 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
   }, [customerRevenue])
 
   const TABS_TIER4 = [
-    { key: 'cust_revenue' as const, label: 'Top Customers', icon: '🏆' },
-    { key: 'cust_repeat' as const, label: 'Repeat Business', icon: '🔁' },
-    { key: 'cust_segments' as const, label: 'Segments', icon: '📊' },
+    { key: 'cust_revenue' as const, label: 'Top Customers' },
+    { key: 'cust_repeat' as const, label: 'Repeat Business' },
+    { key: 'cust_segments' as const, label: 'Segments' },
   ]
 
   const styleColors = ['bg-orange-500', 'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-pink-500']
@@ -622,45 +626,40 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {[
           {
-            label: 'Revenue (Sold)',
+            label: 'Sold this period (quotes)',
             value: fmt(ytdRevenue),
-            sub: budget ? `${fmtPct(ytdRevenue / (budget.revenueGoal || 1))} of ${fmt(budget.revenueGoal || 0)} goal` : 'No budget set',
-            icon: '💰',
-            color: budget && ytdRevenue >= ytdTarget ? 'text-green-600' : 'text-orange-500',
+            // Quotes sold, by sale date. Installed revenue (by install date) is the Dashboard's "Revenue this year".
+            sub: 'Quotes sold, by sale date (installed revenue is on the Dashboard)',
+            color: budget && ytdRevenue >= ytdTarget ? 'text-green-700' : 'text-amber-700',
           },
           {
             label: 'Gross Profit',
-            value: fmt(grossProfit),
-            sub: `COGS: ${fmt(totalCOGS)}`,
-            icon: '📈',
-            color: 'text-green-600',
+            value: costedQuotes.length ? fmt(grossProfit) : '—',
+            sub: costedQuotes.length ? `COGS: ${fmt(totalCOGS)}${costNote}` : 'No sold quotes with costs this period',
+            color: costedQuotes.length ? 'text-green-700' : 'text-gray-900',
           },
           {
             label: 'Avg Gross Margin',
-            value: fmtPct(avgMargin),
-            sub: avgMargin >= 0.34 ? 'Above target ✓' : 'Below target ⚠',
-            icon: '🎯',
-            color: avgMargin >= 0.34 ? 'text-green-600' : 'text-yellow-600',
+            value: costedQuotes.length ? fmtPct(avgMargin) : '—',
+            sub: !costedQuotes.length ? 'No sold quotes with costs this period' : `${avgMargin >= 0.34 ? 'Above target' : 'Below target'} (${costedQuotes.length} quotes with costs)`,
+            color: !costedQuotes.length ? 'text-gray-900' : avgMargin >= 0.34 ? 'text-green-700' : 'text-amber-700',
           },
           {
             label: 'Avg Deal Size',
             value: fmt(avgDeal),
             sub: `${soldQuotes.length} sold jobs`,
-            icon: '📐',
-            color: 'text-blue-600',
+            color: 'text-gray-900',
           },
           {
             label: 'Quoted Total',
             value: fmt(yearQuotes.reduce((s, q) => s + q.finalPrice, 0)),
             sub: `${yearQuotes.length} quotes created`,
-            icon: '📋',
-            color: 'text-purple-600',
+            color: 'text-gray-900',
           },
         ].map(kpi => (
           <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-semibold text-gray-400">{kpi.label}</p>
-              <span className="text-lg">{kpi.icon}</span>
             </div>
             <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
             <p className="text-xs text-gray-400 mt-1">{kpi.sub}</p>
@@ -707,7 +706,6 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            <span>{t.icon}</span>
             {t.label}
           </button>
         ))}
@@ -901,7 +899,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                       <p className="text-xs text-gray-400">{q.fenceStyle} · {q.date}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-bold text-green-600">{fmtPct(q.gmPct)}</p>
+                      <p className="text-sm font-bold text-green-700">{fmtPct(q.gmPct)}</p>
                       <p className="text-xs text-gray-400">{fmt(q.finalPrice)}</p>
                     </div>
                   </div>
@@ -910,7 +908,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               </div>
             </div>
             <div className="bg-white rounded-2xl border border-gray-200 p-6">
-              <h4 className="font-semibold text-red-600 mb-3">Bottom 5 Margin Quotes</h4>
+              <h4 className="font-semibold text-red-700 mb-3">Bottom 5 Margin Quotes</h4>
               <div className="space-y-2">
                 {[...soldQuotes].sort((a, b) => a.gmPct - b.gmPct).slice(0, 5).map(q => (
                   <div key={q.id} className="flex items-center justify-between py-1.5 border-b border-gray-50">
@@ -1128,10 +1126,10 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               const openQ = yearQuotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').length
               const overallClose = totalQ > 0 ? soldQ / totalQ : 0
               return [
-                { label: 'Overall Close Rate', value: fmtPct(overallClose), sub: `${soldQ} of ${totalQ} quotes`, color: overallClose >= 0.4 ? 'text-green-600' : 'text-orange-500' },
-                { label: 'Open Quotes', value: String(openQ), sub: fmt(yearQuotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)), color: 'text-blue-600' },
-                { label: 'Won', value: String(soldQ), sub: fmt(ytdRevenue), color: 'text-green-600' },
-                { label: 'Lost', value: String(lostQ), sub: fmt(yearQuotes.filter(q => q.status === 'LOST').reduce((s, q) => s + q.finalPrice, 0)), color: 'text-red-500' },
+                { label: 'Overall Close Rate', value: fmtPct(overallClose), sub: `${soldQ} of ${totalQ} quotes`, color: overallClose >= 0.4 ? 'text-green-700' : 'text-amber-700' },
+                { label: 'Open Quotes', value: String(openQ), sub: fmt(yearQuotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)), color: 'text-gray-900' },
+                { label: 'Won', value: String(soldQ), sub: fmt(ytdRevenue), color: 'text-green-700' },
+                { label: 'Lost', value: String(lostQ), sub: fmt(yearQuotes.filter(q => q.status === 'LOST').reduce((s, q) => s + q.finalPrice, 0)), color: 'text-red-700' },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
                   <p className="text-xs font-semibold text-gray-400 mb-2">{kpi.label}</p>
@@ -1197,12 +1195,11 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             <p className="text-xs text-gray-400 mb-4">Does a hotter lead actually close more often?</p>
             <div className="space-y-3">
               {leadTempBreakdown.map(lt => {
-                const flames = '🔥'.repeat(lt.temp)
                 const labels = ['Cold', 'Cool', 'Warm', 'Hot', 'On Fire']
                 return (
                   <div key={lt.temp} className="flex items-center gap-4">
                     <span className="w-28 text-sm">
-                      {flames} <span className="text-gray-500">{labels[lt.temp - 1]}</span>
+                      <span className="font-semibold text-gray-900">{labels[lt.temp - 1]}</span> <span className="text-gray-500">({lt.temp} of 5)</span>
                     </span>
                     <div className="flex-1 bg-gray-100 rounded-full h-5 relative overflow-hidden">
                       <div
@@ -1280,7 +1277,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                     <td data-label="Source" className="px-6 py-3 font-medium text-gray-900">{s.source}</td>
                     <td data-label="Quotes" className="px-6 py-3 text-right text-gray-700">{s.total}</td>
                     <td data-label="Sold" className="px-6 py-3 text-right text-gray-700">{s.sold}</td>
-                    <td data-label="Close Rate" className={`px-6 py-3 text-right font-semibold ${s.closeRate >= 0.4 ? 'text-green-600' : s.closeRate >= 0.25 ? 'text-yellow-600' : 'text-red-500'}`}>
+                    <td data-label="Close Rate" className={`px-6 py-3 text-right font-semibold ${s.closeRate >= 0.4 ? 'text-green-700' : s.closeRate >= 0.25 ? 'text-amber-700' : 'text-red-700'}`}>
                       {fmtPct(s.closeRate)}
                     </td>
                     <td data-label="Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(s.revenue)}</td>
@@ -1320,7 +1317,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                   </div>
                   <div>
                     <p className="text-xs text-gray-400">Close Rate</p>
-                    <p className={`text-lg font-bold ${r.closeRate >= 0.4 ? 'text-green-600' : 'text-orange-500'}`}>{fmtPct(r.closeRate)}</p>
+                    <p className={`text-lg font-bold ${r.closeRate >= 0.4 ? 'text-green-700' : 'text-amber-700'}`}>{fmtPct(r.closeRate)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400">Avg Deal</p>
@@ -1363,7 +1360,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                     <td data-label="Rep" className="px-6 py-3 font-medium text-gray-900">{r.rep}</td>
                     <td data-label="Quotes" className="px-6 py-3 text-right text-gray-700">{r.total}</td>
                     <td data-label="Sold" className="px-6 py-3 text-right text-gray-700">{r.sold}</td>
-                    <td data-label="Close Rate" className={`px-6 py-3 text-right font-semibold ${r.closeRate >= 0.4 ? 'text-green-600' : 'text-orange-500'}`}>
+                    <td data-label="Close Rate" className={`px-6 py-3 text-right font-semibold ${r.closeRate >= 0.4 ? 'text-green-700' : 'text-amber-700'}`}>
                       {fmtPct(r.closeRate)}
                     </td>
                     <td data-label="Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(r.revenue)}</td>
@@ -1447,9 +1444,9 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                 return (
                   <div>
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="text-3xl font-bold text-green-600">{won}</span>
+                      <span className="text-3xl font-bold text-green-700">{won}</span>
                       <span className="text-xl text-gray-300">:</span>
-                      <span className="text-3xl font-bold text-red-500">{lost}</span>
+                      <span className="text-3xl font-bold text-red-700">{lost}</span>
                     </div>
                     <div className="w-full bg-red-200 rounded-full h-4 overflow-hidden">
                       <div
@@ -1458,8 +1455,8 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                       />
                     </div>
                     <div className="flex justify-between mt-1">
-                      <span className="text-xs text-green-600 font-semibold">Won {fmtPct(winPct)}</span>
-                      <span className="text-xs text-red-500 font-semibold">Lost {fmtPct(1 - winPct)}</span>
+                      <span className="text-xs text-green-700 font-semibold">Won {fmtPct(winPct)}</span>
+                      <span className="text-xs text-red-700 font-semibold">Lost {fmtPct(1 - winPct)}</span>
                     </div>
                     <p className="text-xs text-gray-400 mt-2">{decided} decided quotes · {yearQuotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').length} still open</p>
                   </div>
@@ -1488,8 +1485,8 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm text-red-600 font-medium">Lost ({lostQs.length})</span>
-                        <span className="text-sm font-bold text-red-600">{fmt(avgLost)}</span>
+                        <span className="text-sm text-red-700 font-medium">Lost ({lostQs.length})</span>
+                        <span className="text-sm font-bold text-red-700">{fmt(avgLost)}</span>
                       </div>
                       <div className="w-full bg-gray-100 rounded-full h-4">
                         <div className="h-4 rounded-full bg-red-400" style={{ width: `${(avgLost / maxAvg) * 100}%` }} />
@@ -1525,9 +1522,9 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               const onTrack = variance >= 0
               return [
                 { label: 'Annual Goal', value: fmt(revenueGoal), sub: `${fmtPct(pctOfGoal)} achieved`, color: 'text-gray-900' },
-                { label: 'YTD Revenue', value: fmt(ytdRevenue), sub: `${soldQuotes.length} sold jobs`, color: pctOfGoal >= 0.5 ? 'text-green-600' : 'text-orange-500' },
-                { label: 'YTD Target', value: fmt(ytdBudgetTarget), sub: 'Seasonality-adjusted', color: 'text-blue-600' },
-                { label: 'Variance', value: `${variance >= 0 ? '+' : ''}${fmt(variance)}`, sub: onTrack ? 'Ahead of target' : 'Behind target', color: onTrack ? 'text-green-600' : 'text-red-500' },
+                { label: 'YTD Revenue', value: fmt(ytdRevenue), sub: `${soldQuotes.length} sold jobs`, color: pctOfGoal >= 0.5 ? 'text-green-700' : 'text-amber-700' },
+                { label: 'YTD Target', value: fmt(ytdBudgetTarget), sub: 'Seasonality-adjusted', color: 'text-gray-900' },
+                { label: 'Variance', value: `${variance >= 0 ? '+' : ''}${fmt(variance)}`, sub: onTrack ? 'Ahead of target' : 'Behind target', color: onTrack ? 'text-green-700' : 'text-red-700' },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
                   <p className="text-xs font-semibold text-gray-400 mb-2">{kpi.label}</p>
@@ -1576,7 +1573,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                       )}
                     </div>
                   </div>
-                  <span className={`text-sm font-bold w-20 text-right ${v >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                  <span className={`text-sm font-bold w-20 text-right ${v >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                     {v >= 0 ? '+' : ''}{fmt(v)}
                   </span>
                 </div>
@@ -1634,7 +1631,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                       <span className="text-sm font-semibold text-gray-900">{b.label}</span>
                       <div className="flex items-center gap-4">
                         <span className="text-xs text-gray-400">Target: {fmtPct(b.target)}</span>
-                        <span className={`text-sm font-bold ${isGood ? 'text-green-600' : 'text-red-500'}`}>
+                        <span className={`text-sm font-bold ${isGood ? 'text-green-700' : 'text-red-700'}`}>
                           {fmtPct(b.actual)}
                         </span>
                         <span className="text-xs text-gray-500">{fmt(b.amount)}</span>
@@ -1708,15 +1705,15 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-500">Actual margin this year</span>
-                      <span className={`text-lg font-bold ${isHealthy ? 'text-green-600' : 'text-red-500'}`}>{fmtPct(1 - actualMagic)}</span>
+                      <span className={`text-lg font-bold ${isHealthy ? 'text-green-700' : 'text-red-700'}`}>{fmtPct(1 - actualMagic)}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-500">Difference</span>
-                      <span className={`text-lg font-bold ${isHealthy ? 'text-green-600' : 'text-red-500'}`}>
+                      <span className={`text-lg font-bold ${isHealthy ? 'text-green-700' : 'text-red-700'}`}>
                         {(magic - actualMagic) >= 0 ? '+' : ''}{fmtPct(magic - actualMagic)}
                       </span>
                     </div>
-                    <div className={`p-3 rounded-lg text-sm ${isHealthy ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                    <div className={`p-3 rounded-lg text-sm ${isHealthy ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
                       {isHealthy
                         ? 'The margin this year is within 2 points of your Target Margin: pricing is on track.'
                         : 'The margin this year is more than 2 points under your Target Margin: review pricing or costs.'}
@@ -1739,8 +1736,8 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
               const isOk = actualPct <= overPctTarget + 0.02
               return [
                 { label: 'Total Overhead', value: fmt(budgetOverhead.total), sub: 'Annual from chart of accounts', color: 'text-gray-900' },
-                { label: 'Overhead % of Revenue', value: fmtPct(actualPct), sub: `Target: ${fmtPct(overPctTarget)}`, color: isOk ? 'text-green-600' : 'text-red-500' },
-                { label: 'Monthly Avg', value: fmt(budgetOverhead.total / 12), sub: `${budgetOverhead.items.length} expense categories`, color: 'text-blue-600' },
+                { label: 'Overhead % of Revenue', value: fmtPct(actualPct), sub: `Target: ${fmtPct(overPctTarget)}`, color: isOk ? 'text-green-700' : 'text-red-700' },
+                { label: 'Monthly Avg', value: fmt(budgetOverhead.total / 12), sub: `${budgetOverhead.items.length} expense categories`, color: 'text-gray-900' },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
                   <p className="text-xs font-semibold text-gray-400 mb-2">{kpi.label}</p>
@@ -1819,10 +1816,10 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
           {/* Customer KPIs */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Total Customers', value: String(customerRevenue.length), sub: 'with sold quotes', color: 'text-blue-600' },
-              { label: 'Total Lifetime Revenue', value: fmt(allSoldQuotes.reduce((s, q) => s + q.finalPrice, 0)), sub: `${allSoldQuotes.length} sold jobs`, color: 'text-green-600' },
-              { label: 'Avg Revenue / Customer', value: fmt(customerRevenue.length > 0 ? allSoldQuotes.reduce((s, q) => s + q.finalPrice, 0) / customerRevenue.length : 0), sub: 'lifetime average', color: 'text-purple-600' },
-              { label: 'Avg Jobs / Customer', value: customerRevenue.length > 0 ? (allSoldQuotes.length / customerRevenue.length).toFixed(1) : '0', sub: 'repeat factor', color: 'text-orange-500' },
+              { label: 'Total Customers', value: String(customerRevenue.length), sub: 'with sold quotes', color: 'text-gray-900' },
+              { label: 'Total Lifetime Revenue', value: fmt(allSoldQuotes.reduce((s, q) => s + q.finalPrice, 0)), sub: `${allSoldQuotes.length} sold jobs`, color: 'text-green-700' },
+              { label: 'Avg Revenue / Customer', value: fmt(customerRevenue.length > 0 ? allSoldQuotes.reduce((s, q) => s + q.finalPrice, 0) / customerRevenue.length : 0), sub: 'lifetime average', color: 'text-gray-900' },
+              { label: 'Avg Jobs / Customer', value: customerRevenue.length > 0 ? (allSoldQuotes.length / customerRevenue.length).toFixed(1) : '0', sub: 'repeat factor', color: 'text-amber-700' },
             ].map(kpi => (
               <div key={kpi.label} className="bg-white rounded-2xl border border-gray-200 p-5">
                 <p className="text-xs font-semibold text-gray-400 mb-2">{kpi.label}</p>
@@ -1912,10 +1909,9 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-2xl border-2 border-blue-200 p-6">
               <div className="flex items-center gap-2 mb-3">
-                <span className="text-lg">🔁</span>
-                <h4 className="font-semibold text-blue-900">Repeat Customers</h4>
+                <h4 className="font-semibold text-gray-900">Repeat Customers</h4>
               </div>
-              <p className="text-3xl font-bold text-blue-700">{repeatStats.repeatCount}</p>
+              <p className="text-3xl font-bold text-gray-900">{repeatStats.repeatCount}</p>
               <div className="mt-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500">Total revenue</span>
@@ -1927,13 +1923,13 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500">% of Customers</span>
-                  <span className="text-sm font-bold text-blue-700">
+                  <span className="text-sm font-bold text-gray-900">
                     {customerRevenue.length > 0 ? fmtPct(repeatStats.repeatCount / customerRevenue.length) : '0%'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500">% of Revenue</span>
-                  <span className="text-sm font-bold text-blue-700">
+                  <span className="text-sm font-bold text-gray-900">
                     {(repeatStats.repeatRevenue + repeatStats.oneTimeRevenue) > 0
                       ? fmtPct(repeatStats.repeatRevenue / (repeatStats.repeatRevenue + repeatStats.oneTimeRevenue))
                       : '0%'}
@@ -1996,7 +1992,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                 {customerRevenue.filter(c => c.count > 1).map(c => (
                   <tr key={c.id} className="hover:bg-gray-50">
                     <td data-label="Customer" className="px-6 py-3 font-medium text-gray-900">{c.name}</td>
-                    <td data-label="Jobs" className="px-6 py-3 text-right font-bold text-blue-700">{c.count}</td>
+                    <td data-label="Jobs" className="px-6 py-3 text-right font-bold text-gray-900">{c.count}</td>
                     <td data-label="Lifetime Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(c.revenue)}</td>
                     <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-700">{fmt(c.avgDeal)}</td>
                     <td data-label="First Job" className="px-6 py-3 text-gray-500">{c.firstDate}</td>
