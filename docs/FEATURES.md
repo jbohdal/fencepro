@@ -37,15 +37,15 @@ Status key:
 * Live overhead from the budget once it's filled in (yearly overhead ÷ yearly revenue), last 12 months or this year's projection, shows how it was worked out, warns on a move of more than 3 points in a month. **SENT** (done on dev; switch it on in Settings > Pricing when the budget is complete)
 * "Where every dollar goes": 20 pickets, each 5% of the price, colored Materials (brand purple) / Labor / Overhead / Profit, Commission its own slice. On the quote builder and quote view only, never the proposal or crew packet. **SENT** (done on dev, tested: every saved quote prices the same; waiting for deploy)
 * Every Inventory item shows "Price last updated" (set when the cost changes; imported prices say "Imported, not yet confirmed"). A quote shows a soft warning (never a block) listing parts older than 6 months (Settings > Pricing) with one tap "Open in Inventory". Inventory sorts and filters by price age, has "Confirm price" per item and "Confirm these prices" for many at once. **SENT** (done on dev, tested, waiting for deploy)
-* Gate leaves: every gate leaf (4, 5 or 6 ft) uses the parts of one 6 ft wide section: 11 pickets, two 6 ft rails, U trim, no insert, plus gate hardware. A double gate is two leaves. **READY** (part of material kits)
+* Gate leaves: every gate leaf (4, 5 or 6 ft) uses the parts of one 6 ft wide section: 11 pickets, two 6 ft rails, U trim, no insert, plus gate hardware. A double gate is two leaves. **SENT** (done on dev in the kits; 6'x8' vinyl and auto mix all 8 ft jobs with gates now price this way; 8 ft tall styles keep their complete 8 x 4 gates)
 * Sub rates still needed: walk gate, double gate, tear out per section, tear out per gate, chain link per 10 ft section, aluminum per section. Quotes warn until they're set. **NEEDS JONATHAN**
 * Industrial Abigail: 6 or 8 ft sections? (spreadsheet says 6, app says 8). **NEEDS JONATHAN**
 
 ## 3. Material kits (bundles)
 
-* Replace the empty Bundles page with material kits per style: 1 section (with its line post), corner post, end post, blank post, each walk gate size, each double gate size, and chain link by the foot items. **READY**
-* Kits worked out from the current calculator (the source of truth), then proven: 6+ real jobs per style must give the identical pull sheet. Only then does the calculator read from kits. **READY**
-* Edit, duplicate, rename, archive kits. Editing shows which unsent quotes would change. Costs always live from Inventory. **READY**
+* Replace the empty Bundles page with material kits per style: 1 section (with its line post), corner post, end post, blank post, each walk gate size, each double gate size, and chain link by the foot items (rounded up per job). **SENT** (done on dev: Inventory > Material Kits replaces the Bundles tab; line post is its own kit because the first section of a run has none; one walk and one double gate size, since quotes don't carry gate widths yet)
+* Kits worked out from the current calculator (the source of truth), then proven: 6+ real jobs per style must give the identical pull sheet. Only then does the calculator read from kits. **SENT** (done on dev: 32 styles × 15 jobs (7 real yards + 8 generated), every part identical except the gate leaf correction; the old calculator stays as the test check)
+* Edit, duplicate, rename, archive kits. Editing shows which open (Draft and Sent) quotes would change, with material cost now and after. Costs always live from Inventory. **SENT** (done on dev, tested, waiting for deploy)
 
 ## 4. Quoting in the field
 

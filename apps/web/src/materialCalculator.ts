@@ -34,6 +34,56 @@ export function priceSourceFromMap(map: Record<string, number>): MaterialPriceSo
   return (itemName: string) => norm.get(normalizeItemName(itemName))
 }
 
+/** Run `fn` with a different price source, then put the old one back. */
+export function withPriceSource<T>(fn: MaterialPriceSource | null, run: () => T): T {
+  const was = priceSource
+  priceSource = fn
+  try { return run() } finally { priceSource = was }
+}
+
+// ── Material kits ─────────────────────────────────────────────────────────────
+// Quotes read their parts from material kits per style (materialKits.ts
+// registers itself here). With no kit engine, or a style it has no kit for,
+// the parts lists below are used: they are also the check the kits are tested
+// against, and where the built in kits are derived from.
+
+/** How many of each kit a job takes. */
+export interface KitCounts {
+  section: number
+  /** Auto mix styles: sections on runs built with 8 ft rails. */
+  section8: number
+  line: number
+  corner: number
+  end: number
+  /** One blank post at the center of every double gate. */
+  blank: number
+  walkGate: number
+  dblGate: number
+  perFoot: number
+  perJob: number
+}
+export interface KitLine { part: string; qty: number; fallbackCost: number }
+export type KitEngine = (styleKey: string, counts: KitCounts, notes: () => string[]) => { lines: KitLine[]; warnings: string[] } | null
+
+let kitEngine: KitEngine | null = null
+export function setKitEngine(fn: KitEngine | null): void { kitEngine = fn }
+
+function fromKits(styleKey: string, counts: KitCounts, tearOutSections: number, tearOutGates: number, notes: () => string[]): MaterialResult | null {
+  const r = kitEngine ? kitEngine(styleKey, counts, notes) : null
+  if (!r) return null
+  const col = makeCollector()
+  col.add('Tear Out Haul-Away Fence', tearOutSections, 9.50)
+  col.add('Tear Out Haul-Away Gate', tearOutGates, 27.00)
+  for (const l of r.lines) col.add(l.part, l.qty, l.fallbackCost)
+  col.warnings.push(...r.warnings)
+  return col.finish()
+}
+
+/** The style notes the parts lists give (new or unconfirmed lists), without the Inventory warnings. */
+function legacyNotes(run: () => MaterialResult): string[] {
+  return withPriceSource(() => 1, run).warnings
+}
+
 /** Current Inventory cost for one part, with a fallback when it is missing. */
 export function materialUnitCost(itemName: string, fallback = 0): number {
   const inv = priceSource ? priceSource(itemName) : undefined
@@ -238,8 +288,19 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
   return calculateMaterialsDetailed(inputs).items
 }
 
-/** Same as calculateMaterials, plus the warnings the estimator should see. */
+/** Same as calculateMaterials, plus the warnings the estimator should see. Parts come from the style's material kits. */
 export function calculateMaterialsDetailed(inputs: JobInputs): MaterialResult {
+  const { fenceStyle: s, runs, corners, ends, walkGates, dblGates } = inputs
+  const counts: KitCounts = {
+    section: totalSections(runs, s), section8: 0, line: totalLinePosts(runs, s), corner: corners, end: ends,
+    blank: dblGates, walkGate: walkGates, dblGate: dblGates, perFoot: totalFt(runs), perJob: 1,
+  }
+  return fromKits(s, counts, inputs.tearOutSections, inputs.tearOutGates, () => legacyNotes(() => legacyCalculateMaterialsDetailed(inputs)))
+    ?? legacyCalculateMaterialsDetailed(inputs)
+}
+
+/** The parts lists as they were before material kits: the test check, and where the built in kits come from. */
+export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialResult {
   const { fenceStyle: s, runs, corners, ends, walkGates, dblGates,
           tearOutSections, tearOutGates } = inputs
 
@@ -838,8 +899,30 @@ export function calculateMixedMaterials(input: MixedJobInputs): LineItem[] {
   return calculateMixedMaterialsDetailed(input).items
 }
 
-/** Same as calculateMixedMaterials, plus the warnings the estimator should see. */
+/** The kit set an auto mix job reads (white no dig, white dig set; tan no dig is used only for the 6/8 hint on tan styles). */
+export function mixedKitKey(installMethod: 'no-dig' | 'dig-set', colorFamily: 'white' | 'tan'): string {
+  return `${colorFamily === 'white' ? 'WV' : 'TV'}-Auto ${installMethod === 'no-dig' ? 'ND' : 'DS'} Privacy`
+}
+
+/** Same as calculateMixedMaterials, plus the warnings the estimator should see. Parts come from the material kits. */
 export function calculateMixedMaterialsDetailed(input: MixedJobInputs): MaterialResult {
+  let section = 0, section8 = 0, line = 0
+  for (const r of input.runs) {
+    const sec = sectionsForMixedRun(r.ft, r.rail)
+    if (r.rail === '8ft') section8 += sec
+    else section += sec
+    if (sec > 1) line += sec - 1
+  }
+  const counts: KitCounts = {
+    section, section8, line, corner: input.corners, end: input.ends, blank: input.dblGates,
+    walkGate: input.walkGates, dblGate: input.dblGates, perFoot: input.runs.reduce((t, r) => t + r.ft, 0), perJob: 1,
+  }
+  return fromKits(mixedKitKey(input.installMethod, input.colorFamily), counts, input.tearOutSections, input.tearOutGates, () => [])
+    ?? legacyCalculateMixedMaterialsDetailed(input)
+}
+
+/** The auto mix parts list as it was before material kits (test check and source of the built in kits). */
+export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): MaterialResult {
   const { installMethod, colorFamily, runs, corners, ends,
           walkGates, dblGates, tearOutSections, tearOutGates } = input
 

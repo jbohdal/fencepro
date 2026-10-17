@@ -13,6 +13,7 @@ import { cloudStorage } from './cloudStorage'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { stampPriceChanges, confirmPrices as confirmPricesIn } from './priceAge'
 import { businessDate } from './businessDate'
+import { setSavedKitSets, type KitSet } from './materialKits'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const INV_EVT = 'fencepro:inventory:updated'
@@ -24,9 +25,11 @@ interface InventoryStateBlob {
   locations: any[]
   stockLevels: any[]
   transactions: any[]
+  /** Material kit sets Jonathan has saved (materialKits.ts). */
+  kits: KitSet[]
 }
 
-let invCache: InventoryStateBlob = { items: [], bundles: [], locations: [], stockLevels: [], transactions: [] }
+let invCache: InventoryStateBlob = { items: [], bundles: [], locations: [], stockLevels: [], transactions: [], kits: [] }
 let invInitPromise: Promise<void> | null = null
 let invHydrated = false
 
@@ -54,7 +57,7 @@ function invEmit() { try { window.dispatchEvent(new CustomEvent(INV_EVT)) } catc
 const arr = (v: unknown): any[] => (Array.isArray(v) ? v : [])
 const pickInventory = (d: any): InventoryStateBlob => ({
   items: arr(d?.items), bundles: arr(d?.bundles), locations: arr(d?.locations),
-  stockLevels: arr(d?.stockLevels), transactions: arr(d?.transactions),
+  stockLevels: arr(d?.stockLevels), transactions: arr(d?.transactions), kits: arr(d?.kits),
 })
 const invFlusher = createVersionedFlusher<InventoryStateBlob>({
   name: 'Inventory',
@@ -81,6 +84,7 @@ async function migrateLocalInventoryOnce(server: InventoryStateBlob, version: nu
       locations: JSON.parse(localStorage.getItem('fencepro_inv_locations') || '[]'),
       stockLevels: JSON.parse(localStorage.getItem('fencepro_inv_stock') || '[]'),
       transactions: JSON.parse(localStorage.getItem('fencepro_inv_transactions') || '[]'),
+      kits: [],
     }
     const hasData = blob.items.length || blob.bundles.length || blob.locations.length || blob.stockLevels.length || blob.transactions.length
     if (!hasData) { localStorage.setItem(INV_MIGRATION_FLAG, '1'); return null }
@@ -103,6 +107,7 @@ export function initInventory(): Promise<void> {
       locations: Array.isArray(r.data.locations) ? r.data.locations : [],
       stockLevels: Array.isArray(r.data.stockLevels) ? r.data.stockLevels : [],
       transactions: Array.isArray(r.data.transactions) ? r.data.transactions : [],
+      kits: Array.isArray((r.data as any).kits) ? (r.data as any).kits : [],
     }
     let version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
     const migrated = await migrateLocalInventoryOnce(next, version)
@@ -145,19 +150,6 @@ export interface InventoryItem {
   reorderQty?: number
   maxQty?: number
   locationId?: string
-}
-
-export interface Bundle {
-  id: string
-  name: string
-  description: string
-  items: BundleItem[]
-}
-
-export interface BundleItem {
-  inventoryId: string
-  qty: number
-  scaleWithSections: boolean
 }
 
 const DEFAULT_INVENTORY: InventoryItem[] = [
@@ -430,9 +422,7 @@ const DEFAULT_INVENTORY: InventoryItem[] = [
   { id: 'fence-sign',   name: "Fence Sign",                                                       unitCost: 0.00,   category: 'Misc' },
 ]
 
-const DEFAULT_BUNDLES: Bundle[] = []
 const INV_KEY    = 'fencepro_inventory'
-const BUNDLE_KEY = 'fencepro_bundles'
 
 export function getInventory(): InventoryItem[] {
   return invCache.items.length > 0 ? (invCache.items as InventoryItem[]) : DEFAULT_INVENTORY
@@ -467,15 +457,18 @@ export function resetInventory(): void {
   saveInventory(DEFAULT_INVENTORY.map(i => ({ ...i, priceImported: true })), { imported: true })
 }
 
-export function getBundles(): Bundle[] {
-  return invCache.bundles.length > 0 ? (invCache.bundles as Bundle[]) : DEFAULT_BUNDLES
-}
+// ── Material kits ──
+// Quotes read saved kits through materialKits (registered below).
 
-export function saveBundles(bundles: Bundle[]): void {
-  invCache.bundles = bundles
+export function getKitSets(): KitSet[] { return invCache.kits }
+
+export function saveKitSets(sets: KitSet[]): void {
+  invCache.kits = sets
   invEmit()
   scheduleFlush()
 }
+
+setSavedKitSets(() => invCache.kits)
 
 export function getPriceMap(): Record<string, number> {
   const inv = getInventory()

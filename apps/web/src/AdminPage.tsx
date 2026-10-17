@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   getInventory, saveInventory, resetInventory,
-  getBundles, saveBundles,
   getLocations, saveLocations,
   getStockLevels, saveStockLevels,
   getTransactions,
@@ -16,10 +15,11 @@ import { getConfig } from './configStore'
 import { businessDate } from './businessDate'
 import { priceAge, priceAgeLabel, compareByPriceAge, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
 import BulkImportModal from './BulkImportModal'
+import MaterialKitsTab from './MaterialKitsTab'
 import { groupCatalog, NEW_ITEMS_GROUP } from './inventorySort'
 import { useMergedRefresh } from './useMergedRefresh'
 import type {
-  InventoryItem, Bundle, BundleItem,
+  InventoryItem,
   InventoryLocation, StockLevel,
   InventoryTransaction, TransactionType,
 } from './inventoryStore'
@@ -860,193 +860,7 @@ function LocationsTab() {
   )
 }
 
-/* ═══════════════════════════════════════════════
-   TAB: BUNDLES (preserved from original)
-   ═══════════════════════════════════════════════ */
-
-function BundleEditor({
-  bundle, inventory, onSave, onCancel
-}: {
-  bundle: Bundle; inventory: InventoryItem[]; onSave: (b: Bundle) => void; onCancel: () => void
-}) {
-  const [name, setName]               = useState(bundle.name)
-  const [description, setDescription] = useState(bundle.description)
-  const [bundleItems, setBundleItems] = useState<BundleItem[]>(bundle.items)
-  const [itemSearch, setItemSearch]   = useState('')
-
-  const filtered = inventory.filter(i => i.name.toLowerCase().includes(itemSearch.toLowerCase()))
-
-  function addBundleItem(inv: InventoryItem) {
-    if (bundleItems.find(bi => bi.inventoryId === inv.id)) return
-    setBundleItems(prev => [...prev, { inventoryId: inv.id, qty: 1, scaleWithSections: false }])
-    setItemSearch('')
-  }
-
-  function getName(id: string) { return inventory.find(i => i.id === id)?.name ?? id }
-  function getCost(id: string) { return inventory.find(i => i.id === id)?.unitCost ?? 0 }
-  const totalCost = bundleItems.reduce((sum, bi) => sum + bi.qty * getCost(bi.inventoryId), 0)
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5">
-      <div className="flex items-center justify-between">
-        <h3 className="font-bold text-gray-900">{bundle.id ? 'Edit Bundle' : 'New Bundle'}</h3>
-        <button onClick={onCancel} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-      </div>
-      <div className="space-y-3">
-        <div>
-          <label className="text-xs text-gray-500 mb-1 block">Bundle Name</label>
-          <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={name} onChange={e => setName(e.target.value)} />
-        </div>
-        <div>
-          <label className="text-xs text-gray-500 mb-1 block">Description</label>
-          <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={description} onChange={e => setDescription(e.target.value)} />
-        </div>
-      </div>
-      <div className="relative">
-        <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-          placeholder="Search inventory to add..." value={itemSearch} onChange={e => setItemSearch(e.target.value)} />
-        {itemSearch && (
-          <div className="absolute z-10 w-full bg-white border border-gray-200 rounded-lg mt-1 shadow-lg max-h-48 overflow-y-auto">
-            {filtered.slice(0, 12).map(inv => (
-              <button key={inv.id} onClick={() => addBundleItem(inv)} className="w-full text-left px-3 py-2 text-sm hover:bg-orange-50 flex justify-between">
-                <span className="truncate">{inv.name}</span>
-                <span className="text-gray-400 text-xs ml-2">{fmt(inv.unitCost)}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      {bundleItems.length > 0 && (
-        <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
-          <table className="w-full text-sm min-w-[520px]">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Item</th>
-                <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500 w-24">Qty</th>
-                <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-28">Scale</th>
-                <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500 w-24">Subtotal</th>
-                <th className="w-8" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {bundleItems.map(bi => (
-                <tr key={bi.inventoryId} className="group">
-                  <td className="px-3 py-2 text-xs">{getName(bi.inventoryId)}</td>
-                  <td className="px-3 py-2 text-right">
-                    <input type="number" min={0} step={0.5} className="w-20 text-right border border-gray-200 rounded px-2 py-1 text-xs"
-                      value={bi.qty} onChange={e => setBundleItems(prev => prev.map(b => b.inventoryId === bi.inventoryId ? { ...b, qty: parseFloat(e.target.value) || 0 } : b))} />
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <button onClick={() => setBundleItems(prev => prev.map(b => b.inventoryId === bi.inventoryId ? { ...b, scaleWithSections: !b.scaleWithSections } : b))}
-                      className={`text-xs px-2 py-0.5 rounded-full border ${bi.scaleWithSections ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-100 border-gray-200 text-gray-400'}`}>
-                      {bi.scaleWithSections ? '× sections' : 'fixed'}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-xs">{fmt(bi.qty * getCost(bi.inventoryId))}</td>
-                  <td className="px-2 py-2">
-                    <button onClick={() => setBundleItems(prev => prev.filter(b => b.inventoryId !== bi.inventoryId))}
-                      className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="bg-gray-50 px-3 py-2 flex justify-between border-t border-gray-200">
-            <span className="text-xs text-gray-500">{bundleItems.length} items</span>
-            <span className="text-sm font-bold">{fmt(totalCost)}</span>
-          </div>
-        </div>
-      )}
-      <div className="flex gap-2 pt-2">
-        <button onClick={onCancel} className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancel</button>
-        <button disabled={!name} onClick={() => onSave({ ...bundle, name, description, items: bundleItems })}
-          className="btn btn-primary flex-1">Save bundle</button>
-      </div>
-    </div>
-  )
-}
-
-function BundlesTab() {
-  const [bundles, setBundles]     = useState<Bundle[]>([])
-  const [inventory, setInventory] = useState<InventoryItem[]>([])
-  const [editing, setEditing]     = useState<Bundle | null>(null)
-
-  useEffect(() => { setBundles(getBundles()); setInventory(getInventory()) }, [])
-
-  function handleSave(b: Bundle) {
-    const updated = b.id ? bundles.map(x => x.id === b.id ? b : x) : [...bundles, { ...b, id: uid() }]
-    setBundles(updated); saveBundles(updated); setEditing(null)
-  }
-
-  function deleteBundle(id: string) {
-    if (!confirm('Delete this bundle?')) return
-    const updated = bundles.filter(b => b.id !== id)
-    setBundles(updated); saveBundles(updated)
-  }
-
-  function getName(id: string) { return inventory.find(i => i.id === id)?.name ?? id }
-  function getCost(id: string) { return inventory.find(i => i.id === id)?.unitCost ?? 0 }
-
-  if (editing) return <BundleEditor bundle={editing} inventory={inventory} onSave={handleSave} onCancel={() => setEditing(null)} />
-
-  return (
-    <div>
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-6">
-        <div>
-          <h2 className="text-lg font-bold text-gray-900">Bundles</h2>
-          <p className="text-sm text-gray-400 mt-0.5">Preset collections of inventory items for quotes.</p>
-        </div>
-        <button onClick={() => setEditing({ id: '', name: '', description: '', items: [] })}
-          className="btn btn-primary">+ New bundle</button>
-      </div>
-      {bundles.length === 0 ? (
-        <div className="text-center py-24 border border-dashed border-gray-200 rounded-2xl">
-          <p className="text-gray-400 text-sm mb-4">No bundles yet</p>
-          <button onClick={() => setEditing({ id: '', name: '', description: '', items: [] })} className="text-orange-500 hover:underline text-sm">Create your first bundle</button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {bundles.map(b => {
-            const totalCost = b.items.reduce((sum, bi) => sum + bi.qty * getCost(bi.inventoryId), 0)
-            return (
-              <div key={b.id} className="border border-gray-200 rounded-2xl p-5 hover:border-orange-200 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900">{b.name}</h3>
-                    {b.description && <p className="text-sm text-gray-400 mt-0.5">{b.description}</p>}
-                    <div className="flex gap-3 mt-2">
-                      <span className="text-xs text-gray-400">{b.items.length} items</span>
-                      <span className="text-xs font-semibold text-gray-700">{fmt(totalCost)} base cost</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 ml-4">
-                    <button onClick={() => setEditing(b)} className="btn btn-secondary">Edit</button>
-                    <button onClick={() => deleteBundle(b.id)} className="text-sm text-red-400 border border-red-100 rounded-lg px-3 py-1.5 hover:bg-red-50">Delete</button>
-                  </div>
-                </div>
-                <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-1">
-                  {b.items.slice(0, 6).map(bi => (
-                    <div key={bi.inventoryId} className="flex justify-between text-xs text-gray-500">
-                      <span className="truncate pr-2">{getName(bi.inventoryId)}</span>
-                      <span className="whitespace-nowrap">{bi.scaleWithSections ? `${bi.qty}×/sec` : `×${bi.qty}`}</span>
-                    </div>
-                  ))}
-                  {b.items.length > 6 && <div className="text-xs text-gray-400 col-span-2">+{b.items.length - 6} more</div>}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ═══════════════════════════════════════════════
-   MAIN PAGE
-   ═══════════════════════════════════════════════ */
-
-type InvTab = 'dashboard' | 'catalog' | 'stock' | 'transactions' | 'locations' | 'bundles'
+type InvTab = 'dashboard' | 'catalog' | 'stock' | 'transactions' | 'locations' | 'kits'
 
 const TAB_LABELS: { key: InvTab; label: string; icon: string }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: '📊' },
@@ -1054,7 +868,7 @@ const TAB_LABELS: { key: InvTab; label: string; icon: string }[] = [
   { key: 'stock', label: 'Stock In/Out', icon: '↕️' },
   { key: 'transactions', label: 'History', icon: '📜' },
   { key: 'locations', label: 'Locations', icon: '📍' },
-  { key: 'bundles', label: 'Bundles', icon: '🔗' },
+  { key: 'kits', label: 'Material Kits', icon: '🧰' },
 ]
 
 export default function AdminPage({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: () => void } = {}) {
@@ -1085,7 +899,7 @@ export default function AdminPage({ onlyIds, onShowAll }: { onlyIds?: string[]; 
         {tab === 'stock'        && <StockMovementTab />}
         {tab === 'transactions' && <TransactionsTab />}
         {tab === 'locations'    && <LocationsTab />}
-        {tab === 'bundles'      && <BundlesTab />}
+        {tab === 'kits'         && <MaterialKitsTab />}
       </div>
     </div>
   )

@@ -1916,6 +1916,8 @@ model InventoryState {
   locations    Json // InventoryLocation[]
   stockLevels  Json // StockLevel[]
   transactions Json // InventoryTransaction[]
+  // Material kits per style that Jonathan has saved (see web materialKits.ts); styles without one use the built in kits.
+  kits         Json     @default("[]")
   // Goes up by one on every save; a save built on an older version is refused (see lib/versioned.ts).
   version   Int      @default(1)
   createdAt    DateTime @default(now())

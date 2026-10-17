@@ -47,6 +47,8 @@ const inventorySchema = z.object({
   locations: z.array(z.any()).default([]),
   stockLevels: z.array(z.any()).default([]),
   transactions: z.array(z.any()).default([]),
+  // Optional so a phone still on the build before kits cannot wipe them.
+  kits: z.array(z.any()).optional(),
 })
 
 router.get('/', async (req: any, res) => {
@@ -83,6 +85,7 @@ router.put('/', async (req: any, res) => {
       locations: JSON.parse(JSON.stringify(data.locations)),
       stockLevels: JSON.parse(JSON.stringify(data.stockLevels)),
       transactions: JSON.parse(JSON.stringify(data.transactions)),
+      ...(data.kits ? { kits: JSON.parse(JSON.stringify(data.kits)) } : {}),
     }
     const done = await prisma.inventoryState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
     if (done.count === 0) {
@@ -98,6 +101,7 @@ router.put('/', async (req: any, res) => {
         locationsCount: data.locations.length,
         stockLevelsCount: data.stockLevels.length,
         transactionsCount: data.transactions.length,
+        kitsCount: data.kits?.length,
       },
     })
     res.json({ success: true, data: inv })
