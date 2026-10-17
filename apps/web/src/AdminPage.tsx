@@ -10,7 +10,11 @@ import {
   getInventorySummary,
   reverseTransaction,
   findItemByBarcode,
+  confirmItemPrices,
 } from './inventoryStore'
+import { getConfig } from './configStore'
+import { businessDate } from './businessDate'
+import { priceAge, priceAgeLabel, compareByPriceAge, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
 import BulkImportModal from './BulkImportModal'
 import { groupCatalog, NEW_ITEMS_GROUP } from './inventorySort'
 import { useMergedRefresh } from './useMergedRefresh'
@@ -155,7 +159,9 @@ function DashboardTab() {
    TAB: CATALOG (item list with stock columns)
    ═══════════════════════════════════════════════ */
 
-function CatalogTab() {
+type PriceFilter = 'all' | 'check' | 'unconfirmed' | 'old' | 'fresh'
+
+function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: () => void } = {}) {
   const [items, setItems]                   = useState<InventoryItem[]>([])
   const [levels, setLevels]                 = useState<StockLevel[]>([])
   const [search, setSearch]                 = useState('')
@@ -170,7 +176,12 @@ function CatalogTab() {
   // stays put while its name is edited and files into place on save.
   const [filedNames, setFiledNames]         = useState<Map<string, string>>(new Map())
   const [collapsed, setCollapsed]           = useState<Set<string>>(new Set())
+  const [priceFilter, setPriceFilter]       = useState<PriceFilter>('all')
+  const [sortBy, setSortBy]                 = useState<'category' | 'priceAge'>('category')
   const locations = useMemo(() => getLocations(), [])
+  const staleMonths = useMemo(() => getConfig().pricing.priceStaleMonths ?? DEFAULT_PRICE_STALE_MONTHS, [])
+  const today = businessDate(new Date())
+  const ageOf = (i: InventoryItem) => priceAge(i, today, staleMonths)
 
   function loadItems() {
     const inv = getInventory()
@@ -186,9 +197,28 @@ function CatalogTab() {
   const filtered = items.filter(i => {
     const matchCat  = category === 'All' || i.category === category
     const matchText = i.name.toLowerCase().includes(search.toLowerCase())
-    return matchCat && matchText
+    const age = ageOf(i)
+    const matchAge = priceFilter === 'all' || (priceFilter === 'check' ? age !== 'fresh' : age === priceFilter)
+    const matchOnly = !onlyIds || onlyIds.includes(i.id)
+    return matchCat && matchText && matchAge && matchOnly
   })
-  const groups = groupCatalog(filtered, filedNames, CATEGORIES)
+  const groups = sortBy === 'priceAge'
+    ? (filtered.length ? [{ key: 'Oldest price first', items: [...filtered].sort(compareByPriceAge) }] : [])
+    : groupCatalog(filtered, filedNames, CATEGORIES)
+  const toConfirm = filtered.filter(i => ageOf(i) !== 'fresh')
+
+  /** Confirm prices as they are: saved straight away, only the dates change. */
+  function confirmPrices(ids: string[]) {
+    if (!ids.length) return
+    confirmItemPrices(ids)
+    const set = new Set(ids)
+    setItems(prev => prev.map(i => set.has(i.id) ? { ...i, priceUpdatedAt: today, priceImported: false } : i))
+  }
+  function confirmShown() {
+    if (!toConfirm.length) return
+    if (!confirm(`Confirm the prices of these ${toConfirm.length} item${toConfirm.length === 1 ? '' : 's'} as they are today? Only the "Price last updated" date changes.`)) return
+    confirmPrices(toConfirm.map(i => i.id))
+  }
   // A search shows every match, even inside a group that was closed.
   const isCollapsed = (key: string) => !search && collapsed.has(key)
 
@@ -299,15 +329,44 @@ function CatalogTab() {
           <option value="All">All Categories</option>
           {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
+        <select data-price-filter aria-label="Price age"
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+          value={priceFilter} onChange={e => setPriceFilter(e.target.value as PriceFilter)}>
+          <option value="all">Any price date</option>
+          <option value="check">Prices to check</option>
+          <option value="old">Older than {staleMonths} months</option>
+          <option value="unconfirmed">Imported, not yet confirmed</option>
+          <option value="fresh">Confirmed in the last {staleMonths} months</option>
+        </select>
+        <select data-price-sort aria-label="Sort"
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+          value={sortBy} onChange={e => setSortBy(e.target.value as 'category' | 'priceAge')}>
+          <option value="category">By category, A to Z</option>
+          <option value="priceAge">Oldest price first</option>
+        </select>
       </div>
 
+      {onlyIds && (
+        <div className="flex flex-wrap items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 mb-4 text-sm text-amber-900" data-only-items>
+          <span>Showing the {onlyIds.length} part{onlyIds.length === 1 ? '' : 's'} from the quote whose price needs a look.</span>
+          {onShowAll && <button onClick={onShowAll} className="btn btn-quiet btn-sm">Show all items</button>}
+        </div>
+      )}
+      {toConfirm.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <p className="text-xs text-gray-500">{toConfirm.length} shown item{toConfirm.length === 1 ? '' : 's'} with a price older than {staleMonths} months or never confirmed.</p>
+          <button onClick={confirmShown} className="btn btn-quiet btn-sm" data-confirm-shown>Confirm these prices ({toConfirm.length})</button>
+        </div>
+      )}
+
       <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
+        <table className="w-full text-sm min-w-[820px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Item Name</th>
               <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-32">Category</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-28">Unit Cost</th>
+              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-44">Price last updated</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20">On Hand</th>
               <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-28">Thresholds</th>
               <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-24">Barcodes</th>
@@ -318,7 +377,7 @@ function CatalogTab() {
             {groups.map(group => (
               <React.Fragment key={group.key}>
               <tr className="bg-gray-50 cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleGroup(group.key)}>
-                <td colSpan={7} className="px-4 py-2">
+                <td colSpan={8} className="px-4 py-2">
                   <span className="text-gray-400 text-xs mr-2">{isCollapsed(group.key) ? '▸' : '▾'}</span>
                   <span className="text-xs font-bold text-gray-600">{group.key === NEW_ITEMS_GROUP ? 'New, not saved yet' : group.key}</span>
                   <span className="text-xs text-gray-400 ml-2">{group.items.length}</span>
@@ -350,6 +409,15 @@ function CatalogTab() {
                         <input type="number" step="0.01" min="0"
                           className="w-20 text-right border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
                           value={item.unitCost} onChange={e => updateItem(item.id, 'unitCost', parseFloat(e.target.value) || 0)} />
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5" data-price-age={ageOf(item)} data-price-item={item.id}>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs ${ageOf(item) === 'fresh' ? 'text-gray-600' : ageOf(item) === 'old' ? 'text-red-700 font-semibold' : 'text-amber-700'}`}>{priceAgeLabel(item)}</span>
+                        {ageOf(item) !== 'fresh' && (
+                          <button onClick={() => confirmPrices([item.id])} data-confirm-price
+                            className="text-xs px-2 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-orange-50 hover:border-orange-200 whitespace-nowrap">Confirm price</button>
+                        )}
                       </div>
                     </td>
                     <td className={`px-3 py-2.5 text-right font-bold text-xs ${qty < 0 ? 'text-red-500' : qty === 0 && hasStock ? 'text-gray-400' : 'text-gray-700'}`}>
@@ -389,7 +457,7 @@ function CatalogTab() {
                   </tr>
                   {isThresholdExpanded && (
                     <tr key={`${item.id}-thresholds`} className="bg-orange-50">
-                      <td colSpan={7} className="px-6 py-3">
+                      <td colSpan={8} className="px-6 py-3">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-xs font-semibold text-orange-700">Per-Location Reorder Points</span>
                           <span className="text-xs text-gray-400">— alert triggers when a location's qty drops to or below its threshold</span>
@@ -989,8 +1057,9 @@ const TAB_LABELS: { key: InvTab; label: string; icon: string }[] = [
   { key: 'bundles', label: 'Bundles', icon: '🔗' },
 ]
 
-export default function AdminPage() {
-  const [tab, setTab] = useState<InvTab>('dashboard')
+export default function AdminPage({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: () => void } = {}) {
+  // Opened from a quote's "Open in Inventory": straight to those items.
+  const [tab, setTab] = useState<InvTab>(onlyIds ? 'catalog' : 'dashboard')
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1012,7 +1081,7 @@ export default function AdminPage() {
         </div>
 
         {tab === 'dashboard'    && <DashboardTab />}
-        {tab === 'catalog'      && <CatalogTab />}
+        {tab === 'catalog'      && <CatalogTab onlyIds={onlyIds} onShowAll={onShowAll} />}
         {tab === 'stock'        && <StockMovementTab />}
         {tab === 'transactions' && <TransactionsTab />}
         {tab === 'locations'    && <LocationsTab />}

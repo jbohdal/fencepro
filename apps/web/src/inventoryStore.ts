@@ -11,6 +11,8 @@ import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from '.
 import { setMaterialPriceSource, normalizeItemName } from './materialCalculator'
 import { cloudStorage } from './cloudStorage'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { stampPriceChanges, confirmPrices as confirmPricesIn } from './priceAge'
+import { businessDate } from './businessDate'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const INV_EVT = 'fencepro:inventory:updated'
@@ -58,7 +60,7 @@ const invFlusher = createVersionedFlusher<InventoryStateBlob>({
   name: 'Inventory',
   isHydrated: () => invHydrated,
   get: () => invCache,
-  apply: next => { invCache = pickInventory(next); costIndexFor = null; invEmit() },
+  apply: next => { invCache = pickInventory(next); costIndexFor = null; rememberCosts(); invEmit() },
   save: (state, version) => versionedSave(`${AUTH_API}/api/inventory-state`, 'PUT', { ...state }, version, pickInventory),
 })
 function scheduleFlush() { invFlusher.schedule() }
@@ -106,6 +108,7 @@ export function initInventory(): Promise<void> {
     const migrated = await migrateLocalInventoryOnce(next, version)
     if (migrated) { next = migrated; version++ }
     invCache = next
+    rememberCosts()
     invFlusher.loaded(next, version)
     invHydrated = true
     invEmit()
@@ -132,6 +135,10 @@ export interface InventoryItem {
   supplier?: string
   unitOfMeasure?: string
   status?: 'active' | 'inactive' | 'discontinued'
+  /** YYYY-MM-DD: the day the cost last changed or was confirmed (see priceAge.ts). */
+  priceUpdatedAt?: string
+  /** Came in by import (price book, bulk import) and not confirmed since. */
+  priceImported?: boolean
   // Stock tracking
   qtyOnHand?: number
   reorderPoint?: number
@@ -431,15 +438,33 @@ export function getInventory(): InventoryItem[] {
   return invCache.items.length > 0 ? (invCache.items as InventoryItem[]) : DEFAULT_INVENTORY
 }
 
-export function saveInventory(items: InventoryItem[]): void {
-  invCache.items = items
+/** Each item's cost as last loaded or saved, to tell which prices a save changed. */
+let lastCosts = new Map<string, number>()
+function rememberCosts() { lastCosts = new Map(getInventory().map(i => [i.id, Number(i.unitCost)])) }
+
+/**
+ * Save the item list. Any item whose cost changed gets today's date as its
+ * "Price last updated"; from a bulk import (`imported`) it is marked
+ * "imported, not yet confirmed" instead.
+ */
+export function saveInventory(items: InventoryItem[], opts: { imported?: boolean } = {}): void {
+  invCache.items = stampPriceChanges(items, lastCosts, businessDate(new Date()), !!opts.imported)
+  rememberCosts()
   costIndexFor = null // costs may have changed, even if the array was edited in place
   invEmit()
   scheduleFlush()
 }
 
+/** Confirm these items' prices as they are: the date becomes today. */
+export function confirmItemPrices(ids: Iterable<string>): void {
+  invCache.items = confirmPricesIn(getInventory(), new Set(ids), businessDate(new Date()))
+  costIndexFor = null
+  invEmit()
+  scheduleFlush()
+}
+
 export function resetInventory(): void {
-  saveInventory(DEFAULT_INVENTORY)
+  saveInventory(DEFAULT_INVENTORY.map(i => ({ ...i, priceImported: true })), { imported: true })
 }
 
 export function getBundles(): Bundle[] {

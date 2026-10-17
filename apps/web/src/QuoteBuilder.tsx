@@ -3,7 +3,9 @@ import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
 import { resolveSubRate, cleanOverrides } from './pricingEngine'
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
-import { INVENTORY_UPDATED_EVENT } from './inventoryStore'
+import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
+import { normalizeItemName } from './materialCalculator'
+import { stalePartsOnQuote, priceAgeLabel, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
 import { newId } from './recordSync'
 import type { SavedQuote } from './QuotesPage'
 import QuoteOptionsPanel from './QuoteOptionsPanel'
@@ -27,7 +29,7 @@ import { compareStyles, priceOption, buildProposal, optionLabel } from './propos
 import { resolveTiers, tierOptions, isVinylStyle, DEFAULT_TIERS, DEFAULT_POPULAR, type TierPrefs, type TierKey } from './tiers'
 import { getContractSections } from './contractStore'
 import { listStylePhotos } from './stylePhotosApi'
-import { useBackLayer, useLeaveWarning, BackClose } from './nav'
+import { useBackLayer, useLeaveWarning, BackClose, navigate } from './nav'
 import PercentField from './PercentField'
 import { targetMarginPct, overheadPctOf } from './configStore'
 import DollarPickets from './DollarPickets'
@@ -563,6 +565,11 @@ export default function QuoteBuilder({
   const compareRows = useMemo(() => (showCompare && style && sections > 0
     ? compareStyles(style, FENCE_STYLES).map(s => ({ style: s, option: priceOption(calcInput, s) }))
     : []), [showCompare, style, sections, JSON.stringify(calcInput), invTick])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Parts whose Inventory price is old or was never confirmed: a warning, never a block.
+  const staleMonths = cfg.pricing.priceStaleMonths ?? DEFAULT_PRICE_STALE_MONTHS
+  const staleParts = useMemo(() => (style
+    ? stalePartsOnQuote(materialItems.filter(i => i.qty > 0).map(i => i.item), getInventory(), businessDate(new Date()), staleMonths, normalizeItemName)
+    : []), [style, materialItems, invTick, staleMonths])  // eslint-disable-line react-hooks/exhaustive-deps
   const quoteWarnings = [
     ...(style ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout ? gateChecks(yard) : []),
@@ -1088,6 +1095,22 @@ export default function QuoteBuilder({
                   {quoteWarnings.map((w, i) => (
                     <p key={i} className="text-xs text-amber-800 leading-snug">{w}</p>
                   ))}
+                </div>
+              )}
+
+              {staleParts.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5" data-stale-prices>
+                  <p className="text-xs font-semibold text-amber-800">
+                    {staleParts.length} part{staleParts.length === 1 ? '' : 's'} on this quote {staleParts.length === 1 ? 'has a price' : 'have prices'} older than {staleMonths} months or never confirmed
+                  </p>
+                  {staleParts.slice(0, 6).map(({ item }) => (
+                    <p key={item.id} className="text-xs text-amber-800 leading-snug" data-stale-part={item.name}>{item.name.replace(/^\*/, '')} · {priceAgeLabel(item)}</p>
+                  ))}
+                  {staleParts.length > 6 && <p className="text-xs text-amber-800">and {staleParts.length - 6} more</p>}
+                  <button type="button" className="btn btn-quiet btn-sm" data-stale-open
+                    onClick={() => { if (okToLeave()) navigate(`/inventory?items=${encodeURIComponent(staleParts.map(p => p.item.id).join(','))}`) }}>
+                    Open in Inventory
+                  </button>
                 </div>
               )}
 

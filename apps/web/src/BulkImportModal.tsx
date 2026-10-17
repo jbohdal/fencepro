@@ -147,7 +147,7 @@ export default function BulkImportModal({ onClose, onComplete }: { onClose: () =
       }
     }
 
-    saveInventory(inventory)
+    saveInventory(inventory, { imported: true })
     setResult(result)
 
     // Save import log

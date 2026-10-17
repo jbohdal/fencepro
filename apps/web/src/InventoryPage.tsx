@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react'
 import AdminPage from './AdminPage'
 import PendingOrdersPage from './PendingOrdersPage'
 import { getPendingOrders, updatePendingOrderStatus, type PendingOrderStatus } from './pendingOrderStore'
+import { replaceUrl } from './nav'
 
 type InvTab = 'items' | 'sales_orders' | 'operations'
 
@@ -16,6 +17,12 @@ const fmt = (c: number) =>
 
 export default function InventoryPage() {
   const [tab, setTab] = useState<InvTab>('items')
+  // ?items=a,b: opened from a quote's price warning, showing just those parts.
+  const [onlyIds, setOnlyIds] = useState<string[] | undefined>(() => {
+    const ids = new URLSearchParams(window.location.search).get('items')
+    return ids ? ids.split(',').filter(Boolean) : undefined
+  })
+  function showAll() { setOnlyIds(undefined); replaceUrl(window.location.pathname) }
 
   return (
     <div className="space-y-5">
@@ -39,7 +46,7 @@ export default function InventoryPage() {
         ))}
       </div>
 
-      {tab === 'items' && <AdminPage />}
+      {tab === 'items' && <AdminPage onlyIds={onlyIds} onShowAll={showAll} />}
       {tab === 'sales_orders' && <PendingOrdersPage />}
       {tab === 'operations' && <OperationsView />}
     </div>

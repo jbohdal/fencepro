@@ -68,6 +68,8 @@ export interface PricingConfig {
   liveOverhead?: { on: boolean; basis: 'last12' | 'projection' }
   /** Live overhead as it was each month, for the "moved more than 3 points" warning. */
   overheadHistory?: Array<{ month: string; pct: number }>
+  /** A quote warns when a part's Inventory price is older than this many months (default 6). */
+  priceStaleMonths?: number
 }
 
 export interface MarginThresholds {

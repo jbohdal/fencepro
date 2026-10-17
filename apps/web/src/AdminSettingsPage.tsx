@@ -1,6 +1,7 @@
 import PercentField from './PercentField'
 import { liveOverhead, overheadMoved } from './liveOverhead'
 import { businessDate } from './businessDate'
+import { DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
 import { useState, useEffect } from 'react'
 import {
   getConfig, saveConfig, resetConfig, getDefaultConfig, overheadPctOf, DEFAULT_OVERHEAD_PCT,
@@ -231,6 +232,19 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
               <option value="included">Taken out of the price</option>
               <option value="added">Added on top of the price</option>
             </select>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-xs font-semibold text-gray-500 mb-1">Material prices</h3>
+        <p className="text-xs text-gray-400 mb-4">A quote warns (it never stops you) when a part's price in Inventory is older than this, or was imported and never confirmed.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Price is old after (months)</label>
+            <input type="number" min={1} max={36} step={1} className={inputCls} data-price-stale-months
+              value={p.priceStaleMonths ?? DEFAULT_PRICE_STALE_MONTHS}
+              onChange={e => { const n = Math.round(Number(e.target.value)); if (n >= 1 && n <= 36) setP('priceStaleMonths', n) }} />
           </div>
         </div>
       </div>
