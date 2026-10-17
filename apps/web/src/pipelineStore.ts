@@ -1,86 +1,64 @@
 /**
- * Sales pipeline store — in memory cache backed by /api/pipeline.
+ * Sales pipeline store — in memory copy backed by /api/pipeline.
  *
- * Replaces `localStorage.fencepro_pipeline` (the canonical pipeline state of
- * leads + stages). UI prefs like collapsed stages, view mode, sort, and
- * analytics-open in SalesPipelineBoard remain in localStorage on purpose —
- * those are per-browser preferences, not company canonical data.
+ * Every change (a new card, a stage move, an edit) becomes "what changed"
+ * (pipelineDelta) and goes through the outbox: kept on the phone until the
+ * server confirms it, sent in order, and sent again after no signal. Each send
+ * says which version of the pipeline it was built on; if another device saved
+ * first, the newest copy is taken, this phone's waiting changes are put back
+ * on top of it, and the change goes again.
+ *
+ * A new customer's card is not sent here: it travels with the customer in one
+ * save (customerStore), so the two are saved together or not at all.
+ *
+ * UI prefs like collapsed stages, view mode, sort and analytics-open stay in
+ * localStorage in SalesPipelineBoard: per browser preferences, not company data.
  */
 
-import { getAccessToken, fetchWithAuth } from './crmAuth'
-import { toast } from './toast'
-import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
-import { LOCAL_API_ORIGIN } from './apiOrigin'
-import { diffPipeline } from './pipelineDelta'
+import { getAccessToken } from './crmAuth'
+import { applyPipelineDelta, diffPipeline, type PipelineDelta } from './pipelineDelta'
+import { registerKind, enqueue, pendingFor, allOps, type Op } from './outbox'
+import { sendJson } from './syncHttp'
 
-const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const EVT = 'fencepro:pipeline:updated'
-const LEGACY_KEY = 'fencepro_pipeline'
-const MIGRATION_FLAG = 'fencepro_pipeline_db_migrated_v1'
 
-let cache: { leads: any[]; stages: any[] } = { leads: [], stages: [] }
+type PipelineDoc = { leads: any[]; stages: any[] }
+let cache: PipelineDoc = { leads: [], stages: [] }
+/** What the server has, plus every change already handed to the outbox. */
+let base: PipelineDoc = { leads: [], stages: [] }
+let version = 0
 let initPromise: Promise<void> | null = null
 let hydrated = false
+let timer: ReturnType<typeof setTimeout> | null = null
 
-async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
-  const token = getAccessToken()
-  if (!token) return { ok: false, error: 'Not authenticated' }
-  try {
-    const res = await fetchWithAuth(`${AUTH_API}/api/pipeline`, {
-      method,
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-    })
-    if (res.status === 401) return { ok: false, error: 'Session expired' }
-    const json = await res.json().catch(() => ({}))
-    if (!res.ok || json?.success === false) return { ok: false, error: json?.error || `HTTP ${res.status}` }
-    return { ok: true, data: json.data as T }
-  } catch (err) {
-    return { ok: false, error: (err as Error).message || 'Network error' }
-  }
-}
+const clone = (d: PipelineDoc): PipelineDoc => JSON.parse(JSON.stringify(d))
+const pick = (d: any): PipelineDoc => ({ leads: Array.isArray(d?.leads) ? d.leads : [], stages: Array.isArray(d?.stages) ? d.stages : [] })
+function emit() { try { window.dispatchEvent(new CustomEvent(EVT)) } catch { /* no window */ } }
 
-/** Optional, opt in. Old browser data only moves up if the server has no pipeline at all. */
-async function migrateLocalPipelineOnce(server: { leads: any[]; stages: any[] }, version: number): Promise<{ leads: any[]; stages: any[] } | null> {
-  if (!legacyMigrationEnabled()) return null
-  if (localStorage.getItem(MIGRATION_FLAG) === '1') return null
-  if (!getAccessToken()) return null
-  if (server.leads.length || server.stages.length) { localStorage.setItem(MIGRATION_FLAG, '1'); return null }
-  try {
-    const raw = localStorage.getItem(LEGACY_KEY)
-    const blob = raw ? JSON.parse(raw) : null
-    if (!blob || (!blob.leads?.length && !blob.stages?.length)) {
-      localStorage.setItem(MIGRATION_FLAG, '1')
-      return null
+/** The server's copy with this phone's waiting changes on top. */
+function withPending(server: PipelineDoc): PipelineDoc {
+  let doc = clone(server)
+  for (const op of allOps()) {
+    if (op.kind === 'customer.create' && op.payload?.lead && !doc.leads.some(l => l?.id === op.payload.lead.id)) {
+      doc = { ...doc, leads: [op.payload.lead, ...doc.leads] }
     }
-    const next = { leads: blob.leads || [], stages: blob.stages || [] }
-    const r = await call<any>('PUT', { ...next, baseVersion: version })
-    if (!r.ok) return null
-    localStorage.setItem(MIGRATION_FLAG, '1')
-    toast.info('Pipeline synced to cloud', `${next.leads.length} leads migrated.`)
-    return next
-  } catch { return null }
+    if (op.kind === 'pipeline.delta') doc = applyPipelineDelta(doc, op.payload as PipelineDelta)
+  }
+  return doc
 }
-
-function emit() { try { window.dispatchEvent(new CustomEvent(EVT)) } catch {} }
 
 export function initPipeline(): Promise<void> {
   if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    const r = await call<{ leads: any[]; stages: any[] }>('GET')
-    if (!r.ok || !r.data) return
-    let next = { leads: Array.isArray(r.data.leads) ? r.data.leads : [], stages: Array.isArray(r.data.stages) ? r.data.stages : [] }
-    let version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
-    const migrated = await migrateLocalPipelineOnce(next, version)
-    if (migrated) { next = migrated; version++ }
-    cache = next
-    flusher.loaded(next, version)
+    if (!getAccessToken()) return
+    const r = await sendJson('GET', '/api/pipeline')
+    if (!r.result.ok || !r.json?.data) return
+    version = typeof r.json.data.version === 'number' ? r.json.data.version : 0
+    cache = withPending(pick(r.json.data))
+    base = clone(cache)
     hydrated = true
     emit()
-    if (legacyMigrationEnabled() && localStorage.getItem(MIGRATION_FLAG) === '1') {
-      try { localStorage.removeItem(LEGACY_KEY) } catch {}
-    }
   })().finally(() => { if (!hydrated) initPromise = null })
   return initPromise
 }
@@ -88,36 +66,100 @@ export function initPipeline(): Promise<void> {
 /** True once the pipeline has loaded from the server. */
 export function isPipelineHydrated(): boolean { return hydrated }
 
-// The whole pipeline is one server record. It is only written after it has
-// loaded, a save sends just the cards that changed, and every save is version
-// checked: if another tab or device saved
-// first, this tab's change is put on top of the newest copy (see syncGuard).
-type PipelineDoc = { leads: any[]; stages: any[] }
-const pickPipeline = (d: any): PipelineDoc => ({ leads: Array.isArray(d?.leads) ? d.leads : [], stages: Array.isArray(d?.stages) ? d.stages : [] })
-const flusher = createVersionedFlusher<PipelineDoc>({
-  name: 'Sales pipeline',
-  isHydrated: () => hydrated,
-  debounceMs: 150,
-  get: () => ({ leads: cache.leads, stages: cache.stages }),
-  apply: next => { cache = pickPipeline(next); emit() },
-  // Only the cards that changed are sent. The whole pipeline goes only when
-  // the change cannot be said card by card.
-  save: (state, version, base) => {
-    const delta = diffPipeline(base, state)
-    return delta
-      ? versionedSave(`${AUTH_API}/api/pipeline`, 'PATCH', { ...delta }, version, pickPipeline)
-      : versionedSave(`${AUTH_API}/api/pipeline`, 'PUT', state, version, pickPipeline)
-  },
-})
-
 export function getPipeline(): { leads: any[]; stages: any[] } {
   return cache
 }
 
+/** Show a change on screen now and hand it to the outbox. */
 export function savePipeline(leads: any[], stages: any[]): void {
   cache = { leads, stages }
   emit()
-  flusher.schedule()
+  if (timer) clearTimeout(timer)
+  timer = setTimeout(queueChanges, 120)
 }
 
+function describe(d: PipelineDelta): string {
+  const name = (l: any) => `${l?.firstName ?? ''} ${l?.lastName ?? ''}`.trim() || 'a card'
+  const moved = d.upsert.map(u => {
+    const was = base.leads.find(l => l?.id === u.lead.id)
+    return was && was.stage !== u.lead.stage ? `${name(u.lead)} moved to ${u.lead.stage}` : was ? `${name(u.lead)} changed` : `${name(u.lead)} added`
+  })
+  const parts = [...moved, ...(d.remove.length ? [`${d.remove.length} card${d.remove.length === 1 ? '' : 's'} removed`] : []), ...(d.stages ? ['stages changed'] : [])]
+  return `Pipeline: ${parts.slice(0, 3).join(', ')}${parts.length > 3 ? ` and ${parts.length - 3} more` : ''}`
+}
+
+function queueChanges() {
+  timer = null
+  if (!hydrated) { timer = setTimeout(queueChanges, 500); return }
+  let delta = diffPipeline(base, cache)
+  // Only reordered, or cards without ids: say it as every card plus the stage list.
+  if (!delta) delta = { upsert: cache.leads.filter(l => l?.id).map(lead => ({ lead })), remove: base.leads.filter(l => l?.id && !cache.leads.some(c => c?.id === l.id)).map(l => l.id), stages: cache.stages }
+  if (!delta.upsert.length && !delta.remove.length && !delta.stages) return
+  // A card for a customer that is still on its way waits for that customer.
+  const waitFor = new Set<string>()
+  for (const u of delta.upsert) {
+    const cid = u.lead?.customerId
+    if (cid && pendingFor(`customer:${cid}`).some(o => o.kind === 'customer.create')) waitFor.add(`customer:${cid}`)
+  }
+  const label = describe(delta)
+  base = clone(cache)
+  void enqueue({ key: 'pipeline', kind: 'pipeline.delta', payload: delta, label, after: [...waitFor], coalesce: false })
+}
+
+/**
+ * A new customer's card, shown now. It is sent with the customer (one save),
+ * so it is added here without a change of its own. Returns the card it sits in
+ * front of, for the server to put it in the same place.
+ */
+export function addCardWithCustomer(lead: any): string | null {
+  const before = cache.leads[0]?.id ?? null
+  cache = { ...cache, leads: [lead, ...cache.leads] }
+  base = { ...base, leads: [JSON.parse(JSON.stringify(lead)), ...base.leads] }
+  emit()
+  return before
+}
+
+/** The server saved a new customer's card: its pipeline is now at `v`. */
+export function pipelineSavedElsewhere(v: number | null | undefined) {
+  if (typeof v !== 'number') return
+  // Only this phone's card went in since the version known here: carry on from there.
+  if (v === version + 1) version = v
+}
+
+registerKind<PipelineDelta>('pipeline.delta', {
+  what: () => 'This pipeline change',
+  send: async (op: Op<PipelineDelta>) => {
+    await initPipeline()
+    if (!hydrated) return { ok: false, status: 0, error: 'not loaded' }
+    const r = await sendJson('PATCH', '/api/pipeline', { ...op.payload, baseVersion: version })
+    if (r.result.ok) {
+      if (typeof r.json?.version === 'number') version = r.json.version
+      return r.result
+    }
+    if (r.status === 409 && r.json?.code === 'STALE_VERSION') {
+      // Another device saved first: take theirs, put this phone's waiting changes back on top, go again.
+      version = typeof r.json.version === 'number' ? r.json.version : version
+      cache = withPending(pick(r.json.data))
+      base = clone(cache)
+      emit()
+      return { ok: false, status: 409, retryNow: true }
+    }
+    return r.result
+  },
+  apply: () => { /* put back by withPending when the pipeline loads */ },
+})
+
 export const PIPELINE_UPDATED_EVENT = EVT
+
+/** Read the board again (the server moves cards on its own: a customer accepting online). This phone's waiting changes stay on top. */
+export async function refreshPipeline(): Promise<void> {
+  if (!hydrated || timer) return
+  // Only the version is compared first: an unchanged board costs almost nothing to check.
+  const r = await sendJson('GET', `/api/pipeline?version=${version}`)
+  if (!r.result.ok || r.json?.unchanged || !r.json?.data || timer) return
+  if (typeof r.json.data.version === 'number' && r.json.data.version === version) return
+  version = typeof r.json.data.version === 'number' ? r.json.data.version : version
+  cache = withPending(pick(r.json.data))
+  base = clone(cache)
+  emit()
+}

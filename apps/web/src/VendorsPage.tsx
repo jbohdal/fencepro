@@ -16,6 +16,7 @@ import {
 import AddressAutocomplete from './AddressAutocomplete'
 import { toast } from './toast'
 import { useBackLayer } from './nav'
+import { businessDate } from './businessDate'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(c / 100)
@@ -335,7 +336,7 @@ function VendorForm({ initial, onCancel, onSaved }: { initial: VendorContact | n
       <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">{initial ? 'Edit' : 'New'} Vendor</h3>
-          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+          <button onClick={onCancel} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
         <div className="p-6 space-y-4">
           <Field label="Vendor Name *"><input value={name} onChange={e => setName(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>
@@ -386,7 +387,7 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
 }) {
   useBackLayer(onCancel, { key: 'bill-form' })
   const [billNumber, setBillNumber] = useState(initial?.billNumber ?? '')
-  const [billDate, setBillDate] = useState(initial?.billDate ?? new Date().toISOString().slice(0, 10))
+  const [billDate, setBillDate] = useState(initial?.billDate ?? businessDate(new Date()))
   const [dueDate, setDueDate] = useState(initial?.dueDate ?? computeDueDate(vendor.paymentTerms))
   const [category, setCategory] = useState<VendorBillCategory>(initial?.category ?? 'materials')
   const [jobId, setJobId] = useState(initial?.jobId ?? '')
@@ -439,7 +440,7 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
       <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">{initial ? 'Edit' : 'New'} Bill · {vendor.name}</h3>
-          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+          <button onClick={onCancel} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-3 gap-3">
@@ -531,7 +532,7 @@ function PaymentForm({ bill, vendor, onCancel, onSaved }: { bill: VendorBill; ve
   const [amount, setAmount] = useState((bill.balanceDueCents / 100).toFixed(2))
   const [paymentMethod, setPaymentMethod] = useState<VendorPaymentMethod>('check')
   const [referenceNumber, setReferenceNumber] = useState('')
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10))
+  const [paymentDate, setPaymentDate] = useState(businessDate(new Date()))
   const [notes, setNotes] = useState('')
 
   function handleSave() {
@@ -551,7 +552,7 @@ function PaymentForm({ bill, vendor, onCancel, onSaved }: { bill: VendorBill; ve
       <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
-          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+          <button onClick={onCancel} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
         <div className="p-6 space-y-4">
           <div className="bg-gray-50 rounded-lg p-3 text-sm">

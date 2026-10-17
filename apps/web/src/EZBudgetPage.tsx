@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { plainText } from './plainError'
 
 const API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/ez-budget'
 const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -189,7 +190,7 @@ function ServicesTab() {
       else await api(`/services/${editing}`, { method: 'PATCH', body: JSON.stringify(body) })
       setEditing(null)
       load()
-    } catch (err: any) { alert(err.message) }
+    } catch (err: any) { alert(plainText(err)) }
   }
 
   async function del(id: string) {

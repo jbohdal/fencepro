@@ -277,7 +277,7 @@ function Lightbox({ photos, index, onClose, onPrev, onNext }: {
   }, [onClose, onPrev, onNext])
   return (
     <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-6" onClick={onClose}>
-      <button onClick={onClose} className="absolute top-4 right-4 text-white/70 hover:text-white text-3xl">×</button>
+      <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center absolute top-4 right-4 text-white/70 hover:text-white text-3xl">×</button>
       <button onClick={(e) => { e.stopPropagation(); onPrev() }} disabled={index === 0}
         className="absolute left-4 text-white/70 hover:text-white disabled:opacity-30 text-4xl">‹</button>
       <button onClick={(e) => { e.stopPropagation(); onNext() }} disabled={index === photos.length - 1}

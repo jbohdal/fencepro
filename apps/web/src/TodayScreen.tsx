@@ -204,7 +204,7 @@ export function OutcomeForm({ a, onClose }: { a: Appointment; onClose: () => voi
       <div onClick={e => e.stopPropagation()} className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-3 max-h-[92vh] overflow-y-auto" data-outcome-form>
         <div className="flex items-center justify-between">
           <h2 className="text-base font-bold text-gray-900">How did it go? <span className="font-normal text-gray-500">{a.customerName}</span></h2>
-          <button onClick={onClose} aria-label="Close" className="text-gray-400 text-xl px-2">✕</button>
+          <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 text-xl px-2">✕</button>
         </div>
         <div className="grid grid-cols-2 gap-2">
           {OUTCOME_CHOICES.map(o => (

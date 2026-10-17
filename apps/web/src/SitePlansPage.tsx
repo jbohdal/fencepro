@@ -9,6 +9,7 @@ import SitePlanTool from './SitePlanTool'
 import { getCustomers } from './customerStore'
 import { cloudStorage } from './cloudStorage'
 import { BackClose } from './nav'
+import { businessDate } from './businessDate'
 
 interface SavedPlan {
   id: string
@@ -81,7 +82,7 @@ export default function SitePlansPage() {
           type: 'Site Plan',
           size: `${plan.lines?.length || 0} lines · ${plan.markers?.length || 0} markers`,
           siteplanId: plan.id,
-          uploadedAt: new Date().toISOString().slice(0, 10),
+          uploadedAt: businessDate(new Date()),
           uploadedBy: 'site plan tool',
         })
         cloudStorage.setItem('fencepro_files', JSON.stringify(files))

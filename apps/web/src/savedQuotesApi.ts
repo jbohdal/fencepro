@@ -13,6 +13,7 @@ import { toast } from './toast'
 import type { LineItem } from './materialCalculator'
 import type { QuotePricingOverrides } from './pricingEngine'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { plainError, plainThrown } from './plainError'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
@@ -91,21 +92,21 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
       },
       body: body ? JSON.stringify(body) : undefined,
     })
-    if (res.status === 401) return { ok: false, error: 'Session expired' }
+    if (res.status === 401) return { ok: false, error: plainError(401).message }
     const json = await res.json().catch(() => ({}))
     if (!res.ok || json?.success === false) {
-      return { ok: false, error: json?.error || `HTTP ${res.status}` }
+      return { ok: false, error: plainError(res.status, json?.error).message }
     }
     return { ok: true, data: json.data as T }
   } catch (err) {
-    return { ok: false, error: (err as Error).message || 'Network error' }
+    return { ok: false, error: plainThrown(err).message }
   }
 }
 
 export async function listSavedQuotes(): Promise<SavedQuoteRecord[] | null> {
   const r = await call<SavedQuoteRecord[]>('GET', '/')
   if (!r.ok) {
-    toast.error('Could not load quotes from cloud', `${r.error || 'Network error'}`)
+    toast.error('Could not load quotes from cloud', r.error || plainError(0).message)
     return null
   }
   return r.data || []
@@ -119,7 +120,7 @@ export async function getSavedQuote(id: string): Promise<SavedQuoteRecord | null
 export async function createSavedQuote(payload: SavedQuotePayload): Promise<SavedQuoteRecord | null> {
   const r = await call<SavedQuoteRecord>('POST', '/', payload)
   if (!r.ok) {
-    toast.error('Quote not saved to cloud', `${r.error || 'Network error'} — your local copy is preserved.`)
+    toast.error('Quote not saved to cloud', r.error || plainError(0).message)
     return null
   }
   return r.data || null
@@ -128,7 +129,7 @@ export async function createSavedQuote(payload: SavedQuotePayload): Promise<Save
 export async function updateSavedQuote(id: string, payload: SavedQuotePayload): Promise<SavedQuoteRecord | null> {
   const r = await call<SavedQuoteRecord>('PATCH', `/${id}`, payload)
   if (!r.ok) {
-    toast.error('Quote update not saved to cloud', `${r.error || 'Network error'}`)
+    toast.error('Quote update not saved to cloud', r.error || plainError(0).message)
     return null
   }
   return r.data || null
@@ -137,7 +138,7 @@ export async function updateSavedQuote(id: string, payload: SavedQuotePayload): 
 export async function archiveSavedQuote(id: string): Promise<boolean> {
   const r = await call('DELETE', `/${id}`)
   if (!r.ok) {
-    toast.error('Quote not deleted from cloud', `${r.error || 'Network error'} — it will reappear on next reload.`)
+    toast.error('Quote not deleted from cloud', r.error || plainError(0).message)
   }
   return r.ok
 }

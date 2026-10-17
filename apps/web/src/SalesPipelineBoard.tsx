@@ -37,14 +37,21 @@ import PipelineCardWindow, { type QuoteCustomer } from './PipelineCardWindow'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import type { SavedQuote } from './QuotesPage'
 import { navigate, useNav, useScreenMemory, takeOpenedParam, BackClose } from './nav'
+import { refreshNow } from './liveRefresh'
+import { businessDate } from './businessDate'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
-const TODAY = () => new Date().toISOString().slice(0, 10)
+const TODAY = () => businessDate(new Date())
 
 function relTime(iso?: string): string {
   if (!iso) return '—'
+  // A plain date (most cards): whole days, counted in Florida.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const days = Math.round((Date.parse(businessDate(new Date())) - Date.parse(iso)) / 86_400_000)
+    return days <= 0 ? 'today' : days < 30 ? `${days}d ago` : `${Math.floor(days / 30)}mo ago`
+  }
   const ms = Date.now() - new Date(iso).getTime()
   const m = Math.floor(ms / 60000)
   if (m < 60) return `${Math.max(1, m)}m ago`
@@ -150,6 +157,8 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     columnTops: Object.fromEntries(columnScrollers().map(c => [c.key, c.el?.scrollTop ?? 0])),
   }))
   const [leads, setLeads] = useState<PipelineLead[]>(initial.leads)
+  // Opened: read the newest copy (a job sold online, a card moved by the server).
+  useEffect(() => { void refreshNow() }, [])
   const [stages, setStages] = useState<string[]>(initial.stages)
 
   const [view, setView] = useState<ViewMode>(() => (localStorage.getItem(VIEW_KEY) as ViewMode) || 'board')
@@ -446,8 +455,8 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     }
   }
 
-  function handleAddLead(lead: PipelineLead) {
-    persist([lead, ...leads])
+  function handleAddLead(lead: PipelineLead | null) {
+    if (lead) persist([lead, ...leads])
     setAddingToStage(null)
   }
 
@@ -770,12 +779,12 @@ function PipelineCard({
           {relTime(lead.lastMoved || lead.createdAt)}
           <button
             onClick={e => { e.stopPropagation(); onBook() }}
-            className="px-1 rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50"
+            className="w-12 h-12 grid place-items-center rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50"
             title="Book appointment" aria-label="Book appointment" data-card-book
           ><CalendarPlus size={16} aria-hidden="true" /></button>
           <button
             onClick={e => { e.stopPropagation(); onQuickView() }}
-            className="px-1 rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50"
+            className="w-12 h-12 grid place-items-center rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50"
             title="Quick view" aria-label="Quick view"
           ><Eye size={16} aria-hidden="true" /></button>
         </span>
@@ -924,7 +933,7 @@ function ViewToggle({ value, onChange }: { value: ViewMode; onChange: (v: ViewMo
     <div className="flex bg-gray-100 rounded-lg p-0.5">
       {(['board', 'list'] as const).map(v => (
         <button key={v} onClick={() => onChange(v)}
-          className={`px-3 h-8 rounded-md text-sm font-semibold capitalize transition ${value === v ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'}`}>
+          className={`px-3 min-h-[48px] min-w-[48px] rounded-md text-sm font-semibold capitalize transition ${value === v ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'}`}>
           {v}
         </button>
       ))}

@@ -9,6 +9,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { plainText } from './plainError'
+import { businessDate } from './businessDate'
 
 const API_BASE = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
@@ -63,7 +65,7 @@ export default function AuditLogPage() {
       const res = await fetchWithAuth(`${API_BASE}/api/admin/audit-log?${queryString}`)
       if (res.status === 403) { setError('Admin access required'); return }
       const json = await res.json()
-      if (!json.success) { setError(json.error || 'Failed to load'); return }
+      if (!json.success) { setError(plainText(json.error)); return }
       setRows(json.data.rows)
       setTotal(json.data.total)
     } catch (err) {
@@ -87,7 +89,7 @@ export default function AuditLogPage() {
         const url = URL.createObjectURL(blob)
         const link = document.createElement('a')
         link.href = url
-        link.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
+        link.download = `audit-log-${businessDate(new Date())}.csv`
         link.click()
         URL.revokeObjectURL(url)
       })

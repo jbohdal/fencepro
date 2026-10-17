@@ -197,19 +197,27 @@ function openLayer(l: Layer) {
   })
 }
 
+let reconcileQueued = false
 function closeLayer(l: Layer) {
   l.mounted = false
   // React checks a new component by closing and reopening it at once in
   // development; only a window still closed a moment later is really closed.
+  // Windows that close together (a save form and the quote under it) are
+  // handled together, so all their entries go in one step.
+  if (reconcileQueued) return
+  reconcileQueued = true
   queueMicrotask(() => {
-    if (l.mounted || l.gone) return
-    l.gone = true
-    const at = layers.indexOf(l)
-    if (at < 0) return
-    layers.splice(at, 1)
+    reconcileQueued = false
+    const closed = layers.filter(x => !x.mounted && !x.gone)
+    if (!closed.length) return
+    for (const x of closed) { x.gone = true; layers.splice(layers.indexOf(x), 1) }
     const st = state()
-    // Closed by its own button: take its entry with it.
-    if (l.entryI !== null && st?.i === l.entryI) goBackOurselves()
+    const owned = closed.map(x => x.entryI).filter((i): i is number => i !== null)
+    if (!st || !owned.length) return
+    const lowest = Math.min(...owned)
+    // Closed by their own buttons: take their entries with them, unless a
+    // window still open sits above them (its entry has to stay).
+    if (st.i >= lowest && !layers.some(x => x.entryI !== null && x.entryI >= lowest)) goBackOurselves(st.i - lowest + 1)
   })
 }
 

@@ -12,6 +12,7 @@ import {
   type VendorBill, type VendorBillCategory, type VendorPaymentMethod,
 } from './vendorStore'
 import { useBackLayer } from './nav'
+import { businessDate } from './businessDate'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -222,7 +223,7 @@ function PayBillModal({ bill, onClose, onSaved }: { bill: VendorBill; onClose: (
   const [amount, setAmount] = useState((bill.balanceDueCents / 100).toFixed(2))
   const [paymentMethod, setPaymentMethod] = useState<VendorPaymentMethod>('check')
   const [referenceNumber, setReferenceNumber] = useState('')
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10))
+  const [paymentDate, setPaymentDate] = useState(businessDate(new Date()))
   const [notes, setNotes] = useState('')
 
   function handleSave() {
@@ -242,7 +243,7 @@ function PayBillModal({ bill, onClose, onSaved }: { bill: VendorBill; onClose: (
       <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
         <div className="p-6 space-y-4">
           <div className="bg-gray-50 rounded-lg p-3 text-sm">
@@ -279,7 +280,7 @@ function exportAgingCsv(aging: ReturnType<typeof getVendorAging>) {
   const blob = new Blob([csv], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url; a.download = `ap_aging_${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+  a.href = url; a.download = `ap_aging_${businessDate(new Date())}.csv`; a.click()
   URL.revokeObjectURL(url)
 }
 

@@ -1,4 +1,6 @@
-import UploadBadge from './UploadBadge'
+import { SyncBadge } from './SaveStatus'
+import { startOutbox, resumeAfterSignIn } from './outbox'
+import { startLiveRefresh } from './liveRefresh'
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment, lazy, Suspense } from 'react'
 import QuoteBuilder from './QuoteBuilder'
 import { Banknote, BarChart3, Boxes, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
@@ -43,7 +45,7 @@ import CustomerPortalApp from './CustomerPortalApp'
 import NotificationBell from './NotificationBell'
 import MessagesInbox from './MessagesInbox'
 import PublicQuotePage from './PublicQuotePage'
-import { isAuthenticated, fetchCurrentUser, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
+import { isAuthenticated, checkSession, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
 import { initCustomers, getCustomers, isCustomersHydrated } from './customerStore'
 import { initQuotes, getQuotes, getQuoteById, upsertQuote, isQuotesHydrated } from './quoteStore'
 import { initJobs, isJobsHydrated, getJobs } from './jobStore'
@@ -68,6 +70,7 @@ import TodayScreen from './TodayScreen'
 import { BookingHost, openBooking } from './BookingDialog'
 import GlobalSearch from './GlobalSearch'
 import { DashboardAppointments } from './AppointmentWidgets'
+import { businessDate } from './businessDate'
 
 /* ───────── role system ───────── */
 
@@ -267,22 +270,43 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
   const [loadingData, setLoadingData] = useState(false)
   const [notLoaded, setNotLoaded] = useState<string[]>([])
   const [showChangePassword, setShowChangePassword] = useState(false)
+  // Signed in, but the server could not be reached to check it (no signal, or the server restarting).
+  const [unreachable, setUnreachable] = useState(false)
 
-  async function loadData() {
+  async function loadData(user: CrmUser) {
     setLoadingData(true)
+    // What this phone still has waiting goes back on screen as each module loads, then is sent.
+    await startOutbox(user.id)
+    resumeAfterSignIn()
     const failed = await hydrateStores()
     setNotLoaded(failed)
     setLoadingData(false)
     // Website quotes and phone calls that came in while nobody was looking.
     startIntakeSync()
+    startLiveRefresh()
   }
 
   function startSession(user: CrmUser) {
     saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: ROLE_MAP[user.role] || 'salesman' })
     setLoadingData(true)
     setCrmUser(user)
-    void loadData()
+    void loadData(user)
   }
+
+  async function checkAgain() {
+    const s = await checkSession()
+    if (s.kind === 'user') { setUnreachable(false); startSession(s.user) }
+    else if (s.kind === 'signed-out') setUnreachable(false)
+    else setUnreachable(true)
+    setAuthChecked(true)
+  }
+  useEffect(() => {
+    if (!unreachable) return
+    const again = () => { void checkAgain() }
+    window.addEventListener('online', again)
+    const t = setInterval(again, 15_000)
+    return () => { window.removeEventListener('online', again); clearInterval(t) }
+  })
 
   useEffect(() => {
     function onFirstView(e: any) {
@@ -304,10 +328,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
       toast.warning('Your session has expired', 'Please log in again — your local work has been preserved.')
     })
     if (isAuthenticated()) {
-      fetchCurrentUser().then(user => {
-        if (user) startSession(user)
-        setAuthChecked(true)
-      })
+      void checkAgain()
     } else {
       setAuthChecked(true)
     }
@@ -327,6 +348,18 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
 
   if (!authChecked) {
     return <div className="min-h-screen bg-gray-900 flex items-center justify-center"><div className="text-gray-500">Loading...</div></div>
+  }
+  if (unreachable && !crmUser) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6" data-no-signal-screen>
+        <div className="max-w-sm text-center space-y-4">
+          <h1 className="text-xl font-bold text-gray-900">No signal</h1>
+          <p className="text-base text-gray-700">EZ Biz cannot reach the office server right now. You are still signed in, and anything saved on this phone is kept and will be sent when there is signal.</p>
+          <button type="button" className="btn btn-primary w-full min-h-[48px]" onClick={() => { void checkAgain() }}>Try again</button>
+          <p className="text-sm text-gray-500">This page tries again by itself every 15 seconds.</p>
+        </div>
+      </div>
+    )
   }
   if (!crmUser) {
     return <LoginPage onLogin={handleLogin} />
@@ -349,9 +382,9 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
       {notLoaded.length > 0 && (
         <div className="fixed top-0 inset-x-0 z-[200] bg-red-600 text-white text-sm px-4 py-2 flex items-center justify-center gap-3 flex-wrap">
           <span>
-            <strong>Could not load {notLoaded.join(', ')} from the server.</strong> Changes there will not be saved until it loads.
+            <strong>{notLoaded.join(', ')} did not load.</strong> Usually that is weak signal. Tap Try again when you have signal; changes to those are not shown until they load.
           </span>
-          <button onClick={() => void loadData()} className="bg-white text-red-700 font-semibold text-xs px-3 py-1 rounded">Try again</button>
+          <button onClick={() => void loadData(crmUser)} className="bg-white text-red-700 font-semibold text-sm px-4 min-h-[44px] rounded">Try again</button>
         </div>
       )}
       {children(crmUser, handleLogout, () => setShowChangePassword(true))}
@@ -571,11 +604,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         } catch { /* silent — pull sheet link is non-critical */ }
       }
 
-      toast.success('Quote saved', q.status === 'SOLD' ? 'Job created and pending order queued.' : undefined)
+      // Not "saved" until the server has it: the quote shows Saved then, and the badge at the top until then.
+      toast.info(q.status === 'SOLD' ? 'Quote sold, job created' : 'Quote stored', 'Sending it now. The quote shows Saved once it has gone through; with no signal it waits on this phone and goes by itself.')
 
       // Sync to customer portal — surface errors
       syncQuote(q).catch((err: any) => {
-        toast.warning('Portal sync failed', 'Saved locally — will retry on next save. ' + (err?.message || ''))
+        toast.warning('The customer portal copy did not update', 'The quote itself is kept. Open and save the quote again later to update the portal.')
       })
     } catch (err: any) {
       toast.error('Could not save quote', err?.message || 'Unknown error. Your data may be at risk — try again.')
@@ -603,7 +637,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       adjLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
       sections: 0, materialCost: 0, laborCost: 0, tearOutCost: 0,
       totalCOGS: 0, finalPrice: 0, gmPct: 0, pullSheet: [],
-      status: 'DRAFT', date: new Date().toISOString().slice(0, 10),
+      status: 'DRAFT', date: businessDate(new Date()),
       notes: extra.notes || '', leadTemp: 0,
     } as SavedQuote)
     setShowQuote(true)
@@ -653,7 +687,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       gmPct: 0,
       pullSheet: [],
       status: 'DRAFT',
-      date: new Date().toISOString().slice(0, 10),
+      date: businessDate(new Date()),
       notes: '',
       leadTemp: 0,
     } as SavedQuote)
@@ -919,7 +953,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
           <div className="flex items-center gap-1 md:gap-3 shrink-0">
             <MessagesInbox onNavigateToCustomer={(customerId) => openCustomerFromAnywhere(customerId, 'messages')} />
-            <UploadBadge />
+            <SyncBadge />
             <NotificationBell />
             {/* Command search */}
             <button

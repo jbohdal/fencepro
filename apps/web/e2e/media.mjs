@@ -94,8 +94,8 @@ try {
   check('the pin points the way the camera faced (an arrow)', await page.locator('[data-pin-step] [data-plan-pin="new"] polygon').count() === 1)
   await page.locator('[data-pin-save]').click(); await sleep(1200)
 
-  const badge = (await page.locator('[data-upload-badge]').textContent().catch(() => '')) || ''
-  check('offline: the top bar says 3 waiting to upload', /3/.test(badge), badge)
+  const badge = (await page.locator('[data-sync-badge]').getAttribute('aria-label').catch(() => '')) || ''
+  check('offline: the top bar says 3 waiting', /^3 /.test(badge), badge)
   check('offline: the quote marks them waiting', (await b.locator('[data-media-waiting]').textContent().catch(() => '')).includes('3 waiting'))
   check('offline: three captures shown, kept on the phone', await b.locator('[data-media-item="waiting"]').count() === 3)
   check('the plan shows the photo pins', await b.locator('[data-layout-editor] [data-plan-pin]').count() === 3)
@@ -106,7 +106,7 @@ try {
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
   for (let i = 0; i < 40 && await b.locator('[data-media-item="uploaded"]').count() < 3; i++) await sleep(1000)
   check('online: all three uploaded and marked', await b.locator('[data-media-item="uploaded"]').count() === 3)
-  check('online: the top bar count is gone', await page.locator('[data-upload-badge]').count() === 0)
+  check('online: the top bar count is gone', await page.locator('[data-sync-badge]').count() === 0)
 
   let list = []
   // ── Open a photo: caption written for us, mark it up, share with the customer ──

@@ -1,10 +1,16 @@
 /**
  * Where the API is when the app is opened on localhost.
  *
- * The live install (~/ezbiz) serves the web app and the API from one port,
- * 4000, so that is the default. The development folder runs its own API on a
- * different port against the dev database and says so with VITE_API_PORT in
- * apps/web/.env.local. That keeps a dev browser from ever talking to the live
- * server. See GO_LIVE.md, "Live and dev are separate".
+ * The server that sends the page also answers the API (live on 4000, the dev
+ * folder on 4001), so the page talks to wherever it came from. That keeps a
+ * dev browser from ever talking to the live server, and lets a test put a
+ * proxy in front (bad signal on purpose, e2e/signal.mjs).
+ *
+ * Only the Vite dev server (5173) serves pages without the API; it uses
+ * VITE_API_PORT from apps/web/.env.local. See GO_LIVE.md, "Live and dev are
+ * separate".
  */
-export const LOCAL_API_ORIGIN = `http://localhost:${import.meta.env.VITE_API_PORT || '4000'}`
+const VITE_DEV_PORT = '5173'
+export const LOCAL_API_ORIGIN = typeof window !== 'undefined' && window.location.port !== VITE_DEV_PORT
+  ? window.location.origin
+  : `http://localhost:${import.meta.env.VITE_API_PORT || '4001'}`

@@ -6,6 +6,8 @@ import { toast } from './toast'
 import { applySignedContractTransition } from './signedContractFlow'
 import { PRE_SALE_STAGES, PRODUCTION_STAGES, CLOSING_STAGES, DEAD_STAGES } from './pipelineValue'
 import { useBackLayer } from './nav'
+import { newId } from './recordSync'
+import { businessDate } from './businessDate'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -123,8 +125,8 @@ export function loadPipeline(): { leads: PipelineLead[], stages: string[] } {
     balanceDue: 0,
     notes: c.notes ?? '',
     stage: c.jobStatus === 'Paid & Closed' ? 'Paid & Closed' : c.jobStatus === 'Lost' ? 'Lost Sale' : 'First Contact',
-    createdAt: c.createdAt ?? new Date().toISOString().slice(0, 10),
-    lastMoved: new Date().toISOString().slice(0, 10),
+    createdAt: c.createdAt ?? businessDate(new Date()),
+    lastMoved: businessDate(new Date()),
   }))
   const stages = configured && configured.length > 0 ? configured : DEFAULT_STAGES
   storeSavePipeline(leads, stages)
@@ -143,7 +145,8 @@ export function QuickAddModal({
   onClose,
 }: {
   stage: string
-  onAdd: (lead: PipelineLead) => void
+  /** The card for a customer already on file, or null when a new customer brought their own card. */
+  onAdd: (lead: PipelineLead | null) => void
   onClose: () => void
 }) {
   useBackLayer(onClose, { key: 'quick-add-modal' })
@@ -167,16 +170,23 @@ export function QuickAddModal({
   function handleAdd() {
     if (!firstName.trim()) return
     const address = composedAddress()
-    // Always create a matching customer row — no lead-without-customer.
+    // A new customer and their card in this column are one save (customerStore): both or neither.
     const { customer, created } = upsertCustomer({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       phone, email,
       serviceAddress: address,
       leadSource, notes,
-    })
+    }, { stage })
+    if (created) {
+      logCustomerActivity(customer.id, `Lead added to pipeline at ${stage}`, { kind: 'stage_change' })
+      onAdd(null)
+      toast.info('Lead added', 'With a customer record. Its status shows Saved once the office has it.')
+      return
+    }
+    // Someone already on file (same phone or email): a card for them in this column.
     const lead: PipelineLead = {
-      id: uid(),
+      id: newId(),
       customerId: customer.id,
       firstName: customer.firstName,
       lastName: customer.lastName,
@@ -188,14 +198,10 @@ export function QuickAddModal({
       jobValue: 0, paymentStatus: '', balanceDue: 0,
       stage,
       createdAt: customer.createdAt,
-      lastMoved: new Date().toISOString().slice(0, 10),
-    }
-    if (created) {
-      logCustomerActivity(customer.id, `Lead added to pipeline at ${stage}`, { kind: 'stage_change' })
+      lastMoved: businessDate(new Date()),
     }
     onAdd(lead)
-    toast.success(created ? 'Lead added' : 'Lead linked to existing customer',
-      created ? 'Also created a customer record.' : undefined)
+    toast.info('Lead linked to a customer already on file', `${customer.firstName} ${customer.lastName}`.trim())
   }
 
   return (
@@ -204,9 +210,9 @@ export function QuickAddModal({
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900">Add to {stage}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Name and phone is all you need to get started</p>
+            <p className="text-xs text-gray-400 mt-0.5">Name and phone are all you need to get started</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
         <div className="px-6 py-5 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -215,7 +221,7 @@ export function QuickAddModal({
               <input
                 autoFocus
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                value={firstName}
+                value={firstName} data-lead-field="first-name"
                 onChange={e => setFirstName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleAdd()}
               />
@@ -224,7 +230,7 @@ export function QuickAddModal({
               <label className="text-xs text-gray-500 mb-1 block">Last Name</label>
               <input
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                value={lastName}
+                value={lastName} data-lead-field="last-name"
                 onChange={e => setLastName(e.target.value)}
               />
             </div>
@@ -234,7 +240,7 @@ export function QuickAddModal({
             <input
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               placeholder="(352) 555-0100"
-              value={phone}
+              value={phone} data-lead-field="phone"
               onChange={e => setPhone(e.target.value)}
             />
           </div>
@@ -251,7 +257,7 @@ export function QuickAddModal({
             <input
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               placeholder="1349 SE 32nd St"
-              value={street}
+              value={street} data-lead-field="street"
               onChange={e => setStreet(e.target.value)}
             />
           </div>
@@ -260,8 +266,8 @@ export function QuickAddModal({
               <label className="text-xs text-gray-500 mb-1 block">City</label>
               <input
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                placeholder="Ocala"
-                value={city}
+                placeholder="e.g. Ocala"
+                value={city} data-lead-field="city"
                 onChange={e => setCity(e.target.value)}
               />
             </div>
@@ -269,7 +275,7 @@ export function QuickAddModal({
               <label className="text-xs text-gray-500 mb-1 block">State</label>
               <input
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                placeholder="FL"
+                placeholder="e.g. FL"
                 maxLength={2}
                 value={state}
                 onChange={e => setState(e.target.value.toUpperCase())}
@@ -279,7 +285,7 @@ export function QuickAddModal({
               <label className="text-xs text-gray-500 mb-1 block">Zip</label>
               <input
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                placeholder="34470"
+                placeholder="e.g. 34470"
                 inputMode="numeric"
                 maxLength={10}
                 value={zip}
@@ -316,6 +322,7 @@ export function QuickAddModal({
             <button
               onClick={handleAdd}
               disabled={!firstName.trim()}
+              data-lead-add
               className="btn btn-primary flex-1"
             >
               Add Lead
@@ -374,7 +381,7 @@ export function LeadDrawer({
             ) : (
               <button onClick={() => setEditing(true)} className="btn btn-secondary">Edit</button>
             )}
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-1">×</button>
+            <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none ml-1">×</button>
           </div>
         </div>
 
@@ -387,7 +394,7 @@ export function LeadDrawer({
               {stages.map(s => (
                 <button
                   key={s}
-                  onClick={() => onUpdate({ ...lead, stage: s, lastMoved: new Date().toISOString().slice(0, 10) })}
+                  onClick={() => onUpdate({ ...lead, stage: s, lastMoved: businessDate(new Date()) })}
                   className={`text-xs px-2.5 py-1.5 rounded-lg font-medium border transition-colors ${
                     lead.stage === s
                       ? `${STAGE_COLORS[s] ?? 'bg-gray-500'} text-white border-transparent`
@@ -770,8 +777,8 @@ export default function JobsPage() {
     setStages(nextStages)
   }
 
-  function handleAddLead(lead: PipelineLead) {
-    persist([lead, ...leads], stages)
+  function handleAddLead(lead: PipelineLead | null) {
+    if (lead) persist([lead, ...leads], stages)
     setAddingToStage(null)
   }
 
@@ -831,7 +838,7 @@ export default function JobsPage() {
     const prev = leads.find(l => l.id === draggedId)
     const next = leads.map(l =>
       l.id === draggedId
-        ? { ...l, stage, lastMoved: new Date().toISOString().slice(0, 10) }
+        ? { ...l, stage, lastMoved: businessDate(new Date()) }
         : l
     )
     persist(next, stages)

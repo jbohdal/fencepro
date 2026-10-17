@@ -116,9 +116,7 @@ export default function QuoteOptionsPanel({ inputs }: { inputs: JobInputsForOpti
       </div>
 
       {groups.length === 0 ? (
-        <div className="text-center py-6 text-gray-400 text-sm">
-          No bundle groups configured yet. Set up bundles in Admin → Bundles first.
-        </div>
+        null
       ) : (
         <div className="flex items-center gap-2 mb-4">
           <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}
@@ -254,7 +252,7 @@ export function CustomerPresentationModal({ quoteId, onClose }: { quoteId: strin
           <h2 className="text-xl font-bold text-gray-900">Fence Options</h2>
           <p className="text-xs text-gray-500 mt-0.5">Choose the option that's right for your home.</p>
         </div>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-3xl">×</button>
+        <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-3xl">×</button>
       </div>
       <div className="flex-1 overflow-y-auto bg-gradient-to-b from-gray-50 to-white px-8 py-10">
         <CustomerPresentationContent options={options} quoteId={quoteId} />

@@ -159,7 +159,12 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
             return (
               <g>
                 <text x={lx} y={ly} textAnchor={anchor} fontSize={14} fontWeight={700} fill={sd.placeholder ? GRAY : INK}
-                  style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={4}>{sd.label}</text>
+                  style={{ paintOrder: 'stroke', ...(onSideTap ? { cursor: 'pointer' } : {}) }} stroke="white" strokeWidth={4}
+                  onClick={onSideTap ? e => { e.stopPropagation(); onSideTap(sd.sideId) } : undefined}>{sd.label}</text>
+                {onSideTap && (
+                  <rect x={anchor === 'end' ? lx - 130 : anchor === 'middle' ? lx - 65 : lx - 4} y={ly - 22} width={134} height={48} fill="transparent"
+                    style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); onSideTap(sd.sideId) }} data-plan-label={sd.name} />
+                )}
                 {sd.sublabel && <text x={lx} y={ly + 15} textAnchor={anchor} fontSize={11} fill={GRAY} style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3}>{sd.sublabel}</text>}
               </g>
             )

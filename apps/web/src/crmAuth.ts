@@ -59,29 +59,32 @@ function adoptTokensFromStorage(): boolean {
   return false
 }
 
-async function tryRefresh(): Promise<boolean> {
-  if (adoptTokensFromStorage()) return true
-  if (!refreshToken) return false
+/** Renewing the sign in: done, refused by the server, or not reachable (no signal; try again later). */
+type Refresh = 'ok' | 'denied' | 'unreachable'
+async function tryRefresh(): Promise<Refresh> {
+  if (adoptTokensFromStorage()) return 'ok'
+  if (!refreshToken) return 'denied'
   try {
     const res = await fetch(`${AUTH_API}/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
     })
-    if (!res.ok) return false
+    if (res.status === 401 || res.status === 403) return 'denied'
+    if (!res.ok) return 'unreachable'
     const data = await res.json()
     if (data.success && data.data) {
       setTokens(data.data.accessToken, data.data.refreshToken)
-      return true
+      return 'ok'
     }
-    return false
-  } catch { return false }
+    return 'denied'
+  } catch { return 'unreachable' }
 }
 
 // One refresh at a time. Every store shares it, so ten saves that all hit an
 // expired token trigger a single refresh instead of ten competing ones.
-let refreshInFlight: Promise<boolean> | null = null
-function refreshOnce(): Promise<boolean> {
+let refreshInFlight: Promise<Refresh> | null = null
+function refreshOnce(): Promise<Refresh> {
   if (!refreshInFlight) {
     refreshInFlight = tryRefresh().finally(() => { refreshInFlight = null })
   }
@@ -107,7 +110,9 @@ export async function fetchWithAuth(url: string, init: RequestInit = {}): Promis
   if (res.status !== 401) return res
   if (!refreshToken && !adoptTokensFromStorage()) return res
   const refreshed = await refreshOnce()
-  if (!refreshed) {
+  // No signal while renewing: not signed out. Fail like no signal, so it is tried again.
+  if (refreshed === 'unreachable') throw new TypeError('Failed to fetch')
+  if (refreshed === 'denied') {
     clearTokens()
     sessionExpiredHandler?.()
     return res
@@ -132,13 +137,14 @@ export async function authFetch<T = unknown>(path: string, options: RequestInit 
   try {
     res = await fetch(path, { ...options, headers })
   } catch (err) {
-    throw new Error('Network error — check your connection and try again.')
+    throw new Error('No signal right now. Try again when there is signal.')
   }
 
   if (res.status === 401) {
     if (refreshToken) {
       const refreshed = await refreshOnce()
-      if (refreshed) {
+      if (refreshed === 'unreachable') throw new Error('No signal right now. Try again when there is signal.')
+      if (refreshed === 'ok') {
         headers['Authorization'] = `Bearer ${accessToken}`
         res = await fetch(path, { ...options, headers })
       } else {
@@ -181,23 +187,35 @@ export async function login(email: string, password: string): Promise<{ user: Cr
 }
 
 export async function fetchCurrentUser(): Promise<CrmUser | null> {
-  if (!accessToken) return null
+  const s = await checkSession()
+  return s.kind === 'user' ? s.user : null
+}
+
+/**
+ * Who is signed in. Only a real "not signed in" answer signs the phone out;
+ * no signal, or the server restarting, keeps the sign in (and everything
+ * waiting to be sent) for when it can be reached again.
+ */
+export async function checkSession(): Promise<{ kind: 'user'; user: CrmUser } | { kind: 'signed-out' } | { kind: 'offline' }> {
+  if (!accessToken) return { kind: 'signed-out' }
   try {
     const res = await fetch(`${AUTH_API}/me`, {
       headers: { 'Authorization': `Bearer ${accessToken}` },
     })
-    if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
       if (res.status === 401 && refreshToken) {
         const refreshed = await refreshOnce()
-        if (refreshed) return fetchCurrentUser()
+        if (refreshed === 'ok') return checkSession()
+        if (refreshed === 'unreachable') return { kind: 'offline' }
       }
       clearTokens()
-      return null
+      return { kind: 'signed-out' }
     }
+    if (!res.ok) return { kind: 'offline' }
     const data = await res.json()
-    return data.success ? data.data : null
+    return data.success ? { kind: 'user', user: data.data } : { kind: 'offline' }
   } catch {
-    return null
+    return { kind: 'offline' }
   }
 }
 

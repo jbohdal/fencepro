@@ -8,6 +8,7 @@
 
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { plainError, plainThrown } from './plainError'
 
 const SESSION_KEY = 'fencepro_portal_session'
 const EVT = 'fencepro:portal:updated'
@@ -86,11 +87,11 @@ export async function sendPortalInvite(customer: { id: string; email: string; fi
       }),
     })
     const json = await res.json()
-    if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
+    if (!res.ok || !json.success) return { ok: false, error: plainError(res.status, json?.error).message }
     try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
     return { ok: true, data: json.data as InviteResult }
   } catch (err: any) {
-    return { ok: false, error: err?.message || 'Network error' }
+    return { ok: false, error: plainThrown(err).message }
   }
 }
 
@@ -102,10 +103,10 @@ export async function resendPortalInvite(email: string): Promise<{ ok: boolean; 
       body: JSON.stringify({ email }),
     })
     const json = await res.json()
-    if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
+    if (!res.ok || !json.success) return { ok: false, error: plainError(res.status, json?.error).message }
     return { ok: true, status: json.data?.status }
   } catch (err: any) {
-    return { ok: false, error: err?.message || 'Network error' }
+    return { ok: false, error: plainThrown(err).message }
   }
 }
 
@@ -126,7 +127,7 @@ export async function verifyAndActivate(rawToken: string, password: string, conf
     })
     const json = await res.json()
     if (!res.ok || !json.success) {
-      return { ok: false, error: json?.error || `HTTP ${res.status}` }
+      return { ok: false, error: plainError(res.status, json?.error).message }
     }
     // Persist session so the user lands on the dashboard logged in.
     localStorage.setItem(SESSION_KEY, JSON.stringify({
@@ -139,7 +140,7 @@ export async function verifyAndActivate(rawToken: string, password: string, conf
     try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
     return { ok: true, user: json.data.user }
   } catch (err: any) {
-    return { ok: false, error: err?.message || 'Network error' }
+    return { ok: false, error: plainThrown(err).message }
   }
 }
 
@@ -164,7 +165,7 @@ export async function login(email: string, password: string): Promise<ActivateRe
     try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
     return { ok: true, user: json.data.user }
   } catch (err: any) {
-    return { ok: false, error: err?.message || 'Network error' }
+    return { ok: false, error: plainThrown(err).message }
   }
 }
 

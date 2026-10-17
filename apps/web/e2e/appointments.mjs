@@ -150,10 +150,12 @@ async function desktop(browser) {
 
   /* 3. global button */
   s = await open(browser, false)
-  const third = pool.find(l => l.id !== target.id && unbooked(l) && !list.some(a => a.crmContactId === l.customerId))
+  // Someone with a first and last name, so searching the name finds them and not a longer name containing it.
+  const third = pool.find(l => l.id !== target.id && unbooked(l) && (l.lastName || '').trim().length > 1 && !list.some(a => a.crmContactId === l.customerId))
   await s.page.locator('[data-global-appointment]').click()
   await s.page.locator('[data-customer-search]').fill(`${third.firstName} ${third.lastName}`.trim())
-  await s.page.locator('[data-booking-dialog] button:has-text("' + third.firstName + '")').first().click()
+  // The whole name: the copy has more than one person with the same first name.
+  await s.page.locator('[data-booking-dialog] button:has-text("' + `${third.firstName} ${third.lastName}`.trim() + '")').first().click()
   await s.page.locator('[data-field="type"]').selectOption('follow_up')
   await s.page.locator('[data-field="date"]').fill(dayAhead(3))
   await s.page.locator('[data-field="time"]').fill('15:30')

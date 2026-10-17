@@ -1,4 +1,5 @@
 import type { SavedQuote } from './QuotesPage'
+import { businessDate } from './businessDate'
 
 /* ───────── config loader ───────── */
 
@@ -23,7 +24,7 @@ function loadCompany(): CompanyInfo {
 export function generatePO(quote: SavedQuote, vendor?: string, notes?: string) {
   const co = loadCompany()
   const poNumber = `PO-${quote.id.slice(0, 6).toUpperCase()}`
-  const today = new Date().toISOString().slice(0, 10)
+  const today = businessDate(new Date())
   const items = quote.pullSheet || []
   const total = items.reduce((s, i) => s + i.total, 0)
 

@@ -6,6 +6,7 @@
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { plainError, plainThrown } from './plainError'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
@@ -120,19 +121,19 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     })
-    if (res.status === 401) return { ok: false, error: 'Session expired' }
+    if (res.status === 401) return { ok: false, error: plainError(401).message }
     const json = await res.json().catch(() => ({}))
-    if (!res.ok || json?.success === false) return { ok: false, error: json?.error || `HTTP ${res.status}` }
+    if (!res.ok || json?.success === false) return { ok: false, error: plainError(res.status, json?.error).message }
     return { ok: true, data: json.data as T }
   } catch (err) {
-    return { ok: false, error: (err as Error).message || 'Network error' }
+    return { ok: false, error: plainThrown(err).message }
   }
 }
 
 export async function listSavedJobs(): Promise<SavedJobRecord[] | null> {
   const r = await call<SavedJobRecord[]>('GET', '/')
   if (!r.ok) {
-    toast.error('Could not load jobs from cloud', `${r.error || 'Network error'}`)
+    toast.error('Could not load jobs from cloud', r.error || plainError(0).message)
     return null
   }
   return r.data || []
@@ -141,7 +142,7 @@ export async function listSavedJobs(): Promise<SavedJobRecord[] | null> {
 export async function createSavedJob(payload: SavedJobPayload): Promise<SavedJobRecord | null> {
   const r = await call<SavedJobRecord>('POST', '/', payload)
   if (!r.ok) {
-    toast.error('Job not saved to cloud', `${r.error || 'Network error'}`)
+    toast.error('Job not saved to cloud', r.error || plainError(0).message)
     return null
   }
   return r.data || null
@@ -150,7 +151,7 @@ export async function createSavedJob(payload: SavedJobPayload): Promise<SavedJob
 export async function updateSavedJob(id: string, payload: SavedJobPayload): Promise<SavedJobRecord | null> {
   const r = await call<SavedJobRecord>('PATCH', `/${id}`, payload)
   if (!r.ok) {
-    toast.error('Job update not saved to cloud', `${r.error || 'Network error'}`)
+    toast.error('Job update not saved to cloud', r.error || plainError(0).message)
     return null
   }
   return r.data || null
@@ -159,7 +160,7 @@ export async function updateSavedJob(id: string, payload: SavedJobPayload): Prom
 export async function archiveSavedJob(id: string): Promise<boolean> {
   const r = await call('DELETE', `/${id}`)
   if (!r.ok) {
-    toast.error('Job not deleted from cloud', `${r.error || 'Network error'}`)
+    toast.error('Job not deleted from cloud', r.error || plainError(0).message)
   }
   return r.ok
 }

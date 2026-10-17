@@ -6,6 +6,7 @@ import { toast } from './toast'
 import { getCustomers } from './customerStore'
 import { cloudStorage } from './cloudStorage'
 import { BackClose } from './nav'
+import { businessDate } from './businessDate'
 
 interface CustomerLite { id: string; firstName: string; lastName: string; phone?: string }
 function loadCustomers(): CustomerLite[] {
@@ -37,7 +38,7 @@ function linkSitePlanToCustomerFiles(plan: SitePlan) {
       type: 'Site Plan',
       size: `${plan.lines.length} lines · ${plan.markers.length} markers`,
       siteplanId: plan.id,
-      uploadedAt: new Date().toISOString().slice(0, 10),
+      uploadedAt: businessDate(new Date()),
       uploadedBy: 'site plan tool',
     }
     if (existingIdx >= 0) files[existingIdx] = entry
@@ -639,7 +640,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
           <button onClick={() => setShowPlanList(true)} className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50">Open</button>
           <button onClick={() => setShowSaveModal(true)} className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50">Save</button>
           <button onClick={handlePrint} className="text-xs bg-gray-900 text-white px-3 py-1.5 rounded-lg hover:bg-gray-800">Print / PDF</button>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none px-2">×</button>
         </div>
       </div>
 

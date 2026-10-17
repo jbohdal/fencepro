@@ -395,7 +395,7 @@ export default function MapQuoteBuilder({ onUseData, onClose }: MapQuoteBuilderP
           >
             Use in Quote Builder
           </button>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none px-2">×</button>
         </div>
       </div>
 
@@ -418,7 +418,7 @@ export default function MapQuoteBuilder({ onUseData, onClose }: MapQuoteBuilderP
                   <p className="text-sm font-medium text-gray-900 truncate" title={address}>{address}</p>
                 </div>
                 <button onClick={handleClearSelection}
-                  className="text-gray-400 hover:text-red-500 text-xl leading-none px-2"
+                  className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-red-500 text-xl leading-none px-2"
                   title="Clear selection">×</button>
               </div>
             )}

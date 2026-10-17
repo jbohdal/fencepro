@@ -16,6 +16,7 @@ import { getPipeline, savePipeline, isPipelineHydrated } from './pipelineStore'
 import { newId } from './recordSync'
 import { toast } from './toast'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { businessDate } from './businessDate'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
@@ -60,7 +61,7 @@ function upsertPipelineCard(lead: IntakeLead): void {
   const cached = getPipeline()
   const leads = [...(cached.leads || [])]
   const stages = cached.stages && cached.stages.length > 0 ? cached.stages : DEFAULT_STAGES
-  const today = new Date().toISOString().slice(0, 10)
+  const today = businessDate(new Date())
   const customer = lead.crmContactId ? getCustomerById(lead.crmContactId) : null
   const header = lead.source === 'retell'
     ? `Phone call ${today}${lead.callbackAt ? ' · callback: ' + lead.callbackAt : ''}`

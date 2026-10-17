@@ -9,6 +9,7 @@
 import { useState } from 'react'
 import { changePassword } from './crmAuth'
 import { useBackLayer } from './nav'
+import { plainText } from './plainError'
 
 export default function ChangePasswordPage({
   forced,
@@ -39,7 +40,7 @@ export default function ChangePasswordPage({
       await changePassword(current, next)
       onDone()
     } catch (err: any) {
-      setError(err?.message || 'Could not change password')
+      setError(plainText(err))
     }
     setSaving(false)
   }

@@ -28,6 +28,7 @@ import { resolveTiers, tierOptions, isVinylStyle, DEFAULT_TIERS, DEFAULT_POPULAR
 import { getContractSections } from './contractStore'
 import { listStylePhotos } from './stylePhotosApi'
 import { useBackLayer, useLeaveWarning, BackClose } from './nav'
+import { businessDate } from './businessDate'
 
 // Settings are read when the builder opens (not when the app loads), so a
 // change in Settings → Pricing or Fence Styles applies to the next quote
@@ -182,7 +183,7 @@ function SaveModal({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto mx-4 lg:mx-0 modal-responsive">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900">Save quote</h2>
-          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <button onClick={onCancel} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
         <div className="px-6 py-5 space-y-5">
@@ -199,7 +200,8 @@ function SaveModal({
             <div>
               <label className="text-xs text-gray-500 mb-1.5 block font-medium">Search customers</label>
               <input
-                autoFocus
+                // The keyboard only opens when a customer still has to be picked; it would cover Save.
+                autoFocus={!selectedCustomer}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 placeholder="Name, phone, or email..."
                 value={search}
@@ -296,7 +298,7 @@ function SaveModal({
                   key={i}
                   type="button"
                   onClick={() => setLeadTemp(i)}
-                  className={`text-2xl transition-all hover:scale-125 ${i <= leadTemp ? FLAME_COLORS[i-1] : 'text-gray-200'}`}
+                  className={`text-2xl min-w-[48px] min-h-[48px] transition-all hover:scale-125 ${i <= leadTemp ? FLAME_COLORS[i-1] : 'text-gray-200'}`}
                 >🔥</button>
               ))}
               {leadTemp > 0 && (
@@ -336,6 +338,7 @@ function SaveModal({
               onClick={handleSubmit}
               disabled={!canSubmit}
               className="btn btn-primary flex-1"
+              data-save-submit
             >
               Save quote
             </button>
@@ -558,8 +561,9 @@ export default function QuoteBuilder({
   const quoteWarnings = [
     ...(style ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout ? gateChecks(yard) : []),
-    ...materials.warnings,
-    ...priced.notes,
+    // Pricing notes only once a style is picked (before that there is nothing to price).
+    ...(style ? materials.warnings : []),
+    ...(style ? priced.notes : []),
     ...[style && sections > 0 ? marginCheck(priced.gmPct, cfg.margins?.good ?? 0.34, priced.price) : null,
         style && sections > 0 ? perFootCheck(priced.pricePerFoot, style.name, pastQuotes, quoteIdRef.current) : null].filter((x): x is string => !!x),
   ]
@@ -630,7 +634,7 @@ export default function QuoteBuilder({
       gmPct,
       pullSheet: materialItems,
       status: data.status,
-      date: new Date().toISOString().slice(0, 10),
+      date: businessDate(new Date()),
       notes: data.notes,
       leadTemp: data.leadTemp ?? 0,
       pricing: cleanOverrides(pricingOverrides),
@@ -658,7 +662,7 @@ export default function QuoteBuilder({
 
         <div className="flex items-center justify-between gap-3 px-4 md:px-8 py-3 md:py-5 border-b border-gray-200 sticky top-0 md:static bg-white z-10">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">{init ? 'Edit quote' : 'New quote'}</h2>
+            <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
           </div>
           <div className="flex items-center gap-3">
@@ -1233,7 +1237,7 @@ export default function QuoteBuilder({
                 onClick={() => setShowSaveModal(true)}
                 className="btn btn-primary btn-lg w-full"
               >
-                {init ? 'Update Quote' : 'Save Quote'}
+                {init?.id ? 'Update quote' : 'Save quote'}
               </button>
               {!canSave && <p className="text-xs text-gray-400 text-center">Select a style and enter at least one run</p>}
             </div>
@@ -1271,7 +1275,7 @@ export default function QuoteBuilder({
           <p className="text-xs font-semibold text-gray-600 truncate">{totalFootage > 0 ? `${totalFootage} ft · ${sections} sections` : 'Customer price'}</p>
           <p className="text-xl font-bold tabular-nums text-gray-900">{fmt(adjPrice)}</p>
         </div>
-        <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg">{init ? 'Update quote' : 'Save quote'}</button>
+        <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
       </div>}
 
       {showSaveModal && <BackClose name="save-quote" onClose={() => setShowSaveModal(false)} />}

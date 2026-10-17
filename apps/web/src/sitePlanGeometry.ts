@@ -109,9 +109,11 @@ const rect = (x0: number, x1: number, y0: number, y1: number): PlanPoint[] =>
  * its two ends are `rise` apart front to back. When the far side is too short
  * to reach, a width is still given so something sensible is drawn, with a note.
  */
-function yardWidth(across: number | null, rise: number, fallback: number, names: [string, string, string], notes: string[]): number {
+function yardWidth(across: number | null, rise: number, fallback: number, names: [string, string, string], notes: string[], typed = true): number {
   if (across === null) return fallback
   if (across + 1e-6 >= Math.abs(rise)) return Math.sqrt(Math.max(0, across * across - rise * rise))
+  // Only measurements actually typed are questioned; stand-ins just draw.
+  if (!typed) return Math.max(fallback, across)
   notes.push(`Check these measurements: the ${names[0]} (${fmtFt(across)}) is shorter than the difference between the ${names[1]} and the ${names[2]} (${fmtFt(Math.abs(rise))}).`)
   return Math.max(fallback, across)
 }
@@ -133,8 +135,10 @@ function backyardGeometry(layout: YardLayout): AutoGeometry {
   // The back joins the tops of the two sides: width from the back's length
   // and how far apart the tops are front to back.
   const rise = (yR + right) - (yL + left)
-  const back = backS.on ? len(backS) : null
-  const W = yardWidth(back, rise, lr + rr + STANDIN_HOUSE_FT, ['back', 'left side', 'right side'], notes)
+  const typed = (x: YardSide) => !x.on || x.lengthIn > 0
+  // Until the back is measured, the yard is as wide as the returns and a house.
+  const back = backS.on && backS.lengthIn > 0 ? len(backS) : null
+  const W = yardWidth(back, rise, lr + rr + STANDIN_HOUSE_FT, ['back', 'left side', 'right side'], notes, typed(lsS) && typed(rsS))
   const xL = -W / 2, xR = W / 2
 
   // The house fills the room between the returns; with no returns, or too
@@ -149,7 +153,7 @@ function backyardGeometry(layout: YardLayout): AutoGeometry {
     houseNotToScale = true
     const hw = Math.max(20, Math.min(STANDIN_HOUSE_FT, (noReturns ? W : Math.max(room, 0)) * 0.6 || STANDIN_HOUSE_FT))
     house = rect(-hw / 2, hw / 2, 0, -depth)
-    if (!noReturns && room < 0) notes.push(`Check these measurements: the two returns (${fmtFt(lr + rr)}) are wider than the yard (${fmtFt(W)}).`)
+    if (!noReturns && room < 0 && back !== null && typed(lrS) && typed(rrS)) notes.push(`Check these measurements: the two returns (${fmtFt(lr + rr)}) are wider than the yard (${fmtFt(W)}).`)
   }
 
   const vertices = [
@@ -167,8 +171,8 @@ function frontGeometry(layout: YardLayout): AutoGeometry {
   const notes: string[] = []
   // The sides run from the front of the house toward the street; the front
   // joins their ends.
-  const front = frontS.on ? len(frontS) : null
-  const W = yardWidth(front, right - left, STANDIN_HOUSE_FT, ['front', 'left side', 'right side'], notes)
+  const front = frontS.on && frontS.lengthIn > 0 ? len(frontS) : null
+  const W = yardWidth(front, right - left, STANDIN_HOUSE_FT, ['front', 'left side', 'right side'], notes, lsS.lengthIn > 0 && rsS.lengthIn > 0)
   const xL = -W / 2, xR = W / 2
   const houseNotToScale = W < MIN_HOUSE_FT
   const hw = houseNotToScale ? STANDIN_HOUSE_FT : W
@@ -302,7 +306,7 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
     sides.push({
       sideId: s.id, name: s.name, a, b, fence, skip, gate, out, placeholder,
       label: placeholder ? `${s.name}: tap to enter` : formatFtIn(L),
-      sublabel: placeholder ? '' : `${s.name}${sideSections > 0 ? ` · ${sideSections} sec` : ''}`,
+      sublabel: placeholder ? '' : `${s.name}${sideSections > 0 ? ` · ${sideSections} section${sideSections === 1 ? '' : 's'}` : ''}`,
     })
   })
 

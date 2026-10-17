@@ -6,6 +6,7 @@
 import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { plainError, plainThrown } from './plainError'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
@@ -55,12 +56,12 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     })
-    if (res.status === 401) return { ok: false, error: 'Session expired' }
+    if (res.status === 401) return { ok: false, error: plainError(401).message }
     const json = await res.json().catch(() => ({}))
-    if (!res.ok || json?.success === false) return { ok: false, error: json?.error || `HTTP ${res.status}` }
+    if (!res.ok || json?.success === false) return { ok: false, error: plainError(res.status, json?.error).message }
     return { ok: true, data: json.data as T }
   } catch (err) {
-    return { ok: false, error: (err as Error).message || 'Network error' }
+    return { ok: false, error: plainThrown(err).message }
   }
 }
 
@@ -73,24 +74,24 @@ export async function saveScheduleSettings(payload: {
   workDays: number[]; crews: CrewRecord[]; lat?: number | null; lng?: number | null
 }, baseVersion: number): Promise<ScheduleSettingsRecord | null> {
   const r = await call<ScheduleSettingsRecord>('PUT', '/settings', { ...payload, baseVersion })
-  if (!r.ok) toast.error('Schedule settings not saved', `${r.error || 'Network error'}`)
+  if (!r.ok) toast.error('Schedule settings not saved', r.error || plainError(0).message)
   return r.ok ? (r.data || null) : null
 }
 
 // Grid jobs
 export async function fetchScheduledJobs(): Promise<ScheduledGridJobRecord[] | null> {
   const r = await call<ScheduledGridJobRecord[]>('GET', '/jobs')
-  if (!r.ok) toast.error('Could not load schedule', `${r.error || 'Network error'}`)
+  if (!r.ok) toast.error('Could not load schedule', r.error || plainError(0).message)
   return r.ok ? (r.data || []) : null
 }
 export async function createScheduledJob(payload: Omit<ScheduledGridJobRecord, 'id' | 'accountId'>): Promise<ScheduledGridJobRecord | null> {
   const r = await call<ScheduledGridJobRecord>('POST', '/jobs', payload)
-  if (!r.ok) toast.error('Schedule entry not saved', `${r.error || 'Network error'}`)
+  if (!r.ok) toast.error('Schedule entry not saved', r.error || plainError(0).message)
   return r.ok ? (r.data || null) : null
 }
 export async function updateScheduledJob(id: string, payload: Partial<ScheduledGridJobRecord>): Promise<ScheduledGridJobRecord | null> {
   const r = await call<ScheduledGridJobRecord>('PATCH', `/jobs/${id}`, payload)
-  if (!r.ok) toast.error('Schedule entry not updated', `${r.error || 'Network error'}`)
+  if (!r.ok) toast.error('Schedule entry not updated', r.error || plainError(0).message)
   return r.ok ? (r.data || null) : null
 }
 export async function deleteScheduledJob(id: string): Promise<boolean> {
@@ -114,7 +115,7 @@ export async function fetchRainLog(): Promise<RainDayRecord[] | null> {
 }
 export async function appendRainDay(payload: Omit<RainDayRecord, 'id' | 'accountId'>): Promise<RainDayRecord | null> {
   const r = await call<RainDayRecord>('POST', '/rain-log', payload)
-  if (!r.ok) toast.error('Rain day not logged', `${r.error || 'Network error'}`)
+  if (!r.ok) toast.error('Rain day not logged', r.error || plainError(0).message)
   return r.ok ? (r.data || null) : null
 }
 export async function syncRainLog(entries: any[]): Promise<{ created: number; total: number } | null> {

@@ -13,6 +13,7 @@ import { getPipeline, savePipeline } from './pipelineStore'
 import { fireSalesStageChange } from './automationTrigger'
 import { stageAfterBooking, stageAfterOutcome, type Appointment, type AppointmentOutcome } from './appointmentLogic'
 import { toast } from './toast'
+import { businessDate } from './businessDate'
 
 export function cardFor(customerId: string): { id: string; stage: string; firstName: string; lastName: string } | null {
   return (getPipeline().leads || []).find((l: any) => l?.customerId === customerId) ?? null
@@ -23,7 +24,7 @@ export function moveCard(customerId: string, toStage: string): boolean {
   const card = (leads || []).find((l: any) => l?.customerId === customerId)
   if (!card || card.stage === toStage) return false
   const from = card.stage
-  savePipeline(leads.map((l: any) => (l === card ? { ...l, stage: toStage, lastMoved: new Date().toISOString().slice(0, 10) } : l)), stages)
+  savePipeline(leads.map((l: any) => (l === card ? { ...l, stage: toStage, lastMoved: businessDate(new Date()) } : l)), stages)
   try {
     fireSalesStageChange(card.id, from, toStage, {
       jobName: `${card.firstName} ${card.lastName}`.trim(), jobAddress: card.address,

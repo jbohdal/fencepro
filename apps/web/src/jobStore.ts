@@ -1,18 +1,18 @@
 import type { SavedQuote } from './QuotesPage'
 import { legacyMigrationEnabled } from './syncGuard'
-import { newId, enqueue, settled, hasLaterWrites } from './recordSync'
+import { newId } from './recordSync'
+import { registerKind, enqueue, hasPending, reapply, pendingFor, type Op } from './outbox'
+import { sendJson } from './syncHttp'
 import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
 import { ensureChecklistForJob } from './checklistStore'
 import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
 import { getQuoteById } from './quoteStore'
 import {
   listSavedJobs,
-  createSavedJob,
-  updateSavedJob,
-  archiveSavedJob,
   migrateLocalJobsOnce,
   type SavedJobRecord,
 } from './savedJobsApi'
+import { businessDate } from './businessDate'
 
 /* ═══════════════════════════════════════════════
    JOB ENTITY — unified lifecycle from quote to paid
@@ -217,6 +217,8 @@ export function initJobs(): Promise<void> {
     if (!records) return
     cache = records.map(fromApi)
     hydrated = true
+    // Jobs made or changed on this phone and not on the server yet.
+    reapply('job.')
     emit()
     if (migrate) { try { localStorage.removeItem(LEGACY_KEY) } catch {} }
   })().finally(() => { if (!hydrated) initPromise = null })
@@ -299,16 +301,7 @@ export function createJobFromQuote(quote: SavedQuote): Job {
 
   // Queued behind the quote and the customer it came from, so they exist on
   // the server before the job that points at them.
-  enqueue(`job:${job.id}`, async () => {
-    await settled(job.customerId ? `customer:${job.customerId}` : null)
-    await settled(job.quoteId ? `quote:${job.quoteId}` : null)
-    const current = cache.find(j => j.id === job.id) || job
-    const saved = await createSavedJob({ ...toApiPayload(current), id: job.id })
-    if (!saved || hasLaterWrites(`job:${job.id}`)) return
-    const fromServer = fromApi(saved)
-    cache = cache.map(j => j.id === job.id ? { ...fromServer, id: job.id } : j)
-    emit()
-  }).catch(() => {})
+  void enqueue<Job>({ key: `job:${job.id}`, kind: 'job.create', payload: job, label: `${job.customerName || 'Job'}, new job`, after: jobDeps(job) })
 
   // Seed default milestone checklist so the Operations detail panel has items
   try { ensureChecklistForJob(job.id) } catch {}
@@ -329,6 +322,31 @@ export function createJobFromQuote(quote: SavedQuote): Job {
   return job
 }
 
+/** A job goes after its customer and quote, when those are still on the way. */
+function jobDeps(j: Job): string[] {
+  const keys = [j.customerId ? `customer:${j.customerId}` : '', j.quoteId ? `quote:${j.quoteId}` : ''].filter(Boolean)
+  return keys.filter(k => pendingFor(k).length > 0)
+}
+const takeJobFields = (op: Op<Job>, data: unknown) => {
+  const id = op.payload.id
+  if (!data || hasPending(`job:${id}`)) return
+  const fromServer = fromApi(data as SavedJobRecord)
+  cache = cache.map(j => j.id === id ? { ...fromServer, id } : j)
+  emit()
+}
+registerKind<Job>('job.create', {
+  what: () => 'This job',
+  send: op => sendJson('POST', '/api/saved-jobs', { ...toApiPayload(op.payload), id: op.payload.id }).then(r => r.result),
+  confirmed: takeJobFields,
+  apply: op => { if (!cache.some(j => j.id === op.payload.id)) cache = [op.payload, ...cache] },
+})
+registerKind<Job>('job.update', {
+  what: () => 'This change to the job',
+  send: op => sendJson('PATCH', `/api/saved-jobs/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload)).then(r => r.result),
+  confirmed: takeJobFields,
+  apply: op => { cache = cache.map(j => j.id === op.payload.id ? op.payload : j) },
+})
+
 /* ───────── update ───────── */
 
 export function updateJob(id: string, updates: Partial<Job>): Job | null {
@@ -341,11 +359,7 @@ export function updateJob(id: string, updates: Partial<Job>): Job | null {
   emit()
   // Queued behind the job's create and earlier edits. The latest cached copy
   // is what gets sent, so rapid edits cannot land out of order.
-  enqueue(`job:${id}`, async () => {
-    const current = cache.find(j => j.id === id)
-    if (!current) return
-    await updateSavedJob(id, toApiPayload(current))
-  }).catch(() => {})
+  void enqueue<Job>({ key: `job:${id}`, kind: 'job.update', payload: next, label: `${next.customerName || 'Job'}, job changes`, after: jobDeps(next) })
   // Local view of the rest of this function uses `jobs`/`prev`/`jobs[idx]`
   // semantics from before; re-bind for minimal further change below.
   const jobs = cache
@@ -439,7 +453,7 @@ export function advanceJob(id: string): Job | null {
   const updates: Partial<Job> = { status: nextStatus }
 
   if (nextStatus === 'completed') {
-    updates.completedDate = new Date().toISOString().slice(0, 10)
+    updates.completedDate = businessDate(new Date())
   }
 
   const result = updateJob(id, updates)
@@ -515,4 +529,28 @@ export function syncChangeOrderTotal(jobId: string, coTotal: number): void {
     changeOrderTotal: coTotal,
     contractValue: job.quotePrice + coTotal,
   })
+}
+
+/** When this list was last read from the server (the server's own clock). */
+let lastSync: string | null = null
+
+/**
+ * Read the list again (the server changes some on its own: a customer
+ * accepting online). Only what changed since the last read comes back, so it
+ * is small on cell data. Waiting changes stay on top. Quiet with no signal.
+ */
+export async function refreshJobs(): Promise<void> {
+  if (!hydrated) return
+  const r = await sendJson('GET', `/api/saved-jobs${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`)
+  if (!r.result.ok || !Array.isArray(r.json?.data)) return
+  const rows = r.json.data as Array<SavedJobRecord & { archivedAt?: string | null }>
+  if (r.json.partial) {
+    if (rows.length) {
+      const byId = new Map(cache.map(x => [x.id, x]))
+      for (const row of rows) { if (row.archivedAt) byId.delete(row.id); else byId.set(row.id, fromApi(row)) }
+      cache = [...byId.values()]
+    }
+  } else cache = rows.map(fromApi)
+  if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
+  if (!r.json.partial || rows.length) { reapply('job.'); emit() }
 }

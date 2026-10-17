@@ -14,6 +14,8 @@
 import { toast } from './toast'
 import { fetchWithAuth, getAccessToken } from './crmAuth'
 import { createVersionedDoc, type SaveResult } from './versionedDoc'
+import { merge3 } from './merge3'
+import { registerKind, enqueue, pendingFor } from './outbox'
 
 export interface Flusher {
   /** Call after every change to the in memory copy. */
@@ -103,11 +105,25 @@ export interface VersionedFlusher<T> extends Flusher {
 }
 
 /**
- * A flusher for a record that is saved whole and version checked. If another
- * tab or device saved first, the newest copy is fetched, this tab's change is
- * put on top of it and saved again (see versionedDoc and merge3), and the
- * user is told.
+ * A flusher for a record that is saved whole and version checked. Changes go
+ * through the outbox: the newest copy and the server copy it was built on are
+ * kept on the phone until the server has them, so closing the app or losing
+ * signal loses nothing. If another tab or device saved first, or the app was
+ * reopened before it was sent, the change is put on top of the newest server
+ * copy (see versionedDoc and merge3) and saved again.
  */
+interface DocSave { name: string; base: unknown; mine: unknown }
+const docs = new Map<string, { push: () => Promise<boolean>; isHydrated: () => boolean }>()
+registerKind<DocSave>('doc.save', {
+  what: op => `This change to ${op.payload.name.toLowerCase()}`,
+  send: async op => {
+    const d = docs.get(op.payload.name)
+    // The module has not loaded yet on this visit: wait for it.
+    if (!d || !d.isHydrated()) return { ok: false, status: 503 }
+    return (await d.push()) ? { ok: true } : { ok: false, status: 0 }
+  },
+})
+
 export function createVersionedFlusher<T>(opts: {
   name: string
   isHydrated: () => boolean
@@ -116,8 +132,11 @@ export function createVersionedFlusher<T>(opts: {
   apply: (next: T) => void
   save: (state: T, baseVersion: number, base: T) => Promise<SaveResult<T>>
 }): VersionedFlusher<T> {
+  const key = `doc:${opts.name}`
+  let serverCopy: T | null = null
   const doc = createVersionedDoc<T>({
-    get: opts.get, apply: opts.apply, save: opts.save,
+    get: opts.get, apply: opts.apply,
+    save: async (state, v, base) => { const r = await opts.save(state, v, base); if (r.status === 'saved') serverCopy = state; return r },
     onMerged: ({ problems }) => {
       // A screen holding its own copy of this record needs to read it again.
       // One that can do so in place says so (useMergedRefresh); otherwise the
@@ -127,11 +146,44 @@ export function createVersionedFlusher<T>(opts: {
         if (!handled) window.dispatchEvent(new CustomEvent('ezbiz:reload-page-data'))
       } catch {}
       if (problems.length > 0) toast.error(`${opts.name}: not everything could be saved`, problems.join(' '))
-      else toast.info(`${opts.name} updated`, 'Changes made on another tab or device were brought in, and your change was saved on top of them.')
+      else toast.info(`${opts.name} updated`, 'Someone changed this on another phone or computer at the same time. Both changes are kept.')
     },
   })
-  const flusher = createFlusher({ name: opts.name, isHydrated: opts.isHydrated, debounceMs: opts.debounceMs, send: () => doc.push() })
-  return { ...flusher, loaded: doc.loaded }
+  docs.set(opts.name, { push: () => doc.push(), isHydrated: opts.isHydrated })
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let warnedNotLoaded = false
+  const clone = (v: unknown) => (v === undefined ? null : JSON.parse(JSON.stringify(v)))
+  return {
+    schedule() {
+      if (!opts.isHydrated()) {
+        if (!warnedNotLoaded) {
+          warnedNotLoaded = true
+          toast.error(`${opts.name} not saved`, `${opts.name} has not loaded yet, usually because of weak signal, so this change was not kept. Tap Try again at the top when there is signal, then make the change again.`)
+        }
+        return
+      }
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        // Kept with the server copy it was built on, so it can be merged after a reload.
+        const waiting = pendingFor(key)[0]
+        const base = waiting ? (waiting.payload as DocSave).base : clone(serverCopy)
+        void enqueue<DocSave>({ key, kind: 'doc.save', payload: { name: opts.name, base, mine: clone(opts.get()) }, label: `${opts.name}: changes` })
+      }, opts.debounceMs ?? 250)
+    },
+    isDirty: () => !!timer || pendingFor(key).length > 0,
+    loaded: (server, version) => {
+      doc.loaded(server, version)
+      serverCopy = JSON.parse(JSON.stringify(server ?? null))
+      // Changes kept on this phone from before (the app closed before they were sent): on top of the server copy.
+      const waiting = pendingFor(key)[0]
+      if (waiting) {
+        const p = waiting.payload as DocSave
+        const { merged } = merge3(p.base as T, p.mine as T, server)
+        opts.apply(merged)
+      }
+    },
+  }
 }
 
 /**

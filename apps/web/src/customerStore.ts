@@ -5,22 +5,21 @@
  * initCustomers() once after auth, kept fresh by every save call, and
  * broadcast to listeners via the `fencepro:customers:updated` event.
  *
- * Reads are synchronous (cache lookups). Writes are async (API roundtrip)
- * but optimistic — the cache updates immediately and the event fires before
- * the network call returns. If the API call fails, crmContactsApi surfaces
- * a toast and the optimistic record stays in the cache; the next save or
- * page reload reconciles it.
+ * Reads are synchronous (cache lookups). Writes show on screen at once and
+ * go through the outbox: kept on the phone until the server confirms them,
+ * sent again after no signal, never lost on a reload (see outbox.ts). A new
+ * customer and their pipeline card are one save.
  */
 
 import { fireCustomerCreated } from './automationTrigger'
-import { addLeadForNewCustomer } from './pipelineSeeder'
+import { leadForNewCustomer } from './pipelineSeeder'
 import { legacyMigrationEnabled } from './syncGuard'
-import { newId, enqueue, hasLaterWrites, hasPendingWrites } from './recordSync'
+import { newId } from './recordSync'
+import { registerKind, enqueue, hasPending, reapply, type Op } from './outbox'
+import { sendJson } from './syncHttp'
+import { addCardWithCustomer, pipelineSavedElsewhere } from './pipelineStore'
 import {
   listContacts,
-  createContact as apiCreateContact,
-  updateContact as apiUpdateContact,
-  archiveContact as apiArchiveContact,
   migrateLocalContactsOnce,
   migrateLocalNotesOnce,
   type CrmContactRecord,
@@ -124,6 +123,8 @@ export function initCustomers(): Promise<void> {
     if (!records) return
     cache = records.map(fromApi)
     hydrated = true
+    // Customers added or changed on this phone and not on the server yet.
+    reapply('customer.')
     emit()
     if (migrate) {
       try { localStorage.removeItem(LEGACY_KEY) } catch {}
@@ -141,16 +142,22 @@ export function isCustomersHydrated(): boolean { return hydrated }
  * its own (a website quote, a phone call). Customers with a save still on
  * its way out keep their local copy.
  */
+let lastSync: string | null = null
 export async function refreshCustomers(): Promise<void> {
   if (!hydrated) return
-  const records = await listContacts()
-  if (!records) return
-  const fresh = records.map(fromApi)
-  const seen = new Set(fresh.map(c => c.id))
-  const inFlight = cache.filter(c => hasPendingWrites(`customer:${c.id}`))
-  const inFlightIds = new Set(inFlight.map(c => c.id))
-  cache = [...inFlight.filter(c => !seen.has(c.id)), ...fresh.map(c => inFlightIds.has(c.id) ? (inFlight.find(l => l.id === c.id) as Customer) : c)]
-  emit()
+  // Only what changed since the last read (small on cell data); waiting changes stay on top.
+  const r = await sendJson('GET', `/api/crm-contacts${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`)
+  if (!r.result.ok || !Array.isArray(r.json?.data)) return
+  const rows = r.json.data as Array<CrmContactRecord & { archivedAt?: string | null }>
+  if (r.json.partial) {
+    if (rows.length) {
+      const byId = new Map(cache.map(c => [c.id, c]))
+      for (const row of rows) { if (row.archivedAt) byId.delete(row.id); else byId.set(row.id, fromApi(row)) }
+      cache = [...byId.values()]
+    }
+  } else cache = rows.map(fromApi)
+  if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
+  if (!r.json.partial || rows.length) { reapply('customer.'); emit() }
 }
 
 export function getCustomers(): Customer[] {
@@ -181,7 +188,7 @@ export function findDuplicate(data: { phone?: string; email?: string }): Custome
  * Otherwise a new record is created with a temporary client id; once the API
  * returns, the cache is rewritten with the server's id and the event refires.
  */
-export function upsertCustomer(partial: Partial<Customer> & { firstName: string }): { customer: Customer; created: boolean } {
+export function upsertCustomer(partial: Partial<Customer> & { firstName: string }, opts: { stage?: string } = {}): { customer: Customer; created: boolean } {
   let existing = partial.id ? cache.find(c => c.id === partial.id) : null
   if (!existing) existing = findDuplicate({ phone: partial.phone, email: partial.email })
 
@@ -208,8 +215,9 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
   }
 
   // The id chosen here is permanent: the server keeps it, so quotes, jobs and
-  // pipeline leads that point at this customer stay valid.
-  const tempId = partial.id || newId()
+  // pipeline leads that point at this customer stay valid. A full length id,
+  // always: the server does not accept short ones.
+  const tempId = partial.id && partial.id.length >= 8 ? partial.id : newId()
   const fresh: Customer = {
     id: tempId,
     firstName: partial.firstName.trim(),
@@ -230,47 +238,81 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
   cache = [fresh, ...cache]
   emit()
 
-  // Seed pipeline + fire automation with the customer's (permanent) id.
-  try {
-    addLeadForNewCustomer({
-      id: fresh.id,
-      firstName: fresh.firstName, lastName: fresh.lastName,
-      phone: fresh.phone, email: fresh.email,
-      serviceAddress: fresh.serviceAddress,
-      leadSource: fresh.leadSource,
-      notes: fresh.notes,
-      salesRep: fresh.salesRep,
-      createdAt: fresh.createdAt,
-    })
-  } catch {}
-  try {
-    fireCustomerCreated(fresh.id, {
-      customerName: `${fresh.firstName} ${fresh.lastName}`.trim(),
-      customerEmail: fresh.email, customerPhone: fresh.phone,
-      jobAddress: fresh.serviceAddress, assignedRep: fresh.salesRep,
-    })
-  } catch {}
-
-  enqueue(`customer:${tempId}`, async () => {
-    const created = await apiCreateContact({ ...toApiPayload(fresh), id: tempId })
-    // Take server computed fields, but never over an edit made while this was in flight.
-    if (!created || hasLaterWrites(`customer:${tempId}`)) return
-    const fromServer = fromApi(created)
-    cache = cache.map(c => c.id === tempId ? { ...fromServer, id: tempId } : c)
-    emit()
-  }).catch(() => {})
+  // The customer and their First Contact card are one save: both or neither.
+  const lead = leadForNewCustomer({
+    id: fresh.id,
+    firstName: fresh.firstName, lastName: fresh.lastName,
+    phone: fresh.phone, email: fresh.email,
+    serviceAddress: fresh.serviceAddress,
+    leadSource: fresh.leadSource,
+    notes: fresh.notes,
+    salesRep: fresh.salesRep,
+    createdAt: fresh.createdAt,
+    stage: opts.stage,
+  })
+  const leadBefore = lead ? addCardWithCustomer(lead) : null
+  void enqueue<CreatePayload>({
+    key: `customer:${tempId}`, kind: 'customer.create',
+    payload: { customer: fresh, lead, leadBefore },
+    label: `${nameOf(fresh)}, new customer`,
+  })
 
   return { customer: fresh, created: true }
 }
 
-/** Send the cached copy of a customer. Queued behind its create and earlier edits. */
+const nameOf = (c: Pick<Customer, 'firstName' | 'lastName'>) => `${c.firstName} ${c.lastName}`.trim() || 'Customer'
+
+interface CreatePayload { customer: Customer; lead: Record<string, unknown> | null; leadBefore: string | null }
+
+/** Send the newest copy of a customer. Goes after its create and earlier edits. */
 function pushCustomerUpdate(id: string): void {
-  enqueue(`customer:${id}`, async () => {
-    const current = cache.find(c => c.id === id)
-    if (!current) return
-    await apiUpdateContact(id, toApiPayload(current))
-  }).catch(() => {})
+  const current = cache.find(c => c.id === id)
+  if (!current) return
+  void enqueue<Customer>({ key: `customer:${id}`, kind: 'customer.update', payload: current, label: `${nameOf(current)}, changes` })
 }
+
+registerKind<CreatePayload>('customer.create', {
+  what: () => 'This customer',
+  send: async (op: Op<CreatePayload>) => {
+    const { customer, lead, leadBefore } = op.payload
+    const r = await sendJson('POST', '/api/crm-contacts', { ...toApiPayload(customer), id: customer.id, ...(lead ? { lead, leadBefore } : {}) })
+    if (r.result.ok) pipelineSavedElsewhere(r.json?.pipelineVersion)
+    return r.result
+  },
+  confirmed: (op, data) => {
+    const id = op.payload.customer.id
+    if (!data || hasPending(`customer:${id}`)) return
+    const fromServer = fromApi(data as CrmContactRecord)
+    cache = cache.map(c => c.id === id ? { ...fromServer, id } : c)
+    emit()
+    try {
+      fireCustomerCreated(id, {
+        customerName: nameOf(fromServer), customerEmail: fromServer.email, customerPhone: fromServer.phone,
+        jobAddress: fromServer.serviceAddress, assignedRep: fromServer.salesRep,
+      })
+    } catch { /* automations are best effort */ }
+  },
+  apply: op => {
+    const c = op.payload.customer
+    if (!cache.some(x => x.id === c.id)) cache = [c, ...cache]
+  },
+})
+
+registerKind<Customer>('customer.update', {
+  what: () => 'This change to the customer',
+  send: op => sendJson('PATCH', `/api/crm-contacts/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload)).then(r => r.result),
+  apply: op => { cache = cache.map(c => c.id === op.payload.id ? op.payload : c) },
+})
+
+registerKind<{ id: string; name: string }>('customer.archive', {
+  what: () => 'Removing this customer',
+  send: async op => {
+    const r = await sendJson('DELETE', `/api/crm-contacts/${encodeURIComponent(op.payload.id)}`)
+    // Already gone is what was wanted.
+    return r.status === 404 ? { ok: true } : r.result
+  },
+  apply: op => { cache = cache.filter(c => c.id !== op.payload.id) },
+})
 
 export function updateCustomer(id: string, updates: Partial<Customer>): Customer | null {
   const idx = cache.findIndex(c => c.id === id)
@@ -284,9 +326,10 @@ export function updateCustomer(id: string, updates: Partial<Customer>): Customer
 }
 
 export function deleteCustomer(id: string): void {
+  const was = cache.find(c => c.id === id)
   cache = cache.filter(c => c.id !== id)
   emit()
-  enqueue(`customer:${id}`, () => apiArchiveContact(id)).catch(() => {})
+  void enqueue({ key: `customer:${id}`, kind: 'customer.archive', payload: { id, name: was ? nameOf(was) : 'Customer' }, label: `${was ? nameOf(was) : 'Customer'}, removed` })
 }
 
 /**

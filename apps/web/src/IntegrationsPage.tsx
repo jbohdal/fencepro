@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { BackClose } from './nav'
+import { plainText } from './plainError'
 
 const API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/integrations'
 const hdrs: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -74,7 +75,7 @@ export default function IntegrationsPage() {
       const result = await api(`/${slug}/sync`, { method: 'POST' })
       alert(`Sync: ${result.message}`)
       load()
-    } catch (err: any) { alert(err.message) }
+    } catch (err: any) { alert(plainText(err)) }
   }
 
   const categories = [...new Set(integrations.map(i => i.category))].sort()
@@ -225,7 +226,7 @@ function ApiKeysSection() {
       setNewKeyName('')
       // Reload
       api('/api-keys').then(setKeys).catch(() => {})
-    } catch (err: any) { alert(err.message) }
+    } catch (err: any) { alert(plainText(err)) }
   }
 
   async function revoke(id: string) {

@@ -787,7 +787,7 @@ function OverheadDrawer({
       <div className="w-96 bg-white shadow-2xl flex flex-col h-full overflow-y-auto">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900">Add Expense</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
         <div className="px-6 py-4 flex gap-1 bg-gray-50 border-b border-gray-200">

@@ -430,7 +430,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex items-center gap-3">
           {applied && <span className="text-green-600 font-semibold text-sm">{applied}</span>}
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none px-2">×</button>
         </div>
       </div>
 

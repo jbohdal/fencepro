@@ -310,7 +310,7 @@ function QuoteDrawer({
           <div className="flex items-center gap-2">
             <POButton quote={quote} />
             <button onClick={onEdit} className="btn btn-primary">Edit Quote</button>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
           </div>
         </div>
 

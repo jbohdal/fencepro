@@ -13,16 +13,16 @@
 
 import {
   listSavedQuotes,
-  createSavedQuote,
-  updateSavedQuote,
-  archiveSavedQuote,
   migrateLocalQuotesOnce,
   type SavedQuoteRecord,
   type SavedQuotePayload,
 } from './savedQuotesApi'
 import type { SavedQuote } from './QuotesPage'
 import { legacyMigrationEnabled } from './syncGuard'
-import { newId, enqueue, settled, hasLaterWrites } from './recordSync'
+import { newId } from './recordSync'
+import { registerKind, enqueue, hasPending, reapply, pendingFor, type Op } from './outbox'
+import { sendJson } from './syncHttp'
+import { businessDate } from './businessDate'
 
 const EVT = 'fencepro:quotes:updated'
 const LEGACY_KEY = 'fencepro_quotes'
@@ -137,6 +137,8 @@ export function initQuotes(): Promise<void> {
     if (!records) return
     cache = records.map(fromApi)
     hydrated = true
+    // Quotes saved on this phone and not on the server yet.
+    reapply('quote.')
     emit()
     if (migrate) { try { localStorage.removeItem(LEGACY_KEY) } catch {} }
   })().finally(() => { if (!hydrated) initPromise = null })
@@ -210,7 +212,7 @@ export function upsertQuote(partial: Partial<SavedQuote> & { fenceStyle?: string
     gmPct: partial.gmPct ?? 0,
     pullSheet: partial.pullSheet || [],
     status: partial.status || 'DRAFT',
-    date: partial.date || new Date().toISOString().slice(0, 10),
+    date: partial.date || businessDate(new Date()),
     notes: partial.notes || '',
     leadTemp: partial.leadTemp ?? 0,
     pricing: partial.pricing,
@@ -218,30 +220,51 @@ export function upsertQuote(partial: Partial<SavedQuote> & { fenceStyle?: string
   cache = [fresh, ...cache]
   emit()
 
-  enqueue(`quote:${tempId}`, async () => {
-    // A quote points at its customer. If that customer was created a moment
-    // ago, wait for it to exist on the server first.
-    await settled(fresh.customerId ? `customer:${fresh.customerId}` : null)
-    const current = cache.find(q => q.id === tempId) || fresh
-    const created = await createSavedQuote({ ...toApiPayload(current), id: tempId })
-    if (!created || hasLaterWrites(`quote:${tempId}`)) return
-    const fromServer = fromApi(created)
-    cache = cache.map(q => q.id === tempId ? { ...fromServer, id: tempId } : q)
-    emit()
-  }).catch(() => {})
+  void enqueue<SavedQuote>({ key: `quote:${tempId}`, kind: 'quote.create', payload: fresh, label: quoteLabel(fresh, 'new quote'), after: customerKeys(fresh) })
 
   return fresh
 }
 
-/** Send the cached copy of a quote. Queued behind its create and earlier edits. */
+const quoteLabel = (q: SavedQuote, what: string) => `${q.customerName || 'Quote'}, ${what}`
+/** A quote for a customer still on the way to the server waits for that customer. */
+const customerKeys = (q: SavedQuote) => (q.customerId && pendingFor(`customer:${q.customerId}`).some(o => o.kind === 'customer.create') ? [`customer:${q.customerId}`] : [])
+
+/** Send the newest copy of a quote. Goes after its create and earlier edits. */
 function pushQuoteUpdate(id: string): void {
-  enqueue(`quote:${id}`, async () => {
-    const current = cache.find(q => q.id === id)
-    if (!current) return
-    await settled(current.customerId ? `customer:${current.customerId}` : null)
-    await updateSavedQuote(id, toApiPayload(current))
-  }).catch(() => {})
+  const current = cache.find(q => q.id === id)
+  if (!current) return
+  void enqueue<SavedQuote>({ key: `quote:${id}`, kind: 'quote.update', payload: current, label: quoteLabel(current, 'quote changes'), after: customerKeys(current) })
 }
+
+const takeServerFields = (op: Op<SavedQuote>, data: unknown) => {
+  const id = op.payload.id
+  // Never over an edit made while this was on its way.
+  if (!data || hasPending(`quote:${id}`)) return
+  const fromServer = fromApi(data as SavedQuoteRecord)
+  cache = cache.map(q => q.id === id ? { ...fromServer, id } : q)
+  emit()
+}
+
+registerKind<SavedQuote>('quote.create', {
+  what: () => 'This quote',
+  send: op => sendJson('POST', '/api/saved-quotes', { ...toApiPayload(op.payload), id: op.payload.id }).then(r => r.result),
+  confirmed: takeServerFields,
+  apply: op => { if (!cache.some(q => q.id === op.payload.id)) cache = [op.payload, ...cache] },
+})
+registerKind<SavedQuote>('quote.update', {
+  what: () => 'This change to the quote',
+  send: op => sendJson('PATCH', `/api/saved-quotes/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload)).then(r => r.result),
+  confirmed: takeServerFields,
+  apply: op => { cache = cache.map(q => q.id === op.payload.id ? op.payload : q) },
+})
+registerKind<{ id: string }>('quote.archive', {
+  what: () => 'Removing this quote',
+  send: async op => {
+    const r = await sendJson('DELETE', `/api/saved-quotes/${encodeURIComponent(op.payload.id)}`)
+    return r.status === 404 ? { ok: true } : r.result
+  },
+  apply: op => { cache = cache.filter(q => q.id !== op.payload.id) },
+})
 
 export function updateQuote(id: string, updates: Partial<SavedQuote>): SavedQuote | null {
   const idx = cache.findIndex(q => q.id === id)
@@ -254,9 +277,34 @@ export function updateQuote(id: string, updates: Partial<SavedQuote>): SavedQuot
 }
 
 export function deleteQuote(id: string): void {
+  const was = cache.find(q => q.id === id)
   cache = cache.filter(q => q.id !== id)
   emit()
-  enqueue(`quote:${id}`, () => archiveSavedQuote(id)).catch(() => {})
+  void enqueue({ key: `quote:${id}`, kind: 'quote.archive', payload: { id }, label: was ? quoteLabel(was, 'quote removed') : 'Quote removed' })
 }
 
 export const QUOTES_UPDATED_EVENT = EVT
+
+/** When this list was last read from the server (the server's own clock). */
+let lastSync: string | null = null
+
+/**
+ * Read the list again (the server changes some on its own: a customer
+ * accepting online). Only what changed since the last read comes back, so it
+ * is small on cell data. Waiting changes stay on top. Quiet with no signal.
+ */
+export async function refreshQuotes(): Promise<void> {
+  if (!hydrated) return
+  const r = await sendJson('GET', `/api/saved-quotes${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`)
+  if (!r.result.ok || !Array.isArray(r.json?.data)) return
+  const rows = r.json.data as Array<SavedQuoteRecord & { archivedAt?: string | null }>
+  if (r.json.partial) {
+    if (rows.length) {
+      const byId = new Map(cache.map(x => [x.id, x]))
+      for (const row of rows) { if (row.archivedAt) byId.delete(row.id); else byId.set(row.id, fromApi(row)) }
+      cache = [...byId.values()]
+    }
+  } else cache = rows.map(fromApi)
+  if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
+  if (!r.json.partial || rows.length) { reapply('quote.'); emit() }
+}

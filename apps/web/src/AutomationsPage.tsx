@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { plainText } from './plainError'
 
 const API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/automations'
 const hdrs: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -234,7 +235,7 @@ function AutomationBuilder({ editingId, onSaved, onCancel }: { editingId: string
         await api('/', { method: 'POST', body: JSON.stringify(body) })
       }
       onSaved()
-    } catch (err: any) { alert(err.message) }
+    } catch (err: any) { alert(plainText(err)) }
     setSaving(false)
   }
 

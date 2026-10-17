@@ -266,7 +266,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
               <h2 className="font-bold text-gray-900 text-lg">{job.customerName}</h2>
               <p className="text-sm text-gray-400">{job.customerAddress}</p>
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+            <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl">×</button>
           </div>
           <div className="flex items-center gap-2">
             <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${cfg.bgColor} ${cfg.color}`}>

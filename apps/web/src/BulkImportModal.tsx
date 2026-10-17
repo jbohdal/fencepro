@@ -203,7 +203,7 @@ export default function BulkImportModal({ onClose, onComplete }: { onClose: () =
               ))}
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl">×</button>
         </div>
 
         {/* Content */}

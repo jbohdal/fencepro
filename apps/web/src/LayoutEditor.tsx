@@ -158,9 +158,12 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     : pad.field === 'skipLength' ? padSide.skip?.lengthIn ?? 0
     : pad.field === 'meetDistance' ? padSide.meetsHouse?.distanceIn ?? 0
     : padSide.skip?.distanceIn ?? 0
+  // Next: the following side, then round to any side still without a length, so none is skipped.
   const nextSideFor = (id: string) => {
     const i = idx(id)
-    return layout.sides.slice(i + 1).find(s => s.on) ?? null
+    return layout.sides.slice(i + 1).find(s => s.on)
+      ?? layout.sides.slice(0, i).find(s => s.on && !(s.lengthIn > 0))
+      ?? null
   }
   const padNext = pad?.field === 'length' && padSide ? nextSideFor(padSide.id) : null
   function padDone(inches: number, next: boolean) {

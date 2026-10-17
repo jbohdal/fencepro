@@ -7,7 +7,7 @@
  *   - Quotes list (any row)
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
 import { updateQuote, getQuoteById } from './quoteStore'
 import { markQuoteSold, markQuoteLost } from './signedContractFlow'
@@ -21,6 +21,7 @@ import RunSpacingTable from './RunSpacingTable'
 import ProposalSend from './ProposalSend'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { useBackLayer, BackClose } from './nav'
+import { SaveStatus } from './SaveStatus'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -36,7 +37,7 @@ const STATUS_STYLES: Record<SavedQuote['status'], { bg: string; text: string; la
 }
 
 export default function QuoteDetailDrawer({
-  quote,
+  quote: opened,
   onClose,
   onEdit,
   onChange,
@@ -48,6 +49,14 @@ export default function QuoteDetailDrawer({
   onChange?: () => void
   internalView?: boolean
 }) {
+  // The newest copy: a customer may accept online while this is open (it shows Sold then).
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const h = () => setTick(t => t + 1)
+    window.addEventListener('fencepro:quotes:updated', h)
+    return () => window.removeEventListener('fencepro:quotes:updated', h)
+  }, [])
+  const quote = (getQuoteById(opened.id) as SavedQuote | null) ?? opened
   const [sendOpen, setSendOpen] = useState(false)
   // Its own address (?qv=<quote>): Back closes it, a reload reopens it.
   useBackLayer(onClose, { key: 'qv', params: { qv: quote.id } })
@@ -99,7 +108,8 @@ export default function QuoteDetailDrawer({
             </div>
             <p className="text-sm text-gray-500 mt-1">{quote.customerName} · {quote.date}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+          <SaveStatus keys={[`quote:${quote.id}`]} />
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
 
         <div className="px-8 py-6 space-y-6">
@@ -229,8 +239,9 @@ export default function QuoteDetailDrawer({
           {onEdit && (
             <button onClick={onEdit} className="btn btn-secondary">Edit</button>
           )}
-          <button onClick={handleCopyShareLink} className="btn btn-secondary">Copy Share Link</button>
-          {quote.status !== 'SOLD' && quote.status !== 'LOST' && (
+          {/* Quotes with a proposal are sent with its own link above; the old share link only for older quotes. */}
+          {!quote.proposal && <button onClick={handleCopyShareLink} className="btn btn-secondary">Copy Share Link</button>}
+          {!quote.proposal && quote.status !== 'SOLD' && quote.status !== 'LOST' && (
             <button onClick={() => setSendOpen(true)} className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium">Send to Customer</button>
           )}
           {quote.status !== 'LOST' && (
@@ -370,7 +381,7 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="font-bold text-gray-900">Send Quote to Customer</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
         <div className="p-6 space-y-4">
           <div>

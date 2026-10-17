@@ -146,7 +146,7 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
             <p className="text-xs text-gray-600 break-all" data-packet-url>{url}</p>
             <button type="button" className="btn btn-quiet btn-sm shrink-0" onClick={off} data-packet-off>Turn off link</button>
           </div>
-          {!getConfig().proposal?.publicLinks && <p className="text-xs text-amber-900 bg-amber-50 rounded-lg px-2 py-1">The crew can open this from outside your Tailscale devices once the public door for /p is on.</p>}
+          {!getConfig().proposal?.publicLinks && <p className="text-xs text-amber-900 bg-amber-50 rounded-lg px-2 py-1">Right now the crew can open this only on your own phones and computers. Once outside access is set up (Settings → Proposals), it opens on any phone.</p>}
         </>
       )}
       {packet?.disabledAt && <p className="text-xs text-gray-600" data-packet-state>Link turned off. Sending again makes a new link.</p>}

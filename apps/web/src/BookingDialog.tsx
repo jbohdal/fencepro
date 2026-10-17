@@ -24,6 +24,7 @@ import {
 import { applyBooking } from './appointmentPipeline'
 import MapView, { type MapPoint } from './MapView'
 import { useBackLayer } from './nav'
+import { SaveStatus } from './SaveStatus'
 
 export interface BookingRequest {
   customerId?: string
@@ -93,7 +94,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const [jobId, setJobId] = useState(existing?.jobId || req.jobId || '')
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
-  const [booked, setBooked] = useState<Appointment | null>(null)
+  const [booked, setBooked] = useState<(Appointment & { pending?: boolean }) | null>(null)
   const [search, setSearch] = useState('')
 
   // The customer's address until another property is typed in.
@@ -179,12 +180,18 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 sm:p-4" onClick={close}>
       <div onClick={e => e.stopPropagation()} data-booking-dialog className="bg-white w-full sm:max-w-4xl max-h-[95vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl shadow-2xl">
         <div className="sticky top-0 bg-white z-10 border-b border-gray-100 px-5 py-3 flex items-center justify-between">
-          <h2 className="text-base font-bold text-gray-900">{booked ? 'Booked' : existing ? 'Change appointment' : 'Book appointment'}</h2>
-          <button onClick={close} aria-label="Close" className="text-gray-400 hover:text-gray-700 text-xl px-2">✕</button>
+          <h2 className="text-base font-bold text-gray-900">{booked ? (booked.pending ? 'Kept on this phone' : existing ? 'Changed' : 'Booked') : existing ? 'Change appointment' : 'Book appointment'}</h2>
+          <button onClick={close} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-700 text-xl px-2">✕</button>
         </div>
 
         {booked ? (
-          <div className="p-5 space-y-4" data-booked>
+          <div className="p-5 space-y-4" data-booked={booked.pending ? 'pending' : 'saved'}>
+            <SaveStatus keys={[`appointment:${booked.id}`]} />
+            {booked.pending && (
+              <p className="text-sm text-amber-900 bg-amber-50 rounded-lg px-3 py-2" data-booked-pending>
+                No signal right now. This appointment is kept on this phone and will be booked by itself as soon as there is signal. The badge at the top shows it until then.
+              </p>
+            )}
             <p className="text-sm text-gray-700">
               <b>{TYPE_SHORT[booked.type]}</b> with <b>{booked.customerName}</b> on <b>{longWhen(booked)}</b>
               {booked.address ? <> at {booked.address}</> : null}, with {booked.assignedTo || 'nobody assigned'}.

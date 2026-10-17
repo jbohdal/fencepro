@@ -6,6 +6,7 @@
 
 import { useState, useEffect } from 'react'
 import { login, acceptInvite, forgotPassword, resetPassword, type CrmUser } from './crmAuth'
+import { plainText } from './plainError'
 
 type View = 'login' | 'forgot' | 'accept-invite' | 'reset-password'
 
@@ -72,7 +73,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
       const { user } = await login(email, password)
       onLogin(user)
     } catch (err: any) {
-      setError(err.message)
+      setError(plainText(err))
     }
     setLoading(false)
   }
@@ -83,7 +84,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
     try {
       await forgotPassword(email)
       setSuccess('If an account exists with that email, a reset link has been sent.')
-    } catch (err: any) { setError(err.message) }
+    } catch (err: any) { setError(plainText(err)) }
     setLoading(false)
   }
 
@@ -98,7 +99,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
       const { user } = await acceptInvite(token, email, password)
       window.history.replaceState({}, '', '/')
       onLogin(user)
-    } catch (err: any) { setError(err.message) }
+    } catch (err: any) { setError(plainText(err)) }
     setLoading(false)
   }
 
@@ -113,7 +114,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
       setSuccess('Password reset successfully. You can now log in.')
       setView('login')
       setPassword(''); setConfirmPassword('')
-    } catch (err: any) { setError(err.message) }
+    } catch (err: any) { setError(plainText(err)) }
     setLoading(false)
   }
 

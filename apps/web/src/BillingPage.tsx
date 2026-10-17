@@ -5,6 +5,7 @@
 import { useState, useMemo } from 'react'
 import jsPDF from 'jspdf'
 import { getInvoices, getPayments, getARSummary, type Invoice, type Payment } from './billingStore'
+import { businessDate } from './businessDate'
 
 const fmtD = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })
 
@@ -353,7 +354,7 @@ async function exportStatementPdf(invoices: Invoice[]) {
   doc.setFontSize(8).setFont('helvetica', 'normal').setTextColor(156, 163, 175)
   doc.text(`Generated ${new Date().toLocaleString()} · ${companyName} · Accounts Receivable Statement`, W / 2, footerY, { align: 'center' })
 
-  doc.save(`ar-statement-${new Date().toISOString().slice(0, 10)}.pdf`)
+  doc.save(`ar-statement-${businessDate(new Date())}.pdf`)
 }
 
 export default function BillingPage() {

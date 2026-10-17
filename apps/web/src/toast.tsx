@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { plainText } from './plainError'
 
 export type ToastKind = 'success' | 'error' | 'info' | 'warning'
 

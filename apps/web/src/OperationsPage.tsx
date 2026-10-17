@@ -13,6 +13,7 @@ import { getJobs, updateJob, advanceJob, holdJob, unholdJob, type Job, type JobS
 import { fireOpsStageChange } from './automationTrigger'
 import { onJobCompleted } from './jobCompleteFlow'
 import { useBackLayer } from './nav'
+import { businessDate } from './businessDate'
 
 // ── Unified operations stages ──
 
@@ -267,7 +268,7 @@ export default function OperationsPage() {
     if (targetStage === 'materials_ordered') updates.materialsStatus = 'ordered'
     if (targetStage === 'ready_to_pull') updates.materialsStatus = 'received'
     if (targetStage === 'need_drawing') updates.drawingComplete = false
-    if (targetStage === 'completed') updates.completedDate = new Date().toISOString().slice(0, 10)
+    if (targetStage === 'completed') updates.completedDate = businessDate(new Date())
 
     updateJob(uj.id, updates)
 
@@ -583,6 +584,10 @@ function ListView({ jobs, onSelect, onAdvance }: { jobs: UnifiedJob[]; onSelect:
 
 // ── Detail Panel (Slide-over) ──
 
+// Said in words, not codes.
+const MATERIALS_WORDS: Record<string, string> = { not_ordered: 'Not ordered yet', ordered: 'Ordered', received: 'Received', loaded: 'Loaded on the truck' }
+const PAYMENT_WORDS: Record<string, string> = { not_invoiced: 'Not invoiced yet', invoiced: 'Invoiced', deposit_paid: 'Deposit paid', partial: 'Partly paid', paid: 'Paid in full' }
+
 export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveStage, onUpdate }: {
   job: UnifiedJob
   onClose: () => void
@@ -605,7 +610,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           <h2 className="text-lg font-bold text-gray-900">{job.customerName}</h2>
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${stage?.bg} ${stage?.text}`}>{job.opsStageLabel}</span>
         </div>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+        <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl">×</button>
       </div>
 
       {/* Content */}
@@ -632,7 +637,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           <div className="flex flex-wrap gap-1">
             {OPS_STAGES.filter(s => !['customer_delay', 'backorder'].includes(s.key)).map(s => (
               <button key={s.key} onClick={() => onMoveStage(s.key)} disabled={!isJobSource || job.opsStage === s.key}
-                className={`px-2 py-1 rounded-lg text-xs font-medium transition ${
+                className={`px-3 min-h-[48px] min-w-[48px] rounded-lg text-xs font-medium transition ${
                   job.opsStage === s.key ? `${s.bg} ${s.text}` : 'border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30'
                 }`}>
                 {s.label}
@@ -663,7 +668,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         <Section title="Readiness Signals">
           <CheckItem label="Locates" done={!!job.locatesDate} detail={job.locatesDate ? `Good: ${job.locatesDate} • Exp: ${job.locatesExpDate}` : 'Not called'} />
           <CheckItem label="Drawing" done={job.drawingComplete} />
-          <CheckItem label="Materials" done={job.materialsStatus === 'received' || job.materialsStatus === 'loaded'} detail={job.materialsStatus} />
+          <CheckItem label="Materials" done={job.materialsStatus === 'received' || job.materialsStatus === 'loaded'} detail={MATERIALS_WORDS[job.materialsStatus] ?? job.materialsStatus} />
           <CheckItem label="Pull Sheet" done={job.rawJob?.pullSheetPulled || false} />
         </Section>
 
@@ -698,7 +703,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           <Field label="Contract Value" value={fmt(job.contractValue)} />
           <Field label="Amount Paid" value={fmt(job.amountPaid)} />
           <Field label="Outstanding" value={fmt(job.contractValue - job.amountPaid)} />
-          <Field label="Payment Status" value={job.paymentStatus} />
+          <Field label="Payment Status" value={PAYMENT_WORDS[job.paymentStatus] ?? job.paymentStatus} />
         </Section>
 
         {/* Notes */}
@@ -821,11 +826,11 @@ function MilestoneChecklist({ jobId }: { jobId: string }) {
       </div>
       {items.map(item => (
         <label key={item.id}
-          className={`flex items-center gap-3 px-2 py-2 rounded-lg cursor-pointer transition-colors ${item.isComplete ? 'bg-green-50' : 'hover:bg-gray-50'} ${busyId === item.id ? 'opacity-60' : ''}`}>
+          className={`flex items-center gap-3 px-2 min-h-[48px] rounded-lg cursor-pointer transition-colors ${item.isComplete ? 'bg-green-50' : 'hover:bg-gray-50'} ${busyId === item.id ? 'opacity-60' : ''}`}>
           <input type="checkbox" checked={item.isComplete}
             onChange={() => handleToggle(item)}
             disabled={busyId === item.id}
-            className="w-4 h-4 accent-orange-500 cursor-pointer" />
+            className="w-6 h-6 accent-orange-500 cursor-pointer" />
           <span className={`text-sm flex-1 ${item.isComplete ? 'text-gray-900 line-through' : 'text-gray-700'}`}>{item.label}</span>
           {item.isComplete && item.completedAt && (
             <span className="text-[10px] text-gray-400">{new Date(item.completedAt).toLocaleDateString()}</span>

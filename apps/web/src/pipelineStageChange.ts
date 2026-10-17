@@ -8,6 +8,7 @@ import { loadPipeline, savePipeline } from './JobsPage'
 import { fireSalesStageChange } from './automationTrigger'
 import { applySignedContractTransition } from './signedContractFlow'
 import { toast } from './toast'
+import { businessDate } from './businessDate'
 
 export type StageChangeResult = 'moved' | 'sold' | 'cancelled' | 'unchanged' | 'missing'
 
@@ -24,7 +25,7 @@ export function changeLeadStage(leadId: string, toStage: string): StageChangeRes
   }
 
   const fromStage = lead.stage
-  const today = new Date().toISOString().slice(0, 10)
+  const today = businessDate(new Date())
   savePipeline(leads.map(l => l.id === leadId ? { ...l, stage: toStage, lastMoved: today } : l), stages)
   try {
     if (toSold) {

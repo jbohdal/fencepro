@@ -822,7 +822,7 @@ function BundleEditor({
     <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5">
       <div className="flex items-center justify-between">
         <h3 className="font-bold text-gray-900">{bundle.id ? 'Edit Bundle' : 'New Bundle'}</h3>
-        <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        <button onClick={onCancel} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
       </div>
       <div className="space-y-3">
         <div>

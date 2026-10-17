@@ -29,11 +29,13 @@ import { BottomSheet } from './SalesPipelineBoard'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 import { Search, SlidersHorizontal } from 'lucide-react'
 import { useBackLayer, useScreenMemory, useNav, takeOpenedParam } from './nav'
+import { refreshNow } from './liveRefresh'
+import { businessDate } from './businessDate'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
-const TODAY = () => new Date().toISOString().slice(0, 10)
+const TODAY = () => businessDate(new Date())
 
 const stageColorHex: Record<string, string> = {
   'bg-blue-500': '#3b82f6', 'bg-yellow-500': '#eab308', 'bg-orange-500': '#f97316',
@@ -108,6 +110,8 @@ const UNSCHEDULED_KEY = '__unscheduled__'
 
 export default function OperationsBoard() {
   const [jobs, setJobs] = useState<UnifiedJob[]>(() => buildUnifiedList())
+  // Opened: read the newest copy (a job sold online, a card moved by the server).
+  useEffect(() => { void refreshNow() }, [])
   const [view, setView] = useState<ViewMode>(() => (localStorage.getItem(VIEW_KEY) as ViewMode) || 'board')
   const [sortMode, setSortMode] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) as SortMode) || 'scheduled')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
@@ -155,6 +159,13 @@ export default function OperationsBoard() {
 
   /* ── refresh on external updates ── */
   function refresh() { setJobs(buildUnifiedList()) }
+  // Jobs and quotes change underneath: another device, a customer accepting online, a save confirmed.
+  useEffect(() => {
+    const h = () => refresh()
+    window.addEventListener('fencepro:jobs:updated', h)
+    window.addEventListener('fencepro:quotes:updated', h)
+    return () => { window.removeEventListener('fencepro:jobs:updated', h); window.removeEventListener('fencepro:quotes:updated', h) }
+  }, [])
   useEffect(() => {
     const h = () => refresh()
     window.addEventListener('fencepro:checklist:updated', h)

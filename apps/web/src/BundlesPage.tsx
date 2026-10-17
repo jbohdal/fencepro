@@ -247,7 +247,7 @@ function BundleForm({ initial, onCancel, onSaved }: { initial: QuoteBundle | nul
       <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white z-10">
           <h3 className="text-lg font-bold text-gray-900">{initial ? 'Edit' : 'New'} Bundle</h3>
-          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+          <button onClick={onCancel} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
         <div className="p-6 space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

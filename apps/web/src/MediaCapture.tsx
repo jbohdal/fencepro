@@ -38,6 +38,8 @@ export default function MediaCapture({ where, defaultCategory, onDone, onClose }
   const [problem, setProblem] = useState('')
   const [warn, setWarn] = useState<string | null>(null)
   const [flash, setFlash] = useState(false)
+  const [askLocation, setAskLocation] = useState(false)
+  const askLocationRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     let alive = true
@@ -53,7 +55,14 @@ export default function MediaCapture({ where, defaultCategory, onDone, onClose }
       if (videoRef.current) { videoRef.current.srcObject = stream.current; videoRef.current.play().catch(() => {}) }
     }
     open()
-    const stopFix = watchLocation(f => { fix.current = f })
+    // Location only when already allowed; otherwise a button asks (never a surprise question over another screen).
+    let stopFix = () => {}
+    const startFix = () => { stopFix = watchLocation(f => { fix.current = f }) }
+    navigator.permissions?.query({ name: 'geolocation' as PermissionName }).then(p => {
+      if (!alive) return
+      if (p.state === 'granted') startFix(); else setAskLocation(p.state === 'prompt')
+    }).catch(() => setAskLocation(true))
+    askLocationRef.current = () => { setAskLocation(false); startFix() }
     const stopHeading = watchHeading(h => { heading.current = h })
     storageWarning().then(setWarn)
     return () => { alive = false; stopFix(); stopHeading(); stream.current?.getTracks().forEach(t => t.stop()) }
@@ -74,7 +83,12 @@ export default function MediaCapture({ where, defaultCategory, onDone, onClose }
   }
 
   async function keep(blob: Blob, m: MediaMeta) {
-    const saved = await addCapture(blob, m)
+    let saved
+    try { saved = await addCapture(blob, m) } catch {
+      // Never a shutter that does nothing: say why, and what to do.
+      setProblem('This phone did not let the app keep that photo (it may be out of space, or this is a private window). Free up space or open EZ Biz from its home screen icon, then try again; or use Choose from gallery.')
+      return
+    }
     const thumb = m.kind === 'photo' ? URL.createObjectURL(blob) : ''
     setTaken(list => [...list, { ...saved, thumb }])
     storageWarning().then(setWarn)
@@ -133,6 +147,10 @@ export default function MediaCapture({ where, defaultCategory, onDone, onClose }
         <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted autoPlay data-capture-preview />
         {flash && <div className="absolute inset-0 bg-white/70" />}
         {problem && <p className="absolute inset-x-4 top-6 rounded-lg bg-white text-gray-900 p-3 text-sm" data-capture-problem>{problem}</p>}
+        {askLocation && !problem && (
+          <button type="button" onClick={() => askLocationRef.current()} data-capture-ask-location
+            className="absolute left-4 top-6 rounded-full bg-white/90 text-gray-900 text-sm font-semibold px-4 min-h-[48px]">Add where photos were taken</button>
+        )}
         {warn && <p className="absolute inset-x-4 bottom-4 rounded-lg bg-amber-100 text-amber-900 p-3 text-sm" data-capture-storage>{warn}</p>}
       </div>
       <div className="px-4 py-3 pb-[max(12px,env(safe-area-inset-bottom))] text-white">

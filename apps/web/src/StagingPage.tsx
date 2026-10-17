@@ -3,6 +3,7 @@ import type { SavedQuote } from './QuotesPage'
 import { getQuotes } from './quoteStore'
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
+import { businessDate } from './businessDate'
 
 export interface StagingJob {
   id: string
@@ -108,7 +109,7 @@ function JobDrawer({
             ) : (
               <button onClick={() => setEditing(true)} className="btn btn-secondary">Edit</button>
             )}
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-1">×</button>
+            <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none ml-1">×</button>
           </div>
         </div>
 
@@ -121,7 +122,7 @@ function JobDrawer({
                 return (
                   <button
                     key={s}
-                    onClick={() => onUpdate({ ...job, status: s, lastMoved: new Date().toISOString().slice(0, 10) })}
+                    onClick={() => onUpdate({ ...job, status: s, lastMoved: businessDate(new Date()) })}
                     className={`text-xs px-2.5 py-1.5 rounded-lg font-medium border transition-colors ${
                       job.status === s ? `${c.bg} ${c.text} border-transparent font-semibold` : 'border-gray-200 text-gray-500 hover:border-gray-300'
                     }`}
@@ -267,8 +268,8 @@ function PushQuoteModal({
       notes,
       status,
       quoteId: selected.id,
-      createdAt: new Date().toISOString().slice(0, 10),
-      lastMoved: new Date().toISOString().slice(0, 10),
+      createdAt: businessDate(new Date()),
+      lastMoved: businessDate(new Date()),
     }
     onPush(job)
   }
@@ -281,7 +282,7 @@ function PushQuoteModal({
             <h2 className="font-bold text-gray-900">Push Sold Quote to Staging</h2>
             <p className="text-xs text-gray-400 mt-0.5">{soldQuotes.length} sold quotes available</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
         <div className="px-6 py-5 space-y-4">
@@ -370,7 +371,7 @@ function KanbanCard({
   onDragStart: (e: React.DragEvent, id: string) => void
 }) {
   const colors = STATUS_COLORS[job.status] ?? { bg: 'bg-gray-50', text: 'text-gray-600', dot: 'bg-gray-400' }
-  const today = new Date().toISOString().slice(0, 10)
+  const today = businessDate(new Date())
   const locatesExpired = job.locatesExpDate && job.locatesExpDate < today
   const locatesExpiringSoon = job.locatesExpDate && !locatesExpired &&
     new Date(job.locatesExpDate) <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
@@ -475,7 +476,7 @@ function KanbanColumn({
 
 function ListView({ jobs, onJobClick }: { jobs: StagingJob[], onJobClick: (job: StagingJob) => void }) {
   const [statusFilter, setStatusFilter] = useState('All')
-  const today = new Date().toISOString().slice(0, 10)
+  const today = businessDate(new Date())
   const filtered = jobs.filter(j => statusFilter === 'All' || j.status === statusFilter)
     .sort((a, b) => a.contractDate.localeCompare(b.contractDate))
 
@@ -593,7 +594,7 @@ export default function StagingPage() {
     if (!dragId.current) return
     const next = jobs.map(j =>
       j.id === dragId.current
-        ? { ...j, status, lastMoved: new Date().toISOString().slice(0, 10) }
+        ? { ...j, status, lastMoved: businessDate(new Date()) }
         : j
     )
     persist(next)
@@ -611,7 +612,7 @@ export default function StagingPage() {
   const totalValue = jobs.filter(j => j.status !== 'Job Complete').reduce((s, j) => s + (j.jobPrice || 0), 0)
   const totalSections = jobs.filter(j => j.status !== 'Job Complete').reduce((s, j) => s + (j.sections || 0), 0)
   const existingJobIds = new Set(jobs.map(j => j.quoteId).filter(Boolean) as string[])
-  const today = new Date().toISOString().slice(0, 10)
+  const today = businessDate(new Date())
   const expiredCount = jobs.filter(j => j.locatesExpDate && j.locatesExpDate < today && j.status !== 'Job Complete').length
   const expiringSoonCount = jobs.filter(j => {
     if (!j.locatesExpDate || j.status === 'Job Complete') return false

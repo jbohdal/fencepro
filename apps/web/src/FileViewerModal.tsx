@@ -97,7 +97,7 @@ export default function FileViewerModal({ file, siblingImages = [], onClose, onD
         <div className="flex gap-2">
           <button onClick={handleDownload} className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg">Download</button>
           {onDelete && <button onClick={handleDeleteClick} className="text-xs text-red-400 hover:bg-red-500/20 px-3 py-1.5 rounded-lg">Delete</button>}
-          <button onClick={onClose} className="text-white/70 hover:text-white text-2xl leading-none px-2">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-white/70 hover:text-white text-2xl leading-none px-2">×</button>
         </div>
       </div>
 

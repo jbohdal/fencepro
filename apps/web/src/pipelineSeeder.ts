@@ -1,12 +1,11 @@
 /**
- * Pipeline seeder — when a new customer is created, add a matching lead
- * to the sales pipeline under First Contact. Backed by /api/pipeline via
- * pipelineStore (account scoped).
+ * Pipeline seeder — the card a new customer gets on the sales pipeline,
+ * under First Contact.
  */
 
-import { getPipeline, savePipeline } from './pipelineStore'
-
-const uid = () => Math.random().toString(36).slice(2, 9)
+import { getPipeline } from './pipelineStore'
+import { newId } from './recordSync'
+import { businessDate } from './businessDate'
 
 export interface NewCustomerForPipeline {
   id: string
@@ -19,17 +18,18 @@ export interface NewCustomerForPipeline {
   notes?: string
   salesRep?: string
   createdAt?: string
+  /** The column it goes in; First Contact unless added to another one. */
+  stage?: string
 }
 
-export function addLeadForNewCustomer(customer: NewCustomerForPipeline): void {
+/**
+ * The First Contact card for a new customer, or null when one is already on
+ * the board. It is not saved here: it goes to the server in the same save as
+ * the customer (customerStore), so both are saved or neither is.
+ */
+export function leadForNewCustomer(customer: NewCustomerForPipeline): Record<string, unknown> | null {
   try {
-    const cached = getPipeline()
-    const leads = cached.leads || []
-    const stages = (cached.stages && cached.stages.length > 0) ? cached.stages : [
-      'First Contact', 'Appointment', 'Estimating', 'Pending Signature',
-      'Signed Contract', 'Job Prep', 'Pending Start', 'Jobs In Progress',
-      'Job Complete', 'Pending Payment', 'Paid & Closed', 'Lost Sale', 'No Answer',
-    ]
+    const leads = getPipeline().leads || []
 
     // Dedupe — if a lead already exists for this customer id, don't add again
     const customerKey = customer.id
@@ -38,10 +38,10 @@ export function addLeadForNewCustomer(customer: NewCustomerForPipeline): void {
       (l.firstName === customer.firstName && l.lastName === customer.lastName &&
         l.phone === (customer.phone || '') && !!customer.firstName)
     )
-    if (already) return
+    if (already) return null
 
-    const newLead = {
-      id: uid(),
+    return {
+      id: newId(),
       customerId: customer.id,
       firstName: customer.firstName || '',
       lastName: customer.lastName || '',
@@ -59,13 +59,10 @@ export function addLeadForNewCustomer(customer: NewCustomerForPipeline): void {
       paymentStatus: '',
       balanceDue: 0,
       notes: customer.notes || '',
-      stage: 'First Contact',
-      createdAt: customer.createdAt || new Date().toISOString().slice(0, 10),
-      lastMoved: new Date().toISOString().slice(0, 10),
+      stage: customer.stage || 'First Contact',
+      createdAt: customer.createdAt || businessDate(new Date()),
+      lastMoved: businessDate(new Date()),
       assignedRep: customer.salesRep || '',
     }
-
-    leads.unshift(newLead)
-    savePipeline(leads, stages)
-  } catch { /* noop */ }
+  } catch { return null }
 }

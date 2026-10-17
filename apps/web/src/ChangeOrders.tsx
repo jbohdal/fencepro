@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
+import { businessDate } from './businessDate'
 
 /* ───────── types ───────── */
 
@@ -109,7 +110,7 @@ export function QuickChangeOrderModal({
       id: uid(),
       quoteId,
       orderNumber: existingCount + 1,
-      date: new Date().toISOString().slice(0, 10),
+      date: businessDate(new Date()),
       items: items.filter(i => i.description.trim()),
       total,
       status: 'PENDING',
@@ -127,7 +128,7 @@ export function QuickChangeOrderModal({
             <h2 className="font-bold text-gray-900">Change Order #{existingCount + 1}</h2>
             <p className="text-xs text-gray-400 mt-0.5">{customerName}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
         <div className="px-6 py-5 space-y-4">
@@ -209,7 +210,7 @@ export function QuickChangeOrderModal({
                   id: uid(),
                   quoteId,
                   orderNumber: existingCount + 1,
-                  date: new Date().toISOString().slice(0, 10),
+                  date: businessDate(new Date()),
                   items: items.filter(i => i.description.trim()),
                   total,
                   status: 'APPROVED',

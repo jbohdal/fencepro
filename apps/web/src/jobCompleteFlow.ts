@@ -13,6 +13,7 @@
 import { logCustomerActivity } from './customerStore'
 import { fireOpsStageChange, fireTrigger } from './automationTrigger'
 import { getPipeline, savePipeline as storeSavePipeline } from './pipelineStore'
+import { businessDate } from './businessDate'
 
 const CONFIG_KEY = 'fencepro_config'
 const JOB_COMPLETE_STAGE = 'Job Complete'
@@ -76,7 +77,7 @@ export function movePipelineCardToJobComplete(match: { customerId?: string; cust
       (email && (l.email || '').toLowerCase() === email)
     if (matches && l.stage !== JOB_COMPLETE_STAGE) {
       changed = true
-      return { ...l, stage: JOB_COMPLETE_STAGE, lastMoved: new Date().toISOString().slice(0, 10), isCompleted: true }
+      return { ...l, stage: JOB_COMPLETE_STAGE, lastMoved: businessDate(new Date()), isCompleted: true }
     }
     return l
   })

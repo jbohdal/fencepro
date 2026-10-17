@@ -20,8 +20,10 @@ import type { SavedQuote } from './QuotesPage'
 import type { Appointment } from './appointmentLogic'
 import { shortWhen, smsLink } from './appointmentLogic'
 import { getCustomerById } from './customerStore'
-import { listContactNotes, createContactNote, type CrmContactNoteRecord } from './crmContactsApi'
+import { listContactNotes, createContactNote, noteChangeFor, type CrmContactNoteRecord } from './crmContactsApi'
+import { subscribe, pendingFor } from './outbox'
 import { useBackLayer } from './nav'
+import { SaveStatus, cardChange } from './SaveStatus'
 
 const fmtUSD = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const STATUS: Record<string, string> = { DRAFT: 'bg-gray-100 text-gray-700', SENT: 'bg-blue-100 text-blue-800', SOLD: 'bg-green-100 text-green-800', LOST: 'bg-red-100 text-red-800' }
@@ -61,6 +63,12 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
     setNotes(rows ?? [])
   }, [lead.customerId])
   useEffect(() => { load() }, [load])
+  // A note waiting for signal reaches the server: show the list as the server has it.
+  useEffect(() => {
+    if (!lead.customerId) return
+    let waiting = pendingFor('note:').length
+    return subscribe(() => { const now = pendingFor('note:').length; if (now < waiting) load(); waiting = now })
+  }, [lead.customerId, load])
   async function addNote() {
     const body = draft.trim()
     if (!body || !lead.customerId || saving) return
@@ -88,6 +96,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
           <div className="min-w-0 flex-1">
             <h2 className="text-xl font-bold text-gray-900 truncate">{name}</h2>
             <p className="text-sm text-gray-600 truncate">{[lead.stage, address].filter(Boolean).join(' · ')}</p>
+            <SaveStatus keys={lead.customerId ? [`customer:${lead.customerId}`] : []} also={op => cardChange(lead.id)(op) || (!!lead.customerId && noteChangeFor(lead.customerId)(op))} className="mt-1" />
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="btn btn-quiet btn-icon shrink-0"><X size={22} aria-hidden="true" /></button>
         </div>
@@ -117,6 +126,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
                         <span className="block text-sm font-semibold text-gray-900 tabular-nums">{fmtUSD(q.finalPrice || 0)}</span>
                         <span className="block text-xs text-gray-600 truncate">{[q.fenceStyle, q.date ? fmtDate(q.date) : ''].filter(Boolean).join(' · ')}</span>
                       </span>
+                      <SaveStatus keys={[`quote:${q.id}`]} quietWhenSaved />
                       <ChevronRight size={18} className="text-gray-400 shrink-0" aria-hidden="true" />
                     </button>
                   </li>
@@ -161,6 +171,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
                   <li key={n.id} className="text-sm text-gray-800" data-card-note>
                     <p className="whitespace-pre-wrap">{n.body}</p>
                     <p className="text-xs text-gray-500">{n.createdBy ? `${n.createdBy} · ` : ''}{fmtDate(n.createdAt)}</p>
+                    <SaveStatus keys={[`note:${n.id}`]} quietWhenSaved className="mt-1" />
                   </li>
                 ))}
               </ul>

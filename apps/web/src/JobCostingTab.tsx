@@ -3,6 +3,7 @@ import type { SavedQuote } from './QuotesPage'
 import { getQuotes } from './quoteStore'
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
+import { businessDate } from './businessDate'
 
 /* ───────── types ───────── */
 
@@ -113,7 +114,7 @@ function CostAJobModal({
 }) {
   useBackLayer(onClose, { key: 'cost-a-job-modal' })
   const [quoteId, setQuoteId] = useState(editEntry?.quoteId || '')
-  const [completionDate, setCompletionDate] = useState(editEntry?.completionDate || new Date().toISOString().slice(0, 10))
+  const [completionDate, setCompletionDate] = useState(editEntry?.completionDate || businessDate(new Date()))
   const [actualLaborHrs, setActualLaborHrs] = useState(String(editEntry?.actualLaborHrs || ''))
   const [actualMaterialCost, setActualMaterialCost] = useState(String(editEntry?.actualMaterialCost || ''))
   const [actualOtherCosts, setActualOtherCosts] = useState(String(editEntry?.actualOtherCosts || ''))
@@ -154,7 +155,7 @@ function CostAJobModal({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[640px] max-h-[80vh] overflow-y-auto mx-4 lg:mx-0 modal-responsive" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900 text-lg">{editEntry ? 'Edit Job Cost' : 'Cost a Completed Job'}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
         <div className="px-6 py-5 space-y-5">
@@ -347,7 +348,7 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
             <h2 className="font-bold text-gray-900">{q.customerName}</h2>
             <p className="text-sm text-gray-400">{q.fenceStyle} · {q.sections} sections · {e.completionDate}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
         <div className="px-6 py-5 space-y-6">

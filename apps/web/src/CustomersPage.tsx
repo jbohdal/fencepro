@@ -29,10 +29,12 @@ import { loadPipeline } from './JobsPage'
 import { changeLeadStage } from './pipelineStageChange'
 import {
   listContactNotes, createContactNote, updateContactNote, deleteContactNote,
-  type CrmContactNoteRecord,
-} from './crmContactsApi'
+  type CrmContactNoteRecord, noteChangeFor } from './crmContactsApi'
 import { cloudStorage } from './cloudStorage'
 import { navigate, goBack, useNav, useScreenMemory, takeOpenedParam, openedFrom, BackClose, useBackLayer } from './nav'
+import { SaveStatus } from './SaveStatus'
+import { newId } from './recordSync'
+import { businessDate } from './businessDate'
 
 interface Customer {
   id: string
@@ -179,7 +181,7 @@ function CustomerForm({
   onCancel: () => void
 }) {
   const [form, setForm] = useState<Customer>({
-    id: initial?.id ?? uid(),
+    id: initial?.id ?? newId(),
     firstName: initial?.firstName ?? '',
     lastName: initial?.lastName ?? '',
     phone: initial?.phone ?? '',
@@ -190,7 +192,7 @@ function CustomerForm({
     leadSource: initial?.leadSource ?? '',
     notes: initial?.notes ?? '',
     tags: initial?.tags ?? [],
-    createdAt: initial?.createdAt ?? new Date().toISOString().slice(0, 10),
+    createdAt: initial?.createdAt ?? businessDate(new Date()),
     salesRep: initial?.salesRep ?? '',
     firstApptDate: initial?.firstApptDate ?? '',
     jobStatus: initial?.jobStatus ?? '',
@@ -472,7 +474,7 @@ function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { 
       status: 'draft',
       lineItems: lineItems.map((li, i) => ({ id: Math.random().toString(36).slice(2), description: li.desc, quantity: li.qty, unitPriceCents: Math.round(li.price * 100), totalCents: Math.round(li.qty * li.price * 100), sortOrder: i })),
       subtotalCents: subtotal, taxRate, taxCents: tax, discountCents, totalCents: total,
-      amountPaidCents: 0, dueDate, issuedDate: new Date().toISOString().slice(0, 10),
+      amountPaidCents: 0, dueDate, issuedDate: businessDate(new Date()),
       notes, createdBy: 'admin',
     })
     onCreated()
@@ -483,7 +485,7 @@ function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[600px] max-h-[90vh] overflow-y-auto p-5 mx-4 space-y-4 modal-responsive">
-        <div className="flex justify-between"><h2 className="font-bold text-gray-900 text-lg">Create invoice</h2><button onClick={onClose} className="text-gray-400 text-xl">×</button></div>
+        <div className="flex justify-between"><h2 className="font-bold text-gray-900 text-lg">Create invoice</h2><button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 text-xl">×</button></div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="block text-xs text-gray-500 mb-1">Invoice #</label><input value={invoiceNumber} readOnly className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50" /></div>
           <div><label className="block text-xs text-gray-500 mb-1">Due Date</label><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></div>
@@ -525,7 +527,7 @@ function RecordPaymentModal({ invoiceId, customerId, customerName, onClose, onRe
   const [amount, setAmount] = useState(inv ? inv.balanceDueCents / 100 : 0)
   const [method, setMethod] = useState<string>('check')
   const [ref, setRef] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(businessDate(new Date()))
   const [notes, setNotes] = useState('')
 
   if (!inv) return null
@@ -568,8 +570,10 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
   const [editBody, setEditBody] = useState('')
   const [search, setSearch] = useState('')
 
+  const [loadFailed, setLoadFailed] = useState(false)
   const load = useCallback(async () => {
     const rows = await listContactNotes(customerId)
+    setLoadFailed(!rows)
     if (rows) setNotes(rows)
     setLoading(false)
   }, [customerId])
@@ -639,12 +643,15 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
       {/* Notes list */}
       {loading ? (
         <div className="text-center py-8 text-gray-400 text-sm">Loading notes…</div>
+      ) : loadFailed && filtered.length === 0 ? (
+        <div className="text-center py-8 text-gray-600 text-sm">The notes did not load, usually because of weak signal. <button type="button" className="text-orange-700 font-semibold underline min-h-[44px]" onClick={() => { setLoading(true); load() }}>Try again</button></div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-8 text-gray-400 text-sm">No notes yet</div>
       ) : (
         <div className="space-y-2">
           {filtered.map(n => (
-            <div key={n.id} className={`bg-white rounded-xl border ${n.isPinned ? 'border-orange-300 bg-orange-50' : 'border-gray-200'} p-4`}>
+            <div key={n.id} className={`bg-white rounded-xl border ${n.isPinned ? 'border-orange-300 bg-orange-50' : 'border-gray-200'} p-4`} data-note={n.id}>
+              <SaveStatus keys={[`note:${n.id}`]} quietWhenSaved className="mb-2" />
               {editingId === n.id ? (
                 <div>
                   <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={3} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
@@ -893,6 +900,7 @@ function CustomerDetail({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900 break-words">{customer.firstName} {customer.lastName}</h2>
+                <SaveStatus keys={[`customer:${customer.id}`]} also={noteChangeFor(customer.id)} />
                 {quotes.some(q => q.status === 'SOLD') && (
                   <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Signed / Sold</span>
                 )}
@@ -1301,15 +1309,8 @@ export default function CustomersPage({ onNewQuote }: {
       setEditing(false)
       if (isNew && bookEstimate) openBooking({ customerId: customer.id, type: 'estimate' })
 
-      if (isNew) {
-        if (c.email) {
-          toast.success('Customer added', 'On Sales Pipeline at First Contact · portal account ready — click "Send Portal Invite" on their profile to deliver the link.')
-        } else {
-          toast.success('Customer added', 'Also placed on Sales Pipeline under First Contact.')
-        }
-      } else {
-        toast.success('Customer updated')
-      }
+      // Not "saved" yet: the status by their name says Saved once the server has it.
+      if (isNew) toast.info('Customer added', 'They are on the pipeline under First Contact. The status by their name says Saved once the office has it.')
     } catch (err: any) {
       toast.error('Could not save customer', err?.message || 'Unknown error.')
     }
@@ -1433,7 +1434,7 @@ export default function CustomersPage({ onNewQuote }: {
           leadSource: matchedSource,
           notes: '',
           tags: [],
-          createdAt: get(colMap.soldDate) || new Date().toISOString().slice(0, 10),
+          createdAt: get(colMap.soldDate) || businessDate(new Date()),
           salesRep: get(colMap.salesRep),
           firstApptDate: get(colMap.firstAppt),
           jobStatus: get(colMap.jobStatus),

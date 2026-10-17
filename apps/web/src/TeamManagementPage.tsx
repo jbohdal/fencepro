@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { authFetch } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { useBackLayer } from './nav'
+import { plainText } from './plainError'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/crm-auth'
 
@@ -140,7 +141,7 @@ export default function TeamManagementPage() {
                           try {
                             await api(`/users/${user.id}`, { method: 'DELETE' })
                             loadUsers()
-                          } catch (err: any) { alert(err.message) }
+                          } catch (err: any) { alert(plainText(err)) }
                         }} className="text-xs text-red-500 hover:text-red-700 px-2 py-1">Delete</button>
                       )}
                     </div>
@@ -229,7 +230,7 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
     try {
       await api('/invite', { method: 'POST', body: JSON.stringify({ firstName, lastName, email, phone: phone || undefined, role }) })
       onInvited()
-    } catch (err: any) { setError(err.message) }
+    } catch (err: any) { setError(plainText(err)) }
     setSaving(false)
   }
 
@@ -238,7 +239,7 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
       <form onSubmit={handleInvite} className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto p-6 mx-4 space-y-4 modal-responsive">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-gray-900 text-lg">Invite Team Member</h2>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+          <button type="button" onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl">×</button>
         </div>
 
         {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3">{error}</div>}
@@ -319,7 +320,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
         body: JSON.stringify({ firstName, lastName, phone: phone || undefined, role, status }),
       })
       onSaved()
-    } catch (err: any) { setError(err.message) }
+    } catch (err: any) { setError(plainText(err)) }
     setSaving(false)
   }
 
@@ -328,7 +329,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto p-6 mx-4 space-y-4 modal-responsive">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-gray-900 text-lg">Edit {user.firstName} {user.lastName}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl">×</button>
         </div>
 
         {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3">{error}</div>}

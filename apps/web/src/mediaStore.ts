@@ -85,13 +85,33 @@ function db(): Promise<IDBDatabase> {
 async function store<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const d = await db()
   return new Promise((resolve, reject) => {
-    const r = fn(d.transaction('items', mode).objectStore('items'))
-    r.onsuccess = () => resolve(r.result)
-    r.onerror = () => reject(r.error)
+    const t = d.transaction('items', mode)
+    const r = fn(t.objectStore('items'))
+    // Kept once the phone has written it, not when it was asked to (Safari refuses some writes only at the end).
+    t.oncomplete = () => resolve(r.result)
+    t.onabort = t.onerror = () => reject(t.error ?? r.error ?? new Error('The phone did not keep it.'))
   })
 }
-const all = () => store<LocalMedia[]>('readonly', s => s.getAll() as IDBRequest<LocalMedia[]>).catch(() => [] as LocalMedia[])
-const put = (m: LocalMedia) => store('readwrite', s => s.put(m))
+/** As kept on the phone: a photo as it is, or (where the phone refuses that) its bytes. */
+type Stored = LocalMedia & { bytes?: ArrayBuffer; type?: string; markupBytes?: ArrayBuffer; markupType?: string }
+const revive = (m: Stored): LocalMedia => ({
+  ...m,
+  blob: m.bytes ? new Blob([m.bytes], { type: m.type }) : m.blob,
+  markupBlob: m.markupBytes ? new Blob([m.markupBytes], { type: m.markupType }) : m.markupBlob,
+})
+const all = () => store<Stored[]>('readonly', s => s.getAll() as IDBRequest<Stored[]>).then(l => l.map(revive)).catch(() => [] as LocalMedia[])
+async function put(m: LocalMedia): Promise<void> {
+  try {
+    await store('readwrite', s => s.put(m))
+  } catch {
+    // Some phones (Safari in a private window) will not keep a photo as it is; they keep its bytes.
+    const flat: Stored = {
+      ...m, blob: null as unknown as Blob, bytes: await m.blob.arrayBuffer(), type: m.blob.type,
+      ...(m.markupBlob ? { markupBlob: null, markupBytes: await m.markupBlob.arrayBuffer(), markupType: m.markupBlob.type } : {}),
+    }
+    await store('readwrite', s => s.put(flat))
+  }
+}
 const remove = (id: string) => store('readwrite', s => s.delete(id))
 const notify = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event(MEDIA_EVENT)) }
 
@@ -112,7 +132,8 @@ export async function addCapture(blob: Blob, meta: MediaMeta): Promise<LocalMedi
 
 /** Change a capture still on the phone (caption, pin, markup …). */
 export async function updateLocal(clientId: string, patch: Partial<Pick<LocalMedia, 'meta' | 'markupBlob'>>): Promise<void> {
-  const m = await store<LocalMedia | undefined>('readonly', s => s.get(clientId) as IDBRequest<LocalMedia | undefined>).catch(() => undefined)
+  const raw = await store<Stored | undefined>('readonly', s => s.get(clientId) as IDBRequest<Stored | undefined>).catch(() => undefined)
+  const m = raw ? revive(raw) : undefined
   if (!m) return
   await put({ ...m, ...patch, meta: { ...m.meta, ...(patch.meta ?? {}) } })
   notify()
