@@ -16,6 +16,7 @@ import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -87,7 +88,7 @@ router.patch('/', async (req: any, res) => {
     const s = (await prisma.businessState.findUnique({ where: { accountId } }))!
     res.json({ success: true, data: s })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[business-state] patch error:', err)
     res.status(500).json({ success: false, error: 'Failed to update business state' })
   }

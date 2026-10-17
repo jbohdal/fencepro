@@ -4,6 +4,7 @@ import prisma from '../lib/prisma.js'
 import { hashPassword, verifyPassword, generateTokens, verifyRefreshToken, getRefreshExpiry } from '../lib/auth.js'
 import { writeAuditLog } from '../middleware/audit.js'
 import type { TokenPayload } from '../../types/index.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -81,7 +82,7 @@ router.post('/login', async (req, res) => {
     })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Internal server error' })
@@ -148,7 +149,7 @@ router.post('/register', async (req, res) => {
     })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Internal server error' })

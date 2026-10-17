@@ -15,6 +15,7 @@ import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -99,7 +100,7 @@ router.put('/settings', async (req: any, res) => {
     await audit(req, 'update', 'ScheduleSettings', s.id, { newValues: s })
     res.json({ success: true, data: s })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[schedule] settings put error:', err)
     res.status(500).json({ success: false, error: 'Failed to update settings' })
   }
@@ -158,7 +159,7 @@ router.post('/jobs', async (req: any, res) => {
     await audit(req, 'create', 'ScheduledGridJob', created.id, { newValues: created })
     res.status(201).json({ success: true, data: created })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[schedule] jobs create error:', err)
     res.status(500).json({ success: false, error: 'Failed to create scheduled job' })
   }
@@ -183,7 +184,7 @@ router.patch('/jobs/:id', async (req: any, res) => {
     await audit(req, 'update', 'ScheduledGridJob', updated.id, { oldValues: existing, newValues: updated })
     res.json({ success: true, data: updated })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[schedule] jobs update error:', err)
     res.status(500).json({ success: false, error: 'Failed to update scheduled job' })
   }
@@ -261,7 +262,7 @@ router.post('/jobs/sync', async (req: any, res) => {
     }
     res.json({ success: true, data: { created, updated, removed, total: jobs.length } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[schedule] jobs sync error:', err)
     res.status(500).json({ success: false, error: 'Failed to sync scheduled jobs' })
   }
@@ -330,7 +331,7 @@ router.put('/board', async (req: any, res) => {
     if (board.settings) await audit(req, 'update', 'ScheduleSettings', board.settings.id, { newValues: { jobsCount: board.jobs.length, version: board.version } })
     res.json({ success: true, data: board })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[schedule] board put error:', err)
     res.status(500).json({ success: false, error: 'Failed to save the schedule' })
   }
@@ -377,7 +378,7 @@ router.post('/rain-log', async (req: any, res) => {
     await audit(req, 'create', 'ScheduleRainDay', created.id, { newValues: created })
     res.status(201).json({ success: true, data: created })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[schedule] rain log create error:', err)
     res.status(500).json({ success: false, error: 'Failed to log rain day' })
   }
@@ -420,7 +421,7 @@ router.post('/rain-log/sync', async (req: any, res) => {
     }
     res.json({ success: true, data: { created, total: entries.length } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[schedule] rain log sync error:', err)
     res.status(500).json({ success: false, error: 'Failed to sync rain log' })
   }

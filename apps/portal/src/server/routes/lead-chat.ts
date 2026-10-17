@@ -14,6 +14,7 @@ import { scoreLead, leadPriority } from '../lib/leadScoring.js'
 import { sendLeadConfirmation } from '../lib/sms.js'
 import { scheduleFollowUps } from '../lib/followUpScheduler.js'
 import { writeAuditLog } from '../middleware/audit.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -330,7 +331,7 @@ router.post('/message', async (req, res) => {
     res.json({ success: true, data: { reply: response, sessionId } })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     console.error('[LeadChat] Error:', err)

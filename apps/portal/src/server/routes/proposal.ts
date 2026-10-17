@@ -21,7 +21,8 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
-import { onProposalAccepted } from '../lib/proposalAccepted.js'
+import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAccepted.js'
+import { plainZod } from '../lib/plainZod.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -40,6 +41,13 @@ export const publicProposal = Router()
 export const stylePhotos = Router()
 
 // ── Helpers ──
+
+/** A phone number to tap: (352) 789-4314. */
+function tel(p: string): string {
+  const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
+  const shown = d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p
+  return `<a href="tel:${esc(p.replace(/[^\d+]/g, ''))}" style="white-space:nowrap;display:inline-block;padding:12px 4px;margin:-12px 0">${esc(shown)}</a>`
+}
 
 export const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 const money = (n: number) => '$' + Math.round(n || 0).toLocaleString('en-US')
@@ -144,6 +152,8 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
     const body = acceptSchema.parse(req.body)
     const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) } })
     if (!q || q.archivedAt) { res.status(404).json({ success: false, error: 'This proposal is no longer available.' }); return }
+    // The same acceptance sent again (the customer's signal dropped before the answer came back): it stands.
+    if (q.acceptedAt && q.chosenOption === body.option && q.acceptedBy === body.name) { res.json({ success: true, data: { acceptedAt: q.acceptedAt, option: body.option } }); return }
     if (q.acceptedAt) { res.status(409).json({ success: false, error: 'This proposal was already accepted.' }); return }
     if (linkClosed(q)) { res.status(410).json({ success: false, error: 'This link is no longer active. Please call us.' }); return }
     const p = q.proposal as unknown as Proposal | null
@@ -171,9 +181,11 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
     })
     console.log(`[proposal] customer accepted quote ${q.id} option ${body.option} (${opt.fenceStyle}) as "${body.name}"`)
     await onProposalAccepted(q, opt, body.name).catch(err => console.error('[proposal] after accept:', err))
+    // Sold online: the job goes to Operations, as when a card is moved to Signed Contract.
+    await ensureJobForAcceptedQuote(updated as any).catch(err => console.error('[proposal] job after accept:', err))
     res.json({ success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[proposal] accept error:', err)
     res.status(500).json({ success: false, error: 'Something went wrong. Please call us.' })
   }
@@ -263,7 +275,7 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string): stri
         <button type="button" id="go" class="btn">Accept the selected option</button>
       </section>`
 
-  const body = `<header class="top"><img src="logo.png" alt="" class="logo"><div><p class="co">${esc(company.name || 'Getter Done Fence')}</p><p class="small">${[company.phone, company.email].filter(Boolean).map(esc).join(' · ')}</p></div></header>
+  const body = `<header class="top"><img src="logo.png" alt="" class="logo"><div><p class="co">${esc(company.name || 'Getter Done Fence')}</p><p class="small">${[company.phone ? tel(company.phone) : '', company.email ? esc(company.email) : ''].filter(Boolean).join(' · ')}</p></div></header>
   <main class="wrap">
     <p class="small upper">Fence proposal</p>
     <h1>${esc(p.customer?.name || q.customerName)}</h1>
@@ -272,7 +284,7 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string): stri
     ${plan ? `<section><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Purple: new fence. Squares: corner posts. Dots: end and gate posts. Gray dashed: existing fence or no fence, not included. Not to scale for permitting.</p></section>` : ''}
     <section><h2>${p.options.length > 1 ? 'Your options' : 'Your fence'}</h2><div class="opts${p.options.some(o => o.tier) ? ' tiers' : ''}">${options}</div></section>
     ${included}${warranty}${deposit}${acceptBlock}
-    <p class="small foot">Questions? Call ${esc(company.phone || 'us')}.</p>
+    <p class="small foot">Questions? Call ${company.phone ? tel(company.phone) : 'us'}.</p>
   </main>`
 
   const script = accepted ? '' : `
@@ -324,7 +336,7 @@ section{background:#fff;border:1px solid var(--line);border-radius:16px;padding:
 ul{margin:0;padding-left:20px}.field{display:block;font-size:14px;color:var(--g);margin:8px 0}
 .field input{display:block;width:100%;height:48px;font-size:16px;border:1px solid #CBC4D6;border-radius:10px;padding:0 12px;margin-top:4px}
 .sigwrap{position:relative;border:1px dashed #9D7BD0;border-radius:10px;background:#fff}#sig{width:100%;height:160px;touch-action:none;display:block}
-.link{position:absolute;right:8px;top:6px;background:none;border:0;color:var(--p);font-weight:600;font-size:14px;min-height:44px}
+.link{position:absolute;right:4px;top:4px;background:none;border:0;color:var(--p);font-weight:600;font-size:14px;min-height:48px;min-width:64px}
 .btn{width:100%;min-height:52px;margin-top:12px;border:0;border-radius:12px;background:var(--p);color:#fff;font-size:17px;font-weight:700}
 .btn:disabled{opacity:.6}.err{color:#b91c1c;min-height:1.2em;margin:8px 0 0}.done{border-color:#86efac;background:#f0fdf4}.foot{text-align:center;margin-top:24px}
 `

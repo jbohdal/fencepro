@@ -31,6 +31,7 @@ import {
   APPOINTMENT_TYPES, APPOINTMENT_STATUSES, APPOINTMENT_OUTCOMES, DEFAULT_MINUTES,
   contactSelect, toClient, locate, pinAddress,
 } from '../lib/appointments.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -115,7 +116,7 @@ router.post('/geo/pin', requireUser, async (req: any, res) => {
     const moved = await pinAddress(req.user.crmAccountId, body.address, { lat: body.lat, lng: body.lng })
     res.json({ success: true, data: { lat: body.lat, lng: body.lng, appointmentsMoved: moved } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Could not save the position' })
   }
 })
@@ -147,7 +148,12 @@ async function bookByStaff(req: any, res: any) {
     const d = createSchema.parse(req.body)
     const accountId = req.user.crmAccountId
     const contact = await prisma.crmContact.findFirst({ where: { id: d.crmContactId, accountId }, select: { id: true, serviceAddress: true } })
-    if (!contact) { res.status(400).json({ success: false, error: 'That customer is not in this company' }); return }
+    if (!contact) { res.status(400).json({ success: false, error: 'That customer is not saved on the server yet. It will be booked once the customer is.' }); return }
+    // Sent again because the phone did not hear the answer: the first one stands.
+    if (d.id) {
+      const already = await prisma.appointment.findFirst({ where: { id: d.id, accountId }, include: { contact: { select: contactSelect } } })
+      if (already) { res.status(200).json({ success: true, data: toClient(already), version: already.version }); return }
+    }
     const start = dateOrNull(d.startAt)
     const allDay = d.allDay ?? d.type === 'install'
     const end = dateOrNull(d.endAt) ?? (start ? new Date(start.getTime() + (DEFAULT_MINUTES[d.type] || 60) * 60_000) : null)
@@ -165,7 +171,7 @@ async function bookByStaff(req: any, res: any) {
     await audit(req, 'create', 'Appointment', a.id, { newValues: { type: a.type, startAt: a.startAt, assignedTo: a.assignedTo } })
     res.status(201).json({ success: true, data: toClient(a), version: a.version })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: `${err.errors[0].path.join('.')}: ${err.errors[0].message}` }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     if ((err as any)?.code === 'P2002') { res.status(409).json({ success: false, error: 'That appointment already exists' }); return }
     console.error('[appointments] create error:', err)
     res.status(500).json({ success: false, error: 'Could not book the appointment' })
@@ -214,7 +220,7 @@ router.patch('/:id', requireUser, async (req: any, res) => {
     await audit(req, 'update', 'Appointment', a.id, { newValues: { ...d, reason } })
     res.json({ success: true, data: toClient(a), version: a.version })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: `${err.errors[0].path.join('.')}: ${err.errors[0].message}` }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[appointments] update error:', err)
     res.status(500).json({ success: false, error: 'Could not save the appointment' })
   }
@@ -265,7 +271,7 @@ async function bookFromChat(req: any, res: any) {
     const a = await prisma.appointment.upsert({ where: { accountId_sourceRef: { accountId, sourceRef: ref } }, create: data, update: {} })
     res.status(201).json({ success: true, data: { id: a.id, customerId: intake.contactId, scheduledAt: a.startAt, type: a.type } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[appointments] chat booking error:', err)
     res.status(500).json({ success: false, error: 'Failed to book appointment' })
   }

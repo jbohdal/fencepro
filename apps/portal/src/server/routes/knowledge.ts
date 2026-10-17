@@ -10,6 +10,7 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { requireAuth } from '../middleware/auth.js'
 import { str } from '../lib/helpers.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -84,7 +85,7 @@ router.post('/', async (req, res) => {
     res.status(201).json({ success: true, data: entry })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to create entry' })
@@ -111,7 +112,7 @@ router.patch('/:id', async (req, res) => {
     res.json({ success: true, data: entry })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to update entry' })

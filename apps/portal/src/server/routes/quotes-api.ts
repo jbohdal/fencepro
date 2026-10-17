@@ -13,6 +13,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { calculateQuote, quickEstimate, getAvailableStyles } from '../lib/quoteEngine.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -54,7 +55,7 @@ router.post('/quick-estimate', (req, res) => {
     })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     const msg = err instanceof Error ? err.message : 'Failed to calculate estimate'
@@ -88,7 +89,7 @@ router.post('/calculate', (req, res) => {
     })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     const msg = err instanceof Error ? err.message : 'Failed to calculate quote'

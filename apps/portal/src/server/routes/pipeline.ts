@@ -12,6 +12,7 @@ import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.
 import { resolveSecret } from '../lib/secrets.js'
 import { applyPipelineDelta } from '../lib/pipelineDelta.js'
 import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -51,6 +52,9 @@ const pipelineSchema = z.object({
 router.get('/', async (req: any, res) => {
   try {
     let p = await prisma.pipelineState.findUnique({ where: { accountId: req.user.crmAccountId } })
+    // ?version=<n>: the board has not changed since that version, so nothing needs sending.
+    const known = Number(req.query.version)
+    if (p && Number.isInteger(known) && p.version === known) { res.json({ success: true, unchanged: true, version: p.version }); return }
     if (!p) {
       p = await prisma.pipelineState.create({
         data: { accountId: req.user.crmAccountId, leads: [], stages: [] },
@@ -81,7 +85,7 @@ router.put('/', async (req: any, res) => {
     await audit(req, 'update', 'PipelineState', p.id, { newValues: { leadsCount: data.leads.length, stagesCount: data.stages.length } })
     res.json({ success: true, data: p })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[pipeline] put error:', err)
     res.status(500).json({ success: false, error: 'Failed to save pipeline' })
   }
@@ -117,7 +121,7 @@ router.patch('/', async (req: any, res) => {
     // Only the new version goes back: the browser already holds the cards.
     res.json({ success: true, version: base + 1 })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[pipeline] patch error:', err)
     res.status(500).json({ success: false, error: 'Failed to save pipeline' })
   }

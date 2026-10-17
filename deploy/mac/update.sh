@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-bash deploy/mac/backup.sh
+EZBIZ_BACKUP_TYPE=pre-deploy bash deploy/mac/backup.sh
 git pull --ff-only origin main
 pnpm install --frozen-lockfile
 ( cd apps/portal

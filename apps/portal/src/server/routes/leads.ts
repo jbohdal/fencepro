@@ -21,6 +21,7 @@ import { sendLeadConfirmation } from '../lib/sms.js'
 import { scheduleFollowUps } from '../lib/followUpScheduler.js'
 import { writeAuditLog } from '../middleware/audit.js'
 import { str } from '../lib/helpers.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -198,7 +199,7 @@ router.post('/', verifyBotpressWebhook, async (req, res) => {
     })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     console.error('[Lead] Create error:', err)
@@ -237,7 +238,7 @@ router.post('/conversation', verifyBotpressWebhook, async (req, res) => {
     res.json({ success: true })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to store transcript' })
@@ -410,7 +411,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
     res.json({ success: true, data: updated })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to update lead' })

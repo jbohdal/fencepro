@@ -12,6 +12,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { isStaffRequest, verifyStaffBearer } from '../lib/secrets.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -66,7 +67,7 @@ router.post('/accounts', async (req, res) => {
     })
     res.json({ success: true, data: { id: account.id, externalCrmId: account.externalCrmId } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to sync account' })
   }
 })
@@ -115,7 +116,7 @@ router.post('/customers', async (req, res) => {
       res.json({ success: true, data: { id: customer.id, action: 'created' } })
     }
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to sync customer' })
   }
 })
@@ -162,7 +163,7 @@ router.post('/quotes', async (req, res) => {
 
     res.json({ success: true, data: { id: contract.id, action: 'synced' } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to sync quote' })
   }
 })
@@ -210,7 +211,7 @@ router.post('/jobs', async (req, res) => {
 
     res.json({ success: true, data: { action: 'synced' } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to sync job' })
   }
 })
@@ -275,7 +276,7 @@ router.post('/invoices', async (req, res) => {
 
     res.json({ success: true, data: { id: invoice.id, action: 'synced' } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to sync invoice' })
   }
 })

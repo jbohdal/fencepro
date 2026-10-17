@@ -18,6 +18,7 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { mediaDir, serializeMedia, processMediaQueue, checkMediaSig, CATEGORIES, VISIBILITY } from '../lib/media.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 const MAX_BYTES = 2 * 1024 * 1024 * 1024 // 2 GB
@@ -104,7 +105,7 @@ router.post('/uploads', express.json({ limit: '64kb' }), async (req: any, res) =
     await prisma.mediaUpload.create({ data: { clientId: b.clientId, accountId: req.user.crmAccountId, userId: req.user.id, size: b.size, path: tmp, meta: b.meta as any } })
     res.json({ success: true, data: { received: 0 } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[media] start:', err); res.status(500).json({ success: false, error: 'Could not start the upload' })
   }
 })
@@ -194,7 +195,7 @@ router.patch('/:id', express.json({ limit: '64kb' }), async (req: any, res) => {
     const updated = await prisma.mediaItem.update({ where: { id: m.id }, data: { ...b, pin: b.pin === null ? (null as any) : b.pin } })
     res.json({ success: true, data: serializeMedia(updated) })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[media] patch:', err); res.status(500).json({ success: false, error: 'Could not save' })
   }
 })

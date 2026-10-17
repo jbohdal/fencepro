@@ -26,6 +26,7 @@ import { resolveSecret } from '../lib/secrets.js'
 import { parseCallbackTime } from '../lib/appointments.js'
 import { recordIntake, resolveIntakeAccountId, digits } from '../lib/intake.js'
 import { verifyRetellSignature, summarizeRetellCall } from '../lib/retell.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
 const money = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -144,7 +145,7 @@ quotingRouter.post('/submit', submitLimiter, async (req, res) => {
     })
     res.status(201).json({ success: true, id: result.intakeId })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[quoting] submit error:', err)
     res.status(500).json({ success: false, error: 'Could not save the quote' })
   }

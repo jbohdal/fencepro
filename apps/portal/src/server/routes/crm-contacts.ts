@@ -23,6 +23,8 @@ import { audit } from '../lib/auditLog.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
+import { plainZod } from '../lib/plainZod.js'
+import { applyPipelineDelta } from '../lib/pipelineDelta.js'
 
 const router = Router()
 
@@ -74,7 +76,8 @@ router.use(requireUser)
 
 const contactSchema = z.object({
   firstName: z.string().min(1, 'First name is required').max(120),
-  lastName: z.string().min(1, 'Last name is required').max(120),
+  // The lead forms make last name optional; a first name alone is enough to save someone.
+  lastName: z.string().max(120).optional().default(''),
   email: z.string().email().optional().or(z.literal('').transform(() => undefined)),
   phone: z.string().max(40).optional().or(z.literal('').transform(() => undefined)),
   serviceAddress: z.string().max(500).optional().or(z.literal('').transform(() => undefined)),
@@ -100,11 +103,16 @@ const updateSchema = contactSchema.partial()
 // original creator only (it does not gate visibility).
 router.get('/', requireAccount, async (req: any, res) => {
   try {
+    // ?since=<time>: only what changed after it (removed ones too), for a small refresh.
+    const sinceRaw = typeof req.query.since === 'string' ? Date.parse(req.query.since) : NaN
+    const serverTime = new Date(Date.now() - 5000).toISOString()
     const contacts = await prisma.crmContact.findMany({
-      where: { accountId: req.user.crmAccountId, archivedAt: null },
+      where: Number.isFinite(sinceRaw)
+        ? { accountId: req.user.crmAccountId, updatedAt: { gt: new Date(sinceRaw) } }
+        : { accountId: req.user.crmAccountId, archivedAt: null },
       orderBy: { updatedAt: 'desc' },
     })
-    res.json({ success: true, data: contacts })
+    res.json({ success: true, data: contacts, serverTime, partial: Number.isFinite(sinceRaw) })
   } catch (err) {
     console.error('[crm-contacts] list error:', err)
     res.status(500).json({ success: false, error: 'Failed to list contacts' })
@@ -112,47 +120,87 @@ router.get('/', requireAccount, async (req: any, res) => {
 })
 
 // ── Create ──
+// A new customer and their pipeline card are one save: both are written in one
+// transaction, or neither is. Sending the same create again (the phone did not
+// hear the answer) returns what was saved the first time, never a second copy.
+const newCardSchema = z.object({ id: z.string().min(1).max(64) }).passthrough()
+
+class PipelineBusy extends Error {}
+
 router.post('/', requireAccount, async (req: any, res) => {
   try {
     const data = contactSchema.parse(req.body)
-    const clientId = clientIdSchema.parse(req.body?.id)
-    const decision = await decideClientId(clientId, req.user.crmAccountId, id => prisma.crmContact.findUnique({ where: { id } }))
-    if (decision.kind === 'exists') {
-      // A retried create: the contact is already here.
-      res.status(200).json({ success: true, data: decision.row })
-      return
+    // An id the server cannot use (an older app made short ones) is replaced, not refused.
+    const parsedId = clientIdSchema.safeParse(req.body?.id)
+    const clientId = parsedId.success ? parsedId.data : undefined
+    const card = req.body?.lead ? newCardSchema.parse(req.body.lead) : null
+    const before = typeof req.body?.leadBefore === 'string' ? req.body.leadBefore : null
+    const accountId = req.user.crmAccountId
+    const decision = await decideClientId(clientId, accountId, id => prisma.crmContact.findUnique({ where: { id } }))
+
+    let result: { contact: any; isNew: boolean; pipelineVersion: number | null } | null = null
+    for (let attempt = 0; attempt < 5 && !result; attempt++) {
+      try {
+        result = await prisma.$transaction(async tx => {
+          const isNew = decision.kind !== 'exists'
+          const contact = !isNew ? (decision as { row: any }).row : await tx.crmContact.create({
+            data: {
+              ...(decision.kind === 'use' ? { id: decision.id } : {}),
+              accountId,
+              ownerId: req.user.id,
+              firstName: data.firstName,
+              lastName: data.lastName,
+              email: data.email,
+              phone: data.phone,
+              serviceAddress: data.serviceAddress,
+              billingAddress: data.billingAddress,
+              billingDifferent: data.billingDifferent ?? false,
+              city: data.city,
+              state: data.state,
+              zip: data.zip,
+              leadSource: data.leadSource,
+              salesRep: data.salesRep,
+              firstApptDate: data.firstApptDate,
+              tags: data.tags ? JSON.parse(JSON.stringify(data.tags)) : null,
+              notes: data.notes,
+              jobStatus: data.jobStatus,
+              isCompleted: data.isCompleted ?? false,
+            },
+          })
+          let pipelineVersion: number | null = null
+          if (card) {
+            const lead = { ...card, customerId: contact.id }
+            const cur = await tx.pipelineState.findUnique({ where: { accountId } })
+            if (!cur) {
+              const made = await tx.pipelineState.create({ data: { accountId, leads: [lead], stages: [] } })
+              pipelineVersion = made.version
+            } else if (!((cur.leads as any[]) ?? []).some(l => l?.id === lead.id)) {
+              const next = applyPipelineDelta({ leads: (cur.leads as any[]) ?? [], stages: (cur.stages as any[]) ?? [] }, { upsert: [{ lead, before }], remove: [] })
+              const done = await tx.pipelineState.updateMany({ where: { accountId, version: cur.version }, data: { leads: JSON.parse(JSON.stringify(next.leads)), version: { increment: 1 } } })
+              // Another save to the pipeline landed in between: undo this one and go again.
+              if (done.count === 0) throw new PipelineBusy()
+              pipelineVersion = cur.version + 1
+            } else {
+              pipelineVersion = cur.version
+            }
+          }
+          return { contact, isNew, pipelineVersion }
+        })
+      } catch (e) {
+        if (!(e instanceof PipelineBusy)) throw e
+      }
     }
-    const created = await prisma.crmContact.create({
-      data: {
-        ...(decision.kind === 'use' ? { id: decision.id } : {}),
-        accountId: req.user.crmAccountId,
-        ownerId: req.user.id,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        phone: data.phone,
-        serviceAddress: data.serviceAddress,
-        billingAddress: data.billingAddress,
-        billingDifferent: data.billingDifferent ?? false,
-        city: data.city,
-        state: data.state,
-        zip: data.zip,
-        leadSource: data.leadSource,
-        salesRep: data.salesRep,
-        firstApptDate: data.firstApptDate,
-        tags: data.tags ? JSON.parse(JSON.stringify(data.tags)) : null,
-        notes: data.notes,
-        jobStatus: data.jobStatus,
-        isCompleted: data.isCompleted ?? false,
-      },
-    })
-    console.log(`[crm-contacts] created ${created.id} (${created.firstName} ${created.lastName}) for user ${req.user.id}`)
-    await audit(req, 'create', 'CrmContact', created.id, { newValues: created })
-    res.status(201).json({ success: true, data: created })
+    if (!result) { res.status(503).json({ success: false, error: 'The server is busy. It will be sent again by itself.' }); return }
+    const { contact, isNew, pipelineVersion } = result
+    if (isNew) {
+      console.log(`[crm-contacts] created ${contact.id} (${contact.firstName} ${contact.lastName})${card ? ` with pipeline card ${card.id}` : ''} for user ${req.user.id}`)
+      await audit(req, 'create', 'CrmContact', contact.id, { newValues: { ...contact, pipelineCard: card?.id ?? null } })
+    }
+    res.status(isNew ? 201 : 200).json({ success: true, data: contact, pipelineVersion })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[crm-contacts] create error:', err)
-    res.status(500).json({ success: false, error: 'Failed to create contact' })
+    res.status(500).json({ success: false, error: 'The server had a problem saving this customer. It will be sent again by itself.' })
   }
 })
 
@@ -192,7 +240,7 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
     await audit(req, 'update', 'CrmContact', updated.id, { oldValues: existing, newValues: updated })
     res.json({ success: true, data: updated })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[crm-contacts] update error:', err)
     res.status(500).json({ success: false, error: 'Failed to update contact' })
   }
@@ -253,7 +301,7 @@ router.post('/sync', requireAccount, async (req: any, res) => {
     console.log(`[crm-contacts] sync: ${created} created, ${updated} updated for account ${req.user.crmAccountId}`)
     res.json({ success: true, data: { created, updated, total: items.length } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[crm-contacts] sync error:', err)
     res.status(500).json({ success: false, error: 'Failed to sync contacts' })
   }
@@ -303,8 +351,13 @@ router.post('/:id/notes', requireAccount, async (req: any, res) => {
     const contact = await loadContactInAccount(req, res)
     if (!contact) return
     const data = noteSchema.parse(req.body)
+    // The phone gives each note its id, so a note sent twice is saved once.
+    const parsedId = clientIdSchema.safeParse(req.body?.id)
+    const decision = await decideClientId(parsedId.success ? parsedId.data : undefined, req.user.crmAccountId, id => prisma.crmContactNote.findUnique({ where: { id } }))
+    if (decision.kind === 'exists') { res.status(200).json({ success: true, data: decision.row }); return }
     const created = await prisma.crmContactNote.create({
       data: {
+        ...(decision.kind === 'use' ? { id: decision.id } : {}),
         crmContactId: contact.id,
         accountId: req.user.crmAccountId,
         body: data.body,
@@ -317,7 +370,7 @@ router.post('/:id/notes', requireAccount, async (req: any, res) => {
     await audit(req, 'create', 'CrmContactNote', created.id, { newValues: created })
     res.status(201).json({ success: true, data: created })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[crm-contacts] notes create error:', err)
     res.status(500).json({ success: false, error: 'Failed to create note' })
   }
@@ -345,7 +398,7 @@ router.patch('/:id/notes/:noteId', requireAccount, async (req: any, res) => {
     await audit(req, 'update', 'CrmContactNote', updated.id, { oldValues: existing, newValues: updated })
     res.json({ success: true, data: updated })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[crm-contacts] notes update error:', err)
     res.status(500).json({ success: false, error: 'Failed to update note' })
   }
@@ -419,7 +472,7 @@ router.post('/notes/sync', requireAccount, async (req: any, res) => {
     console.log(`[crm-contacts] notes sync: ${created} created, ${skipped} skipped (dupes or out of account) for account ${req.user.crmAccountId}`)
     res.json({ success: true, data: { created, skipped, total: notes.length } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[crm-contacts] notes sync error:', err)
     res.status(500).json({ success: false, error: 'Failed to sync notes' })
   }

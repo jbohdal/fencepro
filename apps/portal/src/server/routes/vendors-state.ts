@@ -10,6 +10,7 @@ import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -82,7 +83,7 @@ router.put('/', async (req: any, res) => {
     })
     res.json({ success: true, data: v })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[vendor-state] put error:', err)
     res.status(500).json({ success: false, error: 'Failed to save vendors' })
   }

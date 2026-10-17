@@ -30,6 +30,7 @@ import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.j
 import { createNotification } from '../lib/notificationService.js'
 import { buildFrontendUrl } from '../lib/urls.js'
 import { isStaffRequest } from '../lib/secrets.js'
+import { plainZod } from '../lib/plainZod.js'
 
 // File storage helpers
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
@@ -218,7 +219,7 @@ router.post('/invite', requireStaffSyncKey, async (req, res) => {
       },
     })
   } catch (err: any) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[portal-invite]', err)
     res.status(500).json({ success: false, error: 'Failed to create invite' })
   }
@@ -268,7 +269,7 @@ router.post('/resend-invite', resendLimiter, async (req, res) => {
     await sendInviteEmail(account.email, account.firstName, rawToken, expiresAt)
     res.json({ success: true, data: { status: 'sent' } })
   } catch (err: any) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[portal-resend-invite]', err)
     res.status(500).json({ success: false, error: 'Resend failed' })
   }
@@ -379,7 +380,7 @@ router.post('/activate', async (req, res) => {
     })
   } catch (err: any) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: 'INVALID_TOKEN_FORMAT', detail: err.errors[0].message })
+      res.status(400).json({ success: false, error: 'INVALID_TOKEN_FORMAT', detail: plainZod(err) })
       return
     }
     console.error('[portal-activate]', err)
@@ -435,7 +436,7 @@ router.post('/login', async (req, res) => {
       },
     })
   } catch (err: any) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[portal-login]', err)
     res.status(500).json({ success: false, error: 'LOGIN_FAILED' })
   }
@@ -915,7 +916,7 @@ router.post('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) 
     } catch {}
     res.json({ success: true, data: serializeMessage(msg) })
   } catch (err: any) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[portal-message-send]', err)
     res.status(500).json({ success: false, error: 'SEND_FAILED' })
   }
@@ -997,7 +998,7 @@ router.post('/customer/:customerId/messages', requireStaffSyncKey, async (req, r
     } catch {}
     res.json({ success: true, data: serializeMessage(msg) })
   } catch (err: any) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[portal-messages-staff-reply]', err)
     res.status(500).json({ success: false, error: 'SEND_FAILED' })
   }

@@ -15,6 +15,7 @@ import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.j
 import { buildFrontendUrl } from '../lib/urls.js'
 import { audit } from '../lib/auditLog.js'
 import { resolveSecret } from '../lib/secrets.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -181,7 +182,7 @@ router.post('/login', async (req, res) => {
       },
     })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[CRM Auth] Login error:', err)
     res.status(500).json({ success: false, error: 'Login failed' })
   }
@@ -382,7 +383,7 @@ router.post('/invite', async (req, res) => {
     await audit(req, 'invite_sent', 'CrmUser', user.id, { newValues: { email, role: data.role, firstName: data.firstName, lastName: data.lastName } })
     res.status(201).json({ success: true, data: { id: user.id, email, status: 'invited' } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[CRM Auth] Invite error:', err)
     res.status(500).json({ success: false, error: 'Failed to send invite' })
   }
@@ -571,7 +572,7 @@ router.post('/accept-invite', async (req, res) => {
       },
     })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to accept invite' })
   }
 })
@@ -657,7 +658,7 @@ router.post('/reset-password', async (req, res) => {
 
     res.json({ success: true, data: { message: 'Password reset. Please log in.' } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Reset failed' })
   }
 })
@@ -725,7 +726,7 @@ router.post('/change-password', async (req, res) => {
 
     res.json({ success: true, data: { accessToken, refreshToken } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[CRM Auth] Change password error:', err)
     res.status(500).json({ success: false, error: 'Could not change password' })
   }
@@ -783,7 +784,7 @@ router.patch('/users/:id', async (req, res) => {
 
     res.json({ success: true, data: { id: user.id, role: user.role, status: user.status } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to update user' })
   }
 })

@@ -13,6 +13,7 @@ import prisma from '../lib/prisma.js'
 import { requireAuth } from '../middleware/auth.js'
 import { auditLog } from '../middleware/audit.js'
 import { str } from '../lib/helpers.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -130,7 +131,7 @@ router.post('/services', auditLog('ezbudget_service_created'), async (req, res) 
     })
     res.status(201).json({ success: true, data: service })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to create service' })
   }
 })
@@ -147,7 +148,7 @@ router.patch('/services/:id', auditLog('ezbudget_service_updated'), async (req, 
     })
     res.json({ success: true, data: service })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to update service' })
   }
 })
@@ -246,7 +247,7 @@ router.patch('/quotes/:id', auditLog('ezbudget_quote_updated'), async (req, res)
     })
     res.json({ success: true, data: quote })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to update quote' })
   }
 })
@@ -301,7 +302,7 @@ router.post('/settings', auditLog('ezbudget_setting_saved'), async (req, res) =>
     })
     res.json({ success: true, data: setting })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to save setting' })
   }
 })
@@ -409,7 +410,7 @@ publicRouter.post('/widget/submit', async (req, res) => {
 
     res.status(201).json({ success: true, data: { id: quote.id, quoteNumber: quote.quoteNumber } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to submit quote' })
   }
 })

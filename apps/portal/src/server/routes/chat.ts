@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { requireAuth } from '../middleware/auth.js'
 import { auditLog } from '../middleware/audit.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -265,7 +266,7 @@ router.post('/message', requireAuth, auditLog('chat_message'), async (req, res) 
       },
     })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('Chat error:', err)
     res.status(500).json({ success: false, error: 'Failed to send message' })
   }

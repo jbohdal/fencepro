@@ -14,6 +14,7 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { requireAuth } from '../middleware/auth.js'
 import { str } from '../lib/helpers.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -83,7 +84,7 @@ router.post('/estimate', async (req, res) => {
     })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to calculate estimate' })
@@ -124,7 +125,7 @@ router.post('/', requireAuth, async (req, res) => {
     res.json({ success: true, data: rule })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to save pricing rule' })

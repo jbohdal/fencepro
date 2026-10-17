@@ -33,7 +33,7 @@ describe('site plan posts match the priced posts', () => {
     expect(count(plan, 'end') + count(plan, 'gate')).toBe(r.ends)
     expect(count(plan, 'line')).toBe(secs.reduce((t, n) => t + n - 1, 0))
     expect(plan.sides.find(s => s.name === 'Back')!.skip?.kind).toBe('existing')
-    expect(plan.sides.find(s => s.name === 'Back')!.sublabel).toBe('Back · 14 sec')
+    expect(plan.sides.find(s => s.name === 'Back')!.sublabel).toBe('Back · 14 sections')
     expect(plan.house).not.toBeNull()
     expect(plan.street).toBe(true)
   })
@@ -186,6 +186,14 @@ describe('backyard drawing: the house is level, the sides go straight back, the 
     // A typed length changes: the typed numbers win and the drawing is redrawn from them.
     l.sides[1].lengthIn = ft(110)
     expect(planVertices(l)).toEqual(autoVertices(l))
+  })
+
+  test('a new backyard with nothing typed: no warnings, every side drawn, house level', () => {
+    const l = layoutForShape('backyard')
+    const plan = buildPlan(l, deriveLayout(l))
+    expect(plan.notes).toEqual([])
+    expect(plan.sides.every(sd => Math.hypot(sd.b.x - sd.a.x, sd.b.y - sd.a.y) > 1)).toBe(true)
+    expect(level(plan.house!)).toBe(true)
   })
 
   test('the corner posts are the ones that can be dragged', () => {

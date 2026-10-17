@@ -29,6 +29,7 @@ import prisma from '../lib/prisma.js'
 import { audit } from '../lib/auditLog.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { resolveSecret } from '../lib/secrets.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -153,11 +154,17 @@ function toNullableJson(value: unknown): any {
 // ── List ──
 router.get('/', requireUser, requireAccount, async (req: any, res) => {
   try {
+    // ?since=<time>: only what changed after it (removed ones too, with archivedAt), so the
+    // phone's refresh is small. A few seconds of overlap covers saves in flight.
+    const sinceRaw = typeof req.query.since === 'string' ? Date.parse(req.query.since) : NaN
+    const serverTime = new Date(Date.now() - 5000).toISOString()
     const quotes = await prisma.savedQuote.findMany({
-      where: { accountId: req.user.crmAccountId, archivedAt: null },
+      where: Number.isFinite(sinceRaw)
+        ? { accountId: req.user.crmAccountId, updatedAt: { gt: new Date(sinceRaw) } }
+        : { accountId: req.user.crmAccountId, archivedAt: null },
       orderBy: { updatedAt: 'desc' },
     })
-    res.json({ success: true, data: quotes })
+    res.json({ success: true, data: quotes, serverTime, partial: Number.isFinite(sinceRaw) })
   } catch (err) {
     console.error('[saved-quotes] list error:', err)
     res.status(500).json({ success: false, error: 'Failed to list quotes' })
@@ -235,7 +242,7 @@ router.post('/', requireUser, requireAccount, async (req: any, res) => {
     await linkQuoteMedia(created)
     res.status(201).json({ success: true, data: created })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-quotes] create error:', err)
     res.status(500).json({ success: false, error: 'Failed to create quote' })
   }
@@ -293,7 +300,7 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     await linkQuoteMedia(updated)
     res.json({ success: true, data: updated })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-quotes] update error:', err)
     res.status(500).json({ success: false, error: 'Failed to update quote' })
   }
@@ -410,7 +417,7 @@ router.post('/sync', requireUser, requireAccount, async (req: any, res) => {
     console.log(`[saved-quotes] sync: ${created} created, ${updated} updated, ${skipped} skipped for account ${req.user.crmAccountId}`)
     res.json({ success: true, data: { created, updated, skipped, total: quotes.length } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-quotes] sync error:', err)
     res.status(500).json({ success: false, error: 'Failed to sync quotes' })
   }
@@ -528,7 +535,7 @@ router.post('/share/:token/accept', async (req: any, res) => {
     console.log(`[saved-quotes] customer accepted quote ${q.id} as "${data.name}"`)
     res.json({ success: true, data: forCustomer(updated) })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-quotes] accept error:', err)
     res.status(500).json({ success: false, error: 'Failed to accept quote' })
   }

@@ -13,6 +13,7 @@ import { auditLog } from '../middleware/audit.js'
 import { fireAutomations, type TriggerEvent } from '../lib/automationEngine.js'
 import { str } from '../lib/helpers.js'
 import { isStaffRequest } from '../lib/secrets.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -65,7 +66,7 @@ router.post('/trigger', async (req, res) => {
     res.json({ success: true, data: { triggered: triggerType } })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to trigger automation' })
@@ -178,7 +179,7 @@ router.post('/', requireAuth, auditLog('automation_created'), async (req, res) =
     res.status(201).json({ success: true, data: automation })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to create automation' })
@@ -207,7 +208,7 @@ router.patch('/:id', requireAuth, auditLog('automation_updated'), async (req, re
     res.json({ success: true, data: automation })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to update automation' })
@@ -312,7 +313,7 @@ router.patch('/tasks/:id', requireAuth, async (req, res) => {
     res.json({ success: true, data: task })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to update task' })

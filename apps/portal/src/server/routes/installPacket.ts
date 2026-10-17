@@ -27,6 +27,7 @@ import { requireUser, requireAccount } from './saved-quotes.js'
 import { esc, safeSvg, CSS } from './proposal.js'
 import { mediaDir, serializeMedia, processMediaQueue } from '../lib/media.js'
 import { serveSignedMedia } from './media.js'
+import { plainZod } from '../lib/plainZod.js'
 
 /** 3527894314 → (352) 789-4314; anything else as typed. */
 function phone(p: string): string {
@@ -107,7 +108,7 @@ packetStaff.post('/', express.json({ limit: '1mb' }), async (req: any, res) => {
       : await prisma.installPacket.create({ data: { accountId, jobId: job.id, token, snapshot: body.snapshot as any } })
     res.json({ success: true, data: { id: p.id, token: p.token, disabledAt: p.disabledAt, locateTicket: p.locateTicket, locateDate: p.locateDate, sentAt: p.sentAt } })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: err.errors[0].message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[packet] send:', err); res.status(500).json({ success: false, error: 'Could not make the packet' })
   }
 })
@@ -196,9 +197,9 @@ packetPublic.get('/:token', async (req, res) => {
           ? `<video src="${esc(fix(m.previewUrl ?? m.url))}" ${m.thumbUrl ? `poster="${esc(fix(m.thumbUrl))}"` : ''} controls playsinline preload="none"></video>`
           : `<a href="${esc(src)}"><img src="${esc(src)}" alt="${esc(m.caption || m.category)}" loading="lazy"></a>`
         return `<figure>${media}<figcaption><b>${esc(m.category)}</b>${m.source === 'crew' ? ' · from the crew' : ''}<br>${esc(m.caption)}</figcaption></figure>`
-      }).join('')}</div>` : '<p class="small">No photos shared with the crew yet.</p>'}
+      }).join('')}</div>` : '<p class="small">No photos are shared with the crew yet. The office chooses which ones show here (on the job, a photo set to Crew or Customer).</p>'}
     </section>
-    <section class="noprint"><h2>Add progress photos</h2>
+    <section class="noprint"><h2>Add photos</h2>
       <p class="small">Photos and video you add here go to the office.</p>
       <label class="field">What they show<select id="cat">${CREW_CATEGORIES.map(c => `<option>${c}</option>`).join('')}</select></label>
       <label class="field">Note (optional)<input id="note" maxlength="500"></label>
@@ -217,16 +218,21 @@ packetPublic.get('/:token', async (req, res) => {
     });
     var files=document.getElementById('files'),msg=document.getElementById('upMsg');
     files.addEventListener('change',function(){
-      var list=[].slice.call(files.files);if(!list.length)return;var i=0;
+      var list=[].slice.call(files.files);if(!list.length)return;var i=0,wait=3000;
+      // Each photo keeps one id, so one sent again after the signal dropped is saved once.
+      var ids=list.map(function(){return Date.now().toString(36)+Math.random().toString(36).slice(2,12)});
+      var cat=document.getElementById('cat').value,note=document.getElementById('note').value;
       function next(){
         if(i>=list.length){msg.textContent=list.length+' uploaded. Thank you.';files.value='';return}
-        var f=list[i],fd=new FormData();fd.append('category',document.getElementById('cat').value);fd.append('caption',document.getElementById('note').value);fd.append('file',f);
+        var f=list[i],fd=new FormData();fd.append('category',cat);fd.append('caption',note);fd.append('cid',ids[i]);fd.append('file',f);
         var x=new XMLHttpRequest();x.open('POST',tok+'/media');
         x.upload.onprogress=function(e){if(e.lengthComputable)msg.textContent='Uploading '+(i+1)+' of '+list.length+': '+Math.round(e.loaded/e.total*100)+'%'};
-        x.onload=function(){if(x.status>=200&&x.status<300){i++;next()}else{msg.textContent='Upload failed ('+x.status+'). Try again.'}};
-        x.onerror=function(){msg.textContent='No connection. Try again when you have signal.'};
+        x.onload=function(){if(x.status>=200&&x.status<300){wait=3000;i++;next()}else if(x.status>=500){retry()}else{var e='';try{e=JSON.parse(x.responseText).error}catch(_){}msg.textContent=(e||'That file could not be uploaded.')+' Choose it again to try.'}};
+        x.onerror=retry;
         x.send(fd);
       }
+      // No signal: keep the page open and it sends by itself.
+      function retry(){msg.textContent='No signal. '+(list.length-i)+' waiting; they will send by themselves when there is signal. Keep this page open.';setTimeout(next,wait);wait=Math.min(wait*2,30000)}
       next();
     });
   })();`
@@ -261,13 +267,16 @@ packetPublic.post('/:token/media', crewUpload.single('file'), async (req: any, r
   if (!found || packetClosed(found.p, found.job)) { drop(); res.status(410).json({ success: false, error: 'This packet is not active.' }); return }
   if (!file || !OK_TYPES.test(file.mimetype)) { drop(); res.status(400).json({ success: false, error: 'Send a photo or video.' }); return }
   const category = CREW_CATEGORIES.includes(req.body?.category) ? req.body.category : 'Progress'
+  // Sent again after the signal dropped: the first one stands.
+  const cid = typeof req.body?.cid === 'string' && /^[a-z0-9]{6,40}$/.test(req.body.cid) ? `crew-${req.body.cid}` : null
+  if (cid && await prisma.mediaItem.findUnique({ where: { clientId: cid } })) { drop(); res.json({ success: true }); return }
   const id = crypto.randomUUID()
   const ext = path.extname(file.originalname || '').slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || (file.mimetype.startsWith('video/') ? 'mp4' : 'jpg')
   const final = path.join(mediaDir(found.p.accountId), `${id}.${ext}`)
   fs.renameSync(file.path, final)
   await prisma.mediaItem.create({
     data: {
-      id, accountId: found.p.accountId, clientId: `crew-${id}`, kind: file.mimetype.startsWith('video/') ? 'video' : 'photo', mime: file.mimetype,
+      id, accountId: found.p.accountId, clientId: cid ?? `crew-${id}`, kind: file.mimetype.startsWith('video/') ? 'video' : 'photo', mime: file.mimetype,
       path: final, bytes: file.size, jobId: found.job!.id, quoteKey: found.job!.quoteId ?? null, customerId: found.job!.crmContactId ?? null,
       takenBy: 'Crew (install packet)', takenAt: new Date(), caption: String(req.body?.caption || '').slice(0, 500), category,
       // Internal until the office marks it Customer.
@@ -279,8 +288,9 @@ packetPublic.post('/:token/media', crewUpload.single('file'), async (req: any, r
 })
 
 const PACKET_CSS = `
-a[href^="tel:"]{white-space:nowrap}
-.printbtn{margin-left:auto;min-height:44px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:0 12px;font-weight:700;color:var(--p)}
+a[href^="tel:"],.maplink{white-space:nowrap;display:inline-block;padding:13px 0;margin:-13px 0}
+.maplink{white-space:normal}
+.printbtn{margin-left:auto;min-height:48px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:0 12px;font-weight:700;color:var(--p)}
 .maplink{color:var(--p);font-weight:700}.notes{border-color:#FACC15;background:#FFFBEB}
 table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}th{color:var(--g);font-weight:600}
 h3{font-size:15px;margin:14px 0 6px}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}

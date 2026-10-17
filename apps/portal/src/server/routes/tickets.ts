@@ -4,6 +4,7 @@ import prisma from '../lib/prisma.js'
 import { str } from '../lib/helpers.js'
 import { requireAuth } from '../middleware/auth.js'
 import { auditLog } from '../middleware/audit.js'
+import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
 
@@ -130,7 +131,7 @@ router.post('/', requireAuth, auditLog('ticket_create'), async (req, res) => {
     })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to create ticket' })
@@ -173,7 +174,7 @@ router.post('/:id/comments', requireAuth, auditLog('ticket_reply'), async (req, 
     })
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: err.errors[0].message })
+      res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
     res.status(500).json({ success: false, error: 'Failed to add comment' })

@@ -52,3 +52,30 @@ export async function onProposalAccepted(q: { id: string; accountId: string; crm
   }
   console.error(`[proposal] could not move the pipeline card for quote ${q.id}`)
 }
+
+/**
+ * The job for a quote a customer accepted online, so it shows in Operations
+ * like one sold in person. Once only: a quote that already has a job keeps it.
+ */
+export async function ensureJobForAcceptedQuote(q: {
+  id: string; accountId: string; crmContactId: string | null; customerName: string; customerPhone: string; customerEmail: string; customerAddress: string
+  fenceStyle: string; sections: number; runs: unknown; walkGates: number; dblGates: number; tearOutSections: number; hasSalesman: boolean
+  finalPrice: number; gmPct: number; notes: string; salesRep: string; leadSource: string
+}): Promise<string | null> {
+  const existing = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, archivedAt: null }, select: { id: true } })
+  if (existing) return existing.id
+  const runs = Array.isArray(q.runs) ? (q.runs as unknown[]).map(Number).filter(n => Number.isFinite(n)) : []
+  const job = await prisma.savedJob.create({
+    data: {
+      accountId: q.accountId, quoteId: q.id, crmContactId: q.crmContactId, status: 'staging',
+      customerName: q.customerName, customerPhone: q.customerPhone, customerEmail: q.customerEmail, customerAddress: q.customerAddress,
+      fenceStyle: q.fenceStyle, sections: q.sections, totalFeet: Math.round(runs.reduce((s, n) => s + n, 0)),
+      walkGates: q.walkGates, dblGates: q.dblGates, tearOutSections: q.tearOutSections, hasSalesman: q.hasSalesman,
+      quotePrice: q.finalPrice, contractValue: q.finalPrice, gmPct: q.gmPct,
+      estimatedDays: Math.max(1, Math.ceil(q.sections / 15)),
+      notes: q.notes || '', salesRep: q.salesRep || '', leadSource: q.leadSource || '',
+    },
+  })
+  console.log(`[proposal] job ${job.id} created for accepted quote ${q.id}`)
+  return job.id
+}

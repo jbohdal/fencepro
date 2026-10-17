@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import express from 'express'
+import compression from 'compression'
 import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
@@ -91,19 +92,37 @@ if (process.env.CORS_ORIGINS) {
   process.env.CORS_ORIGINS.split(',').forEach(o => allowedOrigins.push(o.trim()))
 }
 
-app.use(cors({
-  origin: process.env.NODE_ENV === 'development'
-    ? (_origin: any, cb: any) => cb(null, true)  // allow all origins in dev
-    : (origin, cb) => {
-        if (!origin || allowedOrigins.includes(origin)) {
-          cb(null, true)
-        } else {
-          cb(new Error(`CORS: origin ${origin} not allowed`))
-        }
-      },
-  credentials: true,
+// The app's own pages (any address this server is reached at: the Tailscale
+// name, localhost, the Mac's network address) are always allowed. Another
+// site gets no CORS headers, so its browser refuses to read the answer; the
+// request itself is not turned into a server error (that made the app's own
+// files fail to load when opened by any other address).
+app.use(cors((req, cb) => {
+  const origin = req.headers.origin
+  const sameSite = (() => { try { return !!origin && new URL(origin).host === req.headers.host } catch { return false } })()
+  const ok = process.env.NODE_ENV === 'development' || !origin || sameSite || allowedOrigins.includes(origin)
+  cb(null, { origin: ok, credentials: true })
 }))
+// Everything sent is compressed (lists of customers and quotes shrink about
+// ten times), which is what makes the app usable on weak cell signal.
+// Photos and video are already compressed and are left alone.
+app.use(compression())
 app.use(express.json({ limit: '10mb' }))
+
+// Every save the server refuses or fails is written to the log, with who and
+// from what device, so a change that did not save can always be traced.
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next()
+  const json = res.json.bind(res)
+  res.json = (body: any) => {
+    if (res.statusCode >= 400) {
+      const who = (req as any).user?.email ?? '-'
+      console.warn(`[save-refused] ${req.method} ${req.originalUrl.split('?')[0]} ${res.statusCode} "${String(body?.error ?? '').slice(0, 200)}" user=${who} device="${String(req.headers['user-agent'] ?? '').slice(0, 90)}"`)
+    }
+    return json(body)
+  }
+  next()
+})
 
 // ── Rate Limiting ──
 // Limits can be set from the environment. The API default allows a real
