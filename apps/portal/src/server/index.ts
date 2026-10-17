@@ -60,6 +60,7 @@ import { promises as fsp } from 'fs'
 import path from 'path'
 import { startDataIntegrityCron } from './lib/dataIntegrityCron.js'
 import { startScheduledDeletions } from './lib/scheduledDeletions.js'
+import { startDoorWatch } from './lib/doorWatch.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
 import quoteWidget from './routes/quote-widget.js'
 import cronRoutes from './routes/cron.js'
@@ -322,6 +323,9 @@ if (!isVercel) {
     }
     try { startScheduledDeletions() } catch (err) {
       console.warn('[startup] scheduled deletions failed to start:', (err as Error).message)
+    }
+    try { startDoorWatch() } catch (err) {
+      console.warn('[startup] door watch failed to start:', (err as Error).message)
     }
   })
 
