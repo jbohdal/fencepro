@@ -27,7 +27,7 @@ import { parseCallbackTime } from '../lib/appointments.js'
 import { recordIntake, resolveIntakeAccountId, digits } from '../lib/intake.js'
 import { verifyRetellSignature, summarizeRetellCall } from '../lib/retell.js'
 import { plainZod } from '../lib/plainZod.js'
-import { estimateJob, estimateStyleList } from '../lib/estimates.js'
+import { estimateJob, estimateStyleList, widgetCatalog } from '../lib/estimates.js'
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
 const money = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -79,8 +79,10 @@ quotingRouter.use(requireWidgetToken)
 // Pricing, theme and range. Returning none tells the widget to use its own
 // (it falls back to the pricing it already has), so the widget keeps working
 // exactly as it does today while its completed quotes land in the CRM.
-quotingRouter.get('/config', readLimiter, (_req, res) => {
-  res.json({ pricing: [], theme: null, quoteRange: null })
+quotingRouter.get('/config', readLimiter, async (_req, res) => {
+  // The widget's choices, each tied to an app style; prices come from /estimate.
+  const pricing = await estimateStyleList().then(widgetCatalog).catch(err => { console.error('[quoting] config error:', err); return [] })
+  res.json({ pricing, theme: null, quoteRange: null })
 })
 
 // Estimates from the quote builder's own math (material kits, Inventory
@@ -100,7 +102,11 @@ const estimateSchema = z.object({
   dblGates: z.number().int().min(0).max(50).default(0),
 })
 
-quotingRouter.post('/estimate', readLimiter, async (req, res) => {
+// The public door: 30 estimates a minute from one address is plenty for a person.
+const estimateLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false,
+  message: { success: false, error: 'Too many estimates from this address. Try again in a minute.' } })
+
+quotingRouter.post('/estimate', estimateLimiter, async (req, res) => {
   try {
     const job = estimateSchema.parse(req.body)
     const e = await estimateJob(job)

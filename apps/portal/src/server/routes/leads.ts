@@ -30,7 +30,8 @@ const BOTPRESS_WEBHOOK_SECRET = process.env.BOTPRESS_WEBHOOK_SECRET || ''
 
 /** Optional webhook auth — if secret is set, verify it */
 function verifyBotpressWebhook(req: any, res: any, next: any) {
-  if (!BOTPRESS_WEBHOOK_SECRET) { next(); return }
+  // No secret set means Botpress is not connected: refuse rather than take leads from anyone.
+  if (!BOTPRESS_WEBHOOK_SECRET) { res.status(503).json({ success: false, error: 'Botpress is not set up on this server (BOTPRESS_WEBHOOK_SECRET).' }); return }
   const secret = req.headers['x-botpress-secret'] || req.headers['x-webhook-secret']
   if (secret === BOTPRESS_WEBHOOK_SECRET) { next(); return }
   res.status(401).json({ success: false, error: 'Invalid webhook secret' })

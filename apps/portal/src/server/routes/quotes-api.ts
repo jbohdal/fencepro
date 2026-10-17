@@ -2,9 +2,11 @@
  * Quote Engine API
  *
  * Estimates from the quote builder's own math (lib/estimates.ts: material
- * kits, Inventory costs, Settings), always labeled as estimates.
+ * kits, Inventory costs, Settings), always labeled as estimates. Staff only:
+ * /calculate returns costs and margins. The website uses /api/quoting and
+ * the chat calls lib/estimates directly.
  *
- * Public endpoints (Botpress webhook):
+ * Endpoints (staff sign in required):
  *   POST /api/quotes/quick-estimate  — fast estimate from type + footage
  *   POST /api/quotes/calculate       — full quote with all job details
  *   GET  /api/quotes/styles          — list available fence styles
@@ -14,8 +16,10 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { estimateJob, quickEstimate, estimateStyleList, type Estimate } from '../lib/estimates.js'
 import { plainZod } from '../lib/plainZod.js'
+import { requireAuth, requireRole } from '../middleware/auth.js'
 
 const router = Router()
+router.use(requireAuth, requireRole('admin', 'support_agent'))
 
 // ── Available fence styles ──
 router.get('/styles', async (_req, res) => {

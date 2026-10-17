@@ -18,7 +18,7 @@ Status key:
 * Public door (Tailscale Funnel, port 8443) for proposals and crew packets (`/p`), the website quote widget and the phone agent only. The rest of the app stays private. **LIVE** (turned on Oct 16)
 * Dev copy (ez-biz-final, port 4001, database ezbiz_dev). Every change goes to dev first, backup before live, deploy with update.sh. **LIVE**
 * Company name everywhere: **Getter Done Fence**. EZ Biz only as the small product line. **LIVE**
-* Sign in screen: replace "Failed to fetch" with "Can't reach EZ Biz. Check that Tailscale is on and connected on this device, then try again." **SENT** (done on dev, waiting for deploy)
+* Sign in screen: replace "Failed to fetch" with "Can't reach EZ Biz. Check that Tailscale is on and connected on this device, then try again." **LIVE** (Oct 17)
 * Nicer public links (quote.gdfencepro.com through a free Cloudflare tunnel). **LATER**
 
 ## 2. Pricing rules (decided)
@@ -32,23 +32,25 @@ Status key:
 * Man hour rate $25. Sections per man hour = sections ONE man installs in one hour. Vinyl no dig 1.2; dig set 0.8; 8 ft tall vinyl 0.8. **LIVE**
 * Crew time shown on quotes (crew size 3, 10 hour day, both editable). **LIVE**
 * Margins: no dig vinyl 0.56, dig set vinyl 0.60, chain link and aluminum 0.58 (no dig is the better fence, so it earns more). **LIVE** (set Oct 16; now shown as Target Margin 44% / 40% / 42%, same prices)
-* Rename "magic number" to **Target Margin**, shown as a percent (0.56 = 44%). Price = cost ÷ (1 − Target Margin). Typed as 44 or 44%. Price method reads "Priced from cost (Target Margin)". **SENT** (done on dev, tested: every saved quote prices the same; waiting for deploy)
-* No decimals anywhere: everything as percents. Each style has a Target Profit %; Overhead % is one company number; Target Margin = Overhead + Profit. Start at 30% overhead: no dig 14% profit, dig set 10%, others 12%. **SENT** (done on dev, tested: every saved quote prices the same; waiting for deploy)
-* Live overhead from the budget once it's filled in (yearly overhead ÷ yearly revenue), last 12 months or this year's projection, shows how it was worked out, warns on a move of more than 3 points in a month. **SENT** (done on dev; switch it on in Settings > Pricing when the budget is complete)
-* "Where every dollar goes": 20 pickets, each 5% of the price, colored Materials (brand purple) / Labor / Overhead / Profit, Commission its own slice. On the quote builder and quote view only, never the proposal or crew packet. **SENT** (done on dev, tested: every saved quote prices the same; waiting for deploy)
-* Every Inventory item shows "Price last updated" (set when the cost changes; imported prices say "Imported, not yet confirmed"). A quote shows a soft warning (never a block) listing parts older than 6 months (Settings > Pricing) with one tap "Open in Inventory". Inventory sorts and filters by price age, has "Confirm price" per item and "Confirm these prices" for many at once. **SENT** (done on dev, tested, waiting for deploy)
-* Gate leaves: every gate leaf (4, 5 or 6 ft) uses the parts of one 6 ft wide section: 11 pickets, two 6 ft rails, U trim, no insert, plus gate hardware. A double gate is two leaves. **SENT** (done on dev in the kits; 6'x8' vinyl and auto mix all 8 ft jobs with gates now price this way; 8 ft tall styles keep their complete 8 x 4 gates)
+* Rename "magic number" to **Target Margin**, shown as a percent (0.56 = 44%). Price = cost ÷ (1 − Target Margin). Typed as 44 or 44%. Price method reads "Priced from cost (Target Margin)". **LIVE** (Oct 17; every saved quote prices the same)
+* No decimals anywhere: everything as percents. Each style has a Target Profit %; Overhead % is one company number; Target Margin = Overhead + Profit. Start at 30% overhead: no dig 14% profit, dig set 10%, others 12%. **LIVE** (Oct 17; every saved quote prices the same)
+* Live overhead from the budget once it's filled in (yearly overhead ÷ yearly revenue), last 12 months or this year's projection, shows how it was worked out, warns on a move of more than 3 points in a month. **LIVE** (Oct 17; switch it on in Settings > Pricing when the budget is complete)
+* "Where every dollar goes": 20 pickets, each 5% of the price, colored Materials (brand purple) / Labor / Overhead / Profit, Commission its own slice. On the quote builder and quote view only, never the proposal or crew packet. **LIVE** (Oct 17; every saved quote prices the same)
+* Every Inventory item shows "Price last updated" (set when the cost changes; imported prices say "Imported, not yet confirmed"). A quote shows a soft warning (never a block) listing parts older than 6 months (Settings > Pricing) with one tap "Open in Inventory". Inventory sorts and filters by price age, has "Confirm price" per item and "Confirm these prices" for many at once. **LIVE** (Oct 17)
+* Gate leaves: every gate leaf (4, 5 or 6 ft) uses the parts of one 6 ft wide section: 11 pickets, two 6 ft rails, U trim, no insert, plus gate hardware. A double gate is two leaves. **LIVE** (Oct 17; in the kits; 6'x8' vinyl and auto mix all 8 ft jobs with gates now price this way; 8 ft tall styles keep their complete 8 x 4 gates)
 * Sub rates still needed: walk gate, double gate, tear out per section, tear out per gate, chain link per 10 ft section, aluminum per section. Quotes warn until they're set. **NEEDS JONATHAN**
 * Industrial Abigail: 6 or 8 ft sections? (spreadsheet says 6, app says 8). **NEEDS JONATHAN**
 
 ## 3. Material kits (bundles)
 
-* Replace the empty Bundles page with material kits per style: 1 section (with its line post), corner post, end post, blank post, each walk gate size, each double gate size, and chain link by the foot items (rounded up per job). **SENT** (done on dev: Inventory > Material Kits replaces the Bundles tab; line post is its own kit because the first section of a run has none; one walk and one double gate size, since quotes don't carry gate widths yet)
-* Kits worked out from the current calculator (the source of truth), then proven: 6+ real jobs per style must give the identical pull sheet. Only then does the calculator read from kits. **SENT** (done on dev: 32 styles × 15 jobs (7 real yards + 8 generated), every part identical except the gate leaf correction; the old calculator stays as the test check)
-* Edit, duplicate, rename, archive kits. Editing shows which open (Draft and Sent) quotes would change, with material cost now and after. Costs always live from Inventory. **SENT** (done on dev, tested, waiting for deploy)
-* Website quote widget, chat assistant, phone agent and /api/quotes estimates come from the quote builder's own math (kits, Inventory costs, Settings), always labeled Estimate; the old separate server calculator is gone. 3 test jobs: widget, /api/quotes and builder match to the cent (widget rounds to dollars). New /api/quoting/estimate and /api/quoting/styles for the widget; each widget quote also records the builder's estimate. **SENT** (done on dev, waiting for deploy; the widget page itself must be changed to call /api/quoting/estimate)
-* Remove the old Good / Better / Best Bundles page (tiers live on the quote): page, Options panel in the quote builder, the /present customer page, the options report and the options box on the quote view. Nothing else used them; 0 bundles and 0 options on live. **SENT** (done on dev, waiting for deploy)
-* Tan no dig donuts match white: 2 per post, no extra 2 off per double gate (the blank post is set in concrete and was already left out). Original spreadsheet could not be opened to check, so Jonathan's rule applied. **SENT** (done on dev, waiting for deploy)
+* Replace the empty Bundles page with material kits per style: 1 section (with its line post), corner post, end post, blank post, each walk gate size, each double gate size, and chain link by the foot items (rounded up per job). **LIVE** (Oct 17; Inventory > Material Kits replaces the Bundles tab; line post is its own kit because the first section of a run has none; one walk and one double gate size, since quotes don't carry gate widths yet)
+* Kits worked out from the current calculator (the source of truth), then proven: 6+ real jobs per style must give the identical pull sheet. Only then does the calculator read from kits. **LIVE** (Oct 17; 32 styles × 15 jobs (7 real yards + 8 generated), every part identical except the gate leaf correction; the old calculator stays as the test check)
+* Edit, duplicate, rename, archive kits. Editing shows which open (Draft and Sent) quotes would change, with material cost now and after. Costs always live from Inventory. **LIVE** (Oct 17)
+* Website quote widget, chat assistant, phone agent and /api/quotes estimates come from the quote builder's own math (kits, Inventory costs, Settings), always labeled Estimate; the old separate server calculator is gone. 3 test jobs: widget, /api/quotes and builder match to the cent (widget rounds to dollars). New /api/quoting/estimate and /api/quoting/styles for the widget; each widget quote also records the builder's estimate. **LIVE** (Oct 17; the widget page itself: see the next line)
+* Website widget (EZ-Budget) prices from /api/quoting/estimate: the CRM sends its choices (material, style, height, color, each one app style) and the price is the builder's; same look, heights a style doesn't come in are greyed out. 3 test jobs match the builder (widget $8,905 / $4,191 / $6,239). **SENT** (code done and committed in the EZ-Budget folder; needs redeploying where the widget is hosted)
+* Every /api route checked without a sign in. /api/quotes now needs a staff sign in (it returns costs and margins); /api/leads refuses when the Botpress secret is not set; /api/quoting/estimate returns the price only and allows 30 a minute per address. **SENT** (done and tested on dev)
+* Remove the old Good / Better / Best Bundles page (tiers live on the quote): page, Options panel in the quote builder, the /present customer page, the options report and the options box on the quote view. Nothing else used them; 0 bundles and 0 options on live. **LIVE** (Oct 17)
+* Tan no dig donuts match white: 2 per post, no extra 2 off per double gate (the blank post is set in concrete and was already left out). Confirmed in the original EZ-Quote Sales spreadsheet: one donut formula for white and tan (H25×2 − H30×2). **LIVE** (Oct 17)
 
 ## 4. Quoting in the field
 
@@ -68,7 +70,7 @@ Status key:
 * Drag corners for odd yards (never changes footage or price). Reset button. **LIVE**
 * No north arrow unless lined up on the aerial photo. **LIVE**
 * Optional aerial photo behind the plan (free USGS imagery). **LIVE**
-* Hide the corner drag handles everywhere except while editing ("Adjust the drawing" button; on the aerial photo they stay). **SENT** (done on dev, waiting for deploy)
+* Hide the corner drag handles everywhere except while editing ("Adjust the drawing" button; on the aerial photo they stay). **LIVE** (Oct 17)
 
 ## 6. Photos and video
 
@@ -81,7 +83,7 @@ Status key:
 
 * Branded proposal page on the phone: site plan, option cards, what's included, warranty, deposit, finger signature, Accept. Accepting makes the quote that option and marks it Sold. **LIVE**
 * Links expire after 30 days, Turn off link button, read only after Accept, notification and Signed Contract card on accept. **LIVE**
-* Accepting online also creates the job in Operations; a second acceptance for the same job (same customer, 60 days, price within 10%) updates that job instead of making another. Sending the link (text, email, copy) marks the quote Sent. **SENT** (done on dev, waiting for deploy)
+* Accepting online also creates the job in Operations; a second acceptance for the same job (same customer, 60 days, price within 10%) updates that job instead of making another. Sending the link (text, email, copy) marks the quote Sent. **LIVE** (Oct 17)
 * No online payments for now (check, Zelle, cash note). "Pay Now" hidden. Stripe with bank transfer (0.8%, max $5) is the cheap option later. **LATER**
 
 ## 8. Install packet for the crew
@@ -92,23 +94,23 @@ Status key:
 
 * Pipeline card window: New quote, Call, Text, Navigate, Book appointment, quotes, next appointment, notes, stage picker. **LIVE**
 * Back button works like a normal app; every screen has its own address; "Leave without saving?" on unsaved quotes. **LIVE** (test on your phones)
-* Cards without a customer (Dave Diamond): fixed on live Oct 16 (the only one); cause fixed so a customer and card save together or not at all. **SENT** (cause fix waiting for deploy)
+* Cards without a customer (Dave Diamond): fixed on live Oct 16 (the only one); cause fixed so a customer and card save together or not at all. **LIVE** (Oct 17)
 * "Create customer from this lead" button. **READY**
 * Appointments with free maps, team list, linked to jobs. **LIVE**
 * Phone Schedule tab opens the install schedule with that day's appointments. **READY** (checked Oct 17: the tab opens Appointments, not the install schedule)
 
 ## 10. Reliability (top priority)
 
-* Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **SENT** (done and tested on dev; deploy waiting for the push)
+* Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)
 * Test on real mobile browsers for free: Android Emulator (Chrome and the installed app) done; Xcode iPhone Simulator waiting for Xcode. **NEEDS JONATHAN** (install Xcode)
 * Every flow tested with no signal, slow signal, and signal dropping mid save (desktop, Android Chrome, installed Android app, WebKit): all pass. **SENT** (iPhone Simulator still to run)
-* Independent reviewer acting as a salesman on full jobs, repeated until nothing serious: second pass found nothing serious. **SENT**
+* Independent reviewer acting as a salesman on full jobs, repeated until nothing serious: second pass found nothing serious. **LIVE** (Oct 17)
 * Data integrity check on live (orphan cards, duplicates, unuploaded photos): done Oct 16. **LIVE**
 * Duplicate customers merged on live Oct 17 (Sherry Smith, Ashley Rozicki, Dave Wyckoff, Rafael Rodriguez): quotes, jobs, appointments, notes moved to the older record; the newer records kept, hidden, until approved for deletion. **LIVE**
-* Those 4 kept 30 days, then deleted on Nov 16 (after that night's backup, only if still archived and nothing new points at them); dashboard reminder on Nov 15 with "Keep them" to cancel. **SENT** (done and tested on dev; the schedule is set on live right after the deploy)
-* Marilyn Clark / Marilyn Clarke: merge into the older record (Clark, Mar 25 2024). **NEEDS JONATHAN** (approved; waiting for which spelling her name should have)
+* Those 4 kept 30 days, then deleted on Nov 16 (after that night's backup, only if still archived and nothing new points at them); dashboard reminder on Nov 15 with "Keep them" to cancel. **LIVE** (Oct 17; schedule set on live)
+* Marilyn Clarke: the two records merged into the older one (Mar 25 2024), spelled Clarke on the record and her quotes; the newer record kept, archived. **LIVE** (Oct 17)
 * Confirm no test records ("E2E") exist on live: none found Oct 17. **LIVE**
-* Crew sees the photo they just uploaded; note authors by name; pop up messages at the bottom, never over the save status; one "Photos and video" heading on a job. **SENT** (done on dev, waiting for deploy)
+* Crew sees the photo they just uploaded; note authors by name; pop up messages at the bottom, never over the save status; one "Photos and video" heading on a job. **LIVE** (Oct 17)
 
 ## 11. Storage and backups
 

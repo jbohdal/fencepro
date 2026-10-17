@@ -36,7 +36,7 @@ try {
   for (const [i, j] of JOBS.entries()) {
     const job = { fenceStyle: j.fenceStyle, runs: j.runs, corners: j.corners, ends: j.ends, walkGates: j.walkGates, dblGates: j.dblGates }
     const widget = await post('/api/quoting/estimate', job, WIDGET)
-    const api = await post('/api/quotes/calculate', job, '')
+    const api = await post('/api/quotes/calculate', job, TOKEN)
     const q = (await post('/api/saved-quotes', { customerName: `E2E Estimate match ${i + 1}`, ...job, sections: 0, status: 'DRAFT', finalPrice: 0, date: '2026-10-17' }, TOKEN)).data
     made.push(q.id)
     await page.goto(`${APP}/quotes?quote=${q.id}`); await page.waitForSelector('[data-quote-price]', { timeout: 30000 }); await sleep(1500)
