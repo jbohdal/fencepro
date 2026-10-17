@@ -147,3 +147,36 @@ describe('feet and inches', () => {
     expect(formatFtIn(960)).toBe(`80' 0"`)
   })
 })
+
+describe('new yard defaults (Oct 17 bug: every end read "Stops here", 0 posts)', () => {
+  test('a new Backyard reads Corner at every join and the house at the returns, before anything is typed', async () => {
+    const { layoutForShape, deriveLayout } = await import('../../web/src/yardLayout')
+    const l = layoutForShape('backyard')
+    expect(deriveLayout(l).sides.map(s => `${s.finishes.start}/${s.finishes.end}`)).toEqual(['house/corner', 'corner/corner', 'corner/corner', 'corner/corner', 'corner/house'])
+    // One side typed: its corner to the next side counts already.
+    l.sides[0].lengthIn = 360
+    expect([deriveLayout(l).corners, deriveLayout(l).ends]).toEqual([1, 1])
+    // The whole Backyard: 4 corners, 2 end posts at the house.
+    ;[30, 120, 150, 120, 30].forEach((ft, i) => { l.sides[i].lengthIn = ft * 12 })
+    expect([deriveLayout(l).corners, deriveLayout(l).ends]).toEqual([4, 2])
+  })
+
+  test('every yard shape starts with corners where its sides meet', async () => {
+    const { layoutForShape, deriveLayout } = await import('../../web/src/yardLayout')
+    for (const shape of ['backyard', 'perimeter', 'front'] as const) {
+      const l = layoutForShape(shape)
+      l.sides.forEach(s => { s.lengthIn = 600 })
+      const r = deriveLayout(l)
+      const joins = l.closed ? l.sides.length : l.sides.length - 1
+      expect([shape, r.corners]).toEqual([shape, joins])
+    }
+  })
+
+  test('a side left on without a length is flagged on the quote', async () => {
+    const { layoutForShape } = await import('../../web/src/yardLayout')
+    const { gateChecks } = await import('../../web/src/quoteChecks')
+    const l = layoutForShape('backyard')
+    l.sides[0].lengthIn = 360
+    expect(gateChecks(l).filter(n => /has no length yet/.test(n))).toHaveLength(4)
+  })
+})

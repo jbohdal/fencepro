@@ -56,6 +56,7 @@ Status key:
 
 * Layout first quoting: pick a yard shape (Backyard, Full perimeter, Front yard, Straight line, Custom), type one number per side, feet and inches. **LIVE**
 * Each side end finishes as Corner, Meets the house, Ties into existing fence, or Stops here. Sides can be turned off. Skips for existing or no fence. Posts counted automatically. **LIVE**
+* Fix: a new yard read "Stops here" at every end with 0 posts until every side was measured. Ends now show Corner where sides meet (returns start at the house) and corner posts count as soon as one side has a length; a side left on without a length is flagged. Checked: no saved quote on live has a yard layout, and none of the 192 dev layout quotes saved wrong ends. **SENT** (done and tested on dev)
 * Gate on any side: type the full side once, the app splits it and adds gate posts. **LIVE**
 * Post to post spacing per run in feet and inches. **LIVE**
 * Warnings: tape measure check on exact section multiples (or up to 6 in over), gate wider than its side, low margin, missing sub rate, missing Inventory part, price per foot outside the normal range. **LIVE**

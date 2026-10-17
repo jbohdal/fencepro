@@ -169,10 +169,15 @@ function nextIndex(layout: YardLayout, i: number): number | null {
   return layout.closed && layout.sides.length > 1 ? 0 : null
 }
 
-/** True when side i's end is a corner shared with the next side. */
+/**
+ * True when side i's end is a corner shared with the next side: both are on
+ * and the end is set to Corner. A side not measured yet still meets its
+ * neighbor at a corner, so a new Backyard reads "Corner" at every join (not
+ * "Stops here") and the corner posts count as soon as one side has a length.
+ */
 export function joinsNext(layout: YardLayout, i: number): boolean {
   const s = layout.sides[i], n = nextIndex(layout, i)
-  return !!s?.on && s.endFinish === 'corner' && n !== null && n !== i && layout.sides[n].on && layout.sides[n].lengthIn > 0 && s.lengthIn > 0
+  return !!s?.on && s.endFinish === 'corner' && n !== null && n !== i && layout.sides[n].on
 }
 /** True when side i's start is a corner shared with the previous side. */
 export function joinedFromPrev(layout: YardLayout, i: number): boolean {
@@ -261,13 +266,16 @@ export function deriveLayout(layout: YardLayout, nearIn = 96): LayoutResult {
 
   let corners = 0, endPosts = 0, gatePosts = 0
   sides.forEach((r, i) => {
-    if (!r.on || r.lengthIn <= 0) return
-    // A shared corner is counted once, at the earlier side's end.
-    if (r.finishes.start !== 'corner' && r.touchesStart) endPosts += 1
+    if (!r.on) return
+    const measured = r.lengthIn > 0
+    // A shared corner is counted once, at the earlier side's end, when fence
+    // reaches it from either side (the other side may not be measured yet).
+    if (measured && r.finishes.start !== 'corner' && r.touchesStart) endPosts += 1
     if (r.finishes.end === 'corner') {
       const n = nextIndex(layout, i)!
       if (r.touchesEnd || sides[n].touchesStart) corners += 1
-    } else if (r.touchesEnd) endPosts += 1
+    } else if (measured && r.touchesEnd) endPosts += 1
+    if (!measured) return
     gatePosts += r.gatePosts
     endPosts += r.skipPosts
   })

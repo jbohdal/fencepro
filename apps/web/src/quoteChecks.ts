@@ -36,6 +36,10 @@ export function tapeFlags(runs: NamedRun[], widthsFt: number[]): boolean[] {
 export function gateChecks(layout: YardLayout | null): string[] {
   if (!layout) return []
   const out: string[] = []
+  // A side left on without a length still gets its corner posts counted.
+  if (layout.sides.some(s => s.on && s.lengthIn > 0)) {
+    for (const s of layout.sides) if (s.on && !(s.lengthIn > 0)) out.push(`${s.name} has no length yet. Enter it, or turn it off if there is no fence there.`)
+  }
   for (const s of layout.sides) {
     if (!s.on || !s.gate || !(s.lengthIn > 0)) continue
     if (s.gate.widthIn > s.lengthIn) out.push(`${s.name}: the gate (${formatFtIn(s.gate.widthIn)}) is wider than the side (${formatFtIn(s.lengthIn)}).`)

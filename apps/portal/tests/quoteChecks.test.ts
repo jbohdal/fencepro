@@ -25,7 +25,7 @@ describe('gate checks', () => {
     l.sides[0].lengthIn = 60; l.sides[0].gate = { type: 'walk', widthIn: 48, position: 'middle' }
     l.sides[4].lengthIn = 96; l.sides[4].gate = { type: 'double', widthIn: 120, position: 'middle' }
     l.sides[2].lengthIn = 1800; l.sides[2].gate = { type: 'walk', widthIn: 48, position: 'middle' }
-    const out = gateChecks(l)
+    const out = gateChecks(l).filter(n => !/has no length yet/.test(n))
     expect(out).toHaveLength(2)
     expect(out[0]).toMatch(/^Left return is under 6 ft/)
     expect(out[1]).toMatch(/^Right return: the gate \(10' 0"\) is wider than the side \(8' 0"\)/)
