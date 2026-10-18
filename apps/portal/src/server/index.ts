@@ -34,6 +34,7 @@ import pricingRoutes from './routes/pricing.js'
 import quoteApiRoutes from './routes/quotes-api.js'
 import savedQuoteRoutes from './routes/saved-quotes.js'
 import { publicProposal, stylePhotos } from './routes/proposal.js'
+import tierSetRoutes from './routes/tier-sets.js'
 import voiceRoutes from './routes/voice.js'
 import mediaRoutes from './routes/media.js'
 import { packetPublic, packetStaff } from './routes/installPacket.js'
@@ -193,6 +194,7 @@ app.use('/api/pricing-rules', pricingRoutes)
 app.use('/api/quotes', quoteApiRoutes)
 app.use('/api/saved-quotes', savedQuoteRoutes)
 app.use('/api/style-photos', stylePhotos)
+app.use('/api/tier-sets', tierSetRoutes)
 app.use('/api/voice', voiceRoutes)
 app.use('/api/media', mediaRoutes)
 app.use('/api/install-packets', packetStaff)

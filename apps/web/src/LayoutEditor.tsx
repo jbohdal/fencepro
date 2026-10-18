@@ -249,7 +249,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   const counted = result?.counted
 
   return (
-    <div className="space-y-3" data-layout-editor>
+    // On a wide screen: the plan on the left (it stays in view), the sides on the right.
+    <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start" data-layout-editor>
+      <div className="space-y-3 lg:sticky lg:top-0" data-layout-plan-col>
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-700"><span className="font-semibold">{SHAPE_LABEL[layout.shape]}</span>{result ? ` · ${formatFtIn(result.totalIn)} of yard` : ''}</p>
         <div className="flex items-center gap-1">
@@ -301,7 +303,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
         {aerialMsg && <p className="w-full text-sm text-amber-800">{aerialMsg}</p>}
       </div>
       {aerialOn && <p className="text-xs text-gray-500 -mt-1">Aerial photo: USGS National Map (NAIP), public domain.</p>}
+      </div>
 
+      <div className="space-y-3" data-layout-sides-col>
       <div className="rounded-2xl border border-gray-200 bg-white divide-y divide-gray-100 overflow-hidden" data-side-list>
       {layout.sides.map((s, i) => {
         const r = result?.sides[i]
@@ -511,6 +515,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           )}
         </div>
       )}
+      </div>
 
       {pad && padSide && (
         <FtInPad

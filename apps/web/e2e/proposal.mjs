@@ -130,7 +130,7 @@ try {
   const pageText = (await c.page.locator('body').textContent()).replace(/\s+/g, ' ')
   const opts = await c.page.locator('.opt').count()
   check('customer page: every option offered, tiers side by side, Better marked Most popular', opts === offered.length && await c.page.locator('.opts.tiers').count() === 1 && (await c.page.locator('.opt').nth(1).textContent()).includes('Most popular'))
-  check('customer page: each tier says what makes it better', ['Dig set: posts set in concrete.', 'No dig: steel pipe driven deep, no concrete, faster install.'].every(t => pageText.includes(t)))
+  check('customer page: each tier says what makes it better', ['Posts set in concrete. Solid fence at the best price.', 'Steel pipe driven deep, no concrete, faster install.', 'More posts per foot for the strongest fence we build.'].every(t => pageText.includes(t)))
   check('customer page: site plan, monthly payment, deposit, warranty, what is included', ['Site plan', 'As low as $', '/month for 60 months', 'Deposit', '50% to schedule', 'Warranty', "What's included", '446 ft of new fence'].every(t => pageText.includes(t)), pageText.slice(0, 200))
   check('customer page: the tan option shows its style photo', await c.page.locator('.opt').nth(tanIndex).locator('img.photo').count() === 1)
   if (SHOTS) await c.page.screenshot({ path: `${SHOTS}/3-customer-proposal-top.png` })

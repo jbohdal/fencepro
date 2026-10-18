@@ -8,11 +8,10 @@ import { useEffect, useState } from 'react'
 import type { AppConfig } from './configStore'
 import type { ProposalSettings as PS } from './proposal'
 import { monthlyPayment } from './proposal'
-import { DEFAULT_TIERS, DEFAULT_POPULAR, type TierSpec } from './tiers'
 import { listStylePhotos, uploadStylePhoto, deleteStylePhoto, stylePhotoUrl, type StylePhoto } from './stylePhotosApi'
 import { toast } from './toast'
 
-export default function ProposalSettings({ config, onChange }: { config: AppConfig; onChange: (c: AppConfig) => void }) {
+export default function ProposalSettings({ config, onChange, onOpenTiers }: { config: AppConfig; onChange: (c: AppConfig) => void; onOpenTiers: () => void }) {
   const p: PS = config.proposal ?? {}
   const set = (patch: Partial<PS>) => onChange({ ...config, proposal: { ...p, ...patch } })
   const fin = p.financing ?? {}
@@ -23,9 +22,6 @@ export default function ProposalSettings({ config, onChange }: { config: AppConf
 
   const inputCls = 'w-full border border-gray-300 rounded-lg px-3 h-11 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400'
   const num = (v: string) => (v.trim() === '' ? undefined : Math.max(0, parseFloat(v) || 0))
-  const tiers: TierSpec[] = p.tiers?.length ? p.tiers : DEFAULT_TIERS
-  const popular = p.popular ?? DEFAULT_POPULAR
-  const setTier = (i: number, patch: Partial<TierSpec>) => set({ tiers: tiers.map((t, k) => (k === i ? { ...t, ...patch } : t)) })
   const example = (fin.months ?? 0) > 0 ? monthlyPayment(10000, fin.apr ?? 0, fin.months!) : 0
 
   async function upload(styleName: string, file: File | undefined) {
@@ -53,29 +49,9 @@ export default function ProposalSettings({ config, onChange }: { config: AppConf
         </label>
       </div>
 
-      <div data-tier-settings>
-        <h3 className="text-sm font-semibold text-gray-900 mb-1">Good, Better, Best</h3>
-        <p className="text-sm text-gray-600 mb-3">Shown on every vinyl quote and proposal. Each tier uses whichever section width (6 or 8 ft) prices lower for the yard.</p>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {tiers.map((t, i) => (
-            <div key={t.key} className="rounded-xl border border-gray-200 p-3 space-y-2" data-tier-setting={t.key}>
-              <input className={inputCls} value={t.label} onChange={e => setTier(i, { label: e.target.value })} aria-label="Tier name" />
-              <div className="grid grid-cols-3 gap-2">
-                <select className={inputCls} value={t.color} onChange={e => setTier(i, { color: e.target.value as TierSpec['color'] })} aria-label="Color">
-                  <option value="white">White</option><option value="tan">Tan</option>
-                </select>
-                <select className={inputCls} value={t.install} onChange={e => setTier(i, { install: e.target.value as TierSpec['install'] })} aria-label="Install">
-                  <option value="no-dig">No dig</option><option value="dig-set">Dig set</option>
-                </select>
-                <select className={inputCls} value={t.heightFt} onChange={e => setTier(i, { heightFt: Number(e.target.value) as 6 | 8 })} aria-label="Height">
-                  <option value={6}>6 ft tall</option><option value={8}>8 ft tall</option>
-                </select>
-              </div>
-              <textarea rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={t.blurb} onChange={e => setTier(i, { blurb: e.target.value })} aria-label="What makes it better" />
-              <label className="flex items-center gap-2 text-sm"><input type="radio" name="popular" className="w-5 h-5 accent-orange-500" checked={popular === t.key} onChange={() => set({ popular: t.key })} /> Most popular</label>
-            </div>
-          ))}
-        </div>
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 flex flex-wrap items-center gap-3" data-tiers-moved>
+        <p className="text-sm text-gray-700 flex-1 min-w-[240px]"><span className="font-semibold">Good, Better, Best</span> have their own page now: tiers for each fence category, with a price preview.</p>
+        <button type="button" className="btn btn-secondary" onClick={onOpenTiers} data-open-tiers>Open Good Better Best</button>
       </div>
 
       <div>

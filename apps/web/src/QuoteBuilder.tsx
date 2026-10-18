@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Camera } from 'lucide-react'
+import { Camera, ChevronLeft } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
 import { resolveSubRate, cleanOverrides, importedOldPrice } from './pricingEngine'
@@ -26,7 +26,8 @@ import { getQuotes } from './quoteStore'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
-import { resolveTiers, tierOptions, isVinylStyle, DEFAULT_TIERS, DEFAULT_POPULAR, type TierPrefs, type TierKey } from './tiers'
+import { resolveTiers, tierOptions, tierSetFor, type TierPrefs, type TierKey } from './tiers'
+import { useTierSets } from './tierSetsApi'
 import { getContractSections } from './contractStore'
 import { listStylePhotos } from './stylePhotosApi'
 import { useBackLayer, useLeaveWarning, BackClose, navigate } from './nav'
@@ -466,6 +467,7 @@ export default function QuoteBuilder({
     off: (init?.proposal?.tierPrefs?.off ?? []) as TierKey[],
     swap: (init?.proposal?.tierPrefs?.swap ?? {}) as TierPrefs['swap'],
   }))
+  const { sets: tierSets } = useTierSets()
   const [photoIds, setPhotoIds] = useState<Record<string, string>>({})
   useEffect(() => {
     listStylePhotos().then(list => setPhotoIds(Object.fromEntries(list.map(p => [p.styleName, p.id])))).catch(() => {})
@@ -488,6 +490,12 @@ export default function QuoteBuilder({
     guard: okToLeave,
   })
   useLeaveWarning(dirty)
+  // The card window (or quote drawer) this was opened from stays open underneath, hidden (index.css).
+  useEffect(() => {
+    const el = document.documentElement
+    el.setAttribute('data-quote-open', '')
+    return () => el.removeAttribute('data-quote-open')
+  }, [])
   // Use `||` instead of `??` so an empty-string id (from callers that
   // preseed a "new quote" with id: '') also falls through to a fresh uid.
   const quoteIdRef = useRef<string>(init?.id || newId())
@@ -578,10 +586,17 @@ export default function QuoteBuilder({
   const runWidths = effRuns.map((_, i) => (isAutoMix ? (calc.perRunRail[i] === '6ft' ? 6 : 8) : widthFt))
   const tapeRunFlags = style ? tapeFlags(namedRuns, runWidths) : []
   const pastQuotes = useMemo(() => getQuotes(), [])
-  // Good, Better, Best: priced from the same layout on every vinyl quote, no taps needed.
-  const tiers = useMemo(() => (isVinylStyle(style) && sections > 0
-    ? resolveTiers(calcInput, FENCE_STYLES, cfg.proposal?.tiers?.length ? cfg.proposal.tiers : DEFAULT_TIERS, cfg.proposal?.popular ?? DEFAULT_POPULAR, tierPrefs)
-    : []), [style, sections, JSON.stringify(calcInput), tierPrefs, invTick])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Good, Better, Best: the tier set for this style's category (Settings → Good Better Best),
+  // priced from the same layout, no taps needed. A quote already sent keeps the
+  // tiers it was sent with unless "Use current tiers" is tapped.
+  const sentTierSet = init?.id && (init.shareToken || init.status === 'SENT' || init.status === 'SOLD') ? init.proposal?.tierSet : undefined
+  const [keepSentTiers, setKeepSentTiers] = useState(!!sentTierSet)
+  const liveTierSet = tierSetFor(tierSets, style)
+  const usingSentTiers = keepSentTiers && !!sentTierSet && !!style && sentTierSet.category.trim().toLowerCase() === String(style.category).trim().toLowerCase()
+  const tierSet = usingSentTiers ? sentTierSet! : liveTierSet
+  const tiers = useMemo(() => (tierSet && style && sections > 0
+    ? resolveTiers(calcInput, FENCE_STYLES, tierSet, tierPrefs)
+    : []), [tierSet, style, sections, JSON.stringify(calcInput), tierPrefs, invTick])  // eslint-disable-line react-hooks/exhaustive-deps
   // Compare options: the same yard as the styles that make sense for this one.
   const compareRows = useMemo(() => (showCompare && style && sections > 0
     ? compareStyles(style, FENCE_STYLES).map(s => ({ style: s, option: priceOption(calcInput, s) }))
@@ -627,7 +642,10 @@ export default function QuoteBuilder({
     // The Yard step opens on the first side still to fill in.
     if (k === 'yard' && entry === 'layout' && yard && !openSide) setOpenSide(nextEmptySide(yard, null)?.id ?? null)
     document.querySelector('[data-quote-builder]')?.scrollTo({ top: 0 })
+    document.querySelector('[data-quote-scroll]')?.scrollTo({ top: 0 })
   }
+  const stepIndex = STEPS.findIndex(x => x.key === step)
+  function barBack() { if (stepIndex > 0) goStep(STEPS[stepIndex - 1].key) }
   const barNextLabel = step === 'customer' ? 'Next: Yard' : step === 'yard' ? (nextSide ? 'Next side' : 'Next: Style') : 'Next: Price'
   function barNext() {
     if (step === 'customer') return goStep('yard')
@@ -708,8 +726,9 @@ export default function QuoteBuilder({
         warranty: getContractSections().find(x => x.key === 'warranty' && x.visible !== false)?.body ?? '',
         settings: cfg.proposal ?? {},
         photoIds,
-        tiers: tierOptions(tiers),
+        tiers: tierOptions(tiers, photoIds),
         tierPrefs: { off: tierPrefs.off, swap: tierPrefs.swap as Record<string, string> },
+        tierSet: tierSet ?? undefined,
       }) : undefined,
     }
     setShowSaveModal(false)
@@ -717,10 +736,11 @@ export default function QuoteBuilder({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center overflow-y-auto md:py-6" data-quote-builder>
-      <div className="bg-white md:rounded-2xl shadow-2xl w-full max-w-6xl md:mx-4 min-h-full md:min-h-0 pb-24 md:pb-0">
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-start md:items-center justify-center overflow-y-auto md:overflow-hidden md:p-4" data-quote-builder>
+      {/* On a computer or tablet: a window about 92% of the screen tall. Its content scrolls inside it; the bar is its footer. */}
+      <div className="bg-white md:rounded-2xl shadow-2xl w-full max-w-6xl min-h-full md:min-h-0 pb-24 md:pb-0 md:h-[92vh] md:flex md:flex-col md:overflow-hidden md:border md:border-gray-300" data-quote-window>
 
-        <div className="flex items-center justify-between gap-3 px-4 md:px-8 py-3 md:py-5 border-b border-gray-200 sticky top-0 md:static bg-white z-10">
+        <div className="flex items-center justify-between gap-3 px-4 md:px-8 py-3 md:py-4 border-b border-gray-200 sticky top-0 md:static md:shrink-0 bg-white z-10">
           <div>
             <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
@@ -736,7 +756,7 @@ export default function QuoteBuilder({
           </div>
         </div>
 
-        <div className="flex gap-1 px-2 md:px-6 pt-2 pb-0 border-b border-gray-200 bg-white " role="tablist" data-steps>
+        <div className="flex gap-1 px-2 md:px-6 pt-2 pb-0 border-b border-gray-200 bg-white md:shrink-0" role="tablist" data-steps>
           {STEPS.map((st, n) => (
             <button key={st.key} type="button" role="tab" aria-selected={step === st.key} onClick={() => goStep(st.key)} data-step={st.key}
               className={`flex-1 min-h-[48px] px-1 text-sm font-semibold border-b-[3px] -mb-px ${step === st.key ? 'border-orange-500 text-gray-900' : 'border-transparent text-gray-500'}`}>
@@ -746,7 +766,8 @@ export default function QuoteBuilder({
         </div>
 
         {/* One step at a time; the others stay mounted (hidden) so nothing typed is lost. */}
-        <div className="px-4 md:px-8 py-5 md:py-6 pb-44 md:pb-40 max-w-3xl mx-auto w-full">
+        <div className="md:flex-1 md:min-h-0 md:overflow-y-auto" data-quote-scroll>
+        <div className={`px-4 md:px-8 py-5 md:py-6 pb-44 md:pb-8 mx-auto w-full ${step === 'yard' && entry === 'layout' && yard ? 'max-w-3xl lg:max-w-none' : 'max-w-3xl'}`}>
           <div className={step === 'customer' ? 'space-y-6' : 'hidden'} data-step-panel="customer">
             <VoicePanel
               ref={voiceRef}
@@ -1107,19 +1128,43 @@ export default function QuoteBuilder({
                 )}
               </div>
 
-              {tiers.length > 0 && (
+              {style && sections > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2" data-tiers>
-                  <p className="text-xs font-semibold text-gray-500">Good, Better, Best <span className="font-normal">· on the proposal</span></p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-gray-500">Good, Better, Best <span className="font-normal">· on the proposal</span></p>
+                    <button type="button" className="btn btn-quiet btn-sm shrink-0" data-edit-tiers
+                      onClick={() => { if (okToLeave()) navigate('/settings?tab=tiers') }}>Edit tiers</button>
+                  </div>
+                  {usingSentTiers && (
+                    <p className="text-xs text-gray-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5" data-tiers-as-sent>
+                      Tiers as they were when this proposal was sent.{' '}
+                      <button type="button" className="underline font-semibold min-h-[44px]" onClick={() => setKeepSentTiers(false)} data-tiers-use-current>Use the current tiers</button>
+                    </p>
+                  )}
+                  {!tierSet && tierSets === null && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-tiers-not-loaded>Good, Better, Best have not loaded yet (weak signal). They are tried again every few seconds; a proposal saved now would not show them.</p>}
+                  {!tierSet && tierSets !== null && <p className="text-sm text-gray-600" data-tiers-none>No Good, Better, Best set for {style.category} yet. Tap Edit tiers to add one.</p>}
+                  {tierSet && tierSet.tiers.length === 0 && <p className="text-sm text-gray-600" data-tiers-none>No tiers for {tierSet.category} yet. Tap Edit tiers to add them.</p>}
                   {tiers.map(t => {
+                    if (!t.style || !t.option) return (
+                      <div key={t.spec.key} className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3" data-tier={t.spec.key}>
+                        <p className="font-bold text-gray-900">{t.spec.name}</p>
+                        <p className="text-xs text-amber-900 mt-1" data-tier-reason>Not offered on this quote: {t.reason}</p>
+                        <select className="mt-2 w-full border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value="" aria-label={`Style for ${t.spec.name}`}
+                          onChange={e => { const v = e.target.value; if (v) setTierPrefs(p => ({ ...p, swap: { ...p.swap, [t.spec.key]: v } })) }} data-tier-swap>
+                          <option value="">Pick a style for this quote…</option>
+                          {FENCE_STYLES.filter(s => s.isActive !== false && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        </select>
+                      </div>
+                    )
                     const main = t.style.name === style?.name
                     const price = main ? adjPrice : t.option.finalPrice
                     return (
                       <div key={t.spec.key} className={`rounded-lg border p-3 ${main ? 'border-orange-500 bg-orange-50' : 'border-gray-200'} ${t.off ? 'opacity-60' : ''}`} data-tier={t.spec.key}>
                         <div className="flex items-start justify-between gap-2">
                           <label className="flex items-center gap-2 min-w-0">
-                            <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} aria-label={`Offer ${t.spec.label}`}
+                            <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} aria-label={`Offer ${t.spec.name}`}
                               onChange={e => setTierPrefs(p => ({ ...p, off: e.target.checked ? p.off.filter(k => k !== t.spec.key) : [...p.off, t.spec.key] }))} />
-                            <span className="font-bold text-gray-900">{t.spec.label}</span>
+                            <span className="font-bold text-gray-900" data-tier-name>{t.spec.name}</span>
                             {t.popular && <span className="text-[11px] font-semibold bg-orange-500 text-white rounded-full px-2 py-0.5">Most popular</span>}
                           </label>
                           <span className="text-right">
@@ -1127,12 +1172,14 @@ export default function QuoteBuilder({
                             <span className="block text-xs text-gray-600 tabular-nums">{fmt(t.option.perFoot)}/ft</span>
                           </span>
                         </div>
-                        <p className="text-xs text-gray-700 mt-1">{optionLabel(t.style.name)}</p>
+                        <p className="text-xs text-gray-700 mt-1" data-tier-style>{optionLabel(t.style.name)}</p>
+                        {t.spec.text && <p className="text-xs text-gray-600 mt-0.5" data-tier-text>{t.spec.text}</p>}
                         {t.widthFt && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard{t.otherWidth ? ` (${t.otherWidth.widthFt} ft wide: ${fmt(t.otherWidth.price)})` : ''}.</p>}
+                        {t.sameAs && <p className="text-xs text-amber-800" data-tier-same>Same fence as {t.sameAs} for this yard.</p>}
                         <div className="flex gap-2 mt-2">
                           <button type="button" className="btn btn-secondary btn-sm shrink-0" disabled={main}
-                            onClick={() => { const s = FENCE_STYLES.find(x => x.name === t.style.name); if (s) setStyleId(s.id) }} data-tier-main>{main ? 'Main option' : 'Make main'}</button>
-                          <select className="min-w-0 flex-1 border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value={tierPrefs.swap[t.spec.key] ?? ''} aria-label={`Style for ${t.spec.label}`}
+                            onClick={() => { const s = FENCE_STYLES.find(x => x.name === t.style!.name); if (s) setStyleId(s.id) }} data-tier-main>{main ? 'Main option' : 'Make main'}</button>
+                          <select className="min-w-0 flex-1 border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value={tierPrefs.swap[t.spec.key] ?? ''} aria-label={`Style for ${t.spec.name}`}
                             onChange={e => setTierPrefs(p => { const swap = { ...p.swap }; if (e.target.value) swap[t.spec.key] = e.target.value; else delete swap[t.spec.key]; return { ...p, swap } })} data-tier-swap>
                             <option value="">Style: automatic</option>
                             {FENCE_STYLES.filter(s => s.isActive !== false && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
@@ -1350,6 +1397,35 @@ export default function QuoteBuilder({
             )}
           </div>
         </div>
+        </div>
+
+        {/* The bar: the window's own footer on a computer or tablet; pinned to the bottom of the screen on a phone. */}
+        <div className={`${showSaveModal ? 'hidden md:block' : ''} fixed inset-x-0 bottom-0 z-[60] md:static md:z-auto md:shrink-0 md:rounded-b-2xl bg-white border-t border-gray-200 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] px-3 md:px-6 pt-2 md:pt-3 pb-[calc(10px+env(safe-area-inset-bottom))] md:pb-3`} data-quote-bar>
+          <div className="max-w-3xl md:max-w-none mx-auto md:flex md:items-center md:gap-4">
+            <button type="button" onClick={barBack} disabled={stepIndex === 0} data-bar-back
+              className="hidden md:inline-flex btn btn-lg shrink-0 min-w-[128px] bg-gray-200 text-gray-900 border-2 border-gray-400 hover:bg-gray-300 font-semibold">
+              <ChevronLeft size={20} aria-hidden="true" /> Back
+            </button>
+            <div className="md:flex-1 md:min-w-0">
+            <p className="text-xs font-semibold text-gray-600 truncate tabular-nums" data-bar-facts>
+              {step === 'yard' && entry === 'layout' && yard
+                ? `${sidesDone} of ${sidesOn} sides · ${totalFootage} ft · ${effCorners} corner, ${effEnds} end`
+                : totalFootage > 0 ? `${totalFootage} ft · ${sections} sections · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
+            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-xl font-bold tabular-nums text-gray-900 min-w-0 mr-auto" data-bar-price>{fmt(adjPrice)}{priced.priceMethod === 'manual' && <span className="block text-xs font-semibold text-amber-700" data-bar-price-typed>Set by hand: parts do not change it</span>}</p>
+              <button type="button" className="btn btn-secondary shrink-0 min-h-[48px] px-3" onClick={() => setPhotosOpen(true)} data-photos-open aria-label={`Photos and video (${mediaItems.length})`}>
+                <Camera size={18} aria-hidden="true" /><span className="tabular-nums">{mediaItems.length}</span>
+              </button>
+              {step === 'price' ? (
+                <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
+              ) : (
+                <button type="button" onClick={barNext} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-bar-next>{barNextLabel}</button>
+              )}
+            </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Photos and video: their own sheet, opened from the bottom bar; kept mounted so uploads carry on. */}
@@ -1375,31 +1451,6 @@ export default function QuoteBuilder({
         </div>
       </div>
       {photosOpen && <BackClose name="quote-photos" onClose={() => setPhotosOpen(false)} />}
-
-      {/* Pinned bottom bar: progress, totals, the running price, Photos and the one next step. */}
-      {!showSaveModal && (
-        <div className="fixed inset-x-0 bottom-0 z-[60] bg-white border-t border-gray-200 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] px-3 md:px-6 pt-2 pb-[calc(10px+env(safe-area-inset-bottom))]" data-quote-bar>
-          <div className="max-w-3xl mx-auto">
-            <p className="text-xs font-semibold text-gray-600 truncate tabular-nums" data-bar-facts>
-              {step === 'yard' && entry === 'layout' && yard
-                ? `${sidesDone} of ${sidesOn} sides · ${totalFootage} ft · ${effCorners} corner, ${effEnds} end`
-                : totalFootage > 0 ? `${totalFootage} ft · ${sections} sections · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
-            </p>
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-xl font-bold tabular-nums text-gray-900 min-w-0 mr-auto" data-bar-price>{fmt(adjPrice)}{priced.priceMethod === 'manual' && <span className="block text-xs font-semibold text-amber-700" data-bar-price-typed>Set by hand: parts do not change it</span>}</p>
-              <button type="button" className="btn btn-secondary shrink-0 min-h-[48px] px-3" onClick={() => setPhotosOpen(true)} data-photos-open aria-label={`Photos and video (${mediaItems.length})`}>
-                <Camera size={18} aria-hidden="true" /><span className="tabular-nums">{mediaItems.length}</span>
-              </button>
-              {step === 'price' ? (
-                <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg shrink-0" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
-              ) : (
-                <button type="button" onClick={barNext} className="btn btn-primary btn-lg shrink-0" data-bar-next>{barNextLabel}</button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
 
       {showSaveModal && <BackClose name="save-quote" onClose={() => setShowSaveModal(false)} />}
       {showSaveModal && (

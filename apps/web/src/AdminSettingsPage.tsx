@@ -13,14 +13,16 @@ import EmailTemplatesSettings from './EmailTemplatesSettings'
 import ContractTemplatesSettings from './ContractTemplatesSettings'
 import PortalQuoteSettings from './PortalQuoteSettings'
 import ProposalSettings from './ProposalSettings'
+import TierSettings from './TierSettings'
 import WalkthroughSettings from './WalkthroughSettings'
 import VoiceSettings from './VoiceSettings'
 import { toast } from './toast'
+import { useNav } from './nav'
 import { sectionWidthForStyle, styleHasPartsList } from './materialCalculator'
 import CalendarSyncSettings from './CalendarSyncSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'voice' | 'walkthrough'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'tiers' | 'voice' | 'walkthrough'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -711,6 +713,7 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'contract_templates', label: 'Contract Templates' },
   { key: 'portal_quote',       label: 'Portal & Quotes' },
   { key: 'proposals',          label: 'Proposals' },
+  { key: 'tiers',              label: 'Good Better Best' },
   { key: 'voice',              label: 'Voice' },
   { key: 'appointments',       label: 'Appointments' },
   { key: 'walkthrough',        label: 'Final Walkthrough' },
@@ -725,6 +728,9 @@ export default function AdminSettingsPage() {
     const want = q.get('tab') || q.get('settings')
     return (TABS.some(t => t.key === want) ? want : 'company') as AdminTab
   })
+  // A link to /settings?tab=... while Settings is already open switches the tab.
+  const wantTab = useNav().params.get('tab')
+  useEffect(() => { if (wantTab && TABS.some(t => t.key === wantTab)) setTab(wantTab as AdminTab) }, [wantTab])
   const [config, setConfig] = useState<AppConfig>(getConfig)
   const [saved, setSaved] = useState(false)
   const [dirty, setDirty] = useState(false)
@@ -820,7 +826,8 @@ export default function AdminSettingsPage() {
           {tab === 'email_templates' && <EmailTemplatesSettings />}
           {tab === 'contract_templates' && <ContractTemplatesSettings />}
           {tab === 'portal_quote' && <PortalQuoteSettings />}
-          {tab === 'proposals' && <ProposalSettings config={config} onChange={handleChange} />}
+          {tab === 'proposals' && <ProposalSettings config={config} onChange={handleChange} onOpenTiers={() => setTab('tiers')} />}
+          {tab === 'tiers' && <TierSettings />}
           {tab === 'voice' && <VoiceSettings config={config} onChange={handleChange} />}
           {tab === 'calendar' && <CalendarSyncSettings />}
           {tab === 'appointments' && <AppointmentSettingsTab />}

@@ -348,3 +348,8 @@
   input[type='checkbox'], input[type='radio'] { width: 22px; height: 22px; }
   .kanban-card button { min-height: 44px; min-width: 44px; }
 }
+
+/* The quote window covers the card window (and a quote's drawer) it was opened
+   from; they stay open underneath, so Back from the quote lands on them again. */
+html[data-quote-open] [data-card-window],
+html[data-quote-open] [data-quote-drawer] { visibility: hidden; }

@@ -2040,6 +2040,28 @@ model IntakeLead {
 }
 
 // ── Style photos for proposals (one per fence style, set in Settings) ──
+// ── Good, Better, Best: one tier set per fence category (Settings → Good Better Best) ──
+model ProposalTierSet {
+  id        String   @id @default(uuid())
+  accountId String
+  /// The fence style category it is for (Vinyl, Chainlink, Aluminum, ...)
+  category  String
+  /// Up to 3 tiers: [{ key, name, install, width, color, style?, priceAdjustPct?, text }] (web/src/tiers.ts TierSpec)
+  tiers     Json
+  /// The tier key shown "Most popular", if any
+  popular   String?
+  sortOrder Int      @default(0)
+  /// The starting set the server made this from (its category key), if any
+  starter   String?
+  /// Goes up by one on every save; a save built on an older version is refused
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One set per category per company
+  @@unique([accountId, category])
+}
+
 model StylePhoto {
   id        String   @id @default(uuid())
   accountId String

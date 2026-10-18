@@ -11,7 +11,7 @@
 
 import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from './quoteCalc'
 import type { LineItem } from './materialCalculator'
-import type { TierSpec, TierKey } from './tiers'
+import type { TierSet } from './tiers'
 
 export interface ProposalSettings {
   /** Extra "what's included" text, one item per line. */
@@ -23,9 +23,9 @@ export interface ProposalSettings {
   publicLinks?: boolean
   /** Days a customer link works after it is made (default 30). */
   linkDays?: number
-  /** Good, Better, Best lineup and the "Most popular" pick (defaults in tiers.ts). */
-  tiers?: TierSpec[]
-  popular?: TierKey
+  // Good, Better, Best used to be set here (tiers, popular); they now live in
+  // their own tier sets on the server (Settings → Good Better Best). The server
+  // carried any old settings over when it made the sets.
 }
 
 export interface ProposalOption {
@@ -64,6 +64,8 @@ export interface QuoteProposal {
   options: ProposalOption[]
   /** Tiers left off or swapped on this quote, so it reopens the same way. */
   tierPrefs?: { off: string[]; swap: Record<string, string> }
+  /** The tier set as it was when this proposal was made: a sent quote reopens with it, not with later Settings. */
+  tierSet?: Pick<TierSet, 'category' | 'tiers' | 'popular'>
 }
 
 // ── Which options make sense for a style ──────────────────────────────────────
@@ -158,6 +160,7 @@ export function buildProposal(args: {
   /** Good, Better, Best options (tiers.ts), shown first. */
   tiers?: ProposalOption[]
   tierPrefs?: { off: string[]; swap: Record<string, string> }
+  tierSet?: Pick<TierSet, 'category' | 'tiers' | 'popular'>
 }): QuoteProposal {
   const { input, settings } = args
   const own = input.style!
@@ -171,7 +174,8 @@ export function buildProposal(args: {
       o.finalPrice = args.ownPrice
       o.perFoot = feet > 0 ? Math.round((args.ownPrice / feet) * 100) / 100 : 0
     }
-    o.photoId = args.photoIds[o.fenceStyle] ?? null
+    // A tier's own photo, else the style's photo.
+    o.photoId = o.photoId || args.photoIds[o.fenceStyle] || null
   }
   const popular = options.findIndex(o => o.badge === 'Most popular')
   const footageFt = input.runs.reduce((t, r) => t + (r.ft > 0 ? r.ft : 0), 0)
@@ -191,6 +195,7 @@ export function buildProposal(args: {
     depositNote: settings.depositNote?.trim() ?? '',
     financing: fin && (fin.months ?? 0) > 0 ? { provider: fin.provider ?? '', apr: fin.apr ?? 0, months: fin.months!, link: fin.link ?? '' } : null,
     tierPrefs: args.tierPrefs,
+    tierSet: args.tierSet ? { category: args.tierSet.category, tiers: args.tierSet.tiers.map(t => ({ ...t })), popular: args.tierSet.popular } : undefined,
     recommended: popular >= 0 ? popular : Math.max(0, options.findIndex(o => o.fenceStyle === own.name)),
     options,
   }

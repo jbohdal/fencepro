@@ -97,7 +97,7 @@ export default function QuoteDetailDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex">
+    <div className="fixed inset-0 z-50 flex" data-quote-drawer>
       <div className="flex-1 bg-black/40" onClick={onClose} />
       <div className="w-full max-w-2xl bg-white shadow-2xl h-full overflow-y-auto slideover-responsive">
         {/* Header */}

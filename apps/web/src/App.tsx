@@ -58,6 +58,7 @@ import { initVendors, isVendorsHydrated } from './vendorStore'
 import { initBusinessState, isBusinessStateHydrated } from './businessStateStore'
 import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
 import { startIntakeSync } from './intakeStore'
+import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
 import StageBlockedNotice from './StageBlockedNotice'
 import { isUpdateReady, reloadIfSafe, UPDATE_READY_EVENT } from './appUpdate'
@@ -254,6 +255,7 @@ const STORE_LOADERS: Array<{ name: string; load: () => Promise<void>; loaded: ()
   { name: 'Vendors', load: initVendors, loaded: isVendorsHydrated },
   { name: 'Settings and business data', load: initBusinessState, loaded: isBusinessStateHydrated },
   { name: 'Job costing, change orders, site plans and files', load: initCloudStorage, loaded: isCloudStorageHydrated },
+  { name: 'Good Better Best tiers', load: initTierSets, loaded: isTierSetsLoaded },
 ]
 
 async function hydrateStores(): Promise<string[]> {
