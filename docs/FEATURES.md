@@ -135,7 +135,8 @@ Status key:
 
 ## 12. Calendar, reports, loose ends
 
-* Google Calendar one way sync, its own calendar named Getter Done Fence. The calendar live already made ("GD Fence Pro") is renamed to Getter Done Fence at the next sync, so no reconnect is needed. **NEEDS JONATHAN** (check Settings > Google Calendar, then rotate the client secret)
+* Google Calendar one way sync, its own calendar named Getter Done Fence. The calendar live already made ("GD Fence Pro") is renamed to Getter Done Fence at the next sync, so no reconnect is needed. **LIVE** (Oct 17: renamed in Google 11:47 pm, sync 1 created, 0 failed; Jonathan confirmed it works)
+* Rotate the Google client secret (Cloud Console > Credentials > Reset secret, new value in ~/ezbiz/apps/portal/.env, `pm2 restart ezbiz`). **NEEDS JONATHAN**
 * Revenue check: dashboard $631,637.54 (94 jobs installed in 2026) vs the GD Schedule sheet $571,633.06. The $60,004.48 gap is exactly 5 jobs marked installed Oct 14 after the sheet export (Tieman, Madsen, Tracy, Pahl, Hofmann: $50,676) and 6 jobs not on the sheet (White, Trademark Metals, Simoneaux, Warwick, Bethin, Martin: $9,328). Reports' card renamed "Sold this period (quotes)". **LIVE** (Oct 17)
 * Reports cleanup: no emoji; numbers green good, amber below target, red bad, otherwise dark gray. Gross profit and margin count only sold quotes that have costs (the GD Schedule imports have none) and say how many were left out. **LIVE** (Oct 17)
 * Finish setup card on the dashboard (owner only): each item ticks itself off from the data (sub rates, Abigail width, Inventory prices, Pahl/Madsen/Tieman paid, the 10 off schedule jobs, schedule customers with no contact, Google Calendar, phone voice checks, Xcode, UptimeRobot, Google Drive backups); gone when all are done. **LIVE** (Oct 17)
