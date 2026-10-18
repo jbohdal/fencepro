@@ -68,7 +68,8 @@ export default function AddressAutocomplete({
   }
 
   return (
-    <div className={`relative ${wrapClassName}`}>
+    // Above map layers (Leaflet uses z-index up to 1000) while suggestions are open.
+    <div className={`relative ${open && list.length ? 'z-[1100]' : ''} ${wrapClassName}`}>
       <input
         id={id}
         type="text"
@@ -92,7 +93,7 @@ export default function AddressAutocomplete({
         {...inputAttrs}
       />
       {open && list.length > 0 && (
-        <ul className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-y-auto" role="listbox" data-address-suggestions>
+        <ul className="absolute z-[1100] left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-y-auto" role="listbox" data-address-suggestions>
           {list.map((s, i) => (
             <li key={s.formatted + i} role="option" aria-selected={i === active}>
               <button type="button" className={`w-full text-left px-3 min-h-[48px] py-2 text-sm ${i === active ? 'bg-orange-50' : 'hover:bg-gray-50'}`}

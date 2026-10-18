@@ -22,6 +22,8 @@ import { resolveSecret } from '../lib/secrets.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
+import { checkJobMove, refuseBlocked } from '../lib/automations/stageRules.js'
+import { recordJobChanges } from '../lib/automations/hooks.js'
 
 const router = Router()
 
@@ -166,14 +168,19 @@ router.post('/', requireUser, requireAccount, async (req: any, res) => {
       else console.warn(`[saved-jobs] contact ${data.crmContactId} not found for this company; saving the job without the link`)
     }
     const { id: _ignored, ...fields } = data
-    const created = await prisma.savedJob.create({
-      data: {
-        ...fields,
-        ...(decision.kind === 'use' ? { id: decision.id } : {}),
-        accountId: req.user.crmAccountId,
-        quoteId: data.quoteId || null,
-        crmContactId: contactId,
-      },
+    // The new job enters its first Operations stage: saved for automations in the same step.
+    const created = await prisma.$transaction(async tx => {
+      const row = await tx.savedJob.create({
+        data: {
+          ...fields,
+          ...(decision.kind === 'use' ? { id: decision.id } : {}),
+          accountId: req.user.crmAccountId,
+          quoteId: data.quoteId || null,
+          crmContactId: contactId,
+        },
+      })
+      await recordJobChanges(req.user.crmAccountId, null, row, tx)
+      return row
     })
     await audit(req, 'create', 'SavedJob', created.id, { newValues: created })
     res.status(201).json({ success: true, data: created })
@@ -198,14 +205,22 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
       res.status(404).json({ success: false, error: 'Job not found' })
       return
     }
-    const updated = await prisma.savedJob.update({
-      where: { id: existing.id },
-      data: {
-        ...data,
-        crmContactId: data.crmContactId === undefined ? undefined : (data.crmContactId || null),
-        quoteId: data.quoteId === undefined ? undefined : (data.quoteId || null),
-        id: undefined as any,
-      },
+    // Stage rules: a job cannot enter a stage whose requirements are not met.
+    const blocked = await checkJobMove(req.user.crmAccountId, existing, { ...existing, ...data })
+    if (blocked) { refuseBlocked(res, [blocked], { data: existing, version: 0 }); return }
+    const updated = await prisma.$transaction(async tx => {
+      const row = await tx.savedJob.update({
+        where: { id: existing.id },
+        data: {
+          ...data,
+          crmContactId: data.crmContactId === undefined ? undefined : (data.crmContactId || null),
+          quoteId: data.quoteId === undefined ? undefined : (data.quoteId || null),
+          id: undefined as any,
+        },
+      })
+      // Stage moves and payments, saved for automations in the same step.
+      await recordJobChanges(req.user.crmAccountId, existing, row, tx)
+      return row
     })
     await audit(req, 'update', 'SavedJob', updated.id, { oldValues: existing, newValues: updated })
     res.json({ success: true, data: updated })
@@ -243,9 +258,12 @@ router.post('/sync', requireUser, requireAccount, async (req: any, res) => {
       if (j.id) {
         const existing = await prisma.savedJob.findUnique({ where: { id: j.id } })
         if (existing && existing.accountId === req.user.crmAccountId) {
-          await prisma.savedJob.update({
-            where: { id: existing.id },
-            data: { ...j, id: undefined as any, crmContactId: j.crmContactId || null, quoteId: j.quoteId || null },
+          await prisma.$transaction(async tx => {
+            const row = await tx.savedJob.update({
+              where: { id: existing.id },
+              data: { ...j, id: undefined as any, crmContactId: j.crmContactId || null, quoteId: j.quoteId || null },
+            })
+            await recordJobChanges(req.user.crmAccountId, existing, row, tx)
           })
           updated++
           continue

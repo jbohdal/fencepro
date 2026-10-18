@@ -37,6 +37,7 @@ import { publicProposal, stylePhotos } from './routes/proposal.js'
 import voiceRoutes from './routes/voice.js'
 import mediaRoutes from './routes/media.js'
 import { packetPublic, packetStaff } from './routes/installPacket.js'
+import { walkthroughPublic, walkthroughStaff } from './routes/walkthroughs.js'
 import { startMediaWorker } from './lib/media.js'
 import { startVoiceWorker } from './lib/voiceTranscribe.js'
 import savedJobRoutes from './routes/saved-jobs.js'
@@ -63,6 +64,7 @@ import { startScheduledDeletions } from './lib/scheduledDeletions.js'
 import { startDoorWatch } from './lib/doorWatch.js'
 import { startMediaShrink } from './lib/mediaShrink.js'
 import { startAddressRefresh } from './lib/addressIndex.js'
+import { startAutomationWorker } from './lib/automations/queue.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
 import quoteWidget from './routes/quote-widget.js'
 import systemRoutes from './routes/system.js'
@@ -196,6 +198,8 @@ app.use('/api/install-packets', packetStaff)
 // Crew install packets and customer proposals: the paths meant for the public door.
 app.use('/p/quote', quoteWidget)
 app.use('/p/i', packetPublic)
+app.use('/api/walkthroughs', walkthroughStaff)
+app.use('/p/w', walkthroughPublic)
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/schedule', scheduleRoutes)
@@ -332,6 +336,7 @@ if (!isVercel) {
       console.warn('[startup] door watch failed to start:', (err as Error).message)
     }
     try { startAddressRefresh() } catch (err) { console.error('[addresses] could not start:', err) }
+    try { startAutomationWorker() } catch (err) { console.error('[automations] worker could not start:', err) }
     try { startMediaShrink() } catch (err) {
       console.warn('[startup] media shrink failed to start:', (err as Error).message)
     }

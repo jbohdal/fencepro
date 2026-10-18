@@ -24,6 +24,7 @@ import { listContactNotes, createContactNote, noteChangeFor, type CrmContactNote
 import { subscribe, pendingFor } from './outbox'
 import { useBackLayer } from './nav'
 import { SaveStatus, cardChange } from './SaveStatus'
+import AutomationRunLog from './AutomationRunLog'
 
 const fmtUSD = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const STATUS: Record<string, string> = { DRAFT: 'bg-gray-100 text-gray-700', SENT: 'bg-blue-100 text-blue-800', SOLD: 'bg-green-100 text-green-800', LOST: 'bg-red-100 text-red-800' }
@@ -111,6 +112,8 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
             <a href={address ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}` : undefined} target="_blank" rel="noreferrer" className={`${action} ${address ? '' : off}`} data-card-navigate><Navigation size={20} aria-hidden="true" />Navigate</a>
             <button type="button" onClick={onBook} className={`${action} text-center leading-tight`} data-card-book-appt><CalendarPlus size={20} aria-hidden="true" />Book appointment</button>
           </div>
+
+          <AutomationRunLog entityId={lead.id} />
 
           <section className="bg-white rounded-2xl border border-gray-200" data-card-quotes>
             <h3 className="px-4 pt-3 pb-2 text-sm font-semibold text-gray-900">Quotes</h3>

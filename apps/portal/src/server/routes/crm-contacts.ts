@@ -25,6 +25,7 @@ import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
 import { applyPipelineDelta } from '../lib/pipelineDelta.js'
+import { recordCardMoves } from '../lib/automations/hooks.js'
 
 const router = Router()
 
@@ -181,6 +182,8 @@ router.post('/', requireAccount, async (req: any, res) => {
               // Another save to the pipeline landed in between: undo this one and go again.
               if (done.count === 0) throw new PipelineBusy()
               pipelineVersion = cur.version + 1
+              // The new card enters its stage: saved for automations in the same step.
+              await recordCardMoves(accountId, (cur.leads as any[]) ?? [], next.leads, pipelineVersion, tx)
             } else {
               pipelineVersion = cur.version
             }

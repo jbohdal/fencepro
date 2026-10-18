@@ -15,6 +15,7 @@ import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
+import { recordNewPayments } from '../lib/automations/hooks.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 
@@ -79,7 +80,13 @@ router.patch('/', async (req: any, res) => {
     const accountId = req.user.crmAccountId
     // One version covers the whole record, so a patch built on an older copy
     // is refused even when it touches a different field; the browser merges.
-    const done = await prisma.businessState.updateMany({ where: { accountId, version: base }, data: { ...updateData, version: { increment: 1 } } })
+    // Payments recorded in Billing become "payment received" automation events, saved in the same step.
+    const prev = updateData.payments !== undefined ? await prisma.businessState.findUnique({ where: { accountId }, select: { payments: true, invoices: true } }) : null
+    const done = await prisma.$transaction(async tx => {
+      const d = await tx.businessState.updateMany({ where: { accountId, version: base }, data: { ...updateData, version: { increment: 1 } } })
+      if (d.count && prev) await recordNewPayments(accountId, prev.payments, updateData.payments, updateData.invoices ?? prev.invoices, tx)
+      return d
+    })
     if (done.count === 0) {
       const current = await prisma.businessState.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }

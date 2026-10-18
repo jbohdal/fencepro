@@ -16,6 +16,7 @@ import { businessDate } from './businessDate'
 import { priceAge, priceAgeLabel, compareByPriceAge, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
 import BulkImportModal from './BulkImportModal'
 import MaterialKitsTab from './MaterialKitsTab'
+import FillInTab from './FillInTab'
 import { groupCatalog, NEW_ITEMS_GROUP } from './inventorySort'
 import { useMergedRefresh } from './useMergedRefresh'
 import type {
@@ -860,7 +861,7 @@ function LocationsTab() {
   )
 }
 
-type InvTab = 'dashboard' | 'catalog' | 'stock' | 'transactions' | 'locations' | 'kits'
+type InvTab = 'dashboard' | 'catalog' | 'stock' | 'transactions' | 'locations' | 'kits' | 'fillin'
 
 const TAB_LABELS: { key: InvTab; label: string; icon: string }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: '📊' },
@@ -869,11 +870,14 @@ const TAB_LABELS: { key: InvTab; label: string; icon: string }[] = [
   { key: 'transactions', label: 'History', icon: '📜' },
   { key: 'locations', label: 'Locations', icon: '📍' },
   { key: 'kits', label: 'Material Kits', icon: '🧰' },
+  { key: 'fillin', label: 'Fill in', icon: '✍️' },
 ]
 
 export default function AdminPage({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: () => void } = {}) {
   // Opened from a quote's "Open in Inventory": straight to those items.
-  const [tab, setTab] = useState<InvTab>(onlyIds ? 'catalog' : 'dashboard')
+  // ?tab=fillin opens a tab straight away (the Finish setup card links there).
+  const asked = new URLSearchParams(window.location.search).get('tab') as InvTab | null
+  const [tab, setTab] = useState<InvTab>(onlyIds ? 'catalog' : asked && TAB_LABELS.some(t => t.key === asked) ? asked : 'dashboard')
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -900,6 +904,7 @@ export default function AdminPage({ onlyIds, onShowAll }: { onlyIds?: string[]; 
         {tab === 'transactions' && <TransactionsTab />}
         {tab === 'locations'    && <LocationsTab />}
         {tab === 'kits'         && <MaterialKitsTab />}
+        {tab === 'fillin'       && <FillInTab />}
       </div>
     </div>
   )

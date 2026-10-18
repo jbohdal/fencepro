@@ -22,6 +22,7 @@ import { applyOutcome } from './appointmentPipeline'
 import { openBooking } from './BookingDialog'
 import { toast } from './toast'
 import { useBackLayer } from './nav'
+import TasksList from './TasksList'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
 const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
@@ -77,6 +78,8 @@ export default function TodayScreen() {
           <button onClick={() => openBooking({ date: today })} className="mt-3 px-4 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold">+ Appointment</button>
         </div>
       )}
+
+      <TasksList />
 
       {todays.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 divide-y divide-gray-100">

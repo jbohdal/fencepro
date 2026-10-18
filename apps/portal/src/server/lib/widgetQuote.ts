@@ -13,6 +13,7 @@ import prisma from './prisma.js'
 import { estimateJob } from './estimates.js'
 import { findOrCreateContact, resolveIntakeAccountId } from './intake.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
+import { recordCardMoves } from './automations/hooks.js'
 
 export interface WidgetSubmission {
   submissionId: string
@@ -109,6 +110,8 @@ export async function submitWidgetQuote(input: WidgetSubmission): Promise<Widget
           const next = applyPipelineDelta({ leads, stages }, { upsert: [{ lead: card, before: existing ? undefined : (leads[0]?.id ?? null) }], remove: [] })
           const done = await tx.pipelineState.updateMany({ where: { accountId, version: cur.version }, data: { leads: JSON.parse(JSON.stringify(next.leads)), version: { increment: 1 } } })
           if (done.count === 0) throw new PipelineBusy()
+          // A new card (or one moved) is saved for automations in the same step.
+          await recordCardMoves(accountId, leads, next.leads, cur.version + 1, tx)
         }
 
         // Kept as a website lead too (already on the pipeline, so the app does not add it again).

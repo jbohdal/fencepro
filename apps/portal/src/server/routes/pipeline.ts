@@ -13,6 +13,8 @@ import { resolveSecret } from '../lib/secrets.js'
 import { applyPipelineDelta } from '../lib/pipelineDelta.js'
 import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
+import { checkPipelineMoves, refuseBlocked } from '../lib/automations/stageRules.js'
+import { recordCardMoves } from '../lib/automations/hooks.js'
 
 const router = Router()
 
@@ -74,8 +76,19 @@ router.put('/', async (req: any, res) => {
     if (base === null) { refuseUnversioned(res); return }
     const accountId = req.user.crmAccountId
     const fields = { leads: JSON.parse(JSON.stringify(data.leads)), stages: JSON.parse(JSON.stringify(data.stages)) }
+    // Stage rules: a card cannot enter a stage whose requirements are not met (the app puts it back and says what is missing).
+    const prev = await prisma.pipelineState.findUnique({ where: { accountId } })
+    if (prev && prev.version === base) {
+      const blocked = await checkPipelineMoves(accountId, (prev.leads as any[]) ?? [], fields.leads)
+      if (blocked.length) { refuseBlocked(res, blocked, { data: prev, version: prev.version }); return }
+    }
     // Applied only if nobody saved since `base`; the where clause makes that one atomic step.
-    const done = await prisma.pipelineState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+    // Stage moves are saved for automations in the same step.
+    const done = await prisma.$transaction(async tx => {
+      const d = await tx.pipelineState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+      if (d.count && prev) await recordCardMoves(accountId, (prev.leads as any[]) ?? [], fields.leads, base + 1, tx)
+      return d
+    })
     if (done.count === 0) {
       const current = await prisma.pipelineState.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
@@ -112,7 +125,13 @@ router.patch('/', async (req: any, res) => {
     if (!current || current.version !== base) { refuseStale(res, current, current?.version ?? 0); return }
     const next = applyPipelineDelta({ leads: (current.leads as any[]) ?? [], stages: (current.stages as any[]) ?? [] }, delta)
     const fields = { leads: JSON.parse(JSON.stringify(next.leads)), stages: JSON.parse(JSON.stringify(next.stages)) }
-    const done = await prisma.pipelineState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+    const blocked = await checkPipelineMoves(accountId, (current.leads as any[]) ?? [], next.leads)
+    if (blocked.length) { refuseBlocked(res, blocked, { data: current, version: current.version }); return }
+    const done = await prisma.$transaction(async tx => {
+      const d = await tx.pipelineState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+      if (d.count) await recordCardMoves(accountId, (current.leads as any[]) ?? [], next.leads, base + 1, tx)
+      return d
+    })
     if (done.count === 0) {
       const now = await prisma.pipelineState.findUnique({ where: { accountId } })
       refuseStale(res, now, now?.version ?? 0); return

@@ -49,7 +49,7 @@ router.get('/setup', async (req: any, res) => {
     const accountId = req.user.accountId
     const [biz, inv, jobs, scheduleContacts, cal, voice, offsite, kv, a] = await Promise.all([
       prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
-      prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true } }),
+      prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } }),
       prisma.savedJob.findMany({ where: { accountId, archivedAt: null }, select: { customerName: true, status: true, notes: true } }),
       prisma.crmContact.count({ where: { accountId, archivedAt: null, notes: { contains: 'Created from the GD Schedule' }, AND: [{ OR: [{ phone: null }, { phone: '' }] }, { OR: [{ email: null }, { email: '' }] }] } }),
       prisma.calendarSyncState.findUnique({ where: { accountId } }).catch(() => null),
@@ -70,6 +70,12 @@ router.get('/setup', async (req: any, res) => {
     ].filter(Boolean) as string[]
     const items = (Array.isArray(inv?.items) ? inv!.items : []) as any[]
     const unconfirmed = items.filter(i => i?.status !== 'inactive' && i?.status !== 'discontinued' && (!i?.priceUpdatedAt || i?.priceImported)).length
+    // Inventory > Fill in: $0 prices, the gate parts of commercial chain link and Industrial Abigail, a Durafence parts list.
+    const kits = (Array.isArray(inv?.kits) ? inv!.kits : []) as any[]
+    const filledIn = (style: string) => kits.some(k => k?.styleName === style && !k?.archived && k?.filledInAt)
+    const zeroPrices = items.filter(i => i?.status !== 'inactive' && i?.status !== 'discontinued' && !(Number(i?.unitCost) > 0)).length
+    const gatesLeft = ["CL - Com 6'", "CL - Com 6'+1'", "CL - Com 6'+1' Black", 'Alum - DS - Ind Abigail'].filter(s => !filledIn(s))
+    const fillLeft = [zeroPrices && `${zeroPrices} prices at $0`, gatesLeft.length && `gate parts for ${gatesLeft.join(', ')}`, !filledIn('Durafence') && 'a Durafence parts list'].filter(Boolean) as string[]
     const closeOpen = CLOSE_OUT.map(rx => jobs.filter(j => rx.test(j.customerName || ''))).flat().filter(j => j.status !== 'paid')
     const offSchedule = jobs.filter(j => /Tag: not on GD Schedule/.test(j.notes || '')).length
     const phones = voice.filter(v => /Android|iPhone|iPad/i.test(v.userAgent || ''))
@@ -84,6 +90,8 @@ router.get('/setup', async (req: any, res) => {
         link: '/settings?tab=styles', answer: [{ label: '6 ft', value: '6' }, { label: '8 ft', value: '8' }] },
       { key: 'inventory-prices', label: 'Confirm Inventory prices', done: unconfirmed === 0,
         detail: unconfirmed ? `${unconfirmed} of ${items.length} prices not confirmed yet.` : 'Every price confirmed.', link: '/inventory' },
+      { key: 'fill-in', label: 'Fill in Inventory: prices and missing parts', done: fillLeft.length === 0,
+        detail: fillLeft.length ? `Still to fill in: ${fillLeft.join('; ')}.` : 'All filled in.', link: '/inventory?tab=fillin' },
       { key: 'close-out', label: 'Close out Diane Pahl, Madsen and Tieman', done: closeOpen.length === 0,
         detail: closeOpen.length ? closeOpen.map(j => `${j.customerName}: ${j.status}`).join('; ') + '. Done when each is paid.' : 'All paid.', link: '/operations' },
       { key: 'off-schedule', label: `The ${offSchedule} jobs not on the GD Schedule`, done: !!a.offScheduleReviewedAt || offSchedule === 0,

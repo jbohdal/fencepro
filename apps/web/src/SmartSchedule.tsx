@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { getJobs, updateJob } from './jobStore'
-import { loadMaps, loadMarker, loadPlaces } from './mapsLoader'
+import L from 'leaflet'
+import { createFreeMap, centeredIcon, aboveIcon, type FreeMap } from './freeMap'
+import { lookupPosition } from './appointmentsStore'
 import { clusterByDistance } from './geoUtils'
 import type { LatLng } from './geoUtils'
 import { cloudStorage } from './cloudStorage'
@@ -170,19 +172,11 @@ function getJobTags(job: SchedulableJob): Tag[] {
 async function geocodeAddress(address: string): Promise<{ coords: LatLng | null; error?: string }> {
   if (!address || address.trim().length < 5) return { coords: null, error: 'Address too short or empty' }
   try {
-    // Ensure Google Maps is loaded
-    if (typeof google === 'undefined' || !google.maps?.Geocoder) {
-      return { coords: null, error: 'Google Maps not loaded' }
-    }
-    const geocoder = new google.maps.Geocoder()
+    // Free lookup: Marion County's address list on the Mac, then the US Census.
     // Append state if address looks incomplete (no state/zip)
     const fullAddress = /\b(FL|florida)\b/i.test(address) ? address : `${address}, FL`
-    const result = await geocoder.geocode({ address: fullAddress })
-    if (result.results[0]?.geometry?.location) {
-      return {
-        coords: { lat: result.results[0].geometry.location.lat(), lng: result.results[0].geometry.location.lng() },
-      }
-    }
+    const result = await lookupPosition(fullAddress)
+    if (result) return { coords: { lat: result.lat, lng: result.lng } }
     return { coords: null, error: 'No results found for this address' }
   } catch (err) {
     return { coords: null, error: `Geocoding failed: ${err instanceof Error ? err.message : 'unknown error'}` }
@@ -195,8 +189,8 @@ async function geocodeAddress(address: string): Promise<{ coords: LatLng | null;
 
 export default function SmartSchedule({ onClose }: { onClose: () => void }) {
   const mapRef = useRef<HTMLDivElement>(null)
-  const mapInstanceRef = useRef<google.maps.Map | null>(null)
-  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  const freeRef = useRef<FreeMap | null>(null)
+  const markersRef = useRef<L.LayerGroup | null>(null)
 
   const [allJobs, setAllJobs] = useState<SchedulableJob[]>([])
   const [radius, setRadius] = useState(5)
@@ -215,25 +209,13 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
 
   // Init map
   useEffect(() => {
-    async function init() {
-      if (!mapRef.current) return
-      const { Map } = await loadMaps()
-      await loadMarker()
-      const map = new Map(mapRef.current, {
-        center: { lat: 29.1872, lng: -82.1401 },
-        zoom: 10,
-        mapId: 'smart-schedule-v2',
-        mapTypeId: 'roadmap',
-        disableDefaultUI: false,
-        zoomControl: true,
-        fullscreenControl: false,
-        streetViewControl: false,
-      })
-      mapInstanceRef.current = map
-      setMapReady(true)
-    }
-    init()
-    return () => { markersRef.current.forEach(m => { m.map = null }) }
+    if (!mapRef.current || freeRef.current) return
+    // Street map (OpenStreetMap), free and with no key.
+    const fm = createFreeMap(mapRef.current, { center: [29.1872, -82.1401], zoom: 10, base: 'street' })
+    freeRef.current = fm
+    markersRef.current = L.layerGroup().addTo(fm.map)
+    setMapReady(true)
+    return () => { fm.destroy(); freeRef.current = null; markersRef.current = null }
   }, [])
 
   const [geocodeErrors, setGeocodeErrors] = useState<Record<string, string>>({})
@@ -242,7 +224,6 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
   // Geocode
   async function geocodeAll() {
     setGeocoding(true)
-    await loadPlaces()
     const updated = [...allJobs]
     const errors: Record<string, string> = {}
     const needsGeo = updated.filter(j => (!j.lat || !j.lng) && j.address)
@@ -311,32 +292,30 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
 
   // Map rendering
   const renderMap = useCallback(() => {
-    if (!mapInstanceRef.current || !mapReady) return
-    const map = mapInstanceRef.current
+    const map = freeRef.current?.map
+    const group = markersRef.current
+    if (!map || !group || !mapReady) return
 
-    markersRef.current.forEach(m => { m.map = null })
-    markersRef.current = []
+    group.clearLayers()
 
     const visibleGeo = filtered.filter(j => j.lat && j.lng)
     if (visibleGeo.length === 0) return
 
-    const bounds = new google.maps.LatLngBounds()
-    visibleGeo.forEach(j => bounds.extend({ lat: j.lat!, lng: j.lng! }))
-    map.fitBounds(bounds, 60)
+    const bounds = L.latLngBounds(visibleGeo.map(j => [j.lat!, j.lng!] as [number, number]))
+    map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 })
 
     if (showClusters && clusters.length > 0) {
       // Cluster mode: color by group
       clusters.forEach((cluster, ci) => {
         const color = CLUSTER_COLORS[ci % CLUSTER_COLORS.length]
-        cluster.items.forEach(job => renderJobMarker(map, job, color, ci))
+        cluster.items.forEach(job => renderJobMarker(group, job, color, ci))
         // Centroid label
         if (cluster.items.length > 1) {
           const el = document.createElement('div')
           el.style.cssText = `background:${color};color:white;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,0.3);cursor:pointer;white-space:nowrap;`
           el.textContent = `Group ${ci + 1}: ${cluster.items.length} jobs`
-          el.onclick = () => setSelectedCluster(ci === selectedCluster ? null : ci)
-          const m = new google.maps.marker.AdvancedMarkerElement({ map, position: cluster.centroid, content: el })
-          markersRef.current.push(m)
+          const m = L.marker([cluster.centroid.lat, cluster.centroid.lng], { icon: centeredIcon(el), keyboard: false, zIndexOffset: 500 }).addTo(group)
+          m.on('click', () => setSelectedCluster(ci === selectedCluster ? null : ci))
         }
       })
     } else {
@@ -351,12 +330,12 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
         if (job.tearOut) color = '#8b5cf6' // purple for tear-out jobs
         if (job.stagingStatus === 'on_hold' || job.stagingStatus === 'Customer Delay' || job.stagingStatus === 'Hold (HOA)') color = '#6b7280' // gray for holds
 
-        renderJobMarker(map, job, color, null)
+        renderJobMarker(group, job, color, null)
       })
     }
   }, [filtered, clusters, showClusters, mapReady, selectedCluster, selectedJobId])
 
-  function renderJobMarker(map: google.maps.Map, job: SchedulableJob, color: string, _clusterIdx: number | null) {
+  function renderJobMarker(group: L.LayerGroup, job: SchedulableJob, color: string, _clusterIdx: number | null) {
     if (!job.lat || !job.lng) return
     const isSelected = job.id === selectedJobId
 
@@ -368,22 +347,17 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
       ${isSelected ? 'outline:3px solid ' + color + ';outline-offset:2px;' : ''}
     `
     el.title = `${job.customerName} — ${job.address}\n${job.fenceType} · ${job.sections} sections\nStage: ${job.stagingStatus || 'staging'}${job.scheduledDate ? '\nScheduled: ' + job.scheduledDate : ''}`
-    el.onclick = () => setSelectedJobId(job.id === selectedJobId ? null : job.id)
 
-    const marker = new google.maps.marker.AdvancedMarkerElement({
-      map, position: { lat: job.lat, lng: job.lng }, content: el,
-    })
-    markersRef.current.push(marker)
+    const marker = L.marker([job.lat, job.lng], { icon: centeredIcon(el), keyboard: false, zIndexOffset: isSelected ? 1000 : 0 }).addTo(group)
+    marker.on('click', () => setSelectedJobId(job.id === selectedJobId ? null : job.id))
 
     // Name label for selected job
     if (isSelected) {
       const labelEl = document.createElement('div')
-      labelEl.style.cssText = `background:${color};color:white;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);margin-top:-30px;`
+      labelEl.style.cssText = `background:${color};color:white;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);`
       labelEl.textContent = `${job.customerName} · ${job.sections} sec`
-      const lm = new google.maps.marker.AdvancedMarkerElement({
-        map, position: { lat: job.lat + 0.0002, lng: job.lng }, content: labelEl,
-      })
-      markersRef.current.push(lm)
+      // Sits just above the selected dot.
+      L.marker([job.lat, job.lng], { icon: aboveIcon(labelEl, 16), interactive: false, keyboard: false, zIndexOffset: 1100 }).addTo(group)
     }
   }
 
@@ -421,10 +395,10 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
   const selectedJob = allJobs.find(j => j.id === selectedJobId) || null
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-900/80 flex flex-col">
+    <div className="fixed inset-0 z-50 bg-gray-900/80 flex flex-col" data-smart-schedule>
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-4">
+      <div className="bg-white border-b border-gray-200 px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 min-w-0">
           <h2 className="text-lg font-bold text-gray-900">Smart Schedule</h2>
           <span className="text-xs text-gray-400">{allJobs.length} jobs available · {geoJobs.length} on map</span>
         </div>
@@ -434,9 +408,9 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* ── LEFT: Job list sidebar ── */}
-        <div className="w-80 bg-white border-r border-gray-200 flex flex-col shrink-0">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+        {/* ── LEFT: Job list sidebar (below the map on a phone) ── */}
+        <div className="order-2 md:order-1 w-full md:w-80 flex-1 md:flex-none min-h-0 bg-white border-t md:border-t-0 md:border-r border-gray-200 flex flex-col md:shrink-0 overflow-y-auto md:overflow-visible" data-smart-schedule-list>
           {/* Search + filters */}
           <div className="p-3 border-b border-gray-100 space-y-2">
             <input className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400"
@@ -536,13 +510,13 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
           )}
 
           {/* Job list */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="md:flex-1 md:overflow-y-auto">
             {filtered.map(job => {
               const tags = getJobTags(job)
               const isSel = job.id === selectedJobId
               return (
                 <div key={job.id}
-                  onClick={() => { setSelectedJobId(isSel ? null : job.id); if (job.lat && job.lng && mapInstanceRef.current) mapInstanceRef.current.panTo({ lat: job.lat, lng: job.lng }) }}
+                  onClick={() => { setSelectedJobId(isSel ? null : job.id); if (job.lat && job.lng && freeRef.current) freeRef.current.map.panTo([job.lat, job.lng]) }}
                   className={`px-3 py-2.5 border-b border-gray-50 cursor-pointer transition-colors ${isSel ? 'bg-orange-50 border-l-2 border-l-orange-500' : 'hover:bg-gray-50'}`}>
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-semibold text-gray-900 truncate">{job.customerName}</p>
@@ -572,11 +546,11 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* ── RIGHT: Map ── */}
-        <div className="flex-1 relative">
-          <div ref={mapRef} className="w-full h-full" />
+        <div className="order-1 md:order-2 h-[45vh] md:h-auto shrink-0 md:shrink md:flex-1 relative">
+          <div ref={mapRef} className="w-full h-full z-0" data-map data-smart-schedule-map />
 
           {/* Legend */}
-          <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur rounded-lg px-3 py-2 shadow-lg text-[10px] space-y-1">
+          <div className="absolute z-[500] bottom-4 left-4 bg-white/90 backdrop-blur rounded-lg px-3 py-2 shadow-lg text-[10px] space-y-1">
             <p className="font-bold text-gray-500">Map Legend</p>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-green-500" /> Ready / Loaded</div>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Materials Ordered</div>
@@ -587,7 +561,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
 
           {/* Selected job detail */}
           {selectedJob && (
-            <div className="absolute top-4 right-4 bg-white rounded-xl shadow-lg border border-gray-200 w-72 p-4">
+            <div className="absolute z-[600] top-2 right-2 sm:top-4 sm:right-4 bg-white rounded-xl shadow-lg border border-gray-200 w-72 max-w-[calc(100%-1rem)] max-h-[calc(100%-1rem)] overflow-y-auto p-4" data-smart-schedule-detail>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-gray-900 text-sm">{selectedJob.customerName}</h3>
                 <button onClick={() => setSelectedJobId(null)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
@@ -609,7 +583,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
           )}
 
           {!mapReady && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+            <div className="absolute inset-0 z-[700] flex items-center justify-center bg-gray-100">
               <p className="text-gray-500">Loading map...</p>
             </div>
           )}

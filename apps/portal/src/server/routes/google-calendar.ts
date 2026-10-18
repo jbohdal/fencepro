@@ -18,6 +18,7 @@ import prisma from '../lib/prisma.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { consentUrl, googleConfigured } from '../lib/calendarSync/google.js'
 import { calendarStatus, connectCalendar, disconnectCalendar, syncCalendarNow } from '../lib/calendarSync/index.js'
+import { connectGmail } from '../lib/automations/gmail.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -78,6 +79,14 @@ router.get('/callback', async (req, res) => {
     res.redirect(`${returnTo}/?settings=calendar&gcal=${result}${detail ? `&detail=${encodeURIComponent(detail.slice(0, 200))}` : ''}`)
   try {
     const state = jwt.verify(String(req.query.state || ''), JWT_SECRET) as { purpose?: string; accountId?: string; returnTo?: string }
+    // Connect Gmail (Automations) uses the same Google project and redirect address.
+    if (state.purpose === 'gmail' && state.accountId) {
+      returnTo = safeReturnTo(state.returnTo)
+      const toAutomations = (result: string, detail = '') => res.redirect(`${returnTo}/automations?gmail=${result}${detail ? `&detail=${encodeURIComponent(detail.slice(0, 200))}` : ''}`)
+      if (req.query.error) { toAutomations('error', `Google said: ${String(req.query.error)}`); return }
+      try { toAutomations('connected', await connectGmail(state.accountId, String(req.query.code || ''))) } catch (err) { toAutomations('error', String((err as Error)?.message || 'Could not connect Gmail')) }
+      return
+    }
     if (state.purpose !== 'gcal' || !state.accountId) throw new Error('bad state')
     returnTo = safeReturnTo(state.returnTo)
     if (req.query.error) { back('error', `Google said: ${String(req.query.error)}`); return }

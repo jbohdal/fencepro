@@ -1,7 +1,10 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
-import { loadMaps, loadPlaces, loadMarker, loadGeometry } from './mapsLoader'
+import L from 'leaflet'
 import { distanceFeet } from './geoUtils'
 import type { LatLng } from './geoUtils'
+import AddressAutocomplete from './AddressAutocomplete'
+import { lookupPosition } from './appointmentsStore'
+import { createFreeMap, centeredIcon, aboveIcon, BaseToggle, type BaseKind, type FreeMap } from './freeMap'
 
 /* ───────── types ───────── */
 
@@ -23,46 +26,56 @@ interface MapQuoteBuilderProps {
 
 /* ───────── Address Search ───────── */
 
+// Free lookups: Marion County's address list on the Mac, then the US Census.
 function AddressSearch({ onPlaceSelected }: { onPlaceSelected: (place: { address: string; location: LatLng }) => void }) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [loaded, setLoaded] = useState(false)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [missed, setMissed] = useState('')
 
-  useEffect(() => {
-    async function init() {
-      if (!inputRef.current) return
-      await loadPlaces()
-
-      const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
-        types: ['address'],
-        componentRestrictions: { country: 'us' },
-        fields: ['formatted_address', 'geometry'],
-      })
-
-      autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace()
-        if (place.geometry?.location) {
-          onPlaceSelected({
-            address: place.formatted_address || '',
-            location: { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() },
-          })
-        }
-      })
-      setLoaded(true)
-    }
-    init()
-  }, [onPlaceSelected])
+  async function find(address: string, known?: { lat?: number; lng?: number }) {
+    const a = address.trim()
+    if (!a) return
+    setMissed('')
+    if (known?.lat != null && known?.lng != null) { onPlaceSelected({ address: a, location: { lat: known.lat, lng: known.lng } }); return }
+    setBusy(true)
+    try {
+      const p = await lookupPosition(a)
+      if (p) onPlaceSelected({ address: a, location: { lat: p.lat, lng: p.lng } })
+      else setMissed('Address not found. Pick a suggestion, or pan the map to the property.')
+    } finally { setBusy(false) }
+  }
 
   return (
-    <input
-      ref={inputRef}
-      type="text"
-      placeholder={loaded ? 'Enter property address...' : 'Loading maps...'}
-      className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-    />
+    <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); find(text) }} data-map-quote-search>
+      <AddressAutocomplete
+        value={text}
+        onChange={setText}
+        onSelect={p => find(p.formatted, p)}
+        placeholder="Enter property address..."
+        wrapClassName="flex-1 min-w-0"
+        className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+        inputAttrs={{ 'data-map-quote-address': true }}
+      />
+      <button type="submit" disabled={busy || !text.trim()} className="shrink-0 min-h-[44px] px-4 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50 disabled:opacity-40">
+        {busy ? '…' : 'Find'}
+      </button>
+      {missed && <p className="basis-full text-xs text-red-600" role="status">{missed}</p>}
+    </form>
   )
 }
 
 /* ───────── Fence Map Drawing Tool ───────── */
+
+function vertexIcon(isEnd: boolean, isCorner: boolean, title: string): L.DivIcon {
+  const s = isEnd ? 16 : 14
+  // A 32px touch target around the visible dot, so a post can be dragged with a thumb.
+  return L.divIcon({
+    className: '',
+    html: `<div title="${title}" style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:grab"><div style="width:${s}px;height:${s}px;background:${isCorner ? '#f59e0b' : '#f97316'};border:2px solid white;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div></div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  })
+}
 
 function FenceMapCanvas({
   center,
@@ -74,14 +87,14 @@ function FenceMapCanvas({
   onPointsChange: (points: LatLng[]) => void
 }) {
   const mapRef = useRef<HTMLDivElement>(null)
-  const mapInstanceRef = useRef<google.maps.Map | null>(null)
-  const polylinesRef = useRef<google.maps.Polyline[]>([])
-  const vertexMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
-  const labelMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
-  const propertyMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
+  const freeRef = useRef<FreeMap | null>(null)
+  const fenceLayerRef = useRef<L.LayerGroup | null>(null)
+  const polylinesRef = useRef<L.Polyline[]>([])
+  const propertyMarkerRef = useRef<L.Marker | null>(null)
   const pointsRef = useRef<LatLng[]>([])
   const [isLoaded, setIsLoaded] = useState(false)
   const [points, setPoints] = useState<LatLng[]>([])
+  const [base, setBase] = useState<BaseKind>('aerial')
 
   const onPointsChangeRef = useRef(onPointsChange)
   onPointsChangeRef.current = onPointsChange
@@ -92,25 +105,18 @@ function FenceMapCanvas({
 
   // Render polylines and markers
   const renderFence = useCallback(() => {
-    if (!mapInstanceRef.current) return
-    const map = mapInstanceRef.current
+    const group = fenceLayerRef.current
+    if (!group) return
     const pts = pointsRef.current
 
-    polylinesRef.current.forEach(p => p.setMap(null))
+    group.clearLayers()
     polylinesRef.current = []
-    vertexMarkersRef.current.forEach(m => { m.map = null })
-    vertexMarkersRef.current = []
-    labelMarkersRef.current.forEach(m => { m.map = null })
-    labelMarkersRef.current = []
 
     for (let i = 0; i < pts.length - 1; i++) {
-      const polyline = new google.maps.Polyline({
-        map,
-        path: [pts[i], pts[i + 1]],
-        strokeColor: '#f97316',
-        strokeWeight: 4,
-        strokeOpacity: 0.9,
-      })
+      // Not interactive: a tap on a line places the next point, as on the bare map.
+      const polyline = L.polyline([[pts[i].lat, pts[i].lng], [pts[i + 1].lat, pts[i + 1].lng]], {
+        color: '#f97316', weight: 4, opacity: 0.9, interactive: false,
+      }).addTo(group)
       polylinesRef.current.push(polyline)
 
       const midLat = (pts[i].lat + pts[i + 1].lat) / 2
@@ -120,112 +126,81 @@ function FenceMapCanvas({
       const labelEl = document.createElement('div')
       labelEl.style.cssText = 'background:#f97316;color:white;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);'
       labelEl.textContent = `Run ${i + 1}: ${feet.toFixed(1)} ft`
-
-      const labelMarker = new google.maps.marker.AdvancedMarkerElement({
-        map,
-        position: { lat: midLat, lng: midLng },
-        content: labelEl,
-      })
-      labelMarkersRef.current.push(labelMarker)
+      L.marker([midLat, midLng], { icon: centeredIcon(labelEl), interactive: false, keyboard: false }).addTo(group)
     }
 
     pts.forEach((pt, i) => {
       const isEnd = i === 0 || i === pts.length - 1
       const isCorner = !isEnd && pts.length > 2
 
-      const el = document.createElement('div')
-      el.style.cssText = `width:${isEnd ? 16 : 14}px;height:${isEnd ? 16 : 14}px;background:${isCorner ? '#f59e0b' : '#f97316'};border:2px solid white;border-radius:50%;cursor:grab;box-shadow:0 1px 3px rgba(0,0,0,0.3);`
-      el.title = isEnd ? 'End Post' : 'Corner Post'
-
-      const marker = new google.maps.marker.AdvancedMarkerElement({
-        map,
-        position: pt,
-        content: el,
-        gmpDraggable: true,
-      })
+      const marker = L.marker([pt.lat, pt.lng], {
+        icon: vertexIcon(isEnd, isCorner, isEnd ? 'End Post' : 'Corner Post'),
+        draggable: true,
+        zIndexOffset: 1000,
+      }).addTo(group)
 
       const idx = i
-      marker.addListener('drag', () => {
-        const p = marker.position
-        if (p) {
-          const lat = typeof p.lat === 'function' ? (p as google.maps.LatLng).lat() : (p.lat as number)
-          const lng = typeof p.lng === 'function' ? (p as google.maps.LatLng).lng() : (p.lng as number)
-          pointsRef.current[idx] = { lat, lng }
-
-          if (idx > 0 && polylinesRef.current[idx - 1]) {
-            polylinesRef.current[idx - 1].setPath([pointsRef.current[idx - 1], { lat, lng }])
-          }
-          if (idx < pointsRef.current.length - 1 && polylinesRef.current[idx]) {
-            polylinesRef.current[idx].setPath([{ lat, lng }, pointsRef.current[idx + 1]])
-          }
+      marker.on('drag', () => {
+        const { lat, lng } = marker.getLatLng()
+        pointsRef.current[idx] = { lat, lng }
+        if (idx > 0 && polylinesRef.current[idx - 1]) {
+          const a = pointsRef.current[idx - 1]
+          polylinesRef.current[idx - 1].setLatLngs([[a.lat, a.lng], [lat, lng]])
+        }
+        if (idx < pointsRef.current.length - 1 && polylinesRef.current[idx]) {
+          const b = pointsRef.current[idx + 1]
+          polylinesRef.current[idx].setLatLngs([[lat, lng], [b.lat, b.lng]])
         }
       })
 
-      marker.addListener('dragend', () => {
+      marker.on('dragend', () => {
         setPoints([...pointsRef.current])
         notify(pointsRef.current)
         renderFence()
       })
-
-      vertexMarkersRef.current.push(marker)
     })
   }, [notify])
 
   // Initialize map
   useEffect(() => {
-    async function init() {
-      if (!mapRef.current) return
-      const { Map } = await loadMaps()
-      await loadMarker()
-      await loadGeometry()
+    if (!mapRef.current || freeRef.current) return
+    const fm = createFreeMap(mapRef.current, { center: [center.lat, center.lng], zoom: 19, base: 'aerial' })
+    freeRef.current = fm
+    fenceLayerRef.current = L.layerGroup().addTo(fm.map)
 
-      const map = new Map(mapRef.current, {
-        center,
-        zoom: 19,
-        mapTypeId: 'satellite',
-        tilt: 0,
-        mapId: 'fence-map-crm',
-        disableDefaultUI: false,
-        zoomControl: true,
-        mapTypeControl: true,
-        streetViewControl: false,
-        fullscreenControl: true,
-      })
+    fm.map.on('click', (e: L.LeafletMouseEvent) => {
+      const newPoint: LatLng = { lat: e.latlng.lat, lng: e.latlng.lng }
+      pointsRef.current = [...pointsRef.current, newPoint]
+      setPoints([...pointsRef.current])
+      notify(pointsRef.current)
+      renderFence()
+    })
 
-      mapInstanceRef.current = map
-
-      map.addListener('click', (e: google.maps.MapMouseEvent) => {
-        if (!e.latLng) return
-        const newPoint: LatLng = { lat: e.latLng.lat(), lng: e.latLng.lng() }
-        pointsRef.current = [...pointsRef.current, newPoint]
-        setPoints([...pointsRef.current])
-        notify(pointsRef.current)
-        renderFence()
-      })
-
-      setIsLoaded(true)
-    }
-    init()
+    setIsLoaded(true)
     return () => {
-      polylinesRef.current.forEach(p => p.setMap(null))
-      vertexMarkersRef.current.forEach(m => { m.map = null })
-      labelMarkersRef.current.forEach(m => { m.map = null })
+      fm.destroy()
+      freeRef.current = null
+      fenceLayerRef.current = null
+      polylinesRef.current = []
+      propertyMarkerRef.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the map is made once; `center` moves it below
   }, [])
 
+  useEffect(() => { freeRef.current?.setBase(base) }, [base])
+
   useEffect(() => {
-    if (mapInstanceRef.current && center.lat !== 0) {
-      mapInstanceRef.current.panTo(center)
-      mapInstanceRef.current.setZoom(19)
+    if (freeRef.current && center.lat !== 0) {
+      freeRef.current.map.setView([center.lat, center.lng], 19)
     }
   }, [center])
 
   // Render the property marker whenever `propertyMarker` changes
   useEffect(() => {
-    const map = mapInstanceRef.current
+    const map = freeRef.current?.map
     if (!map) return
     // Remove existing
-    if (propertyMarkerRef.current) { propertyMarkerRef.current.map = null; propertyMarkerRef.current = null }
+    if (propertyMarkerRef.current) { propertyMarkerRef.current.remove(); propertyMarkerRef.current = null }
     if (!propertyMarker) return
 
     const el = document.createElement('div')
@@ -236,18 +211,11 @@ function FenceMapCanvas({
         <path d="M16 2C9 2 3 7 3 14c0 9 13 24 13 24s13-15 13-24c0-7-6-12-13-12z" fill="#f97316" stroke="#fff" stroke-width="2"/>
         <circle cx="16" cy="14" r="5" fill="#fff"/>
       </svg>`
-    import('@googlemaps/js-api-loader')
-    import('./mapsLoader').then(async ({ loadMarker }) => {
-      await loadMarker()
-      if (!mapInstanceRef.current) return
-      const m = new google.maps.marker.AdvancedMarkerElement({
-        map: mapInstanceRef.current,
-        position: propertyMarker.location,
-        content: el,
-        title: propertyMarker.address,
-      })
-      propertyMarkerRef.current = m
-    }).catch(() => {})
+    // Not interactive, so a fence point can still be placed right at the pin.
+    propertyMarkerRef.current = L.marker([propertyMarker.location.lat, propertyMarker.location.lng], {
+      icon: aboveIcon(el), interactive: false, keyboard: false, title: propertyMarker.address,
+    }).addTo(map)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- redrawn when the pin's place or address changes
   }, [propertyMarker?.location.lat, propertyMarker?.location.lng, propertyMarker?.address])
 
   function undoLastPoint() {
@@ -261,12 +229,8 @@ function FenceMapCanvas({
   function clearAll() {
     pointsRef.current = []
     setPoints([])
-    polylinesRef.current.forEach(p => p.setMap(null))
+    fenceLayerRef.current?.clearLayers()
     polylinesRef.current = []
-    vertexMarkersRef.current.forEach(m => { m.map = null })
-    vertexMarkersRef.current = []
-    labelMarkersRef.current.forEach(m => { m.map = null })
-    labelMarkersRef.current = []
     notify([])
   }
 
@@ -277,13 +241,22 @@ function FenceMapCanvas({
   const totalFeet = runLengths.reduce((a, b) => a + b, 0)
 
   return (
-    <div className="relative">
-      <div ref={mapRef} className="w-full h-[480px] rounded-xl border border-gray-200" />
+    <div>
+      <div className="relative">
+        <div ref={mapRef} className="w-full h-[60vh] min-h-[320px] sm:h-[480px] rounded-xl border border-gray-200 z-0" data-map data-map-quote-map />
 
-      {/* Controls */}
-      <div className="absolute top-3 right-3 flex flex-col gap-2">
-        <button onClick={undoLastPoint} className="bg-white shadow-md rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50">Undo</button>
-        <button onClick={clearAll} className="bg-white shadow-md rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50 text-red-600">Clear</button>
+        {/* Controls */}
+        <div className="absolute top-3 right-3 z-[500] flex flex-col gap-2">
+          <button onClick={undoLastPoint} className="bg-white shadow-md rounded-lg px-3 min-h-[40px] text-sm font-medium hover:bg-gray-50" data-map-quote-undo>Undo</button>
+          <button onClick={clearAll} className="bg-white shadow-md rounded-lg px-3 min-h-[40px] text-sm font-medium hover:bg-gray-50 text-red-600" data-map-quote-clear>Clear</button>
+        </div>
+        <BaseToggle base={base} onChange={setBase} className="absolute bottom-3 left-3" />
+
+        {!isLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-xl">
+            <div className="text-gray-500">Loading map...</div>
+          </div>
+        )}
       </div>
 
       {/* Stats */}
@@ -311,14 +284,9 @@ function FenceMapCanvas({
       </div>
 
       <p className="text-xs text-gray-400 mt-2">
-        Click on the map to place fence points. Each segment = one run. Orange dots = end posts. Yellow = corner posts. Drag to adjust.
+        Tap the map to place fence points. Each segment = one run. Orange dots = end posts. Yellow = corner posts. Drag to adjust.
+        Aerial photos are USGS (free); they get soft when zoomed in close, but measurements stay exact.
       </p>
-
-      {!isLoaded && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-xl">
-          <div className="text-gray-500">Loading map...</div>
-        </div>
-      )}
     </div>
   )
 }
@@ -371,16 +339,16 @@ export default function MapQuoteBuilder({ onUseData, onClose }: MapQuoteBuilderP
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-900/80 flex flex-col">
+    <div className="fixed inset-0 z-50 bg-gray-900/80 flex flex-col" data-map-quote>
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-4">
+      <div className="bg-white border-b border-gray-200 px-3 sm:px-6 py-2 sm:py-3 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-4 min-w-0">
           <h2 className="text-lg font-bold text-gray-900">Map Quote</h2>
-          <span className="text-xs text-gray-400">Draw fence lines on the satellite map</span>
+          <span className="hidden sm:inline text-xs text-gray-400">Draw fence lines on the aerial map</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {runs.length > 0 && (
-            <div className="flex items-center gap-2 text-sm">
+            <div className="hidden sm:flex items-center gap-2 text-sm">
               <span className="text-gray-500">{runs.length} runs</span>
               <span className="text-gray-300">·</span>
               <span className="font-bold text-orange-600">{totalFeet.toFixed(0)} ft</span>
@@ -392,21 +360,27 @@ export default function MapQuoteBuilder({ onUseData, onClose }: MapQuoteBuilderP
             onClick={handleUse}
             disabled={runs.length === 0}
             className="btn btn-primary"
+            data-map-quote-use
           >
             Use in Quote Builder
           </button>
           <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none px-2">×</button>
         </div>
+        {runs.length > 0 && (
+          <div className="sm:hidden basis-full text-xs text-gray-500">
+            {runs.length} runs · <span className="font-bold text-orange-600">{totalFeet.toFixed(0)} ft</span> · {corners} corners, {ends} ends
+          </div>
+        )}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6">
         <div className="max-w-5xl mx-auto space-y-4">
           {/* Address search */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4">
             <div className="flex items-center gap-3">
               <span className="text-lg">📍</span>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <AddressSearch onPlaceSelected={handlePlaceSelected} />
               </div>
             </div>
@@ -425,7 +399,7 @@ export default function MapQuoteBuilder({ onUseData, onClose }: MapQuoteBuilderP
           </div>
 
           {/* Map */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-2 sm:p-4">
             <FenceMapCanvas center={center} propertyMarker={hasSelection ? { location: center, address } : undefined} onPointsChange={handlePointsChange} />
           </div>
 

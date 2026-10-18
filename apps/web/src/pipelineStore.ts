@@ -19,6 +19,7 @@ import { getAccessToken } from './crmAuth'
 import { applyPipelineDelta, diffPipeline, type PipelineDelta } from './pipelineDelta'
 import { registerKind, enqueue, pendingFor, allOps, type Op } from './outbox'
 import { sendJson } from './syncHttp'
+import { notifyStageBlocked, type BlockedMove } from './stageBlocked'
 
 const EVT = 'fencepro:pipeline:updated'
 
@@ -135,6 +136,23 @@ registerKind<PipelineDelta>('pipeline.delta', {
     if (r.result.ok) {
       if (typeof r.json?.version === 'number') version = r.json.version
       return r.result
+    }
+    if (r.status === 409 && r.json?.code === 'STAGE_BLOCKED' && r.json?.data) {
+      // A stage rule refused the move: the card goes back where the server has it, the rest of this change goes again, and the screen says what is missing.
+      const blocked = (r.json.blocked ?? []) as BlockedMove[]
+      const server = pick(r.json.data)
+      const ids = new Set(blocked.map(b => b.id))
+      op.payload.upsert = op.payload.upsert.flatMap(u => {
+        if (!ids.has(u.lead?.id)) return [u]
+        const was = server.leads.find(l => l?.id === u.lead.id)
+        return was ? [{ ...u, lead: { ...u.lead, stage: was.stage, lastMoved: was.lastMoved } }] : []
+      })
+      version = typeof r.json.version === 'number' ? r.json.version : version
+      cache = withPending(server)
+      base = clone(cache)
+      emit()
+      notifyStageBlocked(blocked)
+      return { ok: false, status: 409, retryNow: true }
     }
     if (r.status === 409 && r.json?.code === 'STALE_VERSION') {
       // Another device saved first: take theirs, put this phone's waiting changes back on top, go again.

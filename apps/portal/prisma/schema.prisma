@@ -2200,3 +2200,204 @@ model ScheduledDeletion {
 
   @@index([accountId, status])
 }
+
+// ── Automations: rules, and a durable queue (Oct 18, 2026) ──
+// Every trigger is saved as an AutomationEvent before anything runs; each rule
+// it matches becomes one AutomationRun (unique per rule and event, so it can
+// never run twice); steps run from the queue, survive restarts and retry.
+
+model AutomationRule {
+  id         String   @id @default(uuid())
+  accountId  String
+  name       String
+  /// sales (the pipeline cards) or ops (Operations jobs)
+  board      String   @default("sales")
+  enabled    Boolean  @default(false)
+  /// { type, stage?, days?, dateField?, offsetDays?, event? }
+  trigger    Json
+  /// [{ field, op, value }]
+  conditions Json?
+  /// [{ type, config, waitMinutes? }]
+  steps      Json
+  /// The starter rule this came from, if any
+  starter    String?
+  createdBy  String?
+  /// When it was last switched on: time triggers only catch up on what fell due after this
+  enabledAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([accountId, enabled])
+}
+
+model AutomationEvent {
+  id          String    @id @default(uuid())
+  accountId   String
+  /// card_entered, card_left, proposal_accepted, walkthrough_signed, punch_list_cleared, payment_received, photo_uploaded, time
+  type        String
+  board       String?
+  /// card, job, quote, customer, walkthrough
+  entityKind  String
+  entityId    String
+  data        Json?
+  /// One event per real happening: saving the same one twice is a no-op
+  dedupeKey   String
+  occurredAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  @@unique([accountId, dedupeKey])
+  @@index([processedAt])
+  @@index([entityKind, entityId])
+}
+
+model AutomationRun {
+  id         String   @id @default(uuid())
+  accountId  String
+  ruleId     String
+  eventId    String
+  entityKind String
+  entityId   String
+  /// queued, running, waiting, succeeded, failed, skipped, dry_run
+  status     String   @default("queued")
+  stepIndex  Int      @default(0)
+  nextRunAt  DateTime @default(now())
+  attempts   Int      @default(0)
+  lastError  String?
+  /// [{ at, step, result, detail }]
+  log        Json     @default("[]")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([ruleId, eventId])
+  @@index([status, nextRunAt])
+  @@index([entityKind, entityId])
+}
+
+model Permit {
+  id               String    @id @default(uuid())
+  accountId        String
+  jobId            String    @unique
+  /// not_needed, needed, applied, approved, inspection_scheduled, passed
+  status           String    @default("needed")
+  permitNumber     String    @default("")
+  county           String    @default("Marion")
+  parcelId         String    @default("")
+  appliedAt        String    @default("")
+  approvedAt       String    @default("")
+  inspectionAt     String    @default("")
+  passedAt         String    @default("")
+  notes            String    @default("")
+  updatedBy        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([accountId, status])
+}
+
+/// A phone or browser that gets push notifications (free web push).
+model PushSubscription {
+  id        String   @id @default(uuid())
+  accountId String
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([accountId, userId])
+}
+
+/// A stage a card or job cannot be moved into until its requirements are met.
+model StageRule {
+  id           String   @id @default(uuid())
+  accountId    String
+  /// sales or ops
+  board        String   @default("sales")
+  stage        String
+  /// [{ type: 'permit_approved' | 'walkthrough_signed' | 'has_install_date' | 'has_price' | 'has_email' | 'materials_ordered' | 'paid_in_full' }]
+  requirements Json     @default("[]")
+  enabled      Boolean  @default(false)
+  starter      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([accountId, board, stage])
+}
+
+// ── Final walkthrough (Oct 18, 2026): one per job, checklist + required photos
+// + two signatures, then a Certificate of Completion. Made on the phone with
+// its own id (a repeat makes one); see routes/walkthroughs.ts.
+model Walkthrough {
+  id                String    @id @default(uuid())
+  accountId         String
+  /// One walkthrough per job: starting it again returns this one.
+  jobId             String    @unique
+  /// vinyl | chain_link | aluminum (from the job's fence style)
+  category          String    @default("vinyl")
+  /// open | completed
+  status            String    @default("open")
+  /// [{ id, label, result: pass|fix|null, note, photoClientId, punchId }]
+  items             Json      @default("[]")
+  /// Required photos: [{ key, label, kind: side|gate|wide, clientId }]
+  photos            Json      @default("[]")
+  /// { name, role, signedAt, lat, lng, accuracyM, image, via }
+  homeownerSig      Json?
+  repSig            Json?
+  /// Both signatures in.
+  signedAt          DateTime?
+  /// The homeowner's link (/p/w/<token>): 30 days, can be turned off, read only once signed.
+  shareToken        String?   @unique
+  shareExpiresAt    DateTime?
+  shareDisabledAt   DateTime?
+  completedAt       DateTime?
+  completedBy       String?
+  /// The Certificate of Completion PDF, and its copy in the customer portal (PortalFile).
+  certificatePath   String?
+  certificateFileId String?
+  startedBy         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([accountId, status])
+}
+
+/// A Needs fixing item: open until fixed and re-photographed.
+model WalkthroughPunchItem {
+  id               String    @id @default(uuid())
+  accountId        String
+  walkthroughId    String
+  jobId            String
+  /// The checklist item it came from.
+  itemId           String
+  label            String
+  note             String    @default("")
+  photoClientId    String?
+  /// open | fixed
+  status           String    @default("open")
+  fixPhotoClientId String?
+  fixNote          String    @default("")
+  fixedAt          DateTime?
+  fixedBy          String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([walkthroughId])
+  @@index([accountId, jobId])
+}
+
+/// What one automation step did, keyed by run and step: a step whose side
+/// effect is already here is never done twice (the worker stopped after the
+/// task was made but before it noted the step done).
+model AutomationEffect {
+  /// "<runId>:<stepIndex>"
+  key       String   @id
+  runId     String
+  /// sending (started, outcome unknown), done
+  status    String   @default("done")
+  result    Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([runId])
+}

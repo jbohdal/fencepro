@@ -1,0 +1,160 @@
+/**
+ * Final walkthrough rules, in one place for the server and the app (the web
+ * app imports this file too). No imports: pure functions and plain data.
+ *
+ * - Which checklist a job gets: from its fence style (WV-/TV- vinyl, "CL -"
+ *   chain link, "Alum" aluminum; anything else uses vinyl's).
+ * - Which photos are required before it can be finished: each side, each
+ *   gate, one wide shot.
+ * - What is still missing before it can be finished.
+ */
+
+export type WalkCategory = 'vinyl' | 'chain_link' | 'aluminum'
+export const WALK_CATEGORIES: WalkCategory[] = ['vinyl', 'chain_link', 'aluminum']
+export const CATEGORY_LABEL: Record<WalkCategory, string> = { vinyl: 'Vinyl', chain_link: 'Chain link', aluminum: 'Aluminum' }
+
+export interface TemplateItem { id: string; label: string }
+export type WalkTemplates = Record<WalkCategory, TemplateItem[]>
+
+/** Jonathan's starter list; every category starts with it and he edits each in Settings. */
+export const STARTER_ITEMS: TemplateItem[] = [
+  { id: 'gates', label: 'Gates swing, latch and self close' },
+  { id: 'plumb', label: 'Posts plumb' },
+  { id: 'level', label: 'Sections level and evenly spaced' },
+  { id: 'secure', label: 'Pickets and caps secure' },
+  { id: 'hardware', label: 'Hardware tight' },
+  { id: 'concrete', label: 'Concrete / donuts finished' },
+  { id: 'cleanup', label: 'Cleanup and haul away done' },
+  { id: 'flags', label: 'Utility flags and stakes removed' },
+  { id: 'pins', label: 'Property pins undisturbed' },
+  { id: 'shown', label: 'Customer shown gate operation' },
+]
+
+export function defaultTemplates(): WalkTemplates {
+  return { vinyl: STARTER_ITEMS.map(i => ({ ...i })), chain_link: STARTER_ITEMS.map(i => ({ ...i })), aluminum: STARTER_ITEMS.map(i => ({ ...i })) }
+}
+
+/** The saved templates (config.walkthroughTemplates), with any missing category filled from the starter list. */
+export function templatesFrom(saved: unknown): WalkTemplates {
+  const out = defaultTemplates()
+  if (saved && typeof saved === 'object') {
+    for (const c of WALK_CATEGORIES) {
+      const list = (saved as any)[c]
+      if (Array.isArray(list)) {
+        out[c] = list
+          .filter((i: any) => i && typeof i.label === 'string' && i.label.trim())
+          .map((i: any, n: number) => ({ id: typeof i.id === 'string' && i.id ? i.id.slice(0, 64) : `item${n}`, label: String(i.label).trim().slice(0, 300) }))
+      }
+    }
+  }
+  return out
+}
+
+/** WV-/TV- vinyl, "CL -" chain link, "Alum" aluminum; others use vinyl's checklist. */
+export function categoryForStyle(style: string | null | undefined): WalkCategory {
+  const s = String(style ?? '').trim()
+  if (/^CL\s*-/i.test(s)) return 'chain_link'
+  if (/^alum/i.test(s)) return 'aluminum'
+  return 'vinyl'
+}
+
+// ── The walkthrough record ────────────────────────────────────────────────────
+
+export type ItemResult = 'pass' | 'fix' | null
+export interface WalkItem {
+  id: string
+  label: string
+  result: ItemResult
+  note: string
+  /** A photo of the item (optional): the phone's id for it (MediaItem.clientId). */
+  photoClientId: string | null
+  /** The punch item a Needs fixing made (chosen on the phone, so a repeat makes one). */
+  punchId?: string | null
+}
+
+export type SlotKind = 'side' | 'gate' | 'wide'
+export interface PhotoSlot { key: string; label: string; kind: SlotKind; clientId: string | null }
+
+export const ROLES = ['Project coordinator', 'Lead installer / Foreman', 'Subcontractor'] as const
+export type RepRole = typeof ROLES[number]
+
+export interface Signature {
+  name: string
+  /** Homeowner, or the representative's role. */
+  role: string
+  /** When it was signed (ISO). */
+  signedAt: string
+  lat: number | null
+  lng: number | null
+  accuracyM: number | null
+  /** PNG data URL of the finger signature. */
+  image: string
+  /** Signed on the crew's phone, or by the homeowner through the link. */
+  via: 'device' | 'link'
+}
+
+export function itemsFromTemplate(t: TemplateItem[]): WalkItem[] {
+  return t.map(i => ({ id: i.id, label: i.label, result: null, note: '', photoClientId: null, punchId: null }))
+}
+
+/** Where it was signed: "location not shared" when the phone did not allow it. */
+export function locationText(s: Pick<Signature, 'lat' | 'lng' | 'accuracyM'> | null | undefined): string {
+  if (!s || s.lat == null || s.lng == null) return 'location not shared'
+  return `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}${s.accuracyM != null ? ` (within ${Math.round(s.accuracyM)} m)` : ''}`
+}
+
+// ── Required photos ───────────────────────────────────────────────────────────
+
+/** The parts of a yard layout this needs (see web/src/yardLayout.ts). */
+export interface LayoutSides { sides: Array<{ id: string; name: string; on: boolean; gate?: { type: 'walk' | 'double' } | null }> }
+
+/**
+ * Each side, each gate and one wide shot. From the quote's yard layout when
+ * there is one; otherwise from counts the crew sets.
+ */
+export function photoSlots(from: { layout?: LayoutSides | null; sideCount?: number; gateCount?: number }): PhotoSlot[] {
+  const out: PhotoSlot[] = []
+  const sides = from.layout?.sides?.filter(s => s.on) ?? []
+  if (sides.length) {
+    for (const s of sides) out.push({ key: `side:${s.id}`, label: `Side: ${s.name}`, kind: 'side', clientId: null })
+    for (const s of sides) if (s.gate) out.push({ key: `gate:${s.id}`, label: `${s.gate.type === 'double' ? 'Double gate' : 'Walk gate'} on ${s.name}`, kind: 'gate', clientId: null })
+  } else {
+    const n = Math.max(1, Math.min(30, Math.round(from.sideCount ?? 1)))
+    const g = Math.max(0, Math.min(30, Math.round(from.gateCount ?? 0)))
+    for (let i = 1; i <= n; i++) out.push({ key: `side:${i}`, label: `Side ${i}`, kind: 'side', clientId: null })
+    for (let i = 1; i <= g; i++) out.push({ key: `gate:${i}`, label: `Gate ${i}`, kind: 'gate', clientId: null })
+  }
+  out.push({ key: 'wide', label: 'Wide shot of the whole fence', kind: 'wide', clientId: null })
+  return out
+}
+
+/** New slots, keeping photos already taken for the same slot. */
+export function mergeSlots(next: PhotoSlot[], prev: PhotoSlot[]): PhotoSlot[] {
+  const had = new Map(prev.map(s => [s.key, s.clientId]))
+  return next.map(s => ({ ...s, clientId: s.clientId ?? had.get(s.key) ?? null }))
+}
+
+// ── What is still missing before it can be finished ──────────────────────────
+
+export interface PunchLike { id: string; label: string; status: 'open' | 'fixed'; fixPhotoClientId: string | null }
+
+export function missingToFinish(w: {
+  items: WalkItem[]
+  photos: PhotoSlot[]
+  homeownerSig: Signature | null
+  repSig: Signature | null
+}, punch: PunchLike[], uploaded: (clientId: string) => boolean): string[] {
+  const out: string[] = []
+  const unmarked = w.items.filter(i => i.result !== 'pass' && i.result !== 'fix')
+  if (unmarked.length) out.push(`${unmarked.length} checklist item${unmarked.length === 1 ? '' : 's'} not marked`)
+  for (const s of w.photos) {
+    if (!s.clientId) out.push(`Photo needed: ${s.label}`)
+    else if (!uploaded(s.clientId)) out.push(`Photo still uploading: ${s.label}`)
+  }
+  const open = punch.filter(p => p.status !== 'fixed')
+  if (open.length) out.push(`${open.length} punch list item${open.length === 1 ? '' : 's'} to fix and re-photograph`)
+  for (const p of punch) if (p.status === 'fixed' && p.fixPhotoClientId && !uploaded(p.fixPhotoClientId)) out.push(`Photo still uploading: fixed ${p.label}`)
+  if (!w.repSig) out.push('Our representative\'s signature')
+  if (!w.homeownerSig) out.push('Homeowner\'s signature')
+  return out
+}

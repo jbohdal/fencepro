@@ -16,6 +16,7 @@ import path from 'path'
 import multer from 'multer'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { recordPhotoUploaded } from '../lib/automations/hooks.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { mediaDir, serializeMedia, processMediaQueue, checkMediaSig, CATEGORIES, VISIBILITY } from '../lib/media.js'
 import { plainZod } from '../lib/plainZod.js'
@@ -143,7 +144,8 @@ router.post('/uploads/:clientId/finish', async (req: any, res) => {
   const id = crypto.randomUUID()
   const final = path.join(mediaDir(u.accountId), `${id}.${extFor(meta.mime)}`)
   fs.renameSync(u.path, final)
-  const item = await prisma.mediaItem.create({
+  // The photo and its "photo uploaded" automation event are saved together.
+  const item = await prisma.$transaction(async tx => { const made = await tx.mediaItem.create({
     data: {
       id, accountId: u.accountId, clientId, kind: meta.kind, mime: meta.mime, path: final, bytes: have,
       quoteKey: meta.quoteKey ?? null, jobId: meta.jobId ?? null, customerId: meta.customerId ?? null,
@@ -153,7 +155,7 @@ router.post('/uploads/:clientId/finish', async (req: any, res) => {
       caption: meta.caption ?? '', category: meta.category ?? 'Site walk', visibility: meta.visibility ?? 'internal',
       pin: meta.pin ?? undefined,
     },
-  })
+  }); await recordPhotoUploaded(u.accountId, made, tx); return made })
   await prisma.mediaUpload.delete({ where: { clientId } }).catch(() => {})
   processMediaQueue().catch(err => console.error('[media] queue:', err))
   res.json({ success: true, data: serializeMedia(item) })

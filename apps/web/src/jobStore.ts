@@ -3,6 +3,7 @@ import { legacyMigrationEnabled } from './syncGuard'
 import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, pendingFor, type Op } from './outbox'
 import { sendJson } from './syncHttp'
+import { notifyStageBlocked } from './stageBlocked'
 import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
 import { ensureChecklistForJob } from './checklistStore'
 import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
@@ -342,7 +343,21 @@ registerKind<Job>('job.create', {
 })
 registerKind<Job>('job.update', {
   what: () => 'This change to the job',
-  send: op => sendJson('PATCH', `/api/saved-jobs/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload)).then(r => r.result),
+  send: async op => {
+    const r = await sendJson('PATCH', `/api/saved-jobs/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload))
+    if (r.status === 409 && r.json?.code === 'STAGE_BLOCKED' && r.json?.data) {
+      // A stage rule refused the move: the job goes back to the stage the server has, the rest of the edit goes again, and the screen says what is missing.
+      const server = fromApi(r.json.data as SavedJobRecord) as any
+      const back: any = { ...op.payload }
+      for (const k of ['status', 'previousStatus', 'materialsStatus', 'drawingComplete', 'locatesDate', 'completedDate']) back[k] = server[k]
+      op.payload = back
+      cache = cache.map(j => j.id === back.id ? back : j)
+      emit()
+      notifyStageBlocked(r.json.blocked ?? [])
+      return { ok: false, status: 409, retryNow: true }
+    }
+    return r.result
+  },
   confirmed: takeJobFields,
   apply: op => { cache = cache.map(j => j.id === op.payload.id ? op.payload : j) },
 })

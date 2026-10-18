@@ -8,6 +8,7 @@
 
 import prisma from './prisma.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
+import { recordCardMoves, recordProposalAccepted } from './automations/hooks.js'
 
 const STAGE = 'Signed Contract'
 const CLOSED = new Set(['Lost Sale', 'No Answer', 'Paid & Closed'])
@@ -44,11 +45,16 @@ export async function onProposalAccepted(q: { id: string; accountId: string; crm
       }
     }
     const next = applyPipelineDelta({ leads, stages: (state.stages as any[]) ?? [] }, { upsert: [{ lead }], remove: [] })
-    const done = await prisma.pipelineState.updateMany({
-      where: { accountId: q.accountId, version: state.version },
-      data: { leads: JSON.parse(JSON.stringify(next.leads)), version: { increment: 1 } },
+    // The card's move is saved for automations in the same step.
+    const done = await prisma.$transaction(async tx => {
+      const d = await tx.pipelineState.updateMany({
+        where: { accountId: q.accountId, version: state.version },
+        data: { leads: JSON.parse(JSON.stringify(next.leads)), version: { increment: 1 } },
+      })
+      if (d.count === 1) await recordCardMoves(q.accountId, leads, next.leads, state.version + 1, tx)
+      return d
     })
-    if (done.count === 1) return
+    if (done.count === 1) { await recordProposalAccepted(q.accountId, q, null, lead.id); return }
   }
   console.error(`[proposal] could not move the pipeline card for quote ${q.id}`)
 }

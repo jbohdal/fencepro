@@ -69,6 +69,8 @@ export interface KitSet {
   /** Built in only: the derived kits did not reproduce the old parts list, so the old list is used. */
   mismatch?: string
   updatedAt?: string
+  /** Saved from Inventory > Fill in (the parts Jonathan typed for a style that had none). */
+  filledInAt?: string
 }
 
 // ── Deriving the built in kits ────────────────────────────────────────────────

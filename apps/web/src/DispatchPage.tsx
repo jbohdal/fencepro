@@ -167,7 +167,8 @@ export default function DispatchPage() {
     return Array.from({ length: 5 }, (_, i) => addDays(monday, i))
   }, [currentDate])
 
-  const visibleDates = viewMode === 'day' ? [currentDate] : weekDates
+  // The same array until the day or view changes: the jobs, pins and lookups below key off it.
+  const visibleDates = useMemo(() => (viewMode === 'day' ? [currentDate] : weekDates), [viewMode, currentDate, weekDates])
 
   // ── Load jobs ──────────────────────────────────
 
@@ -206,11 +207,14 @@ export default function DispatchPage() {
 
   // ── Geocode jobs ───────────────────────────────
 
+  // Addresses already looked up (found or not): each is asked once per visit, not on every redraw.
+  const triedRef = useRef(new Set<string>())
   useEffect(() => {
     const toGeocode = [...scheduledJobs, ...unassignedJobs].filter(
-      j => j.customerAddress && !j.lat && !geocodedJobs.has(j.id)
+      j => j.customerAddress && !j.lat && !geocodedJobs.has(j.id) && !triedRef.current.has(j.id)
     )
     if (toGeocode.length === 0) return
+    for (const j of toGeocode) triedRef.current.add(j.id)
 
     let cancelled = false
     async function run() {
@@ -229,7 +233,7 @@ export default function DispatchPage() {
           updateJob(job.id, { lat: coords.lat, lng: coords.lng })
         }
       }
-      if (!cancelled) setGeocodedJobs(newCoords)
+      if (!cancelled && newCoords.size !== geocodedJobs.size) setGeocodedJobs(newCoords)
     }
     run()
     return () => { cancelled = true }

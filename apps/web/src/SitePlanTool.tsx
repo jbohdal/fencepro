@@ -1,5 +1,8 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
-import { loadMaps, loadPlaces, loadMarker } from './mapsLoader'
+import L from 'leaflet'
+import { createFreeMap, centeredIcon, BaseToggle, type BaseKind, type FreeMap } from './freeMap'
+import AddressAutocomplete from './AddressAutocomplete'
+import { lookupPosition } from './appointmentsStore'
 import { distanceFeet } from './geoUtils'
 import type { LatLng } from './geoUtils'
 import { toast } from './toast'
@@ -140,29 +143,38 @@ function savePlans(plans: SitePlan[]) { cloudStorage.setItem(STORAGE_KEY, JSON.s
 
 /* ───────── Address Search (reused) ───────── */
 
+// Free lookups: Marion County's address list on the Mac, then the US Census.
 function AddressInput({ onSelect }: { onSelect: (addr: string, loc: LatLng) => void }) {
-  const ref = useRef<HTMLInputElement>(null)
-  const [ready, setReady] = useState(false)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
-    async function init() {
-      if (!ref.current) return
-      await loadPlaces()
-      const ac = new google.maps.places.Autocomplete(ref.current, {
-        types: ['address'], componentRestrictions: { country: 'us' }, fields: ['formatted_address', 'geometry'],
-      })
-      ac.addListener('place_changed', () => {
-        const p = ac.getPlace()
-        if (p.geometry?.location) onSelect(p.formatted_address || '', { lat: p.geometry.location.lat(), lng: p.geometry.location.lng() })
-      })
-      setReady(true)
-    }
-    init()
-  }, [onSelect])
+  async function find(address: string, known?: { lat?: number; lng?: number }) {
+    const a = address.trim()
+    if (!a) return
+    if (known?.lat != null && known?.lng != null) { onSelect(a, { lat: known.lat, lng: known.lng }); return }
+    setBusy(true)
+    try {
+      const p = await lookupPosition(a)
+      if (p) onSelect(a, { lat: p.lat, lng: p.lng })
+      else toast.error('Address not found', 'Pick a suggestion, or pan the map to the property.')
+    } finally { setBusy(false) }
+  }
 
   return (
-    <input ref={ref} type="text" placeholder={ready ? 'Search property address...' : 'Loading...'}
-      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+    <form className="flex gap-1 w-full" onSubmit={e => { e.preventDefault(); find(text) }} data-site-plan-search>
+      <AddressAutocomplete
+        value={text}
+        onChange={setText}
+        onSelect={p => find(p.formatted, p)}
+        placeholder="Search property address..."
+        wrapClassName="flex-1 min-w-0"
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+        inputAttrs={{ 'data-site-plan-address': true }}
+      />
+      <button type="submit" disabled={busy || !text.trim()} className="shrink-0 min-h-[40px] px-3 rounded-lg border border-gray-300 text-xs font-medium hover:bg-gray-50 disabled:opacity-40">
+        {busy ? '…' : 'Find'}
+      </button>
+    </form>
   )
 }
 
@@ -172,7 +184,8 @@ function AddressInput({ onSelect }: { onSelect: (addr: string, loc: LatLng) => v
 
 export default function SitePlanTool({ onClose }: { onClose: () => void }) {
   const mapDivRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<google.maps.Map | null>(null)
+  const freeRef = useRef<FreeMap | null>(null)
+  const [base, setBase] = useState<BaseKind>('aerial')
 
   const [mode, setMode] = useState<DrawMode>('fence')
   const [address, setAddress] = useState('')
@@ -200,56 +213,49 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null)
   const [showEditPopover, setShowEditPopover] = useState(false)
 
-  // Google Maps objects for rendering
-  const polylinesRef = useRef<google.maps.Polyline[]>([])
-  const gmMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
-  const activePolyRef = useRef<google.maps.Polyline | null>(null)
+  // Map layers for rendering (Leaflet, free tiles)
+  const objectsLayerRef = useRef<L.LayerGroup | null>(null)
+  const activePolyRef = useRef<L.Polyline | null>(null)
   const activePtsRef = useRef<LatLng[]>([])
 
   const modeRef = useRef(mode)
   modeRef.current = mode
 
+  // The map's listeners are attached once; they call the newest handlers
+  // (so they see the current lines, markers and colour, not the first render's).
+  const handlersRef = useRef<{ click: (pt: LatLng) => void; finish: () => void }>({ click: () => {}, finish: () => {} })
+
   // ── Initialize map ──
   useEffect(() => {
-    async function init() {
-      if (!mapDivRef.current) return
-      const { Map } = await loadMaps()
-      await loadMarker()
+    if (!mapDivRef.current || freeRef.current) return
+    // No double-click zoom: a double-click finishes the line being drawn.
+    const fm = createFreeMap(mapDivRef.current, { center: [center.lat, center.lng], zoom: 19, base: 'aerial', doubleClickZoom: false })
+    freeRef.current = fm
+    objectsLayerRef.current = L.layerGroup().addTo(fm.map)
 
-      const map = new Map(mapDivRef.current, {
-        center,
-        zoom: 19,
-        mapTypeId: 'satellite',
-        tilt: 0,
-        mapId: 'site-plan-tool',
-        disableDefaultUI: false,
-        zoomControl: true,
-        mapTypeControl: true,
-        streetViewControl: false,
-        fullscreenControl: true,
-      })
-      mapRef.current = map
+    fm.map.on('click', (e: L.LeafletMouseEvent) => {
+      handlersRef.current.click({ lat: e.latlng.lat, lng: e.latlng.lng })
+    })
+    fm.map.on('dblclick', () => {
+      handlersRef.current.finish()
+    })
 
-      map.addListener('click', (e: google.maps.MapMouseEvent) => {
-        if (!e.latLng) return
-        const pt: LatLng = { lat: e.latLng.lat(), lng: e.latLng.lng() }
-        handleMapClick(pt)
-      })
-
-      map.addListener('dblclick', () => {
-        finishActiveLine()
-      })
-
-      setIsLoaded(true)
+    setIsLoaded(true)
+    return () => {
+      fm.destroy()
+      freeRef.current = null
+      objectsLayerRef.current = null
+      activePolyRef.current = null
     }
-    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the map is made once; `center` moves it below
   }, [])
+
+  useEffect(() => { freeRef.current?.setBase(base) }, [base])
 
   // Re-center
   useEffect(() => {
-    if (mapRef.current && center.lat !== 0) {
-      mapRef.current.panTo(center)
-      mapRef.current.setZoom(19)
+    if (freeRef.current && center.lat !== 0) {
+      freeRef.current.map.setView([center.lat, center.lng], 19)
     }
   }, [center])
 
@@ -259,6 +265,9 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
 
     // Line-drawing modes
     if (m === 'fence' || m === 'property' || m === 'utility' || m === 'tearout') {
+      // The two clicks of a double-click land on the same spot: do not add a zero-length run.
+      const last = activePtsRef.current[activePtsRef.current.length - 1]
+      if (last && distanceFeet(last, pt) < 0.5) return
       activePtsRef.current = [...activePtsRef.current, pt]
       setActivePoints([...activePtsRef.current])
       renderActiveLine()
@@ -332,70 +341,60 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
     setLines(updatedLines)
     activePtsRef.current = []
     setActivePoints([])
-    if (activePolyRef.current) { activePolyRef.current.setMap(null); activePolyRef.current = null }
+    if (activePolyRef.current) { activePolyRef.current.remove(); activePolyRef.current = null }
     renderAllObjects(updatedLines, markers)
   }
 
   // ── Render the in-progress line ──
   function renderActiveLine() {
-    if (!mapRef.current) return
+    const map = freeRef.current?.map
+    if (!map) return
     const pts = activePtsRef.current
     const m = modeRef.current
     const cfg = LINE_COLORS[m] || LINE_COLORS.fence
 
-    if (activePolyRef.current) activePolyRef.current.setMap(null)
+    if (activePolyRef.current) { activePolyRef.current.remove(); activePolyRef.current = null }
     if (pts.length < 2) return
 
-    activePolyRef.current = new google.maps.Polyline({
-      map: mapRef.current,
-      path: pts,
-      strokeColor: cfg.stroke,
-      strokeWeight: 3,
-      strokeOpacity: 0.7,
-      ...(cfg.dash ? { icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 3 }, offset: '0', repeat: '12px' }] } : {}),
-    })
+    // Not interactive: taps on it keep placing points.
+    activePolyRef.current = L.polyline(pts.map(p => [p.lat, p.lng] as [number, number]), {
+      color: cfg.stroke,
+      weight: 3,
+      opacity: 0.7,
+      dashArray: cfg.dash ? cfg.dash.join(' ') : undefined,
+      interactive: false,
+    }).addTo(map)
   }
 
   // ── Render all saved lines + markers ──
   const renderAllObjects = useCallback((allLines: DrawnLine[], allMarkers: DrawnMarker[]) => {
-    if (!mapRef.current) return
-    const map = mapRef.current
+    const group = objectsLayerRef.current
+    if (!group) return
 
     // Clear previous
-    polylinesRef.current.forEach(p => p.setMap(null))
-    polylinesRef.current = []
-    gmMarkersRef.current.forEach(m => { m.map = null })
-    gmMarkersRef.current = []
+    group.clearLayers()
 
     // Draw lines
     for (const line of allLines) {
       const cfg = LINE_COLORS[line.type] || LINE_COLORS.fence
       const stroke = line.color || cfg.stroke
 
-      const polyline = new google.maps.Polyline({
-        map,
-        path: line.points,
-        strokeColor: stroke,
-        strokeWeight: line.type === 'fence' ? 4 : 3,
-        strokeOpacity: 0.9,
-      })
-
-      // Apply dash pattern via strokePattern for non-fence lines
-      if (cfg.dash) {
-        polyline.setOptions({
-          strokeOpacity: 0,
-          icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, strokeColor: stroke, scale: 3 }, offset: '0', repeat: `${cfg.dash[0] + cfg.dash[1]}px` }],
-        })
-      }
+      const polyline = L.polyline(line.points.map(p => [p.lat, p.lng] as [number, number]), {
+        color: stroke,
+        weight: line.type === 'fence' ? 4 : 3,
+        opacity: 0.9,
+        // Dash pattern for non-fence lines
+        dashArray: cfg.dash ? cfg.dash.join(' ') : undefined,
+        // A tap on a drawn line selects it and does not also place a point.
+        bubblingMouseEvents: false,
+      }).addTo(group)
 
       // Click handler to select this element
-      polyline.addListener('click', () => {
+      polyline.on('click', () => {
         setSelectedLineId(line.id)
         setSelectedMarkerId(null)
         setShowEditPopover(true)
       })
-
-      polylinesRef.current.push(polyline)
 
       // Measurement labels for fence lines
       if (line.type === 'fence') {
@@ -405,10 +404,7 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
           const el = document.createElement('div')
           el.style.cssText = `background:${stroke};color:white;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.3);`
           el.textContent = `${ft.toFixed(1)} ft`
-          const lm = new google.maps.marker.AdvancedMarkerElement({
-            map, position: { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 }, content: el,
-          })
-          gmMarkersRef.current.push(lm)
+          L.marker([(a.lat + b.lat) / 2, (a.lng + b.lng) / 2], { icon: centeredIcon(el), interactive: false, keyboard: false }).addTo(group)
         }
       }
 
@@ -419,10 +415,7 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
         el.style.cssText = `background:${stroke};color:white;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.3);`
         const kindLabel = line.utilityKind ? UTILITY_KINDS.find(k => k.kind === line.utilityKind)?.label : undefined
         el.textContent = kindLabel || MODE_CONFIG[line.type]?.label || line.type
-        const lm = new google.maps.marker.AdvancedMarkerElement({
-          map, position: { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 }, content: el,
-        })
-        gmMarkersRef.current.push(lm)
+        L.marker([(a.lat + b.lat) / 2, (a.lng + b.lng) / 2], { icon: centeredIcon(el), interactive: false, keyboard: false }).addTo(group)
       }
     }
 
@@ -446,15 +439,13 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
         el.textContent = `➡ ${mk.label}`
       }
 
-      const gm = new google.maps.marker.AdvancedMarkerElement({
-        map, position: mk.position, content: el,
-      })
-      gm.addListener('click', () => {
+      // Markers do not pass their taps on to the map, so selecting one places nothing.
+      const gm = L.marker([mk.position.lat, mk.position.lng], { icon: centeredIcon(el), keyboard: false }).addTo(group)
+      gm.on('click', () => {
         setSelectedMarkerId(mk.id)
         setSelectedLineId(null)
         setShowEditPopover(true)
       })
-      gmMarkersRef.current.push(gm)
     }
   }, [])
 
@@ -462,6 +453,8 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     renderAllObjects(lines, markers)
   }, [lines, markers, renderAllObjects])
+
+  handlersRef.current = { click: handleMapClick, finish: finishActiveLine }
 
   // ── Undo ──
   function handleUndo() {
@@ -486,11 +479,8 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
     setMarkers([])
     activePtsRef.current = []
     setActivePoints([])
-    if (activePolyRef.current) { activePolyRef.current.setMap(null); activePolyRef.current = null }
-    polylinesRef.current.forEach(p => p.setMap(null))
-    polylinesRef.current = []
-    gmMarkersRef.current.forEach(m => { m.map = null })
-    gmMarkersRef.current = []
+    if (activePolyRef.current) { activePolyRef.current.remove(); activePolyRef.current = null }
+    objectsLayerRef.current?.clearLayers()
   }
 
   // ── Save plan ──
@@ -621,19 +611,20 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
   const dblGates = markers.filter(m => m.type === 'gate_double').length
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-900/80 flex flex-col">
+    <div className="fixed inset-0 z-50 bg-gray-900/80 flex flex-col" data-site-plan-tool>
       {/* ── Top bar ── */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-bold text-gray-900">Site Plan</h2>
-          <div className="w-56">
+      <div className="bg-white border-b border-gray-200 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0 order-2 sm:order-1 basis-full sm:basis-auto">
+          <h2 className="hidden sm:block text-lg font-bold text-gray-900">Site Plan</h2>
+          <div className="w-full sm:w-72">
             <AddressInput onSelect={(addr, loc) => { setAddress(addr); setCenter(loc) }} />
           </div>
-          {address && <span className="text-xs text-gray-400 truncate max-w-64">{address}</span>}
+          {address && <span className="text-xs text-gray-400 truncate max-w-full sm:max-w-64">{address}</span>}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 order-1 sm:order-2 w-full sm:w-auto">
+          <h2 className="sm:hidden text-lg font-bold text-gray-900 mr-auto">Site Plan</h2>
           {totalFenceFt > 0 && (
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 basis-full sm:basis-auto order-last sm:order-none">
               {totalFenceFt.toFixed(0)} ft · {fenceLines.length} lines · {walkGates} WG · {dblGates} DG
             </span>
           )}
@@ -644,17 +635,18 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* ── Toolbox sidebar ── */}
-        <div className="w-48 bg-white border-r border-gray-200 flex flex-col shrink-0">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+        {/* ── Toolbox sidebar (below the map on a phone) ── */}
+        <div className="order-2 md:order-1 w-full md:w-48 max-h-[40vh] md:max-h-none overflow-y-auto bg-white border-t md:border-t-0 md:border-r border-gray-200 flex flex-col shrink-0" data-site-plan-toolbox>
           <div className="p-3 border-b border-gray-100">
             <p className="text-[10px] font-bold text-gray-400 mb-2">Drawing Tools</p>
-            <div className="space-y-1">
+            <div className="grid grid-cols-3 gap-1 md:block md:space-y-1">
               {(Object.entries(MODE_CONFIG) as [DrawMode, typeof MODE_CONFIG[DrawMode]][]).map(([key, cfg]) => (
                 <button
                   key={key}
                   onClick={() => { if (activePoints.length > 0) finishActiveLine(); setMode(key as DrawMode) }}
-                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                  data-site-plan-mode={key}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 min-h-[40px] md:min-h-0 rounded-lg text-xs transition-colors ${
                     mode === key ? 'bg-orange-500 text-white font-semibold' : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
@@ -706,6 +698,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
           {/* Actions */}
           <div className="p-3 border-b border-gray-100 space-y-1">
             <p className="text-[10px] font-bold text-gray-400 mb-2">Actions</p>
+            <div className="grid grid-cols-3 gap-1 md:block md:space-y-1">
             <button onClick={() => finishActiveLine()} disabled={activePoints.length < 2}
               className="w-full text-xs text-left px-2.5 py-1.5 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-30">
               ✓ Finish Line
@@ -716,13 +709,14 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
             <button onClick={handleClearAll} className="w-full text-xs text-left px-2.5 py-1.5 rounded-lg text-red-500 hover:bg-red-50">
               ✕ Clear All
             </button>
+            </div>
           </div>
 
           {/* Notes */}
           <div className="p-3 flex-1 flex flex-col">
             <p className="text-[10px] font-bold text-gray-400 mb-2">Notes</p>
             <textarea
-              className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-orange-400"
+              className="flex-1 min-h-[80px] border border-gray-200 rounded-lg px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-orange-400"
               placeholder="Job notes, special instructions..."
               value={notes} onChange={e => setNotes(e.target.value)}
             />
@@ -730,11 +724,13 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
         </div>
 
         {/* ── Map canvas ── */}
-        <div className="flex-1 relative">
-          <div ref={mapDivRef} className="w-full h-full" />
+        <div className="order-1 md:order-2 flex-1 min-h-[45vh] md:min-h-0 relative">
+          <div ref={mapDivRef} className="w-full h-full z-0" data-map data-site-plan-map />
+
+          <BaseToggle base={base} onChange={setBase} className="absolute top-3 left-14" />
 
           {/* Mode hint */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur rounded-lg px-4 py-2 shadow-lg">
+          <div className="absolute z-[500] bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-1.5rem)] sm:w-auto bg-white/90 backdrop-blur rounded-lg px-3 sm:px-4 py-2 shadow-lg pointer-events-none">
             <p className="text-xs text-gray-600">
               <span className="font-semibold">{MODE_CONFIG[mode].icon} {MODE_CONFIG[mode].label}:</span>{' '}
               {MODE_CONFIG[mode].hint}
@@ -743,7 +739,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
 
           {/* Element edit popover */}
           {showEditPopover && (selectedLineId || selectedMarkerId) && (
-            <div className="absolute top-3 right-3 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-64 z-50">
+            <div className="absolute top-3 right-3 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-64 max-w-[calc(100%-1.5rem)] z-[600]" data-site-plan-edit>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-bold text-gray-700">Edit Element</p>
                 <button onClick={() => { setShowEditPopover(false); setSelectedLineId(null); setSelectedMarkerId(null) }}
@@ -771,13 +767,15 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
 
           {/* Active drawing indicator */}
           {activePoints.length > 0 && (
-            <div className="absolute top-3 left-3 bg-orange-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow">
-              Drawing: {activePoints.length} points · double-click to finish
+            <div className="absolute z-[500] top-16 left-14 bg-orange-500 text-white text-xs font-semibold pl-3 pr-1 py-1 rounded-lg shadow flex items-center gap-2" data-site-plan-drawing>
+              <span>Drawing: {activePoints.length} points<span className="hidden sm:inline"> · double-click to finish</span></span>
+              <button type="button" onClick={() => finishActiveLine()} disabled={activePoints.length < 2}
+                className="min-h-[36px] px-3 rounded-md bg-white text-orange-600 font-bold disabled:opacity-40" data-site-plan-finish>Finish</button>
             </div>
           )}
 
           {!isLoaded && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+            <div className="absolute inset-0 z-[700] flex items-center justify-center bg-gray-100">
               <div className="text-gray-500">Loading map...</div>
             </div>
           )}

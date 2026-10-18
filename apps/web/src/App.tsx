@@ -59,6 +59,7 @@ import { initBusinessState, isBusinessStateHydrated } from './businessStateStore
 import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
 import { startIntakeSync } from './intakeStore'
 import { ToastContainer, toast } from './toast'
+import StageBlockedNotice from './StageBlockedNotice'
 import { isUpdateReady, reloadIfSafe, UPDATE_READY_EVENT } from './appUpdate'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
@@ -421,6 +422,7 @@ export default function App() {
   return (
     <>
       <ToastContainer />
+      <StageBlockedNotice />
       <AuthGate>
         {(crmUser, logout, changePassword) => <AppShell crmUser={crmUser} onLogout={logout} onChangePassword={changePassword} />}
       </AuthGate>

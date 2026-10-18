@@ -40,8 +40,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the same create sent 3 times (de
     return ((p?.leads as any[]) ?? []).filter(l => l?.customerId === customerId)
   }
   afterAll(async () => {
-    const p = await prisma.pipelineState.findUnique({ where: { accountId } })
-    if (p) await prisma.pipelineState.update({ where: { accountId }, data: { leads: ((p.leads as any[]) ?? []).filter(l => !made.includes(l?.customerId)), version: { increment: 1 } } })
+    // Only onto the copy it read (other test files save the board at the same time).
+    for (let i = 0; i < 10; i++) {
+      const p = await prisma.pipelineState.findUnique({ where: { accountId } })
+      if (!p) break
+      const done = await prisma.pipelineState.updateMany({ where: { accountId, version: p.version }, data: { leads: ((p.leads as any[]) ?? []).filter(l => !made.includes(l?.customerId)), version: { increment: 1 } } })
+      if (done.count) break
+    }
     await prisma.crmContactNote.deleteMany({ where: { crmContactId: { in: made } } })
     await prisma.savedJob.deleteMany({ where: { crmContactId: { in: made } } })
     await prisma.savedQuote.deleteMany({ where: { crmContactId: { in: made } } })

@@ -1,13 +1,13 @@
 /**
- * Automation Trigger Client
+ * Automation triggers used to be sent from the browser here, after a save,
+ * to an engine that kept nothing. They are now recorded by the server where
+ * the change is saved (a stage move with the pipeline or job save, a payment
+ * with Billing or the job, a photo when its upload finishes), in the same
+ * database step, so nothing is lost and nothing runs twice.
  *
- * Called from the CRM frontend whenever a job/deal stage changes.
- * Fires events to the portal backend which evaluates all active automations.
+ * These functions stay so the screens that called them need no change; they
+ * deliberately send nothing. See apps/portal/src/server/lib/automations/.
  */
-
-const AUTOMATION_API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/automations/trigger'
-import { fetchWithAuth } from './crmAuth'
-import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 export interface TriggerEvent {
   jobId?: string
@@ -28,65 +28,16 @@ export interface TriggerEvent {
   extraData?: Record<string, unknown>
 }
 
-/**
- * Fire an automation trigger. Non-blocking — errors are silently logged.
- */
-export function fireTrigger(triggerType: string, event: TriggerEvent): void {
-  fetchWithAuth(AUTOMATION_API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ triggerType, event }),
-  }).catch(err => console.warn('[Automation] Trigger failed:', err))
-}
-
-// ── Convenience functions ──
-
-export function fireOpsStageChange(jobId: string, fromStage: string, toStage: string, jobData?: Partial<TriggerEvent>): void {
-  fireTrigger('ops_stage_change', { jobId, fromStage, toStage, ...jobData })
-}
-
-export function fireSalesStageChange(dealId: string, fromStage: string, toStage: string, dealData?: Partial<TriggerEvent>): void {
-  fireTrigger('sales_stage_change', { jobId: dealId, fromStage, toStage, ...dealData })
-}
-
-export function fireJobCreated(jobId: string, jobData?: Partial<TriggerEvent>): void {
-  fireTrigger('job_created', { jobId, ...jobData })
-}
-
-export function fireJobAssigned(jobId: string, crewAssigned: string, jobData?: Partial<TriggerEvent>): void {
-  fireTrigger('job_assigned', { jobId, crewAssigned, ...jobData })
-}
-
-export function fireJobScheduled(jobId: string, scheduledDate: string, jobData?: Partial<TriggerEvent>): void {
-  fireTrigger('job_scheduled', { jobId, scheduledDate, ...jobData })
-}
-
-export function fireRainDayFlagged(jobId: string, jobData?: Partial<TriggerEvent>): void {
-  fireTrigger('rain_day_flagged', { jobId, ...jobData })
-}
-
-export function firePaymentReceived(jobId: string, jobData?: Partial<TriggerEvent>): void {
-  fireTrigger('payment_received', { jobId, ...jobData })
-}
-
-export function fireCustomerCreated(customerId: string, data?: Partial<TriggerEvent>): void {
-  fireTrigger('customer_created', { ...data, extraData: { ...data?.extraData, customerId } })
-}
-
-export function fireInvoiceCreated(invoiceId: string, customerId?: string, totalCents?: number, data?: Partial<TriggerEvent>): void {
-  fireTrigger('invoice_created', {
-    jobId: invoiceId, ...data,
-    extraData: { ...data?.extraData, invoiceId, customerId, totalCents },
-  })
-}
-
-export function fireQuoteSold(quoteId: string, customerId?: string, totalCents?: number, data?: Partial<TriggerEvent>): void {
-  fireTrigger('quote_sold', {
-    jobId: quoteId, ...data,
-    extraData: { ...data?.extraData, quoteId, customerId, totalCents },
-  })
-}
-
-export function fireJobRescheduled(jobId: string, scheduledDate: string, data?: Partial<TriggerEvent>): void {
-  fireTrigger('job_rescheduled', { jobId, scheduledDate, ...data })
-}
+/** Recorded by the server with the save itself; nothing is sent from here. */
+export function fireTrigger(_triggerType: string, _event: TriggerEvent): void { /* recorded server side */ }
+export function fireOpsStageChange(_jobId: string, _fromStage: string, _toStage: string, _jobData?: Partial<TriggerEvent>): void { /* recorded server side */ }
+export function fireSalesStageChange(_dealId: string, _fromStage: string, _toStage: string, _dealData?: Partial<TriggerEvent>): void { /* recorded server side */ }
+export function fireJobCreated(_jobId: string, _jobData?: Partial<TriggerEvent>): void { /* recorded server side */ }
+export function fireJobAssigned(_jobId: string, _crewAssigned: string, _jobData?: Partial<TriggerEvent>): void { /* recorded server side */ }
+export function fireJobScheduled(_jobId: string, _scheduledDate: string, _jobData?: Partial<TriggerEvent>): void { /* recorded server side */ }
+export function fireRainDayFlagged(_jobId: string, _jobData?: Partial<TriggerEvent>): void { /* recorded server side */ }
+export function firePaymentReceived(_jobId: string, _jobData?: Partial<TriggerEvent>): void { /* recorded server side */ }
+export function fireCustomerCreated(_customerId: string, _data?: Partial<TriggerEvent>): void { /* recorded server side */ }
+export function fireInvoiceCreated(_invoiceId: string, _customerId?: string, _totalCents?: number, _data?: Partial<TriggerEvent>): void { /* recorded server side */ }
+export function fireQuoteSold(_quoteId: string, _customerId?: string, _totalCents?: number, _data?: Partial<TriggerEvent>): void { /* recorded server side */ }
+export function fireJobRescheduled(_jobId: string, _scheduledDate: string, _data?: Partial<TriggerEvent>): void { /* recorded server side */ }
