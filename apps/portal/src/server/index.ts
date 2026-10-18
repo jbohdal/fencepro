@@ -72,6 +72,7 @@ import quoteWidget from './routes/quote-widget.js'
 import systemRoutes from './routes/system.js'
 import cronRoutes from './routes/cron.js'
 import portalRoutes from './routes/portal.js'
+import feedbackRoutes from './routes/feedback.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
@@ -226,6 +227,7 @@ app.use('/api/crm-contacts', crmContactRoutes)
 app.use('/api/admin', adminAuditRoutes)
 app.use('/api/cron', cronRoutes)                // Vercel cron jobs
 app.use('/api/portal', portalRoutes)            // Customer portal accounts + activation
+app.use('/api/feedback', feedbackRoutes)        // "Send feedback" from inside the app
 
 // ── Health check (expanded) ──
 //

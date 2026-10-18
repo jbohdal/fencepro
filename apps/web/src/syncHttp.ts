@@ -21,7 +21,7 @@ export async function sendJson(method: string, path: string, body?: unknown, tim
     })
     const json = await res.json().catch(() => ({}))
     if (res.ok && json?.success !== false) return { result: { ok: true, data: json?.data }, json, status: res.status }
-    return { result: { ok: false, status: res.status, error: json?.error }, json, status: res.status }
+    return { result: { ok: false, status: res.status, error: json?.error, ...(typeof json?.code === 'string' ? { code: json.code } : {}) }, json, status: res.status }
   } catch (err) {
     return { result: { ok: false, status: 0, error: (err as Error)?.message || 'network' }, json: null, status: 0 }
   } finally {

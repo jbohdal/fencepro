@@ -19,6 +19,7 @@ import MaterialKitsTab from './MaterialKitsTab'
 import FillInTab from './FillInTab'
 import { groupCatalog, NEW_ITEMS_GROUP } from './inventorySort'
 import { useMergedRefresh } from './useMergedRefresh'
+import { can } from './permissions'
 import type {
   InventoryItem,
   InventoryLocation, StockLevel,
@@ -163,6 +164,8 @@ function DashboardTab() {
 type PriceFilter = 'all' | 'check' | 'unconfirmed' | 'old' | 'fresh'
 
 function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: () => void } = {}) {
+  // Item names and prices are the owner's, an admin's or a manager's to change (the server refuses anyone else).
+  const canPrice = can('prices.change')
   const [items, setItems]                   = useState<InventoryItem[]>([])
   const [levels, setLevels]                 = useState<StockLevel[]>([])
   const [search, setSearch]                 = useState('')
@@ -308,14 +311,14 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
           <h2 className="text-lg font-bold text-gray-900">Item Catalog</h2>
           <p className="text-sm text-gray-400 mt-0.5">{items.length} items · grouped by category, A to Z · click name to edit · changes apply to future quotes</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        {canPrice ? <div className="flex flex-wrap gap-2">
           <button onClick={handleReset} className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50">Reset defaults</button>
           <button onClick={() => setShowBulkImport(true)} className="text-sm text-blue-600 border border-blue-300 rounded-lg px-3 py-2 hover:bg-blue-50">📥 Bulk Import</button>
           <button onClick={addItem} className="text-sm text-orange-500 border border-orange-300 rounded-lg px-3 py-2 hover:bg-orange-50">+ Add item</button>
           <button onClick={handleSave} className={`text-sm font-semibold px-4 py-2 rounded-lg transition-colors ${saved ? 'bg-green-500 text-white' : 'bg-orange-500 hover:bg-orange-600 text-white'}`}>
             {saved ? '✓ Saved' : 'Save Changes'}
           </button>
-        </div>
+        </div> : <p className="text-sm text-gray-500" data-view-only>View only. Prices are changed by Jonathan.</p>}
       </div>
 
       <div className="flex flex-col lg:flex-row gap-2 lg:gap-3 mb-4">
@@ -353,13 +356,14 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
           {onShowAll && <button onClick={onShowAll} className="btn btn-quiet btn-sm">Show all items</button>}
         </div>
       )}
-      {toConfirm.length > 0 && (
+      {canPrice && toConfirm.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <p className="text-xs text-gray-500">{toConfirm.length} shown item{toConfirm.length === 1 ? '' : 's'} with a price older than {staleMonths} months or never confirmed.</p>
           <button onClick={confirmShown} className="btn btn-quiet btn-sm" data-confirm-shown>Confirm these prices ({toConfirm.length})</button>
         </div>
       )}
 
+      <fieldset disabled={!canPrice} className="min-w-0 border-0 p-0 m-0" data-catalog-locked={!canPrice || undefined}>
       <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
         <table className="w-full text-sm min-w-[820px]">
           <thead className="bg-gray-50 border-b border-gray-200">
@@ -494,6 +498,7 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
         </table>
         {filtered.length === 0 && <div className="text-center py-12 text-gray-400 text-sm">No items match your search</div>}
       </div>
+      </fieldset>
       <p className="text-xs text-gray-400 mt-2">{filtered.length} of {items.length} items · barcodes: comma-separate multiple values, press Enter to save</p>
       {showBulkImport && (
         <BulkImportModal
@@ -877,7 +882,9 @@ export default function AdminPage({ onlyIds, onShowAll }: { onlyIds?: string[]; 
   // Opened from a quote's "Open in Inventory": straight to those items.
   // ?tab=fillin opens a tab straight away (the Finish setup card links there).
   const asked = new URLSearchParams(window.location.search).get('tab') as InvTab | null
-  const [tab, setTab] = useState<InvTab>(onlyIds ? 'catalog' : asked && TAB_LABELS.some(t => t.key === asked) ? asked : 'dashboard')
+  // Kits and Fill in set prices; Stock and Locations change stock. A login that may not do either does not see those tabs.
+  const tabs = TAB_LABELS.filter(t => (t.key === 'kits' || t.key === 'fillin') ? can('prices.change') : (t.key === 'stock' || t.key === 'locations') ? can('inventory.stock') : true)
+  const [tab, setTab] = useState<InvTab>(onlyIds ? 'catalog' : asked && tabs.some(t => t.key === asked) ? asked : 'dashboard')
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -888,7 +895,7 @@ export default function AdminPage({ onlyIds, onShowAll }: { onlyIds?: string[]; 
         </div>
 
         <div className="flex flex-wrap lg:flex-nowrap gap-1 bg-gray-100 rounded-xl p-1 mb-6 lg:mb-8 overflow-x-auto">
-          {TAB_LABELS.map(t => (
+          {tabs.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`flex items-center gap-2 flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
                 tab === t.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>

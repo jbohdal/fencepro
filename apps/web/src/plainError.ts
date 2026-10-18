@@ -26,7 +26,11 @@ export function plainError(status: number, serverMessage?: string | null, what =
     return { kind: 'offline', retry: true, message: `No signal right now. ${what} is kept on this phone and will be sent as soon as there is signal.` }
   }
   if (status === 401) return { kind: 'signed-out', retry: true, message: `You have been signed out. Sign in again; ${what.toLowerCase()} is kept on this phone and will be sent after you sign in.` }
-  if (status === 403) return { kind: 'not-allowed', retry: false, message: `Your login is not allowed to do this. Ask Jonathan to check your access.` }
+  if (status === 403) {
+    // The server says in plain words what this login may not do ("Your role cannot change prices. Ask Jonathan.").
+    const plain = msg && READABLE.test(msg) && msg.length < 160
+    return { kind: 'not-allowed', retry: false, message: plain ? msg : `Your login is not allowed to do this. Ask Jonathan to check your access.` }
+  }
   if (status === 404) return { kind: 'gone', retry: false, message: `${what} could not be saved because the record it belongs to is not on the server any more. It may have been deleted on another device.` }
   if (status === 409) return { kind: 'conflict', retry: false, message: `This was changed on another device first. Open it again to see that change, then make yours again if it still applies.` }
   if (status === 413) return { kind: 'too-big', retry: false, message: `That is too big to send. Try a shorter video or fewer photos at once.` }

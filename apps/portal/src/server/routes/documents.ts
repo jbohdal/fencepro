@@ -5,6 +5,7 @@ import { createOnce, requestIdOf } from '../lib/once.js'
 import { str } from '../lib/helpers.js'
 import { requireAuth } from '../middleware/auth.js'
 import { auditLog } from '../middleware/audit.js'
+import { requireCrmCan } from '../lib/permissions.js'
 import { validateFile, storeFile, getFilePath, deleteFile, scanFile } from '../lib/storage/index.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } })
@@ -124,7 +125,7 @@ router.get('/:id/download', requireAuth, auditLog('document_download'), async (r
 })
 
 // ── Delete document (soft delete) ──
-router.delete('/:id', requireAuth, auditLog('document_delete'), async (req, res) => {
+router.delete('/:id', requireAuth, requireCrmCan('ops.delete'), auditLog('document_delete'), async (req, res) => {
   try {
     const doc = await prisma.document.findUnique({ where: { id: str(req.params.id) } })
 

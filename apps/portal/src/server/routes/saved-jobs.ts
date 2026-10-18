@@ -25,6 +25,7 @@ import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
 import { checkJobMove, refuseBlocked } from '../lib/automations/stageRules.js'
 import { recordJobChanges } from '../lib/automations/hooks.js'
+import { requireCan } from '../lib/permissions.js'
 
 const router = Router()
 
@@ -150,7 +151,7 @@ router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
 })
 
 // ── Create ──
-router.post('/', requireUser, requireAccount, async (req: any, res) => {
+router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   try {
     const data = jobSchema.parse(req.body)
     const clientId = clientIdSchema.parse(data.id)
@@ -237,7 +238,7 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
 })
 
 // ── Delete (soft) ──
-router.delete('/:id', requireUser, requireAccount, async (req: any, res) => {
+router.delete('/:id', requireUser, requireAccount, requireCan('records.delete'), async (req: any, res) => {
   try {
     const existing = await prisma.savedJob.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.accountId !== req.user.crmAccountId || existing.archivedAt) {
@@ -255,7 +256,7 @@ router.delete('/:id', requireUser, requireAccount, async (req: any, res) => {
 
 // ── Bulk sync ──
 const syncSchema = z.object({ jobs: z.array(jobSchema) })
-router.post('/sync', requireUser, requireAccount, async (req: any, res) => {
+router.post('/sync', requireUser, requireAccount, requireCan('records.import'), async (req: any, res) => {
   try {
     const { jobs } = syncSchema.parse(req.body)
     let created = 0, updated = 0, skipped = 0

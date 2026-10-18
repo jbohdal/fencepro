@@ -2430,3 +2430,35 @@ model AutomationEffect {
 
   @@index([runId])
 }
+
+/// "Send feedback" from inside the app: what was on screen (a screenshot),
+/// what the person wrote, and where they were. The id is chosen on the phone,
+/// so a send repeated by the save queue is one row.
+model Feedback {
+  id             String    @id
+  accountId      String
+  userId         String
+  userName       String    @default("")
+  role           String    @default("")
+  /// Page address: path and query (/customers/abc?tab=notes)
+  path           String    @default("")
+  /// "390x844 @3x"
+  screen         String    @default("")
+  userAgent      String    @default("")
+  /// The app file the phone was running (/assets/index-<hash>.js)
+  appFile        String    @default("")
+  text           String    @default("")
+  /// Screenshot under UPLOAD_DIR (feedback/<accountId>/<id>.jpg), null when none
+  screenshotPath String?
+  /// Page errors seen since the app was opened: [{ at, message }]
+  errors         Json      @default("[]")
+  /// new | seen | done
+  status         String    @default("new")
+  statusAt       DateTime?
+  statusBy       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([accountId, createdAt])
+  @@index([accountId, status])
+}

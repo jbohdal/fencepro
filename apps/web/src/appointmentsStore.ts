@@ -158,6 +158,7 @@ export async function updateAppointment(id: string, changes: AppointmentChanges,
 }
 
 registerKind<ApptCreate>('appointment.create', {
+  refused: () => { void refreshAppointments() },
   what: () => 'This appointment',
   send: op => sendJson('POST', '/api/appointments', op.payload.input).then(r => r.result),
   confirmed: (_op, data) => { if (data) put(data as Appointment) },
@@ -165,6 +166,7 @@ registerKind<ApptCreate>('appointment.create', {
 })
 
 registerKind<ApptChange>('appointment.update', {
+  refused: () => { void refreshAppointments() },
   what: () => 'This change to the appointment',
   send: async (op: Op<ApptChange>) => {
     // Built on the copy the server last confirmed (earlier changes from this phone go first).

@@ -4,6 +4,7 @@ import { getQuotes } from './quoteStore'
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
+import { can } from './permissions'
 
 /* ───────── types ───────── */
 
@@ -689,11 +690,11 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                   {fmtPct(j.actGM)}
                 </td>
                 <td data-label="Actions" className="px-2 py-3 text-right">
-                  <button
+                  {can('ops.delete') && <button
                     onClick={e => { e.stopPropagation(); handleDelete(j.entry.id) }}
                     className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 text-lg leading-none"
                     title="Delete"
-                  >×</button>
+                  >×</button>}
                 </td>
               </tr>
             ))}

@@ -13,6 +13,7 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { isStaffRequest, verifyStaffBearer } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
+import { requireStaffCan } from '../lib/permissions.js'
 
 const router = Router()
 
@@ -239,7 +240,7 @@ const invoiceSchema = z.object({
   notes: z.string().optional(),
 })
 
-router.post('/invoices', async (req, res) => {
+router.post('/invoices', requireStaffCan('billing.change'), async (req, res) => {
   try {
     const data = invoiceSchema.parse(req.body)
     const account = await resolveSyncAccount(req, data.accountExternalId)

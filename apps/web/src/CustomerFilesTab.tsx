@@ -16,6 +16,7 @@ import {
   resolveFileUrl,
   type PortalFileRow,
 } from './portalApiClient'
+import { can } from './permissions'
 
 interface LegacyFile {
   id: string
@@ -178,7 +179,7 @@ export default function CustomerFilesTab({
                         <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
                           <button onClick={() => handleOpen(d)} className="text-xs text-blue-600 hover:underline mr-3">View</button>
                           <button onClick={() => handleDownload(d)} className="text-xs text-gray-500 hover:underline mr-3">Download</button>
-                          <button onClick={() => handleDelete(d)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
+                          {can('ops.delete') && <button onClick={() => handleDelete(d)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-500 text-lg leading-none">×</button>}
                         </td>
                       </tr>
                     )
@@ -222,7 +223,7 @@ export default function CustomerFilesTab({
                           const url = f.url || f.dataUrl
                           if (url) { const a = document.createElement('a'); a.href = url; a.download = f.name; a.click() }
                         }} className="text-xs text-gray-500 hover:underline mr-3">Download</button>
-                        <button onClick={() => onLegacyFileDelete?.(f.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
+                        {onLegacyFileDelete && <button onClick={() => onLegacyFileDelete(f.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-500 text-lg leading-none">×</button>}
                       </td>
                     </tr>
                   ))}

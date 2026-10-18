@@ -26,6 +26,7 @@ import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
 import { applyPipelineDelta } from '../lib/pipelineDelta.js'
 import { recordCardMoves } from '../lib/automations/hooks.js'
+import { requireCan } from '../lib/permissions.js'
 
 const router = Router()
 
@@ -256,7 +257,7 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
 })
 
 // ── Delete (soft) ──
-router.delete('/:id', requireAccount, async (req: any, res) => {
+router.delete('/:id', requireAccount, requireCan('records.delete'), async (req: any, res) => {
   try {
     const existing = await prisma.crmContact.findUnique({ where: { id: req.params.id } })
     if (!existing) { res.status(404).json({ success: false, error: 'Contact not found' }); return }
@@ -278,7 +279,7 @@ router.delete('/:id', requireAccount, async (req: any, res) => {
 // and falls back to (accountId, firstName, lastName, phone) so legacy records
 // from any user in the company merge into the shared account view. ownerId is
 // set to the syncing user only on insert (audit trail for the migrator).
-router.post('/sync', requireAccount, async (req: any, res) => {
+router.post('/sync', requireAccount, requireCan('records.import'), async (req: any, res) => {
   try {
     const items = z.array(contactSchema).parse(req.body?.contacts || [])
     let created = 0, updated = 0
@@ -423,7 +424,7 @@ router.patch('/:id/notes/:noteId', requireAccount, async (req: any, res) => {
 })
 
 // Soft delete a note.
-router.delete('/:id/notes/:noteId', requireAccount, async (req: any, res) => {
+router.delete('/:id/notes/:noteId', requireAccount, requireCan('ops.delete'), async (req: any, res) => {
   try {
     const contact = await loadContactInAccount(req, res)
     if (!contact) return
@@ -457,7 +458,7 @@ const noteSyncSchema = z.object({
   })),
 })
 
-router.post('/notes/sync', requireAccount, async (req: any, res) => {
+router.post('/notes/sync', requireAccount, requireCan('records.import'), async (req: any, res) => {
   try {
     const { notes } = noteSyncSchema.parse(req.body)
     let created = 0, skipped = 0

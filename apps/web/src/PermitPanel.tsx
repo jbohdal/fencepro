@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { api, openPdf, type Permit } from './automationsApi'
 import { toast } from './toast'
+import { can } from './permissions'
 
 const STATUSES: Array<[string, string]> = [['not_needed', 'Not needed'], ['needed', 'Needed'], ['applied', 'Applied'], ['approved', 'Approved'], ['inspection_scheduled', 'Inspection scheduled'], ['passed', 'Passed']]
 type Portal = { name: string; url: string; info: string; note: string } | null
@@ -59,8 +60,10 @@ export default function PermitPanel({ jobId }: { jobId: string }) {
   const label = 'block text-xs font-semibold text-gray-700 mb-1'
 
   if (!loaded) return <p className="text-sm text-gray-500">Loading the permit…</p>
+  // Permits are the office's (and up) to change; others see them.
+  const locked = !can('permits.change')
   return (
-    <div className="space-y-3" data-permit-panel={jobId}>
+    <fieldset disabled={locked} className="space-y-3 min-w-0 border-0 p-0 m-0" data-permit-panel={jobId}>
       {!saved && <p className="text-sm text-gray-600">No permit status yet. Set it and press Save.</p>}
       <div>
         <label className={label} htmlFor={`permit-status-${jobId}`}>Status</label>
@@ -97,7 +100,7 @@ export default function PermitPanel({ jobId }: { jobId: string }) {
         {portal && form.status !== 'not_needed' && <a className="btn btn-quiet" href={portal.url} target="_blank" rel="noreferrer">{portal.name}</a>}
       </div>
       {portal && form.status !== 'not_needed' && <p className="text-xs text-gray-500">{portal.note} Filing is done by you on the county site; nothing is filed automatically.</p>}
-    </div>
+    </fieldset>
   )
 }
 

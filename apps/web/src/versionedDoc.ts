@@ -14,6 +14,11 @@ export type SaveResult<T> =
   | { status: 'saved'; version: number }
   | { status: 'stale'; server: T; version: number }
   | { status: 'failed' }
+  /** The server refused it for this login's role; `server` is its copy, to put the screen back. */
+  | { status: 'refused'; message: string; server?: T; version?: number }
+
+/** What a push came to: saved (true), not reached (false), or refused for the login's role. */
+export type PushResult = boolean | { refused: string }
 
 export interface VersionedDocOptions<T> {
   /** The local copy as it is right now. */
@@ -31,8 +36,8 @@ export interface VersionedDoc<T> {
   /** Call when the record has loaded from the server. */
   loaded: (server: T, version: number) => void
   version: () => number
-  /** Save until the server and this tab agree. False when the server could not be reached. */
-  push: () => Promise<boolean>
+  /** Save until the server and this tab agree. False when the server could not be reached; { refused } when the role may not make this change (the local copy is put back to the server's). */
+  push: () => Promise<PushResult>
 }
 
 const clone = <T>(v: T): T => (v === undefined ? (null as unknown as T) : JSON.parse(JSON.stringify(v)))
@@ -51,6 +56,14 @@ export function createVersionedDoc<T>(opts: VersionedDocOptions<T>): VersionedDo
         if (deepEqual(sent, base)) return true        // nothing of mine to send
         const r = await opts.save(sent, version, base)
         if (r.status === 'failed') return false
+        if (r.status === 'refused') {
+          if (r.server !== undefined) {
+            base = clone(r.server)
+            if (typeof r.version === 'number') version = r.version
+            opts.apply(clone(r.server))
+          }
+          return { refused: r.message }
+        }
         if (r.status === 'saved') {
           base = sent
           version = r.version

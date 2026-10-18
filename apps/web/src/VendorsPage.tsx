@@ -17,6 +17,7 @@ import AddressAutocomplete from './AddressAutocomplete'
 import { toast } from './toast'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
+import { can } from './permissions'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(c / 100)
@@ -165,7 +166,7 @@ function VendorDetail({ vendor, onReload, onEdit, onDelete }: {
         </div>
         <div className="flex gap-2">
           <button onClick={onEdit} className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg">Edit</button>
-          <button onClick={onDelete} className="text-sm text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg">Delete</button>
+          {can('records.delete') && <button onClick={onDelete} className="text-sm text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg">Delete</button>}
         </div>
       </div>
 

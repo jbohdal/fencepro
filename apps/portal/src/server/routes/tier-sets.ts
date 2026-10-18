@@ -17,6 +17,7 @@ import { clientIdSchema } from '../lib/clientId.js'
 import { createOnce, isUniqueViolation } from '../lib/once.js'
 import { plainZod } from '../lib/plainZod.js'
 import { ensureTierSets, tierSetBodySchema } from '../lib/tierSets.js'
+import { requireCan } from '../lib/permissions.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -40,7 +41,7 @@ router.get('/', async (req: any, res) => {
 
 const createSchema = tierSetBodySchema.extend({ category: z.string().trim().min(1, 'Pick a category').max(80) })
 
-router.post('/', async (req: any, res) => {
+router.post('/', requireCan('prices.change'), async (req: any, res) => {
   try {
     const body = createSchema.parse(req.body)
     const accountId = req.user.crmAccountId
@@ -68,7 +69,7 @@ router.post('/', async (req: any, res) => {
   } catch (err) { fail(res, err, 'add the tier set') }
 })
 
-router.put('/:id', async (req: any, res) => {
+router.put('/:id', requireCan('prices.change'), async (req: any, res) => {
   try {
     const body = tierSetBodySchema.parse(req.body)
     const version = z.number().int().optional().parse(req.body?.version)
@@ -87,7 +88,7 @@ router.put('/:id', async (req: any, res) => {
   } catch (err) { fail(res, err, 'save the tier set') }
 })
 
-router.delete('/:id', async (req: any, res) => {
+router.delete('/:id', requireCan('prices.change'), async (req: any, res) => {
   try {
     const accountId = req.user.crmAccountId
     const n = await prisma.proposalTierSet.deleteMany({ where: { id: String(req.params.id), accountId } })

@@ -165,9 +165,21 @@ registerKind<PipelineDelta>('pipeline.delta', {
     return r.result
   },
   apply: () => { /* put back by withPending when the pipeline loads */ },
+  // Refused for this login's role (removing a card, changing the stages): back to the server's board.
+  refused: () => { void reloadPipeline() },
 })
 
 export const PIPELINE_UPDATED_EVENT = EVT
+
+/** The whole board again from the server, this phone's other waiting changes on top. */
+async function reloadPipeline(): Promise<void> {
+  const r = await sendJson('GET', '/api/pipeline')
+  if (!r.result.ok || !r.json?.data) return
+  version = typeof r.json.data.version === 'number' ? r.json.data.version : version
+  cache = withPending(pick(r.json.data))
+  base = clone(cache)
+  emit()
+}
 
 /** Read the board again (the server moves cards on its own: a customer accepting online). This phone's waiting changes stay on top. */
 export async function refreshPipeline(): Promise<void> {

@@ -13,7 +13,7 @@
 
 import { toast } from './toast'
 import { fetchWithAuth, getAccessToken } from './crmAuth'
-import { createVersionedDoc, type SaveResult } from './versionedDoc'
+import { createVersionedDoc, type SaveResult, type PushResult } from './versionedDoc'
 import { merge3 } from './merge3'
 import { registerKind, enqueue, pendingFor } from './outbox'
 
@@ -113,14 +113,18 @@ export interface VersionedFlusher<T> extends Flusher {
  * copy (see versionedDoc and merge3) and saved again.
  */
 interface DocSave { name: string; base: unknown; mine: unknown }
-const docs = new Map<string, { push: () => Promise<boolean>; isHydrated: () => boolean }>()
+const docs = new Map<string, { push: () => Promise<PushResult>; isHydrated: () => boolean }>()
 registerKind<DocSave>('doc.save', {
   what: op => `This change to ${op.payload.name.toLowerCase()}`,
   send: async op => {
     const d = docs.get(op.payload.name)
     // The module has not loaded yet on this visit: wait for it.
     if (!d || !d.isHydrated()) return { ok: false, status: 503 }
-    return (await d.push()) ? { ok: true } : { ok: false, status: 0 }
+    const out = await d.push()
+    if (out === true) return { ok: true }
+    // Refused for this login's role: the copy on screen is already the server's again.
+    if (out && typeof out === 'object') return { ok: false, status: 403, code: 'NOT_ALLOWED', error: out.refused }
+    return { ok: false, status: 0 }
   },
 })
 
@@ -136,7 +140,12 @@ export function createVersionedFlusher<T>(opts: {
   let serverCopy: T | null = null
   const doc = createVersionedDoc<T>({
     get: opts.get, apply: opts.apply,
-    save: async (state, v, base) => { const r = await opts.save(state, v, base); if (r.status === 'saved') serverCopy = state; return r },
+    save: async (state, v, base) => {
+      const r = await opts.save(state, v, base)
+      if (r.status === 'saved') serverCopy = state
+      if (r.status === 'refused' && r.server !== undefined) serverCopy = JSON.parse(JSON.stringify(r.server ?? null))
+      return r
+    },
     onMerged: ({ problems }) => {
       // A screen holding its own copy of this record needs to read it again.
       // One that can do so in place says so (useMergedRefresh); otherwise the
@@ -202,6 +211,10 @@ export async function versionedSave<T>(url: string, method: 'PUT' | 'PATCH', bod
     const json = await res.json().catch(() => ({}))
     if (res.status === 409 && json?.code === 'STALE_VERSION') {
       return { status: 'stale', server: pick(json.data), version: typeof json.version === 'number' ? json.version : 0 }
+    }
+    if (res.status === 403 && json?.code === 'NOT_ALLOWED') {
+      const message = typeof json.error === 'string' ? json.error : 'Your login is not allowed to do this. Ask Jonathan.'
+      return 'data' in json ? { status: 'refused', message, server: pick(json.data), version: typeof json.version === 'number' ? json.version : undefined } : { status: 'refused', message }
     }
     if (!res.ok || !json?.success) return { status: 'failed' }
     const version = typeof json.version === 'number' ? json.version : json.data?.version

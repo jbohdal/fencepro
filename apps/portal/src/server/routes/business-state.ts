@@ -20,6 +20,7 @@ import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.
 import { recordNewPayments } from '../lib/automations/hooks.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
+import { businessPatchRefusal, refuse, roleOf } from '../lib/permissions.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -82,6 +83,10 @@ router.patch('/', async (req: any, res) => {
     const base = baseVersionOf(req.body)
     if (base === null) { refuseUnversioned(res); return }
     const accountId = req.user.crmAccountId
+    // Settings, prices and the books are for the owner, admin and manager; each key is checked on its own.
+    const saved = await prisma.businessState.findUnique({ where: { accountId } })
+    const refused = businessPatchRefusal(roleOf(req), req.user.id ?? null, saved as any, updateData)
+    if (refused) { refuse(res, refused, { data: saved, version: saved?.version ?? 0 }); return }
     // One version covers the whole record, so a patch built on an older copy
     // is refused even when it touches a different field; the browser merges.
     // Payments recorded in Billing become "payment received" automation events, saved in the same step.

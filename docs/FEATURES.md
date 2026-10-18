@@ -160,6 +160,12 @@ Status key:
 * Google sign in keys removed from the working folder's settings: they live only in the live settings. **LIVE** (Oct 18)
 * Phone Schedule tab opens the install schedule, with a day view on top: that day's installs and appointments, previous/next day, back to today; tapping an appointment opens it. **LIVE** (Oct 17)
 
+## 9b. Logins and roles (Oct 18)
+
+* Roles enforced by the server (not just hidden in the app): a salesman can quote, send proposal links, add leads and customers, move cards, add notes, book appointments, take photos and view the schedule; cannot change settings, prices, kits, tiers, stages, automations, schedule, vendors or billing, cannot manage users, and cannot delete anything ("Your role cannot change prices. Ask Jonathan."). Office staff runs operations (schedule, billing, vendors, stock counts, permits) without settings, prices or users; field crew is like a salesman without quote writes; manager is everything except users and system tools. A refused save is not retried forever: the screen goes back and says why. **LIVE**
+* Inviting: Team > + Invite Team Member, pick the role, Send Invite; the link (also shown with Copy link) works once, for 72 hours; Resend fixed. Only the owner and admins invite or change roles; a role change signs that person out (a role change takes up to 15 minutes to reach a token already in use). **LIVE**
+* Send feedback (the speech bubble with + in the top bar, every page, every login): takes a picture of the screen, a box for what's wrong, sends with the page, time, device and app version; works with weak signal (sent once). Feedback list for the owner (Admin > Feedback) with New / Seen / Done; a notification for each new one. Claude Code reads it with `cd ~/ezbiz/apps/portal && npx tsx scripts/feedback-report.ts` (read only). Pictures from other sites (some map tiles) come out blank. **LIVE**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)

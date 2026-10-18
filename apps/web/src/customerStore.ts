@@ -160,6 +160,9 @@ export async function refreshCustomers(): Promise<void> {
   if (!r.json.partial || rows.length) { reapply('customer.'); emit() }
 }
 
+/** Read the whole list again: a change was refused, so the screen goes back to what the server has. */
+function reloadCustomers() { lastSync = null; void refreshCustomers() }
+
 export function getCustomers(): Customer[] {
   return cache
 }
@@ -272,6 +275,7 @@ function pushCustomerUpdate(id: string): void {
 }
 
 registerKind<CreatePayload>('customer.create', {
+  refused: () => reloadCustomers(),
   what: () => 'This customer',
   send: async (op: Op<CreatePayload>) => {
     const { customer, lead, leadBefore } = op.payload
@@ -299,12 +303,14 @@ registerKind<CreatePayload>('customer.create', {
 })
 
 registerKind<Customer>('customer.update', {
+  refused: () => reloadCustomers(),
   what: () => 'This change to the customer',
   send: op => sendJson('PATCH', `/api/crm-contacts/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload)).then(r => r.result),
   apply: op => { cache = cache.map(c => c.id === op.payload.id ? op.payload : c) },
 })
 
 registerKind<{ id: string; name: string }>('customer.archive', {
+  refused: () => reloadCustomers(),
   what: () => 'Removing this customer',
   send: async op => {
     const r = await sendJson('DELETE', `/api/crm-contacts/${encodeURIComponent(op.payload.id)}`)

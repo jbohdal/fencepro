@@ -30,6 +30,7 @@ import { audit } from '../lib/auditLog.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
+import { requireCan } from '../lib/permissions.js'
 
 const router = Router()
 
@@ -187,7 +188,7 @@ router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
 })
 
 // ── Create ──
-router.post('/', requireUser, requireAccount, async (req: any, res) => {
+router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   try {
     const data = quoteSchema.parse(req.body)
     const clientId = clientIdSchema.parse(req.body?.id)
@@ -254,7 +255,7 @@ router.post('/', requireUser, requireAccount, async (req: any, res) => {
 })
 
 // ── Update ──
-router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
+router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   try {
     const data = quoteUpdateSchema.parse(req.body)
     const existing = await prisma.savedQuote.findUnique({ where: { id: req.params.id } })
@@ -312,7 +313,7 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
 })
 
 // ── Delete (soft) ──
-router.delete('/:id', requireUser, requireAccount, async (req: any, res) => {
+router.delete('/:id', requireUser, requireAccount, requireCan('records.delete'), async (req: any, res) => {
   try {
     const existing = await prisma.savedQuote.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.accountId !== req.user.crmAccountId || existing.archivedAt) {
@@ -339,7 +340,7 @@ const syncSchema = z.object({
   quotes: z.array(quoteSchema.extend({ id: z.string().optional() })),
 })
 
-router.post('/sync', requireUser, requireAccount, async (req: any, res) => {
+router.post('/sync', requireUser, requireAccount, requireCan('records.import'), async (req: any, res) => {
   try {
     const { quotes } = syncSchema.parse(req.body)
     let created = 0, updated = 0, skipped = 0
@@ -429,7 +430,7 @@ router.post('/sync', requireUser, requireAccount, async (req: any, res) => {
 })
 
 // ── Issue / reissue a public share token ──
-router.post('/:id/share-token', requireUser, requireAccount, async (req: any, res) => {
+router.post('/:id/share-token', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   try {
     const existing = await prisma.savedQuote.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.accountId !== req.user.crmAccountId || existing.archivedAt) {
@@ -457,7 +458,7 @@ router.post('/:id/share-token', requireUser, requireAccount, async (req: any, re
 })
 
 // ── Turn a customer link off ──
-router.post('/:id/share-off', requireUser, requireAccount, async (req: any, res) => {
+router.post('/:id/share-off', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   const existing = await prisma.savedQuote.findUnique({ where: { id: req.params.id } })
   if (!existing || existing.accountId !== req.user.crmAccountId) { res.status(404).json({ success: false, error: 'Quote not found' }); return }
   const updated = await prisma.savedQuote.update({ where: { id: existing.id }, data: { shareDisabledAt: new Date() } })

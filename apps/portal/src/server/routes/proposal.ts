@@ -23,6 +23,7 @@ import { audit } from '../lib/auditLog.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAccepted.js'
 import { plainZod } from '../lib/plainZod.js'
+import { requireCan } from '../lib/permissions.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -207,7 +208,7 @@ stylePhotos.get('/', requireUser, requireAccount, async (req: any, res) => {
   res.json({ success: true, data: list })
 })
 
-stylePhotos.post('/', requireUser, requireAccount, upload.single('photo'), async (req: any, res) => {
+stylePhotos.post('/', requireUser, requireAccount, requireCan('settings.change'), upload.single('photo'), async (req: any, res) => {
   const styleName = String(req.body?.styleName || '').trim().slice(0, 200)
   const file = req.file
   if (!styleName || !file) { res.status(400).json({ success: false, error: 'A style and a photo are required' }); return }
@@ -223,7 +224,7 @@ stylePhotos.post('/', requireUser, requireAccount, upload.single('photo'), async
   res.json({ success: true, data: saved })
 })
 
-stylePhotos.delete('/:id', requireUser, requireAccount, async (req: any, res) => {
+stylePhotos.delete('/:id', requireUser, requireAccount, requireCan('settings.change'), async (req: any, res) => {
   const n = await prisma.stylePhoto.deleteMany({ where: { id: String(req.params.id), accountId: req.user.crmAccountId } })
   res.json({ success: true, data: { deleted: n.count } })
 })

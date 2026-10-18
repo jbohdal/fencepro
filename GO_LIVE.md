@@ -554,3 +554,27 @@ Sign in to Google as your gdfencepro.com account for all of this.
 8. In Google Calendar, the new calendar appears under "My calendars". To see
    it on your phone, turn it on in the Google Calendar app's settings.
 
+
+## 17. Feedback from inside the app
+
+Every signed-in page has a **Send feedback** button in the top bar (the
+speech bubble with a plus, next to the bell). One tap takes a picture of the
+screen and opens a small form; what is sent also records who, their role, the
+time, the page address, the screen size, the phone or browser, the app file it
+was running and the last few app errors. It goes through the save queue, so it
+is sent once even on weak signal. The owner and admins see it under
+**Admin > Feedback** (and get a bell notification for each new one).
+
+To read it from a terminal (for Claude Code too), read only:
+
+```bash
+cd ~/ezbiz/apps/portal && npx tsx scripts/feedback-report.ts               # newest 50
+cd ~/ezbiz/apps/portal && npx tsx scripts/feedback-report.ts --status new  # only New
+#   --limit 20   --days 7   --json (one JSON object per line)
+```
+
+It reads `DATABASE_URL` from that folder's `.env` inside a read-only
+transaction, prints each feedback with the path of its screenshot file
+(`<UPLOAD_DIR>/feedback/<company>/<id>.jpg`, open it to see the screen), and
+prints no settings or secrets. Run from the working folder it reads the dev
+copy instead.

@@ -15,6 +15,9 @@ import SalesPipelineBoard from './SalesPipelineBoard'
 import { startNav, navigate, useNav, pagePath, pageForPath, takeOpenedParam, savedScroll, BackClose } from './nav'
 const OperationsBoard = lazy(() => import('./OperationsBoard'))
 const AuditLogPage = lazy(() => import('./AuditLogPage'))
+const FeedbackPage = lazy(() => import('./FeedbackPage'))
+import FeedbackButton from './FeedbackButton'
+import { MessageSquarePlus } from 'lucide-react'
 import StagingPage from './StagingPage'
 const SchedulePage = lazy(() => import('./SchedulePage'))
 const ReportsPage = lazy(() => import('./ReportsPage'))
@@ -60,6 +63,8 @@ import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
 import { startIntakeSync } from './intakeStore'
 import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
+import { setSignedInRole, isFullRole, can } from './permissions'
+import { REFUSED_EVENT } from './outbox'
 import StageBlockedNotice from './StageBlockedNotice'
 import { isUpdateReady, reloadIfSafe, UPDATE_READY_EVENT } from './appUpdate'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
@@ -107,7 +112,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Operations',
     items: [
       { name: 'Operations',  icon: Wrench, roles: ['owner', 'admin', 'ops_manager', 'shop'] },
-      { name: 'Schedule',    icon: CalendarClock, roles: ['owner', 'admin', 'ops_manager'] },
+      { name: 'Schedule',    icon: CalendarClock, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
       { name: 'Dispatch',    icon: MapPin, roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Site Plans',   icon: Map, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
       { name: 'Inventory',   icon: Package, roles: ['owner', 'admin', 'ops_manager', 'shop'] },
@@ -135,6 +140,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Integrations',  icon: Plug, roles: ['owner', 'admin'] },
       { name: 'Portal',        icon: Globe, roles: ['owner', 'admin'] },
       { name: 'Audit Log',     icon: ShieldCheck, roles: ['owner', 'admin'] },
+      { name: 'Feedback',      icon: MessageSquarePlus, roles: ['owner', 'admin'] },
       { name: 'Settings',      icon: Settings, roles: ['owner', 'admin'] },
     ],
   },
@@ -291,6 +297,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
   }
 
   function startSession(user: CrmUser) {
+    setSignedInRole(user.role)
     saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: ROLE_MAP[user.role] || 'salesman' })
     setLoadingData(true)
     setCrmUser(user)
@@ -324,6 +331,13 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     }
     window.addEventListener('fencepro:quote_first_viewed', onFirstView)
     return () => window.removeEventListener('fencepro:quote_first_viewed', onFirstView)
+  }, [])
+
+  // A save the server refused for this login's role: the screen is already put back; say why.
+  useEffect(() => {
+    const onRefused = (e: Event) => toast.error('Not saved', String((e as CustomEvent).detail?.message || 'Your login is not allowed to do this. Ask Jonathan.'))
+    window.addEventListener(REFUSED_EVENT, onRefused)
+    return () => window.removeEventListener(REFUSED_EVENT, onRefused)
   }, [])
 
   useEffect(() => {
@@ -538,6 +552,16 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       setActive('Dashboard')
     }
   }
+
+  // A limited login (salesman, crew, office) opening a page that is not in its menu, by link or address: back to Today.
+  const pageItem = ALL_NAV_ITEMS.find(i => i.name === active)
+  const pageBlocked = !isFullRole() && !!pageItem && !pageItem.roles.includes(role)
+  const toldBlocked = useRef('')
+  useEffect(() => {
+    if (!pageBlocked) { toldBlocked.current = ''; return }
+    if (toldBlocked.current !== active) { toldBlocked.current = active; toast.info(`${active} is not open to your login`, 'Ask Jonathan if you need it.') }
+    setActive('Today')
+  })
 
   // Filtered nav based on role
   const visibleGroups = NAV_GROUPS.map(g => ({
@@ -815,7 +839,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">{userProfile.name}</p>
-              <select
+              {isFullRole() ? <select
                 value={role}
                 onChange={e => handleRoleChange(e.target.value as UserRole)}
                 className="bg-transparent text-[#CFC4E2] text-xs outline-none cursor-pointer hover:text-white -ml-0.5"
@@ -823,7 +847,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 {(Object.entries(ROLE_LABELS) as [UserRole, string][]).map(([k, v]) => (
                   <option key={k} value={k} className="bg-gray-900 text-gray-300">{v}</option>
                 ))}
-              </select>
+              </select> : <p className="text-[#CFC4E2] text-xs" data-role-label>{ROLE_LABELS[role]}</p>}
             </div>
           </div>
           <button onClick={onChangePassword} className="mt-2 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
@@ -907,7 +931,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-white text-sm font-medium truncate">{userProfile.name}</p>
-                <select
+                {isFullRole() ? <select
                   value={role}
                   onChange={e => handleRoleChange(e.target.value as UserRole)}
                   className="bg-transparent text-[#CFC4E2] text-xs outline-none cursor-pointer hover:text-white -ml-0.5"
@@ -915,7 +939,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                   {(Object.entries(ROLE_LABELS) as [UserRole, string][]).map(([k, v]) => (
                     <option key={k} value={k} className="bg-gray-900 text-gray-300">{v}</option>
                   ))}
-                </select>
+                </select> : <p className="text-[#CFC4E2] text-xs" data-role-label>{ROLE_LABELS[role]}</p>}
               </div>
             </div>
           )}
@@ -956,6 +980,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           <div className="flex items-center gap-1 md:gap-3 shrink-0">
             <MessagesInbox onNavigateToCustomer={(customerId) => openCustomerFromAnywhere(customerId, 'messages')} />
             <SyncBadge />
+            <FeedbackButton />
             <NotificationBell />
             {/* Command search */}
             <button
@@ -1008,13 +1033,14 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         <div ref={pageScroll} data-page-scroll className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-8 py-4 md:py-6 max-md:pb-[calc(92px+env(safe-area-inset-bottom))]">
           {/* Keyed so the open page reloads its data after another device's changes are merged in. */}
           <Suspense fallback={<PageLoading />}>
-          <Fragment key={dataEpoch}>
+          {!pageBlocked && <Fragment key={dataEpoch}>
           {active === 'Team' && <TeamManagementPage />}
           {active === 'EZ Budget' && <EZBudgetPage />}
           {active === 'Automations' && <AutomationsPage />}
           {active === 'Integrations' && <IntegrationsPage />}
           {active === 'Portal'    && <PortalInbox />}
           {active === 'Audit Log' && <AuditLogPage />}
+          {active === 'Feedback'  && <FeedbackPage />}
           {active === 'Settings'  && <AdminSettingsPage />}
           {active === 'Inventory' && <InventoryPage />}
           {active === 'Pending Orders' && <PendingOrdersPage />}
@@ -1044,8 +1070,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
           {active === 'Dashboard' && (
             <div className="space-y-6">
-              <DeletionReminder />
-              <DiskWarning />
+              {/* Scheduled deletions and the Mac's disk are the owner's and admins' (system tools). */}
+              {can('system') && <DeletionReminder />}
+              {can('system') && <DiskWarning />}
               {role === 'owner' && <FinishSetup />}
               {role === 'owner' && <DuplicateWarning />}
               <div className="page-header !mb-0">
@@ -1165,7 +1192,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               </div>
             </div>
           )}
-          </Fragment>
+          </Fragment>}
           </Suspense>
         </div>
       </div>
@@ -1191,7 +1218,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ PHONE TAB BAR ═══ */}
       <nav data-tabbar aria-label="Main" className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-white border-t border-gray-200 grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
-        {([['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Customers', Users, 'Customers'], ['Schedule', CalendarDays, ALL_NAV_ITEMS.find(i => i.name === 'Schedule')?.roles.includes(role) ? 'Schedule' : 'Appointments']] as const).map(([label, Icon, page]) => (
+        {([['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Customers', Users, 'Customers'], ['Schedule', CalendarDays, role !== 'salesman' && ALL_NAV_ITEMS.find(i => i.name === 'Schedule')?.roles.includes(role) ? 'Schedule' : 'Appointments']] as const).map(([label, Icon, page]) => (
           <button key={label} onClick={() => setActive(page)} aria-current={active === page ? 'page' : undefined}
             className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${active === page ? 'text-orange-500' : 'text-gray-500'}`}>
             <span className={`grid place-items-center h-8 w-14 rounded-full ${active === page ? 'bg-orange-100' : ''}`}><Icon size={22} aria-hidden="true" /></span>{label}

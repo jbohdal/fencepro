@@ -17,6 +17,7 @@ import { buildFrontendUrl } from '../lib/urls.js'
 import { audit } from '../lib/auditLog.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
+import { can, refuse } from '../lib/permissions.js'
 
 const router = Router()
 
@@ -310,10 +311,7 @@ router.post('/invite', async (req, res) => {
 
   try {
     const payload = verifyAccess(auth.slice(7))
-    if (!['super_admin', 'admin'].includes(payload.role)) {
-      res.status(403).json({ success: false, error: 'Admin access required' })
-      return
-    }
+    if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
 
     const data = inviteSchema.parse(req.body)
     const email = data.email.toLowerCase()
@@ -380,7 +378,8 @@ router.post('/invite', async (req, res) => {
     }).catch(() => {})
 
     await audit(req, 'invite_sent', 'CrmUser', user.id, { newValues: { email, role: data.role, firstName: data.firstName, lastName: data.lastName } })
-    res.status(201).json({ success: true, data: { id: user.id, email, status: 'invited' } })
+    // The link goes back to the owner or admin too, to text it when the email is slow or lands in spam.
+    res.status(201).json({ success: true, data: { id: user.id, email, status: 'invited', role: data.role, inviteUrl, expiresInHours: INVITE_EXPIRY_HOURS } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[CRM Auth] Invite error:', err)
@@ -399,10 +398,7 @@ router.post('/invite/:userId/resend', async (req, res) => {
   if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
   try {
     const payload = verifyAccess(auth.slice(7))
-    if (!['super_admin', 'admin'].includes(payload.role)) {
-      res.status(403).json({ success: false, error: 'Admin access required' })
-      return
-    }
+    if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
 
     const user = await prisma.crmUser.findUnique({ where: { id: req.params.userId } })
     if (!user) { res.status(404).json({ success: false, error: 'User not found' }); return }
@@ -439,7 +435,7 @@ router.post('/invite/:userId/resend', async (req, res) => {
     })
     console.log(`[CRM Auth] ✉️  Resent invite to ${user.email}`)
 
-    res.json({ success: true, data: { id: user.id, email: user.email } })
+    res.json({ success: true, data: { id: user.id, email: user.email, inviteUrl, expiresInHours: INVITE_EXPIRY_HOURS } })
   } catch (err) {
     console.error('[CRM Auth] resend error:', err)
     res.status(500).json({ success: false, error: 'Failed to resend invite' })
@@ -456,10 +452,7 @@ router.post('/invites/resend-all-pending', async (req, res) => {
   if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
   try {
     const payload = verifyAccess(auth.slice(7))
-    if (!['super_admin', 'admin'].includes(payload.role)) {
-      res.status(403).json({ success: false, error: 'Admin access required' })
-      return
-    }
+    if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
     const pending = await prisma.crmUser.findMany({ where: { status: 'invited' } })
     let sent = 0, failed = 0
     for (const user of pending) {
@@ -738,10 +731,7 @@ router.get('/users', async (req, res) => {
   if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
   try {
     const payload = verifyAccess(auth.slice(7))
-    if (!['super_admin', 'admin'].includes(payload.role)) {
-      res.status(403).json({ success: false, error: 'Admin access required' })
-      return
-    }
+    if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
 
     const users = await prisma.crmUser.findMany({
       orderBy: { createdAt: 'desc' },
@@ -762,10 +752,7 @@ router.patch('/users/:id', async (req, res) => {
   if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
   try {
     const payload = verifyAccess(auth.slice(7))
-    if (!['super_admin', 'admin'].includes(payload.role)) {
-      res.status(403).json({ success: false, error: 'Admin access required' })
-      return
-    }
+    if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
 
     const data = z.object({
       firstName: z.string().optional(),
@@ -776,10 +763,23 @@ router.patch('/users/:id', async (req, res) => {
     }).parse(req.body)
 
     const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+    // Only the owner makes an owner, or changes one.
+    if (payload.role !== 'super_admin') {
+      const target = await prisma.crmUser.findUnique({ where: { id: userId }, select: { role: true } })
+      if (data.role === 'super_admin' || target?.role === 'super_admin') { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Only the owner can change an owner login.' }); return }
+    }
+    if (userId === payload.sub && ((data.role && data.role !== payload.role) || (data.status && data.status !== 'active'))) {
+      res.status(400).json({ success: false, error: 'You cannot change your own role or switch off your own login.' }); return
+    }
     const user = await prisma.crmUser.update({
       where: { id: userId },
       data: data as any,
     })
+    // A new role or a switched off login takes effect now: that person signs in again (a sign in lasts at most 15 minutes without a refresh).
+    if (data.role || (data.status && data.status !== 'active')) {
+      await prisma.crmUserSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }).catch(() => {})
+    }
+    await audit(req, 'update', 'CrmUser', user.id, { newValues: data }).catch(() => {})
 
     res.json({ success: true, data: { id: user.id, role: user.role, status: user.status } })
   } catch (err) {
@@ -794,10 +794,7 @@ router.get('/sessions', async (req, res) => {
   if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
   try {
     const payload = verifyAccess(auth.slice(7))
-    if (!['super_admin', 'admin'].includes(payload.role)) {
-      res.status(403).json({ success: false, error: 'Admin access required' })
-      return
-    }
+    if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
 
     const sessions = await prisma.crmUserSession.findMany({
       where: { revokedAt: null, expiresAt: { gt: new Date() } },
@@ -818,10 +815,7 @@ router.delete('/sessions/:id', async (req, res) => {
   if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
   try {
     const payload = verifyAccess(auth.slice(7))
-    if (!['super_admin', 'admin'].includes(payload.role)) {
-      res.status(403).json({ success: false, error: 'Admin access required' })
-      return
-    }
+    if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
 
     const sessionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
     await prisma.crmUserSession.update({
@@ -840,10 +834,7 @@ router.delete('/users/:id', async (req, res) => {
   if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
   try {
     const payload = verifyAccess(auth.slice(7))
-    if (!['super_admin', 'admin'].includes(payload.role)) {
-      res.status(403).json({ success: false, error: 'Admin access required' })
-      return
-    }
+    if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
 
     const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
 
@@ -883,10 +874,7 @@ router.get('/activity', async (req, res) => {
   if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
   try {
     const payload = verifyAccess(auth.slice(7))
-    if (!['super_admin', 'admin'].includes(payload.role)) {
-      res.status(403).json({ success: false, error: 'Admin access required' })
-      return
-    }
+    if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
 
     const logs = await prisma.crmUserActivity.findMany({
       include: { user: { select: { firstName: true, lastName: true, email: true } } },

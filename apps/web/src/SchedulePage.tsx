@@ -10,6 +10,8 @@ import { cloudStorage } from './cloudStorage'
 import { useMergedRefresh } from './useMergedRefresh'
 import { useBackLayer, BackClose } from './nav'
 import ScheduleDay from './ScheduleDay'
+import { can, REFUSAL } from './permissions'
+import { toast } from './toast'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -256,6 +258,7 @@ function SettingsModal({
 
 export default function SchedulePage() {
   const [data, setData] = useState(() => loadSchedule())
+  const readOnly = !can('schedule.change')
   // Another device's schedule changes were merged into a save from this tab.
   useMergedRefresh('Schedule', () => setData(loadSchedule()))
   const [showSettings, setShowSettings] = useState(false)
@@ -283,6 +286,8 @@ export default function SchedulePage() {
   const monthName = viewMonth.toLocaleString('default', { month: 'long', year: 'numeric' })
 
   function updateData(jobs: ScheduledJob[], s?: ScheduleSettings) {
+    // A salesman or the crew sees the schedule; only the office and up change it (the server refuses anyone else).
+    if (readOnly) { toast.error('Not saved', REFUSAL['schedule.change']); return }
     const updated = { jobs, settings: s ?? settings }
     saveSchedule(updated.jobs, updated.settings)
     setData(updated)
@@ -445,7 +450,8 @@ export default function SchedulePage() {
               </div>
             ))}
           </div>
-          <button onClick={() => setShowSettings(true)} className="btn btn-secondary">Settings</button>
+          {can('settings.change') && <button onClick={() => setShowSettings(true)} className="btn btn-secondary">Settings</button>}
+          {readOnly && <span className="text-xs text-gray-500" data-view-only>View only</span>}
         </div>
       </div>
 
@@ -517,7 +523,7 @@ export default function SchedulePage() {
                           return (
                             <div
                               key={j.id}
-                              draggable
+                              draggable={!readOnly}
                               onDragStart={() => setDragJob(j)}
                               className={`${colorClass} bg-opacity-15 border-l-[3px] ${colorClass.replace('bg-', 'border-')} rounded px-2 py-1 cursor-grab group`}
                             >
@@ -529,10 +535,10 @@ export default function SchedulePage() {
                                   </p>
                                   <p className="text-xs text-gray-500">{j.fenceType} &middot; {j.sections}sec &middot; {fmt(j.jobPrice)}</p>
                                 </div>
-                                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                                {!readOnly && <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
                                   <button onClick={() => { setRainDayJob(j); setRainReschedule('') }} title="Flag Rain Day" className="text-gray-300 hover:text-blue-500 text-sm leading-none">🌧</button>
                                   <button onClick={() => removeJob(j.id)} className="text-gray-300 hover:text-red-400 text-sm leading-none ml-0.5">&times;</button>
-                                </div>
+                                </div>}
                               </div>
                             </div>
                           )
@@ -561,7 +567,7 @@ export default function SchedulePage() {
               return (
                 <div
                   key={s.id}
-                  draggable
+                  draggable={!readOnly}
                   onDragStart={e => e.dataTransfer.setData('staging', JSON.stringify(s))}
                   className="border border-gray-200 rounded-lg px-2.5 py-2 cursor-grab hover:border-orange-400 hover:shadow-sm transition-all group relative"
                   title={`${name}\n${s.fenceType || s.type} · ${s.sections || 0} sections\n${city}\n${phone}\n${fmt(s.jobPrice || s.price || 0)}`}

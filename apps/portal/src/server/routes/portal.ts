@@ -32,6 +32,7 @@ import { createNotification } from '../lib/notificationService.js'
 import { buildFrontendUrl } from '../lib/urls.js'
 import { isStaffRequest } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
+import { requireStaffCan } from '../lib/permissions.js'
 
 // File storage helpers
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
@@ -492,7 +493,7 @@ router.get('/accounts', requireStaffSyncKey, async (_req, res) => {
   }
 })
 
-router.post('/accounts/:id/force-activate', requireStaffSyncKey, async (req, res) => {
+router.post('/accounts/:id/force-activate', requireStaffSyncKey, requireStaffCan('users.manage'), async (req, res) => {
   try {
     const id = String(req.params.id)
     const account = await prisma.portalAccount.findUnique({ where: { id } })
@@ -513,7 +514,7 @@ router.post('/accounts/:id/force-activate', requireStaffSyncKey, async (req, res
   }
 })
 
-router.post('/accounts/:id/revoke', requireStaffSyncKey, async (req, res) => {
+router.post('/accounts/:id/revoke', requireStaffSyncKey, requireStaffCan('users.manage'), async (req, res) => {
   try {
     const id = String(req.params.id)
     const account = await prisma.portalAccount.findUnique({ where: { id } })
@@ -532,7 +533,7 @@ router.post('/accounts/:id/revoke', requireStaffSyncKey, async (req, res) => {
 // ── One-time migration: invalidate all non-active invites. ──
 // Safe to run multiple times. Does NOT delete customer records.
 
-router.post('/migrate-invalidate-legacy', requireStaffSyncKey, async (_req, res) => {
+router.post('/migrate-invalidate-legacy', requireStaffSyncKey, requireStaffCan('system'), async (_req, res) => {
   try {
     const past = new Date('2000-01-01')
     const result = await prisma.portalAccount.updateMany({
@@ -704,7 +705,7 @@ router.post('/customer/:customerId/photos', requireStaffSyncKey, photoUpload.sin
 })
 
 // Delete photo (own or staff)
-router.delete('/photos/:id', async (req, res) => {
+router.delete('/photos/:id', requireStaffCan('ops.delete'), async (req, res) => {
   try {
     const id = String(req.params.id)
     const auth = req.headers.authorization
@@ -867,7 +868,7 @@ router.post('/customer/:customerId/documents', requireStaffSyncKey, docUpload.si
   }
 })
 
-router.delete('/documents/:id', async (req, res) => {
+router.delete('/documents/:id', requireStaffCan('ops.delete'), async (req, res) => {
   try {
     const id = String(req.params.id)
     let allow = false

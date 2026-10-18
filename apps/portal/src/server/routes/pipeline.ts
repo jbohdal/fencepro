@@ -16,6 +16,7 @@ import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
 import { checkPipelineMoves, refuseBlocked } from '../lib/automations/stageRules.js'
 import { recordCardMoves } from '../lib/automations/hooks.js'
+import { pipelineChangeRefusal, refuse, removedIds, roleOf } from '../lib/permissions.js'
 
 const router = Router()
 
@@ -80,6 +81,9 @@ router.put('/', async (req: any, res) => {
     const fields = { leads: oneById(JSON.parse(JSON.stringify(data.leads)) as any[]), stages: JSON.parse(JSON.stringify(data.stages)) }
     // Stage rules: a card cannot enter a stage whose requirements are not met (the app puts it back and says what is missing).
     const prev = await prisma.pipelineState.findUnique({ where: { accountId } })
+    // A whole board saved by a limited role may add and move cards, never drop one or change the stages.
+    const refusedPut = prev ? pipelineChangeRefusal(roleOf(req), prev as any, { removed: removedIds(prev.leads, fields.leads), stages: fields.stages }) : null
+    if (refusedPut) { refuse(res, refusedPut, { data: prev, version: prev?.version ?? 0 }); return }
     if (prev && prev.version === base) {
       const blocked = await checkPipelineMoves(accountId, (prev.leads as any[]) ?? [], fields.leads)
       if (blocked.length) { refuseBlocked(res, blocked, { data: prev, version: prev.version }); return }
@@ -129,6 +133,9 @@ router.patch('/', async (req: any, res) => {
     const current = await prisma.pipelineState.findUnique({ where: { accountId } })
     // Same rule as a whole save: only onto the version it was built on.
     if (!current || current.version !== base) { refuseStale(res, current, current?.version ?? 0); return }
+    // Adding and moving cards is for everyone; removing a card or changing the stages is not.
+    const refusedDelta = pipelineChangeRefusal(roleOf(req), current as any, { removed: delta.remove.filter(id => ((current.leads as any[]) ?? []).some(l => l?.id === id)), stages: delta.stages })
+    if (refusedDelta) { refuse(res, refusedDelta, { data: current, version: current.version }); return }
     const next = applyPipelineDelta({ leads: (current.leads as any[]) ?? [], stages: (current.stages as any[]) ?? [] }, delta)
     const fields = { leads: JSON.parse(JSON.stringify(next.leads)), stages: JSON.parse(JSON.stringify(next.stages)) }
     const blocked = await checkPipelineMoves(accountId, (current.leads as any[]) ?? [], next.leads)

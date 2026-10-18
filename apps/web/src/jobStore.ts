@@ -334,12 +334,14 @@ const takeJobFields = (op: Op<Job>, data: unknown) => {
   emit()
 }
 registerKind<Job>('job.create', {
+  refused: () => { lastSync = null; void refreshJobs() },
   what: () => 'This job',
   send: op => sendJson('POST', '/api/saved-jobs', { ...toApiPayload(op.payload), id: op.payload.id }).then(r => r.result),
   confirmed: takeJobFields,
   apply: op => { if (!cache.some(j => j.id === op.payload.id)) cache = [op.payload, ...cache] },
 })
 registerKind<Job>('job.update', {
+  refused: () => { lastSync = null; void refreshJobs() },
   what: () => 'This change to the job',
   send: async op => {
     const r = await sendJson('PATCH', `/api/saved-jobs/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload))

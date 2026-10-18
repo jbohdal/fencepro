@@ -12,6 +12,7 @@ import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
+import { can, isFullRole, refuse, removedIds, roleOf, sameJson } from '../lib/permissions.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -70,6 +71,17 @@ router.put('/', async (req: any, res) => {
       vendors: oneById(JSON.parse(JSON.stringify(data.vendors)) as any[]),
       bills: oneById(JSON.parse(JSON.stringify(data.bills)) as any[]),
       payments: oneById(JSON.parse(JSON.stringify(data.payments)) as any[]),
+    }
+    // Vendors and bills: the office may add and edit them, only the owner, admin or manager may remove one.
+    const role = roleOf(req)
+    if (!isFullRole(role)) {
+      const saved = await prisma.vendorState.findUnique({ where: { accountId } })
+      const changed = (['vendors', 'bills', 'payments'] as const).some(k => !sameJson((saved as any)?.[k] ?? [], fields[k]))
+      const refused = !changed ? null
+        : !can(role, 'billing.change') ? 'billing.change' as const
+        : (['vendors', 'bills', 'payments'] as const).some(k => removedIds((saved as any)?.[k], fields[k]).length) ? 'records.delete' as const
+        : null
+      if (refused) { refuse(res, refused, { data: saved, version: saved?.version ?? 0 }); return }
     }
     const done = await prisma.vendorState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
     if (done.count === 0) {

@@ -29,6 +29,7 @@ import { esc, safeSvg, CSS } from './proposal.js'
 import { mediaDir, serializeMedia, processMediaQueue } from '../lib/media.js'
 import { serveSignedMedia } from './media.js'
 import { plainZod } from '../lib/plainZod.js'
+import { requireCan } from '../lib/permissions.js'
 
 /** 3527894314 → (352) 789-4314; anything else as typed. */
 function phone(p: string): string {
@@ -96,7 +97,7 @@ packetStaff.get('/', async (req: any, res) => {
 })
 
 // Send (or refresh) a job's packet. A packet that was turned off gets a new link.
-packetStaff.post('/', express.json({ limit: '1mb' }), async (req: any, res) => {
+packetStaff.post('/', requireCan('packets.change'), express.json({ limit: '1mb' }), async (req: any, res) => {
   try {
     const body = z.object({ jobId: z.string().min(1).max(100), snapshot: snapSchema }).parse(req.body)
     const accountId = req.user.crmAccountId
@@ -118,7 +119,7 @@ packetStaff.post('/', express.json({ limit: '1mb' }), async (req: any, res) => {
   }
 })
 
-packetStaff.post('/:id/off', async (req: any, res) => {
+packetStaff.post('/:id/off', requireCan('packets.change'), async (req: any, res) => {
   const n = await prisma.installPacket.updateMany({ where: { id: String(req.params.id), accountId: req.user.crmAccountId }, data: { disabledAt: new Date() } })
   res.json({ success: true, data: { updated: n.count } })
 })

@@ -36,6 +36,7 @@ import { SaveStatus } from './SaveStatus'
 import { newId } from './recordSync'
 import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
+import { can } from './permissions'
 
 interface Customer {
   id: string
@@ -677,7 +678,7 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
                     <div className="flex gap-1 shrink-0 ml-2">
                       <button onClick={() => handlePin(n.id, n.isPinned)} className="text-xs text-gray-400 hover:text-orange-600">{n.isPinned ? 'Unpin' : 'Pin'}</button>
                       <button onClick={() => startEdit(n)} className="text-xs text-gray-400 hover:text-blue-600">Edit</button>
-                      <button onClick={() => handleDelete(n.id)} className="text-xs text-gray-400 hover:text-red-600">Delete</button>
+                      {can('ops.delete') && <button onClick={() => handleDelete(n.id)} className="text-xs text-gray-400 hover:text-red-600">Delete</button>}
                     </div>
                   </div>
                   <p className="text-xs text-gray-400 mt-2">{noteAuthor(n)} · {new Date(n.createdAt).toLocaleString()}</p>
@@ -940,12 +941,12 @@ function CustomerDetail({
             <button onClick={() => onNewQuote(customer)} className="btn btn-primary flex-1 lg:flex-none">+ New quote</button>
             <button onClick={onEdit} className="btn btn-quiet">Edit</button>
             {/* Delete lives behind "More" and a confirmation, never one tap away. */}
-            <details className="relative" data-customer-more>
+            {can('records.delete') && <details className="relative" data-customer-more>
               <summary className="btn btn-quiet list-none [&::-webkit-details-marker]:hidden" aria-label="More actions">More ▾</summary>
               <div className="absolute right-0 mt-1 w-48 panel p-1 z-20">
                 <button onClick={() => onDelete(customer.id)} className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-semibold text-red-700 hover:bg-red-50">Delete customer…</button>
               </div>
-            </details>
+            </details>}
           </div>
         </div>
 
@@ -1172,7 +1173,7 @@ function CustomerDetail({
             uploadedBy="user"
             legacyFiles={files as any}
             onLegacyFileClick={(f) => onFileClick?.(f as any)}
-            onLegacyFileDelete={(id) => onDeleteFile(id)}
+            onLegacyFileDelete={can('ops.delete') ? (id) => onDeleteFile(id) : undefined}
           />
         )}
 
@@ -1512,10 +1513,10 @@ export default function CustomersPage({ onNewQuote }: {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <label className="mt-2 flex items-center justify-center gap-1.5 w-full border border-dashed border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-500 hover:border-orange-400 hover:text-orange-500 cursor-pointer transition-colors">
+{can('records.import') && <label className="mt-2 flex items-center justify-center gap-1.5 w-full border border-dashed border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-500 hover:border-orange-400 hover:text-orange-500 cursor-pointer transition-colors">
             📂 Import CSV
             <input type="file" accept=".csv" className="hidden" onChange={handleCSVImport} />
-          </label>
+          </label>}
         </div>
 
         <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
@@ -1617,7 +1618,7 @@ export default function CustomersPage({ onNewQuote }: {
           file={viewerFile as unknown as CustomerFileShape}
           siblingImages={files.filter(f => /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name)) as unknown as CustomerFileShape[]}
           onClose={() => setViewerFile(null)}
-          onDelete={(id) => {
+          onDelete={!can('ops.delete') ? undefined : (id) => {
             setFiles(prev => {
               const next = prev.filter(f => f.id !== id)
               cloudStorage.setItem('fencepro_files', JSON.stringify(next))

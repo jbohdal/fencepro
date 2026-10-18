@@ -9,6 +9,7 @@ import {
   type PendingOrder, type PendingOrderStatus,
 } from './pendingOrderStore'
 import { toast } from './toast'
+import { can } from './permissions'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(c / 100)
@@ -203,7 +204,7 @@ function OrderDetail({ order, onAdvance, onRemove }: {
         {order.status !== 'cancelled' && order.status !== 'received' && (
           <button onClick={() => onAdvance(order, 'cancelled')} className="btn btn-secondary">Cancel order</button>
         )}
-        <button onClick={() => onRemove(order)} className="text-sm text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg">Delete</button>
+        {can('records.delete') && <button onClick={() => onRemove(order)} className="text-sm text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg">Delete</button>}
       </div>
     </div>
   )

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
+import { can } from './permissions'
 
 /* ───────── types ───────── */
 
@@ -322,10 +323,10 @@ export function ChangeOrderPanel({ quoteId, originalPrice }: { quoteId: string; 
                   <span className={`text-sm font-bold ${co.total >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                     {co.total >= 0 ? '+' : ''}{fmt(co.total)}
                   </span>
-                  <button
+                  {can('ops.delete') && <button
                     onClick={() => handleDelete(co.id)}
                     className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 text-sm leading-none opacity-0 group-hover:opacity-100"
-                  >×</button>
+                  >×</button>}
                 </div>
               </div>
               <p className="text-xs text-gray-400 mb-1">{co.date}</p>

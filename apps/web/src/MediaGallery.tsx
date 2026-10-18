@@ -18,6 +18,7 @@ import { autoCaption } from './autoCaption'
 import { fetchCurrentUser } from './crmAuth'
 import type { YardLayout } from './yardLayout'
 import { useBackLayer } from './nav'
+import { can } from './permissions'
 
 export type Where = { quoteKey?: string; jobId?: string; customerId?: string }
 
@@ -272,7 +273,7 @@ function MediaViewer({ item, layout, me, onClose, onChange, onPin, onMarkup, onF
             {item.kind === 'photo' && item.marked && <button type="button" className="btn btn-quiet btn-sm" onClick={() => setShowOriginal(s => !s)} data-viewer-original>{showOriginal ? 'Show marked up' : 'Show original'}</button>}
             {item.kind === 'video' && <button type="button" className="btn btn-secondary btn-sm" onClick={grabFrame} data-viewer-frame>Mark up this frame</button>}
             {layout && <button type="button" className="btn btn-secondary btn-sm" onClick={onPin} data-viewer-pin><MapPin size={16} aria-hidden="true" /> {item.pin ? 'Move pin' : 'Pin on the plan'}</button>}
-            <button type="button" className="btn btn-quiet btn-sm text-red-700 ml-auto" onClick={onDelete}>Delete</button>
+            {(can('ops.delete') || !item.server) && <button type="button" className="btn btn-quiet btn-sm text-red-700 ml-auto" onClick={onDelete}>{item.server ? 'Delete' : 'Discard'}</button>}
           </div>
           <label className="block">
             <span className="text-xs text-gray-600">Caption</span>

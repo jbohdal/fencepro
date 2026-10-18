@@ -47,7 +47,7 @@ export interface Op<P = any> {
 /** What a send came to. */
 export type SendResult =
   | { ok: true; data?: unknown }
-  | { ok: false; status: number; error?: string; retryNow?: boolean }
+  | { ok: false; status: number; error?: string; retryNow?: boolean; code?: string }
 
 export interface KindHandler<P = any> {
   /** Send it. Resolve { ok: true } only once the server has confirmed it. */
@@ -58,7 +58,15 @@ export interface KindHandler<P = any> {
   apply?: (op: Op<P>) => void
   /** What the change is called in messages ("This customer"). */
   what?: (op: Op<P>) => string
+  /**
+   * The server refused it for this login's role (403). It is not sent again;
+   * put the screen back to what the server has. Called after it left the outbox.
+   */
+  refused?: (op: Op<P>, message: string) => void
 }
+
+/** A window event, sent when a change was refused for the login's role: { message, label }. */
+export const REFUSED_EVENT = 'ezbiz:refused'
 
 export type RecordStatus = 'saved' | 'saving' | 'waiting' | 'failed'
 
@@ -252,6 +260,17 @@ async function pump() {
         continue
       }
       if (r.retryNow && op.attempts < 5) { op.attempts += 1; await persist(op); continue }
+      // Refused for this login's role: never sent again. The change leaves the
+      // phone, the screen goes back to the server's copy, and the reason is shown.
+      if (r.status === 403 && r.code === 'NOT_ALLOWED') {
+        const message = plainError(403, r.error, handler.what?.(op) ?? 'This change').message
+        await drop(op)
+        try { handler.refused?.(op, message) } catch { /* the next load shows the server's copy */ }
+        try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message, label: op.label } })) } catch { /* no window (tests) */ }
+        try { window.dispatchEvent(new CustomEvent('ezbiz:reload-page-data')) } catch { /* no window (tests) */ }
+        emit()
+        continue
+      }
       // A newer copy of this same edit was made while this one was on its way: only the newer one needs to go.
       if (!/\.create$/.test(op.kind) && ops.some(x => x.key === op.key && x.kind === op.kind && x.createdAt > op.createdAt)) { await drop(op); emit(); continue }
       const p = plainError(r.status, r.error, handler.what?.(op) ?? 'This change')

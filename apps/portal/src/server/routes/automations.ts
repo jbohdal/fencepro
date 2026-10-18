@@ -41,6 +41,7 @@ import { saveSubscription, sendPush, vapidKeys } from '../lib/automations/push.j
 import { disconnectGmail, gmailConsentUrl, gmailStatus } from '../lib/automations/gmail.js'
 import { ensurePermit, lookupParcel, packetInputFor, PERMIT_PORTALS, PERMIT_STATUSES, portalFor, renderPacket } from '../lib/automations/permits.js'
 import { walkthroughApi } from '../lib/automations/walkthroughAdapter.js'
+import { can, refuse, requireCan } from '../lib/permissions.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -63,8 +64,14 @@ async function requireUser(req: any, res: any, next: any) {
     res.status(401).json({ success: false, error: 'Invalid token' })
   }
 }
+/** Automation rules and stage rules: owner, admin and manager (lib/permissions). */
 function requireAdmin(req: any, res: any, next: any) {
-  if (!ADMIN_ROLES.has(req.user?.role)) { res.status(403).json({ success: false, error: 'Only an admin can change automations.' }); return }
+  if (!can(req.user?.role, 'automations.change')) { refuse(res, 'automations.change'); return }
+  next()
+}
+/** The Gmail connection is the owner's or an admin's. */
+function requireOwnerOrAdmin(req: any, res: any, next: any) {
+  if (!ADMIN_ROLES.has(req.user?.role)) { refuse(res, 'system'); return }
   next()
 }
 router.use(requireUser)
@@ -102,7 +109,7 @@ router.get('/meta', async (req: any, res) => {
         push: { mySubscriptions: subs },
         walkthroughInstalled: !!(await walkthroughApi()),
         permitPortals: PERMIT_PORTALS,
-        isAdmin: ADMIN_ROLES.has(req.user.role),
+        isAdmin: can(req.user.role, 'automations.change'),
       },
     })
   } catch (err) { fail(res, err, 'load the automation settings') }
@@ -348,7 +355,7 @@ function safeReturnTo(value: unknown): string {
   return fallback
 }
 
-router.get('/gmail/connect-url', requireAdmin, (req: any, res) => {
+router.get('/gmail/connect-url', requireOwnerOrAdmin, (req: any, res) => {
   try {
     // The Google project's redirect is the calendar callback; it hands "gmail" sign ins to lib/automations/gmail.
     const state = jwt.sign({ purpose: 'gmail', accountId: req.user.crmAccountId, returnTo: safeReturnTo(req.query.returnTo) }, JWT_SECRET, { expiresIn: '10m' })
@@ -358,7 +365,7 @@ router.get('/gmail/connect-url', requireAdmin, (req: any, res) => {
   }
 })
 
-router.post('/gmail/disconnect', requireAdmin, async (req: any, res) => {
+router.post('/gmail/disconnect', requireOwnerOrAdmin, async (req: any, res) => {
   try { await disconnectGmail(req.user.crmAccountId); res.json({ success: true }) } catch (err) { fail(res, err, 'disconnect Gmail') }
 })
 
@@ -389,7 +396,7 @@ router.get('/permits/:jobId', async (req: any, res) => {
   } catch (err) { fail(res, err, 'load the permit') }
 })
 
-router.put('/permits/:jobId', async (req: any, res) => {
+router.put('/permits/:jobId', requireCan('permits.change'), async (req: any, res) => {
   try {
     const job = await jobOf(req)
     if (!job) { res.status(404).json({ success: false, error: 'Job not found' }); return }
@@ -409,7 +416,7 @@ router.put('/permits/:jobId', async (req: any, res) => {
   } catch (err) { fail(res, err, 'save the permit') }
 })
 
-router.post('/permits/:jobId/parcel', async (req: any, res) => {
+router.post('/permits/:jobId/parcel', requireCan('permits.change'), async (req: any, res) => {
   try {
     const job = await jobOf(req)
     if (!job) { res.status(404).json({ success: false, error: 'Job not found' }); return }

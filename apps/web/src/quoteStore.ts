@@ -247,18 +247,21 @@ const takeServerFields = (op: Op<SavedQuote>, data: unknown) => {
 }
 
 registerKind<SavedQuote>('quote.create', {
+  refused: () => reloadQuotes(),
   what: () => 'This quote',
   send: op => sendJson('POST', '/api/saved-quotes', { ...toApiPayload(op.payload), id: op.payload.id }).then(r => r.result),
   confirmed: takeServerFields,
   apply: op => { if (!cache.some(q => q.id === op.payload.id)) cache = [op.payload, ...cache] },
 })
 registerKind<SavedQuote>('quote.update', {
+  refused: () => reloadQuotes(),
   what: () => 'This change to the quote',
   send: op => sendJson('PATCH', `/api/saved-quotes/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload)).then(r => r.result),
   confirmed: takeServerFields,
   apply: op => { cache = cache.map(q => q.id === op.payload.id ? op.payload : q) },
 })
 registerKind<{ id: string }>('quote.archive', {
+  refused: () => reloadQuotes(),
   what: () => 'Removing this quote',
   send: async op => {
     const r = await sendJson('DELETE', `/api/saved-quotes/${encodeURIComponent(op.payload.id)}`)
@@ -285,6 +288,9 @@ export function deleteQuote(id: string): void {
 }
 
 export const QUOTES_UPDATED_EVENT = EVT
+
+/** Read the whole list again: a change was refused, so the screen goes back to what the server has. */
+function reloadQuotes() { lastSync = null; void refreshQuotes() }
 
 /** When this list was last read from the server (the server's own clock). */
 let lastSync: string | null = null

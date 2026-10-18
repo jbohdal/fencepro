@@ -10,6 +10,7 @@ import { getCustomers } from './customerStore'
 import { cloudStorage } from './cloudStorage'
 import { BackClose } from './nav'
 import { businessDate } from './businessDate'
+import { can } from './permissions'
 
 interface SavedPlan {
   id: string
@@ -144,8 +145,8 @@ export default function SitePlansPage() {
                     <button onClick={e => { e.stopPropagation(); handleLinkToCustomer(p) }}
                       className="flex-1 text-emerald-600 hover:bg-emerald-50 rounded-md px-2 py-1">Link</button>
                   )}
-                  <button onClick={e => { e.stopPropagation(); handleDelete(p.id) }}
-                    className="flex-1 text-red-600 hover:bg-red-50 rounded-md px-2 py-1">Delete</button>
+                  {can('ops.delete') && <button onClick={e => { e.stopPropagation(); handleDelete(p.id) }}
+                    className="flex-1 text-red-600 hover:bg-red-50 rounded-md px-2 py-1">Delete</button>}
                 </div>
               </div>
             </div>

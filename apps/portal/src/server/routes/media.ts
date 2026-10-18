@@ -21,6 +21,7 @@ import { recordPhotoUploaded } from '../lib/automations/hooks.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { mediaDir, serializeMedia, processMediaQueue, checkMediaSig, CATEGORIES, VISIBILITY } from '../lib/media.js'
 import { plainZod } from '../lib/plainZod.js'
+import { requireCan } from '../lib/permissions.js'
 
 const router = Router()
 const MAX_BYTES = 2 * 1024 * 1024 * 1024 // 2 GB
@@ -234,7 +235,7 @@ router.delete('/:id/markup', async (req: any, res) => {
 })
 
 // Removed from the app; the files stay on the Mac (and in the backup).
-router.delete('/:id', async (req: any, res) => {
+router.delete('/:id', requireCan('ops.delete'), async (req: any, res) => {
   const n = await prisma.mediaItem.updateMany({ where: { id: String(req.params.id), accountId: req.user.crmAccountId, deletedAt: null }, data: { deletedAt: new Date() } })
   res.json({ success: true, data: { deleted: n.count } })
 })

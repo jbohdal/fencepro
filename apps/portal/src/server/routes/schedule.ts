@@ -18,6 +18,7 @@ import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.
 import { resolveSecret } from '../lib/secrets.js'
 import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
+import { can, refuse, requireCan, roleOf, sameJson } from '../lib/permissions.js'
 
 const router = Router()
 
@@ -78,7 +79,7 @@ router.get('/settings', async (req: any, res) => {
   }
 })
 
-router.put('/settings', async (req: any, res) => {
+router.put('/settings', requireCan('settings.change'), async (req: any, res) => {
   try {
     // The board (settings and jobs) is saved through PUT /board with a version
     // check. A tab still calling this is running the app from before that.
@@ -138,7 +139,7 @@ router.get('/jobs', async (req: any, res) => {
   }
 })
 
-router.post('/jobs', async (req: any, res) => {
+router.post('/jobs', requireCan('schedule.change'), async (req: any, res) => {
   try {
     const data = jobSchema.parse(req.body)
     const created = await prisma.scheduledGridJob.create({
@@ -166,7 +167,7 @@ router.post('/jobs', async (req: any, res) => {
   }
 })
 
-router.patch('/jobs/:id', async (req: any, res) => {
+router.patch('/jobs/:id', requireCan('schedule.change'), async (req: any, res) => {
   try {
     const data = jobSchema.partial().parse(req.body)
     const existing = await prisma.scheduledGridJob.findUnique({ where: { id: req.params.id } })
@@ -191,7 +192,7 @@ router.patch('/jobs/:id', async (req: any, res) => {
   }
 })
 
-router.delete('/jobs/:id', async (req: any, res) => {
+router.delete('/jobs/:id', requireCan('schedule.change'), requireCan('ops.delete'), async (req: any, res) => {
   try {
     const existing = await prisma.scheduledGridJob.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.accountId !== req.user.crmAccountId) {
@@ -214,7 +215,7 @@ router.delete('/jobs/:id', async (req: any, res) => {
 //     every save duplicated every job added since the page loaded.)
 //   - With replace: true the list is authoritative, so a job removed from the
 //     board is removed here too. (It used to come back on the next reload.)
-router.post('/jobs/sync', async (req: any, res) => {
+router.post('/jobs/sync', requireCan('schedule.change'), async (req: any, res) => {
   try {
     const { jobs, replace } = z.object({
       jobs: z.array(jobSchema),
@@ -296,12 +297,17 @@ router.get('/board', async (req: any, res) => {
   }
 })
 
-router.put('/board', async (req: any, res) => {
+router.put('/board', requireCan('schedule.change'), async (req: any, res) => {
   try {
     const { settings, jobs } = z.object({ settings: settingsSchema, jobs: z.array(jobSchema) }).parse(req.body)
     const base = baseVersionOf(req.body)
     if (base === null) { refuseUnversioned(res); return }
     const accountId = req.user.crmAccountId
+    // The working days are a setting (Monday to Thursday); the office moves jobs and crews.
+    if (!can(roleOf(req), 'settings.change')) {
+      const current = await prisma.scheduleSettings.findUnique({ where: { accountId } })
+      if (!sameJson(current?.workDays ?? [1, 2, 3, 4], settings.workDays)) { const board = await readBoard(accountId); refuse(res, 'settings.change', { data: board, version: board.version }); return }
+    }
     const saved = await prisma.$transaction(async tx => {
       const settingsData = { workDays: settings.workDays, crews: JSON.parse(JSON.stringify(settings.crews)) }
       const claimed = await tx.scheduleSettings.updateMany({ where: { accountId, version: base }, data: { ...settingsData, version: { increment: 1 } } })
@@ -362,7 +368,7 @@ router.get('/rain-log', async (req: any, res) => {
   }
 })
 
-router.post('/rain-log', async (req: any, res) => {
+router.post('/rain-log', requireCan('schedule.change'), async (req: any, res) => {
   try {
     const data = rainSchema.parse(req.body)
     const accountId = req.user.crmAccountId
@@ -398,7 +404,7 @@ router.post('/rain-log', async (req: any, res) => {
   }
 })
 
-router.delete('/rain-log/:id', async (req: any, res) => {
+router.delete('/rain-log/:id', requireCan('schedule.change'), requireCan('ops.delete'), async (req: any, res) => {
   try {
     const existing = await prisma.scheduleRainDay.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.accountId !== req.user.crmAccountId) {
@@ -413,7 +419,7 @@ router.delete('/rain-log/:id', async (req: any, res) => {
   }
 })
 
-router.post('/rain-log/sync', async (req: any, res) => {
+router.post('/rain-log/sync', requireCan('schedule.change'), async (req: any, res) => {
   try {
     const { entries } = z.object({ entries: z.array(rainSchema) }).parse(req.body)
     let created = 0

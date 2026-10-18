@@ -15,6 +15,7 @@ import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
+import { inventoryChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -82,6 +83,10 @@ router.put('/', async (req: any, res) => {
       // One kit set in use per style (a second one sent at the same moment is archived, not lost).
       ...(data.kits ? { kits: oneActiveKitPerStyle(JSON.parse(JSON.stringify(data.kits)) as any[]) } : {}),
     }
+    // Prices and kits are for the owner, admin and manager; the office may change stock; a sale may set stock aside.
+    const saved = await prisma.inventoryState.findUnique({ where: { accountId } })
+    const refused = inventoryChangeRefusal(roleOf(req), saved ?? {}, { ...fields, kits: data.kits === undefined ? undefined : fields.kits })
+    if (refused) { refuse(res, refused, { data: saved, version: saved?.version ?? 0 }); return }
     const done = await prisma.inventoryState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
     if (done.count === 0) {
       const current = await prisma.inventoryState.findUnique({ where: { accountId } })

@@ -4,6 +4,7 @@ import { getQuotes } from './quoteStore'
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
+import { can } from './permissions'
 
 export interface StagingJob {
   id: string
@@ -215,12 +216,12 @@ function JobDrawer({
             )}
           </div>
 
-          <div className="pt-2 border-t border-gray-100">
+          {can('ops.delete') && <div className="pt-2 border-t border-gray-100">
             <button
               onClick={() => { if (confirm('Remove this job from staging?')) { onDelete(job.id); onClose() } }}
               className="text-red-400 hover:text-red-600 text-sm font-medium"
             >Remove from staging</button>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

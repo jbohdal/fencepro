@@ -18,6 +18,7 @@ import prisma from '../lib/prisma.js'
 import { oneById } from '../lib/once.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
+import { kvChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -69,6 +70,10 @@ router.put('/:key', async (req: any, res) => {
   const accountId = req.user.crmAccountId
   try {
     const where = { accountId_key: { accountId, key } }
+    // Settings and price lists are for the owner, admin and manager; removing files or site plans is deleting them.
+    const saved = await prisma.accountKeyValue.findUnique({ where })
+    const refused = kvChangeRefusal(roleOf(req), key, saved ? saved.value : null, value ?? null)
+    if (refused) { refuse(res, refused, { data: saved ? saved.value : null, version: saved?.version ?? 0 }); return }
     const stale = async () => {
       const current = await prisma.accountKeyValue.findUnique({ where })
       refuseStale(res, current ? current.value : null, current?.version ?? 0)

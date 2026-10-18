@@ -9,6 +9,7 @@ import { useBackLayer } from './nav'
 import { newId } from './recordSync'
 import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
+import { can } from './permissions'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -492,14 +493,14 @@ export function LeadDrawer({
             )}
           </div>
 
-          <div className="pt-2 border-t border-gray-100">
+          {can('records.delete') && <div className="pt-2 border-t border-gray-100">
             <button
               onClick={() => { if (confirm('Delete this lead?')) { onDelete(lead.id); onClose() } }}
               className="text-red-400 hover:text-red-600 text-sm font-medium"
             >
               Delete lead
             </button>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

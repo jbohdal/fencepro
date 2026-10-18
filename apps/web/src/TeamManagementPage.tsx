@@ -30,10 +30,10 @@ interface Session {
 
 const ROLES = [
   { value: 'admin', label: 'Admin', desc: 'Full access to all features', color: 'bg-red-100 text-red-700' },
-  { value: 'manager', label: 'Manager', desc: 'Operations, sales, scheduling, reports', color: 'bg-purple-100 text-purple-700' },
-  { value: 'sales_rep', label: 'Sales Rep', desc: 'Own pipeline, contacts, quotes', color: 'bg-blue-100 text-blue-700' },
-  { value: 'field_crew', label: 'Field Crew', desc: 'Assigned jobs and schedule', color: 'bg-green-100 text-green-700' },
-  { value: 'office_staff', label: 'Office Staff', desc: 'Contacts, jobs, invoices, schedule', color: 'bg-orange-100 text-orange-700' },
+  { value: 'manager', label: 'Manager', desc: 'Everything except the team and system tools', color: 'bg-purple-100 text-purple-700' },
+  { value: 'sales_rep', label: 'Salesman', desc: 'Leads, customers, quotes and proposals, notes, appointments, moving pipeline cards, photos. No settings, prices, team or deleting.', color: 'bg-blue-100 text-blue-700' },
+  { value: 'field_crew', label: 'Field Crew', desc: 'Jobs, photos, notes, walkthroughs, checklists. No quotes, settings, prices or deleting.', color: 'bg-green-100 text-green-700' },
+  { value: 'office_staff', label: 'Office Staff', desc: 'Customers, quotes, jobs, schedule, billing, vendors, stock. No settings, prices, team, or deleting customers, quotes or jobs.', color: 'bg-orange-100 text-orange-700' },
 ]
 
 const STATUS_BADGES: Record<string, string> = {
@@ -53,6 +53,8 @@ export default function TeamManagementPage() {
   const [loading, setLoading] = useState(true)
   const [showInvite, setShowInvite] = useState(false)
   const [editingUser, setEditingUser] = useState<TeamUser | null>(null)
+  // The link from the last invite resent, to copy and text when the email is slow.
+  const [resent, setResent] = useState<{ email: string; url: string } | null>(null)
 
   const loadUsers = useCallback(() => {
     setLoading(true)
@@ -83,6 +85,8 @@ export default function TeamManagementPage() {
           + Invite Team Member
         </button>
       </div>
+
+      {resent && <InviteLink email={resent.email} url={resent.url} onDone={() => setResent(null)} />}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit overflow-x-auto">
@@ -131,9 +135,12 @@ export default function TeamManagementPage() {
                       <button onClick={() => setEditingUser(user)} className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1">Edit</button>
                       {user.status === 'invited' && (
                         <button onClick={async () => {
-                          await api('/invite', { method: 'POST', body: JSON.stringify({ firstName: user.firstName, lastName: user.lastName, email: user.email, role: user.role }) }).catch(() => {})
+                          try {
+                            const d = await api<{ email: string; inviteUrl?: string }>(`/invite/${user.id}/resend`, { method: 'POST' })
+                            if (d?.inviteUrl) setResent({ email: user.email, url: d.inviteUrl })
+                          } catch (err: any) { alert(plainText(err)) }
                           loadUsers()
-                        }} className="text-xs text-orange-600 hover:text-orange-800 px-2 py-1">Resend</button>
+                        }} className="text-xs text-orange-600 hover:text-orange-800 px-2 py-1" data-resend-invite>Resend</button>
                       )}
                       {user.role !== 'super_admin' && (
                         <button onClick={async () => {
@@ -212,6 +219,26 @@ export default function TeamManagementPage() {
   )
 }
 
+// ── The invite link, to copy and text ──
+
+function InviteLink({ email, url, onDone }: { email: string; url: string; onDone: () => void }) {
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try { await navigator.clipboard.writeText(url); setCopied(true) } catch { setCopied(false) }
+  }
+  return (
+    <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-2" data-invite-link>
+      <p className="text-sm text-green-900 font-medium">Invite sent to {email}.</p>
+      <p className="text-xs text-green-900">If the email does not show up, copy this link and text it. They open it, choose a password (8 characters or more), and are signed in. It works for 72 hours, once.</p>
+      <div className="flex gap-2">
+        <input readOnly value={url} onFocus={e => e.currentTarget.select()} className="flex-1 min-w-0 border border-green-200 rounded-lg px-3 py-2 text-xs bg-white" data-invite-url />
+        <button type="button" onClick={copy} className="btn btn-secondary btn-sm shrink-0">{copied ? 'Copied' : 'Copy link'}</button>
+        <button type="button" onClick={onDone} className="btn btn-quiet btn-sm shrink-0">Done</button>
+      </div>
+    </div>
+  )
+}
+
 // ── Invite Modal ──
 
 function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: () => void }) {
@@ -223,16 +250,27 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
   const [role, setRole] = useState('office_staff')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [sent, setSent] = useState<{ email: string; url: string } | null>(null)
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true); setError('')
     try {
-      await api('/invite', { method: 'POST', body: JSON.stringify({ firstName, lastName, email, phone: phone || undefined, role }) })
-      onInvited()
+      const d = await api<{ email: string; inviteUrl?: string }>('/invite', { method: 'POST', body: JSON.stringify({ firstName, lastName, email, phone: phone || undefined, role }) })
+      if (d?.inviteUrl) setSent({ email: d.email || email, url: d.inviteUrl })
+      else onInvited()
     } catch (err: any) { setError(plainText(err)) }
     setSaving(false)
   }
+
+  if (sent) return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] p-6 mx-4 space-y-4 modal-responsive">
+        <h2 className="font-bold text-gray-900 text-lg">Invite sent</h2>
+        <InviteLink email={sent.email} url={sent.url} onDone={onInvited} />
+      </div>
+    </div>
+  )
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -294,7 +332,7 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
           </button>
         </div>
 
-        <p className="text-xs text-gray-400 text-center">An email will be sent with a link to set their password. Invite expires in 72 hours.</p>
+        <p className="text-xs text-gray-400 text-center">An email is sent with a link to set their password, and the link is shown here to copy. Invite expires in 72 hours.</p>
       </form>
     </div>
   )

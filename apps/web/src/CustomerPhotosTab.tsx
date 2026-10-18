@@ -17,6 +17,7 @@ import {
 } from './portalApiClient'
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
+import { can } from './permissions'
 
 const ACCEPTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif']
 const ACCEPT_ATTR = 'image/jpeg,image/png,image/webp,image/heic,image/heif,image/gif'
@@ -253,7 +254,7 @@ function PhotoCard({ photo, onOpen, onDelete, onDownload }: {
         <div className="absolute bottom-10 right-2 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 text-sm" onMouseLeave={() => setMenu(false)}>
           <button onClick={() => { setMenu(false); onOpen() }} className="block w-full text-left px-3 py-1.5 hover:bg-orange-50">View Full Size</button>
           <button onClick={() => { setMenu(false); onDownload() }} className="block w-full text-left px-3 py-1.5 hover:bg-orange-50">Download</button>
-          <button onClick={() => { setMenu(false); onDelete() }} className="block w-full text-left px-3 py-1.5 text-red-600 hover:bg-red-50">Delete</button>
+          {can('ops.delete') && <button onClick={() => { setMenu(false); onDelete() }} className="block w-full text-left px-3 py-1.5 text-red-600 hover:bg-red-50">Delete</button>}
         </div>
       )}
     </div>
