@@ -9,6 +9,7 @@
 // Biz together, the quote opens in the builder at the same price, and a page
 // on any other site is refused the frame. The test records are removed after.
 
+// Clicks, not taps: Playwright 1.56 does not deliver a tap inside a frame from another site.
 import { chromium } from 'playwright'
 import { execFileSync } from 'child_process'
 
@@ -47,27 +48,27 @@ try {
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/w1-address.png` })
 
   await w.locator('[data-w-address]').fill('201 SE 3rd St, Ocala, FL 34471')
-  await w.locator('[data-w-next]').tap(); await sleep(4000)
+  await w.locator('[data-w-next]').click(); await sleep(4000)
   // Found: on to the yard. Not found: "Carry on".
-  if (await w.locator('[data-w-step="address"]').count()) await w.locator('[data-w-next]').tap()
-  await w.locator('[data-w-shape="backyard"]').tap(); await sleep(400)
+  if (await w.locator('[data-w-step="address"]').count()) await w.locator('[data-w-next]').click()
+  await w.locator('[data-w-shape="backyard"]').click(); await sleep(400)
   check('the yard: the same Backyard sides as the quote builder', (await w.locator('[data-w-side]').count()) === 5)
-  await w.locator('[data-w-side="Left return"] [data-w-length]').tap()
+  await w.locator('[data-w-side="Left return"] [data-w-length]').click()
   for (const [ft, last] of [['30', false], ['120', false], ['150', false], ['120', false], ['30', true]]) {
-    for (const k of ft) await w.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).tap()
-    await w.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').tap(); await sleep(150)
+    for (const k of ft) await w.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
+    await w.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click(); await sleep(150)
   }
-  await w.locator('[data-w-side="Left return"] [data-w-gate] button:has-text("Walk gate")').tap()
+  await w.locator('[data-w-side="Left return"] [data-w-gate] button:has-text("Walk gate")').click()
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/w2-yard.png` })
-  await w.locator('[data-w-step="yard"] [data-w-next]').tap(); await sleep(300)
+  await w.locator('[data-w-step="yard"] [data-w-next]').click(); await sleep(300)
 
-  await w.locator('[data-w-material="vinyl"]').tap()
-  await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"]').tap()
-  await w.locator('[data-w-height="6ft"]').tap(); await w.locator('[data-w-color="White"]').tap()
+  await w.locator('[data-w-material="vinyl"]').click()
+  await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"]').click()
+  await w.locator('[data-w-height="6ft"]').click(); await w.locator('[data-w-color="White"]').click()
   const photo = await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"] img').count()
   check('style cards use the Settings style photo when there is one, else say a photo is coming', photo === 1 || (await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"]').textContent()).includes('Photo coming soon'))
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/w3-fence.png` })
-  await w.locator('[data-w-step="fence"] [data-w-next]').tap(); await sleep(2500)
+  await w.locator('[data-w-step="fence"] [data-w-next]').click(); await sleep(2500)
 
   const estimate = Number(await w.locator('[data-w-estimate]').getAttribute('data-w-estimate'))
   check('the customer gets a price', estimate > 1000, `$${estimate}`)
@@ -75,7 +76,7 @@ try {
   await w.locator('[data-w-name]').fill(NAME)
   await w.locator('[data-w-phone]').fill('352-555-0199')
   await w.locator('[data-w-email]').fill('e2e.widget@example.com')
-  await w.locator('[data-w-send]').tap(); await sleep(3000)
+  await w.locator('[data-w-send]').click(); await sleep(3000)
   check('sent: the thank you shows the estimate', (await w.locator('[data-w-sent]').textContent()).includes(`$${estimate.toLocaleString('en-US')}`))
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/w5-sent.png` })
 

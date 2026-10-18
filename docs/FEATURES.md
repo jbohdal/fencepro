@@ -1,6 +1,6 @@
 # Getter Done Fence (EZ Biz): feature list
 
-Last updated: Oct 18, 2026 (kept by Claude Code in the repo as docs/FEATURES.md; updated with every change). One place for every feature, rule and decision, so nothing gets lost.
+Last updated: Oct 18, 2026 (early morning) (kept by Claude Code in the repo as docs/FEATURES.md; updated with every change). One place for every feature, rule and decision, so nothing gets lost.
 
 Status key:
 * **LIVE**: built and running on the Mac mini
@@ -60,6 +60,9 @@ Status key:
 * Every /api route checked without a sign in. /api/quotes now needs a staff sign in (it returns costs and margins); /api/leads refuses when the Botpress secret is not set; /api/quoting/estimate returns the price only and allows 30 a minute per address. **LIVE** (Oct 17)
 * Remove the old Good / Better / Best Bundles page (tiers live on the quote): page, Options panel in the quote builder, the /present customer page, the options report and the options box on the quote view. Nothing else used them; 0 bundles and 0 options on live. **LIVE** (Oct 17)
 * Tan no dig donuts match white: 2 per post, no extra 2 off per double gate (the blank post is set in concrete and was already left out). Confirmed in the original EZ-Quote Sales spreadsheet: one donut formula for white and tan (H25×2 − H30×2). **LIVE** (Oct 17)
+* Price follows the parts (checked Oct 18 on a copy of live): every style's Materials $ moves with footage, gates and kit quantities (doubling a kit quantity changes it by exactly quantity × Inventory cost), price = (materials + labor) ÷ (1 − Target Margin), and the tiers, proposal, website widget and phone agent use the same math. Cause of the "fixed price": the 1,941 quotes imported from JobNimbus carry the old system's price as a price set by hand, so once measured their price did not move. Now an imported quote that is not sold is priced from its parts, with the old price shown and "Use the old price" one tap away; a sold one keeps its contract price; any price set by hand says so in the bottom bar with "Price it from cost instead". No quote made in EZ Biz was priced wrong (both reprice to the cent). **LIVE** (Oct 18)
+* Kits that add little or nothing (from the original parts lists): Commercial chain link gates take only 2 bolts and a drop rod ($22, no gate frame or hinges); Industrial Abigail gates take only 24 hex screws ($4, no gate panel); Durafence has no parts list ($0 material). **NEEDS JONATHAN** (the parts for each, or the Inventory items to add to those kits)
+* Inventory items at $0 on live (not used by any kit today, but they would add nothing if added): commercial black chain link parts, green chain link gates, fabric and pipe, Emily gates, Fence Sign, Swag Bag. **NEEDS JONATHAN** (prices)
 
 ## 4. Quoting in the field
 

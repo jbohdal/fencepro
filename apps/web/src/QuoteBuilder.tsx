@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { Camera } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
-import { resolveSubRate, cleanOverrides } from './pricingEngine'
+import { resolveSubRate, cleanOverrides, importedOldPrice } from './pricingEngine'
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
 import { normalizeItemName } from './materialCalculator'
@@ -379,7 +379,10 @@ export default function QuoteBuilder({
     () => cfg.fenceStyles.filter(s => s.isActive !== false || s.name === init?.fenceStyle),
     [cfg, init?.fenceStyle],
   )
-  const initPricing: QuotePricingOverrides = init?.pricing ?? {}
+  // A quote brought in from JobNimbus carries the old system's price; unless it is sold, it is priced from its parts here.
+  const oldPrice = importedOldPrice(init as any)
+  const keepOldPrice = oldPrice != null && init?.status === 'SOLD'
+  const initPricing: QuotePricingOverrides = oldPrice != null && !keepOldPrice ? {} : (init?.pricing ?? {})
 
   const [customerName, setCustomerName] = useState(init?.customerName ?? '')
   const [styleId, setStyleId]           = useState(() => {
@@ -1076,6 +1079,17 @@ export default function QuoteBuilder({
               <div className="bg-gray-900 rounded-xl p-4">
                 <p className="text-gray-400 text-xs mb-1">{priced.priceMethod === 'manual' ? 'Price (set by hand)' : 'Adjusted Price'}</p>
                 <p className="text-white text-3xl font-bold" data-quote-price>{fmt(adjPrice)}</p>
+                {priced.priceMethod === 'manual' && (
+                  <button type="button" className="mt-2 text-xs font-semibold text-amber-300 underline min-h-[44px]" onClick={() => setFinalPriceStr('')} data-price-from-cost>
+                    This price was set by hand, so the parts do not change it. Price it from cost instead
+                  </button>
+                )}
+                {oldPrice != null && !keepOldPrice && priced.priceMethod !== 'manual' && (
+                  <p className="text-gray-300 text-xs mt-2" data-old-price>
+                    Old system price (imported): {fmt(oldPrice)}.{' '}
+                    <button type="button" className="underline font-semibold min-h-[44px]" onClick={() => setFinalPriceStr(String(oldPrice))} data-use-old-price>Use the old price</button>
+                  </p>
+                )}
                 {totalFootage > 0 && <p className="text-gray-400 text-xs mt-1">{fmt(priced.pricePerFoot)} per foot</p>}
                 {commAmt > 0 && <p className="text-gray-400 text-xs mt-1">Commission: {fmt(commAmt)}</p>}
                 {compare && (
@@ -1364,7 +1378,7 @@ export default function QuoteBuilder({
                 : totalFootage > 0 ? `${totalFootage} ft · ${sections} sections · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
             </p>
             <div className="flex items-center gap-2 mt-1">
-              <p className="text-xl font-bold tabular-nums text-gray-900 min-w-0 mr-auto" data-bar-price>{fmt(adjPrice)}</p>
+              <p className="text-xl font-bold tabular-nums text-gray-900 min-w-0 mr-auto" data-bar-price>{fmt(adjPrice)}{priced.priceMethod === 'manual' && <span className="block text-xs font-semibold text-amber-700" data-bar-price-typed>Set by hand: parts do not change it</span>}</p>
               <button type="button" className="btn btn-secondary shrink-0 min-h-[48px] px-3" onClick={() => setPhotosOpen(true)} data-photos-open aria-label={`Photos and video (${mediaItems.length})`}>
                 <Camera size={18} aria-hidden="true" /><span className="tabular-nums">{mediaItems.length}</span>
               </button>

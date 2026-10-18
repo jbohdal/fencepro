@@ -305,3 +305,18 @@ export function cleanOverrides(o: QuotePricingOverrides | undefined | null): Quo
   }
   return Object.keys(out).length > 0 ? (out as QuotePricingOverrides) : undefined
 }
+
+/**
+ * The old system's price on a quote brought in from JobNimbus: those quotes
+ * came with no measurements and their invoice total as a typed price. That
+ * price was never typed here, so it is not a price set by hand: an open or
+ * lost one is priced from its parts like any quote once it is measured. A
+ * sold one keeps it (it is what the customer agreed to). Null otherwise.
+ */
+export function importedOldPrice(q: { pricing?: QuotePricingOverrides | null; runs?: unknown[] | null; status?: string } | null | undefined): number | null {
+  const p = q?.pricing
+  if (!p || typeof p.finalPrice !== 'number' || !(p.finalPrice > 0)) return null
+  if (Object.keys(p).some(k => k !== 'finalPrice')) return null
+  if (Array.isArray(q?.runs) && q!.runs!.length > 0) return null
+  return p.finalPrice
+}
