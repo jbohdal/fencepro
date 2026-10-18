@@ -467,7 +467,7 @@ export default function QuoteBuilder({
   // Unsaved work: anything changed since the builder opened (after it settles).
   // Back, the close button and closing the tab ask before it is dropped.
   const workRef = useRef('')
-  workRef.current = JSON.stringify([styleId, runs, entry, yard, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, adjLaborHrs, priceAdjust, hasSalesman,
+  workRef.current = JSON.stringify([customerName, styleId, runs, entry, yard, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, adjLaborHrs, priceAdjust, hasSalesman,
     laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, offer, tierPrefs, voiceNotes])
   const startWork = useRef<string | null>(null)
   useEffect(() => { const t = setTimeout(() => { startWork.current = workRef.current }, 400); return () => clearTimeout(t) }, [])

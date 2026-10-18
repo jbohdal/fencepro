@@ -109,6 +109,8 @@ Status key:
 * Pipeline card window: New quote, Call, Text, Navigate, Book appointment, quotes, next appointment, notes, stage picker. **LIVE**
 * Back button works like a normal app; every screen has its own address; "Leave without saving?" on unsaved quotes. **LIVE** (test on your phones)
 * Cards without a customer (Dave Diamond): fixed on live Oct 16 (the only one); cause fixed so a customer and card save together or not at all. **LIVE** (Oct 17)
+* Doubled pipeline cards (Oct 17: David Fousek, Lori Jackson, Tali Batikoff, two cards each): made by a phone still running the app from before Oct 16 (short card ids), which saved the card on its own and could send it twice. The current app sends the customer and card as one action with one id each, and the server keeps the first. Now also: a repeat never adds a second card for that customer (even from an older app), two copies arriving at the same moment are answered "already saved" (customers, cards, notes, quotes, jobs, appointments), and a phone that keeps the app open takes each new version by itself (when it comes back on screen, with nothing waiting and nothing unsaved; otherwise "Update" shows). Tests: the same create 3 times one after another and at once (server), and 3 times through a dropping signal (browser): one customer, one card, one quote. **LIVE** (Oct 18)
+* The 3 doubled cards on live: remove the second card of each. **NEEDS JONATHAN** (OK to merge)
 * "Create customer from this lead" button. **READY**
 * Appointments with free maps, team list, linked to jobs. **LIVE**
 * Phone Schedule tab opens the install schedule, with a day view on top: that day's installs and appointments, previous/next day, back to today; tapping an appointment opens it. **LIVE** (Oct 17)

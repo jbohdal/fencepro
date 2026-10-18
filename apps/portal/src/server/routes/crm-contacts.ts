@@ -136,7 +136,7 @@ router.post('/', requireAccount, async (req: any, res) => {
     const card = req.body?.lead ? newCardSchema.parse(req.body.lead) : null
     const before = typeof req.body?.leadBefore === 'string' ? req.body.leadBefore : null
     const accountId = req.user.crmAccountId
-    const decision = await decideClientId(clientId, accountId, id => prisma.crmContact.findUnique({ where: { id } }))
+    let decision = await decideClientId(clientId, accountId, id => prisma.crmContact.findUnique({ where: { id } }))
 
     let result: { contact: any; isNew: boolean; pipelineVersion: number | null } | null = null
     for (let attempt = 0; attempt < 5 && !result; attempt++) {
@@ -174,7 +174,8 @@ router.post('/', requireAccount, async (req: any, res) => {
             if (!cur) {
               const made = await tx.pipelineState.create({ data: { accountId, leads: [lead], stages: [] } })
               pipelineVersion = made.version
-            } else if (!((cur.leads as any[]) ?? []).some(l => l?.id === lead.id)) {
+            } else if (!((cur.leads as any[]) ?? []).some(l => l?.id === lead.id || (!isNew && l?.customerId === contact.id))) {
+              // A create sent again (no answer reached the phone) never adds a second card for that customer.
               const next = applyPipelineDelta({ leads: (cur.leads as any[]) ?? [], stages: (cur.stages as any[]) ?? [] }, { upsert: [{ lead, before }], remove: [] })
               const done = await tx.pipelineState.updateMany({ where: { accountId, version: cur.version }, data: { leads: JSON.parse(JSON.stringify(next.leads)), version: { increment: 1 } } })
               // Another save to the pipeline landed in between: undo this one and go again.
@@ -187,6 +188,11 @@ router.post('/', requireAccount, async (req: any, res) => {
           return { contact, isNew, pipelineVersion }
         })
       } catch (e) {
+        // The same create arrived twice at once: the other one made it, so this is a repeat.
+        if ((e as any)?.code === 'P2002' && decision.kind === 'use') {
+          const row = await prisma.crmContact.findUnique({ where: { id: decision.id } })
+          if (row && row.accountId === accountId) { decision = { kind: 'exists', row }; continue }
+        }
         if (!(e instanceof PipelineBusy)) throw e
       }
     }
@@ -375,6 +381,11 @@ router.post('/:id/notes', requireAccount, async (req: any, res) => {
     res.status(201).json({ success: true, data: created })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    // The same note arrived twice at once: the first one is the note.
+    if ((err as any)?.code === 'P2002' && typeof req.body?.id === 'string') {
+      const row = await prisma.crmContactNote.findUnique({ where: { id: req.body.id } }).catch(() => null)
+      if (row && row.accountId === req.user.crmAccountId) { res.status(200).json({ success: true, data: row }); return }
+    }
     console.error('[crm-contacts] notes create error:', err)
     res.status(500).json({ success: false, error: 'Failed to create note' })
   }

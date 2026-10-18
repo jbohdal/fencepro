@@ -172,7 +172,13 @@ async function bookByStaff(req: any, res: any) {
     res.status(201).json({ success: true, data: toClient(a), version: a.version })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
-    if ((err as any)?.code === 'P2002') { res.status(409).json({ success: false, error: 'That appointment already exists' }); return }
+    if ((err as any)?.code === 'P2002') {
+      // The same booking arrived twice at once: the first one is the booking.
+      const id = typeof req.body?.id === 'string' ? req.body.id : null
+      const row = id ? await prisma.appointment.findFirst({ where: { id, accountId: req.user.crmAccountId }, include: { contact: { select: contactSelect } } }).catch(() => null) : null
+      if (row) { res.status(200).json({ success: true, data: toClient(row), version: row.version }); return }
+      res.status(409).json({ success: false, error: 'That appointment already exists' }); return
+    }
     console.error('[appointments] create error:', err)
     res.status(500).json({ success: false, error: 'Could not book the appointment' })
   }

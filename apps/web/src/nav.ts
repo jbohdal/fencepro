@@ -23,6 +23,7 @@
  */
 
 import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { registerUnsaved } from './appUpdate'
 
 interface EntryState {
   ez: 1
@@ -356,7 +357,9 @@ export function useLeaveWarning(dirty: () => boolean) {
   useEffect(() => {
     const h = (e: BeforeUnloadEvent) => { if (ref.current()) { e.preventDefault(); e.returnValue = '' } }
     window.addEventListener('beforeunload', h)
-    return () => window.removeEventListener('beforeunload', h)
+    // A new version of the app waits while this editor has unsaved work.
+    const off = registerUnsaved(() => ref.current())
+    return () => { window.removeEventListener('beforeunload', h); off() }
   }, [])
 }
 

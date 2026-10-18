@@ -59,6 +59,7 @@ import { initBusinessState, isBusinessStateHydrated } from './businessStateStore
 import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
 import { startIntakeSync } from './intakeStore'
 import { ToastContainer, toast } from './toast'
+import { isUpdateReady, reloadIfSafe, UPDATE_READY_EVENT } from './appUpdate'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import { syncQuote } from './portalSync'
@@ -387,6 +388,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
           <button onClick={() => void loadData(crmUser)} className="bg-white text-red-700 font-semibold text-sm px-4 min-h-[44px] rounded">Try again</button>
         </div>
       )}
+      <UpdateReady />
       {children(crmUser, handleLogout, () => setShowChangePassword(true))}
       {showChangePassword && (
         <ChangePasswordPage
@@ -1224,3 +1226,19 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     </div>
   )
 }
+
+/** A new version is on the Mac but this phone has unsaved work or changes still waiting to send: one tap takes it when ready. */
+function UpdateReady() {
+  const [ready, setReady] = useState(isUpdateReady())
+  useEffect(() => { const h = () => setReady(true); window.addEventListener(UPDATE_READY_EVENT, h); return () => window.removeEventListener(UPDATE_READY_EVENT, h) }, [])
+  if (!ready) return null
+  return (
+    <div className="fixed bottom-24 md:bottom-4 inset-x-0 z-[190] flex justify-center px-4 pointer-events-none" data-update-ready>
+      <div className="pointer-events-auto bg-gray-900 text-white text-sm rounded-xl shadow-lg px-4 py-2 flex items-center gap-3">
+        <span>A newer version of EZ Biz is ready.</span>
+        <button type="button" className="bg-white text-gray-900 font-semibold rounded px-3 min-h-[44px]" onClick={() => { if (!reloadIfSafe()) toast.info('Not yet', 'Save or finish what is open, and let waiting changes send, then tap Update.') }}>Update</button>
+      </div>
+    </div>
+  )
+}
+

@@ -179,6 +179,11 @@ router.post('/', requireUser, requireAccount, async (req: any, res) => {
     res.status(201).json({ success: true, data: created })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    // The same job arrived twice at once: the first one is the job.
+    if ((err as any)?.code === 'P2002' && typeof req.body?.id === 'string') {
+      const row = await prisma.savedJob.findUnique({ where: { id: req.body.id } }).catch(() => null)
+      if (row && row.accountId === req.user.crmAccountId) { res.status(200).json({ success: true, data: row }); return }
+    }
     console.error('[saved-jobs] create error:', err)
     res.status(500).json({ success: false, error: 'Failed to create job' })
   }
