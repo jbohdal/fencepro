@@ -54,7 +54,7 @@ router.get('/setup', async (req: any, res) => {
       prisma.crmContact.count({ where: { accountId, archivedAt: null, notes: { contains: 'Created from the GD Schedule' }, AND: [{ OR: [{ phone: null }, { phone: '' }] }, { OR: [{ email: null }, { email: '' }] }] } }),
       prisma.calendarSyncState.findUnique({ where: { accountId } }).catch(() => null),
       prisma.voiceCheck.findMany({ where: { accountId }, select: { userAgent: true } }).catch(() => [] as Array<{ userAgent: string | null }>),
-      prisma.backupLog.findFirst({ where: { backupType: 'offsite', status: 'success', completedAt: { gte: new Date(Date.now() - 2 * DAY) } } }),
+      prisma.backupLog.findFirst({ where: { backupType: 'offsite', status: 'success', completedAt: { gte: new Date(Date.now() - 2 * DAY) } }, orderBy: { completedAt: 'desc' } }),
       prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: 'uptimeRobotSeenAt' } } }),
       answers(accountId),
     ])

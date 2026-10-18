@@ -33,5 +33,5 @@ if [ -n "$old" ]; then
 fi
 
 # Recorded for the app (Settings and the Finish setup card read it).
-"$PG_BIN/psql" -q -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "insert into \"BackupLog\" (id, \"backupType\", \"filePath\", \"remoteUrl\", \"fileSizeBytes\", status, \"startedAt\", \"completedAt\") values (gen_random_uuid()::text, 'offsite', '$latest', '$REMOTE/$(basename "$latest")', $(stat -f %z "$latest"), 'success', now(), now())" \
+"$PG_BIN/psql" -q -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "insert into \"BackupLog\" (id, \"backupType\", \"filePath\", \"remoteUrl\", \"fileSizeBytes\", status, \"startedAt\", \"completedAt\") values (gen_random_uuid()::text, 'offsite', '$latest', '$REMOTE/$(basename "$latest")', $(stat -f %z "$latest"), 'success', now() at time zone 'utc', now() at time zone 'utc')" \
   || say "copied, but it could not be recorded for the app"

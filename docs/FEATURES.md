@@ -1,6 +1,6 @@
 # Getter Done Fence (EZ Biz): feature list
 
-Last updated: Oct 17, 2026 (night) (kept by Claude Code in the repo as docs/FEATURES.md; updated with every change). One place for every feature, rule and decision, so nothing gets lost.
+Last updated: Oct 18, 2026 (kept by Claude Code in the repo as docs/FEATURES.md; updated with every change). One place for every feature, rule and decision, so nothing gets lost.
 
 Status key:
 * **LIVE**: built and running on the Mac mini
@@ -128,7 +128,8 @@ Status key:
 ## 11. Storage and backups
 
 * Uploads folder included in the nightly backup. **LIVE**
-* Off site database backup to Google Drive (free 15 GB) with rclone: after every backup, the newest copy goes to "EZ Biz backups" in Drive and only the last 30 are kept; if Drive is not connected the backup on the Mac still runs and says so. **NEEDS JONATHAN** (code is live; one time Google sign in with `rclone config`)
+* Off site database backup to Google Drive (free 15 GB) with rclone, Jonathan's own Google key: after every backup (nightly 2:30 am, before each deploy, manual), the newest copy goes to "EZ Biz backups" in Drive and only the last 30 are kept; if Drive is not reachable the backup on the Mac still runs and says so. **LIVE** (Oct 18: the nightly job run by the Mac's scheduler copied its backup to Drive; keep rule tested on Drive in a test folder, 8 copies with keep 5 left the newest 5)
+* Backup times are recorded in UTC, as the app reads them (they had been 4 hours early, so "last backup" looked older than it was; the Nov 16 deletion was not affected). **LIVE** (Oct 18)
 * Shrink media after a job is Complete for 90 days (setting in Settings > Company > Photos and video): videos keep only the small viewing copy, photos go to 2400 px on the long side, marked up copies untouched; twice a day, once per item. Dashboard warning under 50 GB free. **LIVE** (Oct 17)
 * Space estimate (Oct 17): 182 GB free. Without shrinking about 63 GB a year (2 years to the warning, 3 to full); with shrinking about 20 GB a year (about 6 years to the warning, 8 to full).
 * External drive for media copies (1 to 2 TB). **LATER** (when affordable)

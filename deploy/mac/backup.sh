@@ -39,7 +39,7 @@ mv "$db_file.part" "$db_file"
 say "database: $db_file ($(du -h "$db_file" | cut -f1))"
 # Tell the server a backup succeeded (its nightly check reads this; without it
 # the log says "no successful backup" every day although the files are here).
-"$PG_BIN/psql" -q -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "insert into \"BackupLog\" (id, \"backupType\", \"filePath\", \"fileSizeBytes\", status, \"startedAt\", \"completedAt\") values (gen_random_uuid()::text, '${EZBIZ_BACKUP_TYPE:-daily}', '$db_file', $(stat -f %z "$db_file"), 'success', now(), now())" \
+"$PG_BIN/psql" -q -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "insert into \"BackupLog\" (id, \"backupType\", \"filePath\", \"fileSizeBytes\", status, \"startedAt\", \"completedAt\") values (gen_random_uuid()::text, '${EZBIZ_BACKUP_TYPE:-daily}', '$db_file', $(stat -f %z "$db_file"), 'success', now() at time zone 'utc', now() at time zone 'utc')" \
   || say "database: backup is fine, but it could not be recorded for the server's nightly check"
 
 snap=""
