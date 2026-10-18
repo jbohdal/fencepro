@@ -156,15 +156,17 @@ export default function EZBudgetWidget({ apiBase }: EZBudgetWidgetProps) {
   const lowPrice = Math.round(subtotal * (1 + quoteRange.lowPercent / 100))
   const highPrice = Math.round(subtotal * (1 + quoteRange.highPercent / 100))
 
-  // Submit
+  // Submit. One id for this visit's quote: Submit tapped twice, or again after an error, saves one quote.
+  const [submissionId] = useState(() => crypto.randomUUID())
   const handleSubmit = useCallback(async () => {
-    if (!name.trim()) return
+    if (!name.trim() || submitting) return
     setSubmitting(true)
     try {
       await fetch(`${api}/widget/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          clientId: submissionId,
           customerName: name,
           customerEmail: email || undefined,
           customerPhone: phone || undefined,
@@ -183,7 +185,7 @@ export default function EZBudgetWidget({ apiBase }: EZBudgetWidgetProps) {
     } finally {
       setSubmitting(false)
     }
-  }, [api, name, email, phone, address, selectedCategory, selectedService, height, quantity, requestOnSite, lineItems])
+  }, [api, name, email, phone, address, selectedCategory, selectedService, height, quantity, requestOnSite, lineItems, submissionId, submitting])
 
   // CSS var for primary color
   const primary = config.primaryColor

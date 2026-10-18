@@ -13,7 +13,6 @@
 import { fetchWithAuth } from './crmAuth'
 import { refreshCustomers, getCustomerById } from './customerStore'
 import { getPipeline, savePipeline, isPipelineHydrated } from './pipelineStore'
-import { newId } from './recordSync'
 import { toast } from './toast'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { businessDate } from './businessDate'
@@ -78,8 +77,10 @@ function upsertPipelineCard(lead: IntakeLead): void {
     }
   } else {
     const [first, ...rest] = (customer ? `${customer.firstName} ${customer.lastName}` : lead.name).trim().split(/\s+/)
+    // A fixed id per intake lead: two screens importing the same lead at once save one card.
+    if (leads.some((l: any) => l.id === `intake-${lead.id}`)) return
     leads.unshift({
-      id: newId(),
+      id: `intake-${lead.id}`,
       customerId: lead.crmContactId || '',
       firstName: first || 'Unknown',
       lastName: rest.join(' '),

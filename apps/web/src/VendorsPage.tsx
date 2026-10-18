@@ -2,7 +2,7 @@
  * Vendors Page — master list of vendors, vendor detail panel, bill + payment management.
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { getJobs } from './jobStore'
 import {
   getVendors, getVendorById, createVendor, updateVendor, deleteVendor,
@@ -324,8 +324,12 @@ function VendorForm({ initial, onCancel, onSaved }: { initial: VendorContact | n
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [isActive, setIsActive] = useState(initial?.isActive ?? true)
 
+  // Tapped twice before the window closes: saved once.
+  const savedOnce = useRef(false)
   function handleSave() {
     if (!name.trim()) return
+    if (savedOnce.current) return
+    savedOnce.current = true
     const data = { name: name.trim(), contactName, phone, email, address, city, state, zip, paymentTerms, accountNumber, notes, isActive }
     const v = initial ? updateVendor(initial.id, data)! : createVendor(data)
     onSaved(v)
@@ -421,7 +425,10 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
   const jobs = useMemo(() => getJobs(), [])
   const jobResults = jobs.filter(j => !jobSearch || (j.customerName || '').toLowerCase().includes(jobSearch.toLowerCase())).slice(0, 8)
 
+  // Tapped twice before the window closes: saved once.
+  const savedOnce = useRef(false)
   function handleSave() {
+    if (savedOnce.current) return
     if (!billNumber.trim() || lineItems.length === 0) return
     const data = {
       vendorId: vendor.id, vendorName: vendor.name,
@@ -430,6 +437,7 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
       billDate, dueDate, category, jobId: jobId || undefined, jobName: jobName || undefined,
       notes, createdBy: 'user',
     }
+    savedOnce.current = true
     if (initial) updateBill(initial.id, data)
     else createBill(data)
     onSaved()
@@ -535,9 +543,13 @@ function PaymentForm({ bill, vendor, onCancel, onSaved }: { bill: VendorBill; ve
   const [paymentDate, setPaymentDate] = useState(businessDate(new Date()))
   const [notes, setNotes] = useState('')
 
+  // Tapped twice before the window closes: saved once.
+  const savedOnce = useRef(false)
   function handleSave() {
     const amountCents = Math.round(parseFloat(amount) * 100)
     if (amountCents <= 0) return
+    if (savedOnce.current) return
+    savedOnce.current = true
     recordVendorPayment({
       billId: bill.id, billNumber: bill.billNumber,
       vendorId: vendor.id, vendorName: vendor.name,

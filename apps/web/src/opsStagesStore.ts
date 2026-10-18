@@ -1,15 +1,12 @@
 /**
  * Operations Stages — user-configurable kanban columns for the Ops board.
  *
- * localStorage-backed for the CRM web app. Mirrors the Prisma OperationsStage
- * model so a future server migration can lift-and-shift.
+ * Saved on the server through cloudStorage (/api/kv, key fencepro_ops_stages).
  */
 import { cloudStorage } from './cloudStorage'
 
 const KEY = 'fencepro_ops_stages'
 const EVT = 'fencepro:ops_stages:updated'
-
-const uid = () => Math.random().toString(36).slice(2, 10)
 
 export interface OpsStage {
   id: string
@@ -34,23 +31,25 @@ export const DEFAULT_OPS_STAGES: Omit<OpsStage, 'id' | 'createdAt' | 'updatedAt'
   { name: 'On Hold',           color: '#6b7280', sortOrder: 7, isFirstStage: false, isCompletionStage: false, isActive: true },
 ]
 
-function seedIfEmpty(): OpsStage[] {
-  const now = new Date().toISOString()
-  return DEFAULT_OPS_STAGES.map(s => ({ ...s, id: uid(), createdAt: now, updatedAt: now }))
+/**
+ * The default stages, each with a fixed id (`ops-<name>`). Shown when nothing
+ * is saved; nothing is written until the stages are edited and saved, so two
+ * screens opening at once cannot each save their own copy of the defaults.
+ */
+function defaultStages(): OpsStage[] {
+  const at = '1970-01-01T00:00:00.000Z'
+  return DEFAULT_OPS_STAGES.map(s => ({ ...s, id: `ops-${s.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, createdAt: at, updatedAt: at }))
 }
 
 export function getOpsStages(): OpsStage[] {
   try {
     const r = cloudStorage.getItem(KEY)
-    if (!r) {
-      const seed = seedIfEmpty()
-      cloudStorage.setItem(KEY, JSON.stringify(seed))
-      return seed
-    }
+    if (!r) return defaultStages()
     const parsed: OpsStage[] = JSON.parse(r)
+    if (!Array.isArray(parsed) || parsed.length === 0) return defaultStages()
     return parsed.slice().sort((a, b) => a.sortOrder - b.sortOrder)
   } catch {
-    return seedIfEmpty()
+    return defaultStages()
   }
 }
 
@@ -69,7 +68,7 @@ export function saveOpsStages(stages: OpsStage[]): void {
 }
 
 export function resetOpsStages(): OpsStage[] {
-  const fresh = seedIfEmpty()
+  const fresh = defaultStages()
   cloudStorage.setItem(KEY, JSON.stringify(fresh))
   try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
   return fresh

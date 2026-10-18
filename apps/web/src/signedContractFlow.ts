@@ -181,7 +181,10 @@ export function applySignedContractTransition(lead: { id: string; customerId?: s
   if (!customer) {
     // Fallback 2: create a customer so the cascade can proceed
     try {
+      // A fixed id per card: the same card handled again (or on another phone) is the same customer.
+      const fixedId = `c-${lead.id}`
       const { customer: created } = upsertCustomer({
+        ...(/^[A-Za-z0-9_-]{8,64}$/.test(fixedId) ? { id: fixedId } : {}),
         firstName: lead.firstName || 'Pipeline',
         lastName: lead.lastName || 'Lead',
         phone: lead.phone || '',

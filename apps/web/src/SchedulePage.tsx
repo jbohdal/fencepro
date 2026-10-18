@@ -263,6 +263,8 @@ export default function SchedulePage() {
   const [dragJob, setDragJob] = useState<ScheduledJob | null>(null)
   const [dragOverDate, setDragOverDate] = useState<string | null>(null)
   const [rainDayJob, setRainDayJob] = useState<ScheduledJob | null>(null)
+  // Flag Rain Day tapped twice before the dialog closes: the second tap does nothing.
+  const flaggedFor = useRef<string | null>(null)
   const [rainReason, setRainReason] = useState('Weather — rain')
   const [rainReschedule, setRainReschedule] = useState('')
   const [showRainLog, setShowRainLog] = useState(false)
@@ -350,8 +352,12 @@ export default function SchedulePage() {
 
   function flagRainDay() {
     if (!rainDayJob) return
+    if (flaggedFor.current === rainDayJob.id) return
+    flaggedFor.current = rainDayJob.id
+    setTimeout(() => { flaggedFor.current = null }, 1500)
     const entry: RainDayEntry = {
-      id: uid(),
+      // Its own id, sent with it: the server keeps one entry however often it is sent.
+      id: crypto.randomUUID(),
       jobId: rainDayJob.id,
       clientName: rainDayJob.clientName,
       originalDate: rainDayJob.date,
@@ -380,7 +386,7 @@ export default function SchedulePage() {
         if (!cascadeSelections.has(job.id)) continue
         // Log each cascaded job
         const cascadeEntry: RainDayEntry = {
-          id: uid(),
+          id: crypto.randomUUID(),
           jobId: job.id,
           clientName: job.clientName,
           originalDate: job.date,

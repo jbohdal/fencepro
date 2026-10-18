@@ -14,6 +14,8 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { findOrCreate, isUniqueViolation } from '../lib/once.js'
+import { normalizeBusinessField } from '../lib/seeds.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { recordNewPayments } from '../lib/automations/hooks.js'
 import { resolveSecret } from '../lib/secrets.js'
@@ -57,10 +59,11 @@ const patchSchema = z.object(Object.fromEntries(fields.map(f => [f, z.any().opti
 
 router.get('/', async (req: any, res) => {
   try {
-    let s = await prisma.businessState.findUnique({ where: { accountId: req.user.crmAccountId } })
-    if (!s) {
-      s = await prisma.businessState.create({ data: { accountId: req.user.crmAccountId } })
-    }
+    const accountId = req.user.crmAccountId
+    const s = await findOrCreate(
+      () => prisma.businessState.findUnique({ where: { accountId } }),
+      () => prisma.businessState.create({ data: { accountId } }),
+    )
     res.json({ success: true, data: s })
   } catch (err) {
     console.error('[business-state] get error:', err)
@@ -73,7 +76,8 @@ router.patch('/', async (req: any, res) => {
     const data = patchSchema.parse(req.body)
     const updateData: any = {}
     for (const f of fields) {
-      if (data[f] !== undefined) updateData[f] = JSON.parse(JSON.stringify(data[f]))
+      // Lists keep one entry per id; job checklists one item per milestone (see lib/seeds).
+      if (data[f] !== undefined) updateData[f] = normalizeBusinessField(f, JSON.parse(JSON.stringify(data[f])))
     }
     const base = baseVersionOf(req.body)
     if (base === null) { refuseUnversioned(res); return }
@@ -90,7 +94,11 @@ router.patch('/', async (req: any, res) => {
     if (done.count === 0) {
       const current = await prisma.businessState.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
-      await prisma.businessState.create({ data: { accountId, ...updateData } })
+      try { await prisma.businessState.create({ data: { accountId, ...updateData } }) } catch (e) {
+        if (!isUniqueViolation(e)) throw e
+        const now = await prisma.businessState.findUnique({ where: { accountId } })
+        refuseStale(res, now, now?.version ?? 0); return
+      }
     }
     const s = (await prisma.businessState.findUnique({ where: { accountId } }))!
     res.json({ success: true, data: s })

@@ -98,7 +98,10 @@ export default function MaterialKitsTab() {
     const set = shown.find(s => s.id === id)
     if (!set) return
     if (draft.some(s => s.id === id)) { setDraft(d => d.map(s => (s.id === id ? fn(clone(s)) : s))); return }
-    const own: KitSet = { ...clone(set), id: uid(), builtIn: false, mismatch: undefined }
+    // A fixed id per style for the first saved copy of a built in set: two screens
+    // editing the built in set at once save one set, not two in use.
+    const fixed = set.styleName ? `kit-own:${set.styleName}` : ''
+    const own: KitSet = { ...clone(set), id: fixed && !draft.some(s => s.id === fixed) ? fixed : uid(), builtIn: false, mismatch: undefined }
     setSelected(own.id)
     setDraft(d => [...d, fn(own)])
   }

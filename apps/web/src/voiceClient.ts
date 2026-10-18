@@ -159,6 +159,8 @@ export async function uploadWaitingClips(): Promise<number> {
     for (const c of all) {
       const form = new FormData()
       form.append('quoteKey', c.quoteKey)
+      // The clip's own id: sent again after a lost answer, the Mac keeps one copy.
+      form.append('id', c.id)
       if (c.hint) form.append('hint', c.hint)
       form.append('audio', c.blob, `clip.${/mp4/.test(c.mime) ? 'm4a' : 'webm'}`)
       const r = await fetchWithAuth(`${API}/clips`, { method: 'POST', body: form }).catch(() => null)

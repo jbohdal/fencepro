@@ -8,7 +8,7 @@
  * a durable queue, not in this browser. Phone first; comfortable on desktop.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, EVENT_LABEL, FIELD_LABEL, minutesText, STEP_LABEL, triggerText, type Board, type Condition, type DryRun, type Meta, type Rule, type Run, type StageRule, type Step, type Trigger } from './automationsApi'
 import { RunCard } from './AutomationRunLog'
 import { pushState, turnOffPush, turnOnPush, type PushState } from './pushSubscribe'
@@ -212,6 +212,10 @@ function RuleEditor({ meta, draft: initial, opsLabel, onClose, onSaved, onTest }
   const [d, setD] = useState<Draft>(() => JSON.parse(JSON.stringify(initial)))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // One id per new rule, chosen when the editor opens: Save tapped again (or
+  // sent again after the answer was lost) returns the rule already made.
+  const [newRuleId] = useState(() => crypto.randomUUID())
+  const saving = useRef(false)
   const stages = d.board === 'sales' ? meta.salesStages.map(s => ({ key: s, label: s })) : meta.opsStages
   const setT = (t: Partial<Trigger>) => setD(x => ({ ...x, trigger: { ...x.trigger, ...t } }))
 
@@ -232,13 +236,15 @@ function RuleEditor({ meta, draft: initial, opsLabel, onClose, onSaved, onTest }
   const moveStep = (i: number, by: number) => setD(x => { const s = [...x.steps]; const j = i + by; if (j < 0 || j >= s.length) return x; [s[i], s[j]] = [s[j], s[i]]; return { ...x, steps: s } })
 
   async function save() {
+    if (saving.current) return
+    saving.current = true
     setBusy(true); setError('')
     try {
       const body = { name: d.name.trim(), board: d.board, enabled: d.enabled, trigger: d.trigger, conditions: d.conditions, steps: d.steps }
-      if (d.id) await api('PUT', `/rules/${d.id}`, body); else await api('POST', '/rules', body)
+      if (d.id) await api('PUT', `/rules/${d.id}`, body); else await api('POST', '/rules', { ...body, id: newRuleId })
       toast.success('Rule saved', d.name)
       onSaved()
-    } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
+    } catch (err) { setError((err as Error).message) } finally { saving.current = false; setBusy(false) }
   }
 
   return (

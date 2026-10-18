@@ -64,6 +64,7 @@ import { startScheduledDeletions } from './lib/scheduledDeletions.js'
 import { startDoorWatch } from './lib/doorWatch.js'
 import { startMediaShrink } from './lib/mediaShrink.js'
 import { startAddressRefresh } from './lib/addressIndex.js'
+import { startDuplicateCheck } from './lib/duplicateCheck.js'
 import { startAutomationWorker } from './lib/automations/queue.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
 import quoteWidget from './routes/quote-widget.js'
@@ -336,6 +337,7 @@ if (!isVercel) {
       console.warn('[startup] door watch failed to start:', (err as Error).message)
     }
     try { startAddressRefresh() } catch (err) { console.error('[addresses] could not start:', err) }
+    try { startDuplicateCheck() } catch (err) { console.error('[duplicates] could not start:', err) }
     try { startAutomationWorker() } catch (err) { console.error('[automations] worker could not start:', err) }
     try { startMediaShrink() } catch (err) {
       console.warn('[startup] media shrink failed to start:', (err as Error).message)

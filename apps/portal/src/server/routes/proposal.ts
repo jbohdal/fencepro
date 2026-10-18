@@ -162,8 +162,9 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
     // The quote becomes the option the customer chose, exactly as it was priced.
     const s = opt.snapshot ?? {}
     const layout = q.layout as any
-    const updated = await prisma.savedQuote.update({
-      where: { id: q.id },
+    // Only while still unaccepted: two taps on Accept at once are one acceptance.
+    const claimed = await prisma.savedQuote.updateMany({
+      where: { id: q.id, acceptedAt: null },
       data: {
         status: 'SOLD',
         acceptedAt: new Date(),
@@ -179,6 +180,11 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
         ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections } } : {}),
       },
     })
+    const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
+    if (claimed.count === 0) {
+      if (updated.chosenOption === body.option && updated.acceptedBy === body.name) { res.json({ success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } }); return }
+      res.status(409).json({ success: false, error: 'This proposal was already accepted.' }); return
+    }
     console.log(`[proposal] customer accepted quote ${q.id} option ${body.option} (${opt.fenceStyle}) as "${body.name}"`)
     await onProposalAccepted(q, opt, body.name).catch(err => console.error('[proposal] after accept:', err))
     // Sold online: the job goes to Operations, as when a card is moved to Signed Contract.

@@ -11,6 +11,8 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { findOrCreate, isUniqueViolation } from '../lib/once.js'
+import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
@@ -64,16 +66,11 @@ const DEFAULT_CREWS = [{ id: 'crew1', name: 'Crew 1', color: 'bg-blue-500' }]
 
 router.get('/settings', async (req: any, res) => {
   try {
-    let s = await prisma.scheduleSettings.findUnique({ where: { accountId: req.user.crmAccountId } })
-    if (!s) {
-      s = await prisma.scheduleSettings.create({
-        data: {
-          accountId: req.user.crmAccountId,
-          workDays: [1, 2, 3, 4],
-          crews: DEFAULT_CREWS,
-        },
-      })
-    }
+    const accountId = req.user.crmAccountId
+    const s = await findOrCreate(
+      () => prisma.scheduleSettings.findUnique({ where: { accountId } }),
+      () => prisma.scheduleSettings.create({ data: { accountId, workDays: [1, 2, 3, 4], crews: DEFAULT_CREWS } }),
+    )
     res.json({ success: true, data: s })
   } catch (err) {
     console.error('[schedule] settings get error:', err)
@@ -94,7 +91,11 @@ router.put('/settings', async (req: any, res) => {
     if (done.count === 0) {
       const current = await prisma.scheduleSettings.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
-      await prisma.scheduleSettings.create({ data: { accountId, ...fields } })
+      try { await prisma.scheduleSettings.create({ data: { accountId, ...fields } }) } catch (e) {
+        if (!isUniqueViolation(e)) throw e
+        const now = await prisma.scheduleSettings.findUnique({ where: { accountId } })
+        refuseStale(res, now, now?.version ?? 0); return
+      }
     }
     const s = (await prisma.scheduleSettings.findUnique({ where: { accountId } }))!
     await audit(req, 'update', 'ScheduleSettings', s.id, { newValues: s })
@@ -285,7 +286,7 @@ router.get('/board', async (req: any, res) => {
     const accountId = req.user.crmAccountId
     let board = await readBoard(accountId)
     if (!board.settings) {
-      await prisma.scheduleSettings.create({ data: { accountId, workDays: [1, 2, 3, 4], crews: DEFAULT_CREWS } })
+      await prisma.scheduleSettings.createMany({ data: [{ accountId, workDays: [1, 2, 3, 4], crews: DEFAULT_CREWS }], skipDuplicates: true })
       board = await readBoard(accountId)
     }
     res.json({ success: true, data: board })
@@ -364,9 +365,16 @@ router.get('/rain-log', async (req: any, res) => {
 router.post('/rain-log', async (req: any, res) => {
   try {
     const data = rainSchema.parse(req.body)
-    const created = await prisma.scheduleRainDay.create({
+    const accountId = req.user.crmAccountId
+    // The id the screen chose: the same rain day sent again returns the one already logged.
+    const decision = await decideClientId(clientIdSchema.parse(req.body?.id), accountId, id => prisma.scheduleRainDay.findUnique({ where: { id } }))
+    if (decision.kind === 'exists') { res.status(200).json({ success: true, data: decision.row }); return }
+    let created
+    try {
+      created = await prisma.scheduleRainDay.create({
       data: {
-        accountId: req.user.crmAccountId,
+        ...(decision.kind === 'use' ? { id: decision.id } : {}),
+        accountId,
         jobId: data.jobId,
         clientName: data.clientName,
         originalDate: data.originalDate,
@@ -374,7 +382,13 @@ router.post('/rain-log', async (req: any, res) => {
         reason: data.reason,
         flaggedAt: data.flaggedAt ? new Date(data.flaggedAt) : new Date(),
       },
-    })
+      })
+    } catch (e) {
+      if (!isUniqueViolation(e) || decision.kind !== 'use') throw e
+      const won = await prisma.scheduleRainDay.findUnique({ where: { id: decision.id } })
+      if (!won || won.accountId !== accountId) throw e
+      res.status(200).json({ success: true, data: won }); return
+    }
     await audit(req, 'create', 'ScheduleRainDay', created.id, { newValues: created })
     res.status(201).json({ success: true, data: created })
   } catch (err) {

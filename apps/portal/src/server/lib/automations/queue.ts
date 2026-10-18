@@ -393,16 +393,26 @@ export async function dryRun(accountId: string, rule: { board: Board; trigger: u
 
 // ── Starter rules ────────────────────────────────────────────────────────────
 
-/** Jonathan's starter rules and stage rules, switched off, made once per company. */
+/**
+ * Jonathan's starter rules and stage rules, switched off, made once per company.
+ *
+ * Each starter has a fixed key (`starter`) and the database allows one row per
+ * company per key (@@unique([accountId, starter])), so this is a plain insert
+ * that skips whatever is already there, in one transaction. Two screens asking
+ * at the same moment (Rules and Stage rules both load on open) cannot make a
+ * second copy: the database refuses it and the insert skips it.
+ */
 export async function ensureStarters(accountId: string): Promise<void> {
-  const have = new Set((await prisma.automationRule.findMany({ where: { accountId, starter: { not: null } }, select: { starter: true } })).map(r => r.starter))
-  for (const s of STARTER_RULES) {
-    if (have.has(s.starter)) continue
-    await prisma.automationRule.create({ data: { accountId, name: s.name, board: s.board, enabled: false, trigger: s.trigger as any, conditions: s.conditions as any, steps: s.steps as any, starter: s.starter, createdBy: 'starter' } })
-  }
-  for (const s of STARTER_STAGE_RULES) {
-    await prisma.stageRule.createMany({ data: [{ accountId, board: s.board, stage: s.stage, requirements: s.requirements as any, enabled: false, starter: s.starter }], skipDuplicates: true })
-  }
+  await prisma.$transaction([
+    prisma.automationRule.createMany({
+      data: STARTER_RULES.map(s => ({ accountId, name: s.name, board: s.board, enabled: false, trigger: s.trigger as any, conditions: s.conditions as any, steps: s.steps as any, starter: s.starter, createdBy: 'starter' })),
+      skipDuplicates: true,
+    }),
+    prisma.stageRule.createMany({
+      data: STARTER_STAGE_RULES.map(s => ({ accountId, board: s.board, stage: s.stage, requirements: s.requirements as any, enabled: false, starter: s.starter })),
+      skipDuplicates: true,
+    }),
+  ])
 }
 
 // ── The worker ───────────────────────────────────────────────────────────────

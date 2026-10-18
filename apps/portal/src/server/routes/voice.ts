@@ -11,6 +11,8 @@ import crypto from 'crypto'
 import multer from 'multer'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { clientIdSchema, decideClientId } from '../lib/clientId.js'
+import { isUniqueViolation } from '../lib/once.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { voiceDir, processVoiceQueue, transcriberReady } from '../lib/voiceTranscribe.js'
 
@@ -27,14 +29,29 @@ router.post('/clips', upload.single('audio'), async (req: any, res) => {
   const quoteKey = String(req.body?.quoteKey || '').trim().slice(0, 100)
   if (!file || !quoteKey) { res.status(400).json({ success: false, error: 'A recording and a quote are required' }); return }
   if (!AUDIO.test(file.mimetype)) { res.status(400).json({ success: false, error: `Not a recording: ${file.mimetype}` }); return }
+  // The phone's own id for the clip: the same clip sent again returns the one already here.
+  const accountId = req.user.crmAccountId
+  const sel = { id: true, status: true, createdAt: true } as const
+  const decision = await decideClientId(clientIdSchema.safeParse(req.body?.id || undefined).data, accountId, id => prisma.voiceClip.findUnique({ where: { id }, select: { ...sel, accountId: true } }))
+  if (decision.kind === 'exists') { const { accountId: _a, ...row } = decision.row; res.json({ success: true, data: row }); return }
   const ext = /mp4|m4a|aac/.test(file.mimetype) ? 'm4a' : /ogg/.test(file.mimetype) ? 'ogg' : /wav/.test(file.mimetype) ? 'wav' : /mpeg/.test(file.mimetype) ? 'mp3' : 'webm'
   const name = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}.${ext}`
   const full = path.join(voiceDir(), name)
   fs.writeFileSync(full, file.buffer)
-  const clip = await prisma.voiceClip.create({
-    data: { accountId: req.user.crmAccountId, userId: req.user.id, quoteKey, hint: String(req.body?.hint || '').slice(0, 100) || null, mime: file.mimetype, path: full, bytes: file.size },
-    select: { id: true, status: true, createdAt: true },
-  })
+  let clip
+  try {
+    clip = await prisma.voiceClip.create({
+    data: { ...(decision.kind === 'use' ? { id: decision.id } : {}), accountId, userId: req.user.id, quoteKey, hint: String(req.body?.hint || '').slice(0, 100) || null, mime: file.mimetype, path: full, bytes: file.size },
+    select: sel,
+    })
+  } catch (e) {
+    if (!isUniqueViolation(e) || decision.kind !== 'use') throw e
+    fs.rmSync(full, { force: true })
+    const won = await prisma.voiceClip.findUnique({ where: { id: decision.id }, select: { ...sel, accountId: true } })
+    if (!won || won.accountId !== accountId) throw e
+    const { accountId: _a, ...row } = won
+    res.json({ success: true, data: row }); return
+  }
   processVoiceQueue().catch(err => console.error('[voice] queue:', err))
   res.json({ success: true, data: clip })
 })

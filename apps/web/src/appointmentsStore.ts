@@ -112,8 +112,9 @@ function failedMessage(key: string): string | null {
  * the server confirms it, or marked `pending` when there is no signal (it is
  * booked by itself later). Null only when the server refused it.
  */
-export async function createAppointment(input: NewAppointment): Promise<ShownAppointment | null> {
-  const id = newId()
+export async function createAppointment(input: NewAppointment & { id?: string }): Promise<ShownAppointment | null> {
+  // The screen's own id when it has one (chosen when the dialog opened), so a second tap is the same booking.
+  const id = input.id && input.id.length >= 8 ? input.id : newId()
   const c = getCustomerById(input.crmContactId)
   const now = new Date().toISOString()
   const local: Appointment = {

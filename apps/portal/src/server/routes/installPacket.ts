@@ -23,6 +23,7 @@ import path from 'path'
 import multer from 'multer'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { isUniqueViolation } from '../lib/once.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { esc, safeSvg, CSS } from './proposal.js'
 import { mediaDir, serializeMedia, processMediaQueue } from '../lib/media.js'
@@ -105,7 +106,11 @@ packetStaff.post('/', express.json({ limit: '1mb' }), async (req: any, res) => {
     const token = !existing || existing.disabledAt ? crypto.randomBytes(24).toString('base64url') : existing.token
     const p = existing
       ? await prisma.installPacket.update({ where: { id: existing.id }, data: { token, snapshot: body.snapshot as any, disabledAt: null, sentAt: new Date() } })
-      : await prisma.installPacket.create({ data: { accountId, jobId: job.id, token, snapshot: body.snapshot as any } })
+      : await prisma.installPacket.create({ data: { accountId, jobId: job.id, token, snapshot: body.snapshot as any } }).catch(async e => {
+        // Sent at the same moment twice: the packet made first is the packet.
+        if (!isUniqueViolation(e)) throw e
+        return (await prisma.installPacket.findUnique({ where: { jobId: job.id } }))!
+      })
     res.json({ success: true, data: { id: p.id, token: p.token, disabledAt: p.disabledAt, locateTicket: p.locateTicket, locateDate: p.locateDate, sentAt: p.sentAt } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -277,7 +282,8 @@ packetPublic.post('/:token/media', crewUpload.single('file'), async (req: any, r
   const ext = path.extname(file.originalname || '').slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || (file.mimetype.startsWith('video/') ? 'mp4' : 'jpg')
   const final = path.join(mediaDir(found.p.accountId), `${id}.${ext}`)
   fs.renameSync(file.path, final)
-  await prisma.mediaItem.create({
+  try {
+    await prisma.mediaItem.create({
     data: {
       id, accountId: found.p.accountId, clientId: cid ?? `crew-${id}`, kind: file.mimetype.startsWith('video/') ? 'video' : 'photo', mime: file.mimetype,
       path: final, bytes: file.size, jobId: found.job!.id, quoteKey: found.job!.quoteId ?? null, customerId: found.job!.crmContactId ?? null,
@@ -285,7 +291,13 @@ packetPublic.post('/:token/media', crewUpload.single('file'), async (req: any, r
       // Internal until the office marks it Customer.
       visibility: 'internal', source: 'crew',
     },
-  })
+    })
+  } catch (e) {
+    // The same photo arrived twice at the same moment: the first one stands.
+    if (!isUniqueViolation(e)) throw e
+    fs.rmSync(final, { force: true })
+    res.json({ success: true }); return
+  }
   processMediaQueue().catch(err => console.error('[media] queue:', err))
   res.json({ success: true })
 })

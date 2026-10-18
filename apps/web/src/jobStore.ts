@@ -5,7 +5,6 @@ import { registerKind, enqueue, hasPending, reapply, pendingFor, type Op } from 
 import { sendJson } from './syncHttp'
 import { notifyStageBlocked } from './stageBlocked'
 import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
-import { ensureChecklistForJob } from './checklistStore'
 import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
 import { getQuoteById } from './quoteStore'
 import {
@@ -304,8 +303,7 @@ export function createJobFromQuote(quote: SavedQuote): Job {
   // the server before the job that points at them.
   void enqueue<Job>({ key: `job:${job.id}`, kind: 'job.create', payload: job, label: `${job.customerName || 'Job'}, new job`, after: jobDeps(job) })
 
-  // Seed default milestone checklist so the Operations detail panel has items
-  try { ensureChecklistForJob(job.id) } catch {}
+  // The milestone checklist is made on the server with the job (lib/seeds.ts).
 
   // Fire automation trigger
   fireJobCreated(job.id, {

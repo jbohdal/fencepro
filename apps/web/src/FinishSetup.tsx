@@ -35,6 +35,37 @@ export function DiskWarning() {
   )
 }
 
+interface DupFinding { key: string; check: string; title: string; detail: string }
+
+/** Possible duplicates found by the duplicate check (after every update and nightly). "This is fine" leaves one out. */
+export function DuplicateWarning() {
+  const [list, setList] = useState<DupFinding[] | null>(null)
+  const [busy, setBusy] = useState('')
+  const load = () => get<DupFinding[]>('/api/system/duplicates').then(setList)
+  useEffect(() => { load() }, [])
+  async function fine(key: string) {
+    setBusy(key)
+    const r = await fetchWithAuth(`${API}/api/system/duplicates/dismiss`, { method: 'POST', headers: { Authorization: `Bearer ${getAccessToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) }).catch(() => null)
+    setBusy('')
+    if (r?.ok) setList(l => (l ?? []).filter(f => f.key !== key)); else toast.error('Not saved', 'Check the connection and try again.')
+  }
+  if (!list?.length) return null
+  return (
+    <section className="panel p-4 md:p-5 border-amber-200" data-duplicates>
+      <h2 className="text-base font-bold text-gray-900">Possible duplicates ({list.length})</h2>
+      <p className="text-sm text-gray-600 mb-2">Found by the duplicate check. Look each one over; "This is fine" hides it until something about it changes.</p>
+      <ul className="divide-y divide-gray-100">
+        {list.map(f => (
+          <li key={f.key} className="py-2 flex flex-wrap items-center gap-2" data-duplicate={f.check}>
+            <div className="flex-1 min-w-[200px]"><p className="text-sm font-semibold text-gray-900">{f.title}</p><p className="text-xs text-gray-600">{f.detail}</p></div>
+            <button type="button" className="btn btn-quiet btn-sm" disabled={busy === f.key} onClick={() => fine(f.key)} data-duplicate-fine>This is fine</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 export default function FinishSetup() {
   const [items, setItems] = useState<Item[] | null>(null)
   const load = () => get<Item[]>('/api/system/setup').then(setItems)

@@ -9,7 +9,7 @@
  * which Jonathan sends himself.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCustomers, getCustomerById } from './customerStore'
 import { getJobs, updateJob } from './jobStore'
 import { getConfig, getAppointmentSettings } from './configStore'
@@ -94,6 +94,9 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const [jobId, setJobId] = useState(existing?.jobId || req.jobId || '')
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
+  const inFlight = useRef(false)
+  // One id per booking made in this dialog: tapped twice, or Book again after an error, it is one appointment.
+  const [newBookingId] = useState(() => crypto.randomUUID())
   const [booked, setBooked] = useState<(Appointment & { pending?: boolean }) | null>(null)
   const [search, setSearch] = useState('')
 
@@ -138,6 +141,9 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
 
   async function save() {
     if (!customerId) return
+    // Book tapped twice before the button greys out: the second tap does nothing.
+    if (inFlight.current) return
+    inFlight.current = true
     setSaving(true)
     const body = {
       type, assignedTo: person, address, lat: pos?.lat ?? null, lng: pos?.lng ?? null, notes,
@@ -146,7 +152,8 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
     }
     const saved = existing
       ? await updateAppointment(existing.id, body, timeChanged ? reason || 'Rescheduled' : undefined)
-      : await createAppointment({ crmContactId: customerId, ...body })
+      : await createAppointment({ id: newBookingId, crmContactId: customerId, ...body })
+    inFlight.current = false
     setSaving(false)
     if (!saved) return
     // An install linked to a job: the job carries the dates (one record of the install).

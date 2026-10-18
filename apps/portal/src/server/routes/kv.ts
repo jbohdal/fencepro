@@ -15,6 +15,7 @@ import { Router } from 'express'
 import jwt from 'jsonwebtoken'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma.js'
+import { oneById } from '../lib/once.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 
@@ -83,7 +84,9 @@ router.put('/:key', async (req: any, res) => {
       res.status(413).json({ success: false, error: 'That is too much data to save in one piece.' })
       return
     }
-    const clean = JSON.parse(json) as Prisma.InputJsonValue
+    // A list keeps one entry per id (operations stages, site plans, files...).
+    const parsed = JSON.parse(json)
+    const clean = (Array.isArray(parsed) ? oneById(parsed) : parsed) as Prisma.InputJsonValue
     const done = await prisma.accountKeyValue.updateMany({ where: { accountId, key, version: base }, data: { value: clean, updatedBy: req.user.id, version: { increment: 1 } } })
     if (done.count === 0) {
       if (base !== 0) { await stale(); return }

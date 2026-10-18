@@ -177,10 +177,12 @@ export function saveRainLog(log: RainDayEntry[]): void {
   // entries (in `log` but not in cache) and POST them individually.
   const existingIds = new Set(cacheRain.map(e => e.id))
   const newOnes = log.filter(e => !existingIds.has(e.id))
-  cacheRain = log
+  // A copy: the caller may add to its own list and save it again (cascaded jobs).
+  cacheRain = [...log]
   emit(RAIN_EVT)
   for (const e of newOnes) {
     appendRainDay({
+      id: e.id,
       jobId: e.jobId,
       clientName: e.clientName,
       originalDate: e.originalDate,

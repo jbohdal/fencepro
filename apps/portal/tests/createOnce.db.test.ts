@@ -105,5 +105,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the same create sent 3 times (de
     const js = await Promise.all([1, 2, 3].map(() => post('/api/saved-jobs', job)))
     expect(js.every(a => a.status < 300), JSON.stringify(js.map(a => [a.status, a.json?.error]))).toBe(true)
     expect(await prisma.savedJob.count({ where: { id: job.id } })).toBe(1)
+
+    // A second job for the same quote (another phone, its own id): still one job, the first.
+    const other = { ...job, id: crypto.randomUUID() }
+    const again = await Promise.all([1, 2, 3].map(() => post('/api/saved-jobs', other)))
+    expect(again.every(a => a.status < 300)).toBe(true)
+    expect(await prisma.savedJob.count({ where: { quoteId: quote.id } })).toBe(1)
   })
 }, 60_000)

@@ -109,6 +109,8 @@ function SaveModal({
     return (getCustomerById(initialCustomerId) as SavedCustomer | null) ?? null
   })
   const [firstName, setFirstName] = useState('')
+  // The new customer's id, chosen when this opens: tapped twice, it is one customer.
+  const [newCustomerId] = useState(() => newId())
   const [lastName, setLastName]   = useState('')
   const [phone, setPhone]         = useState('')
   const [email, setEmail]         = useState('')
@@ -139,8 +141,12 @@ function SaveModal({
     setPropertyAddress(c.serviceAddress || '')
   }
 
+  // Save tapped twice before the window closes: saved once.
+  const submitted = useRef(false)
   function handleSubmit() {
+    if (submitted.current) return
     if (mode === 'search' && selectedCustomer) {
+      submitted.current = true
       onSave({
         customerId: selectedCustomer.id,
         customerName: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`,
@@ -157,7 +163,9 @@ function SaveModal({
     }
     if (mode === 'new') {
       if (!firstName.trim()) return
+      submitted.current = true
       const { customer } = upsertCustomer({
+        id: newCustomerId,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         phone,

@@ -153,6 +153,8 @@ const submitSchema = z.object({
   requestOnSiteEstimate: z.boolean().optional(),
   photos: z.array(z.string().max(2000)).max(30).optional(),
   notes: z.string().max(5000).optional(),
+  /** The site's own id for this submission, the same on every resend: one lead however often it arrives. */
+  submissionId: z.string().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/).optional(),
 }).passthrough()
 
 quotingRouter.post('/submit', submitLimiter, async (req, res) => {
@@ -182,7 +184,7 @@ quotingRouter.post('/submit', submitLimiter, async (req, res) => {
       data.notes ? `Customer notes: ${data.notes}` : '',
     ].filter(Boolean)
 
-    const id = crypto.randomUUID()
+    const id = data.submissionId ?? crypto.randomUUID()
     const result = await recordIntake(accountId, {
       source: 'ez_quote',
       sourceRef: id,

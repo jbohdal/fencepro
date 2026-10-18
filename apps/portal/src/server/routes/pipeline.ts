@@ -7,6 +7,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { findOrCreate, isUniqueViolation, oneById } from '../lib/once.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
@@ -53,15 +54,15 @@ const pipelineSchema = z.object({
 
 router.get('/', async (req: any, res) => {
   try {
-    let p = await prisma.pipelineState.findUnique({ where: { accountId: req.user.crmAccountId } })
+    const accountId = req.user.crmAccountId
+    const found = await prisma.pipelineState.findUnique({ where: { accountId } })
     // ?version=<n>: the board has not changed since that version, so nothing needs sending.
     const known = Number(req.query.version)
-    if (p && Number.isInteger(known) && p.version === known) { res.json({ success: true, unchanged: true, version: p.version }); return }
-    if (!p) {
-      p = await prisma.pipelineState.create({
-        data: { accountId: req.user.crmAccountId, leads: [], stages: [] },
-      })
-    }
+    if (found && Number.isInteger(known) && found.version === known) { res.json({ success: true, unchanged: true, version: found.version }); return }
+    const p = found ?? await findOrCreate(
+      () => prisma.pipelineState.findUnique({ where: { accountId } }),
+      () => prisma.pipelineState.create({ data: { accountId, leads: [], stages: [] } }),
+    )
     res.json({ success: true, data: p })
   } catch (err) {
     console.error('[pipeline] get error:', err)
@@ -75,7 +76,8 @@ router.put('/', async (req: any, res) => {
     const base = baseVersionOf(req.body)
     if (base === null) { refuseUnversioned(res); return }
     const accountId = req.user.crmAccountId
-    const fields = { leads: JSON.parse(JSON.stringify(data.leads)), stages: JSON.parse(JSON.stringify(data.stages)) }
+    // One card per id: a card sent twice in the list is kept once.
+    const fields = { leads: oneById(JSON.parse(JSON.stringify(data.leads)) as any[]), stages: JSON.parse(JSON.stringify(data.stages)) }
     // Stage rules: a card cannot enter a stage whose requirements are not met (the app puts it back and says what is missing).
     const prev = await prisma.pipelineState.findUnique({ where: { accountId } })
     if (prev && prev.version === base) {
@@ -92,7 +94,11 @@ router.put('/', async (req: any, res) => {
     if (done.count === 0) {
       const current = await prisma.pipelineState.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
-      await prisma.pipelineState.create({ data: { accountId, ...fields } })
+      try { await prisma.pipelineState.create({ data: { accountId, ...fields } }) } catch (e) {
+        if (!isUniqueViolation(e)) throw e
+        const now = await prisma.pipelineState.findUnique({ where: { accountId } })
+        refuseStale(res, now, now?.version ?? 0); return
+      }
     }
     const p = (await prisma.pipelineState.findUnique({ where: { accountId } }))!
     await audit(req, 'update', 'PipelineState', p.id, { newValues: { leadsCount: data.leads.length, stagesCount: data.stages.length } })

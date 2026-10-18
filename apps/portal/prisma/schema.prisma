@@ -1803,6 +1803,9 @@ model SavedJob {
   @@index([quoteId])
   @@index([status])
   @@index([archivedAt])
+
+  /// One job per quote: a second phone marking the same quote Sold gets the existing job (Oct 18, 2026).
+  @@unique([accountId, quoteId])
 }
 
 // ── Schedule Settings — account-scoped configurable work days + crews ──
@@ -2228,6 +2231,8 @@ model AutomationRule {
   updatedAt  DateTime @updatedAt
 
   @@index([accountId, enabled])
+  /// One of each starter rule per company (user-made rules have no starter; Postgres allows many NULLs).
+  @@unique([accountId, starter])
 }
 
 model AutomationEvent {
@@ -2323,6 +2328,8 @@ model StageRule {
   updatedAt    DateTime @updatedAt
 
   @@unique([accountId, board, stage])
+  /// One of each starter stage rule per company.
+  @@unique([accountId, starter])
 }
 
 // ── Final walkthrough (Oct 18, 2026): one per job, checklist + required photos

@@ -18,7 +18,7 @@
  */
 
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getCurrentSession, login, verifyAndActivate, setPassword, logout,
   type CurrentSession as PortalAccount,
@@ -829,13 +829,19 @@ function MessagesPage({ accent }: { session: PortalAccount; customer: any; accen
     return () => clearInterval(t)
   }, [])
 
+  const requestId = useRef(crypto.randomUUID())
+  const inFlight = useRef(false)
+
   async function send() {
-    if (!draft.trim()) return
+    if (!draft.trim() || inFlight.current) return
+    inFlight.current = true
     setSending(true)
     const mod = await import('./portalApiClient')
-    const r = await mod.sendPortalMessage(draft.trim())
+    // One id per message typed: tapped twice, or sent again after an error, it is saved once.
+    const r = await mod.sendPortalMessage(draft.trim(), requestId.current)
+    inFlight.current = false
     setSending(false)
-    if (r.ok) { setDraft(''); await reload() }
+    if (r.ok) { setDraft(''); requestId.current = crypto.randomUUID(); await reload() }
   }
 
   return (

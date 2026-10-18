@@ -14,6 +14,7 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { plainZod } from '../lib/plainZod.js'
+import { openFindings, dismissFinding } from '../lib/duplicateCheck.js'
 
 const router = Router()
 router.use(requireAuth, requireRole('admin'))
@@ -31,6 +32,18 @@ router.get('/storage', async (_req, res) => {
     console.error('[system] storage error:', err)
     res.status(500).json({ success: false, error: 'Could not read the free space' })
   }
+})
+
+// The duplicate check, now: what it finds that has not been marked "This is fine".
+router.get('/duplicates', async (req: any, res) => {
+  try { res.json({ success: true, data: await openFindings(req.user.accountId) }) }
+  catch (err) { console.error('[system] duplicate check error:', err); res.status(500).json({ success: false, error: 'The duplicate check did not run' }) }
+})
+router.post('/duplicates/dismiss', async (req: any, res) => {
+  const key = z.object({ key: z.string().min(3).max(300) }).safeParse(req.body)
+  if (!key.success) { res.status(400).json({ success: false, error: 'Which finding?' }); return }
+  await dismissFinding(req.user.accountId, key.data.key)
+  res.json({ success: true })
 })
 
 const SETUP_KEY = 'setup'

@@ -9,6 +9,8 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { findOrCreate, isUniqueViolation, oneById } from '../lib/once.js'
+import { oneActiveKitPerStyle } from '../lib/seeds.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
@@ -53,19 +55,11 @@ const inventorySchema = z.object({
 
 router.get('/', async (req: any, res) => {
   try {
-    let inv = await prisma.inventoryState.findUnique({ where: { accountId: req.user.crmAccountId } })
-    if (!inv) {
-      inv = await prisma.inventoryState.create({
-        data: {
-          accountId: req.user.crmAccountId,
-          items: [],
-          bundles: [],
-          locations: [],
-          stockLevels: [],
-          transactions: [],
-        },
-      })
-    }
+    const accountId = req.user.crmAccountId
+    const inv = await findOrCreate(
+      () => prisma.inventoryState.findUnique({ where: { accountId } }),
+      () => prisma.inventoryState.create({ data: { accountId, items: [], bundles: [], locations: [], stockLevels: [], transactions: [] } }),
+    )
     res.json({ success: true, data: inv })
   } catch (err) {
     console.error('[inventory] get error:', err)
@@ -80,18 +74,23 @@ router.put('/', async (req: any, res) => {
     if (base === null) { refuseUnversioned(res); return }
     const accountId = req.user.crmAccountId
     const fields = {
-      items: JSON.parse(JSON.stringify(data.items)),
-      bundles: JSON.parse(JSON.stringify(data.bundles)),
-      locations: JSON.parse(JSON.stringify(data.locations)),
+      items: oneById(JSON.parse(JSON.stringify(data.items)) as any[]),
+      bundles: oneById(JSON.parse(JSON.stringify(data.bundles)) as any[]),
+      locations: oneById(JSON.parse(JSON.stringify(data.locations)) as any[]),
       stockLevels: JSON.parse(JSON.stringify(data.stockLevels)),
-      transactions: JSON.parse(JSON.stringify(data.transactions)),
-      ...(data.kits ? { kits: JSON.parse(JSON.stringify(data.kits)) } : {}),
+      transactions: oneById(JSON.parse(JSON.stringify(data.transactions)) as any[]),
+      // One kit set in use per style (a second one sent at the same moment is archived, not lost).
+      ...(data.kits ? { kits: oneActiveKitPerStyle(JSON.parse(JSON.stringify(data.kits)) as any[]) } : {}),
     }
     const done = await prisma.inventoryState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
     if (done.count === 0) {
       const current = await prisma.inventoryState.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
-      await prisma.inventoryState.create({ data: { accountId, ...fields } })
+      try { await prisma.inventoryState.create({ data: { accountId, ...fields } }) } catch (e) {
+        if (!isUniqueViolation(e)) throw e
+        const now = await prisma.inventoryState.findUnique({ where: { accountId } })
+        refuseStale(res, now, now?.version ?? 0); return
+      }
     }
     const inv = (await prisma.inventoryState.findUnique({ where: { accountId } }))!
     await audit(req, 'update', 'InventoryState', inv.id, {

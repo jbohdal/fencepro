@@ -10,6 +10,7 @@
 
 import crypto from 'crypto'
 import prisma from './prisma.js'
+import { isUniqueViolation } from './once.js'
 import { estimateJob } from './estimates.js'
 import { findOrCreateContact, resolveIntakeAccountId } from './intake.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
@@ -47,11 +48,14 @@ export async function submitWidgetQuote(input: WidgetSubmission): Promise<Widget
   const accountId = await resolveIntakeAccountId()
   if (!accountId) throw new Error('No company is set up on this server yet')
 
-  const already = await prisma.intakeLead.findUnique({ where: { source_sourceRef: { source: 'ez_quote', sourceRef: input.submissionId } } })
-  if (already) {
+  const sentBefore = async (): Promise<WidgetResult | null> => {
+    const already = await prisma.intakeLead.findUnique({ where: { source_sourceRef: { source: 'ez_quote', sourceRef: input.submissionId } } })
+    if (!already) return null
     const p = (already.payload ?? {}) as Record<string, unknown>
     return { quoteId: String(p.quoteId ?? ''), contactId: already.crmContactId ?? '', cardId: String(p.cardId ?? ''), price: already.estimate ?? 0, duplicate: true }
   }
+  const already = await sentBefore()
+  if (already) return already
 
   const job = { fenceStyle: input.fenceStyle, runs: input.runs, corners: input.corners, ends: input.ends, walkGates: input.walkGates, dblGates: input.dblGates }
   const est = await estimateJob(job)
@@ -127,6 +131,8 @@ export async function submitWidgetQuote(input: WidgetSubmission): Promise<Widget
         return { quoteId: quote.id, contactId: contact.id, cardId: card.id, price, duplicate: false }
       })
     } catch (e) {
+      // The same submission saved at the same moment by another request: that one stands.
+      if (isUniqueViolation(e)) { const won = await sentBefore(); if (won) return won }
       if (!(e instanceof PipelineBusy)) throw e
     }
   }

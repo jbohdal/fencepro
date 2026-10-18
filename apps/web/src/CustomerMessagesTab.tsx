@@ -18,6 +18,9 @@ export default function CustomerMessagesTab({ customerId, sender }: { customerId
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  // One id per message typed: Send tapped twice, or sent again after an error, saves it once.
+  const requestId = useRef(crypto.randomUUID())
+  const inFlight = useRef(false)
   const scrollerRef = useRef<HTMLDivElement>(null)
   const initialLoad = useRef(true)
 
@@ -46,15 +49,18 @@ export default function CustomerMessagesTab({ customerId, sender }: { customerId
   async function handleSend(e?: React.FormEvent) {
     e?.preventDefault()
     const body = draft.trim()
-    if (!body || sending) return
+    if (!body || sending || inFlight.current) return
+    inFlight.current = true
     setSending(true)
-    const r = await staffReplyToCustomer(customerId, body, sender)
+    const r = await staffReplyToCustomer(customerId, body, sender, requestId.current)
+    inFlight.current = false
     setSending(false)
     if (!r.ok) {
       toast.error('Could not send message', r.error)
       return
     }
     setDraft('')
+    requestId.current = crypto.randomUUID()
     await refresh()
     requestAnimationFrame(() => {
       if (scrollerRef.current) scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight

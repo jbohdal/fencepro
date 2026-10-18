@@ -1,17 +1,17 @@
 /**
- * Job Checklist items — per-job milestone list backed by localStorage
- * (mirrors a server-side `JobChecklistItem` table for future migration).
+ * Job Checklist items: per-job milestone list saved in business state
+ * (BusinessState.jobChecklists on the server).
  *
- * The checklist is seeded from the default milestones on first access for
- * each job. The default milestones are configurable via `setDefaultMilestones`
- * and can be overridden from the Operations Stages settings page.
+ * A job's list is made on the server when the job is made (lib/seeds.ts
+ * ensureJobChecklist). This browser never makes one: a job with no saved list
+ * shows the default milestones with the same fixed ids the server uses
+ * (`m:<jobId>:<label>`), and the list is saved only when an item is ticked.
+ * Two phones doing that at once save the same ids, so the lists merge into one.
  */
 
 import { getBusinessField, setBusinessField } from './businessStateStore'
 
 const EVT = 'fencepro:checklist:updated'
-
-const uid = () => Math.random().toString(36).slice(2, 10)
 
 export interface ChecklistItem {
   id: string
@@ -66,30 +66,35 @@ function saveAll(items: ChecklistItem[]) {
   try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
 }
 
-/** Seed a job with default milestones if it has none. Idempotent. */
-export function ensureChecklistForJob(jobId: string): ChecklistItem[] {
-  const all = loadAll()
-  const existing = all.filter(i => i.jobId === jobId)
-  if (existing.length > 0) return existing.sort((a, b) => a.sortOrder - b.sortOrder)
+const labelKey = (label: string) => label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
-  const now = new Date().toISOString()
-  const fresh: ChecklistItem[] = getDefaultMilestones().map((label, idx) => ({
-    id: uid(), jobId, label,
-    isComplete: false, sortOrder: idx,
-    createdAt: now, updatedAt: now,
-  }))
-  saveAll([...all, ...fresh])
-  return fresh
+/** A milestone's fixed id on one job. Same formula as the server (portal lib/seeds.ts milestoneId). */
+export const milestoneId = (jobId: string, label: string) => `m:${jobId}:${labelKey(label)}`
+
+/** The default milestones for a job, with fixed ids. Not saved. */
+function defaultsFor(jobId: string): ChecklistItem[] {
+  const at = '1970-01-01T00:00:00.000Z'
+  const seen = new Set<string>()
+  const out: ChecklistItem[] = []
+  for (const label of getDefaultMilestones()) {
+    const id = milestoneId(jobId, label)
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, jobId, label, isComplete: false, sortOrder: out.length, createdAt: at, updatedAt: at })
+  }
+  return out
 }
 
 export function getChecklistForJob(jobId: string): ChecklistItem[] {
   const all = loadAll().filter(i => i.jobId === jobId)
-  if (all.length === 0) return ensureChecklistForJob(jobId)
+  if (all.length === 0) return defaultsFor(jobId)
   return all.sort((a, b) => a.sortOrder - b.sortOrder)
 }
 
 export function toggleChecklistItem(jobId: string, itemId: string, user?: string): ChecklistItem | null {
-  const all = loadAll()
+  const saved = loadAll()
+  // A job whose list is not saved yet: its defaults (fixed ids) are saved with this tick.
+  const all = saved.some(i => i.jobId === jobId) ? saved : [...saved, ...defaultsFor(jobId)]
   const idx = all.findIndex(i => i.id === itemId && i.jobId === jobId)
   if (idx < 0) return null
   const now = new Date().toISOString()

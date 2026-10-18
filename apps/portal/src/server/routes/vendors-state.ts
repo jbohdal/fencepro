@@ -7,6 +7,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { findOrCreate, isUniqueViolation, oneById } from '../lib/once.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
@@ -47,12 +48,11 @@ const vendorStateSchema = z.object({
 
 router.get('/', async (req: any, res) => {
   try {
-    let v = await prisma.vendorState.findUnique({ where: { accountId: req.user.crmAccountId } })
-    if (!v) {
-      v = await prisma.vendorState.create({
-        data: { accountId: req.user.crmAccountId, vendors: [], bills: [], payments: [] },
-      })
-    }
+    const accountId = req.user.crmAccountId
+    const v = await findOrCreate(
+      () => prisma.vendorState.findUnique({ where: { accountId } }),
+      () => prisma.vendorState.create({ data: { accountId, vendors: [], bills: [], payments: [] } }),
+    )
     res.json({ success: true, data: v })
   } catch (err) {
     console.error('[vendor-state] get error:', err)
@@ -67,15 +67,19 @@ router.put('/', async (req: any, res) => {
     if (base === null) { refuseUnversioned(res); return }
     const accountId = req.user.crmAccountId
     const fields = {
-      vendors: JSON.parse(JSON.stringify(data.vendors)),
-      bills: JSON.parse(JSON.stringify(data.bills)),
-      payments: JSON.parse(JSON.stringify(data.payments)),
+      vendors: oneById(JSON.parse(JSON.stringify(data.vendors)) as any[]),
+      bills: oneById(JSON.parse(JSON.stringify(data.bills)) as any[]),
+      payments: oneById(JSON.parse(JSON.stringify(data.payments)) as any[]),
     }
     const done = await prisma.vendorState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
     if (done.count === 0) {
       const current = await prisma.vendorState.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
-      await prisma.vendorState.create({ data: { accountId, ...fields } })
+      try { await prisma.vendorState.create({ data: { accountId, ...fields } }) } catch (e) {
+        if (!isUniqueViolation(e)) throw e
+        const now = await prisma.vendorState.findUnique({ where: { accountId } })
+        refuseStale(res, now, now?.version ?? 0); return
+      }
     }
     const v = (await prisma.vendorState.findUnique({ where: { accountId } }))!
     await audit(req, 'update', 'VendorState', v.id, {

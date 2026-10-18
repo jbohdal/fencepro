@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { fireSalesStageChange } from './automationTrigger'
-import { upsertCustomer, logCustomerActivity, getCustomers } from './customerStore'
+import { upsertCustomer, logCustomerActivity } from './customerStore'
 import { getPipeline, savePipeline as storeSavePipeline } from './pipelineStore'
 import { toast } from './toast'
 import { applySignedContractTransition } from './signedContractFlow'
@@ -73,7 +73,6 @@ export const STAGE_COLORS: Record<string, string> = {
   'No Answer':         'bg-gray-400',
 }
 
-const uid = () => Math.random().toString(36).slice(2, 9)
 
 const FLAME_COLORS = ['text-blue-400','text-cyan-400','text-yellow-400','text-orange-500','text-red-500']
 
@@ -105,33 +104,12 @@ export function loadPipeline(): { leads: PipelineLead[], stages: string[] } {
       : (Array.isArray(cached.stages) && cached.stages.length > 0 ? cached.stages : DEFAULT_STAGES)
     return { leads: (cached.leads as PipelineLead[]) || [], stages }
   }
-  // First time on this account — seed from existing customers.
-  const customers = getCustomers()
-  const leads: PipelineLead[] = customers.map((c) => ({
-    id: uid(),
-    firstName: c.firstName ?? '',
-    lastName:  c.lastName ?? '',
-    phone:     c.phone ?? '',
-    email:     c.email ?? '',
-    address:   c.serviceAddress ?? '',
-    leadSource: c.leadSource ?? '',
-    leadTemp:  0,
-    fenceType: '',
-    sections:  0,
-    quotePrice: 0,
-    crew: '',
-    scheduledDate: '',
-    jobValue: 0,
-    paymentStatus: '',
-    balanceDue: 0,
-    notes: c.notes ?? '',
-    stage: c.jobStatus === 'Paid & Closed' ? 'Paid & Closed' : c.jobStatus === 'Lost' ? 'Lost Sale' : 'First Contact',
-    createdAt: c.createdAt ?? businessDate(new Date()),
-    lastMoved: businessDate(new Date()),
-  }))
+  // Nothing saved yet (or the board has not loaded): an empty board. Cards are
+  // never made here; each customer's card is made once, on the server, when
+  // the customer is (see routes/crm-contacts). Making cards for every
+  // customer from this browser, with new ids each time, is what doubled them.
   const stages = configured && configured.length > 0 ? configured : DEFAULT_STAGES
-  storeSavePipeline(leads, stages)
-  return { leads, stages }
+  return { leads: [], stages }
 }
 
 export function savePipeline(leads: PipelineLead[], stages: string[]) {
@@ -161,6 +139,8 @@ export function QuickAddModal({
   const [zip, setZip]             = useState('')
   const [leadSource, setLeadSource] = useState('')
   const [notes, setNotes]         = useState('')
+  const [newCustomerId] = useState(() => newId())
+  const added = useRef(false)
 
   // Combine the four address fields into the single string the data layer expects.
   function composedAddress(): string {
@@ -170,9 +150,14 @@ export function QuickAddModal({
 
   function handleAdd() {
     if (!firstName.trim()) return
+    // Add tapped twice before the window closes: the second tap does nothing.
+    if (added.current) return
+    added.current = true
     const address = composedAddress()
     // A new customer and their card in this column are one save (customerStore): both or neither.
+    // The customer's id is chosen when the window opens, so a resend is the same customer.
     const { customer, created } = upsertCustomer({
+      id: newCustomerId,
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       phone, email,

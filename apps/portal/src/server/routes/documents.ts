@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import multer from 'multer'
 import prisma from '../lib/prisma.js'
+import { createOnce, requestIdOf } from '../lib/once.js'
 import { str } from '../lib/helpers.js'
 import { requireAuth } from '../middleware/auth.js'
 import { auditLog } from '../middleware/audit.js'
@@ -73,19 +74,21 @@ router.post('/', requireAuth, upload.single('file'), auditLog('document_upload')
     }
 
     // Save metadata to DB
-    const doc = await prisma.document.create({
+    // The screen's own id for it: sent twice (or twice at once), it is saved once.
+    const { row: doc } = await createOnce(requestIdOf(req), id => prisma.document.findUnique({ where: { id } }), r => r.customerId === req.user!.sub, id => prisma.document.create({
       data: {
+        ...(id ? { id } : {}),
         customerId: req.user!.sub,
         accountId: req.user!.accountId,
         filename,
-        originalName: req.file.originalname,
+        originalName: req.file!.originalname,
         storagePath,
-        mimeType: req.file.mimetype,
-        sizeBytes: req.file.size,
+        mimeType: req.file!.mimetype,
+        sizeBytes: req.file!.size,
         linkedEntity: req.body.linkedEntity ? String(req.body.linkedEntity) : null,
         linkedEntityId: req.body.linkedEntityId ? String(req.body.linkedEntityId) : null,
       },
-    })
+    }))
 
     res.status(201).json({
       success: true,

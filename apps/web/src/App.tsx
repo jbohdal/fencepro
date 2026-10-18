@@ -53,7 +53,7 @@ import { initSchedule, isScheduleHydrated } from './scheduleStore'
 import { initPipeline, getPipeline, isPipelineHydrated } from './pipelineStore'
 import { initInventory, isInventoryHydrated } from './inventoryStore'
 import DeletionReminder from './DeletionReminder'
-import FinishSetup, { DiskWarning } from './FinishSetup'
+import FinishSetup, { DiskWarning, DuplicateWarning } from './FinishSetup'
 import { initVendors, isVendorsHydrated } from './vendorStore'
 import { initBusinessState, isBusinessStateHydrated } from './businessStateStore'
 import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
@@ -1045,6 +1045,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               <DeletionReminder />
               <DiskWarning />
               {role === 'owner' && <FinishSetup />}
+              {role === 'owner' && <DuplicateWarning />}
               <div className="page-header !mb-0">
                 <div>
                   <h1>{greeting()}, {userProfile.name.split(' ')[0] || 'there'}</h1>

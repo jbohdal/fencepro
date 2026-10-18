@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
@@ -104,8 +104,12 @@ export function QuickChangeOrderModal({
   const total = items.reduce((s, i) => s + i.amount, 0)
   const canSave = items.some(i => i.description.trim() && i.amount !== 0)
 
+  // Tapped twice before the window closes: saved once.
+  const savedOnce = useRef(false)
   function handleSave() {
     if (!canSave) return
+    if (savedOnce.current) return
+    savedOnce.current = true
     const co: ChangeOrder = {
       id: uid(),
       quoteId,

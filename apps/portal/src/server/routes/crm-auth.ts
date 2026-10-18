@@ -11,6 +11,7 @@ import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { withLock } from '../lib/once.js'
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
 import { buildFrontendUrl } from '../lib/urls.js'
 import { audit } from '../lib/auditLog.js'
@@ -73,18 +74,16 @@ async function ensureStaffAccount<T extends { id: string; role: string; crmAccou
   if (user.crmAccountId) return user
   if (user.role !== 'super_admin' && user.role !== 'admin') return user
   try {
-    const accounts = await prisma.crmAccount.findMany({ select: { id: true }, orderBy: { createdAt: 'asc' }, take: 2 })
-    let accountId: string
-    if (accounts.length === 0) {
-      const created = await prisma.crmAccount.create({
-        data: { name: process.env.COMPANY_NAME || 'My Company', status: 'active' },
-      })
-      accountId = created.id
-    } else if (accounts.length === 1) {
-      accountId = accounts[0].id
-    } else {
-      return user
-    }
+    // Under one lock: two first logins at the same moment make one company.
+    const accountId = await withLock('crm:first-company', async tx => {
+      const accounts = await tx.crmAccount.findMany({ select: { id: true }, orderBy: { createdAt: 'asc' }, take: 2 })
+      if (accounts.length === 0) {
+        const created = await tx.crmAccount.create({ data: { name: process.env.COMPANY_NAME || 'My Company', status: 'active' } })
+        return created.id as string
+      }
+      return accounts.length === 1 ? accounts[0].id as string : null
+    })
+    if (!accountId) return user
     await prisma.crmUser.update({ where: { id: user.id }, data: { crmAccountId: accountId } })
     console.log(`[CRM Auth] Linked ${user.role} ${user.id} to company ${accountId}`)
     return { ...user, crmAccountId: accountId }

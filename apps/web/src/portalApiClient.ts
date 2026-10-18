@@ -7,6 +7,21 @@
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 
+/**
+ * The id a file upload is saved under: the same file for the same place
+ * gives the same id, so a double tap or a resend saves it once.
+ */
+export function fileRequestId(scope: string, file: File): string {
+  const text = `${scope}|${file.name}|${file.size}|${file.lastModified}`
+  let a = 0x811c9dc5, b = 0x01000193
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    a = Math.imul(a ^ c, 0x01000193) >>> 0
+    b = Math.imul(b ^ c, 0x85ebca6b) >>> 0
+  }
+  return `f-${a.toString(16).padStart(8, '0')}${b.toString(16).padStart(8, '0')}${file.size.toString(16)}`
+}
+
 function apiBase(): string {
   if (typeof window === 'undefined') return ''
   return window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
@@ -51,6 +66,7 @@ export interface PortalPhotoRow {
 export async function uploadPortalPhoto(file: File, caption?: string): Promise<{ ok: boolean; data?: PortalPhotoRow; error?: string }> {
   try {
     const fd = new FormData()
+    fd.append('clientId', fileRequestId('portal-photo', file))
     fd.append('file', file)
     if (caption) fd.append('caption', caption)
     const res = await fetch(`${apiBase()}/api/portal/photos`, {
@@ -107,6 +123,7 @@ export async function listCustomerPhotos(customerId: string): Promise<PortalPhot
 export async function uploadStaffPhotoForCustomer(customerId: string, file: File, caption?: string, uploadedBy?: string): Promise<{ ok: boolean; data?: PortalPhotoRow; error?: string }> {
   try {
     const fd = new FormData()
+    fd.append('clientId', fileRequestId(`photo:${customerId}`, file))
     fd.append('file', file)
     if (caption) fd.append('caption', caption)
     if (uploadedBy) fd.append('uploadedBy', uploadedBy)
@@ -140,6 +157,7 @@ export interface PortalFileRow {
 export async function uploadPortalDocument(file: File, label?: string): Promise<{ ok: boolean; data?: PortalFileRow; error?: string }> {
   try {
     const fd = new FormData()
+    fd.append('clientId', fileRequestId('portal-doc', file))
     fd.append('file', file)
     if (label) fd.append('label', label)
     const res = await fetch(`${apiBase()}/api/portal/documents`, {
@@ -172,6 +190,7 @@ export async function listCustomerDocuments(customerId: string): Promise<PortalF
 export async function uploadStaffDocumentForCustomer(customerId: string, file: File, label?: string, uploadedBy?: string): Promise<{ ok: boolean; data?: PortalFileRow; error?: string }> {
   try {
     const fd = new FormData()
+    fd.append('clientId', fileRequestId(`doc:${customerId}`, file))
     fd.append('file', file)
     if (label) fd.append('label', label)
     if (uploadedBy) fd.append('uploadedBy', uploadedBy)
@@ -221,12 +240,13 @@ export interface InboxThread {
   unreadCustomerCount: number
 }
 
-export async function sendPortalMessage(body: string): Promise<{ ok: boolean; data?: PortalMessage; error?: string }> {
+/** `requestId`: one per message typed (kept until it is sent), so sending it twice saves it once. */
+export async function sendPortalMessage(body: string, requestId?: string): Promise<{ ok: boolean; data?: PortalMessage; error?: string }> {
   try {
     const res = await fetch(`${apiBase()}/api/portal/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...portalAuthHeaders() },
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, clientId: requestId }),
     })
     const json = await res.json()
     if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
@@ -252,12 +272,13 @@ export async function listCustomerMessages(customerId: string): Promise<PortalMe
   } catch { return [] }
 }
 
-export async function staffReplyToCustomer(customerId: string, body: string, sender?: string): Promise<{ ok: boolean; data?: PortalMessage; error?: string }> {
+/** `requestId`: one per message typed (kept until it is sent), so sending it twice saves it once. */
+export async function staffReplyToCustomer(customerId: string, body: string, sender?: string, requestId?: string): Promise<{ ok: boolean; data?: PortalMessage; error?: string }> {
   try {
     const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...staffAuthHeaders() },
-      body: JSON.stringify({ body, sender }),
+      body: JSON.stringify({ body, sender, clientId: requestId }),
     })
     const json = await res.json()
     if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }

@@ -17,6 +17,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { ensureJobChecklist } from '../lib/seeds.js'
 import { audit } from '../lib/auditLog.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
@@ -183,12 +184,16 @@ router.post('/', requireUser, requireAccount, async (req: any, res) => {
       return row
     })
     await audit(req, 'create', 'SavedJob', created.id, { newValues: created })
+    // The job's milestone checklist is made here, once (see lib/seeds).
+    await ensureJobChecklist(req.user.crmAccountId, created.id).catch(err => console.error('[saved-jobs] checklist:', err))
     res.status(201).json({ success: true, data: created })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     // The same job arrived twice at once: the first one is the job.
-    if ((err as any)?.code === 'P2002' && typeof req.body?.id === 'string') {
-      const row = await prisma.savedJob.findUnique({ where: { id: req.body.id } }).catch(() => null)
+    if ((err as any)?.code === 'P2002' && (typeof req.body?.id === 'string' || typeof req.body?.quoteId === 'string')) {
+      // The same job (its id), or another job for the same quote (one job per quote): the first one is the job.
+      const row = (typeof req.body?.id === 'string' ? await prisma.savedJob.findUnique({ where: { id: req.body.id } }).catch(() => null) : null)
+        ?? (req.body?.quoteId ? await prisma.savedJob.findFirst({ where: { accountId: req.user.crmAccountId, quoteId: String(req.body.quoteId) } }).catch(() => null) : null)
       if (row && row.accountId === req.user.crmAccountId) { res.status(200).json({ success: true, data: row }); return }
     }
     console.error('[saved-jobs] create error:', err)

@@ -7,6 +7,8 @@
  */
 
 import prisma from './prisma.js'
+import { isUniqueViolation } from './once.js'
+import { ensureJobChecklist } from './seeds.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
 import { recordCardMoves, recordProposalAccepted } from './automations/hooks.js'
 
@@ -96,9 +98,13 @@ export async function ensureJobForAcceptedQuote(q: {
       return same.id
     }
   }
-  const job = await prisma.savedJob.create({
+  // A fixed id per accepted quote: the same acceptance handled twice at once makes one job.
+  const jobId = `accepted-${q.id}`
+  let job: { id: string }
+  try {
+    job = await prisma.savedJob.create({
     data: {
-      accountId: q.accountId, quoteId: q.id, crmContactId: q.crmContactId, status: 'staging',
+      id: jobId, accountId: q.accountId, quoteId: q.id, crmContactId: q.crmContactId, status: 'staging',
       customerName: q.customerName, customerPhone: q.customerPhone, customerEmail: q.customerEmail, customerAddress: q.customerAddress,
       fenceStyle: q.fenceStyle, sections: q.sections, totalFeet: Math.round(runs.reduce((s, n) => s + n, 0)),
       walkGates: q.walkGates, dblGates: q.dblGates, tearOutSections: q.tearOutSections, hasSalesman: q.hasSalesman,
@@ -106,7 +112,12 @@ export async function ensureJobForAcceptedQuote(q: {
       estimatedDays: Math.max(1, Math.ceil(q.sections / 15)),
       notes: q.notes || '', salesRep: q.salesRep || '', leadSource: q.leadSource || '',
     },
-  })
+    })
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err
+    return jobId
+  }
+  await ensureJobChecklist(q.accountId, job.id).catch(err => console.error('[proposal] checklist:', err))
   console.log(`[proposal] job ${job.id} created for accepted quote ${q.id}`)
   return job.id
 }

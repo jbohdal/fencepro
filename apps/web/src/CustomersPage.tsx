@@ -1,5 +1,5 @@
 import MediaGallery from './MediaGallery'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { getConfig } from './configStore'
 import { Phone, MessageSquare, Navigation } from 'lucide-react'
 import { openBooking } from './BookingDialog'
@@ -223,7 +223,7 @@ function CustomerForm({
           <button
             disabled={!canSave}
             onClick={() => onSave(form, bookNow)}
-            className="btn btn-primary"
+            className="btn btn-primary" data-customer-save
           >
             Save Customer
           </button>
@@ -236,11 +236,11 @@ function CustomerForm({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">First Name</label>
-              <input autoFocus className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} />
+              <input autoFocus className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={form.firstName} data-customer-field="first-name" onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} />
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Last Name</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} />
+              <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" data-customer-field="last-name" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} />
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Phone</label>
@@ -466,7 +466,11 @@ function CreateInvoiceModal({ customerId, customerName, onClose, onCreated }: { 
   function removeLine(i: number) { setLineItems(lineItems.filter((_, idx) => idx !== i)) }
   function updateLine(i: number, field: string, val: any) { setLineItems(lineItems.map((li, idx) => idx === i ? { ...li, [field]: val } : li)) }
 
+  // Tapped twice before the window closes: saved once.
+  const savedOnce = useRef(false)
   function save() {
+    if (savedOnce.current) return
+    savedOnce.current = true
     createInvoice({
       customerId, customerName, invoiceNumber, title: title || `Invoice ${invoiceNumber}`,
       status: 'draft',
@@ -530,7 +534,11 @@ function RecordPaymentModal({ invoiceId, customerId, customerName, onClose, onRe
 
   if (!inv) return null
 
+  // Tapped twice before the window closes: saved once.
+  const savedOnce = useRef(false)
   function save() {
+    if (savedOnce.current) return
+    savedOnce.current = true
     recordPayment({
       invoiceId, invoiceNumber: inv!.invoiceNumber, customerId, customerName,
       amountCents: Math.round(amount * 100), paymentMethod: method as any,
@@ -628,7 +636,7 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
         <textarea value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Add a note..." rows={3}
           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-orange-400 outline-none" />
         <div className="flex justify-end mt-2">
-          <button onClick={handleCreate} disabled={!newNote.trim()} className="btn btn-primary disabled:opacity-40">Add Note</button>
+          <button onClick={handleCreate} disabled={!newNote.trim() || busy} className="btn btn-primary disabled:opacity-40">Add Note</button>
         </div>
       </div>
 

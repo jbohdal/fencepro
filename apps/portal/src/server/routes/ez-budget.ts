@@ -10,6 +10,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { createOnce, requestIdOf } from '../lib/once.js'
 import { requireAuth } from '../middleware/auth.js'
 import { auditLog } from '../middleware/audit.js'
 import { str } from '../lib/helpers.js'
@@ -376,8 +377,10 @@ publicRouter.post('/widget/submit', async (req, res) => {
     const subtotalCents = data.lineItems.reduce((sum, li) => sum + li.totalCents, 0)
     const totalCents = subtotalCents // no tax/discount from widget
 
-    const quote = await prisma.ezBudgetQuote.create({
+    // The screen's own id for it: sent twice (or twice at once), it is saved once.
+    const { row: quote } = await createOnce(requestIdOf(req), id => prisma.ezBudgetQuote.findUnique({ where: { id }, include: { lineItems: true } }), r => r.customerEmail === data.customerEmail && r.customerName === data.customerName, id => prisma.ezBudgetQuote.create({
       data: {
+        ...(id ? { id } : {}),
         status: 'draft',
         customerName: data.customerName,
         customerEmail: data.customerEmail,
@@ -406,7 +409,7 @@ publicRouter.post('/widget/submit', async (req, res) => {
         },
       },
       include: { lineItems: true },
-    })
+    }))
 
     res.status(201).json({ success: true, data: { id: quote.id, quoteNumber: quote.quoteNumber } })
   } catch (err) {

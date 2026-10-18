@@ -144,6 +144,9 @@ const lines = [
   `Problems: ${problems.length}`,
   ...problems.map(p => `- ${p.item.kind} ${p.item.name || '(no name)'} [${p.item.id}]: ${p.kind}: ${p.detail}`),
 ]
+// The duplicate check (read only on the server), in the same report.
+const dups = await get('/api/system/duplicates').catch(() => null)
+lines.push(`Duplicate check: ${dups ? (dups.length ? `${dups.length} found` : 'nothing found') : 'did not run'}`, ...(dups ?? []).map(f => `- ${f.title}: ${f.detail}`))
 if (!process.env.CONTROL) fs.writeFileSync(`${HOME}/Downloads/live-readonly-${day}.txt`, lines.join('\n') + '\n')
 console.log(lines.slice(0, 4).join('\n'))
 const byKind = {}

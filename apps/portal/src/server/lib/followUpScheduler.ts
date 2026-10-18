@@ -8,6 +8,7 @@
  */
 
 import prisma from './prisma.js'
+import { withLock } from './once.js'
 import { sendFollowUp } from './sms.js'
 
 const COMPANY_NAME = process.env.COMPANY_NAME || 'Getter Done Fence'
@@ -47,16 +48,18 @@ export async function scheduleFollowUps(leadId: string): Promise<void> {
   const firstName = lead.firstName || 'there'
   const now = new Date()
 
+  // One of each type per lead: the check and the insert hold the lead's lock,
+  // so the same lead scheduled twice at once still gets one of each.
+  await withLock(`followups:${leadId}`, async tx => {
   for (const template of FOLLOW_UP_SEQUENCE) {
     const scheduledFor = new Date(now.getTime() + template.delayHours * 60 * 60 * 1000)
 
-    // Don't create if one of this type already exists
-    const existing = await prisma.followUp.findFirst({
+    const existing = await tx.followUp.findFirst({
       where: { leadId, type: template.type },
     })
     if (existing) continue
 
-    await prisma.followUp.create({
+    await tx.followUp.create({
       data: {
         leadId,
         type: template.type,
@@ -66,6 +69,7 @@ export async function scheduleFollowUps(leadId: string): Promise<void> {
       },
     })
   }
+  })
 }
 
 /** Cancel pending follow-ups for a lead (e.g., when they book an appointment) */

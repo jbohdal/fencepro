@@ -528,8 +528,9 @@ router.post('/share/:token/accept', async (req: any, res) => {
       res.json({ success: true, data: forCustomer(q) })
       return
     }
-    const updated = await prisma.savedQuote.update({
-      where: { id: q.id },
+    // Only while still unaccepted: two taps at once are one acceptance (the first name and signature stand).
+    await prisma.savedQuote.updateMany({
+      where: { id: q.id, acceptedAt: null },
       data: {
         status: 'SOLD',
         acceptedAt: new Date(),
@@ -537,6 +538,7 @@ router.post('/share/:token/accept', async (req: any, res) => {
         acceptedSignature: data.signature || null,
       },
     })
+    const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
     console.log(`[saved-quotes] customer accepted quote ${q.id} as "${data.name}"`)
     res.json({ success: true, data: forCustomer(updated) })
   } catch (err) {

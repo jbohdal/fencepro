@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { createOnce, requestIdOf } from '../lib/once.js'
 import { str } from '../lib/helpers.js'
 import { requireAuth } from '../middleware/auth.js'
 import { auditLog } from '../middleware/audit.js'
@@ -109,14 +110,16 @@ router.post('/', requireAuth, auditLog('ticket_create'), async (req, res) => {
   try {
     const data = createTicketSchema.parse(req.body)
 
-    const ticket = await prisma.ticket.create({
+    // The screen's own id for it: sent twice (or twice at once), it is saved once.
+    const { row: ticket } = await createOnce(requestIdOf(req), id => prisma.ticket.findUnique({ where: { id } }), r => r.accountId === req.user!.accountId, id => prisma.ticket.create({
       data: {
+        ...(id ? { id } : {}),
         accountId: req.user!.accountId,
         title: data.title,
         description: data.description,
         priority: data.priority,
       },
-    })
+    }))
 
     res.status(201).json({
       success: true,
@@ -151,14 +154,16 @@ router.post('/:id/comments', requireAuth, auditLog('ticket_reply'), async (req, 
 
     const customer = await prisma.customer.findUnique({ where: { id: req.user!.sub } })
 
-    const comment = await prisma.ticketComment.create({
+    // The screen's own id for it: sent twice (or twice at once), it is saved once.
+    const { row: comment } = await createOnce(requestIdOf(req), id => prisma.ticketComment.findUnique({ where: { id } }), r => r.ticketId === ticket.id, id => prisma.ticketComment.create({
       data: {
+        ...(id ? { id } : {}),
         ticketId: ticket.id,
         authorName: customer ? `${customer.firstName} ${customer.lastName}` : 'Customer',
         body,
         isInternal: false,
       },
-    })
+    }))
 
     // Update ticket timestamp
     await prisma.ticket.update({ where: { id: ticket.id }, data: { updatedAt: new Date() } })

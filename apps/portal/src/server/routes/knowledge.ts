@@ -8,6 +8,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { createOnce, requestIdOf } from '../lib/once.js'
 import { requireAuth } from '../middleware/auth.js'
 import { str } from '../lib/helpers.js'
 import { plainZod } from '../lib/plainZod.js'
@@ -81,7 +82,8 @@ const createSchema = z.object({
 router.post('/', async (req, res) => {
   try {
     const data = createSchema.parse(req.body)
-    const entry = await prisma.knowledgeEntry.create({ data })
+    // The screen's own id for it: sent twice (or twice at once), it is saved once.
+    const { row: entry } = await createOnce(requestIdOf(req), id => prisma.knowledgeEntry.findUnique({ where: { id } }), () => true, id => prisma.knowledgeEntry.create({ data: { ...(id ? { id } : {}), ...data } }))
     res.status(201).json({ success: true, data: entry })
   } catch (err) {
     if (err instanceof z.ZodError) {

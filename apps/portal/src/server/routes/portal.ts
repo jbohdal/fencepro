@@ -25,6 +25,7 @@ import multer from 'multer'
 import { z } from 'zod'
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import prisma from '../lib/prisma.js'
+import { isUniqueViolation, requestIdOf } from '../lib/once.js'
 import { hashPassword, verifyPassword, generateTokens, verifyAccessToken } from '../lib/auth.js'
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
 import { createNotification } from '../lib/notificationService.js'
@@ -564,9 +565,14 @@ router.post('/photos', requirePortalAuth, photoUpload.single('file'), async (req
     }
     const customerId = req.portalAccount!.crmCustomerId
     const accountId = req.portalAccount!.id
+    // The screen's own id for this photo: sent twice, it is saved once.
+    const rid = requestIdOf(req)
+    const again = rid ? await prisma.portalPhoto.findUnique({ where: { id: rid } }) : null
+    if (again && again.crmCustomerId === customerId && !again.deletedAt) { res.json({ success: true, data: serializePhoto(again) }); return }
     const { fileKey, fileUrl } = storeUploadFile(file.buffer, file.originalname, customerId)
     const photo = await prisma.portalPhoto.create({
       data: {
+        ...(rid && !again ? { id: rid } : {}),
         crmCustomerId: customerId,
         uploadedByAccountId: accountId,
         fileKey, fileUrl,
@@ -576,6 +582,11 @@ router.post('/photos', requirePortalAuth, photoUpload.single('file'), async (req
         caption: typeof req.body.caption === 'string' ? req.body.caption : null,
         source: 'portal_customer',
       },
+    }).catch(async (e: unknown) => {
+      // Both copies arrived at the same moment: the first one is kept.
+      const won = rid && isUniqueViolation(e) ? await prisma.portalPhoto.findUnique({ where: { id: rid } }) : null
+      if (won && won.crmCustomerId === customerId) return won
+      throw e
     })
     // Notify staff
     try {
@@ -658,9 +669,14 @@ router.post('/customer/:customerId/photos', requireStaffSyncKey, photoUpload.sin
       return
     }
     const customerId = String(req.params.customerId)
+    // The screen's own id for this photo: sent twice, it is saved once.
+    const rid = requestIdOf(req)
+    const again = rid ? await prisma.portalPhoto.findUnique({ where: { id: rid } }) : null
+    if (again && again.crmCustomerId === customerId && !again.deletedAt) { res.json({ success: true, data: serializePhoto(again) }); return }
     const { fileKey, fileUrl } = storeUploadFile(file.buffer, file.originalname, customerId)
     const photo = await prisma.portalPhoto.create({
       data: {
+        ...(rid && !again ? { id: rid } : {}),
         crmCustomerId: customerId,
         uploadedByUser: typeof req.body.uploadedBy === 'string' ? req.body.uploadedBy : null,
         fileKey, fileUrl,
@@ -670,6 +686,11 @@ router.post('/customer/:customerId/photos', requireStaffSyncKey, photoUpload.sin
         caption: typeof req.body.caption === 'string' ? req.body.caption : null,
         source: 'crm_staff',
       },
+    }).catch(async (e: unknown) => {
+      // Both copies arrived at the same moment: the first one is kept.
+      const won = rid && isUniqueViolation(e) ? await prisma.portalPhoto.findUnique({ where: { id: rid } }) : null
+      if (won && won.crmCustomerId === customerId) return won
+      throw e
     })
     res.json({ success: true, data: serializePhoto(photo) })
   } catch (err: any) {
@@ -735,10 +756,15 @@ router.post('/documents', requirePortalAuth, docUpload.single('file'), async (re
     }
     const customerId = req.portalAccount!.crmCustomerId
     const accountId = req.portalAccount!.id
+    // The screen's own id for this doc: sent twice, it is saved once.
+    const rid = requestIdOf(req)
+    const again = rid ? await prisma.portalFile.findUnique({ where: { id: rid } }) : null
+    if (again && again.crmCustomerId === customerId && !again.deletedAt) { res.json({ success: true, data: serializeFile(again) }); return }
     const { fileKey, fileUrl } = storeUploadFile(file.buffer, file.originalname, customerId)
     const fileKind = /^image\//i.test(file.mimetype) ? 'photo' : 'document'
     const doc = await prisma.portalFile.create({
       data: {
+        ...(rid && !again ? { id: rid } : {}),
         crmCustomerId: customerId,
         uploadedByAccountId: accountId,
         fileKey, fileUrl,
@@ -749,6 +775,11 @@ router.post('/documents', requirePortalAuth, docUpload.single('file'), async (re
         source: 'portal_customer',
         label: typeof req.body.label === 'string' ? req.body.label : null,
       },
+    }).catch(async (e: unknown) => {
+      // Both copies arrived at the same moment: the first one is kept.
+      const won = rid && isUniqueViolation(e) ? await prisma.portalFile.findUnique({ where: { id: rid } }) : null
+      if (won && won.crmCustomerId === customerId) return won
+      throw e
     })
     try {
       await createNotification({
@@ -803,10 +834,15 @@ router.post('/customer/:customerId/documents', requireStaffSyncKey, docUpload.si
     const file = (req as any).file as Express.Multer.File | undefined
     if (!file) { res.status(400).json({ success: false, error: 'NO_FILE' }); return }
     const customerId = String(req.params.customerId)
+    // The screen's own id for this doc: sent twice, it is saved once.
+    const rid = requestIdOf(req)
+    const again = rid ? await prisma.portalFile.findUnique({ where: { id: rid } }) : null
+    if (again && again.crmCustomerId === customerId && !again.deletedAt) { res.json({ success: true, data: serializeFile(again) }); return }
     const { fileKey, fileUrl } = storeUploadFile(file.buffer, file.originalname, customerId)
     const fileKind = /^image\//i.test(file.mimetype) ? 'photo' : 'document'
     const doc = await prisma.portalFile.create({
       data: {
+        ...(rid && !again ? { id: rid } : {}),
         crmCustomerId: customerId,
         uploadedByUser: typeof req.body.uploadedBy === 'string' ? req.body.uploadedBy : null,
         fileKey, fileUrl,
@@ -818,6 +854,11 @@ router.post('/customer/:customerId/documents', requireStaffSyncKey, docUpload.si
         label: typeof req.body.label === 'string' ? req.body.label : null,
         isVisibleToCustomer: req.body.isVisibleToCustomer !== 'false',
       },
+    }).catch(async (e: unknown) => {
+      // Both copies arrived at the same moment: the first one is kept.
+      const won = rid && isUniqueViolation(e) ? await prisma.portalFile.findUnique({ where: { id: rid } }) : null
+      if (won && won.crmCustomerId === customerId) return won
+      throw e
     })
     res.json({ success: true, data: serializeFile(doc) })
   } catch (err: any) {
@@ -896,8 +937,13 @@ router.post('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) 
     const { body } = z.object({ body: z.string().min(1).max(5000) }).parse(req.body)
     const customerId = req.portalAccount!.crmCustomerId
     const accountId = req.portalAccount!.id
+    // The screen's own id for this msg: sent twice, it is saved once.
+    const rid = requestIdOf(req)
+    const again = rid ? await prisma.portalMessage.findUnique({ where: { id: rid } }) : null
+    if (again && again.crmCustomerId === customerId) { res.json({ success: true, data: serializeMessage(again) }); return }
     const msg = await prisma.portalMessage.create({
       data: {
+        ...(rid && !again ? { id: rid } : {}),
         crmCustomerId: customerId,
         senderAccountId: accountId,
         senderType: 'customer',
@@ -905,6 +951,11 @@ router.post('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) 
         isReadByCustomer: true,
         readByCustomerAt: new Date(),
       },
+    }).catch(async (e: unknown) => {
+      // Both copies arrived at the same moment: the first one is kept.
+      const won = rid && isUniqueViolation(e) ? await prisma.portalMessage.findUnique({ where: { id: rid } }) : null
+      if (won && won.crmCustomerId === customerId) return won
+      throw e
     })
     try {
       await createNotification({
@@ -972,8 +1023,13 @@ router.post('/customer/:customerId/messages', requireStaffSyncKey, async (req, r
       body: z.string().min(1).max(5000),
       sender: z.string().optional(),
     }).parse(req.body)
+    // The screen's own id for this msg: sent twice, it is saved once.
+    const rid = requestIdOf(req)
+    const again = rid ? await prisma.portalMessage.findUnique({ where: { id: rid } }) : null
+    if (again && again.crmCustomerId === customerId) { res.json({ success: true, data: serializeMessage(again) }); return }
     const msg = await prisma.portalMessage.create({
       data: {
+        ...(rid && !again ? { id: rid } : {}),
         crmCustomerId: customerId,
         senderUser: sender || 'staff',
         senderType: 'staff',
@@ -981,6 +1037,11 @@ router.post('/customer/:customerId/messages', requireStaffSyncKey, async (req, r
         isReadByStaff: true,
         readByStaffAt: new Date(),
       },
+    }).catch(async (e: unknown) => {
+      // Both copies arrived at the same moment: the first one is kept.
+      const won = rid && isUniqueViolation(e) ? await prisma.portalMessage.findUnique({ where: { id: rid } }) : null
+      if (won && won.crmCustomerId === customerId) return won
+      throw e
     })
     // Email the customer
     try {

@@ -16,6 +16,7 @@ import path from 'path'
 import multer from 'multer'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { withLock } from '../lib/once.js'
 import { recordPhotoUploaded } from '../lib/automations/hooks.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { mediaDir, serializeMedia, processMediaQueue, checkMediaSig, CATEGORIES, VISIBILITY } from '../lib/media.js'
@@ -94,6 +95,7 @@ router.post('/uploads', express.json({ limit: '64kb' }), async (req: any, res) =
   try {
     const b = startSchema.parse(req.body)
     const done = await prisma.mediaItem.findUnique({ where: { clientId: b.clientId } })
+    if (done && done.accountId !== req.user.crmAccountId) { res.status(409).json({ success: false, error: 'Invalid id' }); return }
     if (done) { res.json({ success: true, data: { done: true, item: serializeMedia(done) } }); return }
     const existing = await prisma.mediaUpload.findUnique({ where: { clientId: b.clientId } })
     if (existing) {
@@ -133,7 +135,18 @@ router.put('/uploads/:clientId', express.raw({ type: '*/*', limit: CHUNK_LIMIT }
 // All bytes are in: make the item and start the work on this Mac.
 router.post('/uploads/:clientId/finish', async (req: any, res) => {
   const clientId = String(req.params.clientId)
+  // Finish sent twice at the same moment: the second waits for the first, then returns its item.
+  try {
+    await withLock(`media:${clientId}`, () => finishUpload(req, res, clientId))
+  } catch (err) {
+    console.error('[media] finish:', err)
+    if (!res.headersSent) res.status(500).json({ success: false, error: 'Could not save the photo' })
+  }
+})
+
+async function finishUpload(req: any, res: any, clientId: string): Promise<void> {
   const done = await prisma.mediaItem.findUnique({ where: { clientId } })
+  if (done && done.accountId !== req.user.crmAccountId) { res.status(404).json({ success: false, error: 'No such upload' }); return }
   if (done) { res.json({ success: true, data: serializeMedia(done) }); return }
   const u = await prisma.mediaUpload.findUnique({ where: { clientId } })
   if (!u || u.accountId !== req.user.crmAccountId) { res.status(404).json({ success: false, error: 'No such upload' }); return }
@@ -159,7 +172,7 @@ router.post('/uploads/:clientId/finish', async (req: any, res) => {
   await prisma.mediaUpload.delete({ where: { clientId } }).catch(() => {})
   processMediaQueue().catch(err => console.error('[media] queue:', err))
   res.json({ success: true, data: serializeMedia(item) })
-})
+}
 
 // ── List: a quote's, a job's (and its quote's), a customer's (and their quotes' and jobs') ──
 

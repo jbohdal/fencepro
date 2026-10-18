@@ -9,6 +9,7 @@
  */
 
 import prisma from './prisma.js'
+import { withLock } from './once.js'
 
 export type IntakeSource = 'ez_quote' | 'retell' | 'website_chat'
 
@@ -106,6 +107,12 @@ export interface IntakeResult {
  * the second call changes nothing and reports duplicate.
  */
 export async function recordIntake(accountId: string, input: IntakeInput): Promise<IntakeResult> {
+  // The same delivery arriving twice at once waits for the first, then finds it
+  // (otherwise both would make the customer before the intake's unique check).
+  return withLock(`intake:${input.source}:${input.sourceRef}`, () => recordIntakeNow(accountId, input))
+}
+
+async function recordIntakeNow(accountId: string, input: IntakeInput): Promise<IntakeResult> {
   const existing = await prisma.intakeLead.findUnique({
     where: { source_sourceRef: { source: input.source, sourceRef: input.sourceRef } },
   })

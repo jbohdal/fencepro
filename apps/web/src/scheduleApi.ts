@@ -113,7 +113,8 @@ export async function fetchRainLog(): Promise<RainDayRecord[] | null> {
   const r = await call<RainDayRecord[]>('GET', '/rain-log')
   return r.ok ? (r.data || []) : null
 }
-export async function appendRainDay(payload: Omit<RainDayRecord, 'id' | 'accountId'>): Promise<RainDayRecord | null> {
+/** `id`: chosen by the screen, so the same rain day sent twice is logged once. */
+export async function appendRainDay(payload: Omit<RainDayRecord, 'id' | 'accountId'> & { id?: string }): Promise<RainDayRecord | null> {
   const r = await call<RainDayRecord>('POST', '/rain-log', payload)
   if (!r.ok) toast.error('Rain day not logged', r.error || plainError(0).message)
   return r.ok ? (r.data || null) : null

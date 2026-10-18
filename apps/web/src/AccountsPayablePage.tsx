@@ -5,7 +5,7 @@
  * category breakdown, and export.
  */
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   getBills, getAPSummary, getVendorAging,
   refreshOverdueBills, recordVendorPayment,
@@ -226,9 +226,13 @@ function PayBillModal({ bill, onClose, onSaved }: { bill: VendorBill; onClose: (
   const [paymentDate, setPaymentDate] = useState(businessDate(new Date()))
   const [notes, setNotes] = useState('')
 
+  // Tapped twice before the window closes: saved once.
+  const savedOnce = useRef(false)
   function handleSave() {
     const amountCents = Math.round(parseFloat(amount) * 100)
     if (amountCents <= 0) return
+    if (savedOnce.current) return
+    savedOnce.current = true
     recordVendorPayment({
       billId: bill.id, billNumber: bill.billNumber,
       vendorId: bill.vendorId, vendorName: bill.vendorName,

@@ -27,6 +27,8 @@ import { z } from 'zod'
 import fs from 'fs'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { clientIdSchema, decideClientId } from '../lib/clientId.js'
+import { isUniqueViolation } from '../lib/once.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { getFilePath } from '../lib/storage/index.js'
@@ -129,9 +131,22 @@ router.get('/rules', async (req: any, res) => {
 router.post('/rules', requireAdmin, async (req: any, res) => {
   try {
     const r = ruleSchema.parse(req.body)
-    const row = await prisma.automationRule.create({
-      data: { accountId: req.user.crmAccountId, name: r.name, board: r.board, enabled: r.enabled, enabledAt: r.enabled ? new Date() : null, trigger: r.trigger as any, conditions: r.conditions as any, steps: r.steps as any, createdBy: req.user.email },
-    })
+    const accountId = req.user.crmAccountId
+    // The id the screen chose when the editor opened: the same Save sent again returns the rule already made.
+    const decision = await decideClientId(clientIdSchema.parse(req.body?.id), accountId, id => prisma.automationRule.findUnique({ where: { id } }))
+    if (decision.kind === 'exists') { res.status(200).json({ success: true, data: decision.row }); return }
+    let row
+    try {
+      row = await prisma.automationRule.create({
+      data: { ...(decision.kind === 'use' ? { id: decision.id } : {}), accountId, name: r.name, board: r.board, enabled: r.enabled, enabledAt: r.enabled ? new Date() : null, trigger: r.trigger as any, conditions: r.conditions as any, steps: r.steps as any, createdBy: req.user.email },
+      })
+    } catch (e) {
+      // Sent twice at the same moment: the first one is the rule.
+      if (!isUniqueViolation(e) || decision.kind !== 'use') throw e
+      const won = await prisma.automationRule.findUnique({ where: { id: decision.id } })
+      if (!won || won.accountId !== accountId) throw e
+      res.status(200).json({ success: true, data: won }); return
+    }
     res.status(201).json({ success: true, data: row })
   } catch (err) { fail(res, err, 'save the rule') }
 })
@@ -381,13 +396,15 @@ router.put('/permits/:jobId', async (req: any, res) => {
     const p = permitSchema.parse(req.body)
     const accountId = req.user.crmAccountId
     const before = await prisma.permit.findUnique({ where: { jobId: job.id } })
-    const permit = await prisma.$transaction(async tx => {
+    const save = () => prisma.$transaction(async tx => {
       const row = await tx.permit.upsert({ where: { jobId: job.id }, create: { accountId, jobId: job.id, ...p, updatedBy: req.user.email }, update: { ...p, updatedBy: req.user.email } })
       if (before?.status !== row.status) {
         await recordEvent({ accountId, type: 'permit_changed', board: 'ops', entityKind: 'job', entityId: job.id, data: { jobId: job.id, from: before?.status ?? null, to: row.status }, dedupeKey: `permit:${row.id}:${row.status}:${row.updatedAt.getTime()}` }, tx)
       }
       return row
     })
+    // Two saves of a job's first permit at the same moment: the second finds the first and updates it.
+    const permit = await save().catch(e => { if (isUniqueViolation(e)) return save(); throw e })
     res.json({ success: true, data: { permit, portal: portalFor(permit.county) } })
   } catch (err) { fail(res, err, 'save the permit') }
 })
