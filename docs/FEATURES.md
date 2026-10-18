@@ -113,6 +113,11 @@ Status key:
 * The 3 doubled cards on live: remove the second card of each. **NEEDS JONATHAN** (OK to merge)
 * "Create customer from this lead" button. **READY**
 * Appointments with free maps, team list, linked to jobs. **LIVE**
+* Dispatch map on the same free maps as Appointments (OpenStreetMap, no key), job pins and crew routes; addresses found with the server's free lookup. Was Google's "This page can't load Google Maps correctly". **LIVE** (Oct 18)
+* Pages still on Google Maps (need a paid Google account, so they show Google's error on live): Smart Schedule (Dispatch), Site Plans (the satellite drawing tool), the map quote. **NEEDS JONATHAN** (move each to the free maps and the USGS aerial photo, or remove them)
+* Address suggestions as an address is typed (new customer, new lead from the pipeline, quote, aerial photo address, vendors, the website instant quote): from Marion County's own property list kept on the Mac (204,854 addresses, read again from the county every month), then the US Census lookup for a complete address the county list lacks. One tap fills street, city, state, ZIP and the map spot; typing by hand still works. Tested on 30 real customer addresses (mostly rural): county 28 of 30, with the Census 29 of 30; Photon (OpenStreetMap) 1 of 30. Geoapify, LocationIQ and Radar each need a free key from Jonathan's sign up to test; not needed at these rates. Neighboring counties (Alachua, Lake, Sumter, Putnam, Levy): the Census lookup covers them today; their county lists can be added the same way. **LIVE** (Oct 18)
+* Booking or closing out an appointment moves the customer's open card (a customer with an old No Answer or Paid card plus a new one: the new one), not just the first one found. **LIVE** (Oct 18)
+* Google sign in keys removed from the working folder's settings: they live only in the live settings. **LIVE** (Oct 18)
 * Phone Schedule tab opens the install schedule, with a day view on top: that day's installs and appointments, previous/next day, back to today; tapping an appointment opens it. **LIVE** (Oct 17)
 
 ## 10. Reliability (top priority)

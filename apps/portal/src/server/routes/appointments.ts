@@ -32,6 +32,7 @@ import {
   contactSelect, toClient, locate, pinAddress,
 } from '../lib/appointments.js'
 import { plainZod } from '../lib/plainZod.js'
+import { suggest } from '../lib/addressIndex.js'
 
 const router = Router()
 
@@ -108,6 +109,13 @@ router.get('/geo/lookup', requireUser, async (req: any, res) => {
   if (!address.trim()) { res.status(400).json({ success: false, error: 'address is required' }); return }
   const p = await locate(req.user.crmAccountId, address)
   res.json({ success: true, data: p })
+})
+
+// Address suggestions as an address is typed (Marion County's property list, then the Census lookup).
+router.get('/geo/suggest', requireUser, async (req: any, res) => {
+  const q = String(req.query.q || '').slice(0, 200).trim()
+  if (q.length < 3) { res.json({ success: true, data: [] }); return }
+  res.json({ success: true, data: await suggest(q) })
 })
 
 router.post('/geo/pin', requireUser, async (req: any, res) => {

@@ -10,6 +10,7 @@ import FtInPad from './FtInPad'
 import SitePlan, { type PlanPin } from './SitePlan'
 import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX, buildPlan, layoutSignature, returnHouseEnd } from './sitePlanGeometry'
 import { lookupPosition } from './appointmentsStore'
+import AddressAutocomplete from './AddressAutocomplete'
 import {
   layoutForShape, newSideId, joinedFromPrev, joinsNext, neighborName, formatFtIn, postSpacing,
   FINISH_LABEL, FINISH_NEAR, GATE_LABEL, GATE_WIDTH_IN, SHAPE_LABEL,
@@ -284,8 +285,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
         {!aerialOn ? (
           aerialForm || aerialMsg ? (
             <>
-              <input className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 h-11 text-sm" placeholder="Property address for the aerial photo"
-                value={aerialAddress} onChange={e => setAerialAddress(e.target.value)} data-aerial-address />
+              <AddressAutocomplete wrapClassName="flex-1 min-w-[200px]" className="w-full border border-gray-300 rounded-lg px-3 h-11 text-sm" placeholder="Property address for the aerial photo"
+                value={aerialAddress} onChange={setAerialAddress} inputAttrs={{ 'data-aerial-address': true }} />
               <button type="button" className="btn btn-secondary" onClick={showAerial} data-aerial-show><ImageIcon size={18} aria-hidden="true" /> Show aerial photo</button>
             </>
           ) : (

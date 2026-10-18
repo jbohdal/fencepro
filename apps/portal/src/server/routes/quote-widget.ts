@@ -27,6 +27,7 @@ import prisma from '../lib/prisma.js'
 import { estimateJob, estimateStyleList, widgetCatalog } from '../lib/estimates.js'
 import { resolveIntakeAccountId } from '../lib/intake.js'
 import { locate } from '../lib/appointments.js'
+import { suggest } from '../lib/addressIndex.js'
 import { submitWidgetQuote } from '../lib/widgetQuote.js'
 import { plainZod } from '../lib/plainZod.js'
 
@@ -85,6 +86,12 @@ api.get('/place', readLimiter, async (req, res) => {
   const accountId = await resolveIntakeAccountId()
   const p = accountId ? await locate(accountId, address).catch(() => null) : null
   res.json({ success: true, data: p ? { lat: p.lat, lng: p.lng } : null })
+})
+
+// Address suggestions as the customer types (Marion County's property list, then the Census lookup).
+api.get('/suggest', readLimiter, async (req, res) => {
+  const q = String(req.query.q || '').slice(0, 200).trim()
+  res.json({ success: true, data: q.length < 3 ? [] : (await suggest(q, 5)).map(s => ({ formatted: s.formatted, line1: s.line1, city: s.city, state: s.state, zip: s.zip, lat: s.lat, lng: s.lng })) })
 })
 
 const jobSchema = z.object({

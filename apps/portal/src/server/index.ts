@@ -62,6 +62,7 @@ import { startDataIntegrityCron } from './lib/dataIntegrityCron.js'
 import { startScheduledDeletions } from './lib/scheduledDeletions.js'
 import { startDoorWatch } from './lib/doorWatch.js'
 import { startMediaShrink } from './lib/mediaShrink.js'
+import { startAddressRefresh } from './lib/addressIndex.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
 import quoteWidget from './routes/quote-widget.js'
 import systemRoutes from './routes/system.js'
@@ -330,6 +331,7 @@ if (!isVercel) {
     try { startDoorWatch() } catch (err) {
       console.warn('[startup] door watch failed to start:', (err as Error).message)
     }
+    try { startAddressRefresh() } catch (err) { console.error('[addresses] could not start:', err) }
     try { startMediaShrink() } catch (err) {
       console.warn('[startup] media shrink failed to start:', (err as Error).message)
     }

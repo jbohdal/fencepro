@@ -41,7 +41,8 @@ const api = async (path, init = {}) => {
 }
 let contactIds = null
 const floridaDate = d => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
-const cardOf = async customerId => (await api('/api/pipeline')).leads.find(l => l.customerId === customerId)
+// A customer can have more than one card (an older job): the card the test picked, by its id when known.
+const cardOf = async (customerId, cardId) => { const leads = (await api('/api/pipeline')).leads; return (cardId && leads.find(l => l.id === cardId)) || leads.find(l => l.customerId === customerId) }
 
 async function open(browser, phone, startUrl = APP) {
   const ctx = await browser.newContext(phone
@@ -109,7 +110,7 @@ async function desktop(browser) {
   check('desktop: book from the customer page, saved on the server', !!made1 && made1.type === 'estimate' && made1.status === 'scheduled',
     made1 ? `${made1.customerName}, ${new Date(made1.startAt).toLocaleString('en-US', { timeZone: 'America/New_York' })}, ${made1.address}, with ${made1.assignedTo}, map position ${made1.lat ? 'found' : 'missing'}` : 'not found')
   check('desktop: the confirmation offers a text and a calendar invite, nothing sent', offers >= 1 && /You're all set/.test(r1.confirmText))
-  check('desktop: booking an estimate moved the card from First Contact to Appointment', (await cardOf(first.customerId))?.stage === 'Appointment', `card now ${(await cardOf(first.customerId))?.stage}`)
+  check('desktop: booking an estimate moved the card from First Contact to Appointment', (await cardOf(first.customerId, first.id))?.stage === 'Appointment', `card now ${(await cardOf(first.customerId, first.id))?.stage}`)
   await s.page.locator('button:text-is("appointments")').click(); await sleep(300)
   check('desktop: the customer header shows the next appointment and the tab lists it',
     (await s.page.locator('[data-next-badge]').count()) === 1 && (await s.page.locator(`[data-customer-appointment="${made1?.id}"]`).count()) === 1)

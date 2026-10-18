@@ -15,13 +15,22 @@ import { stageAfterBooking, stageAfterOutcome, type Appointment, type Appointmen
 import { toast } from './toast'
 import { businessDate } from './businessDate'
 
+/** Stages a card is finished in: a customer's newer card (a new enquiry) is the one in play. */
+const CLOSED = new Set(['Paid & Closed', 'Lost Sale', 'No Answer'])
+
+/** The customer's card in play: an open one (most recently moved), else their most recent card. */
 export function cardFor(customerId: string): { id: string; stage: string; firstName: string; lastName: string } | null {
-  return (getPipeline().leads || []).find((l: any) => l?.customerId === customerId) ?? null
+  const mine = (getPipeline().leads || []).filter((l: any) => l?.customerId === customerId)
+  if (mine.length < 2) return mine[0] ?? null
+  const recent = (a: any, b: any) => String(b.lastMoved || b.createdAt || '').localeCompare(String(a.lastMoved || a.createdAt || ''))
+  const open = mine.filter((l: any) => !CLOSED.has(l.stage)).sort(recent)
+  return open[0] ?? [...mine].sort(recent)[0]
 }
 
 export function moveCard(customerId: string, toStage: string): boolean {
   const { leads, stages } = getPipeline()
-  const card = (leads || []).find((l: any) => l?.customerId === customerId)
+  const pick = cardFor(customerId)
+  const card = pick && (leads || []).find((l: any) => l?.id === pick.id)
   if (!card || card.stage === toStage) return false
   const from = card.stage
   savePipeline(leads.map((l: any) => (l === card ? { ...l, stage: toStage, lastMoved: businessDate(new Date()) } : l)), stages)

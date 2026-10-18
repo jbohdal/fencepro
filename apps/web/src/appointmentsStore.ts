@@ -192,3 +192,11 @@ export async function pinPosition(address: string, lat: number, lng: number): Pr
   emit()
   return true
 }
+
+export interface AddressSuggestion { formatted: string; line1: string; city: string; state: string; zip: string; lat: number; lng: number; source: string }
+/** Addresses for what has been typed: Marion County's property list on the Mac, then the Census lookup. */
+export async function suggestAddresses(q: string): Promise<AddressSuggestion[]> {
+  if (q.trim().length < 3) return []
+  const r = await call<AddressSuggestion[]>('GET', `/geo/suggest?q=${encodeURIComponent(q.trim())}`)
+  return r.ok && Array.isArray(r.data) ? r.data : []
+}

@@ -8,6 +8,7 @@ import { PRE_SALE_STAGES, PRODUCTION_STAGES, CLOSING_STAGES, DEAD_STAGES } from 
 import { useBackLayer } from './nav'
 import { newId } from './recordSync'
 import { businessDate } from './businessDate'
+import AddressAutocomplete from './AddressAutocomplete'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -254,12 +255,9 @@ export function QuickAddModal({
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Street Address</label>
-            <input
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              placeholder="1349 SE 32nd St"
-              value={street} data-lead-field="street"
-              onChange={e => setStreet(e.target.value)}
-            />
+            {/* Suggestions from the county's property list: one tap fills street, city, state and ZIP. */}
+            <AddressAutocomplete value={street} onChange={setStreet} placeholder="1349 SE 32nd St" inputAttrs={{ 'data-lead-field': 'street' }}
+              onSelect={p => { setStreet(p.line1); setCity(p.city); setState(p.state); setZip(p.zip) }} />
           </div>
           <div className="grid grid-cols-[1fr_auto_auto] gap-2">
             <div>

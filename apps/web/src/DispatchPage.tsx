@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { loadMaps, loadMarker } from './mapsLoader'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import { lookupPosition } from './appointmentsStore'
 import { distanceMiles } from './geoUtils'
 import {
   getJobs,
@@ -103,12 +105,11 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lng: numb
   if (!address) return null
   if (geocodeCache.has(address)) return geocodeCache.get(address) || null
 
+  // The server's free lookup (US Census, kept on the Mac), the one appointments use.
   try {
-    const geocoder = new google.maps.Geocoder()
-    const result = await geocoder.geocode({ address })
-    if (result.results.length > 0) {
-      const loc = result.results[0].geometry.location
-      const coords = { lat: loc.lat(), lng: loc.lng() }
+    const p = await lookupPosition(address)
+    if (p) {
+      const coords = { lat: p.lat, lng: p.lng }
       geocodeCache.set(address, coords)
       return coords
     }
@@ -148,10 +149,11 @@ export default function DispatchPage() {
   const [geocodedJobs, setGeocodedJobs] = useState<Map<string, { lat: number; lng: number }>>(new Map())
   const [dragJob, setDragJob] = useState<Job | null>(null)
 
-  const mapRef = useRef<google.maps.Map | null>(null)
+  // The map: OpenStreetMap tiles drawn by Leaflet, free and with no key (as on Appointments).
+  const mapRef = useRef<L.Map | null>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
-  const markersRef = useRef<Map<string, google.maps.marker.AdvancedMarkerElement>>(new Map())
-  const routeLinesRef = useRef<google.maps.Polyline[]>([])
+  const markersRef = useRef<Map<string, L.Marker>>(new Map())
+  const routeLinesRef = useRef<L.Polyline[]>([])
 
   const selectedJob = useMemo(() => jobs.find(j => j.id === selectedJobId) || null, [jobs, selectedJobId])
 
@@ -187,33 +189,19 @@ export default function DispatchPage() {
     [jobs]
   )
 
-  // ── Init Google Maps ───────────────────────────
+  // ── Init the map ───────────────────────────────
 
   useEffect(() => {
-    let cancelled = false
-    async function init() {
-      try {
-        const mapsLib = await loadMaps()
-        await loadMarker()
-        if (cancelled || !mapContainerRef.current) return
-
-        const map = new mapsLib.Map(mapContainerRef.current, {
-          center: { lat: 27.0, lng: -81.5 }, // Central FL default
-          zoom: 10,
-          mapId: 'dispatch-map',
-          disableDefaultUI: true,
-          zoomControl: true,
-          mapTypeControl: true,
-          mapTypeControlOptions: { position: google.maps.ControlPosition.TOP_RIGHT },
-        })
-        mapRef.current = map
-        setMapReady(true)
-      } catch (err) {
-        console.error('Maps init failed:', err)
-      }
-    }
-    init()
-    return () => { cancelled = true }
+    if (!mapContainerRef.current || mapRef.current) return
+    const map = L.map(mapContainerRef.current, { zoomControl: true, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false }).setView([29.1872, -82.1401], 10)
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map)
+    mapRef.current = map
+    setMapReady(true)
+    const t = setTimeout(() => { if (mapRef.current === map) map.invalidateSize() }, 150)
+    return () => { clearTimeout(t); map.stop(); map.off(); map.remove(); mapRef.current = null; markersRef.current.clear(); routeLinesRef.current = [] }
   }, [])
 
   // ── Geocode jobs ───────────────────────────────
@@ -266,13 +254,13 @@ export default function DispatchPage() {
     // Remove stale markers
     existingMarkers.forEach((marker, id) => {
       if (!activeIds.has(id)) {
-        marker.map = null
+        marker.remove()
         existingMarkers.delete(id)
       }
     })
 
     // Add/update markers
-    const bounds = new google.maps.LatLngBounds()
+    const bounds = L.latLngBounds([])
     let hasMarkers = false
 
     for (const job of allJobs) {
@@ -280,7 +268,7 @@ export default function DispatchPage() {
       if (!coords) continue
 
       hasMarkers = true
-      bounds.extend(coords)
+      bounds.extend([coords.lat, coords.lng])
 
       const isSelected = job.id === selectedJobId
       const isUnassigned = !job.crewAssigned || !job.scheduledDate
@@ -290,28 +278,19 @@ export default function DispatchPage() {
         : (crew?.hexColor || STATUS_PIN_COLORS[job.status] || '#3B82F6')
       const pinLabel = isUnassigned ? '?' : (crew?.name?.replace('Crew ', '') || '')
 
+      const icon = L.divIcon({ className: '', html: createPinContent(pinColor, pinLabel, isSelected), iconSize: [32, 42], iconAnchor: [16, 42] })
       const existing = existingMarkers.get(job.id)
       if (existing) {
-        existing.position = coords
-        existing.content = createPinContent(pinColor, pinLabel, isSelected)
+        existing.setLatLng([coords.lat, coords.lng])
+        existing.setIcon(icon)
       } else {
-        const marker = new google.maps.marker.AdvancedMarkerElement({
-          map,
-          position: coords,
-          content: createPinContent(pinColor, pinLabel, isSelected),
-          title: `${job.customerName} — ${job.fenceStyle}`,
-        })
-        marker.addListener('click', () => {
-          setSelectedJobId(job.id)
-        })
+        const marker = L.marker([coords.lat, coords.lng], { icon, title: `${job.customerName} — ${job.fenceStyle}` }).addTo(map)
+        marker.on('click', () => setSelectedJobId(job.id))
         existingMarkers.set(job.id, marker)
       }
     }
 
-    if (hasMarkers) {
-      map.fitBounds(bounds, { top: 50, bottom: 50, left: 50, right: 50 })
-      if (map.getZoom()! > 14) map.setZoom(14)
-    }
+    if (hasMarkers) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 })
   }, [mapReady, scheduledJobs, unassignedJobs, selectedJobId, getJobCoords, crews])
 
   // ── Pan to selected job ────────────────────────
@@ -320,8 +299,7 @@ export default function DispatchPage() {
     if (!selectedJob || !mapRef.current) return
     const coords = getJobCoords(selectedJob)
     if (coords) {
-      mapRef.current.panTo(coords)
-      if (mapRef.current.getZoom()! < 13) mapRef.current.setZoom(13)
+      mapRef.current.setView([coords.lat, coords.lng], Math.max(mapRef.current.getZoom(), 13))
     }
   }, [selectedJobId])
 
@@ -329,7 +307,7 @@ export default function DispatchPage() {
 
   useEffect(() => {
     // Clean old lines
-    routeLinesRef.current.forEach(l => l.setMap(null))
+    routeLinesRef.current.forEach(l => l.remove())
     routeLinesRef.current = []
 
     if (!mapReady || !mapRef.current) return
@@ -342,14 +320,7 @@ export default function DispatchPage() {
       const coords = crewJobs.map(j => getJobCoords(j)).filter(Boolean) as { lat: number; lng: number }[]
       if (coords.length < 2) continue
 
-      const line = new google.maps.Polyline({
-        path: coords,
-        geodesic: true,
-        strokeColor: crew.hexColor,
-        strokeOpacity: 0.6,
-        strokeWeight: 3,
-        map: mapRef.current,
-      })
+      const line = L.polyline(coords.map(c => [c.lat, c.lng] as [number, number]), { color: crew.hexColor, opacity: 0.6, weight: 3 }).addTo(mapRef.current)
       routeLinesRef.current.push(line)
     }
   }, [mapReady, scheduledJobs, crews, getJobCoords])

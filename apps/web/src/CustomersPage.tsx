@@ -35,6 +35,7 @@ import { navigate, goBack, useNav, useScreenMemory, takeOpenedParam, openedFrom,
 import { SaveStatus } from './SaveStatus'
 import { newId } from './recordSync'
 import { businessDate } from './businessDate'
+import AddressAutocomplete from './AddressAutocomplete'
 
 interface Customer {
   id: string
@@ -257,12 +258,9 @@ function CustomerForm({
           <div className="space-y-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Service Address — where the fence is being installed</label>
-              <input
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                placeholder="1349 SE 32nd St, Ocala, FL 34470"
+              <AddressAutocomplete placeholder="1349 SE 32nd St, Ocala, FL 34470"
                 value={form.serviceAddress}
-                onChange={e => setForm(f => ({ ...f, serviceAddress: e.target.value }))}
-              />
+                onChange={v => setForm(f => ({ ...f, serviceAddress: v }))} />
             </div>
             <div className="flex items-center gap-2">
               <input type="checkbox" id="billingDiff" checked={form.billingDifferent} onChange={e => setForm(f => ({ ...f, billingDifferent: e.target.checked }))} className="accent-orange-500" />

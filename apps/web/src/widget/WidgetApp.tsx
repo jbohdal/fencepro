@@ -7,7 +7,7 @@
  * price is always worked out by EZ Biz (the builder's math), never here.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import SitePlan from '../SitePlan'
 import FtInPad from '../FtInPad'
 import { aerialUrl } from '../sitePlanGeometry'
@@ -42,6 +42,17 @@ export default function WidgetApp() {
   const [loadError, setLoadError] = useState('')
   // 1 Address
   const [address, setAddress] = useState('')
+  // Addresses suggested as they are typed (the county's property list on the Mac, then the Census lookup).
+  const [sugg, setSugg] = useState<Array<{ formatted: string; line1: string; city: string; zip: string }>>([])
+  const typedAddress = useRef(false)
+  useEffect(() => {
+    const q = address.trim()
+    if (!typedAddress.current || q.length < 3 || !/^\d/.test(q)) { setSugg([]); return }
+    const t = setTimeout(() => {
+      fetch(`${API}/suggest?q=${encodeURIComponent(q)}`).then(r => r.json()).then(j => setSugg(Array.isArray(j?.data) ? j.data : [])).catch(() => {})
+    }, 250)
+    return () => clearTimeout(t)
+  }, [address])
   const [place, setPlace] = useState<{ lat: number; lng: number } | null>(null)
   const [placeMsg, setPlaceMsg] = useState('')
   // The USGS photo can take a while; it says so, and steps aside if it never comes.
@@ -171,7 +182,19 @@ export default function WidgetApp() {
           <h1 className="text-xl font-bold text-gray-900">Get an instant fence estimate</h1>
           <p className="text-sm text-gray-600">Where is the fence going?</p>
           <input className="w-full border border-gray-300 rounded-xl px-4 h-12 text-base" placeholder="Street address, city, ZIP" autoComplete="street-address"
-            value={address} onChange={e => setAddress(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && address.trim().length >= 6) findPlace() }} data-w-address />
+            value={address} onChange={e => { typedAddress.current = true; setAddress(e.target.value) }} onKeyDown={e => { if (e.key === 'Enter' && address.trim().length >= 6) findPlace() }} data-w-address />
+          {sugg.length > 0 && (
+            <ul className="border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden" data-w-suggestions>
+              {sugg.map(s => (
+                <li key={s.formatted}>
+                  <button type="button" className="w-full text-left px-4 min-h-[48px] py-2" onClick={() => { typedAddress.current = false; setAddress(s.formatted); setSugg([]) }} data-w-suggestion>
+                    <span className="block font-medium text-gray-900">{s.line1}</span>
+                    <span className="block text-xs text-gray-500">{s.city}, FL {s.zip}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           {placeMsg && <p className="text-sm text-gray-700">{placeMsg}</p>}
           <button type="button" className="btn btn-primary btn-lg w-full" disabled={address.trim().length < 6} onClick={() => (placeMsg && !place ? setStep(1) : findPlace())} data-w-next>
             {placeMsg && !place ? 'Carry on' : 'Next: your yard'}

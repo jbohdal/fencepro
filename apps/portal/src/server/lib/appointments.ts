@@ -8,6 +8,7 @@
  */
 
 import prisma from './prisma.js'
+import { countyPoint } from './addressIndex.js'
 
 export const APPOINTMENT_TYPES = ['estimate', 'follow_up', 'contract_signing', 'install', 'service', 'warranty', 'call_back', 'other'] as const
 export const APPOINTMENT_STATUSES = ['scheduled', 'confirmed', 'on_my_way', 'rescheduled', 'completed', 'no_show', 'cancelled'] as const
@@ -72,9 +73,11 @@ export async function locate(accountId: string, address: string): Promise<(Point
   if (!key) return null
   const known = await prisma.geoPoint.findUnique({ where: { accountId_addressKey: { accountId, addressKey: key } } })
   if (known) return known.lat != null && known.lng != null ? { lat: known.lat, lng: known.lng, source: known.source } : null
-  const source = geocoderName()
+  // Marion County's own property list first (exact, on the Mac), then the lookup service.
+  const county = countyPoint(address)
+  const source = county ? 'county' : geocoderName()
   let point: Point | null
-  try { point = source === 'google' ? await lookupGoogle(address) : await lookupCensus(address) }
+  try { point = county ?? (source === 'google' ? await lookupGoogle(address) : await lookupCensus(address)) }
   catch (err) { console.error('[geo] lookup failed:', String((err as Error)?.message || err)); return null }
   await prisma.geoPoint.upsert({
     where: { accountId_addressKey: { accountId, addressKey: key } },
