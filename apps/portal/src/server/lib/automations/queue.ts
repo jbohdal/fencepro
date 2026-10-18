@@ -403,16 +403,35 @@ export async function dryRun(accountId: string, rule: { board: Board; trigger: u
  * second copy: the database refuses it and the insert skips it.
  */
 export async function ensureStarters(accountId: string): Promise<void> {
-  await prisma.$transaction([
-    prisma.automationRule.createMany({
-      data: STARTER_RULES.map(s => ({ accountId, name: s.name, board: s.board, enabled: false, trigger: s.trigger as any, conditions: s.conditions as any, steps: s.steps as any, starter: s.starter, createdBy: 'starter' })),
+  // Each starter is made once per company, ever: one Jonathan deleted stays deleted.
+  // The list of starters already made is kept with the company (AccountKeyValue).
+  await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'starters:' + accountId}))`
+    const kv = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: 'automationStartersMade' } } })
+    const made = new Set<string>(Array.isArray(kv?.value) ? (kv!.value as string[]) : [])
+    // Companies seeded before this list existed: what they have counts as made.
+    if (!kv) {
+      for (const r of await tx.automationRule.findMany({ where: { accountId, starter: { not: null } }, select: { starter: true } })) made.add(`rule:${r.starter}`)
+      for (const r of await tx.stageRule.findMany({ where: { accountId, starter: { not: null } }, select: { starter: true } })) made.add(`stage:${r.starter}`)
+    }
+    const rules = STARTER_RULES.filter(s => !made.has(`rule:${s.starter}`))
+    const stages = STARTER_STAGE_RULES.filter(s => !made.has(`stage:${s.starter}`))
+    if (rules.length) await tx.automationRule.createMany({
+      data: rules.map(s => ({ accountId, name: s.name, board: s.board, enabled: false, trigger: s.trigger as any, conditions: s.conditions as any, steps: s.steps as any, starter: s.starter, createdBy: 'starter' })),
       skipDuplicates: true,
-    }),
-    prisma.stageRule.createMany({
-      data: STARTER_STAGE_RULES.map(s => ({ accountId, board: s.board, stage: s.stage, requirements: s.requirements as any, enabled: false, starter: s.starter })),
+    })
+    if (stages.length) await tx.stageRule.createMany({
+      data: stages.map(s => ({ accountId, board: s.board, stage: s.stage, requirements: s.requirements as any, enabled: false, starter: s.starter })),
       skipDuplicates: true,
-    }),
-  ])
+    })
+    for (const s of rules) made.add(`rule:${s.starter}`)
+    for (const s of stages) made.add(`stage:${s.starter}`)
+    if (!kv || rules.length || stages.length) await tx.accountKeyValue.upsert({
+      where: { accountId_key: { accountId, key: 'automationStartersMade' } },
+      create: { accountId, key: 'automationStartersMade', value: [...made] },
+      update: { value: [...made] },
+    })
+  })
 }
 
 // ── The worker ───────────────────────────────────────────────────────────────

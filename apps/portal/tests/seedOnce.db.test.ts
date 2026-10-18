@@ -98,6 +98,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('made once (dev database)', () =>
     expect(stages.every((r: any) => r._count === 1)).toBe(true)
     // The database itself refuses a second copy.
     await expect(prisma.automationRule.create({ data: { accountId, name: 'copy', board: 'sales', trigger: {}, steps: [], starter: STARTER_RULES[0].starter } })).rejects.toMatchObject({ code: 'P2002' })
+    // A starter Jonathan deleted stays deleted: opening the screen again does not bring it back.
+    await prisma.automationRule.deleteMany({ where: { accountId, starter: STARTER_RULES[0].starter } })
+    await Promise.all([call('GET', '/api/automations/rules'), call('GET', '/api/automations/stage-rules')])
+    await ensureStarters(accountId)
+    expect(await prisma.automationRule.count({ where: { accountId, starter: STARTER_RULES[0].starter } })).toBe(0)
+    expect(await prisma.automationRule.count({ where: { accountId, starter: { not: null } } })).toBe(STARTER_RULES.length - 1)
   })
 
   test('the company records (pipeline, settings, inventory, vendors, schedule): opened three times at once, one each, no errors', async () => {
