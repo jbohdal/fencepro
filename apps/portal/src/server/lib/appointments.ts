@@ -79,11 +79,18 @@ export async function locate(accountId: string, address: string): Promise<(Point
   let point: Point | null
   try { point = county ?? (source === 'google' ? await lookupGoogle(address) : await lookupCensus(address)) }
   catch (err) { console.error('[geo] lookup failed:', String((err as Error)?.message || err)); return null }
-  await prisma.geoPoint.upsert({
-    where: { accountId_addressKey: { accountId, addressKey: key } },
-    create: { accountId, addressKey: key, address, lat: point?.lat ?? null, lng: point?.lng ?? null, source: point ? source : 'none' },
-    update: {},
-  })
+  try {
+    await prisma.geoPoint.upsert({
+      where: { accountId_addressKey: { accountId, addressKey: key } },
+      create: { accountId, addressKey: key, address, lat: point?.lat ?? null, lng: point?.lng ?? null, source: point ? source : 'none' },
+      update: {},
+    })
+  } catch (err) {
+    // The same address looked up twice at once: the other lookup saved it first; keep the first.
+    if ((err as any)?.code !== 'P2002') throw err
+    const first = await prisma.geoPoint.findUnique({ where: { accountId_addressKey: { accountId, addressKey: key } } })
+    if (first) return first.lat != null && first.lng != null ? { lat: first.lat, lng: first.lng, source: first.source } : null
+  }
   return point ? { ...point, source } : null
 }
 
