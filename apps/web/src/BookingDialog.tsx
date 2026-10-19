@@ -13,6 +13,7 @@
  * which Jonathan sends himself.
  */
 
+import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCustomers, getCustomerById } from './customerStore'
 import { getJobs, updateJob } from './jobStore'
@@ -392,7 +393,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                 <label className="block text-xs font-semibold text-gray-500">Job
                   <select value={jobId} onChange={e => setJobId(e.target.value)} className="mt-1 w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900">
                     <option value="">Not linked to a job</option>
-                    {jobs.map(j => <option key={j.id} value={j.id}>{j.fenceStyle || 'Job'} · ${Math.round(j.contractValue || 0).toLocaleString()} · {j.status}</option>)}
+                    {jobs.map(j => <option key={j.id} value={j.id}>{styleLabel(j.fenceStyle) || 'Job'} · ${Math.round(j.contractValue || 0).toLocaleString()} · {j.status}</option>)}
                   </select>
                   <span className="font-normal text-gray-400">A linked job takes these dates, so Operations and the calendar show it once.</span>
                 </label>

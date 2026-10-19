@@ -60,6 +60,19 @@ export interface Estimate {
   notes: string[]
 }
 
+/** Inventory and kits as the source of part costs and kits (also what decides whether a color added in Settings is fully priced). */
+function useData(data: Pick<EstimateData, 'inventory' | 'kits'> | undefined) {
+  if (!data) return
+  setMaterialPriceSource(data.inventory.length ? inventoryPriceSource(data.inventory) : null)
+  setSavedKitSets(() => data.kits)
+}
+
+/** Each style's plain name by its internal name (old code or generated), for what the server shows people. */
+export function styleLabels(saved: Partial<AppConfig> | null, data?: Pick<EstimateData, 'inventory' | 'kits'>): Record<string, string> {
+  useData(data)
+  return Object.fromEntries(estimateConfig(saved).fenceStyles.map(s => [s.name, s.label || s.name]))
+}
+
 /** Settings filled in the way the app fills them in, with each style's Target Margin. */
 export function estimateConfig(saved: Partial<AppConfig> | null): AppConfig {
   const merged = mergeSavedConfig(saved)
@@ -70,7 +83,8 @@ export function estimateConfig(saved: Partial<AppConfig> | null): AppConfig {
 }
 
 /** Styles a customer can ask about: turned on and available for quoting. */
-export function estimateStyles(saved: Partial<AppConfig> | null): FenceStyle[] {
+export function estimateStyles(saved: Partial<AppConfig> | null, data?: Pick<EstimateData, 'inventory' | 'kits'>): FenceStyle[] {
+  useData(data)
   return estimateConfig(saved).fenceStyles.filter(isQuotable)
 }
 
@@ -88,13 +102,12 @@ export class NotQuotableError extends Error {
 }
 
 export function estimate(data: EstimateData, job: EstimateJob): Estimate {
+  useData(data)
   const cfg = estimateConfig(data.config)
   const named = cfg.fenceStyles.find(s => s.name === job.fenceStyle && s.isActive !== false)
   if (named && !isQuotable(named)) throw new NotQuotableError(named.name)
   const style = named
   if (!style) throw new Error(`Unknown fence style: ${job.fenceStyle}`)
-  setMaterialPriceSource(data.inventory.length ? inventoryPriceSource(data.inventory) : null)
-  setSavedKitSets(() => data.kits)
   const calc: QuoteCalc = calculateQuote({
     style,
     runs: job.runs.map(ft => ({ ft, rail: 'auto' as const })),

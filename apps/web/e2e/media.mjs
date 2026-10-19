@@ -70,7 +70,7 @@ try {
   await b.locator('[data-side-row="Left return"]').click()
   await b.locator('[data-side="Left return"] [data-gate-choice] button:has-text("Walk gate")').click()
   await b.locator('[data-step="style"]').click()
-  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "WV-ND 6'x8' Privacy" })
+  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" })
   await b.locator('[data-step="yard"]').click()
 
   // ── Offline: two photos and a short video in the in-app camera ──

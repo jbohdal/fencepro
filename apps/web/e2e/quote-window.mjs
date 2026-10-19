@@ -94,7 +94,7 @@ async function bigScreen(browser, size, tag) {
   if (SHOTS && tag === 'computer') await page.screenshot({ path: `${SHOTS}/dev-quote-window-desktop-yard.png` })
 
   await b.locator('[data-step="style"]').click(); await sleep(300)
-  await b.locator('[data-step-panel="style"] select').first().selectOption({ label: "WV-ND 6'x8' Privacy" }); await sleep(500)
+  await b.locator('[data-step-panel="style"] select').first().selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" }); await sleep(500)
   await next.click(); await sleep(800)
   check(`${tag}: Price step: Save quote sits where Next was`, await bar.locator('[data-save-open]').isVisible())
   const scroller = page.locator('[data-quote-scroll]')

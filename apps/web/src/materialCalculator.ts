@@ -73,19 +73,54 @@ export interface KitCounts {
   perFoot: number
   perJob: number
 }
-export interface KitLine { part: string; qty: number; fallbackCost: number }
-export type KitEngine = (styleKey: string, counts: KitCounts, notes: () => string[]) => { lines: KitLine[]; warnings: string[] } | null
+export interface KitLine {
+  part: string; qty: number; fallbackCost: number
+  /** Job lot colors only: the cost per unit is set (0 for a part a piece price covers), not read from Inventory. */
+  unitCost?: number
+  /** Job lot colors only: a piece price line (section, post, gate), not a part to pull or order. */
+  piece?: boolean
+}
+
+/**
+ * Job lot pricing for one style (a color priced by the piece from a supplier's
+ * job lot quote; see fenceCatalog.ts). Prices are dollars here, converted from
+ * the integer cents saved in Settings. `covers` names the parts each piece
+ * price includes; those parts stay on the pull sheet at $0 and the piece is
+ * charged instead, kit by kit, so a part is never charged twice.
+ */
+export interface StyleJobLot {
+  color: string
+  supplier: string
+  /** YYYY-MM-DD */
+  quotedOn: string
+  /** Which section price a section kit uses on a locked width style (its panel width); auto mix: 6 ft rail runs use '6', 8 ft runs '8'. */
+  width: number | 'auto'
+  /** Price of one section by panel width in feet ('6', '8', ...). */
+  sections: Record<string, number>
+  corner?: number
+  end?: number
+  line?: number
+  blank?: number
+  walkGate?: number
+  dblGate?: number
+  covers: { section: string[]; post: string[]; walkGate: string[]; dblGate: string[] }
+}
+
+export type KitEngine = (styleKey: string, counts: KitCounts, notes: () => string[], jobLot?: StyleJobLot) => { lines: KitLine[]; warnings: string[] } | null
 
 let kitEngine: KitEngine | null = null
 export function setKitEngine(fn: KitEngine | null): void { kitEngine = fn }
 
-function fromKits(styleKey: string, counts: KitCounts, tearOutSections: number, tearOutGates: number, notes: () => string[]): MaterialResult | null {
-  const r = kitEngine ? kitEngine(styleKey, counts, notes) : null
+function fromKits(styleKey: string, counts: KitCounts, tearOutSections: number, tearOutGates: number, notes: () => string[], jobLot?: StyleJobLot): MaterialResult | null {
+  const r = kitEngine ? (jobLot ? kitEngine(styleKey, counts, notes, jobLot) : kitEngine(styleKey, counts, notes)) : null
   if (!r) return null
   const col = makeCollector()
   col.add('Tear Out Haul-Away Fence', tearOutSections, 9.50)
   col.add('Tear Out Haul-Away Gate', tearOutGates, 27.00)
-  for (const l of r.lines) col.add(l.part, l.qty, l.fallbackCost)
+  for (const l of r.lines) {
+    if (l.unitCost !== undefined) col.addSet(l.part, l.qty, l.unitCost, !!l.piece)
+    else col.add(l.part, l.qty, l.fallbackCost)
+  }
   col.warnings.push(...r.warnings)
   return col.finish()
 }
@@ -93,6 +128,12 @@ function fromKits(styleKey: string, counts: KitCounts, tearOutSections: number, 
 /** The style notes the parts lists give (new or unconfirmed lists), without the Inventory warnings. */
 function legacyNotes(run: () => MaterialResult): string[] {
   return withPriceSource(() => 1, run).warnings
+}
+
+/** The Inventory cost for one part, or undefined when it is not in Inventory (or no Inventory is loaded). */
+export function inventoryCost(itemName: string): number | undefined {
+  const inv = priceSource ? priceSource(itemName) : undefined
+  return typeof inv === 'number' && Number.isFinite(inv) ? inv : undefined
 }
 
 /** Current Inventory cost for one part, with a fallback when it is missing. */
@@ -112,6 +153,8 @@ interface Collector {
   items: LineItem[]
   warnings: string[]
   add: (item: string, qty: number, fallbackCost?: number) => void
+  /** Job lot colors: a line whose cost is set, not read from Inventory. */
+  addSet: (item: string, qty: number, unitCost: number, piece: boolean) => void
   finish: () => MaterialResult
 }
 
@@ -143,6 +186,11 @@ function makeCollector(): Collector {
     })
   }
 
+  function addSet(item: string, qty: number, unitCost: number, piece: boolean) {
+    if (!(qty > 0)) return
+    items.push({ item, qty: round2(qty), unitCost, total: round2(qty * unitCost), costSource: 'jobLot', ...(piece ? { jobLotPiece: true } : {}) })
+  }
+
   function finish(): MaterialResult {
     if (missing.size > 0) {
       warnings.push(
@@ -157,7 +205,7 @@ function makeCollector(): Collector {
     return { items, warnings }
   }
 
-  return { items, warnings, add, finish }
+  return { items, warnings, add, addSet, finish }
 }
 
 export interface JobInputs {
@@ -169,6 +217,10 @@ export interface JobInputs {
   dblGates: number        // count of double gates
   tearOutSections: number
   tearOutGates: number
+  /** A color priced by the piece (job lot). */
+  jobLot?: StyleJobLot
+  /** Styles made in Settings (generated names, no parts list by name): the section width their kits are counted at. */
+  sectionWidth?: number
 }
 
 export interface LineItem {
@@ -176,8 +228,12 @@ export interface LineItem {
   qty: number
   unitCost: number
   total: number
-  /** Where unitCost came from. Absent on quotes saved before this field. */
-  costSource?: 'inventory' | 'builtin'
+  /** Where unitCost came from. Absent on quotes saved before this field.
+   *  'jobLot': a color priced by the piece: a part a piece price covers ($0
+   *  here, its cost is in the piece line) or the piece line itself. */
+  costSource?: 'inventory' | 'builtin' | 'jobLot'
+  /** A job lot piece price line (section, post, gate): money only, not a part to pull or order. */
+  jobLotPiece?: boolean
 }
 
 // ── Section width and count per run ───────────────────────────────────────────
@@ -302,11 +358,14 @@ export function calculateMaterials(inputs: JobInputs): LineItem[] {
 /** Same as calculateMaterials, plus the warnings the estimator should see. Parts come from the style's material kits. */
 export function calculateMaterialsDetailed(inputs: JobInputs): MaterialResult {
   const { fenceStyle: s, runs, corners, ends, walkGates, dblGates } = inputs
+  const w = inputs.sectionWidth
+  const perRun = w ? runs.map(ft => sectionsForRun(ft, w)) : null
   const counts: KitCounts = {
-    section: totalSections(runs, s), section8: 0, line: totalLinePosts(runs, s), corner: corners, end: ends,
+    section: perRun ? perRun.reduce((t, n) => t + n, 0) : totalSections(runs, s), section8: 0,
+    line: perRun ? calculateLinePostsPerRun(perRun).reduce((t, n) => t + n, 0) : totalLinePosts(runs, s), corner: corners, end: ends,
     blank: dblGates, walkGate: walkGates, dblGate: dblGates, perFoot: totalFt(runs), perJob: 1,
   }
-  return fromKits(s, counts, inputs.tearOutSections, inputs.tearOutGates, () => legacyNotes(() => legacyCalculateMaterialsDetailed(inputs)))
+  return fromKits(s, counts, inputs.tearOutSections, inputs.tearOutGates, () => legacyNotes(() => legacyCalculateMaterialsDetailed(inputs)), inputs.jobLot)
     ?? legacyCalculateMaterialsDetailed(inputs)
 }
 
@@ -900,6 +959,10 @@ export interface MixedJobInputs {
   dblGates: number
   tearOutSections: number
   tearOutGates: number
+  /** Styles made from Settings (a color added later): the kit set to read, by the style's own internal name. */
+  kitKey?: string
+  /** A color priced by the piece (job lot). */
+  jobLot?: StyleJobLot
 }
 
 /** Section count for a single run at the chosen rail width. */
@@ -930,6 +993,16 @@ export function calculateMixedMaterialsDetailed(input: MixedJobInputs): Material
   const counts: KitCounts = {
     section, section8, line, corner: input.corners, end: input.ends, blank: input.dblGates,
     walkGate: input.walkGates, dblGate: input.dblGates, perFoot: input.runs.reduce((t, r) => t + r.ft, 0), perJob: 1,
+  }
+  if (input.kitKey) {
+    // A style made from Settings has only its kits; the old white / tan lists are not its parts.
+    const own = fromKits(input.kitKey, counts, input.tearOutSections, input.tearOutGates, () => [], input.jobLot)
+    if (own) return own
+    const col = makeCollector()
+    col.add('Tear Out Haul-Away Fence', input.tearOutSections, 9.50)
+    col.add('Tear Out Haul-Away Gate', input.tearOutGates, 27.00)
+    col.warnings.push(`"${input.kitKey}" has no material kit yet, so no fence material is included. Set its parts in Inventory > Material Kits.`)
+    return col.finish()
   }
   return fromKits(mixedKitKey(input.installMethod, input.colorFamily), counts, input.tearOutSections, input.tearOutGates, () => [])
     ?? legacyCalculateMixedMaterialsDetailed(input)

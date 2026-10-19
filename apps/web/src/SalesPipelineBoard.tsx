@@ -13,6 +13,7 @@
  * unchanged. The original JobsPage.tsx remains importable as a fallback.
  */
 
+import { styleLabel } from './fenceCatalog'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   type PipelineLead,
@@ -768,7 +769,7 @@ function PipelineCard({
         <p className="text-sm font-bold text-emerald-600 shrink-0">{fmtUSD(value)}</p>
       </div>
       <p className="text-xs text-gray-500 truncate">
-        {city}{lead.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{lead.fenceType}</span></> : null}
+        {city}{lead.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{styleLabel(lead.fenceType)}</span></> : null}
       </p>
       <div className="flex items-center gap-1.5 mt-2 text-[11px] text-gray-500">
         <span className="inline-flex w-5 h-5 rounded-full bg-orange-100 text-orange-700 items-center justify-center text-[9px] font-bold">{initials || '·'}</span>
@@ -886,7 +887,7 @@ function ControlsBar({
             </select>
             <select value={styleFilter} onChange={e => onStyleFilterChange(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="">All styles</option>
-              {styleOptions.map(r => <option key={r} value={r}>{r}</option>)}
+              {styleOptions.map(r => <option key={r} value={r}>{styleLabel(r)}</option>)}
             </select>
             <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               {SORT_MODES.map(m => <option key={m} value={m}>{SORT_LABELS[m]}</option>)}
@@ -919,7 +920,7 @@ function ControlsBar({
         </select>
         <select value={styleFilter} onChange={e => onStyleFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All styles</option>
-          {styleOptions.map(r => <option key={r} value={r}>{r}</option>)}
+          {styleOptions.map(r => <option key={r} value={r}>{styleLabel(r)}</option>)}
         </select>
         <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white" aria-label="Sort">
           {SORT_MODES.map(m => <option key={m} value={m}>{SORT_LABELS[m]}</option>)}
@@ -1047,7 +1048,7 @@ function PipelineListView({
                   <td className="px-3 py-2 text-xs">
                     <a href={`tel:${l.phone}`} className="text-blue-600 hover:underline">{l.phone || '—'}</a>
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{l.fenceType || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{styleLabel(l.fenceType) || '—'}</td>
                   <td className="px-3 py-2">
                     <span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: stageHexFromTailwind(l.stage) }}>{l.stage}</span>
                   </td>

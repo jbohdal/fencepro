@@ -7,6 +7,7 @@
  *   - PDF export (via window.print on the rendered HTML)
  */
 
+import { styleLabel } from './fenceCatalog'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { useState } from 'react'
 import { getContractSections } from './contractStore'
@@ -184,7 +185,7 @@ function PremiumTemplate({ quote, template, interactive, onAccept, accepted, exp
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, fontSize: 13 }}>
               <div>
                 <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', fontWeight: 700 }}>Fence Style</p>
-                <p style={{ color: template.primaryColor, fontWeight: 600 }}>{quote.fenceStyle}</p>
+                <p style={{ color: template.primaryColor, fontWeight: 600 }}>{styleLabel(quote.fenceStyle)}</p>
               </div>
               <div>
                 <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', fontWeight: 700 }}>Total Footage</p>
@@ -236,7 +237,7 @@ function PremiumTemplate({ quote, template, interactive, onAccept, accepted, exp
             <tbody>
               <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
                 <td style={{ padding: '14px 12px' }}>
-                  <strong>{quote.fenceStyle} Installation</strong>
+                  <strong>{styleLabel(quote.fenceStyle)} Installation</strong>
                   <div style={{ fontSize: 12, color: '#6b7280' }}>{totalFootage} linear feet · {quote.sections} sections</div>
                 </td>
                 <td style={{ padding: '14px 12px', textAlign: 'right', fontWeight: 600 }}>{fmt(Math.max(0, quote.finalPrice - 0))}</td>
@@ -334,10 +335,10 @@ function ModernTemplate({ quote, template, interactive, onAccept, accepted, expi
           )}
           <NumberedSection num="01" title="Project Scope" accent={template.accentColor} color={template.primaryColor}>
             <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-              {scopeText || `${quote.fenceStyle} installation across ${totalFootage} linear feet with ${quote.sections} sections.`}
+              {scopeText || `${styleLabel(quote.fenceStyle)} installation across ${totalFootage} linear feet with ${quote.sections} sections.`}
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginTop: 20 }}>
-              <Fact label="Fence Style" value={quote.fenceStyle} />
+              <Fact label="Fence Style" value={styleLabel(quote.fenceStyle)} />
               <Fact label="Footage" value={`${totalFootage} ft`} />
               <Fact label="Gates" value={gateSummary} />
               <Fact label="Sections" value={String(quote.sections)} />
@@ -447,7 +448,7 @@ function ClassicTemplate({ quote, template, interactive, onAccept, accepted, exp
       <section style={{ marginBottom: 32 }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, color: template.primaryColor, borderBottom: `1px solid ${template.primaryColor}`, paddingBottom: 6, marginBottom: 12 }}>Scope of Work</h3>
         <p style={{ fontSize: 13, lineHeight: 1.7, color: '#374151', whiteSpace: 'pre-wrap' }}>
-          {scopeText || `Furnish and install ${quote.fenceStyle} across ${totalFootage} linear feet with ${quote.sections} sections. Gates: ${gateSummary}. All material and labor included.`}
+          {scopeText || `Furnish and install ${styleLabel(quote.fenceStyle)} across ${totalFootage} linear feet with ${quote.sections} sections. Gates: ${gateSummary}. All material and labor included.`}
         </p>
       </section>
 
@@ -470,7 +471,7 @@ function ClassicTemplate({ quote, template, interactive, onAccept, accepted, exp
           </thead>
           <tbody>
             <tr>
-              <td style={{ padding: 8 }}>{quote.fenceStyle} installation</td>
+              <td style={{ padding: 8 }}>{styleLabel(quote.fenceStyle)} installation</td>
               <td style={{ padding: 8, textAlign: 'right' }}>{totalFootage} ft</td>
               <td style={{ padding: 8, textAlign: 'right' }}>{fmt(quote.finalPrice)}</td>
             </tr>
@@ -555,13 +556,13 @@ function BoldTemplate({ quote, template, interactive, onAccept, accepted, expire
         <section style={{ marginBottom: 48 }}>
           <h2 style={{ fontSize: 36, fontWeight: 900, color: template.primaryColor, margin: '0 0 20px' }}>The Project</h2>
           <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.7, marginBottom: 20, whiteSpace: 'pre-wrap' }}>
-            {scopeText || `Installation of ${quote.fenceStyle}, ${totalFootage} linear feet across ${quote.sections} sections with ${gateSummary.toLowerCase()}.`}
+            {scopeText || `Installation of ${styleLabel(quote.fenceStyle)}, ${totalFootage} linear feet across ${quote.sections} sections with ${gateSummary.toLowerCase()}.`}
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
             {[
               ['Footage', `${totalFootage} ft`],
               ['Sections', String(quote.sections)],
-              ['Style', quote.fenceStyle],
+              ['Style', styleLabel(quote.fenceStyle)],
               ['Gates', gateSummary],
             ].map(([k, v]) => (
               <div key={k} style={{ background: '#fee2e2', padding: 14, borderRadius: 10, borderLeft: `4px solid ${template.primaryColor}` }}>

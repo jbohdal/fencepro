@@ -5,6 +5,7 @@
  */
 
 import type { AppConfig, FenceStyle } from './configStore'
+import { catalogOf, resolveFenceStyles } from './fenceCatalog'
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 
@@ -102,8 +103,7 @@ export const DEFAULT_CONFIG: AppConfig = {
 
 /** A saved config with every missing setting filled in from the defaults. */
 export function mergeSavedConfig(saved: Partial<AppConfig> | null | undefined): AppConfig {
-  if (!saved || Object.keys(saved).length === 0) return DEFAULT_CONFIG
-  return {
+  const merged: AppConfig = !saved || Object.keys(saved).length === 0 ? DEFAULT_CONFIG : {
     ...DEFAULT_CONFIG,
     ...saved,
     // Pricing and margins merge field by field so a config saved before a
@@ -111,4 +111,7 @@ export function mergeSavedConfig(saved: Partial<AppConfig> | null | undefined): 
     pricing: { ...DEFAULT_CONFIG.pricing, ...(saved.pricing ?? {}) },
     margins: { ...DEFAULT_CONFIG.margins, ...(saved.margins ?? {}) },
   }
+  // Each style's choices, plain name and what the choice tree says about it (fenceCatalog.ts).
+  const fenceCatalog = catalogOf(merged)
+  return { ...merged, fenceCatalog, fenceStyles: resolveFenceStyles(merged.fenceStyles ?? [], fenceCatalog) }
 }

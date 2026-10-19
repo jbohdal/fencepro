@@ -17,10 +17,11 @@ import { toast } from './toast'
 import { useTierSets, createTierSet, updateTierSet, deleteTierSet } from './tierSetsApi'
 import { listStylePhotos, uploadStylePhoto, deleteStylePhoto, stylePhotoUrl, type StylePhoto } from './stylePhotosApi'
 import {
-  MAX_TIERS, INSTALL_LABEL, WIDTH_LABEL, COLOR_LABEL, SAMPLE_YARDS, styleParts, resolveTiers, sampleInput, tierPhotoName,
+  MAX_TIERS, INSTALL_LABEL, WIDTH_LABEL, colorLabel, SAMPLE_YARDS, styleParts, resolveTiers, sampleInput, tierPhotoName,
   type TierSet, type TierSpec, type TierInstall, type TierWidth, type TierColor,
 } from './tiers'
 import { optionLabel } from './proposal'
+import { catalogOf, colorDimOf } from './fenceCatalog'
 import { isQuotable } from './styleAvailability'
 
 const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -29,7 +30,7 @@ const newKey = () => `t${Date.now().toString(36)}${Math.random().toString(36).sl
 
 /** What the styles in a category let a tier change. */
 function choicesFor(styles: FenceStyle[]) {
-  const parts = styles.map(s => styleParts(s.name)).filter(Boolean)
+  const parts = styles.map(s => styleParts(s.name, s)).filter(Boolean)
   const colors = [...new Set(parts.map(p => p!.color).filter(Boolean))] as TierColor[]
   const installs = [...new Set(parts.map(p => p!.install).filter(Boolean))] as TierInstall[]
   const widths = parts.some(p => typeof p!.width === 'number')
@@ -66,11 +67,13 @@ export default function TierSettings() {
   const freeCats = categories.filter(c => !ordered.some(s => s.category.toLowerCase() === String(c).toLowerCase()))
   const catStyles = useMemo(() => (draft ? cfg.fenceStyles.filter(s => isQuotable(s) && s.category.toLowerCase() === draft.category.toLowerCase()) : []), [cfg, draft?.category])  // eslint-disable-line react-hooks/exhaustive-deps
   const choices = useMemo(() => choicesFor(catStyles), [catStyles])
+  // Color names from Settings → Fence styles (colors added later included).
+  const colorNames = useMemo(() => Object.fromEntries(catalogOf(cfg).materials.flatMap(m => colorDimOf(m)?.options.map(x => [x.key, x.label] as [string, string]) ?? [])), [cfg])
 
   // Preview: a sample yard and a sample style from this category.
   const [yardKey, setYardKey] = useState(SAMPLE_YARDS[1].key)
   const [sampleName, setSampleName] = useState('')
-  const sampleStyle = catStyles.find(s => s.name === sampleName) ?? catStyles.find(s => styleParts(s.name) && !s.autoRailMix) ?? catStyles[0]
+  const sampleStyle = catStyles.find(s => s.name === sampleName) ?? catStyles.find(s => styleParts(s.name, s) && !s.autoRailMix) ?? catStyles[0]
   const preview = useMemo(() => {
     if (!draft || !sampleStyle) return []
     const input = sampleInput(yardKey, sampleStyle, cfg.pricing, getRailOptimizerConfig(cfg))
@@ -218,14 +221,14 @@ export default function TierSettings() {
                     </label>
                     <label className="block text-xs text-gray-600">Color
                       <select className={inputCls + ' mt-1'} value={t.color} disabled={!!t.style} onChange={e => setTier(i, { color: e.target.value as TierColor })} data-tier-color>
-                        {keep(choices.colors, t.color).map(v => <option key={v} value={v}>{COLOR_LABEL[v]}</option>)}
+                        {keep(choices.colors, t.color).map(v => <option key={v} value={v}>{colorLabel(v, colorNames)}</option>)}
                       </select>
                     </label>
                     <label className="block text-xs text-gray-600">Specific style (optional, wins over the three above)
                       <select className={inputCls + ' mt-1'} value={t.style ?? ''} onChange={e => setTier(i, { style: e.target.value || null })} data-tier-style>
                         <option value="">None: built from the quote's style</option>
-                        {catStyles.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                        {t.style && !catStyles.some(s => s.name === t.style) && <option value={t.style}>{t.style} (not turned on)</option>}
+                        {catStyles.map(s => <option key={s.id} value={s.name}>{optionLabel(s.name)}</option>)}
+                        {t.style && !catStyles.some(s => s.name === t.style) && <option value={t.style}>{optionLabel(t.style)} (not turned on)</option>}
                       </select>
                     </label>
                     <label className="block text-xs text-gray-600">Price adjustment % (optional)
@@ -271,7 +274,7 @@ export default function TierSettings() {
                 </label>
                 <label className="block text-xs text-gray-600">The quote's style
                   <select className={inputCls + ' mt-1'} value={sampleStyle?.name ?? ''} onChange={e => setSampleName(e.target.value)} data-preview-style>
-                    {catStyles.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                    {catStyles.map(s => <option key={s.id} value={s.name}>{optionLabel(s.name)}</option>)}
                   </select>
                 </label>
               </div>

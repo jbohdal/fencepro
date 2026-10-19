@@ -73,7 +73,8 @@ export function createPendingOrderFromQuote(quote: SavedQuote): PendingOrder | n
   if (existing.length > 0) return existing[0]
 
   const inv = getInventory()
-  const items: PendingOrderItem[] = quote.pullSheet.map((li: LineItem) => {
+  // A job lot piece price line (section, post, gate) is money, not a part to order; its parts are on the sheet.
+  const items: PendingOrderItem[] = quote.pullSheet.filter((li: LineItem) => !li.jobLotPiece).map((li: LineItem) => {
     const match = inv.find(i => i.name?.toLowerCase() === li.item?.toLowerCase())
     const onHand = match?.quantity ?? 0
     return {

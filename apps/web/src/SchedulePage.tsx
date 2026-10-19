@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { styleLabel } from './fenceCatalog'
 import { fireRainDayFlagged } from './automationTrigger'
 import {
   loadSchedule as storeLoadSchedule,
@@ -533,7 +534,7 @@ export default function SchedulePage() {
                                     {j.status === 'Rain Day' && <span title="Rain Day">🌧 </span>}
                                     {j.clientName}
                                   </p>
-                                  <p className="text-xs text-gray-500">{j.fenceType} &middot; {j.sections}sec &middot; {fmt(j.jobPrice)}</p>
+                                  <p className="text-xs text-gray-500">{styleLabel(j.fenceType)} &middot; {j.sections}sec &middot; {fmt(j.jobPrice)}</p>
                                 </div>
                                 {!readOnly && <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
                                   <button onClick={() => { setRainDayJob(j); setRainReschedule('') }} title="Flag Rain Day" className="text-gray-300 hover:text-blue-500 text-sm leading-none">🌧</button>
@@ -570,10 +571,10 @@ export default function SchedulePage() {
                   draggable={!readOnly}
                   onDragStart={e => e.dataTransfer.setData('staging', JSON.stringify(s))}
                   className="border border-gray-200 rounded-lg px-2.5 py-2 cursor-grab hover:border-orange-400 hover:shadow-sm transition-all group relative"
-                  title={`${name}\n${s.fenceType || s.type} · ${s.sections || 0} sections\n${city}\n${phone}\n${fmt(s.jobPrice || s.price || 0)}`}
+                  title={`${name}\n${styleLabel(s.fenceType) || s.type} · ${s.sections || 0} sections\n${city}\n${phone}\n${fmt(s.jobPrice || s.price || 0)}`}
                 >
                   <p className="text-xs font-semibold text-gray-900 truncate">{name}</p>
-                  <p className="text-[10px] text-gray-500 truncate">{city || s.fenceType || s.type}</p>
+                  <p className="text-[10px] text-gray-500 truncate">{city || styleLabel(s.fenceType) || s.type}</p>
                   {phone && <p className="text-[10px] text-gray-400 truncate">{phone}</p>}
                   <div className="flex items-center justify-between mt-0.5">
                     <span className="text-[10px] font-medium text-gray-700">{fmt(s.jobPrice || s.price || 0)}</span>
@@ -582,7 +583,7 @@ export default function SchedulePage() {
                   {/* Hover tooltip with full details */}
                   <div className="absolute left-0 bottom-full mb-1 z-40 bg-gray-900 text-white rounded-lg p-3 text-xs w-56 opacity-0 group-hover:opacity-100 pointer-events-none transition shadow-lg">
                     <p className="font-semibold">{name}</p>
-                    <p className="text-gray-300">{s.fenceType || s.type} · {s.sections || 0} sections</p>
+                    <p className="text-gray-300">{styleLabel(s.fenceType) || s.type} · {s.sections || 0} sections</p>
                     {city && <p className="text-gray-300">{city}</p>}
                     {phone && <p className="text-gray-300">{phone}</p>}
                     <p className="text-gray-300 mt-1">{fmt(s.jobPrice || s.price || 0)}</p>

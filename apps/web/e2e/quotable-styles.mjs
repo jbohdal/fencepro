@@ -21,6 +21,8 @@ const call = async (p, init = {}, token = TOKEN) => (await fetch(APP + p, { ...i
 const post = (p, body, token) => call(p, { method: 'POST', body: JSON.stringify(body) }, token)
 const MSG = 'Call us for commercial and industrial fencing'
 const HELD = ["CL - Com 6'", "CL - Com 6'+1'", "CL - Com 6'+1' Black", 'Alum - DS - Ind Abigail', 'Durafence']
+// What the quote builder's list shows: plain names (the codes stay the internal names).
+const LABEL = { "CL - Com 6'": 'Galvanized Chain Link, 6 ft, Commercial', "CL - Com 6'+1'": 'Galvanized Chain Link, 6 ft + 1 ft barbed wire, Commercial', "CL - Com 6'+1' Black": 'Black Chain Link, 6 ft + 1 ft barbed wire, Commercial', 'Alum - DS - Ind Abigail': 'Aluminum Industrial Abigail, 6 ft tall, Dig set', Durafence: 'Durafence', "CL - 6' Galv": 'Galvanized Chain Link, 6 ft, Residential' }
 const job = fenceStyle => ({ fenceStyle, runs: [100], corners: 0, ends: 2, walkGates: 0, dblGates: 0 })
 const bs = async () => (await call('/api/business-state')).data
 async function setQuotable(fn) {
@@ -79,7 +81,7 @@ try {
   await page.goto(`${APP}/quotes?quote=new`); await page.waitForSelector('[data-quote-builder]', { timeout: 60000 }); await sleep(800)
   await page.locator('[data-step="style"]').first().click(); await sleep(500)
   let names = await pickerNames()
-  check('quote builder: a new quote\'s style list leaves the five out', HELD.every(h => !names.some(n => n.startsWith(h))) && names.includes("CL - 6' Galv"), `${names.length - 1} styles`)
+  check('quote builder: a new quote\'s style list leaves the five out', HELD.every(h => !names.some(n => n.startsWith(LABEL[h]))) && names.includes(LABEL["CL - 6' Galv"]), `${names.length - 1} styles`)
 
   // ── A saved quote on CL - Com 6' still opens and prices ──
   const made = await post('/api/saved-quotes', { customerName: 'E2E Commercial on hold', ...job("CL - Com 6'"), runs: [150, 80], corners: 1, ends: 2, sections: 0, status: 'DRAFT', finalPrice: 0, date: '2026-10-19' })
@@ -89,9 +91,9 @@ try {
   await page.locator('[data-step="style"]').first().click(); await sleep(500)
   names = await pickerNames()
   const chosen = await page.locator('[data-step-panel="style"] select').first().evaluate(s => s.options[s.selectedIndex]?.textContent)
-  check('saved CL - Com 6\' quote: opens with its style, marked "Not available for new quotes"', chosen === "CL - Com 6' (Not available for new quotes)" && await page.locator('[data-style-not-quotable]').isVisible(), chosen)
+  check('saved CL - Com 6\' quote: opens with its style, marked "Not available for new quotes"', chosen === `${LABEL["CL - Com 6'"]} (Not available for new quotes)` && await page.locator('[data-style-not-quotable]').isVisible(), chosen)
   check('saved CL - Com 6\' quote: still prices', price > 0, `$${price}`)
-  check('saved CL - Com 6\' quote: the other on hold styles are still not offered', HELD.slice(1).every(h => !names.some(n => n.startsWith(h))))
+  check('saved CL - Com 6\' quote: the other on hold styles are still not offered', HELD.slice(1).every(h => !names.some(n => n.startsWith(LABEL[h]))))
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/dev-quote-style-picker.png` })
   await page.goto(`${APP}/`); await sleep(500)
 
@@ -130,7 +132,7 @@ try {
   await page.goto(`${APP}/quotes?quote=new`); await page.waitForSelector('[data-quote-builder]', { timeout: 60000 }); await sleep(800)
   await page.locator('[data-step="style"]').first().click(); await sleep(500)
   names = await pickerNames()
-  check('back on: the quote builder offers it for new quotes, unmarked', names.includes("CL - Com 6'") && !names.includes("CL - Com 6'+1'"))
+  check('back on: the quote builder offers it for new quotes, unmarked', names.includes(LABEL["CL - Com 6'"]) && !names.includes(LABEL["CL - Com 6'+1'"]))
   check('no page errors', errs.length === 0, errs.join(' | '))
 } catch (e) {
   check('test run finished', false, String(e?.message || e).split('\n').slice(0, 3).join(' '))

@@ -6,6 +6,7 @@
  * "Quote" straight from the list.
  */
 
+import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, User, ClipboardList, Wrench, LayoutGrid, CalendarPlus, FilePlus2, UserPlus, type LucideIcon } from 'lucide-react'
 import { getCustomers, type Customer } from './customerStore'
@@ -51,8 +52,8 @@ export default function GlobalSearch({ onClose, quotes, jobs, pages, openCustome
         (num.length >= 3 && digits(c.phone).includes(num))
     }).slice(0, 8)
     for (const c of customers) out.push({ group: 'Customers', icon: User, label: `${c.firstName} ${c.lastName}`.trim(), sub: [c.phone, c.serviceAddress].filter(Boolean).join(' · '), run: done(() => openCustomer(c.id)), customer: c })
-    for (const x of quotes.filter(x => x.customerName.toLowerCase().includes(text) || (x.customerAddress || '').toLowerCase().includes(text) || x.fenceStyle.toLowerCase().includes(text)).slice(0, 5))
-      out.push({ group: 'Quotes', icon: ClipboardList, label: x.customerName, sub: [x.fenceStyle, money(x.finalPrice), x.status.charAt(0) + x.status.slice(1).toLowerCase(), x.date].filter(Boolean).join(' · '), run: done(() => openQuote(x)) })
+    for (const x of quotes.filter(x => x.customerName.toLowerCase().includes(text) || (x.customerAddress || '').toLowerCase().includes(text) || (x.fenceStyle.toLowerCase().includes(text) || styleLabel(x.fenceStyle).toLowerCase().includes(text))).slice(0, 5))
+      out.push({ group: 'Quotes', icon: ClipboardList, label: x.customerName, sub: [styleLabel(x.fenceStyle), money(x.finalPrice), x.status.charAt(0) + x.status.slice(1).toLowerCase(), x.date].filter(Boolean).join(' · '), run: done(() => openQuote(x)) })
     for (const j of jobs.filter(j => j.customerName.toLowerCase().includes(text) || (j.customerAddress || '').toLowerCase().includes(text)).slice(0, 5))
       out.push({ group: 'Jobs', icon: Wrench, label: j.customerName, sub: [money(j.contractValue), j.status.replace(/_/g, ' '), j.completedDate || j.scheduledDate || 'not scheduled'].join(' · '), run: done(() => (j.customerId ? openCustomer(j.customerId, 'jobs') : goTo('Operations'))) })
     for (const p of pages.filter(p => p.toLowerCase().includes(text)).slice(0, 4))

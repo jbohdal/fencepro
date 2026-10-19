@@ -15,6 +15,7 @@ import {
   sectionWidthForStyle,
   type MaterialResult,
   type RailWidth,
+  type StyleJobLot,
 } from './materialCalculator'
 import {
   calculatePrice,
@@ -32,6 +33,12 @@ export interface QuoteStyle extends StylePricing {
   autoRailMix?: boolean
   installMethod?: 'no-dig' | 'dig-set'
   colorFamily?: 'white' | 'tan'
+  /** Styles made from Settings: the kit set an auto mix style reads (its own name). */
+  kitKey?: string
+  /** A color priced by the piece (job lot), filled in from Settings when the config is read. */
+  jobLot?: StyleJobLot
+  /** Made in Settings (a color or choice added later), copying this style. */
+  madeFrom?: string
 }
 
 export interface QuoteRun {
@@ -75,15 +82,21 @@ export interface QuoteCalc {
 export interface VinylKind {
   installMethod: 'no-dig' | 'dig-set'
   colorFamily: 'white' | 'tan'
+  /** A style made from Settings: its own kit set. */
+  kitKey?: string
+  /** A color priced by the piece. */
+  jobLot?: StyleJobLot
 }
 
 /** Color and install method of a 6 ft tall vinyl privacy style the 6/8 picker
  *  can price, or null. Tan dig set has no mixed width parts list. */
 export function vinylKind(style: QuoteStyle): VinylKind | null {
   if (style.autoRailMix) {
-    return style.installMethod && style.colorFamily
-      ? { installMethod: style.installMethod, colorFamily: style.colorFamily }
-      : null
+    if (!style.installMethod || !style.colorFamily) return null
+    const kind: VinylKind = { installMethod: style.installMethod, colorFamily: style.colorFamily }
+    if (style.kitKey) kind.kitKey = style.kitKey
+    if (style.jobLot) kind.jobLot = style.jobLot
+    return kind
   }
   const m = style.name.match(/^(WV|TV)-(ND|DS) 6'x[68]'/)
   if (!m || (m[1] === 'TV' && m[2] === 'DS')) return null
@@ -157,7 +170,12 @@ export function calculateQuote(input: QuoteCalcInput): QuoteCalc {
           runs: runs.map((r, i) => ({ ft: r.ft, rail: perRunRail[i] ?? '6ft' })).filter(r => r.ft > 0),
           ...jobParts,
         })
-      : calculateMaterialsDetailed({ fenceStyle: style.name, runs: filled.map(r => r.ft), ...jobParts })
+      : calculateMaterialsDetailed({
+          fenceStyle: style.name, runs: filled.map(r => r.ft), ...jobParts,
+          ...(style.jobLot ? { jobLot: style.jobLot } : {}),
+          // A style made in Settings: its kits are counted at its own section width (old styles: by their code, as always).
+          ...(style.madeFrom ? { sectionWidth: width } : {}),
+        })
   }
   const materialCost = totalMaterialCost(materials.items)
 

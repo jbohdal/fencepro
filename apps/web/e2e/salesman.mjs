@@ -150,7 +150,7 @@ try {
     await sp.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
   }
   await b.locator('[data-step="style"]').click()
-  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "WV-ND 6'x8' Privacy" })
+  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" })
   await b.locator('[data-step="price"]').click()
   await sleep(800)
   await shot(sp, 'desktop-quote')

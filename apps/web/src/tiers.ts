@@ -9,16 +9,18 @@
  * this quote says why.
  */
 
-import { priceOption, optionLabel, type ProposalOption } from './proposal'
+import { priceOption, type ProposalOption } from './proposal'
 import { sectionWidthForStyle } from './materialCalculator'
 import { deriveLayout, layoutForShape, type YardLayout } from './yardLayout'
 import type { QuoteCalcInput, QuoteStyle } from './quoteCalc'
 import { isQuotable } from './styleAvailability'
+import { styleLabel } from './fenceCatalog'
 
 export type TierKey = string
 export type TierInstall = 'same' | 'no-dig' | 'dig-set'
 export type TierWidth = 'same' | 'cheapest' | '6' | '8'
-export type TierColor = 'same' | 'white' | 'tan' | 'galv' | 'black'
+/** 'same', or a color / finish key from Settings → Fence styles ('white', 'tan', 'galv', 'black', or one added later). */
+export type TierColor = string
 
 export interface TierSpec {
   /** Fixed when the tier is made; quotes remember tiers left off or swapped by it. */
@@ -52,7 +54,12 @@ export const MAX_TIERS = 3
 
 export const INSTALL_LABEL: Record<TierInstall, string> = { same: 'Same as the quote', 'no-dig': 'No dig', 'dig-set': 'Dig set' }
 export const WIDTH_LABEL: Record<TierWidth, string> = { same: 'Same as the quote', cheapest: 'Whichever width prices lower (6 or 8 ft)', '6': 'All 6 ft wide sections', '8': 'All 8 ft wide sections' }
-export const COLOR_LABEL: Record<TierColor, string> = { same: 'Same as the quote', white: 'White', tan: 'Tan', galv: 'Galvanized', black: 'Black' }
+export const COLOR_LABEL: Record<string, string> = { same: 'Same as the quote', white: 'White', tan: 'Tan', galv: 'Galvanized', black: 'Black' }
+
+/** A tier color's name: the built in ones, else the color's name in Settings (any style using it carries it in its plain name). */
+export function colorLabel(key: string, names: Record<string, string> = {}): string {
+  return COLOR_LABEL[key] ?? names[key] ?? key
+}
 
 /** The style photo name a tier's own photo is kept under (Settings photos, /api/style-photos). */
 export const tierPhotoName = (category: string, key: TierKey) => `tier:${category}:${key}`
@@ -61,7 +68,7 @@ export const tierPhotoName = (category: string, key: TierKey) => `tier:${categor
 
 export interface StyleParts {
   family: 'vinyl' | 'chain' | 'alum'
-  color: 'white' | 'tan' | 'galv' | 'black' | null
+  color: string | null
   install: 'no-dig' | 'dig-set' | null
   /** Height in feet, as written in the name. */
   height: string
@@ -76,7 +83,21 @@ const VINYL_AUTO = /^(WV|TV)-Auto (ND|DS) Privacy$/
 const CHAIN = /^CL - (\d+)' (Galv|Black)$/
 const ALUM = /^Alum - (ND|DS) - (.+)$/
 
-export function styleParts(name: string): StyleParts | null {
+/** What a style is, from its old code; a combination made in Settings (a color added later) from its choices. */
+export function styleParts(name: string, style?: { material?: string; choices?: Record<string, string>; madeFrom?: string } | null): StyleParts | null {
+  const fromCode = partsFromCode(name)
+  if (fromCode || !style?.madeFrom || !style.material || !style.choices) return fromCode
+  const c = style.choices
+  const install = c.install === 'nd' ? 'no-dig' : c.install === 'ds' ? 'dig-set' : null
+  if (style.material === 'vinyl') {
+    return { family: 'vinyl', color: c.color ?? null, install, height: c.height ?? '', width: c.width === 'auto' ? 'auto' : Number(c.width), ...(c.style && c.style !== 'privacy' ? { model: c.style } : {}) }
+  }
+  if (style.material === 'chain') return c.grade === 'res' ? { family: 'chain', color: c.finish ?? null, install: null, height: c.height ?? '', width: null } : null
+  if (style.material === 'alum') return { family: 'alum', color: null, install, height: c.height ?? '', width: null, model: c.panel }
+  return null
+}
+
+function partsFromCode(name: string): StyleParts | null {
   let m = name.match(VINYL)
   if (m) return { family: 'vinyl', color: m[1] === 'WV' ? 'white' : 'tan', install: m[2] === 'ND' ? 'no-dig' : 'dig-set', height: m[3], width: Number(m[4]) }
   m = name.match(VINYL_AUTO)
@@ -91,7 +112,7 @@ export function styleParts(name: string): StyleParts | null {
 /** "tan, no dig, 6 ft tall, 6 ft wide vinyl privacy" */
 function describe(p: { family: StyleParts['family']; color: string | null; install: string | null; height: string; width: number | 'auto' | null | 'any'; model?: string }): string {
   const bits: string[] = []
-  if (p.color) bits.push(COLOR_LABEL[p.color as TierColor]?.toLowerCase() ?? p.color)
+  if (p.color) bits.push(COLOR_LABEL[p.color]?.toLowerCase() ?? p.color)
   if (p.install) bits.push(p.install === 'no-dig' ? 'no dig' : 'dig set')
   if (p.height) bits.push(`${p.height} ft tall`)
   if (p.width === 'auto') bits.push('auto mix (6 and 8 ft wide)')
@@ -139,7 +160,7 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
     const held = styles.find(x => x.name === spec.style && x.isActive !== false)
     return { reason: held ? `The style ${spec.style} is not available for quoting (Settings → Fence Styles).` : `The style ${spec.style} is not turned on in Settings → Fence Styles.` }
   }
-  const p = styleParts(own.name)
+  const p = styleParts(own.name, own as Parameters<typeof styleParts>[1])
   if (!p) return { reason: `This quote's style (${own.name}) is not one tiers can be built from. Pick a specific style for this tier in Settings → Good Better Best.` }
   const color = spec.color === 'same' ? p.color : spec.color
   const install = spec.install === 'same' ? p.install : spec.install
@@ -150,7 +171,7 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
       : spec.width === 'cheapest' ? (p.width === null ? null : 'any')
         : Number(spec.width)
   const found = active.filter(s => {
-    const q = styleParts(s.name)
+    const q = styleParts(s.name, s as Parameters<typeof styleParts>[1])
     if (!q || q.family !== p.family || q.height !== p.height || (q.model ?? '') !== (p.model ?? '')) return false
     if (q.color !== color || q.install !== install) return false
     if (width === 'any') return q.width !== 'auto'
@@ -183,7 +204,7 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
     }
     const r = tierStyles(spec, own, styles)
     if ('reason' in r) { out.push({ ...base, swapped: false, reason: r.reason }); continue }
-    const priced = r.styles.map(s => ({ s, o: priceOption(tierInput, s), w: styleParts(s.name)?.width }))
+    const priced = r.styles.map(s => ({ s, o: priceOption(tierInput, s), w: styleParts(s.name, s as Parameters<typeof styleParts>[1])?.width }))
     // The cheaper width; on a tie the wider one (fewer posts to set).
     priced.sort((a, b) => a.o.finalPrice - b.o.finalPrice || (typeof b.w === 'number' && typeof a.w === 'number' ? b.w - a.w : 0))
     const pick = priced[0]
@@ -209,7 +230,7 @@ export interface TierPrefs { off: TierKey[]; swap: Partial<Record<TierKey, strin
 export function tierOptions(tiers: ResolvedTier[], photoIds: Record<string, string> = {}): ProposalOption[] {
   return tiers.filter(t => !t.off && t.option && t.style).map(t => ({
     ...t.option!,
-    label: optionLabel(t.style!.name),
+    label: styleLabel(t.style!.name),
     tier: { key: t.spec.key, label: t.spec.name, blurb: t.spec.text },
     badge: t.popular ? 'Most popular' : undefined,
     photoId: photoIds[tierPhotoName(t.category, t.spec.key)] ?? undefined,

@@ -15,6 +15,7 @@
  * unchanged.
  */
 
+import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type UnifiedJob,
@@ -633,7 +634,7 @@ function OpsCard({
         <p className="text-sm font-bold text-emerald-600 shrink-0">{fmtUSD(job.contractValue)}</p>
       </div>
       <p className="text-xs text-gray-500 truncate">
-        {city}{job.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{job.fenceType}</span></> : null}
+        {city}{job.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{styleLabel(job.fenceType)}</span></> : null}
         {/* Two jobs for one customer are told apart by their footage. */}
         {job.rawJob?.totalFeet ? <> · {job.rawJob.totalFeet} ft</> : null}
       </p>
@@ -760,7 +761,7 @@ function ControlsBar({
             </select>
             <select value={styleFilter} onChange={e => onStyleFilterChange(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="">All styles</option>
-              {styleOptions.map(c => <option key={c} value={c}>{c}</option>)}
+              {styleOptions.map(c => <option key={c} value={c}>{styleLabel(c)}</option>)}
             </select>
             <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="scheduled">Sched. date</option>
@@ -801,7 +802,7 @@ function ControlsBar({
         </select>
         <select value={styleFilter} onChange={e => onStyleFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All styles</option>
-          {styleOptions.map(c => <option key={c} value={c}>{c}</option>)}
+          {styleOptions.map(c => <option key={c} value={c}>{styleLabel(c)}</option>)}
         </select>
         <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="scheduled">Sort: Scheduled</option>
@@ -931,7 +932,7 @@ function OpsListView({
                   </td>
                   <td className="px-3 py-2"><p className="font-medium text-gray-900">{j.customerName}</p></td>
                   <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-[200px]">{j.address || '—'}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{j.fenceType || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{styleLabel(j.fenceType) || '—'}</td>
                   <td className="px-3 py-2"><span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: hex }}>{j.opsStageLabel}</span></td>
                   <td className="px-3 py-2 text-xs">{j.scheduledDate ? <span className="text-gray-700">{j.scheduledDate}</span> : <span className="text-amber-700 font-semibold">Unscheduled</span>}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{j.crewAssigned || '—'}</td>

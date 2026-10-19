@@ -8,6 +8,7 @@
  * the price they were saved with either way.
  */
 
+import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import { getConfig, getRailOptimizerConfig, type AppConfig } from './configStore'
 import { getInventory, getInventoryUnitCost, getKitSets, saveKitSets, INVENTORY_UPDATED_EVENT } from './inventoryStore'
@@ -159,7 +160,7 @@ export default function MaterialKitsTab() {
       <div className="flex flex-col lg:flex-row gap-3">
         <select data-kit-style className="border border-gray-300 rounded-lg px-3 py-2 text-sm lg:w-80" value={style}
           onChange={e => { setStyle(e.target.value); setSelected(null); setAddTo(null) }}>
-          {styleNames.map(n => <option key={n} value={n}>{n}{byStyle(n).length ? '' : ' (no parts list)'}</option>)}
+          {styleNames.map(n => <option key={n} value={n}>{styleLabel(n)}{byStyle(n).length ? '' : ' (no parts list)'}</option>)}
         </select>
         {(byStyle(style).length > 1 || copies.length > 0) && (
           <select data-kit-set className="border border-gray-300 rounded-lg px-3 py-2 text-sm lg:w-96" value={current?.id ?? ''} onChange={e => setSelected(e.target.value)}>
@@ -184,7 +185,7 @@ export default function MaterialKitsTab() {
             {!current.styleName && (
               <select data-kit-use-for aria-label="Use for style" className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm" value="" onChange={e => useFor(e.target.value)}>
                 <option value="">Use for style…</option>
-                {styleNames.filter(n => !isAutoKitStyle(n) || current.kits.section8).map(n => <option key={n} value={n}>{n}</option>)}
+                {styleNames.filter(n => !isAutoKitStyle(n) || current.kits.section8).map(n => <option key={n} value={n}>{styleLabel(n)}</option>)}
               </select>
             )}
           </div>
@@ -244,7 +245,7 @@ export default function MaterialKitsTab() {
               {changes.map(c => (
                 <div key={c.quote.id} className="flex flex-wrap items-center gap-x-3 py-1.5" data-kit-change={c.quote.id}>
                   <span className="font-medium text-gray-900">{c.quote.customerName || 'No name'}</span>
-                  <span className="text-gray-500">{c.quote.fenceStyle} · {c.quote.status === 'DRAFT' ? 'Draft' : 'Sent'}</span>
+                  <span className="text-gray-500">{styleLabel(c.quote.fenceStyle)} · {c.quote.status === 'DRAFT' ? 'Draft' : 'Sent'}</span>
                   <span className="tabular-nums text-gray-700">materials {money(c.before)} → {money(c.after)}</span>
                   <span className="text-gray-400 truncate">{c.parts.slice(0, 3).map(p => p.replace(/^\*+/, '')).join('; ')}{c.parts.length > 3 ? ` and ${c.parts.length - 3} more` : ''}</span>
                 </div>

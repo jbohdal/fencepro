@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { styleLabel } from './fenceCatalog'
 import type { SavedQuote } from './QuotesPage'
 import { getQuotes } from './quoteStore'
 import { cloudStorage } from './cloudStorage'
@@ -155,7 +156,7 @@ function JobDrawer({
             ) : (
               <div className="space-y-1.5">
                 {[
-                  { label: 'Fence Type', value: job.fenceType },
+                  { label: 'Fence Type', value: styleLabel(job.fenceType) },
                   { label: 'Area',       value: job.area },
                   { label: 'Sections',   value: job.sections != null ? String(job.sections) : '0' },
                   { label: 'Manhours',   value: job.manhoursSold != null ? String(job.manhoursSold) : '0' },
@@ -306,7 +307,7 @@ function PushQuoteModal({
                       <p className="text-sm font-medium text-gray-900">{q.customerName}</p>
                       <p className="text-sm font-bold text-green-600">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(q.finalPrice)}</p>
                     </div>
-                    <p className="text-xs text-gray-400">{q.fenceStyle} · {q.sections} sections · {q.date}</p>
+                    <p className="text-xs text-gray-400">{styleLabel(q.fenceStyle)} · {q.sections} sections · {q.date}</p>
                   </div>
                 ))}
               </div>
@@ -315,7 +316,7 @@ function PushQuoteModal({
               <div className="mt-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2.5 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{selected.customerName}</p>
-                  <p className="text-xs text-gray-500">{selected.fenceStyle} · {selected.sections} sec · {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(selected.finalPrice)}</p>
+                  <p className="text-xs text-gray-500">{styleLabel(selected.fenceStyle)} · {selected.sections} sec · {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(selected.finalPrice)}</p>
                 </div>
                 <button onClick={() => { setSelected(null); setSearch('') }} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
               </div>
@@ -386,7 +387,7 @@ function KanbanCard({
     >
       <div className="flex items-start justify-between mb-2">
         <p className="font-semibold text-gray-900 text-sm leading-tight">{job.clientName}</p>
-        <span className={`text-xs px-1.5 py-0.5 rounded-full ${colors.bg} ${colors.text} shrink-0 ml-1`}>{job.fenceType}</span>
+        <span className={`text-xs px-1.5 py-0.5 rounded-full ${colors.bg} ${colors.text} shrink-0 ml-1`}>{styleLabel(job.fenceType)}</span>
       </div>
       {job.area && <p className="text-xs text-gray-400 mb-1">📍 {job.area}</p>}
       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -527,7 +528,7 @@ function ListView({ jobs, onJobClick }: { jobs: StagingJob[], onJobClick: (job: 
                       <p className="font-semibold text-gray-900">{job.clientName}</p>
                       {job.tearout && <p className="text-xs text-yellow-600">Tearout</p>}
                     </td>
-                    <td data-label="Type" className="px-4 py-3 text-gray-700">{job.fenceType}</td>
+                    <td data-label="Type" className="px-4 py-3 text-gray-700">{styleLabel(job.fenceType)}</td>
                     <td data-label="Area" className="px-4 py-3 text-gray-500 text-xs">{job.area}</td>
                     <td data-label="Sec" className="px-4 py-3 text-right text-gray-600">{job.sections || '—'}</td>
                     <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{job.jobPrice ? fmt(job.jobPrice) : '—'}</td>

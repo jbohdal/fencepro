@@ -13,6 +13,7 @@
  * Its address is ?card=<lead id>, so Back closes it and a reload reopens it.
  */
 
+import { styleLabel } from './fenceCatalog'
 import { useCallback, useEffect, useState } from 'react'
 import { Phone, MessageSquare, Navigation, CalendarPlus, FilePlus2, ChevronRight, X, ExternalLink } from 'lucide-react'
 import type { PipelineLead } from './JobsPage'
@@ -127,7 +128,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
                       <span className={`chip ${STATUS[q.status] ?? STATUS.DRAFT}`}>{cap(q.status)}</span>
                       <span className="flex-1 min-w-0">
                         <span className="block text-sm font-semibold text-gray-900 tabular-nums">{fmtUSD(q.finalPrice || 0)}</span>
-                        <span className="block text-xs text-gray-600 truncate">{[q.fenceStyle, q.date ? fmtDate(q.date) : ''].filter(Boolean).join(' · ')}</span>
+                        <span className="block text-xs text-gray-600 truncate">{[styleLabel(q.fenceStyle), q.date ? fmtDate(q.date) : ''].filter(Boolean).join(' · ')}</span>
                       </span>
                       <SaveStatus keys={[`quote:${q.id}`]} quietWhenSaved />
                       <ChevronRight size={18} className="text-gray-400 shrink-0" aria-hidden="true" />

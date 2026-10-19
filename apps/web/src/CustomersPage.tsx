@@ -1,4 +1,5 @@
 import MediaGallery from './MediaGallery'
+import { styleLabel } from './fenceCatalog'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { getConfig } from './configStore'
 import { Phone, MessageSquare, Navigation } from 'lucide-react'
@@ -819,7 +820,7 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
             <div key={j.quote.id} className="px-4 py-3 grid grid-cols-7 gap-2 items-center text-sm hover:bg-gray-50">
               <div className="col-span-2">
                 <p className="font-medium text-gray-900">{j.quote.customerName}</p>
-                <p className="text-xs text-gray-400">{j.quote.fenceStyle} • {j.entry.completionDate}</p>
+                <p className="text-xs text-gray-400">{styleLabel(j.quote.fenceStyle)} • {j.entry.completionDate}</p>
               </div>
               <div className="text-gray-700">{fmtD(j.estCOGS)}</div>
               <div className="text-gray-700">{fmtD(j.actCOGS)}</div>

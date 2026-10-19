@@ -140,6 +140,8 @@ export interface InventoryItem {
   supplier?: string
   unitOfMeasure?: string
   status?: 'active' | 'inactive' | 'discontinued'
+  /** Made by Settings → Fence styles for a color or choice added there ("vinyl:color:clay"); removed with it. */
+  madeFor?: string
   /** YYYY-MM-DD: the day the cost last changed or was confirmed (see priceAge.ts). */
   priceUpdatedAt?: string
   /** Came in by import (price book, bulk import) and not confirmed since. */

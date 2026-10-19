@@ -16,6 +16,7 @@
  * Finish setup card ticks this off when nothing is left.
  */
 
+import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import { getInventory, saveInventory, getKitSets, saveKitSets, getInventoryUnitCost, INVENTORY_UPDATED_EVENT, type InventoryItem } from './inventoryStore'
 import { kitSetFor, KIT_LABEL, type KitSet, type KitKind, type KitPart } from './materialKits'
@@ -156,7 +157,7 @@ export default function FillInTab() {
         <div className="divide-y divide-gray-100">
           {[...missing].map(([name, styles]) => (
             <label key={`new:${name}`} className="flex flex-wrap items-center gap-2 py-2" data-fill-price-row={name}>
-              <span className="flex-1 min-w-[200px] text-sm text-gray-900">{name.replace(/^\*+/, '')}<span className="block text-xs text-amber-700">Not in Inventory. Used by {styles.join(', ')}</span></span>
+              <span className="flex-1 min-w-[200px] text-sm text-gray-900">{name.replace(/^\*+/, '')}<span className="block text-xs text-amber-700">Not in Inventory. Used by {styles.map(styleLabel).join(', ')}</span></span>
               <input type="number" min={0} step="0.01" inputMode="decimal" className="w-28 h-11 border border-gray-300 rounded-lg px-2 text-sm" placeholder="$ each"
                 value={prices[`new:${name}`] ?? ''} onChange={e => setPrices(p => ({ ...p, [`new:${name}`]: e.target.value }))} data-fill-price />
             </label>
@@ -178,7 +179,7 @@ export default function FillInTab() {
         <p className="text-sm text-gray-600">These gates came over from the old parts lists without the gate itself (commercial chain link: bolts and a drop rod only; Industrial Abigail: screws only). Add what one gate takes.</p>
         {gateStyles.map(style => (
           <div key={style} className="space-y-2" data-fill-style={style}>
-            <p className="text-sm font-semibold text-gray-900">{style} {filled(style) && <span className="text-green-700 font-normal">· filled in</span>}</p>
+            <p className="text-sm font-semibold text-gray-900">{styleLabel(style)} {filled(style) && <span className="text-green-700 font-normal">· filled in</span>}</p>
             <div className="grid gap-3 md:grid-cols-2">
               {GATE_KINDS.map(kind => <KitEditor key={kind} kind={kind} parts={drafts[style].kits[kind] ?? []} items={items} onNewItem={newItem} onChange={p => setParts(style, kind, p)} />)}
             </div>

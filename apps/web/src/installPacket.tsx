@@ -5,6 +5,7 @@
  * at /p/i/<link> (routes/installPacket.ts); it never shows prices.
  */
 
+import { styleLabel } from './fenceCatalog'
 import { useEffect, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Send, ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
@@ -40,7 +41,7 @@ export interface PacketSnapshot {
 /** Everything the crew needs from the quote, without a single price. */
 export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number }, quote: SavedQuote | undefined, media: ServerMedia[]): PacketSnapshot {
   const cfg = getConfig()
-  const snap: PacketSnapshot = { style: quote?.fenceStyle || job.fenceStyle, companyName: cfg.company?.name || 'Getter Done Fence', companyPhone: cfg.company?.phone || '' }
+  const snap: PacketSnapshot = { style: styleLabel(quote?.fenceStyle || job.fenceStyle), companyName: cfg.company?.name || 'Getter Done Fence', companyPhone: cfg.company?.phone || '' }
   const notes = [job.notes, quote?.notes].filter(n => n && n.trim()).join('\n')
   if (notes) {
     // Notes said by voice as "Crew note: …" are listed on their own.

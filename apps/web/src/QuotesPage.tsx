@@ -1,4 +1,5 @@
 import type { QuoteProposal } from './proposal'
+import { styleLabel } from './fenceCatalog'
 import type { QuoteLayoutRecord } from './yardLayout'
 import { useState, useMemo, useEffect } from 'react'
 import type { LineItem } from './materialCalculator'
@@ -305,7 +306,7 @@ function QuoteDrawer({
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900 text-lg">{quote.customerName}</h2>
-            <p className="text-sm text-gray-400">{quote.fenceStyle} · {quote.sections} sections · {quote.date}</p>
+            <p className="text-sm text-gray-400">{styleLabel(quote.fenceStyle)} · {quote.sections} sections · {quote.date}</p>
           </div>
           <div className="flex items-center gap-2">
             <POButton quote={quote} />
@@ -613,7 +614,7 @@ export default function QuotesPage({
                     <p className="font-semibold text-gray-900">{q.customerName}</p>
                     {q.customerPhone && <p className="text-xs text-gray-400">{q.customerPhone}</p>}
                   </td>
-                  <td className="px-4 py-3 text-gray-700" data-label="Style">{q.fenceStyle}</td>
+                  <td className="px-4 py-3 text-gray-700" data-label="Style">{styleLabel(q.fenceStyle)}</td>
                   <td className="px-4 py-3 text-right text-gray-600" data-label="Sections">{q.sections}</td>
                   <td className="px-4 py-3 text-right font-bold text-gray-900" data-label="Price">{fmt(q.finalPrice)}</td>
                   <td className={`px-4 py-3 text-right font-bold text-sm ${marginColor(q.gmPct)}`} data-label="Margin">{fmtPct(q.gmPct)}</td>

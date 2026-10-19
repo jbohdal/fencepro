@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { Camera, ChevronLeft } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
@@ -6,7 +6,9 @@ import { resolveSubRate, cleanOverrides, importedOldPrice } from './pricingEngin
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
 import { normalizeItemName } from './materialCalculator'
-import { stalePartsOnQuote, priceAgeLabel, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
+import { stalePartsOnQuote, priceAgeLabel, staleCutoff, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
+import StyleChoices from './StyleChoices'
+import { catalogOf } from './fenceCatalog'
 import { newId } from './recordSync'
 import type { SavedQuote } from './QuotesPage'
 import { getCustomers, getCustomerById, upsertCustomer } from './customerStore'
@@ -38,7 +40,9 @@ import { businessDate } from './businessDate'
 import { isQuotable } from './styleAvailability'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
-const styleOptionLabel = (s: { name: string; isActive?: boolean; quotable?: boolean }) => (isQuotable(s) ? s.name : `${s.name} (Not available for new quotes)`)
+/** "2026-10-19" → "Oct 19, 2026" */
+const fmtYmd = (d: string) => { const [y, m, dd] = d.split('-').map(Number); return y && m && dd ? new Date(y, m - 1, dd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : d }
+const styleOptionLabel = (s: { name: string; label?: string; isActive?: boolean; quotable?: boolean; held?: string }) => (isQuotable(s) ? (s.label || s.name) : `${s.label || s.name} (Not available for new quotes)`)
 
 // Settings are read when the builder opens (not when the app loads), so a
 // change in Settings → Pricing or Fence Styles applies to the next quote
@@ -393,6 +397,10 @@ export default function QuoteBuilder({
     () => cfg.fenceStyles.filter(s => isQuotable(s) || s.name === init?.fenceStyle),
     [cfg, init?.fenceStyle],
   )
+  // The choice picker shows every style turned on, greying the ones not available for quoting.
+  const catalog = useMemo(() => catalogOf(cfg), [cfg])
+  const PICKER_STYLES = useMemo(() => cfg.fenceStyles.filter(s => s.isActive !== false || s.name === init?.fenceStyle), [cfg, init?.fenceStyle])
+  const pickable = useCallback((s: { name: string; isActive?: boolean; quotable?: boolean; held?: string }) => isQuotable(s) || s.name === init?.fenceStyle, [init?.fenceStyle])
   // A quote brought in from JobNimbus carries the old system's price; unless it is sold, it is priced from its parts here.
   const oldPrice = importedOldPrice(init as any)
   const keepOldPrice = oldPrice != null && init?.status === 'SOLD'
@@ -609,8 +617,12 @@ export default function QuoteBuilder({
   // Parts whose Inventory price is old or was never confirmed: a warning, never a block.
   const staleMonths = cfg.pricing.priceStaleMonths ?? DEFAULT_PRICE_STALE_MONTHS
   const staleParts = useMemo(() => (style
-    ? stalePartsOnQuote(materialItems.filter(i => i.qty > 0).map(i => i.item), getInventory(), businessDate(new Date()), staleMonths, normalizeItemName)
+    // Parts a job lot piece price covers are not priced from Inventory, so their Inventory date does not matter.
+    ? stalePartsOnQuote(materialItems.filter(i => i.qty > 0 && i.costSource !== 'jobLot').map(i => i.item), getInventory(), businessDate(new Date()), staleMonths, normalizeItemName)
     : []), [style, materialItems, invTick, staleMonths])  // eslint-disable-line react-hooks/exhaustive-deps
+  // A color priced by the piece: whose job lot quote, from when, and whether that quote is old.
+  const jobLot = style?.jobLot
+  const jobLotOld = !!jobLot && !!jobLot.quotedOn && jobLot.quotedOn <= staleCutoff(businessDate(new Date()), staleMonths)
   const quoteWarnings = [
     ...(style ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout ? gateChecks(yard) : []),
@@ -994,11 +1006,14 @@ export default function QuoteBuilder({
 
           <div className={step === 'style' ? 'space-y-6' : 'hidden'} data-step-panel="style">
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 mb-3">Fence style</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">Fence</h3>
+              <StyleChoices styles={PICKER_STYLES} catalog={catalog} value={styleId} onChange={setStyleId} isOk={pickable} />
+              <p className="text-xs font-semibold text-gray-500 mt-4 mb-2">Or pick from the list</p>
               <select
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 value={styleId}
                 onChange={e => setStyleId(e.target.value)}
+                data-style-list
               >
                 <option value="">Select a fence style...</option>
                 {/* Auto-mix styles surface first — optimizer picks 6'/8' per run */}
@@ -1027,7 +1042,7 @@ export default function QuoteBuilder({
               </select>
               {style && !isQuotable(style) && (
                 <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-style-not-quotable>
-                  {style.name} is not available for new quotes ({style.isActive === false ? 'turned off' : 'pricing on hold'} in Settings → Fence Styles). This quote keeps it and still prices.
+                  {style.label || style.name} is not available for new quotes ({style.isActive === false ? 'turned off' : style.held ? style.held : 'pricing on hold'} in Settings → Fence Styles). This quote keeps it and still prices.
                 </p>
               )}
             </div>
@@ -1162,7 +1177,7 @@ export default function QuoteBuilder({
                         <select className="mt-2 w-full border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value="" aria-label={`Style for ${t.spec.name}`}
                           onChange={e => { const v = e.target.value; if (v) setTierPrefs(p => ({ ...p, swap: { ...p.swap, [t.spec.key]: v } })) }} data-tier-swap>
                           <option value="">Pick a style for this quote…</option>
-                          {FENCE_STYLES.filter(s => isQuotable(s) && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          {FENCE_STYLES.filter(s => isQuotable(s) && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.label || s.name}</option>)}
                         </select>
                       </div>
                     )
@@ -1192,7 +1207,7 @@ export default function QuoteBuilder({
                           <select className="min-w-0 flex-1 border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value={tierPrefs.swap[t.spec.key] ?? ''} aria-label={`Style for ${t.spec.name}`}
                             onChange={e => setTierPrefs(p => { const swap = { ...p.swap }; if (e.target.value) swap[t.spec.key] = e.target.value; else delete swap[t.spec.key]; return { ...p, swap } })} data-tier-swap>
                             <option value="">Style: automatic</option>
-                            {FENCE_STYLES.filter(s => isQuotable(s) && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                            {FENCE_STYLES.filter(s => isQuotable(s) && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.label || s.name}</option>)}
                           </select>
                         </div>
                       </div>
@@ -1209,6 +1224,14 @@ export default function QuoteBuilder({
                   {quoteWarnings.map((w, i) => (
                     <p key={i} className="text-xs text-amber-800 leading-snug">{w}</p>
                   ))}
+                </div>
+              )}
+
+              {jobLot && (
+                <div className={`rounded-xl p-3 space-y-1 border ${jobLotOld ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`} data-job-lot-note>
+                  <p className="text-xs font-semibold text-gray-800">Job lot pricing from {jobLot.supplier}, quoted {fmtYmd(jobLot.quotedOn)}</p>
+                  <p className="text-xs text-gray-600 leading-snug">{jobLot.color} sections, posts and gates are priced from that quote; the parts they include show at $0 on the pull sheet. Internal only.</p>
+                  {jobLotOld && <p className="text-xs text-amber-800 leading-snug" data-job-lot-old>That job lot quote is older than {staleMonths} months. Ask {jobLot.supplier} for a new one and update it in Settings → Fence styles.</p>}
                 </div>
               )}
 
@@ -1358,7 +1381,7 @@ export default function QuoteBuilder({
                               onChange={e => setOffer(list => e.target.checked ? [...list, s.name] : list.filter(n => n !== s.name))} />
                             <span className="flex-1 min-w-0">
                               <span className="block text-sm font-semibold text-gray-900">{o.label}</span>
-                              <span className="block text-xs text-gray-600">{s.name} · {o.sections} sections · {fmt(o.perFoot)}/ft</span>
+                              <span className="block text-xs text-gray-600">{o.sections} sections · {fmt(o.perFoot)}/ft</span>
                             </span>
                             <span className="text-right shrink-0">
                               <span className="block text-sm font-bold tabular-nums">{fmt(price)}</span>

@@ -17,6 +17,7 @@
  * The portal has its own visual language (white/accent, top nav, no FencePro branding).
  */
 
+import { styleLabel } from './fenceCatalog'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -410,7 +411,7 @@ function DashboardPage({ session, customer, accent, company }: { session: Portal
         {activeJob && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
             <p className="text-xs font-bold" style={{ color: accent }}>Active Project</p>
-            <p className="text-lg font-bold text-gray-900 mt-1">{activeJob.fenceStyle || activeJob.type || 'Project'}</p>
+            <p className="text-lg font-bold text-gray-900 mt-1">{styleLabel(activeJob.fenceStyle) || activeJob.type || 'Project'}</p>
             <p className="text-sm text-gray-500 mt-1">{friendlyStage(activeJob.status || activeJob.stage)}</p>
             {activeJob.scheduledDate && <p className="text-xs text-gray-500 mt-2">📅 Scheduled {activeJob.scheduledDate}</p>}
             {activeJob.crewAssigned && <p className="text-xs text-gray-500">👷 Crew: {activeJob.crewAssigned}</p>}
@@ -489,7 +490,7 @@ function QuotesPage({ session, accent }: { session: PortalAccount; customer: any
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-xs text-gray-400">Quote #{q.id?.slice(-6)?.toUpperCase()}</p>
-                  <p className="font-semibold text-gray-900 truncate">{q.fenceStyle}</p>
+                  <p className="font-semibold text-gray-900 truncate">{styleLabel(q.fenceStyle)}</p>
                   <p className="text-xs text-gray-500">{q.date}</p>
                 </div>
                 <div className="text-right shrink-0">
@@ -550,7 +551,7 @@ function ProjectsPage({ session, accent }: { session: PortalAccount; customer: a
           <div key={j.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <p className="font-bold text-gray-900 text-lg">{j.fenceStyle || 'Project'}</p>
+                <p className="font-bold text-gray-900 text-lg">{styleLabel(j.fenceStyle) || 'Project'}</p>
                 <p className="text-xs text-gray-500">{j.customerAddress || ''}</p>
                 <p className="text-sm mt-1 font-medium" style={{ color: accent }}>{friendlyStage(j.status)}</p>
               </div>

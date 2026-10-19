@@ -1,4 +1,6 @@
 import { SyncBadge } from './SaveStatus'
+import { startColorReadyWatch } from './colorReady'
+import { styleLabel } from './fenceCatalog'
 import { startOutbox, resumeAfterSignIn } from './outbox'
 import { startLiveRefresh } from './liveRefresh'
 import './liveOverhead'
@@ -294,6 +296,8 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     // Website quotes and phone calls that came in while nobody was looking.
     startIntakeSync()
     startLiveRefresh()
+    // A color added in Settings says so when it becomes fully priced.
+    startColorReadyWatch()
   }
 
   function startSession(user: CrmUser) {
@@ -621,7 +625,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             jobId: job?.id,
             jobName: job ? q.customerName : undefined,
             quoteId: q.id,
-            quoteName: `${q.fenceStyle} — ${q.customerName}`,
+            quoteName: `${styleLabel(q.fenceStyle)} — ${q.customerName}`,
             versionSnapshot: JSON.parse(JSON.stringify(q.pullSheet)),
             versionNumber,
             linkedAt: new Date().toISOString(),
@@ -1134,7 +1138,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                       <div key={q.id} className="px-6 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50" onClick={() => handleOpenQuote(q)}>
                         <div>
                           <p className="text-sm font-medium text-gray-900">{q.customerName}</p>
-                          <p className="text-sm text-gray-500">{[q.fenceStyle, q.sections ? `${q.sections} sections` : '', q.date].filter(Boolean).join(' · ')}</p>
+                          <p className="text-sm text-gray-500">{[styleLabel(q.fenceStyle), q.sections ? `${q.sections} sections` : '', q.date].filter(Boolean).join(' · ')}</p>
                         </div>
                         <div className="flex items-center gap-3">
                           {q.totalCOGS > 0 && <span className={`text-sm ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</span>}

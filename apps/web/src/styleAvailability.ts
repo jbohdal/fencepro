@@ -10,11 +10,11 @@
 /** What a customer is told when they ask for a style that is not quotable. */
 export const NOT_QUOTABLE_MESSAGE = 'Call us for commercial and industrial fencing'
 
-interface StyleFlags { isActive?: boolean; quotable?: boolean }
+interface StyleFlags { isActive?: boolean; quotable?: boolean; held?: string }
 
-/** Turned on and available for quoting. */
+/** Turned on and available for quoting (its own switch, and nothing above it in the choice tree holding it back). */
 export function isQuotable(s: StyleFlags | null | undefined): boolean {
-  return !!s && s.isActive !== false && s.quotable !== false
+  return !!s && s.isActive !== false && s.quotable !== false && !s.held
 }
 
 /** Turned on but not available for quoting (on hold). */

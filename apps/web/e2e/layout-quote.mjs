@@ -69,7 +69,7 @@ try {
   await tap(b.locator('[data-side-row="Left return"]'))
   await tap(b.locator('[data-side="Left return"] [data-gate-choice] button:has-text("Walk gate")'))
   await tap(b.locator('[data-step="style"]'))
-  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "WV-ND 6'x8' Privacy" }); taps += 1
+  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" }); taps += 1
   await tap(b.locator('[data-step="yard"]'))
   await sleep(500)
   const secs = Math.round((Date.now() - t0) / 1000)

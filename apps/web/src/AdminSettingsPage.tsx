@@ -20,6 +20,7 @@ import { toast } from './toast'
 import { useNav } from './nav'
 import { sectionWidthForStyle, styleHasPartsList } from './materialCalculator'
 import CalendarSyncSettings from './CalendarSyncSettings'
+import FenceStylesSettings from './FenceStylesSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
 
 type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'tiers' | 'voice' | 'walkthrough'
@@ -389,151 +390,6 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
   )
 }
 
-// ── Fence Styles Tab ─────────────────────────────────────────────────────────
-
-function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppConfig) => void }) {
-  const [filter, setFilter] = useState<string>('All')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const styles = config.fenceStyles
-
-  const filtered = styles.filter(s => filter === 'All' || s.category === filter)
-
-  function update(id: string, patch: Partial<FenceStyle>) {
-    onChange({
-      ...config,
-      fenceStyles: styles.map(s => s.id === id ? { ...s, ...patch } : s),
-    })
-  }
-
-  function addStyle() {
-    const newStyle: FenceStyle = {
-      id: uid(),
-      name: 'New Style',
-      category: 'Vinyl',
-      margin: 0.64,
-      sectionsPerMH: 1.0,
-      panelWidth: 6,
-      mhPerWalkGate: 2.4,
-      mhPerDblGate: 4.8,
-      isActive: true,
-    }
-    onChange({ ...config, fenceStyles: [...styles, newStyle] })
-    setEditingId(newStyle.id)
-  }
-
-  function removeStyle(id: string) {
-    if (!confirm('Delete this fence style?')) return
-    onChange({ ...config, fenceStyles: styles.filter(s => s.id !== id) })
-  }
-
-  return (
-    <div>
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
-        <div className="flex flex-wrap gap-2">
-          {['All', ...STYLE_CATEGORIES].map(cat => (
-            <button key={cat} onClick={() => setFilter(cat)} className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${filter === cat ? 'bg-orange-500 border-orange-500 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-              {cat}
-            </button>
-          ))}
-        </div>
-        <button onClick={addStyle} className="text-sm text-orange-500 border border-orange-300 rounded-lg px-3 py-2 hover:bg-orange-50">+ Add style</button>
-      </div>
-
-      <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[1000px]">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Name</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-28">Category</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Target Margin = Overhead % + this">Target Profit</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Overhead % + Target Profit %">Target Margin</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20">Sec/MH</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20">Panel</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24">Walk Gate</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24">Dbl Gate</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Subcontractor pay per foot or section for this style">Sub Rate</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Customer price per foot, used when a quote is priced per foot">$ / Ft</th>
-              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-16">Active</th>
-              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Off: not offered in new quotes, Good Better Best, Compare options, the website or the phone and chat estimates. Quotes already saved keep it.">Available for quoting</th>
-              <th className="w-10" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {filtered.map(style => (
-              <tr key={style.id} className={`group hover:bg-gray-50 ${!style.isActive ? 'opacity-50' : ''}`}>
-                <td className="px-4 py-2.5">
-                  {editingId === style.id ? (
-                    <input autoFocus className="w-full border border-orange-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.name} onChange={e => update(style.id, { name: e.target.value })} onBlur={() => setEditingId(null)} />
-                  ) : (
-                    <span className="cursor-pointer hover:text-orange-600 font-medium" onClick={() => setEditingId(style.id)}>{style.name}</span>
-                  )}
-                  {style.quotable === false && <span className="block text-xs text-amber-700" data-style-on-hold>Not available for quoting</span>}
-                </td>
-                <td className="px-3 py-2.5">
-                  <select className="border border-gray-200 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.category} onChange={e => update(style.id, { category: e.target.value as FenceStyle['category'] })}>
-                    {STYLE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <PercentField value={style.targetProfitPct} min={0} max={80} data-style-profit={style.name}
-                    className="w-20 text-right border border-gray-200 rounded px-1 min-h-[36px] text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400"
-                    onChange={v => { if (v != null) update(style.id, { targetProfitPct: v }) }} />
-                </td>
-                <td className="px-3 py-2.5 text-right text-xs font-mono text-gray-700" data-style-target-margin={style.name}>
-                  {Math.round((overheadPctOf(config) + (style.targetProfitPct ?? 0)) * 100) / 100}%
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="0.1" min="0.1" max="20" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.sectionsPerMH} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) update(style.id, { sectionsPerMH: Math.round(v * 10) / 10 }) }} />
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  {style.autoRailMix ? (
-                    <span className="text-xs font-mono text-gray-600" title="Chosen per run: 6 ft or 8 ft wide">6 or 8</span>
-                  ) : styleHasPartsList(style.name) ? (
-                    <span className="text-xs font-mono text-gray-600" title="Set by this style's parts list">{sectionWidthForStyle(style.name, style.panelWidth)}</span>
-                  ) : (
-                    <input type="number" step="1" min="1" className="w-14 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.panelWidth} onChange={e => update(style.id, { panelWidth: parseInt(e.target.value) || 6 })} />
-                  )}
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="0.1" min="0" max="20" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.mhPerWalkGate} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) update(style.id, { mhPerWalkGate: Math.round(v * 10) / 10 }) }} />
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="0.1" min="0" max="20" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.mhPerDblGate} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) update(style.id, { mhPerDblGate: Math.round(v * 10) / 10 }) }} />
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="0.25" min="0" placeholder="—" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.subRate ?? ''} onChange={e => { const v = parseFloat(e.target.value); update(style.id, { subRate: e.target.value === '' || isNaN(v) || v < 0 ? undefined : Math.round(v * 100) / 100 }) }} />
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <input type="number" step="0.25" min="0" placeholder="—" className="w-16 text-right border border-gray-200 rounded px-1 py-0.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.pricePerFoot ?? ''} onChange={e => { const v = parseFloat(e.target.value); update(style.id, { pricePerFoot: e.target.value === '' || isNaN(v) || v < 0 ? undefined : Math.round(v * 100) / 100 }) }} />
-                </td>
-                <td className="px-3 py-2.5 text-center">
-                  <button onClick={() => update(style.id, { isActive: !style.isActive })} className={`w-8 h-5 rounded-full transition-colors relative ${style.isActive ? 'bg-orange-500' : 'bg-gray-300'}`}>
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${style.isActive ? 'left-3.5' : 'left-0.5'}`} />
-                  </button>
-                </td>
-                <td className="px-3 py-2.5 text-center">
-                  <button type="button" role="switch" aria-checked={style.quotable !== false} aria-label={`${style.name} available for quoting`} data-style-quotable={style.name}
-                    onClick={() => update(style.id, { quotable: style.quotable === false })}
-                    className={`w-8 h-5 rounded-full transition-colors relative ${style.quotable !== false ? 'bg-orange-500' : 'bg-gray-300'}`}>
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${style.quotable !== false ? 'left-3.5' : 'left-0.5'}`} />
-                  </button>
-                </td>
-                <td className="px-2 py-2.5">
-                  <button onClick={() => removeStyle(style.id)} className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-lg leading-none">&times;</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <div className="text-center py-12 text-gray-400 text-sm">No styles in this category</div>
-        )}
-      </div>
-      <p className="text-xs text-gray-400 mt-2">{filtered.length} of {styles.length} styles shown</p>
-    </div>
-  )
-}
-
 // ── Editable List (Lead Sources, Tags, Pipeline) ─────────────────────────────
 
 function EditableListTab({
@@ -770,14 +626,19 @@ export default function AdminSettingsPage() {
     setDirty(true)
   }
 
-  function handleSave() {
+  /** Save the page (or `next`: a change Settings → Fence styles saves at once, with the page's other changes). */
+  function handleSave(next?: AppConfig) {
+    if (next) setConfig(next)
+    const config_ = next ?? config
     try {
       // The Appointments tab saves on its own; keep what it saved.
-      saveConfig({ ...config, appointments: getConfig().appointments })
+      saveConfig({ ...config_, appointments: getConfig().appointments })
+      // Read back: plain names and what the choice tree says are worked out on read.
+      if (next) setConfig(getConfig())
       setSaved(true)
       setDirty(false)
       setTimeout(() => setSaved(false), 2000)
-      try { window.dispatchEvent(new CustomEvent(SETTINGS_UPDATED_EVENT, { detail: config })) } catch {}
+      try { window.dispatchEvent(new CustomEvent(SETTINGS_UPDATED_EVENT, { detail: config_ })) } catch {}
       toast.success('Settings saved', 'Live pages will update immediately.')
     } catch (err: any) {
       toast.error('Could not save settings', err?.message || 'Unknown error.')
@@ -802,7 +663,7 @@ export default function AdminSettingsPage() {
           <div className="flex flex-wrap gap-2 items-center">
             {dirty && <span className="text-xs text-orange-500 font-medium">Unsaved changes</span>}
             <button onClick={handleReset} className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50">Reset to defaults</button>
-            <button onClick={handleSave} className={`text-sm font-semibold px-4 py-2 rounded-lg transition-colors ${saved ? 'bg-green-500 text-white' : dirty ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
+            <button onClick={() => handleSave()} className={`text-sm font-semibold px-4 py-2 rounded-lg transition-colors ${saved ? 'bg-green-500 text-white' : dirty ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
               {saved ? 'Saved' : 'Save Changes'}
             </button>
           </div>
@@ -819,7 +680,7 @@ export default function AdminSettingsPage() {
         <div className="bg-white rounded-2xl border border-gray-200 p-4 lg:p-8">
           {tab === 'company' && <CompanyTab config={config} onChange={handleChange} />}
           {tab === 'pricing' && <PricingTab config={config} onChange={handleChange} />}
-          {tab === 'styles' && <StylesTab config={config} onChange={handleChange} />}
+          {tab === 'styles' && <FenceStylesSettings config={config} onChange={handleChange} onCommit={next => handleSave(next)} />}
           {tab === 'leads' && (
             <EditableListTab
               title="Lead Sources"

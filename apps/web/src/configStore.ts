@@ -1,5 +1,7 @@
 import { withTargetMargins, typedOverheadPct } from './targetMargin'
 import { DEFAULT_CONFIG, mergeSavedConfig } from './configDefaults'
+import { stripDerived, type FenceCatalog } from './fenceCatalog'
+import type { StyleJobLot } from './materialCalculator'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -41,6 +43,22 @@ export interface FenceStyle {
    *  or the phone and chat estimates; quotes already saved on it keep working.
    *  See styleAvailability.ts. */
   quotable?: boolean
+  /** The fence's material and choices (fenceCatalog.ts). Old styles get them from their code; a combination made in Settings has them saved. */
+  material?: string
+  choices?: Record<string, string>
+  /** Made in Settings → Fence styles (Add color, a new height or style), copying this style. Its name is generated. */
+  madeFrom?: string
+  /** Auto mix made in Settings: the kit set it reads (its own name). */
+  kitKey?: string
+  // ── Worked out on every read (fenceCatalog.resolveFenceStyles); not saved ──
+  /** The plain name: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig". */
+  label?: string
+  /** Why the tree holds it back from quoting (a choice switched off, a color not fully priced). */
+  held?: string
+  /** A color priced by the piece: its job lot prices. */
+  jobLot?: StyleJobLot
+  /** The color's own Target Profit %, when set (wins over the style's). */
+  colorTargetProfitPct?: number
 }
 
 export interface PricingConfig {
@@ -124,6 +142,8 @@ export interface AppConfig {
   pricing: PricingConfig
   margins: MarginThresholds
   fenceStyles: FenceStyle[]
+  /** The choices each material's fences are built from (Settings → Fence styles). Missing: the default tree. */
+  fenceCatalog?: FenceCatalog
   leadSources: string[]
   customerTags: string[]
   pipelineStages: string[]
@@ -199,8 +219,10 @@ export function getConfig(): AppConfig {
 }
 
 export function saveConfig(config: AppConfig): void {
-  setBusinessField('config', config)
-  mirrorToLocalStorage(config)
+  // What is worked out on every read (plain names, holds, job lot prices) is not saved.
+  const clean = { ...config, fenceStyles: stripDerived(config.fenceStyles ?? []) }
+  setBusinessField('config', clean)
+  mirrorToLocalStorage(clean)
 }
 
 export function resetConfig(): void {

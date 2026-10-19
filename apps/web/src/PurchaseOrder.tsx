@@ -1,4 +1,5 @@
 import type { SavedQuote } from './QuotesPage'
+import { styleLabel } from './fenceCatalog'
 import { businessDate } from './businessDate'
 
 /* ───────── config loader ───────── */
@@ -117,7 +118,7 @@ export function generatePO(quote: SavedQuote, vendor?: string, notes?: string) {
   <div class="info-box">
     <div class="info-label">Job Details</div>
     <div class="info-value">
-      <strong>${esc(quote.fenceStyle)}</strong><br>
+      <strong>${esc(styleLabel(quote.fenceStyle))}</strong><br>
       ${quote.sections} sections · ${quote.runs?.length || 0} runs<br>
       ${quote.walkGates} walk gates · ${quote.dblGates} dbl gates
     </div>

@@ -13,6 +13,7 @@ import path from 'path'
 import crypto from 'crypto'
 import PDFDocument from 'pdfkit'
 import prisma from './prisma.js'
+import { plainStyleName } from './estimates.js'
 import { logoPath } from '../routes/proposal.js'
 import { CATEGORY_LABEL, locationText, type WalkItem, type PhotoSlot, type Signature, type WalkCategory } from './walkthroughRules.js'
 
@@ -195,7 +196,7 @@ export async function makeCertificate(
     company: { name: String(co.name || 'Getter Done Fence'), phone: String(co.phone || ''), email: String(co.email || '') },
     customerName: job?.customerName || 'Homeowner',
     address: job?.customerAddress || '',
-    fenceStyle: job?.fenceStyle || '',
+    fenceStyle: await plainStyleName(job?.fenceStyle || ''),
     category: (['vinyl', 'chain_link', 'aluminum'].includes(w.category) ? w.category : 'vinyl') as WalkCategory,
     completedAt,
     items: (Array.isArray(w.items) ? w.items : []) as WalkItem[],

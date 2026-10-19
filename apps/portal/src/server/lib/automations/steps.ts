@@ -19,6 +19,7 @@ import { checkJobMove, checkPipelineMoves } from './stageRules.js'
 import { recordCardMoves, recordJobChanges } from './hooks.js'
 import { emailSenderFor, GMAIL_NOT_CONNECTED, gmailStatus } from './gmail.js'
 import { sendPush } from './push.js'
+import { plainStyleName } from '../estimates.js'
 import { walkthroughApi, WALKTHROUGH_MISSING } from './walkthroughAdapter.js'
 import { ensurePermit, packetInputFor, portalFor, renderPacket } from './permits.js'
 
@@ -276,6 +277,7 @@ async function finalInvoice(r: StepRun, dueInDays: number): Promise<StepOutcome>
   if (totalCents <= 0) throw new PermanentStepError('The job has no contract price, so the final invoice cannot be made.')
   const id = `auto-${r.runId.slice(0, 8)}-${r.stepIndex}`
   let number = ''
+  const styleText = await plainStyleName(job.fenceStyle)
   await updateBusiness(r.accountId, effectKey(r, 'invoice'), r.runId, cur => {
     const list = Array.isArray(cur.invoices) ? [...(cur.invoices as any[])] : []
     if (list.some(i => i?.id === id)) return null
@@ -285,8 +287,8 @@ async function finalInvoice(r: StepRun, dueInDays: number): Promise<StepOutcome>
     const today = floridaDay(r.now)
     list.unshift({
       id, customerId: job.crmContactId ?? '', customerName: job.customerName, jobId: job.id, jobName: job.customerName,
-      invoiceNumber: number, title: `Final invoice: ${job.fenceStyle || 'fence installation'}`, status: 'draft',
-      lineItems: [{ id: `${id}-1`, description: `Fence installation balance (${job.fenceStyle || 'fence'})`, quantity: 1, unitPriceCents: totalCents, totalCents, sortOrder: 0 }],
+      invoiceNumber: number, title: `Final invoice: ${styleText || 'fence installation'}`, status: 'draft',
+      lineItems: [{ id: `${id}-1`, description: `Fence installation balance (${styleText || 'fence'})`, quantity: 1, unitPriceCents: totalCents, totalCents, sortOrder: 0 }],
       subtotalCents: totalCents, taxRate: 0, taxCents: 0, discountCents: 0, totalCents, amountPaidCents: paidCents, balanceDueCents: balance,
       dueDate: floridaDay(addDays(r.now, dueInDays)), issuedDate: today, notes: 'Made by an automation after the final walkthrough was signed. Check it and send it from Billing.',
       createdBy: 'automation', createdAt: at, updatedAt: at,

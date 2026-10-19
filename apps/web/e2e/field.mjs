@@ -213,7 +213,7 @@ async function flowA(dev, signal, proxy) {
     await page.locator(last2 ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
   }
   await b.locator('[data-step="style"]').click()
-  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "WV-ND 6'x8' Privacy" })
+  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" })
   // Photos have their own button in the bottom bar.
   await page.locator('[data-photos-open]').click()
   await b.locator('[data-media-camera]').click()

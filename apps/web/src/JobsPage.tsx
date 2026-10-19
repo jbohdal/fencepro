@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { styleLabel } from './fenceCatalog'
 import { fireSalesStageChange } from './automationTrigger'
 import { upsertCustomer, logCustomerActivity } from './customerStore'
 import { getPipeline, savePipeline as storeSavePipeline } from './pipelineStore'
@@ -459,7 +460,7 @@ export function LeadDrawer({
             ) : (
               <div className="space-y-1.5">
                 {[
-                  { label: 'Type',      value: lead.fenceType },
+                  { label: 'Type',      value: styleLabel(lead.fenceType) },
                   { label: 'Sections',  value: lead.sections ? String(lead.sections) : '' },
                   { label: 'Quote',     value: lead.quotePrice ? fmt(lead.quotePrice) : '' },
                   { label: 'Crew',      value: lead.crew },
@@ -567,7 +568,7 @@ function PipelineCard({
       {isProduction && (
         <div className="space-y-1">
           {lead.address && <p className="text-xs text-gray-400 truncate">📍 {lead.address}</p>}
-          {lead.fenceType && <p className="text-xs text-gray-600">🏗 {lead.fenceType}{lead.sections > 0 ? ` · ${lead.sections} sec` : ''}</p>}
+          {lead.fenceType && <p className="text-xs text-gray-600">🏗 {styleLabel(lead.fenceType)}{lead.sections > 0 ? ` · ${lead.sections} sec` : ''}</p>}
           {lead.crew && <p className="text-xs text-blue-600">👷 {lead.crew}</p>}
           {lead.scheduledDate && <p className="text-xs text-purple-600">📅 {lead.scheduledDate}</p>}
           {lead.quotePrice > 0 && <p className="text-xs font-semibold text-green-600">{fmt(lead.quotePrice)}</p>}
@@ -577,7 +578,7 @@ function PipelineCard({
       {/* Closing info */}
       {isClosing && (
         <div className="space-y-1">
-          {lead.fenceType && <p className="text-xs text-gray-600">{lead.fenceType}</p>}
+          {lead.fenceType && <p className="text-xs text-gray-600">{styleLabel(lead.fenceType)}</p>}
           {lead.jobValue > 0 && <p className="text-xs font-bold text-gray-900">{fmt(lead.jobValue)}</p>}
           {lead.balanceDue > 0 && (
             <p className="text-xs font-semibold text-red-500">Balance: {fmt(lead.balanceDue)}</p>

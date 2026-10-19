@@ -13,6 +13,7 @@ import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from './quoteCal
 import type { LineItem } from './materialCalculator'
 import type { TierSet } from './tiers'
 import { isQuotable } from './styleAvailability'
+import { styleLabel } from './fenceCatalog'
 
 export interface ProposalSettings {
   /** Extra "what's included" text, one item per line. */
@@ -95,17 +96,9 @@ export function compareStyles<S extends QuoteStyle & { isActive?: boolean; quota
   return [style, ...family.filter(s => s.name !== style.name)]
 }
 
-/** "White vinyl privacy, no dig, 6 ft tall, 8 ft wide sections". */
+/** The plain name a person sees: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" (fenceCatalog.ts). */
 export function optionLabel(styleName: string): string {
-  const v = styleName.match(VINYL)
-  if (v) return `${v[1] === 'WV' ? 'White' : 'Tan'} vinyl privacy, ${v[2] === 'ND' ? 'no dig' : 'dig set'}, ${v[3]} ft tall, ${v[4]} ft wide sections`
-  const auto = styleName.match(/^(WV|TV)-Auto (ND|DS)/)
-  if (auto) return `${auto[1] === 'WV' ? 'White' : 'Tan'} vinyl privacy, ${auto[2] === 'ND' ? 'no dig' : 'dig set'}, 6 ft tall, 6 and 8 ft wide sections`
-  const c = styleName.match(CHAIN)
-  if (c) return `Chain link, ${c[1]} ft tall, ${c[2] === 'Galv' ? 'galvanized' : 'black'}`
-  const e = styleName.match(EMILY)
-  if (e) return `Aluminum Emily, 4 ft tall, ${e[1] === 'ND' ? 'no dig' : 'dig set'}`
-  return styleName
+  return styleLabel(styleName)
 }
 
 /** Standard amortized loan payment; the server uses the same formula. */

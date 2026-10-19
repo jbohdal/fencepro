@@ -86,7 +86,7 @@ try {
 
   await tap(bar.locator('[data-bar-next]'), 'Next: Style')
   check('Style step', (await b.locator('[data-step="style"][aria-selected="true"]').count()) === 1)
-  await b.locator('[data-step-panel="style"] select').first().selectOption({ label: "WV-ND 6'x6' Privacy" }); await sleep(500)
+  await b.locator('[data-step-panel="style"] select').first().selectOption({ label: "White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig" }); await sleep(500)
   await shot('5-style')
   await tap(bar.locator('[data-bar-next]'), 'Next: Price')
   check('Price step with the Save button in the bar', (await b.locator('[data-step="price"][aria-selected="true"]').count()) === 1 && (await bar.locator('[data-save-open]').count()) === 1)

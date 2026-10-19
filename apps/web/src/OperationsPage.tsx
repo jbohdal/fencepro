@@ -5,6 +5,7 @@
  * Kanban board + list view with full detail panel.
  */
 
+import { styleLabel } from './fenceCatalog'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { getQuotes } from './quoteStore'
 import { InstallPacketPanel } from './installPacket'
@@ -496,7 +497,7 @@ function OpsCard({ job, stage, onSelect, onAdvance, onDragStart }: {
         </div>
         <span className="text-xs font-bold text-gray-700 shrink-0 ml-2">{fmt(job.contractValue)}</span>
       </div>
-      <p className="text-xs text-gray-500 mt-1 truncate">{job.fenceType} · {job.sections} sec</p>
+      <p className="text-xs text-gray-500 mt-1 truncate">{styleLabel(job.fenceType)} · {job.sections} sec</p>
 
       <div className="flex items-center gap-2 mt-2 flex-wrap">
         {job.scheduledDate ? (
@@ -560,7 +561,7 @@ function ListView({ jobs, onSelect, onAdvance }: { jobs: UnifiedJob[]; onSelect:
                 <p className="font-medium text-gray-900">{j.customerName}</p>
                 <p className="text-xs text-gray-400 truncate">{j.address}</p>
               </div>
-              <div className="col-span-2 text-gray-600">{j.fenceType}</div>
+              <div className="col-span-2 text-gray-600">{styleLabel(j.fenceType)}</div>
               <div className="col-span-2">
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${stage?.bg || 'bg-gray-100'} ${stage?.text || 'text-gray-600'}`}>
                   {j.opsStageLabel}
@@ -628,7 +629,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
 
         {/* Scope */}
         <Section title="Scope of Work">
-          <Field label="Fence Type" value={job.fenceType} />
+          <Field label="Fence Type" value={styleLabel(job.fenceType)} />
           <Field label="Sections" value={String(job.sections)} />
           {job.rawJob && <Field label="Total Feet" value={String(job.rawJob.totalFeet || 0)} />}
           {job.rawJob && <Field label="Walk Gates" value={String(job.rawJob.walkGates)} />}

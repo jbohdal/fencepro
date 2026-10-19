@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { styleLabel } from './fenceCatalog'
 import { getJobs, updateJob } from './jobStore'
 import L from 'leaflet'
 import { createFreeMap, centeredIcon, aboveIcon, type FreeMap } from './freeMap'
@@ -133,7 +134,7 @@ function getJobTags(job: SchedulableJob): Tag[] {
   else if (ft.includes('com'))
     tags.push({ label: 'Commercial', bg: 'bg-red-100', text: 'text-red-700' })
   else if (job.fenceType)
-    tags.push({ label: job.fenceType.slice(0, 12), bg: 'bg-gray-100', text: 'text-gray-600' })
+    tags.push({ label: styleLabel(job.fenceType).slice(0, 18), bg: 'bg-gray-100', text: 'text-gray-600' })
 
   // Materials
   if (job.materialsStatus === 'loaded')
@@ -346,7 +347,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
       box-shadow:0 1px 4px rgba(0,0,0,0.3);cursor:pointer;
       ${isSelected ? 'outline:3px solid ' + color + ';outline-offset:2px;' : ''}
     `
-    el.title = `${job.customerName} — ${job.address}\n${job.fenceType} · ${job.sections} sections\nStage: ${job.stagingStatus || 'staging'}${job.scheduledDate ? '\nScheduled: ' + job.scheduledDate : ''}`
+    el.title = `${job.customerName} — ${job.address}\n${styleLabel(job.fenceType)} · ${job.sections} sections\nStage: ${job.stagingStatus || 'staging'}${job.scheduledDate ? '\nScheduled: ' + job.scheduledDate : ''}`
 
     const marker = L.marker([job.lat, job.lng], { icon: centeredIcon(el), keyboard: false, zIndexOffset: isSelected ? 1000 : 0 }).addTo(group)
     marker.on('click', () => setSelectedJobId(job.id === selectedJobId ? null : job.id))
@@ -568,7 +569,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
               </div>
               <p className="text-xs text-gray-500 mb-2">{selectedJob.address}</p>
               <div className="grid grid-cols-2 gap-2 text-xs mb-2">
-                <div className="bg-gray-50 rounded p-1.5"><span className="text-gray-400">Style:</span> <span className="font-semibold">{selectedJob.fenceType}</span></div>
+                <div className="bg-gray-50 rounded p-1.5"><span className="text-gray-400">Style:</span> <span className="font-semibold">{styleLabel(selectedJob.fenceType)}</span></div>
                 <div className="bg-gray-50 rounded p-1.5"><span className="text-gray-400">Sections:</span> <span className="font-semibold">{selectedJob.sections}</span></div>
                 <div className="bg-gray-50 rounded p-1.5"><span className="text-gray-400">Est Days:</span> <span className="font-semibold">{selectedJob.estimatedDays}</span></div>
                 <div className="bg-gray-50 rounded p-1.5"><span className="text-gray-400">Value:</span> <span className="font-semibold">{fmt(selectedJob.contractValue)}</span></div>

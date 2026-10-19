@@ -179,7 +179,7 @@ const VoicePanel = forwardRef<VoiceHandle, Props>(function VoicePanel(p, ref) {
       }
       if (it.kind === 'style') {
         const s = styleFor(it)
-        if (s) { pr.current.onStyle(s.id); await sayBack(`Style: ${s.name}.`) } else await say('There is no style like that in Settings.')
+        if (s) { pr.current.onStyle(s.id); await sayBack(`Style: ${(s as { label?: string }).label || s.name}.`) } else await say('There is no style like that in Settings.')
         continue
       }
       if (it.kind === 'side-off') { change(l => (l ? applySideOff(l, it.side) : l)); await sayBack(`No ${it.side.toLowerCase()}.`); if (it.side === currentSide) filled = true; continue }

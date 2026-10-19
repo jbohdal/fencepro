@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { styleLabel } from './fenceCatalog'
 import type { SavedQuote } from './QuotesPage'
 
 /* ───────── helpers ───────── */
@@ -896,7 +897,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                   <div key={q.id} className="flex items-center justify-between py-1.5 border-b border-gray-50">
                     <div>
                       <p className="text-sm font-medium text-gray-900">{q.customerName}</p>
-                      <p className="text-xs text-gray-400">{q.fenceStyle} · {q.date}</p>
+                      <p className="text-xs text-gray-400">{styleLabel(q.fenceStyle)} · {q.date}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-bold text-green-700">{fmtPct(q.gmPct)}</p>
@@ -914,7 +915,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                   <div key={q.id} className="flex items-center justify-between py-1.5 border-b border-gray-50">
                     <div>
                       <p className="text-sm font-medium text-gray-900">{q.customerName}</p>
-                      <p className="text-xs text-gray-400">{q.fenceStyle} · {q.date}</p>
+                      <p className="text-xs text-gray-400">{styleLabel(q.fenceStyle)} · {q.date}</p>
                     </div>
                     <div className="text-right">
                       <p className={`text-sm font-bold ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</p>
@@ -1096,7 +1097,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
                   <tr key={q.id} className="hover:bg-gray-50">
                     <td data-label="#" className="px-6 py-3 text-gray-400 font-mono">{i + 1}</td>
                     <td data-label="Customer" className="px-6 py-3 font-medium text-gray-900">{q.customerName}</td>
-                    <td data-label="Style" className="px-6 py-3 text-gray-600">{q.fenceStyle}</td>
+                    <td data-label="Style" className="px-6 py-3 text-gray-600">{styleLabel(q.fenceStyle)}</td>
                     <td data-label="Date" className="px-6 py-3 text-gray-500">{q.date}</td>
                     <td data-label="Price" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(q.finalPrice)}</td>
                     <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</td>

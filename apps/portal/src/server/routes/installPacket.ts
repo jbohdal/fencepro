@@ -30,6 +30,7 @@ import { mediaDir, serializeMedia, processMediaQueue } from '../lib/media.js'
 import { serveSignedMedia } from './media.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireCan } from '../lib/permissions.js'
+import { plainStyleName } from '../lib/estimates.js'
 
 /** 3527894314 → (352) 789-4314; anything else as typed. */
 function phone(p: string): string {
@@ -159,6 +160,8 @@ packetPublic.get('/:token', async (req, res) => {
   }
   const { p, job } = found
   const s = p.snapshot as Snapshot
+  // The fence's plain name (packets made before plain names carry the style's code).
+  const styleText = await plainStyleName(s.style ?? job!.fenceStyle)
   // Crew and Customer photos and video, plus what the crew added from here.
   const ttl = 3 * 86_400_000
   const media = await prisma.mediaItem.findMany({
@@ -188,7 +191,7 @@ packetPublic.get('/:token', async (req, res) => {
       <button type="button" id="saveLocate" class="btn noprint">Save locate</button><p id="locMsg" class="small"></p>
     </section>
     <section><h2>The fence</h2>
-      <p class="facts">${esc(s.style ?? job_.fenceStyle)}${s.footageFt ? ` · ${Math.round(s.footageFt)} ft` : ''}${s.sections ? ` · ${s.sections} sections` : ''}</p>
+      <p class="facts">${esc(styleText)}${s.footageFt ? ` · ${Math.round(s.footageFt)} ft` : ''}${s.sections ? ` · ${s.sections} sections` : ''}</p>
       ${s.posts ? `<p>${s.posts.corners} corner posts · ${s.posts.ends - s.posts.gatePosts} end posts · ${s.posts.gatePosts} gate posts</p>` : ''}
       ${safeSvg(s.planSvg) ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Open dots: line posts. Dark arrows: where photos were taken. Not to scale for permitting.</p>` : ''}
       ${s.runs?.length ? `<table><thead><tr><th>Run</th><th>Length</th><th>Sections</th><th>Posts apart</th></tr></thead><tbody>${s.runs.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.length)}</td><td>${r.sections}</td><td>${esc(r.spacing)}</td></tr>`).join('')}</tbody></table>` : ''}

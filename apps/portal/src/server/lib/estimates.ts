@@ -52,8 +52,9 @@ export interface Estimate {
 
 interface EstimateModule {
   estimate(data: unknown, job: EstimateJob): Estimate
-  estimateStyles(config: unknown): Array<{ name: string; category: string }>
+  estimateStyles(config: unknown, data?: unknown): Array<StyleListItem>
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }
+  styleLabels(config: unknown, data?: unknown): Record<string, string>
 }
 
 /**
@@ -109,10 +110,39 @@ export async function estimateOnHold(): Promise<{ styles: Array<{ name: string; 
   return m.onHoldStyles(data.config)
 }
 
+/** A style as the customer doors list it: its internal name (old code or generated), category and plain name; made in Settings, its choices. */
+export interface StyleListItem {
+  name: string
+  category: string
+  label?: string
+  material?: string
+  choices?: Record<string, string>
+  madeFrom?: string
+  panelWidth?: number
+  autoRailMix?: boolean
+}
+
 /** The fence styles customers can ask about (turned on and available for quoting in Settings). */
-export async function estimateStyleList(): Promise<Array<{ name: string; category: string }>> {
+export async function estimateStyleList(): Promise<StyleListItem[]> {
   const [m, data] = await Promise.all([pricing(), estimateData()])
-  return m.estimateStyles(data.config).map(s => ({ name: s.name, category: s.category }))
+  return m.estimateStyles(data.config, data).map(s => ({
+    name: s.name, category: s.category, label: s.label || s.name,
+    ...(s.madeFrom ? { material: s.material, choices: s.choices, madeFrom: s.madeFrom, panelWidth: s.panelWidth, autoRailMix: !!s.autoRailMix } : {}),
+  }))
+}
+
+/**
+ * The plain name of a style by its internal name ("WV-ND 6'x8' Privacy" →
+ * "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig"), from Settings. A
+ * name that is not a style (old imported text) comes back as it is.
+ */
+export async function plainStyleName(name: string | null | undefined): Promise<string> {
+  const n = String(name ?? '')
+  if (!n) return ''
+  try {
+    const [m, data] = await Promise.all([pricing(), estimateData()])
+    return m.styleLabels(data.config, data)[n] || n
+  } catch { return n }
 }
 
 export interface WidgetStyle {
@@ -133,7 +163,7 @@ export interface WidgetMaterial { material: string; label: string; styles: Widge
  * price is that style's estimate. Styles with no parts list (Durafence) and
  * the auto mix styles (the builder's 6 / 8 ft picker) are left out.
  */
-export function widgetCatalog(styles: Array<{ name: string; category: string }>): WidgetMaterial[] {
+export function widgetCatalog(styles: Array<StyleListItem>): WidgetMaterial[] {
   const groups = new Map<string, WidgetMaterial>()
   const add = (material: string, label: string, family: string, height: number, color: string, app: string, panelWidth: number) => {
     const g = groups.get(material) ?? { material, label, styles: [] }
@@ -145,8 +175,23 @@ export function widgetCatalog(styles: Array<{ name: string; category: string }>)
     const h = `${height}ft`
     s.crm[h] = { ...(s.crm[h] ?? {}), [color]: app }
   }
-  for (const { name } of styles) {
+  // Colors added in Settings join their family, by their choices (the old codes say the same by name).
+  const colorName = (label: string | undefined) => {
+    const m = (label ?? '').match(/^(.+?) (Vinyl|Chain Link) /)
+    return m ? m[1] : ''
+  }
+  for (const { name, madeFrom, material, choices, label, panelWidth, autoRailMix } of styles) {
     let m: RegExpMatchArray | null
+    if (madeFrom && choices && !autoRailMix) {
+      const color = colorName(label)
+      if (material === 'vinyl' && choices.style === 'privacy' && color && /^\d+$/.test(choices.height ?? '')) {
+        const w = Number(choices.width) || panelWidth || 6
+        add('vinyl', 'Vinyl', `Privacy, ${w} ft sections, ${choices.install === 'nd' ? 'no dig' : 'set in concrete'}`, Number(choices.height), color, name, w)
+      } else if (material === 'chain' && choices.grade === 'res' && color && /^\d+$/.test(choices.height ?? '')) {
+        add(`chain-link-${choices.finish}`, `Chain Link (${color})`, 'Residential', Number(choices.height), color, name, 10)
+      }
+      continue
+    }
     if ((m = name.match(/^(WV|TV)-(ND|DS) (\d)'x(\d)' Privacy$/))) {
       add('vinyl', 'Vinyl', `Privacy, ${m[4]} ft sections, ${m[2] === 'ND' ? 'no dig' : 'set in concrete'}`, Number(m[3]), m[1] === 'WV' ? 'White' : 'Tan', name, Number(m[4]))
     } else if ((m = name.match(/^(WV|TV)-(ND|DS) Bell (\d)'x(\d)'$/))) {

@@ -7,6 +7,7 @@
  *   - Quotes list (any row)
  */
 
+import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
 import { updateQuote, getQuoteById } from './quoteStore'
@@ -119,7 +120,7 @@ export default function QuoteDetailDrawer({
             <div>
               <p className="text-xs font-bold text-orange-600">Quote Price</p>
               <p className="text-4xl font-black text-gray-900 mt-2">{fmt0(quote.finalPrice)}</p>
-              <p className="text-xs text-gray-500 mt-1">{quote.fenceStyle}</p>
+              <p className="text-xs text-gray-500 mt-1">{styleLabel(quote.fenceStyle)}</p>
             </div>
             <div className="text-right text-sm">
               <p className="text-gray-500">{totalFootage} ft total</p>
@@ -338,7 +339,7 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
     quote_number: `#${quote.id.slice(-6).toUpperCase()}`,
     quote_total: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(quote.finalPrice),
     quote_link: shareUrl,
-    fence_style: quote.fenceStyle,
+    fence_style: styleLabel(quote.fenceStyle),
     rep_name: quote.salesRep || '',
     company_name: (company as any).name || 'Getter Done Fence',
     company_phone: (company as any).phone || '',

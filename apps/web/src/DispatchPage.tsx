@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { styleLabel } from './fenceCatalog'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { lookupPosition } from './appointmentsStore'
@@ -288,7 +289,7 @@ export default function DispatchPage() {
         existing.setLatLng([coords.lat, coords.lng])
         existing.setIcon(icon)
       } else {
-        const marker = L.marker([coords.lat, coords.lng], { icon, title: `${job.customerName} — ${job.fenceStyle}` }).addTo(map)
+        const marker = L.marker([coords.lat, coords.lng], { icon, title: `${job.customerName} — ${styleLabel(job.fenceStyle)}` }).addTo(map)
         marker.on('click', () => setSelectedJobId(job.id))
         existingMarkers.set(job.id, marker)
       }
@@ -578,7 +579,7 @@ export default function DispatchPage() {
                             <span className="text-gray-400">{job.totalFeet} ft</span>
                           </div>
                           <div className="flex items-center gap-2 mt-0.5 text-gray-400">
-                            <span>{job.fenceStyle}</span>
+                            <span>{styleLabel(job.fenceStyle)}</span>
                             <span>&middot;</span>
                             <span className={MATERIALS_STATUS_CONFIG[job.materialsStatus].color}>
                               {MATERIALS_STATUS_CONFIG[job.materialsStatus].label}
@@ -722,7 +723,7 @@ function DayTimeline({
                         {block.job.customerName}
                       </p>
                       <p className="text-white/80 text-[10px] truncate leading-tight">
-                        {block.job.fenceStyle} &middot; {block.job.totalFeet} ft
+                        {styleLabel(block.job.fenceStyle)} &middot; {block.job.totalFeet} ft
                       </p>
                       {block.job.materialsStatus !== 'loaded' && block.job.materialsStatus !== 'received' && (
                         <div className="absolute top-1 right-1">
@@ -885,7 +886,7 @@ function JobDetailPanel({
       <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs mb-3">
         <div className="flex justify-between">
           <span className="text-gray-400">Style</span>
-          <span className="font-medium text-gray-900">{job.fenceStyle}</span>
+          <span className="font-medium text-gray-900">{styleLabel(job.fenceStyle)}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-gray-400">Total Feet</span>

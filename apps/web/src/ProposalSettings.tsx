@@ -4,6 +4,7 @@
  * proposal links yet, and a photo for each fence style.
  */
 
+import { styleLabel } from './fenceCatalog'
 import { useEffect, useState } from 'react'
 import type { AppConfig } from './configStore'
 import type { ProposalSettings as PS } from './proposal'
@@ -100,10 +101,10 @@ export default function ProposalSettings({ config, onChange, onOpenTiers }: { co
             return (
               <div key={s.id} className="rounded-xl border border-gray-200 p-2" data-style-photo={s.name}>
                 <div className="aspect-[4/3] rounded-lg bg-gray-100 overflow-hidden grid place-items-center">
-                  {photo ? <img src={`${stylePhotoUrl(photo.id)}?v=${encodeURIComponent(photo.updatedAt)}`} alt={s.name} className="w-full h-full object-cover" />
+                  {photo ? <img src={`${stylePhotoUrl(photo.id)}?v=${encodeURIComponent(photo.updatedAt)}`} alt={s.label || s.name} className="w-full h-full object-cover" />
                     : <span className="text-xs text-gray-500">No photo</span>}
                 </div>
-                <p className="text-xs font-semibold text-gray-800 mt-2 truncate" title={s.name}>{s.name}</p>
+                <p className="text-xs font-semibold text-gray-800 mt-2 truncate" title={s.label || s.name}>{s.label || s.name}</p>
                 <div className="flex gap-1 mt-1">
                   <label className="btn btn-secondary btn-sm flex-1 cursor-pointer">
                     {busy === s.name ? 'Uploading…' : photo ? 'Replace' : 'Add photo'}

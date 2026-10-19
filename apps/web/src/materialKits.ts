@@ -26,9 +26,11 @@ import {
   sectionWidthForStyle,
   styleHasPartsList,
   setKitEngine,
+  normalizeItemName,
   type KitCounts,
   type KitLine,
   type RailWidth,
+  type StyleJobLot,
 } from './materialCalculator'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
 
@@ -71,6 +73,8 @@ export interface KitSet {
   updatedAt?: string
   /** Saved from Inventory > Fill in (the parts Jonathan typed for a style that had none). */
   filledInAt?: string
+  /** Made by Settings → Fence styles (Add color / add a choice): the choice it was made for, "material:dimension:option". */
+  madeFor?: string
 }
 
 // ── Deriving the built in kits ────────────────────────────────────────────────
@@ -232,6 +236,62 @@ export function linesFromKitSet(set: KitSet, counts: KitCounts): KitLine[] {
   })
 }
 
+/** Which piece price pays for each kind of kit on a job lot color (per foot and per job parts never are). */
+export const PIECE_OF_KIT: Record<KitKind, keyof StyleJobLot['covers'] | null> = {
+  section: 'section', section8: 'section', corner: 'post', end: 'post', line: 'post', blank: 'post',
+  walkGate: 'walkGate', dblGate: 'dblGate', perFoot: null, perJob: null,
+}
+
+/**
+ * A job lot color's parts, kit by kit. In each kit, a part its piece price
+ * covers is listed at $0 (the quantity stays, for the pull sheet, the order
+ * list and the install packet); every other part prices from Inventory as
+ * usual. Then one line per piece price: how many sections, posts and gates
+ * times the price. Coverage is per kit, so a part is charged once: by the
+ * piece whose kit it is in when that piece covers it, otherwise by Inventory.
+ */
+export function linesFromKitSetJobLot(set: KitSet, counts: KitCounts, lot: StyleJobLot): KitLine[] {
+  const unc = new Map<string, { qty: number; cost: number }>()
+  const cov = new Map<string, number>()
+  const covers = Object.fromEntries(Object.entries(lot.covers).map(([k, v]) => [k, new Set((v ?? []).map(normalizeItemName))])) as Record<keyof StyleJobLot['covers'], Set<string>>
+  for (const kind of KIT_KINDS) {
+    const n = counts[kind]
+    if (!n) continue
+    const piece = PIECE_OF_KIT[kind]
+    for (const p of set.kits[kind] ?? []) {
+      if (piece && covers[piece]?.has(normalizeItemName(p.part))) cov.set(p.part, (cov.get(p.part) ?? 0) + p.qty * n)
+      else { const was = unc.get(p.part); unc.set(p.part, { qty: (was?.qty ?? 0) + p.qty * n, cost: was?.cost || p.fallbackCost }) }
+    }
+  }
+  const up = new Set(set.roundUp)
+  const exact = (q: number) => Math.round(q * 1e6) / 1e6
+  const lines: KitLine[] = []
+  for (const part of new Set([...unc.keys(), ...cov.keys()])) {
+    const u = exact(unc.get(part)?.qty ?? 0), c = exact(cov.get(part) ?? 0)
+    // Rounded up once on the whole quantity; the part charged from Inventory keeps its own rounding.
+    const total = up.has(part) ? Math.ceil(exact(u + c)) : exact(u + c)
+    const uq = up.has(part) ? Math.min(total, Math.ceil(u)) : u
+    if (uq > 0) lines.push({ part, qty: uq, fallbackCost: unc.get(part)!.cost })
+    if (total - uq > 0) lines.push({ part, qty: exact(total - uq), fallbackCost: 0, unitCost: 0 })
+  }
+  const piece = (name: string, qty: number, price: number | undefined) => {
+    if (qty > 0 && typeof price === 'number' && price > 0) lines.push({ part: `Job lot, ${lot.color}: ${name}`, qty, fallbackCost: price, unitCost: price, piece: true })
+  }
+  if (lot.width === 'auto') {
+    piece('section, 6 ft wide', counts.section, lot.sections['6'])
+    piece('section, 8 ft wide', counts.section8, lot.sections['8'])
+  } else {
+    piece(`section, ${lot.width} ft wide`, counts.section + counts.section8, lot.sections[String(lot.width)])
+  }
+  piece('corner post', counts.corner, lot.corner)
+  piece('end post', counts.end, lot.end)
+  piece('line post', counts.line, lot.line)
+  piece('gate post (center of a double gate)', counts.blank, lot.blank)
+  piece('walk gate', counts.walkGate, lot.walkGate)
+  piece('double gate', counts.dblGate, lot.dblGate)
+  return lines
+}
+
 /**
  * The gate correction: what kits are meant to differ from the old list by on a
  * gate job (kits minus old list). 6'x8' vinyl: each leaf swaps 8 ft section
@@ -323,11 +383,12 @@ export function withKitSets<T>(sets: KitSet[], run: () => T): T {
   try { return run() } finally { override = was }
 }
 
-setKitEngine((styleKey, counts, notes) => {
+setKitEngine((styleKey, counts, notes, jobLot) => {
   const set = kitSetFor(styleKey, override ?? saved())
   if (set === null) return null
   if (set === 'archived') return { lines: [], warnings: [`"${styleKey}" has no material kit in use (its kits are archived in Inventory > Material Kits), so no fence material is included.`] }
   if (set.mismatch) return null
+  if (jobLot) return { lines: linesFromKitSetJobLot(set, counts, jobLot), warnings: [] }
   // Notes about new or unconfirmed parts lists stay until a kit is saved (checked) by Jonathan.
   return { lines: linesFromKitSet(set, counts), warnings: set.builtIn ? notes() : [] }
 })

@@ -8,6 +8,7 @@
 import prisma from '../prisma.js'
 import { countyPoint, suggestCounty } from '../addressIndex.js'
 import { getFrontendBase } from '../urls.js'
+import { plainStyleName } from '../estimates.js'
 import type { Board, Condition } from './types.js'
 
 export const CLOSED_SALES = new Set(['Lost Sale', 'No Answer', 'Paid & Closed'])
@@ -65,7 +66,10 @@ export interface EntityContext {
   address: string
   city: string
   county: string
+  /** The fence's plain name ("White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig"): what {{style}} writes. */
   style: string
+  /** The style's internal name (its old code, e.g. "WV-ND 6'x8' Privacy"); a "style" condition matches either. */
+  styleCode: string
   priceCents: number
   salesman: string
   tags: string[]
@@ -175,7 +179,8 @@ export async function buildContext(accountId: string, board: Board, entityId: st
     address,
     city: String(contact?.city || cityOf(address) || ''),
     county: countyOf(address, permit?.county),
-    style: String(job?.fenceStyle || card?.fenceType || quote?.fenceStyle || ''),
+    styleCode: String(job?.fenceStyle || card?.fenceType || quote?.fenceStyle || ''),
+    style: await plainStyleName(String(job?.fenceStyle || card?.fenceType || quote?.fenceStyle || '')),
     priceCents: job?.contractValue ? dollarsToCents(job.contractValue) : dollarsToCents(card?.jobValue || card?.quotePrice || quote?.finalPrice || 0),
     salesman: String(card?.assignedRep || job?.salesRep || quote?.salesRep || ''),
     tags,
@@ -225,7 +230,9 @@ export function evalCondition(c: Condition, ctx: EntityContext): ConditionResult
   switch (c.field) {
     case 'stage': return r(c.op === 'is_not' ? norm(ctx.stage) !== norm(text) && norm(ctx.stageLabel) !== norm(text) : norm(ctx.stage) === norm(text) || norm(ctx.stageLabel) === norm(text), ctx.stageLabel)
     case 'style': {
-      const hit = c.op === 'is' ? norm(ctx.style) === norm(text) : norm(ctx.style).includes(norm(text))
+      // Rules written with the old code ("WV-ND") and rules written with the plain name both keep working.
+      const one = (v: string) => (c.op === 'is' ? norm(v) === norm(text) : norm(v).includes(norm(text)))
+      const hit = one(ctx.style) || one(ctx.styleCode ?? '')
       return r(c.op === 'is_not' ? !hit : hit, ctx.style || '(none)')
     }
     case 'price': {

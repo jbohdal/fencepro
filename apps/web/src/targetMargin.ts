@@ -29,7 +29,9 @@ export function withTargetMargins<C extends Pick<AppConfig, 'pricing' | 'fenceSt
       const profit = typeof s.targetProfitPct === 'number' && Number.isFinite(s.targetProfitPct)
         ? s.targetProfitPct
         : round2((1 - (s.margin || 0.64)) * 100 - typed)
-      return { ...s, targetProfitPct: profit, margin: (100 - overhead - profit) / 100 }
+      // A color with its own Target Profit % (Settings → Fence styles) earns that instead.
+      const earn = typeof s.colorTargetProfitPct === 'number' && Number.isFinite(s.colorTargetProfitPct) ? s.colorTargetProfitPct : profit
+      return { ...s, targetProfitPct: profit, margin: (100 - overhead - earn) / 100 }
     }),
   }
 }

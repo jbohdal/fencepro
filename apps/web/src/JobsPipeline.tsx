@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { styleLabel } from './fenceCatalog'
 import {
   getJobs, updateJob, advanceJob, holdJob, unholdJob, getJobStats,
   STATUS_ORDER, STATUS_CONFIG, MATERIALS_STATUS_CONFIG,
@@ -140,7 +141,7 @@ export default function JobsPipeline() {
                     <div key={job.id} onClick={() => setSelectedJob(job)}
                       className="bg-white rounded-xl border border-gray-200 p-3 cursor-pointer hover:border-orange-300 transition-colors shadow-sm">
                       <p className="text-sm font-semibold text-gray-900 truncate">{job.customerName}</p>
-                      <p className="text-xs text-gray-400 truncate">{job.fenceStyle} · {job.sections} sec</p>
+                      <p className="text-xs text-gray-400 truncate">{styleLabel(job.fenceStyle)} · {job.sections} sec</p>
                       <div className="flex items-center justify-between mt-2">
                         <span className="text-sm font-bold text-gray-900">{fmt(job.contractValue)}</span>
                         {job.crewAssigned && (
@@ -189,7 +190,7 @@ export default function JobsPipeline() {
                       <p className="font-medium text-gray-900">{job.customerName}</p>
                       <p className="text-xs text-gray-400 truncate">{job.customerAddress}</p>
                     </td>
-                    <td className="px-3 py-3 text-xs text-gray-600">{job.fenceStyle}</td>
+                    <td className="px-3 py-3 text-xs text-gray-600">{styleLabel(job.fenceStyle)}</td>
                     <td className="px-3 py-3">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${cfg.bgColor} ${cfg.color}`}>{cfg.label}</span>
                     </td>
@@ -344,7 +345,7 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
             <p className="text-xs text-gray-400 font-semibold mb-2">Scope of Work</p>
             <div className="grid grid-cols-3 gap-2">
               {[
-                { label: 'Style', value: job.fenceStyle },
+                { label: 'Style', value: styleLabel(job.fenceStyle) },
                 { label: 'Sections', value: job.sections },
                 { label: 'Total Feet', value: `${job.totalFeet} ft` },
                 { label: 'Walk gates', value: job.walkGates },

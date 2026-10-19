@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { styleLabel } from './fenceCatalog'
 import type { SavedQuote } from './QuotesPage'
 import { getQuotes } from './quoteStore'
 import { cloudStorage } from './cloudStorage'
@@ -172,7 +173,7 @@ function CostAJobModal({
               <option value="">— Choose a job —</option>
               {availableQuotes.map(q => (
                 <option key={q.id} value={q.id}>
-                  {q.customerName} — {q.fenceStyle} — {fmt(q.finalPrice)} ({q.date})
+                  {q.customerName} — {styleLabel(q.fenceStyle)} — {fmt(q.finalPrice)} ({q.date})
                 </option>
               ))}
             </select>
@@ -347,7 +348,7 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900">{q.customerName}</h2>
-            <p className="text-sm text-gray-400">{q.fenceStyle} · {q.sections} sections · {e.completionDate}</p>
+            <p className="text-sm text-gray-400">{styleLabel(q.fenceStyle)} · {q.sections} sections · {e.completionDate}</p>
           </div>
           <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>

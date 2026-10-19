@@ -41,7 +41,7 @@ try {
   for (const k of ['8', '0']) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
   await page.locator('[data-ftin-pad] [data-pad-done]').click()
   await go('style')
-  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "WV-ND 6'x8' Privacy" }); await sleep(400)
+  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" }); await sleep(400)
   await go('yard')
   const w1 = await warnings()
   check('80 ft at 8 ft wide asks for a tape measure check', w1.includes("Fence (80' 0\"): Check this run with a tape measure. A few inches either way changes the section count."), w1.slice(0, 160))
