@@ -262,7 +262,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
         </div>
       </div>
 
-      <div>
+      <div data-settings-focus="sub-rates" className="scroll-mt-4">
         <h3 className="text-xs font-semibold text-gray-500 mb-1">Subcontractor rates</h3>
         <p className="text-xs text-gray-400 mb-4">Used when a quote's labor is set to Subcontractor. A rate on the style (Fence Styles tab) wins, then the category rate here, then the default.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
@@ -440,7 +440,7 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
       </div>
 
       <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[900px]">
+        <table className="w-full text-sm min-w-[1000px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Name</th>
@@ -454,6 +454,7 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Subcontractor pay per foot or section for this style">Sub Rate</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Customer price per foot, used when a quote is priced per foot">$ / Ft</th>
               <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-16">Active</th>
+              <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-24" title="Off: not offered in new quotes, Good Better Best, Compare options, the website or the phone and chat estimates. Quotes already saved keep it.">Available for quoting</th>
               <th className="w-10" />
             </tr>
           </thead>
@@ -466,6 +467,7 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
                   ) : (
                     <span className="cursor-pointer hover:text-orange-600 font-medium" onClick={() => setEditingId(style.id)}>{style.name}</span>
                   )}
+                  {style.quotable === false && <span className="block text-xs text-amber-700" data-style-on-hold>Not available for quoting</span>}
                 </td>
                 <td className="px-3 py-2.5">
                   <select className="border border-gray-200 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400" value={style.category} onChange={e => update(style.id, { category: e.target.value as FenceStyle['category'] })}>
@@ -507,6 +509,13 @@ function StylesTab({ config, onChange }: { config: AppConfig; onChange: (c: AppC
                 <td className="px-3 py-2.5 text-center">
                   <button onClick={() => update(style.id, { isActive: !style.isActive })} className={`w-8 h-5 rounded-full transition-colors relative ${style.isActive ? 'bg-orange-500' : 'bg-gray-300'}`}>
                     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${style.isActive ? 'left-3.5' : 'left-0.5'}`} />
+                  </button>
+                </td>
+                <td className="px-3 py-2.5 text-center">
+                  <button type="button" role="switch" aria-checked={style.quotable !== false} aria-label={`${style.name} available for quoting`} data-style-quotable={style.name}
+                    onClick={() => update(style.id, { quotable: style.quotable === false })}
+                    className={`w-8 h-5 rounded-full transition-colors relative ${style.quotable !== false ? 'bg-orange-500' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${style.quotable !== false ? 'left-3.5' : 'left-0.5'}`} />
                   </button>
                 </td>
                 <td className="px-2 py-2.5">
@@ -729,8 +738,25 @@ export default function AdminSettingsPage() {
     return (TABS.some(t => t.key === want) ? want : 'company') as AdminTab
   })
   // A link to /settings?tab=... while Settings is already open switches the tab.
-  const wantTab = useNav().params.get('tab')
+  const navParams = useNav().params
+  const wantTab = navParams.get('tab')
   useEffect(() => { if (wantTab && TABS.some(t => t.key === wantTab)) setTab(wantTab as AdminTab) }, [wantTab])
+  // ?focus=sub-rates (or voice-check): scroll to that part of the tab and outline it for a moment.
+  const focus = navParams.get('focus')
+  useEffect(() => {
+    if (!focus) return
+    let tries = 0
+    const t = setInterval(() => {
+      const el = document.querySelector<HTMLElement>(`[data-settings-focus="${CSS.escape(focus)}"]`)
+      if (!el && ++tries < 20) return
+      clearInterval(t)
+      if (!el) return
+      el.scrollIntoView({ block: 'start' })
+      el.classList.add('ring-2', 'ring-orange-400', 'rounded-xl')
+      setTimeout(() => el.classList.remove('ring-2', 'ring-orange-400', 'rounded-xl'), 2500)
+    }, 100)
+    return () => clearInterval(t)
+  }, [focus, tab])
   const [config, setConfig] = useState<AppConfig>(getConfig)
   const [saved, setSaved] = useState(false)
   const [dirty, setDirty] = useState(false)
@@ -784,7 +810,7 @@ export default function AdminSettingsPage() {
 
         <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-xl p-1 lg:w-fit mb-6 lg:mb-8 overflow-x-auto">
           {TABS.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.key ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-800'}`}>
+            <button key={t.key} onClick={() => setTab(t.key)} data-settings-tab={t.key} aria-pressed={tab === t.key} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.key ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-800'}`}>
               {t.label}
             </button>
           ))}

@@ -6,6 +6,11 @@
  *     the old parts lists with no gate frame or panel.
  *   - Durafence: no parts list at all.
  *
+ * A style that is not available for quoting (Settings → Fence Styles;
+ * commercial and industrial are on hold) is left out: its gate parts, its
+ * Durafence list, and kit parts only it uses. They come back when it is
+ * turned back on.
+ *
  * Prices save into Inventory (dated today); parts save into the style's
  * material kit (marked filled in), so quotes price with them at once. The
  * Finish setup card ticks this off when nothing is left.
@@ -15,6 +20,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { getInventory, saveInventory, getKitSets, saveKitSets, getInventoryUnitCost, INVENTORY_UPDATED_EVENT, type InventoryItem } from './inventoryStore'
 import { kitSetFor, KIT_LABEL, type KitSet, type KitKind, type KitPart } from './materialKits'
 import { toast } from './toast'
+import { getConfig } from './configStore'
+import { isQuotable } from './styleAvailability'
 
 export const GATE_STYLES = ["CL - Com 6'", "CL - Com 6'+1'", "CL - Com 6'+1' Black", 'Alum - DS - Ind Abigail']
 export const DURAFENCE = 'Durafence'
@@ -91,7 +98,11 @@ export default function FillInTab() {
   useEffect(() => { const h = () => setTick(t => t + 1); window.addEventListener(INVENTORY_UPDATED_EVENT, h); return () => window.removeEventListener(INVENTORY_UPDATED_EVENT, h) }, [])
   const items = useMemo(() => getInventory(), [tick])
   const zero = items.filter(i => isActive(i) && !(i.unitCost > 0))
-  const missing = useMemo(() => missingKitParts(getKitSets(), n => getInventoryUnitCost(n) !== undefined), [tick])
+  // Styles on hold (not available for quoting) are left out until they are turned back on.
+  const quotable = useMemo(() => { const st = getConfig().fenceStyles; return (name: string) => { const f = st.find(x => x.name === name); return !f || isQuotable(f) } }, [])
+  const gateStyles = GATE_STYLES.filter(quotable)
+  const showDura = quotable(DURAFENCE)
+  const missing = useMemo(() => missingKitParts(getKitSets().filter(k => !k.styleName || quotable(k.styleName)), n => getInventoryUnitCost(n) !== undefined), [tick, quotable])
   const [prices, setPrices] = useState<Record<string, string>>({})
 
   // The kits being filled in: the style's kit as quotes use it now.
@@ -162,10 +173,10 @@ export default function FillInTab() {
         {(zero.length > 0 || missing.size > 0) && <button type="button" className="btn btn-primary" onClick={savePrices} data-fill-save-prices>Save prices</button>}
       </section>
 
-      <section className="bg-white rounded-2xl border border-gray-200 p-4 md:p-5 space-y-4" data-fill-gates>
+      {gateStyles.length > 0 && <section className="bg-white rounded-2xl border border-gray-200 p-4 md:p-5 space-y-4" data-fill-gates>
         <h2 className="text-base font-bold text-gray-900">Gate parts</h2>
         <p className="text-sm text-gray-600">These gates came over from the old parts lists without the gate itself (commercial chain link: bolts and a drop rod only; Industrial Abigail: screws only). Add what one gate takes.</p>
-        {GATE_STYLES.map(style => (
+        {gateStyles.map(style => (
           <div key={style} className="space-y-2" data-fill-style={style}>
             <p className="text-sm font-semibold text-gray-900">{style} {filled(style) && <span className="text-green-700 font-normal">· filled in</span>}</p>
             <div className="grid gap-3 md:grid-cols-2">
@@ -173,17 +184,17 @@ export default function FillInTab() {
             </div>
           </div>
         ))}
-        <button type="button" className="btn btn-primary" onClick={() => saveKits(GATE_STYLES)} data-fill-save-gates>Save gate parts</button>
-      </section>
+        <button type="button" className="btn btn-primary" onClick={() => saveKits(gateStyles)} data-fill-save-gates>Save gate parts</button>
+      </section>}
 
-      <section className="bg-white rounded-2xl border border-gray-200 p-4 md:p-5 space-y-4" data-fill-durafence>
+      {showDura && <section className="bg-white rounded-2xl border border-gray-200 p-4 md:p-5 space-y-4" data-fill-durafence>
         <h2 className="text-base font-bold text-gray-900">Durafence parts list {filled(DURAFENCE) && <span className="text-green-700 font-normal text-sm">· filled in</span>}</h2>
         <p className="text-sm text-gray-600">Durafence has no parts list, so its quotes carry no material. What does one section, each post and each gate take?</p>
         <div className="grid gap-3 md:grid-cols-2">
           {DURA_KINDS.map(kind => <KitEditor key={kind} kind={kind} parts={drafts[DURAFENCE].kits[kind] ?? []} items={items} onNewItem={newItem} onChange={p => setParts(DURAFENCE, kind, p)} />)}
         </div>
         <button type="button" className="btn btn-primary" disabled={!(drafts[DURAFENCE].kits.section ?? []).length} onClick={() => saveKits([DURAFENCE])} data-fill-save-durafence>Save Durafence parts</button>
-      </section>
+      </section>}
     </div>
   )
 }

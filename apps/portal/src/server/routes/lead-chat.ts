@@ -11,7 +11,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js'
 import crypto from 'crypto'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
-import { quickEstimate, estimateStyleList } from '../lib/estimates.js'
+import { quickEstimate, estimateStyleList, isNotQuotable, NOT_QUOTABLE_MESSAGE } from '../lib/estimates.js'
 import { scoreLead, leadPriority } from '../lib/leadScoring.js'
 import { sendLeadConfirmation } from '../lib/sms.js'
 import { scheduleFollowUps } from '../lib/followUpScheduler.js'
@@ -62,7 +62,7 @@ async function buildSystemPrompt(): Promise<string> {
     { style: "CL - 4' Galv", label: 'Chain Link 4ft Galvanized' },
     { style: "CL - 6' Galv", label: 'Chain Link 6ft Galvanized' },
     { style: "CL - 6' Black", label: 'Chain Link 6ft Black' },
-    { style: "CL - Com 6'", label: 'Commercial Chain Link 6ft' },
+    { style: "CL - Com 6'", label: 'Commercial Chain Link 6ft' },  // skipped while it is not available for quoting (the estimate refuses it)
     { style: "Alum - ND - Emily - 48", label: 'Aluminum (Emily 48)' },
   ]
 
@@ -130,6 +130,8 @@ RULES:
 
 AVAILABLE FENCE STYLES:
 ${styles.map(s => `- ${s.name} (${s.category})`).join('\n')}
+
+COMMERCIAL AND INDUSTRIAL: we do not give estimates for commercial or industrial fencing (commercial chain link, industrial aluminum, Durafence) here. If that is what they want, answer: "${NOT_QUOTABLE_MESSAGE}." and offer to take their name and number.
 `
 
   // Append knowledge base entries
@@ -215,6 +217,7 @@ async function handleToolCall(name: string, input: Record<string, unknown>, sess
         dblGates,
       })
     } catch (err) {
+      if (isNotQuotable(err)) return JSON.stringify({ answer: NOT_QUOTABLE_MESSAGE })
       return JSON.stringify({ error: `Could not calculate: ${err instanceof Error ? err.message : 'unknown style'}` })
     }
   }

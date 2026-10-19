@@ -36,9 +36,15 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   return j as T
 }
 
+const HOLD_KEY = 'commercial-industrial'
+/** (352) 789-4314 for a 10 digit number, else as typed in Settings. */
+const showPhone = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p }
+
 export default function WidgetApp() {
   const [step, setStep] = useState(0)
   const [materials, setMaterials] = useState<WMaterial[]>([])
+  // Commercial and industrial are not quoted here (pricing on hold): a choice that says to call.
+  const [onHold, setOnHold] = useState<{ label: string; message: string; phone: string } | null>(null)
   const [loadError, setLoadError] = useState('')
   // 1 Address
   const [address, setAddress] = useState('')
@@ -80,7 +86,8 @@ export default function WidgetApp() {
   const [submissionId] = useState(newId)
 
   useEffect(() => {
-    getJson<{ materials: WMaterial[] }>(`${API}/config`).then(j => setMaterials(j.materials)).catch(e => setLoadError(String(e.message || e)))
+    getJson<{ materials: WMaterial[]; onHold?: { label: string; message: string; phone: string } | null }>(`${API}/config`)
+      .then(j => { setMaterials(j.materials); setOnHold(j.onHold ?? null) }).catch(e => setLoadError(String(e.message || e)))
   }, [])
 
   const result = useMemo(() => (yard ? deriveLayout(yard) : null), [yard])
@@ -279,7 +286,18 @@ export default function WidgetApp() {
                 {m.label}
               </button>
             ))}
+            {onHold && (
+              <button type="button" onClick={() => { setMaterialKey(HOLD_KEY); setStyleId('') }} data-w-material={HOLD_KEY}
+                className={`rounded-xl border-2 p-3 text-left text-sm font-semibold ${materialKey === HOLD_KEY ? 'border-orange-500 bg-orange-50 text-orange-800' : 'border-gray-200 text-gray-900'}`}>
+                {onHold.label}
+              </button>
+            )}
           </div>
+          {onHold && materialKey === HOLD_KEY && (
+            <p className="rounded-xl bg-orange-50 border border-orange-200 p-3 text-base text-gray-900" data-w-on-hold>
+              {onHold.message}{onHold.phone ? <>: <a className="font-semibold text-orange-700 underline" href={`tel:${onHold.phone.replace(/[^\d+]/g, '')}`}>{showPhone(onHold.phone)}</a></> : '.'}
+            </p>
+          )}
           {material && (
             <>
               <p className="text-sm font-semibold text-gray-700">Style</p>

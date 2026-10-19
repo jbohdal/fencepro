@@ -31,7 +31,8 @@ import {
   listContactNotes, createContactNote, updateContactNote, deleteContactNote,
   type CrmContactNoteRecord, noteChangeFor, noteAuthor } from './crmContactsApi'
 import { cloudStorage } from './cloudStorage'
-import { navigate, goBack, useNav, useScreenMemory, takeOpenedParam, openedFrom, BackClose, useBackLayer } from './nav'
+import { navigate, goBack, useNav, useScreenMemory, takeOpenedParam, openedFrom, BackClose, useBackLayer, replaceUrl } from './nav'
+import { CUSTOMER_FILTERS, asCustomerFilter, type CustomerFilter } from './customerFilters'
 import { SaveStatus } from './SaveStatus'
 import { newId } from './recordSync'
 import { businessDate } from './businessDate'
@@ -1256,9 +1257,19 @@ export default function CustomersPage({ onNewQuote }: {
   const [editing, setEditing] = useState(false)
   const mode: 'view' | 'new' | 'edit' = routeId === 'new' ? 'new' : editing && selectedId ? 'edit' : 'view'
   useEffect(() => { setEditing(false) }, [selectedId])
-  const select = (id: string | null) => navigate(id ? `/customers/${encodeURIComponent(id)}` : '/customers')
-  const remembered = useScreenMemory<{ search: string }>('customers', (): { search: string } => ({ search }))
+  type Memory = { search: string; filter?: string }
+  const remembered = useScreenMemory<Memory>('customers', (): Memory => ({ search, filter: listFilter }))
   const [search, setSearch] = useState<string>(remembered?.search ?? '')
+  // ?filter=missing-contact: the list narrowed (the Finish setup card links here). Kept in the address while a customer is open.
+  const filterParam = nav.params.get('filter')
+  const [listFilter, setListFilterState] = useState<CustomerFilter>(() => asCustomerFilter(filterParam ?? remembered?.filter))
+  useEffect(() => { if (filterParam !== null) setListFilterState(asCustomerFilter(filterParam)) }, [filterParam])
+  const filterQs = listFilter ? `?filter=${listFilter}` : ''
+  function setListFilter(f: CustomerFilter) {
+    setListFilterState(f)
+    replaceUrl(window.location.pathname + (f ? `?filter=${f}` : ''))
+  }
+  const select = (id: string | null) => navigate(id ? `/customers/${encodeURIComponent(id)}${filterQs}` : `/customers${filterQs}`)
   const [drawerQuote, setDrawerQuote] = useState<SavedQuote | null>(null)
   const [viewerFile, setViewerFile] = useState<CustomerFile | null>(null)
   const [forcedTab, setForcedTab] = useState<string | null>(null)
@@ -1287,6 +1298,7 @@ export default function CustomersPage({ onNewQuote }: {
   }, [])
 
   const filtered = customers.filter(c => {
+    if (listFilter && !CUSTOMER_FILTERS[listFilter].test(c)) return false
     const q = search.toLowerCase()
     return (
       `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
@@ -1513,6 +1525,13 @@ export default function CustomersPage({ onNewQuote }: {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
+          <select aria-label="Show" data-customer-filter value={listFilter} onChange={e => setListFilter(asCustomerFilter(e.target.value))}
+            className={`mt-2 w-full border rounded-lg px-3 h-10 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 ${listFilter ? 'border-orange-400 bg-orange-50 text-orange-900 font-semibold' : 'border-gray-200 text-gray-700'}`}>
+            <option value="">All customers</option>
+            {(Object.keys(CUSTOMER_FILTERS) as Array<Exclude<CustomerFilter, ''>>).map(k => (
+              <option key={k} value={k}>{CUSTOMER_FILTERS[k].label} ({customers.filter(CUSTOMER_FILTERS[k].test).length})</option>
+            ))}
+          </select>
 {can('records.import') && <label className="mt-2 flex items-center justify-center gap-1.5 w-full border border-dashed border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-500 hover:border-orange-400 hover:text-orange-500 cursor-pointer transition-colors">
             📂 Import CSV
             <input type="file" accept=".csv" className="hidden" onChange={handleCSVImport} />
@@ -1555,8 +1574,8 @@ export default function CustomersPage({ onNewQuote }: {
           })}
         </div>
 
-        <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
-          {customers.length} customer{customers.length !== 1 ? 's' : ''}
+        <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400" data-customer-count={filtered.length}>
+          {listFilter || search ? `${filtered.length} of ${customers.length}` : customers.length} customer{customers.length !== 1 ? 's' : ''}
         </div>
       </div>
 

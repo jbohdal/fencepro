@@ -53,6 +53,19 @@ export interface Estimate {
 interface EstimateModule {
   estimate(data: unknown, job: EstimateJob): Estimate
   estimateStyles(config: unknown): Array<{ name: string; category: string }>
+  onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }
+}
+
+/**
+ * What a customer is told when they ask for a style that is not available for
+ * quoting (commercial and industrial, on hold). Same text as the web app's
+ * styleAvailability.ts NOT_QUOTABLE_MESSAGE.
+ */
+export const NOT_QUOTABLE_MESSAGE = 'Call us for commercial and industrial fencing'
+
+/** The estimate refused a style that is not available for quoting. */
+export function isNotQuotable(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { code?: unknown }).code === 'not_quotable'
 }
 
 let loaded: Promise<EstimateModule> | null = null
@@ -90,7 +103,13 @@ export async function estimateJob(job: EstimateJob): Promise<Estimate> {
   return m.estimate(data, job)
 }
 
-/** The fence styles customers can ask about (the active ones in Settings). */
+/** Styles turned on but not available for quoting, and the business phone to call instead. */
+export async function estimateOnHold(): Promise<{ styles: Array<{ name: string; category: string }>; phone: string }> {
+  const [m, data] = await Promise.all([pricing(), estimateData()])
+  return m.onHoldStyles(data.config)
+}
+
+/** The fence styles customers can ask about (turned on and available for quoting in Settings). */
 export async function estimateStyleList(): Promise<Array<{ name: string; category: string }>> {
   const [m, data] = await Promise.all([pricing(), estimateData()])
   return m.estimateStyles(data.config).map(s => ({ name: s.name, category: s.category }))

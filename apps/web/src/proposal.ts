@@ -12,6 +12,7 @@
 import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from './quoteCalc'
 import type { LineItem } from './materialCalculator'
 import type { TierSet } from './tiers'
+import { isQuotable } from './styleAvailability'
 
 export interface ProposalSettings {
   /** Extra "what's included" text, one item per line. */
@@ -75,8 +76,9 @@ const CHAIN = /^CL - (\d)' (Galv|Black)$/
 const EMILY = /^Alum - (ND|DS) - Emily - 48$/
 
 /** The styles to compare with this one (itself first), from the active styles in Settings. */
-export function compareStyles<S extends QuoteStyle & { isActive?: boolean }>(style: S, styles: S[]): S[] {
-  const active = styles.filter(s => s.isActive !== false || s.name === style.name)
+export function compareStyles<S extends QuoteStyle & { isActive?: boolean; quotable?: boolean }>(style: S, styles: S[]): S[] {
+  // Styles turned on and available for quoting; the quote's own style always.
+  const active = styles.filter(s => isQuotable(s) || s.name === style.name)
   let family: S[] = []
   if (style.autoRailMix) {
     family = active.filter(s => { const m = s.name.match(VINYL); return !!m && m[3] === '6' })

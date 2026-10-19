@@ -35,6 +35,10 @@ import PercentField from './PercentField'
 import { targetMarginPct, overheadPctOf } from './configStore'
 import DollarPickets from './DollarPickets'
 import { businessDate } from './businessDate'
+import { isQuotable } from './styleAvailability'
+
+/** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
+const styleOptionLabel = (s: { name: string; isActive?: boolean; quotable?: boolean }) => (isQuotable(s) ? s.name : `${s.name} (Not available for new quotes)`)
 
 // Settings are read when the builder opens (not when the app loads), so a
 // change in Settings → Pricing or Fence Styles applies to the next quote
@@ -381,11 +385,12 @@ export default function QuoteBuilder({
 }) {
   const init = initialQuote
 
-  // Styles, rates and thresholds all come from Settings. Inactive styles are
-  // hidden unless this quote already uses one.
+  // Styles, rates and thresholds all come from Settings. Styles turned off or
+  // not available for quoting (Settings → Fence Styles) are hidden unless this
+  // quote already uses one; then it stays, marked, and the quote keeps working.
   const cfg = useMemo(() => getConfig(), [])
   const FENCE_STYLES = useMemo(
-    () => cfg.fenceStyles.filter(s => s.isActive !== false || s.name === init?.fenceStyle),
+    () => cfg.fenceStyles.filter(s => isQuotable(s) || s.name === init?.fenceStyle),
     [cfg, init?.fenceStyle],
   )
   // A quote brought in from JobNimbus carries the old system's price; unless it is sold, it is priced from its parts here.
@@ -1002,7 +1007,7 @@ export default function QuoteBuilder({
                   return autoStyles.length > 0 ? (
                     <optgroup label="Vinyl Privacy — Auto-mix (recommended)">
                       {autoStyles.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
+                        <option key={s.id} value={s.id}>{styleOptionLabel(s)}</option>
                       ))}
                     </optgroup>
                   ) : null
@@ -1014,12 +1019,17 @@ export default function QuoteBuilder({
                   return (
                     <optgroup key={cat} label={label}>
                       {styles.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
+                        <option key={s.id} value={s.id}>{styleOptionLabel(s)}</option>
                       ))}
                     </optgroup>
                   )
                 })}
               </select>
+              {style && !isQuotable(style) && (
+                <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-style-not-quotable>
+                  {style.name} is not available for new quotes ({style.isActive === false ? 'turned off' : 'pricing on hold'} in Settings → Fence Styles). This quote keeps it and still prices.
+                </p>
+              )}
             </div>
 
             <div>
@@ -1152,7 +1162,7 @@ export default function QuoteBuilder({
                         <select className="mt-2 w-full border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value="" aria-label={`Style for ${t.spec.name}`}
                           onChange={e => { const v = e.target.value; if (v) setTierPrefs(p => ({ ...p, swap: { ...p.swap, [t.spec.key]: v } })) }} data-tier-swap>
                           <option value="">Pick a style for this quote…</option>
-                          {FENCE_STYLES.filter(s => s.isActive !== false && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          {FENCE_STYLES.filter(s => isQuotable(s) && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                         </select>
                       </div>
                     )
@@ -1182,7 +1192,7 @@ export default function QuoteBuilder({
                           <select className="min-w-0 flex-1 border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value={tierPrefs.swap[t.spec.key] ?? ''} aria-label={`Style for ${t.spec.name}`}
                             onChange={e => setTierPrefs(p => { const swap = { ...p.swap }; if (e.target.value) swap[t.spec.key] = e.target.value; else delete swap[t.spec.key]; return { ...p, swap } })} data-tier-swap>
                             <option value="">Style: automatic</option>
-                            {FENCE_STYLES.filter(s => s.isActive !== false && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                            {FENCE_STYLES.filter(s => isQuotable(s) && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                           </select>
                         </div>
                       </div>

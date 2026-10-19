@@ -28,7 +28,7 @@ import { toast } from './toast'
 import { BottomSheet } from './SalesPipelineBoard'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 import { Search, SlidersHorizontal } from 'lucide-react'
-import { useBackLayer, useScreenMemory, useNav, takeOpenedParam } from './nav'
+import { useBackLayer, useScreenMemory, useNav, takeOpenedParam, replaceUrl } from './nav'
 import { refreshNow } from './liveRefresh'
 import { businessDate } from './businessDate'
 
@@ -124,7 +124,16 @@ export default function OperationsBoard() {
   // Filters come back when Back returns to the board.
   type Memory = { search: string; crewFilter: string; stageFilter: string; styleFilter: string }
   const remembered = useScreenMemory<Memory>('operations', (): Memory => ({ search, crewFilter, stageFilter, styleFilter }))
-  const [search, setSearch] = useState<string>(remembered?.search ?? '')
+  // A link can open the board searched (?q=, e.g. "not on GD Schedule" from the Finish setup card)
+  // or showing just some jobs (?ids=a,b). Either shows every match, old finished jobs included, as a list.
+  const linkParams = new URLSearchParams(window.location.search)
+  const [search, setSearch] = useState<string>(() => linkParams.get('q') ?? remembered?.search ?? '')
+  const [linkSearch, setLinkSearch] = useState<string | null>(() => linkParams.get('q'))
+  const [onlyIds, setOnlyIds] = useState<string[] | null>(() => linkParams.get('ids')?.split(',').filter(Boolean) ?? null)
+  const fromLink = onlyIds !== null || (linkSearch !== null && search === linkSearch)
+  // The board leaves finished jobs with no date out of every lane, so a link's jobs show as a list.
+  const shownView: ViewMode = fromLink ? 'list' : view
+  function clearLink() { setOnlyIds(null); setLinkSearch(null); setSearch(''); replaceUrl(window.location.pathname) }
   const [crewFilter, setCrewFilter] = useState<string>(remembered?.crewFilter ?? '')
   const [stageFilter, setStageFilter] = useState<string>(remembered?.stageFilter ?? '')
   const [styleFilter, setStyleFilter] = useState<string>(remembered?.styleFilter ?? '')
@@ -181,7 +190,8 @@ export default function OperationsBoard() {
   /* ── filter ── */
   const filtered = useMemo(() => {
     return jobs.filter(j => {
-      if (!showCompleted) {
+      if (onlyIds && !onlyIds.includes(j.id)) return false
+      if (!showCompleted && !fromLink) {
         // archive: hide completed/paid/invoiced jobs older than 48h
         const arch = (j.opsStage === 'completed' || j.opsStage === 'paid' || j.opsStage === 'invoiced')
           && j.rawJob && daysSince(j.rawJob.completedDate || j.rawJob.updatedAt) > 2
@@ -196,10 +206,11 @@ export default function OperationsBoard() {
         j.customerName.toLowerCase().includes(q) ||
         (j.address || '').toLowerCase().includes(q) ||
         (j.crewAssigned || '').toLowerCase().includes(q) ||
-        (j.fenceType || '').toLowerCase().includes(q)
+        (j.fenceType || '').toLowerCase().includes(q) ||
+        (j.notes || '').toLowerCase().includes(q)
       )
     })
-  }, [jobs, search, stageFilter, crewFilter, styleFilter, showCompleted])
+  }, [jobs, search, stageFilter, crewFilter, styleFilter, showCompleted, onlyIds, fromLink])
 
   function sortJobs(arr: UnifiedJob[]): UnifiedJob[] {
     const out = [...arr]
@@ -367,7 +378,8 @@ export default function OperationsBoard() {
     return new Set(jobs.filter(j =>
       j.customerName.toLowerCase().includes(q) ||
       (j.address || '').toLowerCase().includes(q) ||
-      (j.crewAssigned || '').toLowerCase().includes(q)
+      (j.crewAssigned || '').toLowerCase().includes(q) ||
+      (j.notes || '').toLowerCase().includes(q)
     ).map(j => j.id))
   }, [jobs, search])
 
@@ -416,7 +428,7 @@ export default function OperationsBoard() {
         title="Operations"
         primaryLabel="+ New job"
         onPrimary={() => toast.info('New Job', 'Create a quote and mark it as Sold to add it to the operations board.')}
-        view={view} onViewChange={setView}
+        view={shownView} onViewChange={v => { if (fromLink) clearLink(); setView(v) }}
         search={search} onSearchChange={setSearch}
         sortMode={sortMode} onSortChange={setSortMode}
         crewOptions={crewOptions} crewFilter={crewFilter} onCrewFilterChange={setCrewFilter}
@@ -430,6 +442,15 @@ export default function OperationsBoard() {
         isMobile={isMobile}
       />
 
+      {fromLink && (
+        <div className="mx-4 md:mx-6 mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-orange-50 border border-orange-200 px-3 py-2 text-sm text-orange-900" data-ops-link-filter>
+          <span className="flex-1 min-w-[200px]" data-ops-link-count={filtered.length}>
+            {onlyIds ? `Showing the ${filtered.length} job${filtered.length === 1 ? '' : 's'} from the Finish setup list` : `Showing ${filtered.length} job${filtered.length === 1 ? '' : 's'} matching "${search}", finished ones included`}.
+          </span>
+          <button type="button" className="btn btn-quiet btn-sm" onClick={clearLink} data-ops-show-all>Show all jobs</button>
+        </div>
+      )}
+
       {analyticsOpen && (
         <AnalyticsStrip metrics={[
           { label: 'Active Jobs',         value: String(analytics.activeCount) },
@@ -442,7 +463,7 @@ export default function OperationsBoard() {
       )}
 
       {/* mobile stage pills */}
-      {isMobile && view === 'board' && (
+      {isMobile && shownView === 'board' && (
         <StagePills
           stages={laneOrder.map(s => s.label)}
           onJump={label => {
@@ -455,7 +476,7 @@ export default function OperationsBoard() {
         />
       )}
 
-      {view === 'board' ? (
+      {shownView === 'board' ? (
         <KanbanBoard
           columns={columns}
           getId={j => j.id}

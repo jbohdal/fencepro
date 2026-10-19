@@ -180,7 +180,11 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
   // stays put while its name is edited and files into place on save.
   const [filedNames, setFiledNames]         = useState<Map<string, string>>(new Map())
   const [collapsed, setCollapsed]           = useState<Set<string>>(new Set())
-  const [priceFilter, setPriceFilter]       = useState<PriceFilter>('all')
+  // ?price=unconfirmed (the Finish setup card's "Confirm Inventory prices") opens with that filter.
+  const [priceFilter, setPriceFilter]       = useState<PriceFilter>(() => {
+    const p = new URLSearchParams(window.location.search).get('price') as PriceFilter | null
+    return p && (['all', 'check', 'unconfirmed', 'old', 'fresh'] as string[]).includes(p) ? p : 'all'
+  })
   const [sortBy, setSortBy]                 = useState<'category' | 'priceAge'>('category')
   const locations = useMemo(() => getLocations(), [])
   const staleMonths = useMemo(() => getConfig().pricing.priceStaleMonths ?? DEFAULT_PRICE_STALE_MONTHS, [])

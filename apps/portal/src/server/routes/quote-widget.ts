@@ -24,7 +24,7 @@ import multer from 'multer'
 import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
-import { estimateJob, estimateStyleList, widgetCatalog } from '../lib/estimates.js'
+import { estimateJob, estimateStyleList, estimateOnHold, widgetCatalog, isNotQuotable, NOT_QUOTABLE_MESSAGE } from '../lib/estimates.js'
 import { resolveIntakeAccountId } from '../lib/intake.js'
 import { locate } from '../lib/appointments.js'
 import { suggest } from '../lib/addressIndex.js'
@@ -60,8 +60,9 @@ api.get('/config', readLimiter, async (req, res) => {
       if (accountId) await prisma.accountKeyValue.upsert({ where: { accountId_key: { accountId, key: 'uptimeRobotSeenAt' } }, create: { accountId, key: 'uptimeRobotSeenAt', value: new Date().toISOString() }, update: { value: new Date().toISOString() } }).catch(() => {})
     }
     const accountId = await resolveIntakeAccountId()
-    const [styles, photos, account] = await Promise.all([
+    const [styles, hold, photos, account] = await Promise.all([
       estimateStyleList(),
+      estimateOnHold(),
       accountId ? prisma.stylePhoto.findMany({ where: { accountId }, select: { id: true, styleName: true } }) : Promise.resolve([]),
       accountId ? prisma.crmAccount.findUnique({ where: { id: accountId }, select: { name: true } }) : Promise.resolve(null),
     ])
@@ -73,7 +74,9 @@ api.get('/config', readLimiter, async (req, res) => {
         return { ...s, photoUrl: apps.map(a => photoOf.get(a)).find(Boolean) ?? null }
       }),
     }))
-    res.json({ success: true, company: account?.name || 'Getter Done Fence', logoUrl: '/p/logo.png', materials })
+    // Styles not available for quoting (commercial and industrial, on hold): one choice that says to call.
+    const onHold = hold.styles.length ? { label: 'Commercial / Industrial', message: NOT_QUOTABLE_MESSAGE, phone: hold.phone } : null
+    res.json({ success: true, company: account?.name || 'Getter Done Fence', logoUrl: '/p/logo.png', materials, onHold })
   } catch (err) {
     console.error('[widget] config error:', err)
     res.status(500).json({ success: false, error: 'Could not load the fence styles' })
@@ -112,6 +115,7 @@ api.post('/estimate', estimateLimiter, async (req, res) => {
     res.json({ success: true, label: 'Estimate', estimate: price, low: Math.round(price * 0.95 / 10) * 10, high: Math.round(price * 1.15 / 10) * 10, sections: e.sections, totalFootage: e.totalFootage })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    if (isNotQuotable(err)) { res.status(400).json({ success: false, notQuotable: true, error: NOT_QUOTABLE_MESSAGE }); return }
     if (err instanceof Error && /Unknown fence style/.test(err.message)) { res.status(400).json({ success: false, error: 'That fence style is not offered' }); return }
     console.error('[widget] estimate error:', err)
     res.status(500).json({ success: false, error: 'Could not work out the estimate' })
@@ -156,6 +160,7 @@ api.post('/submit', submitLimiter, async (req, res) => {
     res.status(r.duplicate ? 200 : 201).json({ success: true, estimate: r.price })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    if (isNotQuotable(err)) { res.status(400).json({ success: false, notQuotable: true, error: NOT_QUOTABLE_MESSAGE }); return }
     if (err instanceof Error && /Unknown fence style/.test(err.message)) { res.status(400).json({ success: false, error: 'That fence style is not offered' }); return }
     console.error('[widget] submit error:', err)
     res.status(500).json({ success: false, error: 'Your quote did not send. Please try again, or call us.' })

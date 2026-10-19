@@ -21,6 +21,7 @@ import {
   type TierSet, type TierSpec, type TierInstall, type TierWidth, type TierColor,
 } from './tiers'
 import { optionLabel } from './proposal'
+import { isQuotable } from './styleAvailability'
 
 const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const inputCls = 'w-full border border-gray-300 rounded-lg px-3 h-11 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400'
@@ -63,7 +64,7 @@ export default function TierSettings() {
 
   const categories = useMemo(() => [...new Set(cfg.fenceStyles.map(s => s.category).filter(Boolean))], [cfg])
   const freeCats = categories.filter(c => !ordered.some(s => s.category.toLowerCase() === String(c).toLowerCase()))
-  const catStyles = useMemo(() => (draft ? cfg.fenceStyles.filter(s => s.isActive !== false && s.category.toLowerCase() === draft.category.toLowerCase()) : []), [cfg, draft?.category])  // eslint-disable-line react-hooks/exhaustive-deps
+  const catStyles = useMemo(() => (draft ? cfg.fenceStyles.filter(s => isQuotable(s) && s.category.toLowerCase() === draft.category.toLowerCase()) : []), [cfg, draft?.category])  // eslint-disable-line react-hooks/exhaustive-deps
   const choices = useMemo(() => choicesFor(catStyles), [catStyles])
 
   // Preview: a sample yard and a sample style from this category.

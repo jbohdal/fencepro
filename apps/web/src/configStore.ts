@@ -36,6 +36,11 @@ export interface FenceStyle {
   /** Customer price per foot for this style, used when a quote is priced
    *  per foot instead of from cost. */
   pricePerFoot?: number
+  /** Available for quoting (default true). Off: the style is not offered in
+   *  the quote builder, Good Better Best, Compare options, the website widget
+   *  or the phone and chat estimates; quotes already saved on it keep working.
+   *  See styleAvailability.ts. */
+  quotable?: boolean
 }
 
 export interface PricingConfig {

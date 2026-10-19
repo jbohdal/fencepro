@@ -2,9 +2,12 @@
 //
 //   E2E_ACCESS_TOKEN=<dev staff token> SHOTS=<folder, optional> node e2e/fill-in.mjs
 //
-// Dev only (4001). Types a price, adds a part to a commercial chain link walk
-// gate, starts a Durafence parts list with a new part, saves each, and checks
-// Inventory, the kits and a quote's material. Puts Inventory back after.
+// Dev only (4001). While commercial and industrial styles are not available
+// for quoting, their gate parts and the Durafence list are left out. Then it
+// turns CL - Com 6' and Durafence back on for quoting, adds a part to a
+// commercial chain link walk gate, starts a Durafence parts list with a new
+// part, saves each, and checks Inventory, the kits and a quote's material.
+// Puts Inventory and the styles back after.
 import { chromium } from 'playwright'
 const API = 'http://localhost:4001', TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
@@ -16,10 +19,40 @@ const api = async (p, init) => (await call(p, init)).data
 const before = await api('/api/inventory-state')
 const put = async (items, kits) => { const cur = await api('/api/inventory-state'); const { bundles, locations, stockLevels, transactions } = cur; return call('/api/inventory-state', { method: 'PUT', body: JSON.stringify({ items, bundles, locations, stockLevels, transactions, kits, baseVersion: cur.version }) }) }
 const estimate = async (fenceStyle, walkGates = 0) => (await call('/api/quotes/calculate', { method: 'POST', body: JSON.stringify({ fenceStyle, runs: [100], corners: 0, ends: 2, walkGates, dblGates: 0, tearOutSections: 0, tearOutGates: 0, adjLaborHrs: 0 }) }))
+const bsGet = () => api('/api/business-state')
+const setQuotable = async (names, on) => {
+  for (let i = 0; i < 5; i++) {
+    const bs = await bsGet()
+    const fenceStyles = bs.config.fenceStyles.map(s => names.includes(s.name) ? { ...s, quotable: typeof on === 'function' ? on(s.name) : on } : s)
+    const r = await call('/api/business-state', { method: 'PATCH', body: JSON.stringify({ config: { ...bs.config, fenceStyles }, baseVersion: bs.version }) })
+    if (r.success) return r
+  }
+  throw new Error('could not save the styles')
+}
+const HELD = ["CL - Com 6'", "CL - Com 6'+1'", "CL - Com 6'+1' Black", 'Alum - DS - Ind Abigail', 'Durafence']
+const heldBefore = Object.fromEntries((await bsGet()).config.fenceStyles.filter(s => HELD.includes(s.name)).map(s => [s.name, s.quotable]))
 const b = await chromium.launch()
 try {
+  // On hold: no gate parts or Durafence list, on the screen or on the Finish setup card.
+  await setQuotable(HELD, false)
+  const heldSetup = (await api('/api/system/setup')).find(i => i.key === 'fill-in')
+  check('on hold: Finish setup "Fill in" leaves out commercial gate parts and Durafence', !!heldSetup && !/gate parts|Durafence/.test(heldSetup.detail.split('.')[0]), heldSetup?.detail)
+  {
+    const c0 = await b.newContext({ viewport: { width: 1280, height: 900 } })
+    await c0.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
+    const p0 = await c0.newPage()
+    await p0.goto(`${API}/inventory?tab=fillin`); await p0.waitForSelector('[data-fill-in]', { timeout: 60000 }); await sleep(800)
+    check('on hold: Fill in has no gate parts and no Durafence section', await p0.locator('[data-fill-gates], [data-fill-durafence]').count() === 0)
+    const usedBy = await p0.locator('[data-fill-price-row]').allInnerTexts()
+    const onlyHeld = usedBy.filter(t => /Used by /.test(t)).filter(t => t.split('Used by ')[1].trim().split(', ').every(n => HELD.includes(n.trim())))
+    check('on hold: no part listed that only an on hold style uses', onlyHeld.length === 0, onlyHeld.join(' | '))
+    await c0.close()
+  }
+  await setQuotable(["CL - Com 6'", 'Durafence'], true)
+  // The server reads Settings again every few seconds.
+  for (let i = 0; i < 15 && !(await estimate("CL - Com 6'")).success; i++) await sleep(1000)
   const setupBefore = (await api('/api/system/setup')).find(i => i.key === 'fill-in')
-  check('Finish setup lists "Fill in Inventory" with what is left', !!setupBefore && !setupBefore.done && /prices at \$0/.test(setupBefore.detail) && /Durafence/.test(setupBefore.detail), setupBefore?.detail)
+  check('turned back on: Finish setup lists "Fill in Inventory" with what is left', !!setupBefore && !setupBefore.done && /prices at \$0/.test(setupBefore.detail) && /Durafence/.test(setupBefore.detail), setupBefore?.detail)
   const zeroBefore = before.items.filter(i => i.status !== 'inactive' && i.status !== 'discontinued' && !(i.unitCost > 0))
   const gateBefore = await estimate("CL - Com 6'", 1), plainBefore = await estimate("CL - Com 6'")
 
@@ -71,6 +104,7 @@ try {
 } finally {
   const r = await put(before.items, before.kits ?? [])
   check('Inventory put back as it was', !!r?.success)
+  await setQuotable(HELD, n => heldBefore[n]).catch(e => check('styles put back', false, String(e)))
   await b.close()
 }
 const failed = results.filter(r => !r).length

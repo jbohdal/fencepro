@@ -13,6 +13,7 @@ import { priceOption, optionLabel, type ProposalOption } from './proposal'
 import { sectionWidthForStyle } from './materialCalculator'
 import { deriveLayout, layoutForShape, type YardLayout } from './yardLayout'
 import type { QuoteCalcInput, QuoteStyle } from './quoteCalc'
+import { isQuotable } from './styleAvailability'
 
 export type TierKey = string
 export type TierInstall = 'same' | 'no-dig' | 'dig-set'
@@ -125,15 +126,18 @@ export interface ResolvedTier {
   sameAs?: string
 }
 
-type Active<S> = S & { isActive?: boolean }
+type Active<S> = S & { isActive?: boolean; quotable?: boolean }
 
 /** The style a tier stands for on a quote of `own`, or why there is none. */
-export function tierStyles<S extends QuoteStyle & { isActive?: boolean }>(spec: TierSpec, own: QuoteStyle, styles: Active<S>[]):
+export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable?: boolean }>(spec: TierSpec, own: QuoteStyle, styles: Active<S>[]):
   { styles: S[]; pickCheaper: boolean } | { reason: string } {
-  const active = styles.filter(s => s.isActive !== false)
+  // Only styles that are turned on and available for quoting (commercial and industrial are on hold).
+  const active = styles.filter(isQuotable)
   if (spec.style) {
     const s = active.find(x => x.name === spec.style)
-    return s ? { styles: [s], pickCheaper: false } : { reason: `The style ${spec.style} is not turned on in Settings → Fence Styles.` }
+    if (s) return { styles: [s], pickCheaper: false }
+    const held = styles.find(x => x.name === spec.style && x.isActive !== false)
+    return { reason: held ? `The style ${spec.style} is not available for quoting (Settings → Fence Styles).` : `The style ${spec.style} is not turned on in Settings → Fence Styles.` }
   }
   const p = styleParts(own.name)
   if (!p) return { reason: `This quote's style (${own.name}) is not one tiers can be built from. Pick a specific style for this tier in Settings → Good Better Best.` }
@@ -160,7 +164,7 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean }>(spec: 
   return { styles: found, pickCheaper: width === 'any' }
 }
 
-export function resolveTiers<S extends QuoteStyle & { isActive?: boolean }>(
+export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotable?: boolean }>(
   input: QuoteCalcInput, styles: Active<S>[], set: Pick<TierSet, 'category' | 'tiers' | 'popular'> | null | undefined,
   prefs: TierPrefs = { off: [], swap: {} },
 ): ResolvedTier[] {
@@ -172,7 +176,7 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean }>(
     // The price this tier adds on, through the quote's own Price adjust.
     const tierInput: QuoteCalcInput = { ...input, priceAdjust: (input.priceAdjust || 0) + (Number(spec.priceAdjustPct) || 0) / 100 }
     const swapName = prefs.swap[spec.key]
-    const swapStyle = swapName ? styles.find(s => s.name === swapName) : undefined
+    const swapStyle = swapName ? styles.find(s => s.name === swapName && isQuotable(s)) : undefined
     if (swapStyle) {
       out.push({ ...base, swapped: true, style: swapStyle, option: priceOption(tierInput, swapStyle) })
       continue

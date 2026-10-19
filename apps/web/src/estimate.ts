@@ -12,6 +12,9 @@ import { calculateQuote, type QuoteCalc } from './quoteCalc'
 import { setMaterialPriceSource, inventoryPriceSource, type LineItem } from './materialCalculator'
 import { setSavedKitSets, type KitSet } from './materialKits'
 import type { AppConfig, FenceStyle } from './configStore'
+import { isQuotable, isOnHold, NOT_QUOTABLE_MESSAGE } from './styleAvailability'
+
+export { NOT_QUOTABLE_MESSAGE }
 
 export interface EstimateData {
   /** The saved Settings (business state config), as stored. */
@@ -66,14 +69,29 @@ export function estimateConfig(saved: Partial<AppConfig> | null): AppConfig {
   return withTargetMargins(merged, typeof live === 'number' ? live : typedOverheadPct(merged))
 }
 
-/** Active styles a customer can ask about. */
+/** Styles a customer can ask about: turned on and available for quoting. */
 export function estimateStyles(saved: Partial<AppConfig> | null): FenceStyle[] {
-  return estimateConfig(saved).fenceStyles.filter(s => s.isActive !== false)
+  return estimateConfig(saved).fenceStyles.filter(isQuotable)
+}
+
+/** Styles turned on but not available for quoting (commercial and industrial, on hold), and the phone to call instead. */
+export function onHoldStyles(saved: Partial<AppConfig> | null): { styles: Array<{ name: string; category: string }>; phone: string } {
+  const cfg = estimateConfig(saved)
+  return { styles: cfg.fenceStyles.filter(isOnHold).map(s => ({ name: s.name, category: s.category })), phone: cfg.company?.phone || '' }
+}
+
+/** Thrown for a style that is not available for quoting: the message is what the customer is told. */
+export class NotQuotableError extends Error {
+  readonly code = 'not_quotable'
+  readonly fenceStyle: string
+  constructor(fenceStyle: string) { super(NOT_QUOTABLE_MESSAGE); this.fenceStyle = fenceStyle }
 }
 
 export function estimate(data: EstimateData, job: EstimateJob): Estimate {
   const cfg = estimateConfig(data.config)
-  const style = cfg.fenceStyles.find(s => s.name === job.fenceStyle && s.isActive !== false)
+  const named = cfg.fenceStyles.find(s => s.name === job.fenceStyle && s.isActive !== false)
+  if (named && !isQuotable(named)) throw new NotQuotableError(named.name)
+  const style = named
   if (!style) throw new Error(`Unknown fence style: ${job.fenceStyle}`)
   setMaterialPriceSource(data.inventory.length ? inventoryPriceSource(data.inventory) : null)
   setSavedKitSets(() => data.kits)

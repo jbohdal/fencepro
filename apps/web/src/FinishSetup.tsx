@@ -95,7 +95,7 @@ export default function FinishSetup() {
               {!i.done && (i.link || i.answer) && (
                 <div className="flex flex-wrap gap-2 mt-1.5">
                   {i.answer?.map(a => <button key={a.value} type="button" className="btn btn-secondary btn-sm" onClick={() => answer(i.key, a.value)} data-setup-answer={a.value}>{a.label}</button>)}
-                  {i.link && <button type="button" className="btn btn-quiet btn-sm" onClick={() => navigate(i.link!)}>Open</button>}
+                  {i.link && <button type="button" className="btn btn-quiet btn-sm" onClick={() => navigate(i.link!)} data-setup-open={i.link}>Open</button>}
                 </div>
               )}
             </div>

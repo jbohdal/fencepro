@@ -91,7 +91,7 @@ export default function CalendarSyncSettings() {
 
   const btn = 'text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50'
   return (
-    <div className="space-y-5 max-w-2xl">
+    <div className="space-y-5 max-w-2xl" data-calendar-settings>
       <div>
         <h3 className="text-base font-bold text-gray-900">Google Calendar</h3>
         <p className="text-sm text-gray-500 mt-1">

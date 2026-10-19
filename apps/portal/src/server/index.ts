@@ -67,6 +67,7 @@ import { startMediaShrink } from './lib/mediaShrink.js'
 import { startAddressRefresh } from './lib/addressIndex.js'
 import { startDuplicateCheck } from './lib/duplicateCheck.js'
 import { startAutomationWorker } from './lib/automations/queue.js'
+import { ensureStylesOnHoldAll } from './lib/stylesOnHold.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
 import quoteWidget from './routes/quote-widget.js'
 import systemRoutes from './routes/system.js'
@@ -343,6 +344,8 @@ if (!isVercel) {
     try { startAddressRefresh() } catch (err) { console.error('[addresses] could not start:', err) }
     try { startDuplicateCheck() } catch (err) { console.error('[duplicates] could not start:', err) }
     try { startAutomationWorker() } catch (err) { console.error('[automations] worker could not start:', err) }
+    // Commercial and industrial styles not available for quoting: once per company (lib/stylesOnHold.ts).
+    ensureStylesOnHoldAll().catch(err => console.error('[styles] on hold check failed:', err))
     try { startMediaShrink() } catch (err) {
       console.warn('[startup] media shrink failed to start:', (err as Error).message)
     }

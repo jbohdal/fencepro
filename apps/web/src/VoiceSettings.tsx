@@ -119,7 +119,7 @@ export default function VoiceSettings({ config, onChange }: { config: AppConfig;
         <p className="text-xs text-gray-500 mt-2">Sides for practice: {PRACTICE_SIDES.join(', ')}. On a quote it uses that quote's sides.</p>
       </div>
 
-      <div>
+      <div data-settings-focus="voice-check" className="scroll-mt-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-1">Voice check</h3>
         <p className="text-sm text-gray-600 mb-2">Run this on each phone, in the browser and from the home screen icon. It saves what works on that phone.</p>
         <button type="button" className="btn btn-primary" onClick={runCheck} data-voice-check>Run voice check on this device</button>
