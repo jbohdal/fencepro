@@ -12,8 +12,9 @@
  * Starting sets use only styles that exist in Settings → Fence Styles:
  *   Vinyl     Good dig set, Better no dig (Most popular), Best no dig all 6 ft
  *             wide; color always the quote's own.
- *   Chainlink Good galvanized, Better black (the CL - H' Galv / Black styles).
- *   Aluminum  Good dig set, Better no dig (the Alum - DS / ND - <model> pairs).
+ *   Chainlink Two options (Oct 2026): Dig set with concrete, No dig (Most
+ *             popular). The dig set one shows once its prices are in.
+ *   Aluminum  Two options: Dig set with concrete, No dig (Most popular).
  * A category whose styles are not there starts empty, and Settings asks for
  * tiers to be added.
  *
@@ -53,14 +54,17 @@ export const VINYL_STARTER: TierSpec[] = [
   { key: 'better', name: 'Better', install: 'no-dig', width: 'cheapest', color: 'same', text: 'Steel pipe driven deep, no concrete, faster install.' },
   { key: 'best', name: 'Best', install: 'no-dig', width: '6', color: 'same', text: 'More posts per foot for the strongest fence we build.' },
 ]
-const CHAIN_STARTER: TierSpec[] = [
-  { key: 'good', name: 'Good', install: 'same', width: 'same', color: 'galv', text: 'Galvanized steel chain link.' },
-  { key: 'better', name: 'Better', install: 'same', width: 'same', color: 'black', text: 'Black chain link: blends into the yard.' },
+/** Aluminum and chain link show two options, not Good Better Best (Jonathan, Oct 2026). */
+export const CHAIN_STARTER: TierSpec[] = [
+  { key: 'good', name: 'Dig set with concrete', install: 'dig-set', width: 'same', color: 'same', text: 'Posts set in concrete.' },
+  { key: 'better', name: 'No dig', install: 'no-dig', width: 'same', color: 'same', text: 'Thick Schedule 40 steel pipe, no concrete.' },
 ]
-const ALUM_STARTER: TierSpec[] = [
-  { key: 'good', name: 'Good', install: 'dig-set', width: 'same', color: 'same', text: 'Posts set in concrete. Solid fence at the best price.' },
-  { key: 'better', name: 'Better', install: 'no-dig', width: 'same', color: 'same', text: 'Steel pipe driven deep, faster install.' },
+export const ALUM_STARTER: TierSpec[] = [
+  { key: 'good', name: 'Dig set with concrete', install: 'dig-set', width: 'same', color: 'same', text: 'Standard aluminum post set in concrete.' },
+  { key: 'better', name: 'No dig', install: 'no-dig', width: 'same', color: 'same', text: 'Aluminum post with a steel I beam insert inside, no concrete.' },
 ]
+/** The tier marked Most popular in the two option sets: No dig. */
+export const TWO_OPTION_POPULAR = 'better'
 
 /** The lineup before tier sets (web tiers.ts DEFAULT_TIERS as of Oct 2026). */
 const OLD_DEFAULTS: Record<string, { label: string; color: string; install: string; blurb: string }> = {
@@ -99,9 +103,7 @@ export function startersFor(config: unknown): Starter[] {
 
   const vinyl = vinylFromOldSettings(cfg.proposal)
 
-  const chainHeights = (color: string) => new Set(named.map(s => s.name.match(new RegExp(`^CL - (\\d+)' ${color}$`))?.[1]).filter(Boolean))
-  const galv = chainHeights('Galv'), black = chainHeights('Black')
-  const chainOk = [...galv].some(h => black.has(h))
+  const chainOk = named.some(s => /^CL - \d+' (Galv|Black)$/.test(s.name))
 
   const alumModels = (m: string) => new Set(named.map(s => s.name.match(new RegExp(`^Alum - ${m} - (.+)$`))?.[1]).filter(Boolean))
   const nd = alumModels('ND'), ds = alumModels('DS')
@@ -109,8 +111,8 @@ export function startersFor(config: unknown): Starter[] {
 
   return [
     { key: 'vinyl', category: catOf(/^(WV|TV)-/, 'Vinyl'), tiers: vinyl.tiers, popular: vinyl.popular, sortOrder: 0 },
-    { key: 'chainlink', category: catOf(/^CL - \d+' (Galv|Black)$/, 'Chainlink'), tiers: chainOk ? CHAIN_STARTER : [], popular: null, sortOrder: 1 },
-    { key: 'aluminum', category: catOf(/^Alum - (ND|DS) - /, 'Aluminum'), tiers: alumOk ? ALUM_STARTER : [], popular: null, sortOrder: 2 },
+    { key: 'chainlink', category: catOf(/^CL - \d+' (Galv|Black)$/, 'Chainlink'), tiers: chainOk ? CHAIN_STARTER : [], popular: chainOk ? TWO_OPTION_POPULAR : null, sortOrder: 1 },
+    { key: 'aluminum', category: catOf(/^Alum - (ND|DS) - /, 'Aluminum'), tiers: alumOk ? ALUM_STARTER : [], popular: alumOk ? TWO_OPTION_POPULAR : null, sortOrder: 2 },
   ]
 }
 

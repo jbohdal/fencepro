@@ -77,6 +77,14 @@ export interface SpecInputs {
   appointments: AppointmentRow[]
   /** The usual person on appointments; others get their name in the title. */
   defaultPerson?: string
+  /** A style's plain name by its internal name ("WV-ND 6'x8' Privacy" → "White Vinyl Privacy, ..."). */
+  styleLabel?: (name: string) => string
+  /**
+   * Titles use the plain style name for events that start on or after this
+   * instant (ISO). Events that started earlier keep the old code they were
+   * sent with, so a past event is never changed by the switch. Unset: codes.
+   */
+  plainTitlesFrom?: string | null
 }
 
 // Same stage groups as the web app's pipelineValue.ts.
@@ -126,8 +134,20 @@ const gates = (walk: number, dbl: number) => {
   return bits.length ? bits.join(', ') : null
 }
 
+/** True when an event starts on or after `fromIso`: all day events by their Florida date, timed ones by the instant. */
+export function startsFrom(e: Pick<CalendarEventSpec, 'startDate' | 'startAt'>, fromIso: string): boolean {
+  if (e.startAt) return e.startAt >= new Date(fromIso).toISOString()
+  return !!e.startDate && e.startDate >= florida(new Date(fromIso))
+}
+
 export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
   const out: CalendarEventSpec[] = []
+  // The style as the title shows it: the plain name for events from the switch on.
+  const titleStyle = (style: string, startDate: string) => {
+    const from = inp.plainTitlesFrom
+    if (!style || !inp.styleLabel || !from || !startsFrom({ startDate }, from)) return style
+    return inp.styleLabel(style.trim()) || style
+  }
   const link = (customerId?: string | null) => (customerId ? `${inp.baseUrl}/?customer=${encodeURIComponent(customerId)}` : null)
   const crewName = (id: string) => inp.crews.find(c => c.id === id)?.name || id
   const jobsById = new Map(inp.jobs.map(j => [j.id, j]))
@@ -152,8 +172,8 @@ export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
       const job = first.stagingJobId ? jobsById.get(first.stagingJobId) : undefined
       if (job) jobsOnBoard.add(job.id)
       const rain = run.every(r => r.status === 'RainDay' || r.status === 'Rain Day')
-      const title = job ? installTitle(job.customerName, job.fenceStyle || first.fenceType, job.sections || first.sections)
-                        : installTitle(first.clientName, first.fenceType, first.sections)
+      const title = job ? installTitle(job.customerName, titleStyle(job.fenceStyle || first.fenceType, first.date), job.sections || first.sections)
+                        : installTitle(first.clientName, titleStyle(first.fenceType, first.date), first.sections)
       const notes = [...new Set(run.map(r => r.notes?.trim()).filter(Boolean))].join(' / ') || (job?.notes ?? '')
       out.push({
         source: 'grid', recordId: first.id,
@@ -192,7 +212,7 @@ export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
       ? j.scheduledEndDate : lastWorkday(j.scheduledDate, j.estimatedDays || 1, inp.workDays)
     out.push({
       source: 'job', recordId: j.id,
-      summary: installTitle(j.customerName, j.fenceStyle, j.sections),
+      summary: installTitle(j.customerName, titleStyle(j.fenceStyle, j.scheduledDate), j.sections),
       location: j.customerAddress || '',
       description: describe([
         ['Phone', j.customerPhone],
@@ -222,7 +242,7 @@ export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
       out.push({ source: 'lead', recordId: l.id, summary: `Estimate: ${name || 'Unknown'}`, description: describe(details, l.notes, link(l.customerId)), ...common })
       if (l.customerId) (estimateByCustomer.get(l.customerId) ?? estimateByCustomer.set(l.customerId, new Set()).get(l.customerId)!).add(l.scheduledDate)
     } else if (PRODUCTION.has(l.stage) && !(l.customerId && customersWithInstall.has(l.customerId))) {
-      out.push({ source: 'lead', recordId: l.id, summary: installTitle(name, l.fenceType || '', l.sections || 0), description: describe(details, l.notes, link(l.customerId)), ...common })
+      out.push({ source: 'lead', recordId: l.id, summary: installTitle(name, titleStyle(l.fenceType || '', l.scheduledDate), l.sections || 0), description: describe(details, l.notes, link(l.customerId)), ...common })
     }
   }
 

@@ -65,13 +65,14 @@ function fromApi(r: SavedQuoteRecord): SavedQuote {
     hasSalesman: r.hasSalesman,
     priceAdjust: r.priceAdjust,
     sections: r.sections,
-    materialCost: r.materialCost,
-    laborCost: r.laborCost,
-    tearOutCost: r.tearOutCost,
-    totalCOGS: r.totalCOGS,
+    // A Salesman's or Installer's copy comes without costs (prices only): those read as 0.
+    materialCost: r.materialCost ?? 0,
+    laborCost: r.laborCost ?? 0,
+    tearOutCost: r.tearOutCost ?? 0,
+    totalCOGS: r.totalCOGS ?? 0,
     finalPrice: r.finalPrice,
-    gmPct: r.gmPct,
-    pullSheet: Array.isArray(r.pullSheet) ? r.pullSheet : [],
+    gmPct: r.gmPct ?? 0,
+    pullSheet: Array.isArray(r.pullSheet) ? r.pullSheet.map(l => ({ ...l, unitCost: l.unitCost ?? 0, total: l.total ?? 0 })) : [],
     status: r.status,
     date: r.date,
     notes: r.notes,
@@ -118,6 +119,8 @@ function toApiPayload(q: Partial<SavedQuote>): SavedQuotePayload {
     leadTemp: q.leadTemp ?? 0,
     pricing: q.pricing ?? null,
     work: q.work ?? null,
+    // A Salesman's or Installer's save: the quote builder's inputs, so the server works out the costs.
+    ...(q.priceRequest ? { priceRequest: q.priceRequest } : {}),
   }
 }
 
@@ -220,6 +223,7 @@ export function upsertQuote(partial: Partial<SavedQuote> & { fenceStyle?: string
     leadTemp: partial.leadTemp ?? 0,
     pricing: partial.pricing,
     work: partial.work,
+    ...(partial.priceRequest ? { priceRequest: partial.priceRequest } : {}),
   }
   cache = [fresh, ...cache]
   emit()

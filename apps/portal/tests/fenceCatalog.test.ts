@@ -23,7 +23,8 @@ import {
 } from '../../web/src/fenceCatalog'
 import { DEFAULT_FENCE_STYLES } from '../../web/src/configDefaults'
 import { estimateConfig, estimateStyles } from '../../web/src/estimate'
-import { calculateQuote, type QuoteCalcInput } from '../../web/src/quoteCalc'
+import { calculateQuote, widthComparison, type QuoteCalcInput } from '../../web/src/quoteCalc'
+import { compareStyles, priceOption } from '../../web/src/proposal'
 import { setMaterialPriceSource, inventoryPriceSource, normalizeItemName } from '../../web/src/materialCalculator'
 import { setSavedKitSets } from '../../web/src/materialKits'
 import { isQuotable } from '../../web/src/styleAvailability'
@@ -79,10 +80,10 @@ describe('choices and plain names for the old codes', () => {
   })
   test('the names Jonathan asked for', () => {
     expect(styleLabel("WV-ND 6'x8' Privacy")).toBe('White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
-    expect(styleLabel("CL - 4' Black")).toBe('Black Chain Link, 4 ft, Residential')
+    expect(styleLabel("CL - 4' Black")).toBe('Black Chain Link, 4 ft, Residential, No dig')
     expect(styleLabel('WV-Auto DS Privacy')).toBe('White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), Dig set')
     expect(styleLabel("WV-ND 8'x6' Privacy")).toBe('White Vinyl Privacy, 8 ft tall, 6 ft panels, No dig')
-    expect(styleLabel("CL - Com 6'+1' Black")).toBe('Black Chain Link, 6 ft + 1 ft barbed wire, Commercial')
+    expect(styleLabel("CL - Com 6'+1' Black")).toBe('Black Chain Link, 6 ft + 1 ft barbed wire, Commercial, No dig')
     expect(styleLabel('Alum - DS - Ind Abigail')).toBe('Aluminum Industrial Abigail, 6 ft tall, Dig set')
     expect(styleLabel('Durafence')).toBe('Durafence')
     // Old imported text that is not a style stays as it is.
@@ -262,6 +263,34 @@ describe('the rest of the app follows the color', () => {
     ] }
     const t = resolveTiers(job(clay, cfg), cfg.fenceStyles, set)
     expect(t.map(x => x.style?.name)).toEqual(['vinyl/privacy/6/testclay/ds/8', "WV-ND 6'x8' Privacy"])
+  })
+  test('Compare options and the 6 ft vs 8 ft line include a color added in Settings, against White Vinyl on the same yard; removing it leaves nothing', () => {
+    const s0 = fresh()
+    const covers = defaultCovers(piecePartChoices(s0, ADD))
+    const st = planAddColor(s0, { ...ADD, pricing: 'piece', jobLot: LOT(covers) }).state
+    const cfg = use(st)
+    const white8 = cfg.fenceStyles.find(s => s.name === "WV-ND 6'x8' Privacy")!
+    const clay8 = cfg.fenceStyles.find(s => s.name === 'vinyl/privacy/6/testclay/nd/8')!
+    const clay6 = cfg.fenceStyles.find(s => s.name === 'vinyl/privacy/6/testclay/nd/6')!
+    expect(isQuotable(clay8)).toBe(true)
+    // Quoting White: Testclay is offered next to it, priced on the same yard the way the quote prices it.
+    const fromWhite = compareStyles(white8, cfg.fenceStyles)
+    expect(fromWhite.map(s => s.name)).toContain(clay8.name)
+    const priced = Object.fromEntries(fromWhite.map(s => [s.name, priceOption(job(white8, cfg), s).finalPrice]))
+    expect(priced[clay8.name]).toBe(calculateQuote({ ...job(clay8, cfg), overrides: {} }).priced.price)
+    expect(priced[white8.name]).toBe(calculateQuote(job(white8, cfg)).priced.price)
+    expect(priced[clay8.name]).not.toBe(priced[white8.name])
+    // Quoting Testclay: White is offered, and the 6 vs 8 ft line uses Testclay's own 6 and 8 ft fences.
+    expect(compareStyles(clay8, cfg.fenceStyles).map(s => s.name)).toContain(white8.name)
+    const w = widthComparison(job(clay8, cfg), cfg.fenceStyles)!
+    expect(w).toEqual({ at6: calculateQuote(job(clay6, cfg)).priced.price, at8: calculateQuote(job(clay8, cfg)).priced.price })
+    // White's own 6 vs 8 ft line is unchanged by the new color.
+    expect(widthComparison(job(white8, cfg), cfg.fenceStyles)).toEqual(widthComparison(job(white8, use(s0)), use(s0).fenceStyles))
+    // Remove it: Compare options are back to what they were.
+    const gone = planRemoveOption(st, 'vinyl', 'color', 'testclay', new Set()).state
+    expect(gone).toEqual(s0)
+    const back = use(gone)
+    expect(compareStyles(back.fenceStyles.find(s => s.name === white8.name)!, back.fenceStyles).map(s => s.name).some(n => /testclay/.test(n))).toBe(false)
   })
   test('the website widget offers the color once it can be quoted', () => {
     const s0 = fresh()

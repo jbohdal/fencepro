@@ -56,6 +56,7 @@ interface EstimateModule {
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }
   styleLabels(config: unknown, data?: unknown): Record<string, string>
   planWood(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean }
+  planChainDigSet(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean; concrete: Array<{ kit: string; part: string; qty: number }> }
 }
 
 /**

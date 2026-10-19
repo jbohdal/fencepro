@@ -26,6 +26,7 @@ import { toast } from './toast'
 import { getQuotes } from './quoteStore'
 import { getJobs } from './jobStore'
 import { getCustomerById } from './customerStore'
+import { formatPhone, telHref } from './phoneFormat'
 import { leadValue, pipelineMetrics } from './pipelineValue'
 import { useMergedRefresh } from './useMergedRefresh'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
@@ -754,6 +755,8 @@ function PipelineCard({
   const hex = stageHexFromTailwind(lead.stage)
   const initials = `${(lead.firstName?.[0] || '').toUpperCase()}${(lead.lastName?.[0] || '').toUpperCase()}`
   const city = (lead.address || '').split(',').slice(-2)[0]?.trim() || lead.address || ''
+  // The card's own phone, else the linked customer's (already loaded; no request per card).
+  const phone = (lead.phone || (lead.customerId ? getCustomerById(lead.customerId)?.phone : '') || '').trim()
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
@@ -771,6 +774,23 @@ function PipelineCard({
       <p className="text-xs text-gray-500 truncate">
         {city}{lead.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{styleLabel(lead.fenceType)}</span></> : null}
       </p>
+      {phone && (
+        // Tapping calls without opening the card. A press held on it still
+        // picks the card up: the board's drag listens to mouse and touch
+        // down, which are left to reach it; draggable={false} stops the
+        // browser dragging the link itself. Padding with matching negative
+        // margins makes it easy to hit without making the card taller.
+        <a
+          href={telHref(phone)}
+          draggable={false}
+          onClick={e => e.stopPropagation()}
+          onPointerDown={e => e.stopPropagation()}
+          className="flex w-fit items-center py-2 -my-1.5 text-xs font-medium text-blue-600 hover:underline [-webkit-touch-callout:none]"
+          style={{ minHeight: 0, minWidth: 0 }}
+          aria-label={`Call ${formatPhone(phone)}`}
+          data-card-phone
+        >{formatPhone(phone)}</a>
+      )}
       <div className="flex items-center gap-1.5 mt-2 text-[11px] text-gray-500">
         <span className="inline-flex w-5 h-5 rounded-full bg-orange-100 text-orange-700 items-center justify-center text-[9px] font-bold">{initials || '·'}</span>
         <span className="truncate">{lead.assignedRep || '—'}</span>

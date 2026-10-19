@@ -160,8 +160,17 @@ describe('other settings on a tier', () => {
     expect(up).toBeGreaterThan(plain)
   })
 
-  test('chain link: galvanized and black of the same height', () => {
-    const set: TierSet = { id: 'c', category: 'Chainlink', popular: null, sortOrder: 1, version: 1, tiers: startersFor({ fenceStyles: STYLES }).find(s => s.key === 'chainlink')!.tiers }
+  test('chain link: two options, dig set (none until it is added and priced) and no dig', () => {
+    const set: TierSet = { id: 'c', category: 'Chainlink', popular: 'better', sortOrder: 1, version: 1, tiers: startersFor({ fenceStyles: STYLES }).find(s => s.key === 'chainlink')!.tiers }
+    const t = resolveTiers(input(byName("CL - 4' Galv")), STYLES, set)
+    expect(t.map(x => x.style?.name ?? null)).toEqual([null, "CL - 4' Galv"])
+    expect(t[1].popular).toBe(true)
+  })
+  test('chain link: a tier set to another finish still gives galvanized and black of the same height', () => {
+    const set: TierSet = { id: 'c', category: 'Chainlink', popular: null, sortOrder: 1, version: 1, tiers: [
+      { key: 'good', name: 'Good', install: 'same', width: 'same', color: 'galv', text: '' },
+      { key: 'better', name: 'Better', install: 'same', width: 'same', color: 'black', text: '' },
+    ] }
     expect(resolveTiers(input(byName("CL - 4' Galv")), STYLES, set).map(t => t.style!.name)).toEqual(["CL - 4' Galv", "CL - 4' Black"])
   })
 
@@ -196,7 +205,7 @@ describe('starting sets', () => {
   test('made from the styles in Settings; categories as Settings names them', () => {
     const s = startersFor({ fenceStyles: STYLES })
     expect(s.map(x => [x.key, x.category, x.tiers.length, x.popular])).toEqual([
-      ['vinyl', 'Vinyl', 3, 'better'], ['chainlink', 'Chainlink', 2, null], ['aluminum', 'Aluminum', 2, null],
+      ['vinyl', 'Vinyl', 3, 'better'], ['chainlink', 'Chainlink', 2, 'better'], ['aluminum', 'Aluminum', 2, 'better'],
     ])
     expect(s.every(x => tierSetBodySchema.safeParse({ tiers: x.tiers, popular: x.popular }).success)).toBe(true)
   })

@@ -13,7 +13,7 @@ import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from './quoteCal
 import type { LineItem } from './materialCalculator'
 import type { TierSet } from './tiers'
 import { isQuotable } from './styleAvailability'
-import { styleLabel } from './fenceCatalog'
+import { styleLabel, styleChoicesOf } from './fenceCatalog'
 import type { SavedWork, WorkResult } from './moveRepair'
 
 export interface ProposalSettings {
@@ -78,26 +78,39 @@ export interface QuoteProposal {
 
 // ── Which options make sense for a style ──────────────────────────────────────
 
-const VINYL = /^(WV|TV)-(ND|DS) ([68])'x([68])' Privacy$/
-const CHAIN = /^CL - (\d)' (Galv|Black)$/
-const EMILY = /^Alum - (ND|DS) - Emily - 48$/
+type Choosable = { name: string; material?: string; choices?: Record<string, string>; autoRailMix?: boolean }
+
+/**
+ * Which compare family a style is in, read from its choices (fenceCatalog.ts),
+ * so a color, finish or install added in Settings joins its family like the
+ * built in ones:
+ *   vinyl privacy, one panel width     same height, any color, install and width
+ *   vinyl privacy, auto mix            the 6 ft tall ones of one panel width
+ *   residential chain link             same height, any finish and install
+ *   aluminum                           same panel style and height
+ * For the old codes this is exactly the families they always had (WV/TV
+ * ND/DS 6'x6' to 8'x8' privacy, CL - 4/5/6' Galv/Black, Alum Emily 48).
+ */
+function familyOf(s: Choosable): { key: string; fixedWidth: boolean } | null {
+  const sc = styleChoicesOf(s)
+  if (!sc) return null
+  const c = sc.choices
+  if (sc.material === 'vinyl' && c.style === 'privacy') {
+    const auto = c.width === 'auto' || !!s.autoRailMix
+    return { key: `vinyl:${auto ? '6' : c.height}`, fixedWidth: !auto }
+  }
+  if (sc.material === 'chain' && c.grade === 'res') return { key: `chain:${c.height}`, fixedWidth: true }
+  if (sc.material === 'alum' && c.panel === 'emily') return { key: `alum:${c.panel}:${c.height}`, fixedWidth: true }
+  return null
+}
 
 /** The styles to compare with this one (itself first), from the active styles in Settings. */
 export function compareStyles<S extends QuoteStyle & { isActive?: boolean; quotable?: boolean }>(style: S, styles: S[]): S[] {
   // Styles turned on and available for quoting; the quote's own style always.
   const active = styles.filter(s => isQuotable(s) || s.name === style.name)
-  let family: S[] = []
-  if (style.autoRailMix) {
-    family = active.filter(s => { const m = s.name.match(VINYL); return !!m && m[3] === '6' })
-  } else if (VINYL.test(style.name)) {
-    const tall = style.name.match(VINYL)![3]
-    family = active.filter(s => { const m = s.name.match(VINYL); return !!m && m[3] === tall })
-  } else if (CHAIN.test(style.name)) {
-    const h = style.name.match(CHAIN)![1]
-    family = active.filter(s => { const m = s.name.match(CHAIN); return !!m && m[1] === h })
-  } else if (EMILY.test(style.name)) {
-    family = active.filter(s => EMILY.test(s.name))
-  }
+  const mine = familyOf(style as Choosable)
+  // Auto mix styles are compared with the fixed width ones, never with each other.
+  const family = mine ? active.filter(s => { const f = familyOf(s as Choosable); return !!f && f.fixedWidth && f.key === mine.key }) : []
   if (family.length === 0) return [style]
   return [style, ...family.filter(s => s.name !== style.name)]
 }

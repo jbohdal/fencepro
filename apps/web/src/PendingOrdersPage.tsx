@@ -13,6 +13,8 @@ import { can } from './permissions'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(c / 100)
+/** A cost, for the owner, admin, manager and office; a Salesman's or Installer's copy has none (—). */
+const costText = (c: number | undefined) => (can('costs.view') && typeof c === 'number' ? fmt(c) : '—')
 
 const STATUS_COLORS: Record<PendingOrderStatus, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
@@ -90,7 +92,7 @@ export default function PendingOrdersPage() {
                     </div>
                     <div className="text-right">
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[o.status]}`}>{o.status}</span>
-                      <p className="text-sm font-bold text-gray-900 mt-1">{fmt(o.totalCostCents)}</p>
+                      <p className="text-sm font-bold text-gray-900 mt-1">{costText(o.totalCostCents)}</p>
                     </div>
                   </div>
                 </button>
@@ -124,12 +126,12 @@ function OrderDetail({ order, onAdvance, onRemove }: {
   function printPullSheet() {
     const w = window.open('', '_blank')
     if (!w) return
-    const rows = order.items.map(i => `<tr><td>${i.itemName}</td><td class="r">${i.requiredQuantity}</td><td class="r">${fmt(i.unitCostCents)}</td><td class="r">${fmt(i.totalCostCents)}</td></tr>`).join('')
+    const rows = order.items.map(i => `<tr><td>${i.itemName}</td><td class="r">${i.requiredQuantity}</td><td class="r">${costText(i.unitCostCents)}</td><td class="r">${costText(i.totalCostCents)}</td></tr>`).join('')
     const html = `<!doctype html><html><head><title>Pull Sheet — ${order.customerName}</title>
 <style>body{font-family:-apple-system,Segoe UI,sans-serif;padding:32px;color:#1f2937}h1{margin:0;font-size:20px}h2{margin:4px 0 16px;font-size:12px;color:#6b7280}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f9fafb;padding:6px;font-size:9px;text-transform:uppercase;color:#6b7280;text-align:left;font-weight:700}td{padding:6px;border-bottom:1px solid #f3f4f6}td.r{text-align:right}tfoot td{font-weight:700;background:#f9fafb}</style></head><body>
 <h1>Pull Sheet — ${order.customerName}</h1><h2>${order.quoteName} · ${new Date(order.createdAt).toLocaleDateString()}</h2>
 <table><thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit Cost</th><th style="text-align:right">Total</th></tr></thead>
-<tbody>${rows}</tbody><tfoot><tr><td colspan="3">TOTAL</td><td class="r">${fmt(order.totalCostCents)}</td></tr></tfoot></table>
+<tbody>${rows}</tbody><tfoot><tr><td colspan="3">TOTAL</td><td class="r">${costText(order.totalCostCents)}</td></tr></tfoot></table>
 <script>window.print()</script></body></html>`
     w.document.write(html); w.document.close()
   }
@@ -179,15 +181,15 @@ function OrderDetail({ order, onAdvance, onRemove }: {
                     onChange={e => updatePendingOrderItem(order.id, i.id, { quantityReceived: Number(e.target.value) })}
                     className="w-16 border border-gray-200 rounded px-2 py-1 text-xs text-right" />
                 </td>
-                <td className="py-2 text-right text-gray-600">{fmt(i.unitCostCents)}</td>
-                <td className="py-2 text-right font-medium">{fmt(i.totalCostCents)}</td>
+                <td className="py-2 text-right text-gray-600">{costText(i.unitCostCents)}</td>
+                <td className="py-2 text-right font-medium">{costText(i.totalCostCents)}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr className="font-bold border-t border-gray-200">
               <td colSpan={4} className="py-2 text-right text-gray-700">Total</td>
-              <td className="py-2 text-right text-gray-900">{fmt(order.totalCostCents)}</td>
+              <td className="py-2 text-right text-gray-900">{costText(order.totalCostCents)}</td>
             </tr>
           </tfoot>
         </table>

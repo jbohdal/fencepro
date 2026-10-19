@@ -73,7 +73,8 @@ function DashboardTab() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Total Items', value: String(summary.totalItems), sub: `${Object.keys(summary.categoryCounts).length} categories`, color: 'text-blue-600' },
-          { label: 'Total Stock Value', value: fmt(summary.totalValue), sub: 'based on unit cost × qty', color: 'text-green-600' },
+          // Stock value is costs: the owner, admin, manager and office only.
+          ...(can('costs.view') ? [{ label: 'Total Stock Value', value: fmt(summary.totalValue), sub: 'based on unit cost × qty', color: 'text-green-600' }] : []),
           { label: 'Low Stock', value: String(summary.lowStockCount), sub: 'at or below reorder point', color: summary.lowStockCount > 0 ? 'text-red-500' : 'text-green-600' },
           { label: 'Out of Stock', value: String(summary.outOfStockCount), sub: 'zero quantity on hand', color: summary.outOfStockCount > 0 ? 'text-red-500' : 'text-green-600' },
         ].map(kpi => (
@@ -374,7 +375,7 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Item Name</th>
               <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-32">Category</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-28">Unit Cost</th>
+              {can('costs.view') && <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-28">Unit Cost</th>}
               <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 w-44">Price last updated</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 w-20">On Hand</th>
               <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-28">Thresholds</th>
@@ -412,14 +413,14 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">{item.category}</td>
-                    <td className="px-3 py-2.5 text-right">
+                    {can('costs.view') && <td className="px-3 py-2.5 text-right">
                       <div className="flex items-center justify-end">
                         <span className="text-gray-400 mr-1 text-xs">$</span>
                         <input type="number" step="0.01" min="0"
                           className="w-20 text-right border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
                           value={item.unitCost} onChange={e => updateItem(item.id, 'unitCost', parseFloat(e.target.value) || 0)} />
                       </div>
-                    </td>
+                    </td>}
                     <td className="px-3 py-2.5" data-price-age={ageOf(item)} data-price-item={item.id}>
                       <div className="flex items-center gap-2">
                         <span className={`text-xs ${ageOf(item) === 'fresh' ? 'text-gray-600' : ageOf(item) === 'old' ? 'text-red-700 font-semibold' : 'text-amber-700'}`}>{priceAgeLabel(item)}</span>
@@ -644,7 +645,7 @@ function StockMovementTab() {
                   <button key={item.id} onClick={() => addLine(item)}
                     className="w-full text-left px-4 py-2.5 text-sm hover:bg-orange-50 flex justify-between items-center">
                     <span className="text-gray-800">{item.name}</span>
-                    <span className="text-gray-400 text-xs">{item.category} · {fmt(item.unitCost)}</span>
+                    <span className="text-gray-400 text-xs">{item.category}{can('costs.view') ? ` · ${fmt(item.unitCost)}` : ''}</span>
                   </button>
                 ))}
               </div>

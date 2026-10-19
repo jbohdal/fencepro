@@ -7,6 +7,7 @@
  *   - Quotes list (any row)
  */
 
+import { can } from './permissions'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
@@ -44,7 +45,7 @@ export default function QuoteDetailDrawer({
   onClose,
   onEdit,
   onChange,
-  internalView = true,
+  internalView: wantInternal = true,
 }: {
   quote: SavedQuote
   onClose: () => void
@@ -52,6 +53,8 @@ export default function QuoteDetailDrawer({
   onChange?: () => void
   internalView?: boolean
 }) {
+  // Costs, margin and the pull sheet's costs: the owner, admin, manager and office only (a Salesman's or Installer's copy has none).
+  const internalView = wantInternal && can('costs.view')
   // The newest copy: a customer may accept online while this is open (it shows Sold then).
   const [, setTick] = useState(0)
   useEffect(() => {

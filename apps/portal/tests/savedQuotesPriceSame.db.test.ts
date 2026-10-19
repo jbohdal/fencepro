@@ -33,13 +33,32 @@ const file = process.env.PRICE_BASELINE
 describe.skipIf(!process.env.DEV_DB || !onDev || !file)('every saved quote prices the same (dev database, read only)', () => {
   test('priced before = priced after, to the cent', async () => {
     const prisma = (await import('../src/server/lib/prisma.js')).default as any
-    const business = await prisma.businessState.findFirst({ select: { accountId: true, config: true } })
-    const inv = await prisma.inventoryState.findUnique({ where: { accountId: business.accountId }, select: { items: true, kits: true } })
-    const sets = await prisma.proposalTierSet.findMany({ where: { accountId: business.accountId }, orderBy: { sortOrder: 'asc' } }) as TierSet[]
-    const quotes = await prisma.savedQuote.findMany({
-      where: { accountId: business.accountId }, orderBy: { id: 'asc' },
-      select: { id: true, fenceStyle: true, runs: true, runRails: true, corners: true, ends: true, walkGates: true, dblGates: true, tearOutSections: true, tearOutGates: true, adjLaborHrs: true, hasSalesman: true, priceAdjust: true, pricing: true },
-    })
+    const baselineFile = process.env.SAVE_BASELINE ? null : JSON.parse(fs.readFileSync(file!, 'utf8'))
+    // The business is chosen on purpose, never "the first Settings row": other
+    // database tests (tierSets, seedOnce, finishSetup) make throwaway accounts
+    // with their own Settings while this runs, and Postgres returns rows in no
+    // set order, so an unscoped findFirst sometimes read a test account (6
+    // styles, 0 quotes) and failed in about 100 ms. It is the account the
+    // baseline was taken on, or else the one with the most saved quotes.
+    // Everything is read in one repeatable read snapshot, so a Settings or
+    // Inventory save landing mid read cannot mix old and new figures.
+    const snap = await prisma.$transaction(async (tx: any) => {
+      let accountId: string | undefined = baselineFile?.accountId
+      if (!accountId) {
+        const top = await tx.savedQuote.groupBy({ by: ['accountId'], _count: { _all: true }, orderBy: { _count: { accountId: 'desc' } }, take: 1 })
+        accountId = top[0]?.accountId
+      }
+      const business = await tx.businessState.findUnique({ where: { accountId }, select: { accountId: true, config: true } })
+      const inv = await tx.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } })
+      const sets = await tx.proposalTierSet.findMany({ where: { accountId }, orderBy: { sortOrder: 'asc' } }) as TierSet[]
+      const quotes = await tx.savedQuote.findMany({
+        where: { accountId }, orderBy: { id: 'asc' },
+        select: { id: true, fenceStyle: true, runs: true, runRails: true, corners: true, ends: true, walkGates: true, dblGates: true, tearOutSections: true, tearOutGates: true, adjLaborHrs: true, hasSalesman: true, priceAdjust: true, pricing: true },
+      })
+      return { business, inv, sets, quotes }
+    }, { isolationLevel: 'RepeatableRead', timeout: 60_000 })
+    const { business, inv, sets, quotes } = snap
+    expect(business, 'the business the baseline was taken on').toBeTruthy()
 
     const cfg = estimateConfig(business.config)
     setMaterialPriceSource(inventoryPriceSource(Array.isArray(inv?.items) ? inv.items : []))
@@ -49,7 +68,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !file)('every saved quote price
     // Comparing: every one of them must still be there, and styles added since
     // (wood, colors made in Settings) are left out, so only existing styles are compared.
     const allNames: string[] = cfg.fenceStyles.map(s => s.name)
-    const baseline = process.env.SAVE_BASELINE ? null : JSON.parse(fs.readFileSync(file!, 'utf8'))
+    const baseline = baselineFile
     const styleNames: string[] = baseline ? allNames.filter(n => baseline.styles.includes(n)) : allNames
 
     const pick = (c: ReturnType<typeof calculateQuote>) => ({
@@ -99,7 +118,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !file)('every saved quote price
     setSavedKitSets(() => [])
 
     if (process.env.SAVE_BASELINE) {
-      fs.writeFileSync(file!, JSON.stringify({ at: new Date().toISOString(), quotes: priced, yards, styles: styleNames, results: out }))
+      fs.writeFileSync(file!, JSON.stringify({ at: new Date().toISOString(), accountId: business.accountId, quotes: priced, yards, styles: styleNames, results: out }))
       console.log(`[baseline] ${priced} saved quotes, ${yards} yards on ${styleNames.length} styles written to ${file}`)
       return
     }

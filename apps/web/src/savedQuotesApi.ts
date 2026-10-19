@@ -6,6 +6,7 @@
  * table at /api/saved-quotes and are scoped by CrmAccount on the server.
  */
 
+import type { QuoteJobRequest } from './quoteJob'
 import type { QuoteProposal } from './proposal'
 import type { QuoteLayoutRecord } from './yardLayout'
 import { getAccessToken, fetchWithAuth } from './crmAuth'
@@ -58,6 +59,8 @@ export interface SavedQuotePayload {
   pricing?: QuotePricingOverrides | null
   /** A fence move or repair (moveRepair.ts); null for a new fence. */
   work?: SavedWork | null
+  /** A Salesman's or Installer's save: the quote builder's inputs (the server works out the costs). */
+  priceRequest?: QuoteJobRequest
 }
 
 export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work'>> {

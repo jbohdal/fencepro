@@ -53,7 +53,7 @@ describe('labels and payments', () => {
   test('plain labels', () => {
     // Plain names from the choices (fenceCatalog.ts); the code stays the internal name.
     expect(optionLabel("TV-DS 6'x8' Privacy")).toBe('Tan Vinyl Privacy, 6 ft tall, 8 ft panels, Dig set')
-    expect(optionLabel("CL - 5' Black")).toBe('Black Chain Link, 5 ft, Residential')
+    expect(optionLabel("CL - 5' Black")).toBe('Black Chain Link, 5 ft, Residential, No dig')
   })
   test('monthly payment: amortized, the same in the browser and on the server', () => {
     expect(monthlyPayment(10000, 9.99, 60)).toBeCloseTo(212.42, 2)

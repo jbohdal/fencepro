@@ -14,6 +14,7 @@
  */
 
 import { styleLabel } from './fenceCatalog'
+import { formatPhone, telHref } from './phoneFormat'
 import { useCallback, useEffect, useState } from 'react'
 import { Phone, MessageSquare, Navigation, CalendarPlus, FilePlus2, ChevronRight, X, ExternalLink } from 'lucide-react'
 import type { PipelineLead } from './JobsPage'
@@ -98,6 +99,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
           <div className="min-w-0 flex-1">
             <h2 className="text-xl font-bold text-gray-900 truncate">{name}</h2>
             <p className="text-sm text-gray-600 truncate">{[lead.stage, address].filter(Boolean).join(' · ')}</p>
+            {phone && <a href={telHref(phone)} className="flex w-fit items-center text-sm font-medium text-blue-600 hover:underline" data-card-window-phone>{formatPhone(phone)}</a>}
             <SaveStatus keys={lead.customerId ? [`customer:${lead.customerId}`] : []} also={op => cardChange(lead.id)(op) || (!!lead.customerId && noteChangeFor(lead.customerId)(op))} className="mt-1" />
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="btn btn-quiet btn-icon shrink-0"><X size={22} aria-hidden="true" /></button>
@@ -108,7 +110,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
             <FilePlus2 size={22} aria-hidden="true" /> New quote
           </button>
           <div className="grid grid-cols-4 gap-2">
-            <a href={phone ? `tel:${phone.replace(/[^\d+]/g, '')}` : undefined} className={`${action} ${phone ? '' : off}`} data-card-call><Phone size={20} aria-hidden="true" />Call</a>
+            <a href={phone ? telHref(phone) : undefined} className={`${action} ${phone ? '' : off}`} data-card-call><Phone size={20} aria-hidden="true" />Call</a>
             <a href={phone ? smsLink(phone, '') : undefined} className={`${action} ${phone ? '' : off}`} data-card-text><MessageSquare size={20} aria-hidden="true" />Text</a>
             <a href={address ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}` : undefined} target="_blank" rel="noreferrer" className={`${action} ${address ? '' : off}`} data-card-navigate><Navigation size={20} aria-hidden="true" />Navigate</a>
             <button type="button" onClick={onBook} className={`${action} text-center leading-tight`} data-card-book-appt><CalendarPlus size={20} aria-hidden="true" />Book appointment</button>

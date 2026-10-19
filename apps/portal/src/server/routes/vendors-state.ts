@@ -13,6 +13,7 @@ import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { can, isFullRole, refuse, removedIds, roleOf, sameJson } from '../lib/permissions.js'
+import { hidesCosts } from '../lib/costRedact.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -54,7 +55,8 @@ router.get('/', async (req: any, res) => {
       () => prisma.vendorState.findUnique({ where: { accountId } }),
       () => prisma.vendorState.create({ data: { accountId, vendors: [], bills: [], payments: [] } }),
     )
-    res.json({ success: true, data: v })
+    // Bills and what was paid on them are costs: not for a Salesman or Installer (lib/costRedact.ts).
+    res.json({ success: true, data: hidesCosts(roleOf(req)) ? { ...v, bills: [], payments: [] } : v })
   } catch (err) {
     console.error('[vendor-state] get error:', err)
     res.status(500).json({ success: false, error: 'Failed to load vendors' })

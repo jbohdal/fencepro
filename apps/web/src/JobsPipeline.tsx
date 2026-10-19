@@ -8,6 +8,7 @@ import type { Job, JobStatus, MaterialsStatus } from './jobStore'
 import { getApprovedCOTotal } from './ChangeOrders'
 import { syncJob } from './portalSync'
 import { useBackLayer } from './nav'
+import { can } from './permissions'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -333,10 +334,10 @@ function JobDrawer({ job, onClose, onAdvance, onHold, onUnhold, onUpdate, onMove
                 <span className="text-white font-bold">Contract Value</span>
                 <span className="text-orange-400 font-bold text-lg">{fmt(job.contractValue)}</span>
               </div>
-              <div className="flex justify-between">
+              {can('costs.view') && <div className="flex justify-between">
                 <span className="text-gray-400">Gross Margin</span>
                 <span className={`font-semibold ${job.gmPct >= 0.34 ? 'text-green-400' : 'text-yellow-400'}`}>{fmtPct(job.gmPct)}</span>
-              </div>
+              </div>}
             </div>
           </div>
 

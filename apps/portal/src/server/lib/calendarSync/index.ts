@@ -13,7 +13,8 @@ import path from 'path'
 import prisma from '../prisma.js'
 import { reconcile, type EventLink, type ReconcileResult } from './engine.js'
 import { exchangeCode, forgetTokens, googleApiFor, googleConfigured } from './google.js'
-import { buildDesiredEvents, type LeadRow, type SpecInputs } from './spec.js'
+import { buildDesiredEvents, eventKey, startsFrom, type LeadRow, type SpecInputs } from './spec.js'
+import { pricingModule } from '../estimates.js'
 
 const DEBOUNCE_MS = 2_000
 const RETRY_EVERY_MS = 5 * 60_000
@@ -57,7 +58,11 @@ async function loadInputs(accountId: string): Promise<SpecInputs> {
     where: { accountId, archivedAt: null, OR: [{ scheduledDate: { not: '' } }, { id: { in: onBoard } }] },
   })
   const leads = (Array.isArray(pipeline?.leads) ? pipeline!.leads : []) as unknown as LeadRow[]
+  // Plain style names from this company's Settings. If they cannot be worked
+  // out the run fails (and is retried) rather than send titles back to codes.
+  const labels = (await pricingModule()).styleLabels(business?.config ?? null)
   return {
+    styleLabel: (name: string) => labels[name] || name,
     baseUrl: baseUrl(),
     workDays: Array.isArray(settings?.workDays) ? (settings!.workDays as number[]) : [1, 2, 3, 4],
     crews: Array.isArray(settings?.crews) ? (settings!.crews as Array<{ id: string; name: string }>) : [],
@@ -151,6 +156,8 @@ export function syncCalendarNow(accountId: string, opts: { activate?: boolean } 
         loadInputs(accountId),
         prisma.calendarEventLink.findMany({ where: { accountId } }),
       ])
+      // Plain style names in titles, from the moment the switch was recorded on (upcoming events only).
+      inputs.plainTitlesFrom = await ensurePlainTitles(accountId, inputs, links as EventLink[])
       const result = await reconcile({
         accountId, calendarId, today: floridaToday(),
         desired: buildDesiredEvents(inputs), links: links as EventLink[], api,
@@ -227,4 +234,83 @@ export function syncCalendarAfterWrite(req: { method: string; user?: { crmAccoun
     })
   }
   next()
+}
+
+// ── Plain style names in titles (Oct 2026) ──────────────────────────────────
+//
+// Install titles used to carry the style code ("Install: Pat Lee (WV-ND 6'x8'
+// Privacy, 24 sections)"); they now carry the plain name ("White Vinyl
+// Privacy, 6 ft tall, 8 ft panels, No dig"). The switch is recorded once per
+// company, under a fixed key, the first time the sync runs with this code. It
+// holds the moment of the switch: events that start from then on get the plain
+// name, and the normal sync updates the ones already on the calendar (a failed
+// update is kept on the event's link and retried like any other). Events that
+// started before it keep the title they were sent with and are never touched.
+
+export const PLAIN_TITLES_KEY = 'migration:calendar-plain-style-titles-2026-10'
+
+export interface TitleChange { key: string; start: string; onCalendar: boolean; before: string; after: string }
+
+/** Upcoming events (starting at or after `fromIso`) whose title changes with the plain style name. Pure. */
+export function plainTitleChanges(inputs: SpecInputs, links: Array<Pick<EventLink, 'source' | 'recordId' | 'status'>>, fromIso: string): TitleChange[] {
+  const before = new Map(buildDesiredEvents({ ...inputs, plainTitlesFrom: null }).map(e => [eventKey(e), e]))
+  const linked = new Set(links.map(l => eventKey(l)))
+  const out: TitleChange[] = []
+  for (const e of buildDesiredEvents({ ...inputs, plainTitlesFrom: fromIso })) {
+    const old = before.get(eventKey(e))
+    if (!old || old.summary === e.summary || !startsFrom(e, fromIso)) continue
+    out.push({ key: eventKey(e), start: e.startDate || e.startAt || '', onCalendar: linked.has(eventKey(e)), before: old.summary, after: e.summary })
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start) || a.key.localeCompare(b.key))
+}
+
+/**
+ * The moment plain titles start for this company, recorded the first time
+ * (one transaction, locked per company, keyed so it is only ever made once).
+ * Logs how many events on the calendar will be re-titled.
+ */
+export async function ensurePlainTitles(accountId: string, inputs: SpecInputs, links: EventLink[], now: Date = new Date()): Promise<string> {
+  return prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'calendar-plain-titles:' + accountId}))`
+    const done = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: PLAIN_TITLES_KEY } } })
+    const at = (done?.value as { from?: unknown } | null)?.from
+    if (typeof at === 'string') return at
+    const from = now.toISOString()
+    const changes = plainTitleChanges(inputs, links, from).filter(c => c.onCalendar)
+    await tx.accountKeyValue.create({ data: { accountId, key: PLAIN_TITLES_KEY, value: { from, count: changes.length, keys: changes.map(c => c.key) } } })
+    console.log(`[calendar] plain style names in titles from ${from}: ${changes.length} upcoming event(s) on the calendar to re-title; past events left as they are`)
+    return from
+  }, { timeout: 15_000 })
+}
+
+/** What the switch would change for a company now, without recording or sending anything. */
+export async function previewPlainTitles(accountId: string, now: Date = new Date()): Promise<{ from: string; onCalendar: number; changes: TitleChange[] }> {
+  const [inputs, links] = await Promise.all([loadInputs(accountId), prisma.calendarEventLink.findMany({ where: { accountId } })])
+  const from = now.toISOString()
+  const changes = plainTitleChanges(inputs, links, from)
+  return { from, onCalendar: changes.filter(c => c.onCalendar).length, changes }
+}
+
+/**
+ * At server start, for every company: where the calendar is connected and
+ * switched on, ask for a sync (it records the switch and re-titles upcoming
+ * events through the usual queue and retries). Anywhere else (no Google
+ * settings, as on the dev copy, or not connected) it is a dry run: the new
+ * titles are worked out and counted, and nothing is recorded or sent.
+ */
+export async function retitleUpcomingCalendarEventsAll(): Promise<void> {
+  const accounts = await prisma.businessState.findMany({ select: { accountId: true } })
+  for (const { accountId } of accounts) {
+    try {
+      const [state, done] = await Promise.all([
+        prisma.calendarSyncState.findUnique({ where: { accountId } }),
+        prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: PLAIN_TITLES_KEY } } }),
+      ])
+      if (done) continue
+      const live = googleConfigured() && !!state?.googleEmail && !!state.calendarId && !!state.activatedAt && state.calendarName === calendarName()
+      if (live) { requestCalendarSync(accountId); continue }
+      const p = await previewPlainTitles(accountId)
+      console.log(`[calendar] plain style names (dry run, ${googleConfigured() ? 'calendar not connected here' : 'no Google settings'}): ${p.changes.length} upcoming event(s) would get the plain name, ${p.onCalendar} of them already on the calendar; nothing sent`)
+    } catch (err) { console.error('[calendar] plain title check failed:', (err as Error).message) }
+  }
 }

@@ -28,6 +28,7 @@ import {
   type StylePricing,
 } from './pricingEngine'
 import { sectionsForRun } from './sectionCount'
+import { styleChoicesOf } from './legacyStyles'
 import { optimizeJob, type OptimizerJobResult, type RailOptimizerSettings, type RunCostFn } from './railOptimizer'
 
 export interface QuoteStyle extends StylePricing {
@@ -226,10 +227,16 @@ export function widthComparison(input: QuoteCalcInput, styles: QuoteStyle[]): { 
     if (!vinylKind(style)) return null
     return { at6: priceWith(style, '6ft'), at8: priceWith(style, '8ft') }
   }
-  const m = style.name.match(/^((?:WV|TV)-(?:ND|DS) [68]'x)([68])'(.*)$/)
-  if (!m) return null
-  const twin = (w: 6 | 8) => styles.find(s => s.name === `${m[1]}${w}'${m[3]}`)
-  const s6 = twin(6), s8 = twin(8)
+  // The same vinyl privacy fence (same height, color and install, a color
+  // added in Settings included) in 6 ft and 8 ft panels, read from the choices.
+  const sc = styleChoicesOf(style)
+  if (!sc || sc.material !== 'vinyl' || sc.choices.style !== 'privacy' || (sc.choices.width !== '6' && sc.choices.width !== '8')) return null
+  const twin = (w: '6' | '8') => styles.find(s => {
+    const o = styleChoicesOf(s as QuoteStyle & { material?: string; choices?: Record<string, string> })
+    return !!o && o.material === 'vinyl' && Object.keys(sc.choices).every(k => (k === 'width' ? o.choices.width === w : o.choices[k] === sc.choices[k]))
+      && Object.keys(o.choices).length === Object.keys(sc.choices).length
+  })
+  const s6 = twin('6'), s8 = twin('8')
   if (!s6 || !s8) return null
   return { at6: priceWith(s6), at8: priceWith(s8) }
 }

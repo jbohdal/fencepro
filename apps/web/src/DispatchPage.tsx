@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { can } from './permissions'
 import { styleLabel } from './fenceCatalog'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -900,12 +901,12 @@ function JobDetailPanel({
           <span className="text-gray-400">Contract</span>
           <span className="font-medium text-gray-900">{fmt(job.contractValue)}</span>
         </div>
-        <div className="flex justify-between">
+        {can('costs.view') && <div className="flex justify-between">
           <span className="text-gray-400">Margin</span>
           <span className={`font-medium ${job.gmPct >= 0.34 ? 'text-green-600' : job.gmPct >= 0.27 ? 'text-yellow-600' : 'text-red-600'}`}>
             {(job.gmPct * 100).toFixed(1)}%
           </span>
-        </div>
+        </div>}
         <div className="flex justify-between">
           <span className="text-gray-400">Est. Days</span>
           <span className="font-medium text-gray-900">{job.estimatedDays}</span>

@@ -21,6 +21,7 @@ import { recordNewPayments } from '../lib/automations/hooks.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { businessPatchRefusal, refuse, roleOf } from '../lib/permissions.js'
+import { hidesCosts, restoreCosts } from '../lib/costRedact.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -85,6 +86,11 @@ router.patch('/', async (req: any, res) => {
     const accountId = req.user.crmAccountId
     // Settings, prices and the books are for the owner, admin and manager; each key is checked on its own.
     const saved = await prisma.businessState.findUnique({ where: { accountId } })
+    // A Salesman or Installer never had the costs (lib/costRedact.ts): the ones their
+    // phone left out are put back as saved; a cost or the books sent is refused below.
+    if (hidesCosts(roleOf(req))) {
+      for (const k of Object.keys(updateData)) updateData[k] = restoreCosts(updateData[k], (saved as any)?.[k])
+    }
     const refused = businessPatchRefusal(roleOf(req), req.user.id ?? null, saved as any, updateData)
     if (refused) { refuse(res, refused, { data: saved, version: saved?.version ?? 0 }); return }
     // One version covers the whole record, so a patch built on an older copy

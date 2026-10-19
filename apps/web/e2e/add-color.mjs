@@ -156,6 +156,15 @@ try {
   check('test quote: prices, and says "Job lot pricing from E2E Supply, quoted Oct 15, 2026"', price > 0 && note.includes('Job lot pricing from E2E Supply, quoted Oct 15, 2026'), `$${price} ${note.slice(0, 80)}`)
   const tierStyles = await page.locator('[data-tier-style]').allTextContents()
   check('Good Better Best follow the quote\'s color', tierStyles.length >= 2 && tierStyles.every(t => t.startsWith('E2E Clay Vinyl Privacy')), tierStyles.join(' | '))
+  // Compare options and the "6 ft vs 8 ft" line include the new color, against White Vinyl on the same yard.
+  const width = (await page.locator('[data-width-compare]').textContent().catch(() => '')) || ''
+  check('the 6 ft vs 8 ft line shows on the new color', /at 6 ft wide: \$[\d,]+\.\d\d .*at 8 ft wide: \$[\d,]+\.\d\d/.test(width), width)
+  await tap('[data-compare-toggle]'); await sleep(1200)
+  const rows = await page.locator('[data-compare-row]').evaluateAll(els => els.map(e => e.getAttribute('data-compare-row')))
+  check('Compare options: the new color next to White Vinyl on the same yard', rows[0] === STYLE && rows.includes("WV-ND 6'x8' Privacy") && rows.includes("WV-ND 6'x6' Privacy"), rows.join(' | '))
+  await page.locator('[data-compare]').scrollIntoViewIfNeeded()
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/dev-compare-new-color.png` })
+  await tap('[data-compare-toggle]'); await sleep(300)
   await tap('[data-quote-bar] [data-save-open]'); await sleep(600)
   await tap('[data-save-submit]'); await sleep(3000)
   const saved = await api(`/api/saved-quotes/${quoteId}`)

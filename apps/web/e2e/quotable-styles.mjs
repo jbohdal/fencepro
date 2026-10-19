@@ -22,7 +22,7 @@ const post = (p, body, token) => call(p, { method: 'POST', body: JSON.stringify(
 const MSG = 'Call us for commercial and industrial fencing'
 const HELD = ["CL - Com 6'", "CL - Com 6'+1'", "CL - Com 6'+1' Black", 'Alum - DS - Ind Abigail', 'Durafence']
 // What the quote builder's list shows: plain names (the codes stay the internal names).
-const LABEL = { "CL - Com 6'": 'Galvanized Chain Link, 6 ft, Commercial', "CL - Com 6'+1'": 'Galvanized Chain Link, 6 ft + 1 ft barbed wire, Commercial', "CL - Com 6'+1' Black": 'Black Chain Link, 6 ft + 1 ft barbed wire, Commercial', 'Alum - DS - Ind Abigail': 'Aluminum Industrial Abigail, 6 ft tall, Dig set', Durafence: 'Durafence', "CL - 6' Galv": 'Galvanized Chain Link, 6 ft, Residential' }
+const LABEL = { "CL - Com 6'": 'Galvanized Chain Link, 6 ft, Commercial, No dig', "CL - Com 6'+1'": 'Galvanized Chain Link, 6 ft + 1 ft barbed wire, Commercial, No dig', "CL - Com 6'+1' Black": 'Black Chain Link, 6 ft + 1 ft barbed wire, Commercial, No dig', 'Alum - DS - Ind Abigail': 'Aluminum Industrial Abigail, 6 ft tall, Dig set', Durafence: 'Durafence', "CL - 6' Galv": 'Galvanized Chain Link, 6 ft, Residential, No dig' }
 const job = fenceStyle => ({ fenceStyle, runs: [100], corners: 0, ends: 2, walkGates: 0, dblGates: 0 })
 const bs = async () => (await call('/api/business-state')).data
 async function setQuotable(fn) {

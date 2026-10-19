@@ -92,7 +92,7 @@ export function styleParts(name: string, style?: { material?: string; choices?: 
   if (style.material === 'vinyl') {
     return { family: 'vinyl', color: c.color ?? null, install, height: c.height ?? '', width: c.width === 'auto' ? 'auto' : Number(c.width), ...(c.style && c.style !== 'privacy' ? { model: c.style } : {}) }
   }
-  if (style.material === 'chain') return c.grade === 'res' ? { family: 'chain', color: c.finish ?? null, install: null, height: c.height ?? '', width: null } : null
+  if (style.material === 'chain') return c.grade === 'res' ? { family: 'chain', color: c.finish ?? null, install: c.install === 'ds' ? 'dig-set' : 'no-dig', height: c.height ?? '', width: null } : null
   if (style.material === 'alum') return { family: 'alum', color: null, install, height: c.height ?? '', width: null, model: c.panel }
   return null
 }
@@ -103,7 +103,8 @@ function partsFromCode(name: string): StyleParts | null {
   m = name.match(VINYL_AUTO)
   if (m) return { family: 'vinyl', color: m[1] === 'WV' ? 'white' : 'tan', install: m[2] === 'ND' ? 'no-dig' : 'dig-set', height: '6', width: 'auto' }
   m = name.match(CHAIN)
-  if (m) return { family: 'chain', color: m[2] === 'Galv' ? 'galv' : 'black', install: null, height: m[1], width: null }
+  // Every chain link style priced before Oct 2026 is the no dig one.
+  if (m) return { family: 'chain', color: m[2] === 'Galv' ? 'galv' : 'black', install: 'no-dig', height: m[1], width: null }
   m = name.match(ALUM)
   if (m) return { family: 'alum', color: null, install: m[1] === 'ND' ? 'no-dig' : 'dig-set', height: '', width: null, model: m[2] }
   return null
@@ -170,16 +171,20 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
     spec.width === 'same' ? p.width
       : spec.width === 'cheapest' ? (p.width === null ? null : 'any')
         : Number(spec.width)
-  const found = active.filter(s => {
+  const fits = (s: Active<S>) => {
     const q = styleParts(s.name, s as Parameters<typeof styleParts>[1])
     if (!q || q.family !== p.family || q.height !== p.height || (q.model ?? '') !== (p.model ?? '')) return false
     if (q.color !== color || q.install !== install) return false
     if (width === 'any') return q.width !== 'auto'
     if (width === null) return true
     return widthOf(s, q) === width
-  })
+  }
+  const found = active.filter(fits)
   if (found.length === 0) {
     const want = describe({ ...p, color, install, width: width === 'any' ? null : width })
+    // There is one, held back by the choice tree (a dig set waiting for its prices).
+    const held = styles.find(s => s.isActive !== false && (s as { held?: string }).held && fits(s))
+    if (held) return { reason: `${cap(want)} is not available for quoting yet: ${(held as { held?: string }).held}.` }
     return { reason: `No ${want} style is turned on in Settings → Fence Styles.` }
   }
   return { styles: found, pickCheaper: width === 'any' }

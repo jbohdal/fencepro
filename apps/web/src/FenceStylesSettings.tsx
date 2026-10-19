@@ -34,7 +34,7 @@ import { toast } from './toast'
 import { KIT_LABEL } from './materialKits'
 import {
   catalogOf, colorDimOf, colorStatus, colorShape, coverageWarnings, defaultCovers, materialOf, optionOf, piecePartChoices,
-  planAddChoice, planAddColor, planRemoveOption, planUpdateOption, previewColorParts, styleChoicesOf, stylesOfOption, madeForTag,
+  planAddChoice, planAddColor, planRemoveOption, planUpdateOption, previewColorParts, styleChoicesOf, stylesOfOption, madeForTag, partsWaitingForPrice,
   PIECE_LABEL, type AddColorRequest, type CatalogState, type ChoiceDim, type ChoiceOption, type FenceCatalog, type JobLotQuote,
   type MaterialDef, type PiecePrices, type PieceKey, type QtyOverride, type InvItem,
 } from './fenceCatalog'
@@ -200,6 +200,10 @@ function OptionRow({ m, d, o, config, count, onToggle, onEdit, addColor }: {
 }) {
   const status = d.isColor && o.color && o.copiedFrom ? colorStatus(config.fenceStyles, m, o) : null
   const on = o.quotable !== false
+  // A choice that waits for prices (chain link Dig set): how many of its parts still have none.
+  const waiting = o.waitForPrices
+    ? [...new Set(config.fenceStyles.filter(s => { const sc = styleChoicesOf(s); return !!s.madeFrom && sc?.material === m.key && sc.choices[d.key] === o.key }).flatMap(s => partsWaitingForPrice(s.name)))]
+    : null
   let note = `${count} fence${count === 1 ? '' : 's'}`
   if (d.isColor && o.color) note += o.color.pricing === 'piece' ? ` · job lot${o.color.jobLot?.supplier ? ` (${o.color.jobLot.supplier})` : ''}` : ' · priced by part'
   if (d.isColor && typeof o.color?.targetProfitPct === 'number') note += ` · ${o.color.targetProfitPct}% profit`
@@ -216,6 +220,12 @@ function OptionRow({ m, d, o, config, count, onToggle, onEdit, addColor }: {
           </span>
         )}
         {status?.ready && on && <span className="block text-xs text-green-700" data-color-ready={o.key}>Fully priced: available for quoting</span>}
+        {waiting && waiting.length > 0 && (
+          <span className="block text-xs text-amber-700" data-option-waiting={`${m.key}:${d.key}:${o.key}`}>
+            Not available for quoting: waiting for prices on {waiting.length} part{waiting.length === 1 ? '' : 's'} in Inventory. It switches on by itself once they are in.
+          </span>
+        )}
+        {waiting && waiting.length === 0 && on && <span className="block text-xs text-green-700" data-option-ready={`${m.key}:${d.key}:${o.key}`}>Fully priced: available for quoting</span>}
         {addColor && <button type="button" className="btn btn-secondary btn-sm min-h-[44px] mt-1" onClick={addColor} data-add-color-under={`${m.key}:${d.key}:${o.key}`}>+ Add color</button>}
       </span>
       <button type="button" className="btn btn-quiet btn-sm min-h-[44px] shrink-0" onClick={onEdit} data-edit-option={`${m.key}:${d.key}:${o.key}`}>Edit</button>

@@ -1,4 +1,5 @@
 import type { QuoteProposal } from './proposal'
+import type { QuoteJobRequest } from './quoteJob'
 import { styleLabel } from './fenceCatalog'
 import type { QuoteLayoutRecord } from './yardLayout'
 import { useState, useMemo, useEffect } from 'react'
@@ -67,6 +68,8 @@ export interface SavedQuote {
   pricing?: QuotePricingOverrides
   /** A fence move or repair: what was entered and how it was priced (moveRepair.ts). Absent for a new fence. */
   work?: SavedWork
+  /** Sent once with a Salesman's or Installer's save (never kept): the quote builder's inputs, so the server works out the costs (quoteJob.ts). */
+  priceRequest?: QuoteJobRequest
 }
 
 const fmt = (n: number) =>

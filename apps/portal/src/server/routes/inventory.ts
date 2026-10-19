@@ -16,6 +16,7 @@ import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { inventoryChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
+import { hidesCosts, restoreCosts } from '../lib/costRedact.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -85,6 +86,10 @@ router.put('/', async (req: any, res) => {
     }
     // Prices and kits are for the owner, admin and manager; the office may change stock; a sale may set stock aside.
     const saved = await prisma.inventoryState.findUnique({ where: { accountId } })
+    // A Salesman or Installer never had the costs (lib/costRedact.ts): every cost stays as saved.
+    if (hidesCosts(roleOf(req))) {
+      for (const k of Object.keys(fields) as Array<keyof typeof fields>) (fields as any)[k] = restoreCosts(fields[k], (saved as any)?.[k])
+    }
     const refused = inventoryChangeRefusal(roleOf(req), saved ?? {}, { ...fields, kits: data.kits === undefined ? undefined : fields.kits })
     if (refused) { refuse(res, refused, { data: saved, version: saved?.version ?? 0 }); return }
     const done = await prisma.inventoryState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })

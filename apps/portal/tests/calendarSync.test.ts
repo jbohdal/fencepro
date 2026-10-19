@@ -273,3 +273,62 @@ describe('which calendar', () => {
     expect(calendarName(`${HOME}/ezbiz-copy/apps/portal`, HOME, null)).toBe('Getter Done Fence (TEST)')
   })
 })
+
+describe('plain style names in titles, upcoming events only', () => {
+  const PLAIN: Record<string, string> = { "WV-ND 6'x8' Privacy": 'White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig' }
+  const styleLabel = (n: string) => PLAIN[n] || n
+  const FROM = '2026-10-19T14:00:00.000Z'                       // the switch, a Monday morning
+  const past = job({ id: 'past', fenceStyle: "WV-ND 6'x8' Privacy", scheduledDate: '2026-10-15' })
+  const today = job({ id: 'today', fenceStyle: "WV-ND 6'x8' Privacy", scheduledDate: '2026-10-19' })
+  const next = job({ id: 'next', fenceStyle: "WV-ND 6'x8' Privacy", scheduledDate: '2026-10-21' })
+  const imported = job({ id: 'imp', fenceStyle: 'WVND', scheduledDate: '2026-10-22' })
+  const title = (evs: CalendarEventSpec[], id: string) => evs.find(e => e.recordId === id)!.summary
+
+  test('new and updated events from the switch on carry the plain name; earlier ones keep the code', () => {
+    const evs = buildDesiredEvents(inputs({ jobs: [past, today, next, imported], styleLabel, plainTitlesFrom: FROM }))
+    expect(title(evs, 'next')).toBe('Install: Shawn Collins (White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig, 24 sections)')
+    expect(title(evs, 'today')).toContain('White Vinyl Privacy')
+    expect(title(evs, 'past')).toBe("Install: Shawn Collins (WV-ND 6'x8' Privacy, 24 sections)")
+    expect(title(evs, 'imp')).toBe('Install: Shawn Collins (WVND, 24 sections)')      // not a style code: as it is
+    // Not switched yet: codes everywhere, exactly as before.
+    expect(title(buildDesiredEvents(inputs({ jobs: [next], styleLabel })), 'next')).toContain("WV-ND 6'x8' Privacy")
+    // Schedule board entries and pipeline cards too.
+    const board = buildDesiredEvents(inputs({ gridJobs: [grid({ fenceType: "WV-ND 6'x8' Privacy", date: '2026-10-20' })], styleLabel, plainTitlesFrom: FROM }))
+    expect(only(board).summary).toContain('White Vinyl Privacy')
+    const card = buildDesiredEvents(inputs({ leads: [{ id: 'l1', firstName: 'Pat', lastName: 'Lee', stage: 'Signed Contract', fenceType: "WV-ND 6'x8' Privacy", sections: 10, scheduledDate: '2026-10-20' }], styleLabel, plainTitlesFrom: FROM }))
+    expect(only(card).summary).toBe('Install: Pat Lee (White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig, 10 sections)')
+  })
+
+  test('plainTitleChanges lists only upcoming events whose title changes, and which are on the calendar', async () => {
+    const { plainTitleChanges } = await import('../src/server/lib/calendarSync/index')
+    const inp = inputs({ jobs: [past, today, next, imported], styleLabel })
+    const changes = plainTitleChanges(inp, [{ source: 'job', recordId: 'next', status: 'synced' }], FROM)
+    expect(changes.map(c => [c.key, c.onCalendar])).toEqual([['job:today', false], ['job:next', true]])
+    expect(changes[1].before).toBe("Install: Shawn Collins (WV-ND 6'x8' Privacy, 24 sections)")
+    expect(changes[1].after).toContain('White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
+  })
+
+  test('the re-title goes through the usual sync: upcoming events updated, past ones never touched, a failure retried', async () => {
+    const w = world()
+    // Before the switch, both are on the calendar with codes.
+    expect(await w.run({ jobs: [past, next], styleLabel }, '2026-10-14')).toMatchObject({ created: 2 })
+    const sent = () => [...w.events.values()].map(e => [e.startDate, e.summary])
+    w.calls.length = 0
+    // The switch, and Google down for the first call: the update fails and is kept on the link.
+    w.failNextCalls(1)
+    const after = { jobs: [past, next], styleLabel, plainTitlesFrom: FROM }
+    expect(await w.run(after, '2026-10-19')).toMatchObject({ updated: 0, failed: 1, unchanged: 1 })
+    expect(w.links.get('job:next')).toMatchObject({ status: 'error', attempts: 1 })
+    // The next run (the retry pass) sends it.
+    expect(await w.run(after, '2026-10-19')).toMatchObject({ updated: 1, failed: 0, unchanged: 1 })
+    expect(sent()).toEqual([
+      ['2026-10-15', "Install: Shawn Collins (WV-ND 6'x8' Privacy, 24 sections)"],
+      ['2026-10-21', 'Install: Shawn Collins (White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig, 24 sections)'],
+    ])
+    expect(w.calls.filter(c => c === 'update')).toHaveLength(2)    // both for the upcoming event; none for the past one
+    // Days later the past event still is not touched, and the upcoming one is not sent again.
+    w.calls.length = 0
+    expect(await w.run(after, '2026-10-30')).toMatchObject({ unchanged: 2 })
+    expect(w.calls).toEqual([])
+  })
+})

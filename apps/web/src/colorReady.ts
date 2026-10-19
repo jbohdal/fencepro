@@ -1,13 +1,15 @@
 /**
  * Tells Jonathan when a color he added in Settings → Fence styles becomes
  * fully priced (its last part priced in Inventory, or its last piece price
- * entered) and so switches on for quoting by itself.
+ * entered) and so switches on for quoting by itself. The same for a choice
+ * that waits for prices (chain link Dig set): each of its fences switches on
+ * once every part in its kits has a price.
  */
 
 import { getConfig } from './configStore'
 import { INVENTORY_UPDATED_EVENT } from './inventoryStore'
 import { BUSINESS_STATE_UPDATED_EVENT } from './businessStateStore'
-import { catalogOf, colorDimOf, colorStatus } from './fenceCatalog'
+import { catalogOf, colorDimOf, colorStatus, styleChoicesOf, partsWaitingForPrice, styleLabel } from './fenceCatalog'
 import { toast } from './toast'
 
 let started = false
@@ -22,6 +24,14 @@ function readiness(): Map<string, boolean> {
       if (!o.copiedFrom || !o.color || o.archived) continue
       out.set(`${m.key}:${o.key}`, colorStatus(cfg.fenceStyles, m, o).ready)
     }
+    for (const d of m.dims) for (const o of d.options) {
+      if (!o.waitForPrices || o.archived) continue
+      for (const s of cfg.fenceStyles) {
+        const sc = styleChoicesOf(s)
+        if (!s.madeFrom || sc?.material !== m.key || sc.choices[d.key] !== o.key) continue
+        out.set(`style:${s.name}`, partsWaitingForPrice(s.name).length === 0)
+      }
+    }
   }
   return out
 }
@@ -33,6 +43,10 @@ function check() {
     const cfg = getConfig()
     for (const [key, ready] of now) {
       if (!ready || last.get(key) !== false) continue
+      if (key.startsWith('style:')) {
+        toast.success(`${styleLabel(key.slice(6))} is now available for quoting`, 'Every part it needs has a price, so it switched on by itself.')
+        continue
+      }
       const [mk, ok] = key.split(':')
       const m = catalogOf(cfg).materials.find(x => x.key === mk)
       const o = colorDimOf(m)?.options.find(x => x.key === ok)

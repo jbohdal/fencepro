@@ -10,7 +10,7 @@ import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materi
 import { setSavedKitSets, builtInKitSet, KIT_KINDS } from '../../web/src/materialKits'
 import {
   priceMove, priceRepair, moveRepairSettings, blankSettings, seesCosts, newFenceBetter, styleRates, oldLine, postTypeOf,
-  DEFAULT_MOVE_REPAIR, toSavedWork, type WorkCommon, type MoveInputs,
+  DEFAULT_MOVE_REPAIR, toSavedWork, matchRisk, type WorkCommon, type MoveInputs,
 } from '../../web/src/moveRepair'
 import { calculateQuote, type QuoteStyle } from '../../web/src/quoteCalc'
 import { estimateConfig } from '../../web/src/estimate'
@@ -260,6 +260,37 @@ describe('wood (× the Wood factor on material and labor)', () => {
     expect(rw.materialCents).toBe(Math.round(rv.materialCents * 1.15))
     expect(rw.laborCents).toBe(Math.round(rv.laborCents * 1.15))
     expect(rw.pullSheet.some(i => /^Wood, Picket/.test(i.item) && i.unitCost === 0)).toBe(true)
+  })
+  test('the 15 unpriced wood parts never warn on a wood quote (new fence, move, repair)', () => {
+    // Inventory as it is: every kit part priced, the wood parts in Inventory at $0.
+    const map: Record<string, number> = { 'Tear Out Haul-Away Fence': 9.5, 'Tear Out Haul-Away Gate': 27 }
+    for (const n of Object.values(WOOD_OF)) { const k = builtInKitSet(n)!; for (const kind of KIT_KINDS) for (const p of k.kits[kind] ?? []) map[p.part] = p.fallbackCost }
+    for (const i of plan.state.items) map[i.name] = 0
+    expect(plan.state.items.length).toBe(15)
+    setMaterialPriceSource(priceSourceFromMap(map))
+    setSavedKitSets(() => plan.state.kits)
+    const priceWords = /price|inventory|\$0|not priced|missing/i
+    try {
+      for (const w of Object.keys(WOOD_OF)) {
+        const s = st(w)
+        const q = calculateQuote({ style: s, runs: [{ ft: 100 }], corners: 0, ends: 2, walkGates: 1, dblGates: 1, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, pricing: cfg.pricing, optimizer: cfg.railOptimizer! })
+        expect(q.materials.items.some(i => /^Wood, /.test(i.item))).toBe(true)
+        expect(q.materials.warnings.filter(x => priceWords.test(x))).toEqual([])
+        expect(matchRisk(s)).toBeNull()
+        const c = { ...common(s), pricing: cfg.pricing }
+        const mvw = priceMove(c, mv({ oldWalkGates: 1 }), straight(100, 1))
+        const rpw = priceRepair(c, { what: 'storm', items: { replaceSection: 2, replacePost: 1, replaceGate: 1 }, postType: 'nd', newPostCaps: true, gateKind: 'walk', debrisCleared: true })
+        for (const r of [mvw, rpw]) {
+          expect(r.pullSheet.some(i => /^Wood, /.test(i.item))).toBe(true)
+          expect(r.warnings.filter(x => /not in Inventory|no Inventory price/i.test(x))).toEqual([])
+        }
+      }
+    } finally {
+      const back: Record<string, number> = { 'Tear Out Haul-Away Fence': 9.5, 'Tear Out Haul-Away Gate': 27 }
+      for (const n of [WV, WVDS, "WV-ND 6'x8' Privacy", "WV-DS 6'x8' Privacy", "CL - 4' Galv", 'Alum - ND - Emily - 48']) { const k = builtInKitSet(n)!; for (const kind of KIT_KINDS) for (const p of k.kits[kind] ?? []) back[p.part] = p.fallbackCost }
+      setMaterialPriceSource(priceSourceFromMap(back))
+      setSavedKitSets(() => [])
+    }
   })
   test('the Wood factor is a setting', () => {
     const c2 = estimateConfig({ fenceStyles: plan.state.fenceStyles, pricing: { ...PRICING, overheadPct: 30 } as any, moveRepair: { woodFactorPct: 120 } } as any)

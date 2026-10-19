@@ -19,6 +19,7 @@ import { oneById } from '../lib/once.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { kvChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
+import { hidesCosts, KV_COST_KEYS } from '../lib/costRedact.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -52,7 +53,9 @@ router.get('/', async (req: any, res) => {
     const rows = await prisma.accountKeyValue.findMany({ where: { accountId: req.user.crmAccountId } })
     const out: Record<string, unknown> = {}
     const versions: Record<string, number> = {}
-    for (const r of rows) { out[r.key] = r.value; versions[r.key] = r.version }
+    // Job costing (actual costs) and supplier prices are costs: not for a Salesman or Installer (lib/costRedact.ts).
+    const hide = hidesCosts(roleOf(req)) ? KV_COST_KEYS : new Set<string>()
+    for (const r of rows) { if (hide.has(r.key)) continue; out[r.key] = r.value; versions[r.key] = r.version }
     res.json({ success: true, data: out, versions })
   } catch (err) {
     console.error('[kv] list error:', err)

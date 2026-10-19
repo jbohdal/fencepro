@@ -13,10 +13,14 @@ import { setMaterialPriceSource, inventoryPriceSource, type LineItem } from './m
 import { setSavedKitSets, type KitSet } from './materialKits'
 import type { AppConfig, FenceStyle } from './configStore'
 import { isQuotable, isOnHold, NOT_QUOTABLE_MESSAGE } from './styleAvailability'
+import { priceQuoteJob, quoteView, savedWorkOf, type QuoteJob, type QuoteJobRequest } from './quoteJob'
+export { importedOldPrice } from './pricingEngine'
 
 export { NOT_QUOTABLE_MESSAGE }
 // The server's wood seed (lib/woodSeed.ts) runs this through the bundle.
 export { planWood } from './wood'
+// The server's chain link dig set seed (lib/chainDigSetSeed.ts).
+export { planChainDigSet } from './chainDigSet'
 
 export interface EstimateData {
   /** The saved Settings (business state config), as stored. */
@@ -78,11 +82,31 @@ export function styleLabels(saved: Partial<AppConfig> | null, data?: Pick<Estima
 /** Settings filled in the way the app fills them in, with each style's Target Margin. */
 export function estimateConfig(saved: Partial<AppConfig> | null): AppConfig {
   const merged = mergeSavedConfig(saved)
-  // Live overhead is worked out in the app from the budget and installed jobs;
-  // here the month's figure it recorded is used, else the typed Overhead %.
-  const live = merged.pricing.liveOverhead?.on ? [...(merged.pricing.overheadHistory ?? [])].sort((a, b) => b.month.localeCompare(a.month))[0]?.pct : undefined
-  return withTargetMargins(merged, typeof live === 'number' ? live : typedOverheadPct(merged))
+  return withTargetMargins(merged, estimateOverheadPct(merged))
 }
+
+/**
+ * The Overhead % in use. Live overhead is worked out in the app from the
+ * budget and installed jobs; here the month's figure it recorded is used,
+ * else the typed Overhead %.
+ */
+export function estimateOverheadPct(merged: AppConfig): number {
+  const live = merged.pricing.liveOverhead?.on ? [...(merged.pricing.overheadHistory ?? [])].sort((a, b) => b.month.localeCompare(a.month))[0]?.pct : undefined
+  return typeof live === 'number' ? live : typedOverheadPct(merged)
+}
+
+/**
+ * A quote priced on the server exactly as the quote builder prices it
+ * (quoteJob.ts): for a Salesman's or Installer's phone (prices only, quoteView)
+ * and to fill in the costs of a quote they save. A saved quote keeps the
+ * Overhead % it was priced at (overheadPct); a new one uses today's.
+ */
+export function quoteJobFor(data: EstimateData, req: QuoteJobRequest, overheadPct?: number | null): QuoteJob {
+  useData(data)
+  const cfg = estimateConfig(data.config)
+  return priceQuoteJob(cfg, req, typeof overheadPct === 'number' && Number.isFinite(overheadPct) ? overheadPct : estimateOverheadPct(cfg))
+}
+export { quoteView, savedWorkOf }
 
 /** Styles a customer can ask about: turned on and available for quoting. */
 export function estimateStyles(saved: Partial<AppConfig> | null, data?: Pick<EstimateData, 'inventory' | 'kits'>): FenceStyle[] {

@@ -53,18 +53,24 @@ export type Action =
   | 'inventory.stock'
   /** Bulk import of old browser data (customers, quotes, jobs, notes). */
   | 'records.import'
+  /**
+   * See costs: material and labor cost, sub rates, wages, overhead, margins,
+   * profit, Target Profit, commission and "where every dollar goes". Without
+   * it (Salesman, Installer) the server sends prices only (lib/costRedact.ts).
+   */
+  | 'costs.view'
 
 const FULL: Action[] = [
   'settings.change', 'prices.change', 'automations.change', 'records.delete', 'ops.delete',
   'schedule.change', 'billing.change', 'finance.change', 'quotes.change', 'permits.change',
-  'packets.change', 'inventory.stock', 'records.import',
+  'packets.change', 'inventory.stock', 'records.import', 'costs.view',
 ]
 
 const ALLOWED: Record<StaffRole, ReadonlySet<Action>> = {
   super_admin: new Set([...FULL, 'users.manage', 'system']),
   admin: new Set([...FULL, 'users.manage', 'system']),
   manager: new Set(FULL),
-  office_staff: new Set(['ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock']),
+  office_staff: new Set(['ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view']),
   sales_rep: new Set(['quotes.change']),
   field_crew: new Set([]),
 }
@@ -95,6 +101,7 @@ export const REFUSAL: Record<Action, string> = {
   'packets.change': 'Your role cannot change crew links. Ask Jonathan.',
   'inventory.stock': 'Your role cannot change inventory. Ask Jonathan.',
   'records.import': 'Your role cannot import records. Ask Jonathan.',
+  'costs.view': 'Your role sees prices, not costs. Ask Jonathan.',
 }
 
 /** The CRM role on a request. Routes behind requireAuth carry it as crmRole (the portal role is in role). */

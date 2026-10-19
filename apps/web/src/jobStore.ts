@@ -129,7 +129,7 @@ function fromApi(r: SavedJobRecord): Job {
     quotePrice: r.quotePrice,
     changeOrderTotal: r.changeOrderTotal,
     contractValue: r.contractValue,
-    gmPct: r.gmPct,
+    gmPct: r.gmPct ?? 0,
     materialsStatus: r.materialsStatus,
     pullSheetPulled: r.pullSheetPulled,
     locatesDate: r.locatesDate || undefined,

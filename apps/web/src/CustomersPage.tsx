@@ -970,7 +970,7 @@ function CustomerDetail({
         <PortalAccessSection customer={customer} />
 
         <div className="flex gap-1 mt-5 bg-gray-100 rounded-xl p-1 w-full lg:w-fit overflow-x-auto">
-          {(['overview', 'appointments', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files', 'photos', 'messages'] as const).map(t => (
+          {(['overview', 'appointments', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files', 'photos', 'messages'] as const).filter(t => t !== 'costing' || can('costs.view')).map(t => (
             <button
               key={t}
               onClick={() => setActiveTab(t)} data-customer-tab={t}
@@ -1068,7 +1068,7 @@ function CustomerDetail({
                       <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400">Type</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Sections</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Price</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Margin</th>
+                      {can('costs.view') && <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Margin</th>}
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Date</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Status</th>
                     </tr>
@@ -1079,9 +1079,9 @@ function CustomerDetail({
                         <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{q.type}</td>
                         <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
                         <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
-                        <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= 0.34 ? 'text-green-600' : q.margin >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
+                        {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= 0.34 ? 'text-green-600' : q.margin >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
                           {(q.margin * 100).toFixed(1)}%
-                        </td>
+                        </td>}
                         <td data-label="Date" className="px-4 py-3 text-right text-gray-400 text-xs">{q.date}</td>
                         <td data-label="Status" className="px-4 py-3 text-right">
                           <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[q.status]}`}>{q.status}</span>
@@ -1143,7 +1143,7 @@ function CustomerDetail({
           </div>
         )}
 
-        {activeTab === 'costing' && (
+        {activeTab === 'costing' && can('costs.view') && (
           <CustomerJobCostingTab quotes={quotes} />
         )}
 

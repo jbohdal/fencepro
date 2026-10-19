@@ -30,7 +30,9 @@ import { audit } from '../lib/auditLog.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
-import { requireCan } from '../lib/permissions.js'
+import { requireCan, roleOf } from '../lib/permissions.js'
+import { hidesCosts } from '../lib/costRedact.js'
+import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
 
 const router = Router()
 
@@ -191,9 +193,19 @@ router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
 })
 
 // ── Create ──
+/**
+ * A Salesman's or Installer's save (they see prices only): the costs are
+ * worked out here from the quote builder's request, or kept as saved.
+ */
+async function costsForLimited(req: any, existing: any | null): Promise<any> {
+  if (!hidesCosts(roleOf(req))) return req.body
+  return req.body?.priceRequest ? withServerCosts(req.user.crmAccountId, req.body, existing) : keepSavedCosts(req.body, existing)
+}
+
 router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   try {
-    const data = quoteSchema.parse(req.body)
+    const sameId = typeof req.body?.id === 'string' ? await prisma.savedQuote.findFirst({ where: { id: req.body.id, accountId: req.user.crmAccountId } }) : null
+    const data = quoteSchema.parse(await costsForLimited(req, sameId))
     const clientId = clientIdSchema.parse(req.body?.id)
     const decision = await decideClientId(clientId, req.user.crmAccountId, id => prisma.savedQuote.findUnique({ where: { id } }))
     if (decision.kind === 'exists') {
@@ -261,12 +273,12 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
 // ── Update ──
 router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   try {
-    const data = quoteUpdateSchema.parse(req.body)
     const existing = await prisma.savedQuote.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.accountId !== req.user.crmAccountId || existing.archivedAt) {
       res.status(404).json({ success: false, error: 'Quote not found' })
       return
     }
+    const data = quoteUpdateSchema.parse(await costsForLimited(req, existing))
     const updated = await prisma.savedQuote.update({
       where: { id: existing.id },
       data: {

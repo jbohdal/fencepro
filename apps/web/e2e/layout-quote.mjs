@@ -137,7 +137,7 @@ try {
   const d = await open(browser, false)
   await d.page.keyboard.press('Meta+k')
   await d.page.keyboard.type('Shawn Collins'); await sleep(600)
-  await d.page.locator('[data-global-search] [role="option"]:has-text("WV-ND 6\'x8\'")').first().locator('button').first().click()
+  await d.page.locator('[data-global-search] [role="option"]:has-text("White Vinyl Privacy, 6 ft tall, 8 ft panels")').first().locator('button').first().click()
   await sleep(800)
   const reopened = await d.page.locator('[data-quote-builder] [data-side]').count()
   if (process.env.SHOTS) await d.page.screenshot({ path: `${process.env.SHOTS}/desktop-layout-reopened.png` })

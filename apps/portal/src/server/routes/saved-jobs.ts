@@ -25,7 +25,8 @@ import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
 import { checkJobMove, refuseBlocked } from '../lib/automations/stageRules.js'
 import { recordJobChanges } from '../lib/automations/hooks.js'
-import { requireCan } from '../lib/permissions.js'
+import { roleOf, requireCan } from '../lib/permissions.js'
+import { hidesCosts } from '../lib/costRedact.js'
 
 const router = Router()
 
@@ -154,6 +155,11 @@ router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
 router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   try {
     const data = jobSchema.parse(req.body)
+    // A Salesman's phone has no margin: the job takes its quote's, as saved (lib/costRedact.ts).
+    if (hidesCosts(roleOf(req))) {
+      const q = data.quoteId ? await prisma.savedQuote.findFirst({ where: { id: data.quoteId, accountId: req.user.crmAccountId }, select: { gmPct: true } }) : null
+      ;(data as any).gmPct = q?.gmPct ?? 0
+    }
     const clientId = clientIdSchema.parse(data.id)
     const decision = await decideClientId(clientId, req.user.crmAccountId, id => prisma.savedJob.findUnique({ where: { id } }))
     if (decision.kind === 'exists') {
@@ -206,6 +212,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
 router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
   try {
     const data = jobUpdateSchema.parse(req.body)
+    // A Salesman or Installer never had the margin: it stays as saved.
+    if (hidesCosts(roleOf(req))) delete (data as any).gmPct
     const existing = await prisma.savedJob.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.accountId !== req.user.crmAccountId || existing.archivedAt) {
       res.status(404).json({ success: false, error: 'Job not found' })

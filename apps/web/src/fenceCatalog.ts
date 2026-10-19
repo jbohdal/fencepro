@@ -3,7 +3,7 @@
  * material, never from coded names:
  *
  *   Vinyl        Style > Height > Color > Install > Panel width
- *   Chain link   Height > Finish > Grade
+ *   Chain link   Height > Finish > Grade > Install (No dig: the styles priced so far; Dig set: Oct 2026)
  *   Aluminum     Panel style > Height > Install
  *   Wood         Style > Height > Install > Panel width (priced from white vinyl × the Wood factor, wood.ts)
  *   Other        Product
@@ -103,6 +103,12 @@ export interface ChoiceOption {
   /** Added in Settings, copying the combinations of this option. */
   copiedFrom?: string
   color?: ColorSpec
+  /**
+   * Its combinations are not available for quoting until every part in their
+   * material kits has an Inventory price; then they switch on by themselves
+   * (chain link Dig set, whose post parts start with no price).
+   */
+  waitForPrices?: boolean
 }
 
 export interface ChoiceDim {
@@ -130,6 +136,17 @@ export interface FenceCatalog { version: 1; materials: MaterialDef[] }
 const o = (key: string, label: string, nameText?: string, extra: Partial<ChoiceOption> = {}): ChoiceOption => ({ key, label, ...(nameText ? { nameText } : {}), ...extra })
 const color = (key: string, label: string, words: string[]): ChoiceOption => ({ key, label, color: { words, pricing: 'part' } })
 
+/**
+ * Chain link Install (Oct 2026). No dig is how chain link has always been
+ * priced (thick Schedule 40 pipe driven, no concrete); every chain link style
+ * made before this is the No dig one, under its same internal name. Dig set
+ * (shorter, thinner posts in concrete) waits for its post prices.
+ */
+export const CHAIN_INSTALL_DIM: ChoiceDim = {
+  key: 'install', label: 'Install',
+  options: [{ key: 'nd', label: 'No dig' }, { key: 'ds', label: 'Dig set', waitForPrices: true }],
+}
+
 export const DEFAULT_CATALOG: FenceCatalog = {
   version: 1,
   materials: [
@@ -146,11 +163,12 @@ export const DEFAULT_CATALOG: FenceCatalog = {
     },
     {
       key: 'chain', label: 'Chain link', category: 'Chainlink',
-      nameTemplate: '{finish} Chain Link, {height}, {grade}',
+      nameTemplate: '{finish} Chain Link, {height}, {grade}, {install}',
       dims: [
         { key: 'height', label: 'Height', options: [o('4', '4 ft'), o('5', '5 ft'), o('6', '6 ft'), o('6+1', '6 ft + 1 ft barbed wire')] },
         { key: 'finish', label: 'Finish', isColor: true, options: [color('galv', 'Galvanized', ['Galv', 'G']), color('black', 'Black', ['Black', 'Blk'])] },
         { key: 'grade', label: 'Grade', options: [o('res', 'Residential'), o('com', 'Commercial')] },
+        CHAIN_INSTALL_DIM,
       ],
     },
     {
@@ -171,32 +189,8 @@ export const DEFAULT_CATALOG: FenceCatalog = {
   ],
 }
 
-export interface StyleChoices { material: string; choices: Record<string, string> }
-
-/** Every style code the app has ever had, with its choices. The codes stay the internal names. */
-export const LEGACY_STYLE_CHOICES: Record<string, StyleChoices> = (() => {
-  const out: Record<string, StyleChoices> = {}
-  const vinyl = (code: string, c: Record<string, string>) => { out[code] = { material: 'vinyl', choices: { style: 'privacy', ...c } } }
-  for (const [cc, colorKey] of [['WV', 'white'], ['TV', 'tan']] as const) {
-    for (const [ii, install] of [['ND', 'nd'], ['DS', 'ds']] as const) {
-      vinyl(`${cc}-Auto ${ii} Privacy`, { height: '6', color: colorKey, install, width: 'auto' })
-      for (const h of ['6', '8']) for (const w of ['6', '8']) vinyl(`${cc}-${ii} ${h}'x${w}' Privacy`, { height: h, color: colorKey, install, width: w })
-    }
-  }
-  out["WV-ND Bell 4'x6'"] = { material: 'vinyl', choices: { style: 'bell', height: '4', color: 'white', install: 'nd', width: '6' } }
-  for (const h of ['4', '5', '6']) {
-    out[`CL - ${h}' Galv`] = { material: 'chain', choices: { height: h, finish: 'galv', grade: 'res' } }
-    out[`CL - ${h}' Black`] = { material: 'chain', choices: { height: h, finish: 'black', grade: 'res' } }
-  }
-  out["CL - Com 6'"] = { material: 'chain', choices: { height: '6', finish: 'galv', grade: 'com' } }
-  out["CL - Com 6'+1'"] = { material: 'chain', choices: { height: '6+1', finish: 'galv', grade: 'com' } }
-  out["CL - Com 6'+1' Black"] = { material: 'chain', choices: { height: '6+1', finish: 'black', grade: 'com' } }
-  out['Alum - ND - Emily - 48'] = { material: 'alum', choices: { panel: 'emily', height: '4', install: 'nd' } }
-  out['Alum - DS - Emily - 48'] = { material: 'alum', choices: { panel: 'emily', height: '4', install: 'ds' } }
-  out['Alum - DS - Ind Abigail'] = { material: 'alum', choices: { panel: 'abigail', height: '6', install: 'ds' } }
-  out['Durafence'] = { material: 'other', choices: { product: 'durafence' } }
-  return out
-})()
+export { LEGACY_STYLE_CHOICES, styleChoicesOf, type StyleChoices } from './legacyStyles'
+import { LEGACY_STYLE_CHOICES, styleChoicesOf, type StyleChoices } from './legacyStyles'
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
 
@@ -212,12 +206,6 @@ export function materialOf(catalog: FenceCatalog, key: string | undefined): Mate
 export function colorDimOf(m: MaterialDef | undefined): ChoiceDim | undefined { return m?.dims.find(d => d.isColor) }
 export function optionOf(m: MaterialDef | undefined, dim: string, key: string | undefined): ChoiceOption | undefined {
   return m?.dims.find(d => d.key === dim)?.options.find(x => x.key === key)
-}
-
-/** A style's material and choices: saved on it (made in Settings), else from its old code. */
-export function styleChoicesOf(s: Pick<FenceStyle, 'name'> & { material?: string; choices?: Record<string, string> }): StyleChoices | null {
-  if (s.material && s.choices) return { material: s.material, choices: s.choices }
-  return LEGACY_STYLE_CHOICES[s.name] ?? null
 }
 
 /** "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig", from the choices. */
@@ -393,6 +381,15 @@ export function coverageWarnings(covers: Record<PieceKey, string[]>, kits: KitSe
 
 // ── Resolving the styles (when Settings are read) ────────────────────────────
 
+/** The parts of a style's material kits with no Inventory price yet (sorted, no repeats). */
+export function partsWaitingForPrice(styleName: string, price: PriceFn = inventoryCost, kitOf: KitFn = n => kitSetFor(n)): string[] {
+  const set = kitOf(styleName)
+  if (!set || set === 'archived') return []
+  const out = new Set<string>()
+  for (const k of KIT_KINDS) for (const p of set.kits[k] ?? []) if (p.qty > 0 && !((price(p.part) ?? 0) > 0)) out.add(p.part)
+  return [...out].sort()
+}
+
 /**
  * Each style with its material, choices and plain name, and, worked out on
  * every read (never typed): why it is held back from quoting by the tree
@@ -413,12 +410,19 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
     next.set(s.name, s.label)
     const why: string[] = []
     if (m.quotable === false) why.push(`${m.label} is turned off`)
+    // An option that waits for prices (chain link Dig set): every part of the
+    // style's kits priced, or it is held; this check covers its color parts too.
+    const waits = s.madeFrom ? m.dims.map(d => optionOf(m, d.key, sc.choices[d.key])).find(x => x?.waitForPrices) : undefined
+    if (waits) {
+      const left = partsWaitingForPrice(s.name, price, kitOf)
+      if (left.length) why.push(`${waits.label} is waiting for prices on ${left.length} part${left.length === 1 ? '' : 's'} in Inventory`)
+    }
     for (const d of m.dims) {
       const opt = optionOf(m, d.key, sc.choices[d.key])
       if (!opt) continue
       if (opt.archived) why.push(`${opt.label} is archived`)
       else if (opt.quotable === false) why.push(`${opt.label} is turned off`)
-      if (d.isColor && opt.color) {
+      if (d.isColor && opt.color && !(waits && !opt.copiedFrom)) {
         if (typeof opt.color.targetProfitPct === 'number' && Number.isFinite(opt.color.targetProfitPct)) s.colorTargetProfitPct = opt.color.targetProfitPct
         if (s.madeFrom) {
           const lot = jobLotFor(s, sc, opt)

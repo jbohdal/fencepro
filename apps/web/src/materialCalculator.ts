@@ -663,13 +663,17 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     const fabricCost = h === 4 ? 113.43 : h === 5 ? 137.50 : 166.37
     add(fabricKey, fabricRolls(totalFootage), fabricCost)
 
-    const termPipeCost = h === 4 ? 16.49 : h === 5 ? 18.55 : 20.61
-    const termPipeKey = h === 4
+    // Line posts: 1-5/8" Schedule 40 (SS40) pipe, one per line post
+    // (TAKEOFF_RULES: linePosts). Chain link sections are 10 ft, so each run
+    // has ceil(run / 10) - 1 line posts, evenly spaced. Until Oct 2026 this
+    // pipe was counted per end post, so line posts had no pipe.
+    const linePipeCost = h === 4 ? 16.49 : h === 5 ? 18.55 : 20.61
+    const linePipeKey = h === 4
       ? "Pipe, Galv, 1-5/8\" X 8' (SS40)"
       : h === 5
       ? "Pipe, Galv, 1-5/8\" X 9' (SS40)"
       : "Pipe, Galv, 1-5/8\" X 10' (SS40)"
-    add(termPipeKey, ends, termPipeCost)
+    add(linePipeKey, linePosts, linePipeCost)
 
     const railKey = "Pipe, Galv, 1-3/8\" X 10' 6\" (SS40)"
     add(railKey, Math.ceil(totalFootage / 10), 10.84)
@@ -752,13 +756,14 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     const fabricCost = h === 4 ? 116.16 : h === 5 ? 145.20 : 174.24
     add(fabricKey, fabricRolls(totalFootage), fabricCost)
 
-    const termPipeCost = h === 4 ? 21.50 : h === 5 ? 24.19 : 26.87
-    const termPipeKey = h === 4
+    // Line posts: 1-5/8" Schedule 40 (SS40) pipe, one per line post (see galvanized).
+    const linePipeCost = h === 4 ? 21.50 : h === 5 ? 24.19 : 26.87
+    const linePipeKey = h === 4
       ? "Pipe, Blk, 1-5/8\" X 8' (SS40)"
       : h === 5
       ? "Pipe, Blk, 1-5/8\" X 9' (SS40)"
       : "Pipe, Blk, 1-5/8\" X 10' (SS40)"
-    add(termPipeKey, ends, termPipeCost)
+    add(linePipeKey, linePosts, linePipeCost)
 
     add("Pipe, Blk, 1-3/8\" x 10'6\" (.055)", Math.ceil(totalFootage / 10), 13.75)
 

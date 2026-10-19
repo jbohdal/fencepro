@@ -45,7 +45,9 @@ import {
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
-import { signedInRole } from './permissions'
+import { signedInRole, can } from './permissions'
+import { useServerQuoteView, viewCalc, viewWork, viewTiers, viewCompare, viewProposalOptions } from './quoteViewApi'
+import type { QuoteJobRequest } from './quoteJob'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
 /** "2026-10-19" → "Oct 19, 2026" */
@@ -531,6 +533,10 @@ export default function QuoteBuilder({
   const cfgStyle = style
   const isAutoMix = !!cfgStyle?.autoRailMix
   const optSettings = getRailOptimizerConfig()
+  // Owner, admin, manager and office see costs and price the quote here. A
+  // Salesman or Installer gets prices only: the server prices it (quoteJob.ts)
+  // and their phone never receives a cost (Jonathan, Oct 2026).
+  const internal = seesCosts(signedInRole())
 
   // Everything about sections, the 6 ft / 8 ft choice per run, the pull sheet,
   // labor, cost and price comes out of quoteCalc, driven by Settings, the
@@ -567,11 +573,36 @@ export default function QuoteBuilder({
     overrides: pricingOverrides,
     optimizer: optSettings,
   }
+  // ── Move or repair inputs, and the tier set (the server needs them too) ──
+  const mr = moveRepairSettings(cfg)
+  const stylePostType: PostType = style ? postTypeOf(style) : 'nd'
+  const moveIn: MoveInputs = { ...move, oldPostType: move.oldPostType ?? stylePostType }
+  const repairIn: RepairInputs = { ...repair, postType: repair.postType ?? stylePostType }
+  // Good, Better, Best: the tier set for this style's category (Settings → Good Better Best),
+  // priced from the same layout, no taps needed. A quote already sent keeps the
+  // tiers it was sent with unless "Use current tiers" is tapped.
+  const sentTierSet = init?.id && (init.shareToken || init.status === 'SENT' || init.status === 'SOLD') ? init.proposal?.tierSet : undefined
+  const [keepSentTiers, setKeepSentTiers] = useState(!!sentTierSet)
+  const liveTierSet = tierSetFor(tierSets, style)
+  const usingSentTiers = keepSentTiers && !!sentTierSet && !!style && sentTierSet.category.trim().toLowerCase() === String(style.category).trim().toLowerCase()
+  const tierSet = usingSentTiers ? sentTierSet! : liveTierSet
+  // What the server prices for a Salesman or Installer (and what their save sends).
+  const priceRequest: QuoteJobRequest = {
+    fenceStyle: style?.name ?? '', runs: effRuns.map(r => ({ ft: r.ft, rail: r.rail ?? 'auto' })), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
+    tearOutSections: tearOutSec, tearOutGates, extraLaborHrs: parseFloat(adjLaborHrs) || 0, hasSalesman, priceAdjust,
+    overrides: pricingOverrides, jobType,
+    move: jobType === 'move' ? moveIn : null, repair: jobType === 'repair' ? repairIn : null,
+    tierSet: tierSet ?? null, tierPrefs, compare: showCompare, offer, offerNewFence, offerMoveAsIs, photoIds, keepStyle: init?.fenceStyle ?? null,
+  }
+  const { view: sv, pricing: svPricing, error: svError } = useServerQuoteView(!internal, priceRequest, init?.id)
+
   // invTick: re-read Inventory costs when Inventory changes while the builder is open.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const calc = useMemo(() => calculateQuote(calcInput), [JSON.stringify(calcInput), invTick])
+  const calcLocal = useMemo(() => calculateQuote(calcInput), [JSON.stringify(calcInput), invTick])
+  const calc = internal ? calcLocal : viewCalc(calcLocal, sv)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const compare = useMemo(() => widthComparison(calcInput, FENCE_STYLES), [JSON.stringify(calcInput), invTick])
+  const compareLocal = useMemo(() => (internal ? widthComparison(calcInput, FENCE_STYLES) : null), [JSON.stringify(calcInput), invTick, internal])
+  const compare = internal ? compareLocal : (sv?.width ?? null)
   const sections = calc.sections
   const materials: MaterialResult = calc.materials
   const priced = calc.priced
@@ -593,27 +624,25 @@ export default function QuoteBuilder({
   // Overhead % this quote is priced at (kept with it, so "where every dollar goes" does not move later).
   const overheadNow = typeof initPricing.overheadPct === 'number' && init?.id ? initPricing.overheadPct : overheadPctOf(cfg)
   // ── Move or repair: priced by moveRepair.ts from the same style, Settings and kits ──
-  const mr = moveRepairSettings(cfg)
-  const stylePostType: PostType = style ? postTypeOf(style) : 'nd'
-  const moveIn: MoveInputs = { ...move, oldPostType: move.oldPostType ?? stylePostType }
-  const repairIn: RepairInputs = { ...repair, postType: repair.postType ?? stylePostType }
   const newLine = { runs: effRuns.map(r => r.ft), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl }
   const workCommon = style ? { style, pricing: cfg.pricing, overrides: pricingOverrides, settings: mr, overheadPct: overheadNow, hasSalesman, priceAdjust, extraLaborHrs: parseFloat(adjLaborHrs) || 0 } : null
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const work: WorkResult | null = useMemo(() => (!workCommon || jobType === 'new' ? null
+  const workLocal: WorkResult | null = useMemo(() => (!internal || !workCommon || jobType === 'new' ? null
     : jobType === 'move' ? priceMove(workCommon, moveIn, newLine) : priceRepair(workCommon, repairIn)),
-  [jobType, JSON.stringify(moveIn), JSON.stringify(repairIn), JSON.stringify(newLine), JSON.stringify(calcInput), invTick, overheadNow])  // eslint-disable-line react-hooks/exhaustive-deps
+  [jobType, JSON.stringify(moveIn), JSON.stringify(repairIn), JSON.stringify(newLine), JSON.stringify(calcInput), invTick, overheadNow, internal])  // eslint-disable-line react-hooks/exhaustive-deps
+  const work: WorkResult | null = internal ? workLocal : viewWork(sv?.work ?? null)
   // A move to a longer line: "Move as is" (only the old length, the same shape) next to "Move plus new fence for the extra length".
-  const moveAsIs: WorkResult | null = useMemo(() => {
-    if (!workCommon || jobType !== 'move' || !work || !(moveIn.oldFt > 0)) return null
+  const moveAsIsLocal: WorkResult | null = useMemo(() => {
+    if (!internal || !workCommon || jobType !== 'move' || !work || !(moveIn.oldFt > 0)) return null
     const total = newLine.runs.reduce((t, n) => t + (n > 0 ? n : 0), 0)
     if (!(total > moveIn.oldFt + 0.01)) return null
     const k = moveIn.oldFt / total
     return priceMove(workCommon, moveIn, { ...newLine, runs: newLine.runs.map(ft => Math.round(ft * k * 100) / 100) })
   }, [work])  // eslint-disable-line react-hooks/exhaustive-deps
+  const moveAsIs: WorkResult | null = internal ? moveAsIsLocal : viewWork(sv?.moveAsIs ?? null)
   // Repair: "A new fence may be the better deal" (damaged sections over half a run, or price over 60% of a new fence there).
-  const repairCheck = useMemo(() => {
-    if (jobType !== 'repair' || !work || !style) return null
+  const repairCheckLocal = useMemo(() => {
+    if (!internal || jobType !== 'repair' || !work || !style) return null
     const runs = calc.perRunSections
     const tapped = repairIn.tapped ?? []
     const damagedRuns = tapped.length ? [...new Set(tapped.map(k => Number(k.split(':')[0])))] : runs.map((_, i) => i)
@@ -625,9 +654,10 @@ export default function QuoteBuilder({
     const newFenceCents = nf ? Math.round(nf.priced.price * 100) : null
     return { ...newFenceBetter({ repairCents: work.priceCents, newFenceCents, damagedByRun }), newFenceCents, nf, runsFt }
   }, [work, JSON.stringify(calc.perRunSections)])  // eslint-disable-line react-hooks/exhaustive-deps
+  const repairCheck = internal ? repairCheckLocal : sv?.repairCheck ?? null
   const matchWarning = jobType !== 'new' && style ? matchRisk(style) : null
   // A new fence under the minimum job price, when Settings say the minimum applies to new fences too.
-  const newMin = jobType === 'new' && mr.minimumAppliesToNew && priced.priceMethod !== 'manual' && priced.price > 0 && Math.round(priced.price * 100) < mr.minimumJobCents
+  const newMin = !internal ? !!sv?.newMin : jobType === 'new' && mr.minimumAppliesToNew && priced.priceMethod !== 'manual' && priced.price > 0 && Math.round(priced.price * 100) < mr.minimumJobCents
   const adjustedMH  = work ? work.manHours : priced.manHours
   const laborCost   = work ? work.laborCents / 100 : priced.laborCost
   const tearOutCost = work ? work.disposalCents / 100 : priced.tearOutCost
@@ -636,7 +666,6 @@ export default function QuoteBuilder({
   const commAmt     = work ? work.commissionCents / 100 : newMin ? Math.round(adjPrice * priced.commissionPct * 100) / 100 : priced.commissionAmt
   const grossMargin = work ? work.grossMarginCents / 100 : newMin ? Math.round((adjPrice - totalCOGS - commAmt) * 100) / 100 : priced.grossMargin
   const gmPct       = work ? work.gmPct : newMin ? (adjPrice > 0 ? grossMargin / adjPrice : 0) : priced.gmPct
-  const internal = seesCosts(signedInRole())
   // The pull sheet: a move or repair lists only the NEW material.
   const materialItems: LineItem[] = work ? work.pullSheet : newFenceItems
   const materialCost = work ? work.materialCents / 100 : newFenceMaterial
@@ -653,24 +682,19 @@ export default function QuoteBuilder({
   const runWidths = effRuns.map((_, i) => (isAutoMix ? (calc.perRunRail[i] === '6ft' ? 6 : 8) : widthFt))
   const tapeRunFlags = style ? tapeFlags(namedRuns, runWidths) : []
   const pastQuotes = useMemo(() => getQuotes(), [])
-  // Good, Better, Best: the tier set for this style's category (Settings → Good Better Best),
-  // priced from the same layout, no taps needed. A quote already sent keeps the
-  // tiers it was sent with unless "Use current tiers" is tapped.
-  const sentTierSet = init?.id && (init.shareToken || init.status === 'SENT' || init.status === 'SOLD') ? init.proposal?.tierSet : undefined
-  const [keepSentTiers, setKeepSentTiers] = useState(!!sentTierSet)
-  const liveTierSet = tierSetFor(tierSets, style)
-  const usingSentTiers = keepSentTiers && !!sentTierSet && !!style && sentTierSet.category.trim().toLowerCase() === String(style.category).trim().toLowerCase()
-  const tierSet = usingSentTiers ? sentTierSet! : liveTierSet
-  const tiers = useMemo(() => (tierSet && style && sections > 0
-    ? resolveTiers(calcInput, FENCE_STYLES, tierSet, tierPrefs)
-    : []), [tierSet, style, sections, JSON.stringify(calcInput), tierPrefs, invTick])  // eslint-disable-line react-hooks/exhaustive-deps
+  const tiersLocal = useMemo(() => (internal && tierSet && style && sections > 0
+    // Every style: tiers take only those available for quoting, and say why a held one (a dig set waiting for prices) is not offered.
+    ? resolveTiers(calcInput, cfg.fenceStyles, tierSet, tierPrefs)
+    : []), [tierSet, style, sections, JSON.stringify(calcInput), tierPrefs, invTick, internal])  // eslint-disable-line react-hooks/exhaustive-deps
+  const tiers = internal ? tiersLocal : viewTiers(sv, FENCE_STYLES)
   // Compare options: the same yard as the styles that make sense for this one.
-  const compareRows = useMemo(() => (showCompare && style && sections > 0
+  const compareRowsLocal = useMemo(() => (internal && showCompare && style && sections > 0
     ? compareStyles(style, FENCE_STYLES).map(s => ({ style: s, option: priceOption(calcInput, s) }))
-    : []), [showCompare, style, sections, JSON.stringify(calcInput), invTick])  // eslint-disable-line react-hooks/exhaustive-deps
+    : []), [showCompare, style, sections, JSON.stringify(calcInput), invTick, internal])  // eslint-disable-line react-hooks/exhaustive-deps
+  const compareRows = internal ? compareRowsLocal : viewCompare(sv, FENCE_STYLES) as typeof compareRowsLocal
   // Parts whose Inventory price is old or was never confirmed: a warning, never a block.
   const staleMonths = cfg.pricing.priceStaleMonths ?? DEFAULT_PRICE_STALE_MONTHS
-  const staleParts = useMemo(() => (style
+  const staleParts = useMemo(() => (internal && style
     // Parts a job lot piece price covers are not priced from Inventory, so their Inventory date does not matter.
     ? stalePartsOnQuote(materialItems.filter(i => i.qty > 0 && i.costSource !== 'jobLot' && i.costSource !== 'wood').map(i => i.item), getInventory(), businessDate(new Date()), staleMonths, normalizeItemName)
     : []), [style, materialItems, invTick, staleMonths])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -683,14 +707,14 @@ export default function QuoteBuilder({
     ...work.warnings,
     ...(matchWarning ? [matchWarning] : []),
     ...(work.needs811 ? ['New posts go in the ground: an 811 locate ticket is needed before digging. It goes on the crew packet.'] : []),
-    ...[work.costCents > 0 && !work.minimumApplied ? marginCheck(work.gmPct, cfg.margins?.good ?? 0.34, adjPrice) : null].filter((x): x is string => !!x),
+    ...[internal && work.costCents > 0 && !work.minimumApplied ? marginCheck(work.gmPct, cfg.margins?.good ?? 0.34, adjPrice) : null].filter((x): x is string => !!x),
   ] : [
     ...(style ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout ? gateChecks(yard) : []),
     // Pricing notes only once a style is picked (before that there is nothing to price).
     ...(style ? materials.warnings : []),
     ...(style ? priced.notes : []),
-    ...[style && sections > 0 ? marginCheck(priced.gmPct, cfg.margins?.good ?? 0.34, priced.price) : null,
+    ...[internal && style && sections > 0 ? marginCheck(priced.gmPct, cfg.margins?.good ?? 0.34, priced.price) : null,
         style && sections > 0 ? perFootCheck(priced.pricePerFoot, style.name, pastQuotes, quoteIdRef.current) : null].filter((x): x is string => !!x),
   ]
 
@@ -704,7 +728,7 @@ export default function QuoteBuilder({
   }
 
   const categories = [...new Set(FENCE_STYLES.map(s => s.category))]
-  const canSave = !!styleId && (jobType === 'new' ? sections > 0
+  const canSave = !!styleId && (internal || (!!sv && !svPricing && !svError)) && (jobType === 'new' ? sections > 0
     : jobType === 'move' ? moveIn.oldFt > 0 && !!work && work.sections > 0
     : REPAIR_ITEMS.some(k => (repairIn.items[k] ?? 0) > 0))
 
@@ -767,7 +791,8 @@ export default function QuoteBuilder({
       damaged={jobType === 'repair' ? repairIn.tapped : undefined} />) : undefined
     const workProposal = work && style && savedWork ? (() => {
       const options = []
-      if (jobType === 'move') {
+      if (!internal) options.push(...viewProposalOptions(sv))
+      else if (jobType === 'move') {
         if (moveAsIs && offerMoveAsIs) {
           options.push(workOption(`Move as is: ${Math.round(moveIn.oldFt)} ft of your fence on the new line`, style.name, moveAsIs, toSavedWork(moveAsIs, { move: moveIn }), runSecs))
           options.push({ ...workOption('Move plus new fence for the extra length', style.name, work, savedWork, runSecs), finalPrice: adjPrice })
@@ -829,9 +854,12 @@ export default function QuoteBuilder({
       // The Target Margin it was priced at is kept, so this quote's price never moves when Settings change.
       pricing: cleanOverrides({ ...pricingOverrides, ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow }),
       work: savedWork,
+      // A Salesman's or Installer's save: the server works out the costs from these inputs.
+      ...(internal ? {} : { priceRequest }),
       proposal: workProposal ?? (style ? buildProposal({
         input: calcInput,
-        styles: [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)],
+        // A Salesman or Installer: every option comes priced from the server.
+        styles: internal ? [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)] : [],
         ownPrice: adjPrice,
         company: { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' },
         customer: { name: data.customerName, address: data.customerAddress },
@@ -839,7 +867,7 @@ export default function QuoteBuilder({
         warranty: getContractSections().find(x => x.key === 'warranty' && x.visible !== false)?.body ?? '',
         settings: cfg.proposal ?? {},
         photoIds,
-        tiers: tierOptions(tiers, photoIds),
+        tiers: internal ? tierOptions(tiers, photoIds) : viewProposalOptions(sv),
         tierPrefs: { off: tierPrefs.off, swap: tierPrefs.swap as Record<string, string> },
         tierSet: tierSet ?? undefined,
       }) : undefined),
@@ -1175,7 +1203,14 @@ export default function QuoteBuilder({
               </div>
             </div>
 
-            <div>
+            {!internal && (
+              <div data-labor-prices-only>
+                <h3 className="text-xs font-semibold text-gray-500 mb-3">Labor</h3>
+                <label className="text-xs text-gray-400 mb-1 block">Extra hours</label>
+                <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="0" value={adjLaborHrs} onChange={e => setAdjLaborHrs(e.target.value)} />
+              </div>
+            )}
+            <div className={internal ? '' : 'hidden'}>
               <h3 className="text-xs font-semibold text-gray-500 mb-3">Labor</h3>
               <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-3">
                 {([['hourly', 'Hourly crew'], ['subcontractor', 'Subcontractor']] as const).map(([mode, label]) => (
@@ -1223,9 +1258,9 @@ export default function QuoteBuilder({
             <div className="flex items-center justify-between py-1">
               <div>
                 <p className="text-sm font-medium text-gray-700">Salesman on this job?</p>
-                <p className="text-xs text-gray-400">
+                {internal && <p className="text-xs text-gray-400">
                   {commissionPctLabel} commission, {priced.commissionMode === 'added' ? 'added on top of the price' : 'taken out of the price'}
-                </p>
+                </p>}
               </div>
               <button
                 type="button"
@@ -1246,6 +1281,8 @@ export default function QuoteBuilder({
               <div className="bg-gray-900 rounded-xl p-4">
                 <p className="text-gray-400 text-xs mb-1">{priced.priceMethod === 'manual' ? 'Price (set by hand)' : 'Adjusted Price'}</p>
                 <p className="text-white text-3xl font-bold" data-quote-price>{fmt(adjPrice)}</p>
+                {!internal && svPricing && <p className="text-gray-300 text-xs mt-1" data-price-pending>Pricing…</p>}
+                {!internal && svError && !svPricing && <p className="text-amber-300 text-xs mt-1" data-price-error>{svError}</p>}
                 {priced.priceMethod === 'manual' && (
                   <button type="button" className="mt-2 text-xs font-semibold text-amber-300 underline min-h-[44px]" onClick={() => setFinalPriceStr('')} data-price-from-cost>
                     This price was set by hand, so the parts do not change it. Price it from cost instead
@@ -1298,9 +1335,9 @@ export default function QuoteBuilder({
               {jobType === 'new' && style && sections > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2" data-tiers>
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-gray-500">Good, Better, Best <span className="font-normal">· on the proposal</span></p>
-                    <button type="button" className="btn btn-quiet btn-sm shrink-0" data-edit-tiers
-                      onClick={() => { if (okToLeave()) navigate('/settings?tab=tiers') }}>Edit tiers</button>
+                    <p className="text-xs font-semibold text-gray-500" data-tiers-title>{tierSet?.tiers.length === 2 ? 'Two options' : 'Good, Better, Best'} <span className="font-normal">· on the proposal</span></p>
+                    {can('settings.change') && <button type="button" className="btn btn-quiet btn-sm shrink-0" data-edit-tiers
+                      onClick={() => { if (okToLeave()) navigate('/settings?tab=tiers') }}>Edit tiers</button>}
                   </div>
                   {usingSentTiers && (
                     <p className="text-xs text-gray-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5" data-tiers-as-sent>
@@ -1309,8 +1346,8 @@ export default function QuoteBuilder({
                     </p>
                   )}
                   {!tierSet && tierSets === null && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-tiers-not-loaded>Good, Better, Best have not loaded yet (weak signal). They are tried again every few seconds; a proposal saved now would not show them.</p>}
-                  {!tierSet && tierSets !== null && <p className="text-sm text-gray-600" data-tiers-none>No Good, Better, Best set for {style.category} yet. Tap Edit tiers to add one.</p>}
-                  {tierSet && tierSet.tiers.length === 0 && <p className="text-sm text-gray-600" data-tiers-none>No tiers for {tierSet.category} yet. Tap Edit tiers to add them.</p>}
+                  {!tierSet && tierSets !== null && <p className="text-sm text-gray-600" data-tiers-none>No Good, Better, Best set for {style.category} yet. {can('settings.change') ? 'Tap Edit tiers to add one.' : 'Ask Jonathan to add one.'}</p>}
+                  {tierSet && tierSet.tiers.length === 0 && <p className="text-sm text-gray-600" data-tiers-none>No tiers for {tierSet.category} yet. {can('settings.change') ? 'Tap Edit tiers to add them.' : 'Ask Jonathan to add them.'}</p>}
                   {tiers.map(t => {
                     if (!t.style || !t.option) return (
                       <div key={t.spec.key} className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3" data-tier={t.spec.key}>
@@ -1359,7 +1396,7 @@ export default function QuoteBuilder({
               )}
 
               {work && internal && <WorkBreakdown work={work} />}
-              {(!work || internal) && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} />}
+              {internal && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} />}
 
               {quoteWarnings.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
@@ -1394,7 +1431,7 @@ export default function QuoteBuilder({
                 </div>
               )}
 
-              <div className={`bg-white rounded-xl border border-gray-200 p-4 ${work && !internal ? 'hidden' : ''}`}>
+              <div className={`bg-white rounded-xl border border-gray-200 p-4 ${!internal ? 'hidden' : ''}`}>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">Gross Margin</span>
                   <span className={`text-2xl font-bold ${gmColor}`}>{(gmPct * 100).toFixed(1)}%</span>
@@ -1440,7 +1477,7 @@ export default function QuoteBuilder({
                 )}
               </div>
 
-              <div className={`bg-white rounded-xl border border-gray-200 p-4 space-y-2 ${work ? 'hidden' : ''}`}>
+              <div className={`bg-white rounded-xl border border-gray-200 p-4 space-y-2 ${work || !internal ? 'hidden' : ''}`}>
                 {[
                   { label: 'Material cost', val: fmt(materialCost) },
                   { label: priced.laborMode === 'flat' ? 'Labor (flat)' : priced.laborMode === 'subcontractor' ? `Labor (sub, $${priced.subRate}/${priced.subUnit === 'section' ? 'sec' : 'ft'})` : 'Labor Cost', val: fmt(laborCost) },
@@ -1458,7 +1495,7 @@ export default function QuoteBuilder({
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-                <div className={`flex items-center justify-between ${work ? 'hidden' : ''}`}>
+                <div className={`flex items-center justify-between ${work || !internal ? 'hidden' : ''}`}>
                   <span className="text-xs text-gray-500">Price from</span>
                   <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5">
                     {([['cost_factor', 'Cost'], ['per_foot', 'Per foot']] as const).map(([m, label]) => (
@@ -1471,7 +1508,7 @@ export default function QuoteBuilder({
                     ))}
                   </div>
                 </div>
-                {priceMethod === 'cost_factor' || work ? (
+                {!internal ? null : priceMethod === 'cost_factor' || work ? (
                   <div>
                     <label className="text-xs text-gray-400 mb-1 block">Target Margin for this quote</label>
                     {/* Typed as a percent (44 or 44%); kept on the quote as the number price is divided into. */}
@@ -1559,13 +1596,13 @@ export default function QuoteBuilder({
                     <div key={i} className="flex items-start justify-between text-xs py-1.5 border-b border-gray-100 last:border-0">
                       <div className="flex-1 pr-2">
                         <p className="text-gray-800 font-medium leading-tight">{item.item}</p>
-                        <p className="text-gray-400 mt-0.5">{work && !internal ? `${item.qty}` : `${item.qty} × ${fmt(item.unitCost)}`}</p>
+                        <p className="text-gray-400 mt-0.5">{!internal ? `${item.qty}` : `${item.qty} × ${fmt(item.unitCost)}`}</p>
                       </div>
-                      {(!work || internal) && <span className="text-gray-900 font-semibold whitespace-nowrap">{fmt(item.total)}</span>}
+                      {internal && <span className="text-gray-900 font-semibold whitespace-nowrap">{fmt(item.total)}</span>}
                     </div>
                   ))}
                 </div>
-                <div className={`mt-3 pt-3 border-t border-gray-300 flex justify-between items-center ${work && !internal ? 'hidden' : ''}`}>
+                <div className={`mt-3 pt-3 border-t border-gray-300 flex justify-between items-center ${!internal ? 'hidden' : ''}`}>
                   <span className="text-sm font-semibold text-gray-700">Total Material</span>
                   <span className="text-sm font-bold text-gray-900">{fmt(materialCost)}</span>
                 </div>

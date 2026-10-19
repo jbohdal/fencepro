@@ -9,7 +9,7 @@ import prisma from './lib/prisma.js'
 import { printEnvValidation } from './lib/urls.js'
 import { mountStaticSites } from './lib/staticSites.js'
 import { liveDatabaseMisuse } from './lib/liveGuard.js'
-import { startCalendarSyncRetry } from './lib/calendarSync/index.js'
+import { retitleUpcomingCalendarEventsAll, startCalendarSyncRetry } from './lib/calendarSync/index.js'
 
 // Before anything touches the database: only the live install may use the live database.
 const misuse = liveDatabaseMisuse(process.env.DATABASE_URL, process.cwd())
@@ -69,6 +69,10 @@ import { startDuplicateCheck } from './lib/duplicateCheck.js'
 import { startAutomationWorker } from './lib/automations/queue.js'
 import { ensureStylesOnHoldAll } from './lib/stylesOnHold.js'
 import { ensureWoodAll } from './lib/woodSeed.js'
+import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
+import { hidesCosts, staffRoleOf, redactCosts } from './lib/costRedact.js'
+import quotePricingRoutes from './routes/quote-pricing.js'
+import { ensureTwoOptionTiersAll } from './lib/tierSets.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
 import quoteWidget from './routes/quote-widget.js'
 import systemRoutes from './routes/system.js'
@@ -138,6 +142,16 @@ app.use('/api', (req, res, next) => {
   next()
 })
 
+// A Salesman's or Installer's login gets prices only: every answer is sent
+// without a cost, margin, profit, sub rate, wage, overhead or commission figure
+// (lib/costRedact.ts), whichever route answers.
+app.use('/api', (req, res, next) => {
+  if (!hidesCosts(staffRoleOf(req))) return next()
+  const json = res.json.bind(res)
+  res.json = (body: any) => json(redactCosts(body))
+  next()
+})
+
 // ── Rate Limiting ──
 // Limits can be set from the environment. The API default allows a real
 // working session:
@@ -196,6 +210,7 @@ app.use('/api/appointments', appointmentRoutes)
 app.use('/api/pricing-rules', pricingRoutes)
 app.use('/api/quotes', quoteApiRoutes)
 app.use('/api/saved-quotes', savedQuoteRoutes)
+app.use('/api/quote-pricing', quotePricingRoutes)
 app.use('/api/style-photos', stylePhotos)
 app.use('/api/tier-sets', tierSetRoutes)
 app.use('/api/voice', voiceRoutes)
@@ -333,6 +348,8 @@ if (!isVercel) {
     try { startCalendarSyncRetry() } catch (err) {
       console.warn('[startup] calendar sync retry failed to start:', (err as Error).message)
     }
+    // Plain style names in calendar titles, upcoming events only: once per company (lib/calendarSync/index.ts).
+    retitleUpcomingCalendarEventsAll().catch(err => console.error('[calendar] plain title check failed:', err))
     try { startDataIntegrityCron() } catch (err) {
       console.warn('[startup] data-integrity cron failed to start:', (err as Error).message)
     }
@@ -349,6 +366,10 @@ if (!isVercel) {
     ensureStylesOnHoldAll().catch(err => console.error('[styles] on hold check failed:', err))
     // Wood privacy styles, kits and unpriced wood parts: once per company (lib/woodSeed.ts).
     ensureWoodAll().catch(err => console.error('[wood] check failed:', err))
+    // Chain link Install choice and the unpriced dig set styles: once per company (lib/chainDigSetSeed.ts).
+    ensureChainDigSetAll().catch(err => console.error('[chain link] dig set check failed:', err))
+    // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
+    ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))
     try { startMediaShrink() } catch (err) {
       console.warn('[startup] media shrink failed to start:', (err as Error).message)
     }

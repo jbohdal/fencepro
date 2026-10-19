@@ -1,6 +1,8 @@
 // The Repair flow on a phone (WebKit, as on an iPhone), on the dev copy.
 //
 //   APP_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev token> SHOTS=<folder> [BROWSER=webkit|chromium] node e2e/repair-phone.mjs
+//   On the Android emulator's Chrome: adb reverse tcp:4001 tcp:4001; adb forward tcp:9333
+//   localabstract:chrome_devtools_remote; CDP_URL=http://localhost:9333 node e2e/repair-phone.mjs
 //
 // New quote → Style: Job type Repair, a style, "What happened?" Leaning
 // fence, one more post with the + button, Broken gate items, then the Price
@@ -12,18 +14,21 @@ import { webkit, chromium } from 'playwright'
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.SHOTS || ''
+const CDP = process.env.CDP_URL || ''
 const ENGINE = process.env.BROWSER === 'chromium' ? chromium : webkit
-const NAME = process.env.BROWSER === 'chromium' ? 'chromium' : 'webkit'
+const NAME = CDP ? 'android' : process.env.BROWSER === 'chromium' ? 'chromium' : 'webkit'
 if (!/localhost:4001/.test(APP)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  -- ' + detail : ''}`) }
 
-const browser = await ENGINE.launch()
+const browser = CDP ? await chromium.connectOverCDP(CDP) : await ENGINE.launch()
 try {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: NAME === 'chromium', hasTouch: true })
-  await ctx.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
+  // The emulator's own Chrome (its real screen and touch), or a phone sized browser here.
+  const ctx = CDP ? browser.contexts()[0] : await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: NAME === 'chromium', hasTouch: true })
+  if (CDP) { const p0 = await ctx.newPage(); await p0.goto(APP); await p0.evaluate(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN); await p0.close() }
+  else await ctx.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
   const page = await ctx.newPage()
   const errors = []
   page.on('pageerror', e => errors.push(String(e).slice(0, 200)))
@@ -34,11 +39,11 @@ try {
     await loc.scrollIntoViewIfNeeded(); await loc.waitFor({ state: 'visible' })
     const box = await loc.boundingBox()
     if (!box || box.height < 44 || box.width < 44) small.push(`${what} ${box ? `${Math.round(box.width)}x${Math.round(box.height)}` : '?'}`)
-    await loc.tap(); await sleep(250)
+    await (CDP ? loc.click() : loc.tap()); await sleep(250)
   }
   const shot = async name => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` }) }
   const b = page.locator('[data-quote-builder]')
-  await page.locator('button:has-text("New quote"):visible').first().tap(); await sleep(800)
+  { const nq = page.locator('button:has-text("New quote"):visible').first(); await (CDP ? nq.click() : nq.tap()); await sleep(800) }
   await tap(b.locator('[data-step="style"]'), 'Style tab')
   await tap(b.locator('[data-job-type-option="repair"]'), 'Repair')
   await b.locator('[data-style-list]').selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig' }); await sleep(300)
@@ -61,7 +66,7 @@ try {
   check('no page errors', errors.length === 0, errors.join(' | '))
 } catch (e) {
   check('test run finished', false, String(e).split('\n').slice(0, 3).join(' '))
-} finally { await browser.close() }
+} finally { if (!CDP) await browser.close() }
 const passed = results.filter(Boolean).length
 console.log(`\n${passed} of ${results.length} checks passed (${NAME})`)
 process.exit(passed === results.length ? 0 : 1)

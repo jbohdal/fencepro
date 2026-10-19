@@ -9,11 +9,14 @@ import AdminPage from './AdminPage'
 import PendingOrdersPage from './PendingOrdersPage'
 import { getPendingOrders, updatePendingOrderStatus, type PendingOrderStatus } from './pendingOrderStore'
 import { replaceUrl } from './nav'
+import { can } from './permissions'
 
 type InvTab = 'items' | 'sales_orders' | 'operations'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(c / 100)
+/** A cost, for the owner, admin, manager and office; a Salesman's or Installer's copy has none (—). */
+const costText = (c: number | undefined) => (can('costs.view') && typeof c === 'number' ? fmt(c) : '—')
 
 export default function InventoryPage() {
   const [tab, setTab] = useState<InvTab>('items')
@@ -114,7 +117,7 @@ function OperationsView() {
                     </div>
                     <div className="flex items-center gap-3">
                       {sufficiencyIndicator(o)}
-                      <span className="text-sm font-bold text-gray-900">{fmt(o.totalCostCents)}</span>
+                      <span className="text-sm font-bold text-gray-900">{costText(o.totalCostCents)}</span>
                     </div>
                   </div>
                   {isOpen && (
@@ -136,7 +139,7 @@ function OperationsView() {
                               <td className="py-1.5 text-gray-800">{i.itemName}</td>
                               <td className="py-1.5 text-right text-gray-700">{i.requiredQuantity}</td>
                               <td className="py-1.5 text-right text-gray-500">{i.quantityOnHandAtTimeOfOrder ?? '—'}</td>
-                              <td className="py-1.5 text-right text-gray-700">{fmt(i.unitCostCents)}</td>
+                              <td className="py-1.5 text-right text-gray-700">{costText(i.unitCostCents)}</td>
                               <td className="py-1.5 text-right">
                                 {i.isSufficientStock === false
                                   ? <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Short</span>
@@ -161,7 +164,7 @@ function OperationsView() {
                         <button onClick={() => {
                           const w = window.open('', '_blank')
                           if (!w) return
-                          const rows = o.items.map(i => `<tr><td>${i.itemName}</td><td class="r">${i.requiredQuantity}</td><td class="r">${fmt(i.unitCostCents)}</td><td class="r">${fmt(i.totalCostCents)}</td></tr>`).join('')
+                          const rows = o.items.map(i => `<tr><td>${i.itemName}</td><td class="r">${i.requiredQuantity}</td><td class="r">${costText(i.unitCostCents)}</td><td class="r">${costText(i.totalCostCents)}</td></tr>`).join('')
                           w.document.write(`<!doctype html><html><head><title>Pull Sheet — ${o.customerName}</title><style>body{font-family:system-ui;padding:32px}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f9fafb;text-align:left;padding:6px;font-size:9px;text-transform:uppercase;color:#6b7280}td{padding:6px;border-bottom:1px solid #f3f4f6}td.r{text-align:right}</style></head><body><h1>Pull Sheet — ${o.customerName}</h1><h2>${o.quoteName} · ${new Date(o.createdAt).toLocaleDateString()}</h2><table><thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table><script>window.print()</script></body></html>`)
                           w.document.close()
                         }}

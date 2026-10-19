@@ -205,8 +205,11 @@ async function phone(browser) {
   console.log('\n── phone (412x915) ──')
   const pipeline = await api('/api/pipeline')
   const list = await api('/api/appointments')
-  // A customer with nothing booked, from the Appointment column first.
-  const free = l => l.customerId && !list.some(a => a.crmContactId === l.customerId && a.startAt)
+  // A customer with a phone and nothing booked, from the Appointment column
+  // first ("On my way" texts the customer's own phone).
+  const contacts = await api('/api/crm-contacts')
+  const withPhone = new Set((Array.isArray(contacts) ? contacts : contacts.contacts || contacts.data || []).filter(c => (c.phone || '').replace(/\D/g, '').length >= 10).map(c => c.id))
+  const free = l => l.customerId && withPhone.has(l.customerId) && !list.some(a => a.crmContactId === l.customerId && a.startAt)
   const card = pipeline.leads.find(l => l.stage === 'Appointment' && free(l))
   // Today leads with the first appointment still open, so earlier ones are
   // closed out first (on the test copy), then this one is booked a few
