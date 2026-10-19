@@ -12,15 +12,23 @@
 
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
+import { lockAccountState } from './lockState.js'
 
 export const WOOD_KEY = 'migration:wood-styles-2026-10'
+// Once more, for companies where the first run's additions were saved over
+// (live, Oct 19, 2026: the chain link dig set step ran at the same moment and
+// saved Settings and Inventory without them). It only adds what is missing,
+// so where wood is already there it changes nothing.
+export const WOOD_RESTORE_KEY = 'migration:wood-styles-2026-10-restore'
 
 export async function ensureWood(accountId: string): Promise<{ styles: string[]; items: string[]; kits: string[]; catalog: boolean } | null> {
   const m = await pricingModule()
   return prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'wood-styles:' + accountId}))`
     const done = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: WOOD_KEY } } })
-    if (done) return null
+    const restored = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: WOOD_RESTORE_KEY } } })
+    if (done && restored) return null
+    await lockAccountState(tx, accountId)
     const b = await tx.businessState.findUnique({ where: { accountId }, select: { config: true } })
     const cfg = (b?.config && typeof b.config === 'object' && !Array.isArray(b.config) ? b.config : {}) as Record<string, unknown>
     // No saved styles yet: nothing to add to, and nothing recorded, so it applies once they are saved.
@@ -40,7 +48,9 @@ export async function ensureWood(accountId: string): Promise<{ styles: string[];
       await tx.inventoryState.update({ where: { accountId }, data: { items: plan.state.items as any, kits: plan.state.kits as any, version: { increment: 1 } } })
     }
     const out = { styles: plan.styles, items: plan.items, kits: plan.kits, catalog: plan.catalog }
-    await tx.accountKeyValue.create({ data: { accountId, key: WOOD_KEY, value: { at: new Date().toISOString(), ...out } } })
+    const value = { at: new Date().toISOString(), ...out }
+    if (!done) await tx.accountKeyValue.create({ data: { accountId, key: WOOD_KEY, value } })
+    await tx.accountKeyValue.create({ data: { accountId, key: WOOD_RESTORE_KEY, value } })
     return out
   }, { timeout: 20_000 })
 }

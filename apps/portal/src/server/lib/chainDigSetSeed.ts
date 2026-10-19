@@ -14,6 +14,7 @@
 
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
+import { lockAccountState } from './lockState.js'
 
 export const CHAIN_DS_KEY = 'migration:chain-dig-set-2026-10'
 
@@ -23,6 +24,7 @@ export async function ensureChainDigSet(accountId: string): Promise<{ styles: st
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'chain-dig-set:' + accountId}))`
     const done = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: CHAIN_DS_KEY } } })
     if (done) return null
+    await lockAccountState(tx, accountId)
     const b = await tx.businessState.findUnique({ where: { accountId }, select: { config: true } })
     const cfg = (b?.config && typeof b.config === 'object' && !Array.isArray(b.config) ? b.config : {}) as Record<string, unknown>
     // No saved styles yet: nothing to add to, and nothing recorded, so it applies once they are saved.

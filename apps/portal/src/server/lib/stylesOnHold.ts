@@ -10,6 +10,7 @@
  */
 
 import prisma from './prisma.js'
+import { lockAccountState } from './lockState.js'
 
 export const STYLES_ON_HOLD = ["CL - Com 6'", "CL - Com 6'+1'", "CL - Com 6'+1' Black", 'Alum - DS - Ind Abigail', 'Durafence'] as const
 export const STYLES_ON_HOLD_KEY = 'migration:styles-on-hold-2026-10'
@@ -33,6 +34,7 @@ export async function ensureStylesOnHold(accountId: string): Promise<string[]> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'styles-on-hold:' + accountId}))`
     const done = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: STYLES_ON_HOLD_KEY } } })
     if (done) return []
+    await lockAccountState(tx, accountId)
     const b = await tx.businessState.findUnique({ where: { accountId }, select: { config: true, version: true } })
     const cfg = (b?.config && typeof b.config === 'object' && !Array.isArray(b.config) ? b.config : {}) as Record<string, unknown>
     // No saved styles yet: nothing to change, and nothing recorded, so it applies once they are saved.

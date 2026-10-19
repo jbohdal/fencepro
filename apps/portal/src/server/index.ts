@@ -362,12 +362,17 @@ if (!isVercel) {
     try { startAddressRefresh() } catch (err) { console.error('[addresses] could not start:', err) }
     try { startDuplicateCheck() } catch (err) { console.error('[duplicates] could not start:', err) }
     try { startAutomationWorker() } catch (err) { console.error('[automations] worker could not start:', err) }
-    // Commercial and industrial styles not available for quoting: once per company (lib/stylesOnHold.ts).
-    ensureStylesOnHoldAll().catch(err => console.error('[styles] on hold check failed:', err))
-    // Wood privacy styles, kits and unpriced wood parts: once per company (lib/woodSeed.ts).
-    ensureWoodAll().catch(err => console.error('[wood] check failed:', err))
-    // Chain link Install choice and the unpriced dig set styles: once per company (lib/chainDigSetSeed.ts).
-    ensureChainDigSetAll().catch(err => console.error('[chain link] dig set check failed:', err))
+    // One-time changes to Settings and Inventory, one after another (each also
+    // locks the rows, lib/lockState.ts): side by side, a later save erased an
+    // earlier one's additions.
+    ;(async () => {
+      // Commercial and industrial styles not available for quoting: once per company (lib/stylesOnHold.ts).
+      await ensureStylesOnHoldAll().catch(err => console.error('[styles] on hold check failed:', err))
+      // Wood privacy styles, kits and unpriced wood parts: once per company (lib/woodSeed.ts).
+      await ensureWoodAll().catch(err => console.error('[wood] check failed:', err))
+      // Chain link Install choice and the unpriced dig set styles: once per company (lib/chainDigSetSeed.ts).
+      await ensureChainDigSetAll().catch(err => console.error('[chain link] dig set check failed:', err))
+    })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))
     try { startMediaShrink() } catch (err) {
