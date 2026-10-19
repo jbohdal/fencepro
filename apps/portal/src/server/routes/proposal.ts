@@ -288,7 +288,7 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string): stri
     <h1>${esc(p.customer?.name || q.customerName)}</h1>
     <p class="small">${esc(p.customer?.address || q.customerAddress || '')}</p>
     <p class="facts">${p.footageFt ? `${Math.round(p.footageFt)} ft of fence` : ''}${p.gatesText ? ` · ${esc(p.gatesText)}` : ''}</p>
-    ${plan ? `<section><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Purple: new fence. Squares: corner posts. Dots: end and gate posts. Gray dashed: existing fence or no fence, not included. Not to scale for permitting.</p></section>` : ''}
+    ${plan ? `<section><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Gray dashed: existing fence or no fence, not included. Not to scale for permitting.</p></section>` : ''}
     <section><h2>${p.options.length > 1 ? 'Your options' : 'Your fence'}</h2><div class="opts${p.options.some(o => o.tier) ? ' tiers' : ''}">${options}</div></section>
     ${included}${warranty}${deposit}${acceptBlock}
     <p class="small foot">Questions? Call ${company.phone ? tel(company.phone) : 'us'}.</p>

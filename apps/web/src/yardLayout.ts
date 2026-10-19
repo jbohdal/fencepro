@@ -20,6 +20,9 @@ export type GateType = 'walk' | 'double'
 export type GatePosition = 'middle' | 'start' | 'end' | 'distance'
 export type YardShape = 'backyard' | 'perimeter' | 'front' | 'straight' | 'custom'
 
+export type GateSwing = 'in' | 'out'
+export type GateHinge = 'left' | 'right'
+
 export interface SideGate {
   type: GateType
   /** Opening width in inches. */
@@ -27,6 +30,13 @@ export interface SideGate {
   position: GatePosition
   /** For 'distance': inches from the start of the side to the gate. */
   distanceIn?: number
+  /** Into the yard (default) or out, toward the street / outside the fence. Drawing and crew notes only. */
+  swing?: GateSwing | null
+  /** Walk gate: hinge post on the left or right, as seen from inside the yard
+   *  facing the gate. Unset: the end nearest the house (else the side's start). */
+  hinge?: GateHinge | null
+  /** Double gate: each leaf set on its own (left / right as seen from inside). Unset: both use `swing`. */
+  leafSwing?: { left: GateSwing; right: GateSwing } | null
 }
 
 export interface SideSkip {
@@ -402,6 +412,40 @@ export function parseFtIn(text: string): number | null {
   const ft = parseFloat(m[1]), inch = m[2] ? parseFloat(m[2]) : 0
   if (inch >= 12) return null
   return Math.round((ft * 12 + inch) * 8) / 8
+}
+
+/** Plan label length: whole feet as "13'", otherwise "13' 4\"". */
+export function formatPieceLen(inches: number): string {
+  return formatFtIn(inches).replace(/ 0"$/, '')
+}
+
+export interface SidePiece {
+  kind: 'fence' | 'gate' | 'skip'
+  /** Inches from the side's start. */
+  fromIn: number
+  toIn: number
+  text: string
+}
+
+/**
+ * The pieces a side is split into, in order along the side, labeled with
+ * their own lengths ("13'", "14' double gate", "10' existing fence"). Taken
+ * straight from deriveLayout's spans (the same ones the runs, sections and
+ * posts come from). Empty when the side is not split (one piece, nothing to
+ * add to the side's own label).
+ */
+export function sidePieces(side: Pick<YardSide, 'gate' | 'skip'>, r: Pick<SideResult, 'pieceSpans' | 'gateSpan' | 'skipSpan'>): SidePiece[] {
+  if (!r.gateSpan && !r.skipSpan) return []
+  const out: SidePiece[] = r.pieceSpans.map(([a, b]) => ({ kind: 'fence', fromIn: a, toIn: b, text: formatPieceLen(b - a) }))
+  if (r.gateSpan && side.gate) {
+    const [a, b] = r.gateSpan
+    out.push({ kind: 'gate', fromIn: a, toIn: b, text: `${formatPieceLen(b - a)} ${side.gate.type === 'double' ? 'double gate' : 'walk gate'}` })
+  }
+  if (r.skipSpan && side.skip) {
+    const [a, b] = r.skipSpan
+    out.push({ kind: 'skip', fromIn: a, toIn: b, text: `${formatPieceLen(b - a)} ${side.skip.kind === 'existing' ? 'existing fence' : 'no fence'}` })
+  }
+  return out.sort((x, y) => x.fromIn - y.fromIn)
 }
 
 /** Post to post spacing when a run is split into evenly spaced sections. */

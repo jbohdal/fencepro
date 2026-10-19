@@ -93,9 +93,11 @@ try {
     dots: [...svg.querySelectorAll('circle')].filter(c => c.getAttribute('r') === '5.5').length,
     open: [...svg.querySelectorAll('circle')].filter(c => c.getAttribute('r') === '3.2').length,
     gates: svg.querySelectorAll('[data-plan-gate]').length,
+    // Gate hinge posts are drawn as dark squares (walk gate: one; double gate: two).
+    hinges: svg.querySelectorAll('[data-plan-hinge]').length,
     text: svg.textContent,
   }))
-  check('phone: the plan draws 4 corner squares, 6 end and gate dots, 2 gate swings', drawn.squares === 4 && drawn.dots === 6 && drawn.gates === 2, JSON.stringify({ ...drawn, text: undefined }))
+  check('phone: the plan draws 4 corner squares, 6 end and gate posts (3 of them hinge squares), 2 gate swings', drawn.squares === 4 && drawn.dots + drawn.hinges === 6 && drawn.hinges === 3 && drawn.gates === 2, JSON.stringify({ ...drawn, text: undefined }))
   check('phone: line posts drawn at the section count (57 sections, 7 runs = 50)', drawn.open === 50, String(drawn.open))
   check('phone: footage, sections, house, street and the permitting note are on the plan',
     ['150\' 0"', 'Back · 19 sec', 'House', 'STREET', 'Not to scale for permitting', "4' walk gate", "10' double gate"].every(t => drawn.text.includes(t)), drawn.text.slice(0, 200))

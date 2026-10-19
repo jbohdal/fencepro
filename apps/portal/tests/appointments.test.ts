@@ -1,21 +1,19 @@
 /**
- * Appointments: open slot suggestions, overlap warnings, what statuses and
+ * Appointments (booking times are in bookingPlanner.test.ts): overlap warnings, what statuses and
  * outcomes do to the pipeline card, reading a call back time said on the
  * phone, and the confirmation Jonathan sends himself.
  */
 import { describe, test, expect } from 'vitest'
 import {
-  suggestSlots, overlapWarnings, stageAfterBooking, stageAfterOutcome, statusForOutcome, needsOutcome, nextFor, isOpen,
+  overlapWarnings, stageAfterBooking, stageAfterOutcome, statusForOutcome, needsOutcome, nextFor, isOpen,
   floridaTime, floridaDate, floridaHM, confirmationText, onMyWayText, smsLink, buildIcs, routeUrl, directionsUrl,
-  DEFAULT_APPOINTMENT_SETTINGS, withDefaults, APPOINTMENT_TYPES as WEB_TYPES, APPOINTMENT_STATUSES as WEB_STATUSES,
+  APPOINTMENT_TYPES as WEB_TYPES, APPOINTMENT_STATUSES as WEB_STATUSES,
   APPOINTMENT_OUTCOMES as WEB_OUTCOMES, type Appointment,
 } from '../../web/src/appointmentLogic'
 import { parseCallbackTime, APPOINTMENT_TYPES, APPOINTMENT_STATUSES, APPOINTMENT_OUTCOMES, addressKey } from '../src/server/lib/appointments'
 
-const S = DEFAULT_APPOINTMENT_SETTINGS
 const STAGES = ['First Contact', 'Appointment', 'Estimating', 'Pending Signature', 'Signed Contract', 'Paid & Closed', 'Lost Sale', 'No Answer']
-// Belleview and Ocala, about 10 miles apart; Dunnellon about 25 miles west.
-const BELLEVIEW = { lat: 29.0553, lng: -82.0623 }, OCALA = { lat: 29.1872, lng: -82.1401 }, DUNNELLON = { lat: 29.0491, lng: -82.4609 }
+const BELLEVIEW = { lat: 29.0553, lng: -82.0623 }
 
 function appt(over: Partial<Appointment> = {}): Appointment {
   return {
@@ -43,45 +41,6 @@ describe('Florida time', () => {
     expect(floridaTime('2026-10-20', '10:00').toISOString()).toBe('2026-10-20T14:00:00.000Z')   // EDT
     expect(floridaTime('2026-12-01', '10:00').toISOString()).toBe('2026-12-01T15:00:00.000Z')   // EST
     expect(floridaDate('2026-10-21T02:00:00Z')).toBe('2026-10-20')                            // 10 pm the night before
-  })
-})
-
-describe('suggested slots', () => {
-  test('a free day: the three earliest that do not overlap, inside the hours in Settings', () => {
-    const s = suggestSlots({ date: '2026-10-20', minutes: 60, person: 'Jonathan Bohdal', target: OCALA, appointments: [], settings: S, now: NOW })
-    expect(s.map(x => hm(x.startAt))).toEqual(['07:00', '08:00', '09:00'])
-  })
-  test('no suggestions on a day Settings leaves out (Sunday by default), and Settings can change that', () => {
-    expect(suggestSlots({ date: '2026-10-18', minutes: 60, person: 'Jonathan Bohdal', target: null, appointments: [], settings: S, now: NOW })).toEqual([])
-    const sundays = withDefaults({ slotDays: [0], slotStart: '12:00', slotEnd: '15:00' })
-    expect(suggestSlots({ date: '2026-10-18', minutes: 60, person: 'Jonathan Bohdal', target: null, appointments: [], settings: sundays, now: NOW }).map(x => hm(x.startAt))).toEqual(['12:00', '13:00', '14:00'])
-  })
-  test('never overlaps the person\'s appointments, and leaves time to drive', () => {
-    const busy = [appt({ id: 'b', startAt: floridaTime('2026-10-20', '09:00').toISOString(), endAt: floridaTime('2026-10-20', '10:00').toISOString(), lat: DUNNELLON.lat, lng: DUNNELLON.lng })]
-    const s = suggestSlots({ date: '2026-10-20', minutes: 60, person: 'Jonathan Bohdal', target: BELLEVIEW, appointments: busy, settings: S, now: NOW })
-    for (const x of s) {
-      const start = new Date(x.startAt).getTime(), end = new Date(x.endAt).getTime()
-      const bs = new Date(busy[0].startAt!).getTime(), be = new Date(busy[0].endAt!).getTime()
-      expect(start >= be + 30 * 60_000 || end <= bs - 30 * 60_000).toBe(true)   // Dunnellon to Belleview is well over half an hour
-    }
-  })
-  test('prefers the slot next to an appointment in the same area', () => {
-    const busy = [
-      appt({ id: 'near', startAt: floridaTime('2026-10-20', '13:00').toISOString(), endAt: floridaTime('2026-10-20', '14:00').toISOString(), lat: BELLEVIEW.lat + 0.01, lng: BELLEVIEW.lng, customerName: 'Next Door' }),
-    ]
-    const s = suggestSlots({ date: '2026-10-20', minutes: 60, person: 'Jonathan Bohdal', target: BELLEVIEW, appointments: busy, settings: S, now: NOW, count: 1 })
-    expect(s).toHaveLength(1)
-    expect(['11:45', '14:15']).toContain(hm(s[0].startAt))
-    expect(s[0].reason).toMatch(/Next Door/)
-  })
-  test('someone else\'s appointments and cancelled ones do not take time', () => {
-    const others = [appt({ assignedTo: 'Stacy Mcgovern', startAt: floridaTime('2026-10-20', '07:00').toISOString(), endAt: floridaTime('2026-10-20', '12:00').toISOString() }),
-      appt({ id: 'x', status: 'cancelled', startAt: floridaTime('2026-10-20', '07:00').toISOString(), endAt: floridaTime('2026-10-20', '12:00').toISOString() })]
-    expect(hm(suggestSlots({ date: '2026-10-20', minutes: 60, person: 'Jonathan Bohdal', target: null, appointments: others, settings: S, now: NOW })[0].startAt)).toBe('07:00')
-  })
-  test('nothing in the past on today', () => {
-    const s = suggestSlots({ date: '2026-10-20', minutes: 60, person: 'Jonathan Bohdal', target: null, appointments: [], settings: S, now: floridaTime('2026-10-20', '14:10') })
-    expect(hm(s[0].startAt)).toBe('14:45')
   })
 })
 

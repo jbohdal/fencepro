@@ -8,13 +8,13 @@ import { useEffect, useState } from 'react'
 import { Pencil, Trash2, Plus, Image as ImageIcon, Mic, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import FtInPad from './FtInPad'
 import SitePlan, { type PlanPin } from './SitePlan'
-import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX, buildPlan, layoutSignature, returnHouseEnd } from './sitePlanGeometry'
+import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX, buildPlan, layoutSignature, returnHouseEnd, setHouseMeets, clearHouseMeets, canMoveHouse } from './sitePlanGeometry'
 import { lookupPosition } from './appointmentsStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import {
   layoutForShape, newSideId, joinedFromPrev, joinsNext, neighborName, formatFtIn, postSpacing,
   FINISH_LABEL, FINISH_NEAR, GATE_LABEL, GATE_WIDTH_IN, SHAPE_LABEL,
-  type YardLayout, type YardShape, type YardSide, type EndFinish, type GateType, type LayoutResult,
+  type YardLayout, type YardShape, type YardSide, type EndFinish, type GateType, type LayoutResult, type GateSwing, type GateHinge,
 } from './yardLayout'
 
 const SHAPES: Array<{ shape: YardShape; hint: string; path: string }> = [
@@ -97,6 +97,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   const [editCounts, setEditCounts] = useState(false)
   // The aerial photo's address box opens only when asked for, to keep the yard step short.
   const [aerialForm, setAerialForm] = useState(false)
+  // "Drag the house..." shows while adjusting until the house is first dragged in this quote (screen state only).
+  const [houseHintDone, setHouseHintDone] = useState(false)
 
   if (!layout) {
     return (
@@ -244,7 +246,26 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
 
   const onPhoto = !!(photo && photoReady === photo)
   // Measurements that cannot all be true at once: a gentle note, the plan still draws.
-  const planNotes = buildPlan(layout, result ?? undefined, runSections, widthFt).notes
+  const planNow = buildPlan(layout, result ?? undefined, runSections, widthFt)
+  const planNotes = planNow.notes
+  const houseMovable = !onPhoto && canMoveHouse(layout)
+  const meetsSet = layout.sides.some(s => s.meetsHouse)
+  // Tapping a gate while adjusting: a walk gate goes in/left, in/right, out/left,
+  // out/right; a double gate flips both leaves in/out. Drawing and crew notes only.
+  function cycleGate(sideId: string) {
+    const s = layout!.sides.find(x => x.id === sideId)
+    const g = planNow.sides.find(x => x.sideId === sideId)?.gate
+    if (!s?.gate || !g) return
+    if (s.gate.type === 'double') {
+      const both: GateSwing = g.leafSwing.left === 'in' && g.leafSwing.right === 'in' ? 'out' : 'in'
+      updateSide(sideId, { gate: { ...s.gate, swing: both, leafSwing: null } })
+      return
+    }
+    const order: Array<[GateSwing, GateHinge]> = [['in', 'left'], ['in', 'right'], ['out', 'left'], ['out', 'right']]
+    const k = order.findIndex(([w, h]) => w === g.leafSwing.left && h === g.hinge)
+    const [swing, hinge] = order[(k + 1) % order.length]
+    updateSide(sideId, { gate: { ...s.gate, swing, hinge } })
+  }
   const selectCls = 'w-full border border-gray-300 rounded-lg px-3 h-11 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400'
   const counted = result?.counted
 
@@ -271,13 +292,21 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           onPointsChange={onPhoto || adjusting ? pts => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: pts, pointsFor: onPhoto ? null : layoutSignature(layout) } }) : undefined}
           pins={pins}
           onPinTap={onPinTap}
+          onHouseMeetsChange={adjusting && houseMovable ? m => onChange(setHouseMeets(layout, m)) : undefined}
+          onHouseDragEnd={() => setHouseHintDone(true)}
+          onGateTap={adjusting && !onPhoto ? cycleGate : undefined}
         />
         {photo && photoReady !== photo && !aerialMsg && (
           <p className="absolute inset-x-0 top-8 mx-auto w-fit bg-white/90 rounded-lg px-3 py-1.5 text-sm text-gray-700 shadow">Loading the aerial photo. It can take 20 seconds.</p>
         )}
       </div>
       {planNotes.map((n, k) => <p key={k} className="text-sm text-amber-900 bg-amber-50 rounded-lg px-3 py-2" data-plan-note>{n}</p>)}
-      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{onPhoto ? ' Drag the corners onto the yard; the center button moves the whole plan.' : adjusting ? ' Drag a corner to match an odd yard; footage and price stay as typed.' : ''}</p>
+      {adjusting && houseMovable && !houseHintDone && (
+        <p className="text-sm font-semibold text-orange-900 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2" data-plan-house-hint>
+          Drag the house to where the fence meets it. The round handles at the house move one return alone.
+        </p>
+      )}
+      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{onPhoto ? ' Drag the corners onto the yard; the center button moves the whole plan.' : adjusting ? ` Drag a corner to match an odd yard${houseMovable ? ', or the house to where the returns meet it' : ''}. Tap a gate to change its swing. Footage and price stay as typed.` : ''}</p>
       <div className="flex flex-wrap items-center gap-2" data-aerial>
         {!onPhoto && (
           <button type="button" className={`btn ${adjusting ? 'btn-primary' : 'btn-quiet'} btn-sm`} onClick={() => setAdjusting(a => !a)} data-plan-adjust>
@@ -297,8 +326,12 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
         ) : (
           <button type="button" className="btn btn-quiet btn-sm" onClick={() => setAerialOn(false)} data-aerial-hide>Hide aerial photo</button>
         )}
-        {layout.plan?.points && (
-          <button type="button" className="btn btn-quiet btn-sm" data-plan-reset onClick={() => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: aerialOn ? centeredVertices(layout) : null, pointsFor: null } })}>Reset the drawing</button>
+        {(layout.plan?.points || meetsSet) && (
+          <button type="button" className="btn btn-quiet btn-sm" data-plan-reset onClick={() => {
+            // Back as typed: corners where the measurements put them, returns at the house's back corners.
+            const l = clearHouseMeets(layout)
+            onChange({ ...l, plan: { ...(l.plan ?? {}), points: aerialOn ? centeredVertices(l) : null, pointsFor: null } })
+          }}>Reset the drawing</button>
         )}
         {aerialMsg && <p className="w-full text-sm text-amber-800">{aerialMsg}</p>}
       </div>
@@ -435,6 +468,48 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                         </select>
                       </div>
                     )}
+                    {s.gate && (() => {
+                      const pg = planNow.sides.find(x => x.sideId === s.id)?.gate
+                      if (!pg) return null
+                      const gate = s.gate
+                      const swingSel = (value: GateSwing, onSet: (v: GateSwing) => void, attr: string) => (
+                        <select className={selectCls} value={value} onChange={e => onSet(e.target.value as GateSwing)} {...{ [attr]: true }}>
+                          <option value="in">Swings in (into the yard)</option>
+                          <option value="out">Swings out (outside the fence)</option>
+                        </select>
+                      )
+                      return (
+                        <div className="space-y-2" data-gate-swing-options>
+                          {gate.type === 'walk' ? (
+                            <div className="grid grid-cols-2 gap-2">
+                              <label className="block"><span className="text-xs text-gray-600 mb-1 block">Swing</span>
+                                {swingSel(pg.leafSwing.left, v => updateSide(s.id, { gate: { ...gate, swing: v } }), 'data-gate-swing')}</label>
+                              <label className="block"><span className="text-xs text-gray-600 mb-1 block">Hinge (seen from inside the yard)</span>
+                                <select className={selectCls} value={pg.hinge ?? 'left'} data-gate-hinge
+                                  onChange={e => updateSide(s.id, { gate: { ...gate, hinge: e.target.value as GateHinge } })}>
+                                  <option value="left">Hinges left</option>
+                                  <option value="right">Hinges right</option>
+                                </select></label>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <label className="block"><span className="text-xs text-gray-600 mb-1 block">Both leaves</span>
+                                <select className={selectCls} value={pg.leafSwing.left === pg.leafSwing.right ? pg.leafSwing.left : 'mixed'} data-gate-swing
+                                  onChange={e => e.target.value !== 'mixed' && updateSide(s.id, { gate: { ...gate, swing: e.target.value as GateSwing, leafSwing: null } })}>
+                                  <option value="in">Swing in (into the yard)</option>
+                                  <option value="out">Swing out (outside the fence)</option>
+                                  {pg.leafSwing.left !== pg.leafSwing.right && <option value="mixed">Set each leaf</option>}
+                                </select></label>
+                              <label className="block"><span className="text-xs text-gray-600 mb-1 block">Left leaf (seen from inside)</span>
+                                {swingSel(pg.leafSwing.left, v => updateSide(s.id, { gate: { ...gate, leafSwing: { left: v, right: pg.leafSwing.right } } }), 'data-gate-leaf-left')}</label>
+                              <label className="block"><span className="text-xs text-gray-600 mb-1 block">Right leaf (seen from inside)</span>
+                                {swingSel(pg.leafSwing.right, v => updateSide(s.id, { gate: { ...gate, leafSwing: { left: pg.leafSwing.left, right: v } } }), 'data-gate-leaf-right')}</label>
+                            </div>
+                          )}
+                          <p className="text-xs text-gray-600" data-gate-swing-text>{cap(pg.swingText)}{pg.hingeDefaulted ? ' (the end nearest the house, or the side\'s start)' : ''}. Drawing and crew notes only; the price does not change.</p>
+                        </div>
+                      )
+                    })()}
 
                     {s.skip ? (
                       <div className="rounded-xl bg-gray-50 border border-gray-200 p-2 space-y-2" data-skip>

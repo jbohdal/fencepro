@@ -24,7 +24,7 @@ export default function QuotePlan({ quote, caption = true }: { quote: Pick<Saved
       <SitePlan layout={yard} result={result} runSections={runSections} title="Site plan" />
       {caption && (
         <figcaption style={{ fontSize: 11, color: '#5F5769', marginTop: 6 }}>
-          Purple: new fence. Squares: corner posts. Dots: end and gate posts. Open dots: line posts. Gray dashed: existing fence or no fence, not included.
+          Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Open dots: line posts. Gray dashed: existing fence or no fence, not included.
         </figcaption>
       )}
     </figure>

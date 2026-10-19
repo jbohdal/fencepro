@@ -14,6 +14,8 @@ import {
 import { openBooking } from './BookingDialog'
 import { useAppointmentList, OutcomeForm } from './TodayScreen'
 import { toast } from './toast'
+import AddressAutocomplete from './AddressAutocomplete'
+import { lookupPosition } from './appointmentsStore'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
@@ -139,26 +141,52 @@ const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 export function AppointmentSettingsTab() {
   const [s, setS] = useState<AppointmentSettings>(getAppointmentSettings())
   const [newName, setNewName] = useState('')
+  const [saving, setSaving] = useState(false)
   const set = (patch: Partial<AppointmentSettings>) => setS(cur => ({ ...cur, ...patch }))
-  function save() {
-    const team = s.team.filter(t => t.name.trim())
+  const setMember = (i: number, patch: Partial<AppointmentSettings['team'][number]>) => setS(cur => ({ ...cur, team: cur.team.map((x, j) => (j === i ? { ...x, ...patch } : x)) }))
+  async function save() {
+    let team = s.team.filter(t => t.name.trim()).map(t => ({ ...t, homeBase: (t.homeBase || '').trim() }))
     if (!team.length) { toast.error('Add at least one person'); return }
     if (!team.some(t => t.isDefault)) team[0] = { ...team[0], isDefault: true }
+    setSaving(true)
+    // A home base typed without picking a suggestion: find it on the map now (kept on the server).
+    const missed: string[] = []
+    team = await Promise.all(team.map(async t => {
+      if (!t.homeBase) return { ...t, homeLat: null, homeLng: null }
+      if (t.homeLat != null && t.homeLng != null) return t
+      const p = await lookupPosition(t.homeBase)
+      if (!p) missed.push(t.name)
+      return { ...t, homeLat: p?.lat ?? null, homeLng: p?.lng ?? null }
+    }))
+    setSaving(false)
     const cfg = getConfig()
-    saveConfig({ ...cfg, appointments: withDefaults({ ...s, team }) })
-    toast.success('Appointment settings saved')
+    const next = withDefaults({ ...s, team })
+    saveConfig({ ...cfg, appointments: next })
+    setS(next)
+    if (missed.length) toast.error('Home base not found on the map', `${missed.join(', ')}: pick the address from the suggestions.`)
+    else toast.success('Appointment settings saved')
   }
   return (
     <div className="space-y-6 max-w-2xl" data-appointment-settings>
       <section>
         <h3 className="text-sm font-bold text-gray-900">Team</h3>
-        <p className="text-xs text-gray-500 mb-2">Who appointments can be assigned to. The default person is picked for new appointments; anyone else is named in the Google Calendar title.</p>
+        <p className="text-xs text-gray-500 mb-2">Who appointments can be assigned to. The default person is picked for new appointments; anyone else is named in the Google Calendar title. Each person's home base is where their day starts: the first appointment of a day is figured from there.</p>
         <div className="space-y-1.5">
           {s.team.map((t, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input value={t.name} onChange={e => set({ team: s.team.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-              <label className="text-xs text-gray-600 flex items-center gap-1"><input type="radio" checked={!!t.isDefault} onChange={() => set({ team: s.team.map((x, j) => ({ ...x, isDefault: j === i })) })} /> Default</label>
-              <button onClick={() => set({ team: s.team.filter((_, j) => j !== i) })} className="text-xs text-red-600 px-2">Remove</button>
+            <div key={i} className="rounded-lg border border-gray-100 p-2 space-y-1.5" data-team-member={t.name}>
+              <div className="flex items-center gap-2">
+                <input value={t.name} onChange={e => setMember(i, { name: e.target.value })} className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+                <label className="text-xs text-gray-600 flex items-center gap-1"><input type="radio" checked={!!t.isDefault} onChange={() => set({ team: s.team.map((x, j) => ({ ...x, isDefault: j === i })) })} /> Default</label>
+                <button onClick={() => set({ team: s.team.filter((_, j) => j !== i) })} className="text-xs text-red-600 px-2">Remove</button>
+              </div>
+              <label className="block text-[11px] font-semibold text-gray-500">Home base (where the day starts)
+                <AddressAutocomplete value={t.homeBase || ''} placeholder="House number and street"
+                  onChange={v => setMember(i, { homeBase: v, homeLat: null, homeLng: null })}
+                  onSelect={p => setMember(i, { homeBase: p.formatted, homeLat: p.lat ?? null, homeLng: p.lng ?? null })}
+                  inputAttrs={{ 'data-home-base': t.name }}
+                  className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-normal text-gray-900" />
+              </label>
+              {t.homeBase && <p className="text-[11px] text-gray-400" data-home-status>{t.homeLat != null ? 'On the map.' : 'Will be found on the map when you save.'}</p>}
             </div>
           ))}
           <div className="flex gap-2">
@@ -182,8 +210,8 @@ export function AppointmentSettingsTab() {
       </section>
 
       <section>
-        <h3 className="text-sm font-bold text-gray-900">Suggested times</h3>
-        <p className="text-xs text-gray-500 mb-2">The booking dialog suggests open times on these days, between these hours. You can still book any time by hand.</p>
+        <h3 className="text-sm font-bold text-gray-900">Work hours for appointments</h3>
+        <p className="text-xs text-gray-500 mb-2">The booking dialog offers times on these days, between these hours, including the drive there and on to the next appointment. Drive times are estimated from the map (straight line, times 1.25 for roads, at the average speed below). You can still book any time by hand.</p>
         <div className="flex flex-wrap gap-1.5 mb-2">
           {WEEKDAY_NAMES.map((n, d) => (
             <button key={d} onClick={() => set({ slotDays: s.slotDays.includes(d) ? s.slotDays.filter(x => x !== d) : [...s.slotDays, d].sort() })}
@@ -194,7 +222,7 @@ export function AppointmentSettingsTab() {
           <label>From <input type="time" step={900} value={s.slotStart} onChange={e => set({ slotStart: e.target.value })} className="border border-gray-200 rounded px-2 py-1" /></label>
           <label>to <input type="time" step={900} value={s.slotEnd} onChange={e => set({ slotEnd: e.target.value })} className="border border-gray-200 rounded px-2 py-1" /></label>
           <label>Average driving speed <input type="number" min={10} max={70} value={s.driveMph} onChange={e => set({ driveMph: Number(e.target.value) || 30 })} className="w-16 border border-gray-200 rounded px-2 py-1" /> mph</label>
-          <label>Minimum gap <input type="number" min={0} max={120} step={5} value={s.bufferMinutes} onChange={e => set({ bufferMinutes: Number(e.target.value) || 0 })} className="w-16 border border-gray-200 rounded px-2 py-1" /> min</label>
+          <label>Gap after each appointment <input type="number" min={0} max={120} step={5} value={s.bufferMinutes} onChange={e => set({ bufferMinutes: Number(e.target.value) || 0 })} className="w-16 border border-gray-200 rounded px-2 py-1" /> min</label>
         </div>
       </section>
 
@@ -203,7 +231,7 @@ export function AppointmentSettingsTab() {
         <code className="mx-1">GEOCODER=google</code> and <code className="mx-1">GOOGLE_MAPS_API_KEY</code> in the server settings file and restart.
       </section>
 
-      <button onClick={save} className="px-4 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold" data-save-appointment-settings>Save appointment settings</button>
+      <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold disabled:opacity-50" data-save-appointment-settings>{saving ? 'Saving…' : 'Save appointment settings'}</button>
     </div>
   )
 }

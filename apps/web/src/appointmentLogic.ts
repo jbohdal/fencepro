@@ -4,7 +4,7 @@
  *   - types, statuses and outcomes, with their labels and colours
  *   - Settings for appointments, with defaults
  *   - Florida dates and times (the business clock, whatever the phone says)
- *   - the three best open slots for a person on a day
+ *   - drive time between two points (the booking math is in bookingPlanner.ts)
  *   - overlap warnings
  *   - what booking or closing out an appointment does to the pipeline card
  *   - confirmation texts, emails and calendar invites, sent by Jonathan himself
@@ -87,7 +87,14 @@ export interface Appointment {
 
 /* ── Settings ────────────────────────────────────────────────────────────── */
 
-export interface TeamMember { name: string; isDefault?: boolean }
+export interface TeamMember {
+  name: string
+  isDefault?: boolean
+  /** Where this person's day starts (typed in Settings); the first appointment of a day is figured from here. */
+  homeBase?: string
+  homeLat?: number | null
+  homeLng?: number | null
+}
 
 export interface AppointmentSettings {
   team: TeamMember[]
@@ -95,12 +102,12 @@ export interface AppointmentSettings {
   durations: Record<AppointmentType, number>
   /** Days suggested slots may fall on, 0 = Sunday. */
   slotDays: number[]
-  /** Suggested slots start no earlier and end no later than these (HH:MM, Florida). */
+  /** Work hours for appointments: booking options start no earlier and end no later than these (HH:MM, Florida). */
   slotStart: string
   slotEnd: string
   /** Average driving speed for drive time estimates. */
   driveMph: number
-  /** Gap kept between appointments when there is no address to measure. */
+  /** Gap kept after each appointment before driving on to the next. */
   bufferMinutes: number
 }
 
@@ -173,89 +180,12 @@ export function longWhen(a: Pick<Appointment, 'startAt' | 'allDay'>): string {
   return a.allDay ? day : `${day} at ${d.toLocaleTimeString('en-US', { timeZone: TIME_ZONE, hour: 'numeric', minute: '2-digit' })}`
 }
 
-/* ── Drive time and open slots ───────────────────────────────────────────── */
+/* ── Drive time ──────────────────────────────────────────────────────────── */
 
 export function driveMinutes(a: LatLng | null | undefined, b: LatLng | null | undefined, s: AppointmentSettings): number {
   if (!a || !b) return s.bufferMinutes
   const miles = distanceMiles(a, b) * 1.25          // roads are not straight lines
   return Math.max(s.bufferMinutes, Math.round((miles / Math.max(5, s.driveMph)) * 60))
-}
-
-const point = (a: { lat: number | null; lng: number | null }): LatLng | null =>
-  a.lat != null && a.lng != null ? { lat: a.lat, lng: a.lng } : null
-
-export interface SlotSuggestion {
-  startAt: string
-  endAt: string
-  /** Plain words: why this slot. */
-  reason: string
-}
-
-/**
- * The best three open slots for `person` on `date`. A slot leaves room to
- * drive from the appointment before it and to the one after it; with an
- * address to go to, slots that add the least driving come first, otherwise
- * the earliest. Nothing is suggested on a day Settings leaves out.
- */
-export function suggestSlots(opts: {
-  date: string
-  minutes: number
-  person: string
-  target: LatLng | null
-  appointments: Array<Pick<Appointment, 'id' | 'startAt' | 'endAt' | 'allDay' | 'assignedTo' | 'status' | 'lat' | 'lng' | 'customerName' | 'address'>>
-  settings: AppointmentSettings
-  now?: Date
-  ignoreId?: string
-  count?: number
-}): SlotSuggestion[] {
-  const { date, person, target, settings: s } = opts
-  const minutes = Math.max(15, opts.minutes || 60)
-  if (!s.slotDays.includes(weekdayOf(date))) return []
-  const now = opts.now ?? new Date()
-  const dayStart = minutesOf(s.slotStart), dayEnd = minutesOf(s.slotEnd)
-  const busy = opts.appointments
-    .filter(a => a.id !== opts.ignoreId && a.assignedTo === person && isOpen(a) && a.startAt && !a.allDay && floridaDate(a.startAt) === date)
-    .map(a => ({ a, start: minutesOf(floridaHM(a.startAt!)), end: a.endAt ? minutesOf(floridaHM(a.endAt)) : minutesOf(floridaHM(a.startAt!)) + 60, at: point(a) }))
-    .sort((x, y) => x.start - y.start)
-
-  const candidates: Array<SlotSuggestion & { score: number; start: number }> = []
-  for (let start = dayStart; start + minutes <= dayEnd; start += 15) {
-    const end = start + minutes
-    const at = floridaTime(date, hmOf(start))
-    if (at.getTime() < now.getTime() + 30 * 60_000) continue
-    const before = [...busy].reverse().find(b => b.start < end && b.start <= start)
-    const after = busy.find(b => b.start >= start && b !== before)
-    if (busy.some(b => b.start < end && b.end > start)) continue
-    const fromPrev = before ? driveMinutes(before.at, target, s) : 0
-    const toNext = after ? driveMinutes(target, after.at, s) : 0
-    if (before && start < before.end + fromPrev) continue
-    if (after && end + toNext > after.start) continue
-    let score: number, reason: string
-    if (!busy.length) {
-      score = start / 60                                    // a free day: earliest first
-      reason = 'Open day'
-    } else {
-      const direct = before && after ? driveMinutes(before.at, after.at, s) : 0
-      const detour = target ? fromPrev + toNext - direct : 0
-      const gap = (before ? start - (before.end + fromPrev) : 0) + (after ? after.start - (end + toNext) : 0)
-      score = detour * 2 + gap / 15 + (before || after ? 0 : 30)
-      const near = before ?? after
-      reason = near
-        ? `${before ? 'After' : 'Before'} ${near.a.customerName || 'another appointment'}${target && near.at ? `, ${driveMinutes(near.at, target, s)} min drive` : ''}`
-        : 'Open time'
-    }
-    if (start % 30) score += 0.1                          // on the hour or half hour, all else being equal
-    candidates.push({ startAt: at.toISOString(), endAt: new Date(at.getTime() + minutes * 60_000).toISOString(), reason, score, start })
-  }
-  // The best ones, far enough apart that they do not overlap, so the three are real choices.
-  const apart = Math.max(45, minutes)
-  const picked: typeof candidates = []
-  for (const c of [...candidates].sort((x, y) => x.score - y.score || x.start - y.start)) {
-    if (picked.some(p => Math.abs(p.start - c.start) < apart)) continue
-    picked.push(c)
-    if (picked.length >= (opts.count ?? 3)) break
-  }
-  return picked.sort((x, y) => x.start - y.start).map(({ startAt, endAt, reason }) => ({ startAt, endAt, reason }))
 }
 
 /** Warnings for a time; they never stop a save. */

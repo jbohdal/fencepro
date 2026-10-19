@@ -14,9 +14,30 @@
  * lengths. The drawing is a picture of the job, not a survey.
  */
 
-import { deriveLayout, formatFtIn, type LayoutResult, type PlanPoint, type YardLayout, type YardSide } from './yardLayout'
+import { deriveLayout, formatFtIn, sidePieces, type GateHinge, type GateSwing, type LayoutResult, type PlanPoint, type SidePiece, type YardLayout, type YardSide } from './yardLayout'
 
-export interface PlanPost { x: number; y: number; kind: 'corner' | 'end' | 'gate' | 'line' }
+export interface PlanPost { x: number; y: number; kind: 'corner' | 'end' | 'gate' | 'line'; /** A gate's hinge post (drawn as a dark square). */ hinge?: boolean }
+/** One gate leaf: hangs on `hinge`, closes toward `latch`, opens toward `dir` (unit, plan feet). */
+export interface PlanGateLeaf { hinge: PlanPoint; latch: PlanPoint; swing: GateSwing; dir: PlanPoint; side: GateHinge }
+export interface PlanGate {
+  a: PlanPoint
+  b: PlanPoint
+  type: 'walk' | 'double'
+  /** Unit vector into the yard. */
+  swing: PlanPoint
+  label: string
+  leaves: PlanGateLeaf[]
+  /** Walk gate: the hinge side as seen from inside the yard; null for a double gate. */
+  hinge: GateHinge | null
+  /** True when the hinge side was not set and the default was used. */
+  hingeDefaulted: boolean
+  /** Swing of each leaf (walk gate: both the same). */
+  leafSwing: { left: GateSwing; right: GateSwing }
+  /** "swings in, hinges left" for the crew. */
+  swingText: string
+}
+/** A labeled piece of a split side, placed on the plan. */
+export type PlanPiece = SidePiece & { a: PlanPoint; b: PlanPoint }
 export interface PlanSegment { a: PlanPoint; b: PlanPoint }
 export interface PlanSide {
   sideId: string
@@ -27,7 +48,9 @@ export interface PlanSide {
   /** Fence actually built. */
   fence: PlanSegment[]
   skip: (PlanSegment & { kind: 'existing' | 'none' }) | null
-  gate: { a: PlanPoint; b: PlanPoint; type: 'walk' | 'double'; swing: PlanPoint; label: string } | null
+  gate: PlanGate | null
+  /** Each piece of a side split by a gate or skip, with its own length (empty when not split). */
+  pieces: PlanPiece[]
   label: string
   sublabel: string
   /** No length typed yet: drawn faint, labeled "tap to enter". */
@@ -48,6 +71,8 @@ export interface Plan {
   corners: number[]
   /** Where the street is, below the drawing, for shapes that have a front. */
   street: boolean
+  /** Backyard returns that meet the house: where, and how far from its back corner (feet). */
+  houseAttach: Array<{ sideId: string; name: string; which: 'left' | 'right'; at: PlanPoint; distFt: number }>
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
 }
 
@@ -118,6 +143,65 @@ function yardWidth(across: number | null, rise: number, fallback: number, names:
   return Math.max(fallback, across)
 }
 
+/** How deep the house is drawn (feet): deep enough for either return to meet it. */
+function houseDepthFt(layout: YardLayout): number {
+  const d = (s?: YardSide) => (s?.on && s.meetsHouse?.at === 'distance' ? Math.max(0, (s.meetsHouse.distanceIn ?? 0) / 12) : 0)
+  return Math.max(HOUSE_DEPTH_FT, d(layout.sides[0]) + 8, d(layout.sides[4]) + 8)
+}
+
+/**
+ * Where each backyard return meets the house, in feet from the house's back
+ * corner toward the street: back corner = 0, front corner = the house depth,
+ * or the saved distance. Drawing only; never footage or price.
+ */
+export function houseMeetsOf(layout: YardLayout): { left: number; right: number; depth: number } {
+  const depth = houseDepthFt(layout)
+  const one = (s?: YardSide) => {
+    if (!s?.on || !s.meetsHouse) return 0
+    if (s.meetsHouse.at === 'front') return depth
+    if (s.meetsHouse.at === 'distance') return Math.max(0, (s.meetsHouse.distanceIn ?? 0) / 12)
+    return 0
+  }
+  return { left: one(layout.sides[0]), right: one(layout.sides[4]), depth }
+}
+
+/** True when the house can be slid on the drawing (a backyard with a return meeting the house). */
+export function canMoveHouse(layout: YardLayout): boolean {
+  return isStandardBackyard(layout) && (returnHouseEnd(layout, 0) !== null || returnHouseEnd(layout, 4) !== null)
+}
+
+/**
+ * Set where the returns meet the house (feet from the back corner, snapped to
+ * whole feet). 0 is the back corner (saved as unset, as before). Corners
+ * dragged by hand move along with the returns so the drawing keeps its shape.
+ * Only `meetsHouse` and the drawing change: never lengths, gates or skips.
+ */
+export function setHouseMeets(layout: YardLayout, meets: { left?: number; right?: number }): YardLayout {
+  const val = (ft: number) => {
+    const whole = Math.max(0, Math.round(ft))
+    return whole === 0 ? null : { at: 'distance' as const, distanceIn: whole * 12 }
+  }
+  const sides = layout.sides.map((s, i) => {
+    if (i === 0 && meets.left !== undefined && returnHouseEnd(layout, 0)) return { ...s, meetsHouse: val(meets.left) }
+    if (i === 4 && meets.right !== undefined && returnHouseEnd(layout, 4)) return { ...s, meetsHouse: val(meets.right) }
+    return s
+  })
+  const next: YardLayout = { ...layout, sides }
+  const pts = layout.plan?.points
+  const applies = pts && pts.length === vertexCount(layout) && layout.plan?.pointsFor != null && layout.plan.pointsFor === layoutSignature(layout)
+  if (applies) {
+    const before = autoVertices(layout), after = autoVertices(next)
+    next.plan = { ...layout.plan, points: pts!.map((p, i) => ({ x: p.x + after[i].x - before[i].x, y: p.y + after[i].y - before[i].y })), pointsFor: layoutSignature(next) }
+  }
+  return next
+}
+
+/** Both returns back at the house's back corners. */
+export function clearHouseMeets(layout: YardLayout): YardLayout {
+  if (!isStandardBackyard(layout)) return layout
+  return { ...layout, sides: layout.sides.map((s, i) => ((i === 0 || i === 4) && s.meetsHouse ? { ...s, meetsHouse: null } : s)) }
+}
+
 function backyardGeometry(layout: YardLayout): AutoGeometry {
   const [lrS, lsS, backS, rsS, rrS] = layout.sides
   const standIn = standInFt(layout)
@@ -126,11 +210,10 @@ function backyardGeometry(layout: YardLayout): AutoGeometry {
   const notes: string[] = []
 
   // Where each return meets the house: its back corner (y = 0), its front
-  // corner, or a typed distance toward the street from the back corner.
-  const dist = (s: YardSide) => (s.on && s.meetsHouse?.at === 'distance' ? Math.max(0, (s.meetsHouse.distanceIn ?? 0) / 12) : 0)
-  const depth = Math.max(HOUSE_DEPTH_FT, dist(lrS) + 8, dist(rrS) + 8)
-  const meetY = (s: YardSide) => (!s.on ? 0 : s.meetsHouse?.at === 'front' ? -depth : s.meetsHouse?.at === 'distance' ? -dist(s) : 0)
-  const yL = meetY(lrS), yR = meetY(rrS)
+  // corner, or a distance toward the street from the back corner.
+  const m = houseMeetsOf(layout)
+  const depth = m.depth
+  const yL = lrS.on && m.left ? -m.left : 0, yR = rrS.on && m.right ? -m.right : 0
 
   // The back joins the tops of the two sides: width from the back's length
   // and how far apart the tops are front to back.
@@ -278,9 +361,11 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
     let gate: PlanSide['gate'] = null
     if (r.gateSpan && s.gate) {
       const ga = pt(r.gateSpan[0]), gb = pt(r.gateSpan[1])
-      gate = { a: ga, b: gb, type: s.gate.type, swing: inward, label: `${formatFtIn(s.gate.widthIn).replace(` 0"`, '')} ${s.gate.type === 'double' ? 'double gate' : 'walk gate'}` }
-      posts.push({ ...ga, kind: 'gate' }, { ...gb, kind: 'gate' })
+      gate = gateOf(s, r.finishes, ga, gb, dir, inward, out)
+      const hingeA = gate.leaves.some(l => l.hinge === ga), hingeB = gate.leaves.some(l => l.hinge === gb)
+      posts.push({ ...ga, kind: 'gate', hinge: hingeA }, { ...gb, kind: 'gate', hinge: hingeB })
     }
+    const pieces: PlanPiece[] = sidePieces(s, r).map(p => ({ ...p, a: pt(p.fromIn), b: pt(p.toIn) }))
 
     // Line posts: evenly spaced inside each piece at its section count.
     r.pieceSpans.forEach(([f, t]) => {
@@ -304,7 +389,7 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
 
     const sideSections = r.runs.reduce((t, _, k) => t + (runSections?.[runIndex - r.runs.length + k] ?? 0), 0)
     sides.push({
-      sideId: s.id, name: s.name, a, b, fence, skip, gate, out, placeholder,
+      sideId: s.id, name: s.name, a, b, fence, skip, gate, pieces, out, placeholder,
       label: placeholder ? `${s.name}: tap to enter` : formatFtIn(L),
       sublabel: placeholder ? '' : `${s.name}${sideSections > 0 ? ` · ${sideSections} section${sideSections === 1 ? '' : 's'}` : ''}`,
     })
@@ -343,7 +428,51 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
     notes: auto.notes,
     corners: cornerVertices(layout, result),
     street: ['backyard', 'front', 'perimeter'].includes(layout.shape), bounds,
+    houseAttach: houseAttachOf(layout, v),
   }
+}
+
+function houseAttachOf(layout: YardLayout, v: PlanPoint[]): Plan['houseAttach'] {
+  if (!canMoveHouse(layout)) return []
+  const m = houseMeetsOf(layout)
+  const out: Plan['houseAttach'] = []
+  if (returnHouseEnd(layout, 0)) out.push({ sideId: layout.sides[0].id, name: layout.sides[0].name, which: 'left', at: v[0], distFt: m.left })
+  if (returnHouseEnd(layout, 4)) out.push({ sideId: layout.sides[4].id, name: layout.sides[4].name, which: 'right', at: v[5], distFt: m.right })
+  return out
+}
+
+/**
+ * A gate's leaves: which post each hangs on and which way it opens. Left and
+ * right are as seen from inside the yard, facing the gate. Unset: swings in;
+ * a walk gate hinges on the end nearest the house (a side meeting the house),
+ * otherwise on the end nearest the side's start.
+ */
+function gateOf(s: YardSide, finishes: { start: string; end: string }, ga: PlanPoint, gb: PlanPoint, dir: PlanPoint, inward: PlanPoint, out: PlanPoint): PlanGate {
+  const g = s.gate!
+  // Facing out of the yard, left is a quarter turn counterclockwise (y up).
+  const leftVec = { x: -out.y, y: out.x }
+  const bIsLeft = dir.x * leftVec.x + dir.y * leftVec.y > 0
+  const endFor = (h: GateHinge): 'a' | 'b' => ((h === 'left') === bIsLeft ? 'b' : 'a')
+  const sideOf = (e: 'a' | 'b'): GateHinge => ((e === 'b') === bIsLeft ? 'left' : 'right')
+  const swing: GateSwing = g.swing === 'out' ? 'out' : 'in'
+  const leafSwing = g.type === 'double' && g.leafSwing ? { left: g.leafSwing.left === 'out' ? 'out' as const : 'in' as const, right: g.leafSwing.right === 'out' ? 'out' as const : 'in' as const } : { left: swing, right: swing }
+  const vec = (w: GateSwing) => (w === 'in' ? inward : out)
+  const label = `${formatFtIn(g.widthIn).replace(` 0"`, '')} ${g.type === 'double' ? 'double gate' : 'walk gate'}`
+  if (g.type === 'double') {
+    const mid = lerp(ga, gb, 0.5)
+    const leaves: PlanGateLeaf[] = (['a', 'b'] as const).map(e => {
+      const sd = sideOf(e), w = leafSwing[sd]
+      return { hinge: e === 'a' ? ga : gb, latch: mid, swing: w, dir: vec(w), side: sd }
+    })
+    const same = leafSwing.left === leafSwing.right
+    const swingText = same ? `both leaves swing ${leafSwing.left}` : `left leaf swings ${leafSwing.left}, right leaf swings ${leafSwing.right}`
+    return { a: ga, b: gb, type: g.type, swing: inward, label, leaves, hinge: null, hingeDefaulted: false, leafSwing, swingText }
+  }
+  const defEnd: 'a' | 'b' = finishes.start === 'house' ? 'a' : finishes.end === 'house' ? 'b' : 'a'
+  const hinge: GateHinge = g.hinge === 'left' || g.hinge === 'right' ? g.hinge : sideOf(defEnd)
+  const he = endFor(hinge)
+  const leaves: PlanGateLeaf[] = [{ hinge: he === 'a' ? ga : gb, latch: he === 'a' ? gb : ga, swing, dir: vec(swing), side: hinge }]
+  return { a: ga, b: gb, type: g.type, swing: inward, label, leaves, hinge, hingeDefaulted: !(g.hinge === 'left' || g.hinge === 'right'), leafSwing, swingText: `swings ${swing}, hinges ${hinge}` }
 }
 
 // ── Aerial photo ──────────────────────────────────────────────────────────────

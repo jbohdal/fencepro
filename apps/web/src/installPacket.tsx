@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Send, ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import SitePlan from './SitePlan'
+import { buildPlan } from './sitePlanGeometry'
 import { deriveLayout, formatFtIn, postSpacing, GATE_LABEL, FINISH_NEAR, effectiveFinishes } from './yardLayout'
 import { savedRunSections } from './quoteCalc'
 import { listMedia, type ServerMedia } from './mediaStore'
@@ -65,13 +66,15 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
   snap.pullSheet = (quote.pullSheet ?? []).map(i => ({ item: i.item, qty: i.qty }))
   if (yard && derived) {
     snap.gates = []; snap.skips = []
+    // Swing and hinge come from the drawing (left / right as seen from inside the yard).
+    const planGates = new Map(buildPlan(yard, derived).sides.map(p => [p.sideId, p.gate]))
     yard.sides.forEach((s, i) => {
       if (!s.on) return
       const r = derived.sides[i]
       if (s.gate && r.gateAtIn != null) {
         const f = effectiveFinishes(yard, i)
         const where = s.gate.position === 'middle' ? 'in the middle' : s.gate.position === 'start' ? FINISH_NEAR[f.start] : s.gate.position === 'end' ? FINISH_NEAR[f.end] : 'measured in'
-        snap.gates!.push(`${s.name}: ${formatFtIn(s.gate.widthIn)} ${GATE_LABEL[s.gate.type].toLowerCase()} ${where}, starting ${formatFtIn(r.gateAtIn)} from the start of the side`)
+        snap.gates!.push(`${s.name}: ${formatFtIn(s.gate.widthIn)} ${GATE_LABEL[s.gate.type].toLowerCase()} ${where}, starting ${formatFtIn(r.gateAtIn)} from the start of the side; ${planGates.get(s.id)?.swingText ?? 'swings in'} (as seen from inside the yard)`)
       }
       if (s.skip && r.skipAtIn != null) snap.skips!.push(`${s.name}: ${formatFtIn(s.skip.lengthIn)} ${s.skip.kind === 'existing' ? 'existing fence' : 'with no fence'}, starting ${formatFtIn(r.skipAtIn)} from the start of the side`)
     })

@@ -159,7 +159,10 @@ async function desktop(browser) {
   await s.page.locator('[data-booking-dialog] button:has-text("' + `${third.firstName} ${third.lastName}`.trim() + '")').first().click()
   await s.page.locator('[data-field="type"]').selectOption('follow_up')
   await s.page.locator('[data-field="date"]').fill(dayAhead(3))
-  await s.page.locator('[data-field="time"]').fill('15:30')
+  // The time box opens our 15 minute grid; a time can also be typed there.
+  await s.page.locator('[data-field="time"]').click()
+  await s.page.locator('[data-typed-time]').fill('3:30 pm')
+  await s.page.locator('[data-typed-time]').press('Enter')
   await s.page.locator('[data-save]').click()
   await s.page.locator('[data-booked]').waitFor()
   await s.page.locator('[data-booked] button:has-text("Done")').click(); await sleep(1200)

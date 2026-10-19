@@ -8,14 +8,12 @@
  * can be dragged for odd yards; the labels keep the typed lengths.
  */
 
-import { useMemo, useRef, useState } from 'react'
-import { buildPlan, planVertices, type Plan } from './sitePlanGeometry'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { buildPlan, planVertices, type Plan, type PlanGate } from './sitePlanGeometry'
+import { placeLabels, planScreen, screenLeaves, PLAN_COLORS, type PlanScreen } from './sitePlanLabels'
 import type { LayoutResult, PlanPoint, YardLayout } from './yardLayout'
 
-const PURPLE = '#5E28A1'
-const GRAY = '#746C80'
-const LIGHT = '#CBC4D6'
-const INK = '#1C1030'
+const { PURPLE, GRAY, LIGHT, INK } = PLAN_COLORS
 
 export interface AerialBackdrop {
   href: string
@@ -27,7 +25,26 @@ export interface AerialBackdrop {
 /** A photo pin on the plan: where it was taken and which way it faced (degrees, 0 = up the page). */
 export interface PlanPin { id: string; x: number; y: number; angle?: number | null; count?: number; highlight?: boolean }
 
-export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title, pins, onPinTap, onPlanTap }: {
+/** Where the returns meet the house, feet from its back corner (whole feet). */
+export interface HouseMeets { left?: number; right?: number }
+
+/** "Meets the house 12 ft from the back corner", while the house or a return is dragged. */
+export function meetsText(m: HouseMeets, names: { left?: string; right?: string } = {}): string {
+  const ft = (n: number) => (n === 0 ? 'at the back corner' : `${n} ft from the back corner`)
+  if (m.left !== undefined && m.right !== undefined) {
+    if (m.left === m.right) return m.left === 0 ? 'Meets the house at the back corners' : `Meets the house ${m.left} ft from the back corner`
+    return `${names.left ?? 'Left return'} ${m.left} ft, ${(names.right ?? 'right return').toLowerCase()} ${m.right} ft from the back corner`
+  }
+  if (m.left !== undefined) return `${names.left ?? 'Left return'} meets the house ${ft(m.left)}`
+  if (m.right !== undefined) return `${names.right ?? 'Right return'} meets the house ${ft(m.right)}`
+  return ''
+}
+
+type Drag =
+  | { mode: 'corner'; index: number | 'all'; start: PlanPoint; points: PlanPoint[]; moved: boolean }
+  | { mode: 'house' | 'attach'; which: 'both' | 'left' | 'right'; sy: number; ftPerPx: number; bounds: Plan['bounds']; left: number; right: number; last: string; moved: boolean }
+
+export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap }: {
   layout: YardLayout
   result?: LayoutResult
   runSections?: number[]
@@ -41,41 +58,55 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   onPinTap?: (id: string) => void
   /** Tapping the plan (not a side) gives the spot in plan feet: "where were you standing?" */
   onPlanTap?: (pt: PlanPoint) => void
+  /** With this, the house can be slid and each return's meeting point dragged along the house (drawing only). */
+  onHouseMeetsChange?: (m: HouseMeets) => void
+  onHouseDragEnd?: () => void
+  /** With this, tapping a gate on the plan cycles its swing and hinge. */
+  onGateTap?: (sideId: string) => void
 }) {
   const plan = useMemo(() => buildPlan(layout, result, runSections, widthFt), [layout, result, runSections, widthFt])
   const svgRef = useRef<SVGSVGElement | null>(null)
-  const drag = useRef<{ index: number | 'all'; start: PlanPoint; points: PlanPoint[]; moved: boolean } | null>(null)
-  // While a corner is dragged the drawing keeps its scale, so the corner stays under the finger.
+  const drag = useRef<Drag | null>(null)
+  // While something is dragged the drawing keeps its scale, so it stays under the finger.
   const [heldBounds, setHeldBounds] = useState<Plan['bounds'] | null>(null)
+  const [live, setLive] = useState('')
+  // Labels a little bigger when the drawing is shown small (a phone), so they stay readable.
+  const [fontScale, setFontScale] = useState(1)
+  const [unitsPerPx, setUnitsPerPx] = useState(1)
+  const measure = () => {
+    const el = svgRef.current
+    if (!el) return
+    const w = el.clientWidth
+    if (!(w > 0)) return
+    const f = Math.min(1.35, Math.max(1, 520 / w))
+    setFontScale(prev => (Math.abs(prev - f) > 0.04 ? Math.round(f * 100) / 100 : prev))
+    // Drawing units per screen pixel, so drag handles are a finger's size on any screen.
+    const u = el.viewBox.baseVal.width / w
+    setUnitsPerPx(prev => (Math.abs(prev - u) > 0.03 ? u : prev))
+  }
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Also after every draw (an opening animation can end without a resize), so the scale
+  // never changes under a finger at the start of a drag. Sets state only when it changed.
+  useLayoutEffect(measure)
+  const fs = aerial ? 1 : fontScale
 
   // Feet → screen.
-  const pad = 64
-  let W: number, H: number, toX: (x: number) => number, toY: (y: number) => number, ftPerPx: number
-  let fromX: (sx: number) => number, fromY: (sy: number) => number
-  if (aerial) {
-    W = H = aerial.sizePx
-    ftPerPx = aerial.ftPerPx
-    toX = x => W / 2 + x / ftPerPx
-    toY = y => H / 2 - y / ftPerPx
-    fromX = sx => (sx - W / 2) * ftPerPx
-    fromY = sy => (H / 2 - sy) * ftPerPx
-  } else {
-    const b = heldBounds ?? plan.bounds
-    const bw = Math.max(b.maxX - b.minX, 10), bh = Math.max(b.maxY - b.minY, 10)
-    W = 640
-    // Room at the sides for the labels beside the side runs ("Left side · 15 sec").
-    const padX = 120
-    const s = Math.min((W - 2 * padX) / bw, 420 / bh)
-    H = Math.max(240, bh * s + 2 * pad + (plan.street ? 28 : 0))
-    ftPerPx = 1 / s
-    const offX = (W - bw * s) / 2, offY = pad
-    toX = x => offX + (x - b.minX) * s
-    toY = y => offY + (b.maxY - y) * s
-    fromX = sx => (sx - offX) / s + b.minX
-    fromY = sy => b.maxY - (sy - offY) / s
-  }
+  const sc: PlanScreen = planScreen(plan, { aerial: aerial ?? null, held: heldBounds, fontScale: fs })
+  const { W, H, toX, toY, fromX, fromY, ftPerPx } = sc
   const P = (p: PlanPoint) => `${toX(p.x).toFixed(1)},${toY(p.y).toFixed(1)}`
+  const labels = useMemo(() => placeLabels(plan, sc, fs), [plan, heldBounds, fs, aerial?.sizePx, aerial?.ftPerPx])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  function screenY(e: React.PointerEvent): number {
+    const svg = svgRef.current!
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
+    return pt.matrixTransform(svg.getScreenCTM()!.inverse()).y
+  }
   function svgPoint(e: React.PointerEvent): PlanPoint {
     const svg = svgRef.current!
     const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
@@ -90,31 +121,75 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     const q = pt.matrixTransform(svg.getScreenCTM()!.inverse())
     onPlanTap({ x: fromX(q.x), y: fromY(q.y) })
   }
-  function startDrag(e: React.PointerEvent, index: number | 'all') {
-    if (!onPointsChange) return
+  const capture = (e: React.PointerEvent) => {
     e.stopPropagation()
     try { (e.target as Element).setPointerCapture(e.pointerId) } catch { /* a pointer the browser no longer tracks */ }
-    if (!aerial) setHeldBounds(plan.bounds)
-    drag.current = { index, start: svgPoint(e), points: planVertices(layout).map(p => ({ ...p })), moved: false }
   }
+  function startDrag(e: React.PointerEvent, index: number | 'all') {
+    if (!onPointsChange) return
+    capture(e)
+    if (!aerial) setHeldBounds(plan.bounds)
+    drag.current = { mode: 'corner', index, start: svgPoint(e), points: planVertices(layout).map(p => ({ ...p })), moved: false }
+  }
+  function startHouseDrag(e: React.PointerEvent, which: 'both' | 'left' | 'right') {
+    if (!onHouseMeetsChange) return
+    capture(e)
+    const at = (w: 'left' | 'right') => Math.round(plan.houseAttach.find(h => h.which === w)?.distFt ?? 0)
+    setHeldBounds(plan.bounds)
+    drag.current = { mode: which === 'both' ? 'house' : 'attach', which, sy: screenY(e), ftPerPx, bounds: plan.bounds, left: at('left'), right: at('right'), last: '', moved: false }
+  }
+  const has = (w: 'left' | 'right') => plan.houseAttach.some(h => h.which === w)
+  const names = { left: plan.houseAttach.find(h => h.which === 'left')?.name, right: plan.houseAttach.find(h => h.which === 'right')?.name }
   function moveDrag(e: React.PointerEvent) {
     const d = drag.current
-    if (!d || !onPointsChange) return
-    const now = svgPoint(e)
-    const dx = now.x - d.start.x, dy = now.y - d.start.y
-    // A tap on a corner is not a drag.
-    if (!d.moved && Math.hypot(dx, dy) / ftPerPx < 4) return
+    if (!d) return
+    if (d.mode === 'corner') {
+      if (!onPointsChange) return
+      const now = svgPoint(e)
+      const dx = now.x - d.start.x, dy = now.y - d.start.y
+      // A tap on a corner is not a drag.
+      if (!d.moved && Math.hypot(dx, dy) / ftPerPx < 4) return
+      d.moved = true
+      onPointsChange(d.points.map((p, i) => (d.index === 'all' || d.index === i ? { x: p.x + dx, y: p.y + dy } : p)))
+      return
+    }
+    if (!onHouseMeetsChange) return
+    const dyPx = screenY(e) - d.sy
+    if (!d.moved && Math.abs(dyPx) < 4) return
     d.moved = true
-    onPointsChange(d.points.map((p, i) => (d.index === 'all' || d.index === i ? { x: p.x + dx, y: p.y + dy } : p)))
+    const dyFt = dyPx * d.ftPerPx
+    let m: HouseMeets
+    if (d.mode === 'house') {
+      // The fence stays put and the house slides: toward the back fence, the
+      // returns meet it further from its back corner. Whole feet.
+      let k = Math.round(-dyFt)
+      const floor = -Math.min(has('left') ? d.left : Infinity, has('right') ? d.right : Infinity)
+      if (Number.isFinite(floor)) k = Math.max(k, floor)
+      m = { ...(has('left') ? { left: d.left + k } : {}), ...(has('right') ? { right: d.right + k } : {}) }
+      // Keep the fence where it was on screen; the house moves under the finger.
+      setHeldBounds({ ...d.bounds, minY: d.bounds.minY - k, maxY: d.bounds.maxY - k })
+    } else {
+      // One return's meeting point slides along the house wall under the finger.
+      const v = Math.max(0, Math.round((d.which === 'left' ? d.left : d.right) + dyFt))
+      m = d.which === 'left' ? { left: v } : { right: v }
+    }
+    setLive(meetsText(m, names))
+    const key = JSON.stringify(m)
+    if (key !== d.last) { d.last = key; onHouseMeetsChange(m) }
   }
   const endDrag = () => {
+    const d = drag.current
+    if (d && d.mode !== 'corner' && d.moved) onHouseDragEnd?.()
     // Swallow the click that follows a drag so it is not a tap on a side.
-    if (drag.current?.moved) setTimeout(() => { drag.current = null }, 0)
+    if (d?.moved) setTimeout(() => { drag.current = null }, 0)
     else drag.current = null
     setHeldBounds(null)
+    setLive('')
   }
 
   const center = plan.vertices.reduce((t, p) => ({ x: t.x + p.x / plan.vertices.length, y: t.y + p.y / plan.vertices.length }), { x: 0, y: 0 })
+  const houseC = plan.house ? { x: plan.house.reduce((t, p) => t + toX(p.x), 0) / plan.house.length, y: plan.house.reduce((t, p) => t + toY(p.y), 0) / plan.house.length } : null
+  const houseMovable = !aerial && !!onHouseMeetsChange && plan.houseAttach.length > 0 && !!houseC
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none touch-none bg-white rounded-xl border border-gray-200"
@@ -122,13 +197,15 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
       onClick={onPlanTap ? planTap : undefined} style={onPlanTap ? { cursor: 'crosshair' } : undefined}>
       {aerial && <image href={aerial.href} x={0} y={0} width={W} height={H} preserveAspectRatio="none" opacity={0.9} />}
 
-      {plan.house && !aerial && (
+      {plan.house && !aerial && houseC && (
         <g>
-          <polygon points={plan.house.map(P).join(' ')} fill={LIGHT} stroke={GRAY} strokeWidth={1.5} opacity={aerial ? 0.75 : 1} />
-          <text x={plan.house.reduce((t, p) => t + toX(p.x), 0) / plan.house.length} y={plan.house.reduce((t, p) => t + toY(p.y), 0) / plan.house.length + (plan.houseNotToScale ? -2 : 5)}
-            textAnchor="middle" fontSize={14} fontWeight={600} fill={INK}>House</text>
-          {plan.houseNotToScale && (
-            <text x={plan.house.reduce((t, p) => t + toX(p.x), 0) / plan.house.length} y={plan.house.reduce((t, p) => t + toY(p.y), 0) / plan.house.length + 13}
+          <polygon points={plan.house.map(P).join(' ')} fill={LIGHT} stroke={GRAY} strokeWidth={1.5}
+            onPointerDown={houseMovable ? e => startHouseDrag(e, 'both') : undefined} style={houseMovable ? { cursor: 'ns-resize' } : undefined} data-plan-house />
+          {/* While the house can be dragged its handle sits where the word was. */}
+          {!houseMovable && <text x={houseC.x} y={houseC.y + (plan.houseNotToScale ? -2 : 5)}
+            textAnchor="middle" fontSize={14 * fs} fontWeight={600} fill={INK} pointerEvents="none">House</text>}
+          {plan.houseNotToScale && !houseMovable && (
+            <text x={houseC.x} y={houseC.y + 13}
               textAnchor="middle" fontSize={11} fill={GRAY} data-house-not-to-scale>house not to scale</text>
           )}
         </g>
@@ -138,37 +215,8 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
         <g key={sd.sideId}>
           {sd.placeholder && <line x1={toX(sd.a.x)} y1={toY(sd.a.y)} x2={toX(sd.b.x)} y2={toY(sd.b.y)} stroke={LIGHT} strokeWidth={3} strokeDasharray="8 6" />}
           {sd.fence.map((f, k) => <line key={k} x1={toX(f.a.x)} y1={toY(f.a.y)} x2={toX(f.b.x)} y2={toY(f.b.y)} stroke={PURPLE} strokeWidth={4} strokeLinecap="round" />)}
-          {sd.skip && (
-            <g>
-              <line x1={toX(sd.skip.a.x)} y1={toY(sd.skip.a.y)} x2={toX(sd.skip.b.x)} y2={toY(sd.skip.b.y)} stroke={GRAY} strokeWidth={3} strokeDasharray="7 6" />
-              <text x={(toX(sd.skip.a.x) + toX(sd.skip.b.x)) / 2 - sd.out.x * 0 } y={(toY(sd.skip.a.y) + toY(sd.skip.b.y)) / 2 + sd.out.y * 18 + (sd.out.y === 0 ? 0 : 4)}
-                textAnchor="middle" fontSize={11} fill={GRAY} style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3}>
-                {sd.skip.kind === 'existing' ? 'existing fence, not included' : 'no fence here'}
-              </text>
-            </g>
-          )}
-          {sd.gate && <GateSwing gate={sd.gate} toX={toX} toY={toY} />}
-          {/* Label outside the yard: footage, then name and sections. */}
-          {(() => {
-            const mx = (toX(sd.a.x) + toX(sd.b.x)) / 2, my = (toY(sd.a.y) + toY(sd.b.y)) / 2
-            // Beside a side that runs up and down, above or below one that runs across.
-            const sideways = Math.abs(sd.out.x) > Math.abs(sd.out.y)
-            const anchor = sideways ? (sd.out.x < 0 ? 'end' : 'start') : 'middle'
-            const lx = mx + (sideways ? Math.sign(sd.out.x) * 12 : 0)
-            const ly = sideways ? my - 2 : my + (sd.out.y > 0 ? -22 : 22)
-            return (
-              <g>
-                <text x={lx} y={ly} textAnchor={anchor} fontSize={14} fontWeight={700} fill={sd.placeholder ? GRAY : INK}
-                  style={{ paintOrder: 'stroke', ...(onSideTap ? { cursor: 'pointer' } : {}) }} stroke="white" strokeWidth={4}
-                  onClick={onSideTap ? e => { e.stopPropagation(); onSideTap(sd.sideId) } : undefined}>{sd.label}</text>
-                {onSideTap && (
-                  <rect x={anchor === 'end' ? lx - 130 : anchor === 'middle' ? lx - 65 : lx - 4} y={ly - 22} width={134} height={48} fill="transparent"
-                    style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); onSideTap(sd.sideId) }} data-plan-label={sd.name} />
-                )}
-                {sd.sublabel && <text x={lx} y={ly + 15} textAnchor={anchor} fontSize={11} fill={GRAY} style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3}>{sd.sublabel}</text>}
-              </g>
-            )
-          })()}
+          {sd.skip && <line x1={toX(sd.skip.a.x)} y1={toY(sd.skip.a.y)} x2={toX(sd.skip.b.x)} y2={toY(sd.skip.b.y)} stroke={GRAY} strokeWidth={3} strokeDasharray="7 6" />}
+          {sd.gate && <GateSwing gate={sd.gate} sc={sc} />}
           {onSideTap && (
             <line x1={toX(sd.a.x)} y1={toY(sd.a.y)} x2={toX(sd.b.x)} y2={toY(sd.b.y)} stroke="transparent" strokeWidth={30}
               style={{ cursor: 'pointer' }} onClick={() => onSideTap(sd.sideId)} data-plan-side={sd.name} />
@@ -176,8 +224,25 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
         </g>
       ))}
 
+      {labels.map(l => (
+        <g key={l.key} data-plan-text={l.kind}>
+          {l.leader && <line x1={l.leader.x1} y1={l.leader.y1} x2={l.leader.x2} y2={l.leader.y2} stroke={GRAY} strokeWidth={1} data-plan-leader />}
+          {l.lines.map((ln, k) => (
+            <text key={k} x={l.x} y={l.y + ln.dy} textAnchor={l.anchor} fontSize={ln.size} fontWeight={ln.weight} fill={ln.fill}
+              style={{ paintOrder: 'stroke', ...(l.kind === 'side' && onSideTap ? { cursor: 'pointer' } : {}) }} stroke="white" strokeWidth={k === 0 && l.kind === 'side' ? 4 : 3}
+              onClick={l.kind === 'side' && onSideTap ? e => { e.stopPropagation(); onSideTap(l.sideId) } : undefined}
+              {...(l.kind === 'side' ? {} : { 'data-plan-piece': l.sideName, 'data-piece-kind': l.kind })}>{ln.text}</text>
+          ))}
+          {l.kind === 'side' && onSideTap && (
+            <rect x={l.box.x0 - 4} y={l.box.y0 - 4} width={l.box.x1 - l.box.x0 + 8} height={l.box.y1 - l.box.y0 + 8} fill="transparent"
+              style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); onSideTap(l.sideId) }} data-plan-label={l.sideName} />
+          )}
+        </g>
+      ))}
+
       {plan.posts.map((p, i) => {
         const x = toX(p.x), y = toY(p.y)
+        if (p.hinge) return <rect key={i} x={x - 4.5} y={y - 4.5} width={9} height={9} fill={INK} stroke="white" strokeWidth={1.5} data-plan-hinge />
         if (p.kind === 'corner') return <rect key={i} x={x - 6} y={y - 6} width={12} height={12} fill={PURPLE} stroke="white" strokeWidth={1.5} />
         if (p.kind === 'line') return <circle key={i} cx={x} cy={y} r={3.2} fill="white" stroke={PURPLE} strokeWidth={1.8} />
         return <circle key={i} cx={x} cy={y} r={5.5} fill={p.kind === 'gate' ? INK : PURPLE} stroke="white" strokeWidth={1.5} />
@@ -225,6 +290,57 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
           strokeDasharray="3 3" style={{ cursor: 'grab' }} onPointerDown={e => startDrag(e, i)} onClick={e => e.stopPropagation()} data-plan-corner={i} />
       ))}
 
+      {houseMovable && (() => {
+        // At least 44 px across on screen.
+        const rA = Math.max(16, 22 * unitsPerPx), rH = Math.max(24, 24 * unitsPerPx)
+        // The house grip hangs just below the house (toward the street) when there is room,
+        // so it never covers the returns' grips; otherwise in the middle of the house.
+        const hb = Math.max(...plan.house!.map(p => toY(p.y)))
+        const below = hb + rH + 8 + rH < H - 30
+        // No room below: on the front wall, clear of the returns' grips at the house's sides.
+        const hc = below ? { x: houseC!.x, y: hb + rH + 8 } : { x: houseC!.x, y: Math.max(houseC!.y, Math.min(hb, H - 30 - rH)) }
+        return (
+          <g>
+            {plan.houseAttach.map(h => {
+              // The grip sits just inside the house wall, level with where the return meets it.
+              const x = toX(h.at.x) + (houseC!.x > toX(h.at.x) ? 1 : -1) * (rA + 3), y = toY(h.at.y)
+              return (
+                <g key={h.which} onPointerDown={e => startHouseDrag(e, h.which)} onClick={e => e.stopPropagation()} style={{ cursor: 'ns-resize' }} data-plan-house-attach={h.name}>
+                  <line x1={toX(h.at.x)} y1={y} x2={x} y2={y} stroke={INK} strokeWidth={2} />
+                  <circle cx={x} cy={y} r={rA} fill="white" fillOpacity={0.85} stroke={INK} strokeWidth={2} />
+                  <path d={`M${x},${y - rA * 0.62} l-${rA * 0.3},${rA * 0.36} h${rA * 0.6} z M${x},${y + rA * 0.62} l-${rA * 0.3},-${rA * 0.36} h${rA * 0.6} z`} fill={INK} />
+                </g>
+              )
+            })}
+            <g onPointerDown={e => startHouseDrag(e, 'both')} onClick={e => e.stopPropagation()} style={{ cursor: 'ns-resize' }} data-plan-house-handle>
+              {below && <line x1={hc.x} y1={hb} x2={hc.x} y2={hc.y - rH} stroke={INK} strokeWidth={2} />}
+              <circle cx={hc.x} cy={hc.y} r={rH} fill={INK} fillOpacity={0.85} stroke="white" strokeWidth={2} />
+              <path d={`M${hc.x},${hc.y - rH * 0.62} l-${rH * 0.3},${rH * 0.34} h${rH * 0.6} z M${hc.x},${hc.y + rH * 0.62} l-${rH * 0.3},-${rH * 0.34} h${rH * 0.6} z M${hc.x - rH * 0.38},${hc.y} h${rH * 0.76}`} fill="white" stroke="white" strokeWidth={2} />
+            </g>
+          </g>
+        )
+      })()}
+
+      {!aerial && onGateTap && plan.sides.map(sd => sd.gate && (
+        <circle key={`gate-${sd.sideId}`} cx={(toX(sd.gate.a.x) + toX(sd.gate.b.x)) / 2} cy={(toY(sd.gate.a.y) + toY(sd.gate.b.y)) / 2} r={Math.max(18, 20 * unitsPerPx)} fill="white" fillOpacity={0.01}
+          stroke={INK} strokeOpacity={0.45} strokeWidth={1.5} strokeDasharray="3 3" style={{ cursor: 'pointer' }}
+          onClick={e => { e.stopPropagation(); if (!drag.current) onGateTap(sd.sideId) }} data-plan-gate-tap={sd.name} />
+      ))}
+
+      {live && (() => {
+        // Just above the house, near the finger (the top of the drawing can be under a sticky header on a phone).
+        const top = houseC ? Math.min(...plan.house!.map(p => toY(p.y))) : 60
+        const w = live.length * 8.6 * fs + 20, h = 30 * fs
+        const x = Math.min(Math.max(W / 2, w / 2 + 4), W - w / 2 - 4)
+        const y = Math.max(4, top - h - 34 * fs)
+        return (
+          <g data-plan-live-label pointerEvents="none">
+            <rect x={x - w / 2} y={y} width={w} height={h} rx={8} fill={INK} fillOpacity={0.9} />
+            <text x={x} y={y + 20 * fs} textAnchor="middle" fontSize={16 * fs} fontWeight={700} fill="white">{live}</text>
+          </g>
+        )
+      })()}
+
       {plan.street && !aerial && (
         <g>
           <line x1={24} y1={H - 22} x2={W - 24} y2={H - 22} stroke={GRAY} strokeWidth={2} strokeDasharray="14 8" />
@@ -236,30 +352,17 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   )
 }
 
-function GateSwing({ gate, toX, toY }: { gate: NonNullable<ReturnType<typeof buildPlan>['sides'][number]['gate']>; toX: (x: number) => number; toY: (y: number) => number }) {
-  const ax = toX(gate.a.x), ay = toY(gate.a.y), bx = toX(gate.b.x), by = toY(gate.b.y)
-  const len = Math.hypot(bx - ax, by - ay)
-  const d = { x: (bx - ax) / (len || 1), y: (by - ay) / (len || 1) }
-  const o = { x: gate.swing.x, y: -gate.swing.y } // into the yard, on screen
-  // Drawn at least big enough to read; the label says the real width.
-  const r = Math.max(len, gate.type === 'double' ? 36 : 22)
-  const leaf = (hx: number, hy: number, dir: { x: number; y: number }, r: number) => {
-    const ex = hx + dir.x * r, ey = hy + dir.y * r
-    const ox = hx + o.x * r, oy = hy + o.y * r
-    const sweep = dir.x * o.y - dir.y * o.x > 0 ? 1 : 0
-    return (
-      <g>
-        <line x1={hx} y1={hy} x2={ox} y2={oy} stroke={INK} strokeWidth={1.5} strokeDasharray="4 3" />
-        <path d={`M${ex},${ey} A${r},${r} 0 0 ${sweep} ${ox},${oy}`} fill="none" stroke={INK} strokeWidth={1.5} strokeDasharray="5 4" />
-      </g>
-    )
-  }
-  const mx = (ax + bx) / 2, my = (ay + by) / 2
-  const label = (
-    <text x={mx + o.x * (r * (gate.type === 'double' ? 0.5 : 1) + 12)} y={my + o.y * (r * (gate.type === 'double' ? 0.5 : 1) + 12) + 4} textAnchor="middle"
-      fontSize={11} fontWeight={600} fill={INK} style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3}>{gate.label}</text>
+/** Each leaf to scale: the open leaf, its swing arc, on the side it swings to (into the yard or out). */
+function GateSwing({ gate, sc }: { gate: PlanGate; sc: Pick<PlanScreen, 'toX' | 'toY'> }) {
+  const leaves = screenLeaves(gate, sc)
+  return (
+    <g data-plan-gate={gate.type} data-gate-swing={gate.leaves.map(l => l.swing).join(',')} data-gate-hinge={gate.hinge ?? 'both'}>
+      {leaves.map((l, k) => (
+        <g key={k}>
+          <line x1={l.hx} y1={l.hy} x2={l.ox} y2={l.oy} stroke={INK} strokeWidth={1.8} />
+          <path d={`M${l.cx.toFixed(1)},${l.cy.toFixed(1)} A${l.r.toFixed(1)},${l.r.toFixed(1)} 0 0 ${l.sweep} ${l.ox.toFixed(1)},${l.oy.toFixed(1)}`} fill="none" stroke={INK} strokeWidth={1.3} strokeDasharray="4 3" />
+        </g>
+      ))}
+    </g>
   )
-  return gate.type === 'double'
-    ? <g data-plan-gate="double">{leaf(ax, ay, d, r / 2)}{leaf(bx, by, { x: -d.x, y: -d.y }, r / 2)}{label}</g>
-    : <g data-plan-gate="walk">{leaf(ax, ay, d, r)}{label}</g>
 }

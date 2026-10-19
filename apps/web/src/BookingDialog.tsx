@@ -3,8 +3,12 @@
  * page, a pipeline card, the global "+ Appointment" button, a new lead.
  *
  * Pick the customer (searched by name, phone or address), type, person, day
- * and time. Beside the picker: that person's day as a timeline and a map,
- * the three best open slots, and warnings for overlaps (never a block).
+ * and time. Beside the picker: that person's day as a timeline (appointments
+ * at their real times, the drives between them) and a map, the best open
+ * times each explained in one line, other days this week he is already near
+ * the address, and warnings (never a block). The time box is our own 15
+ * minute grid inside work hours; times that do not fit are greyed with the
+ * reason. The booking math is in bookingPlanner.ts.
  * After saving it offers the confirmation text, email and calendar invite,
  * which Jonathan sends himself.
  */
@@ -14,13 +18,17 @@ import { getCustomers, getCustomerById } from './customerStore'
 import { getJobs, updateJob } from './jobStore'
 import { getConfig, getAppointmentSettings } from './configStore'
 import {
-  getAppointments, getAppointment, createAppointment, updateAppointment, lookupPosition, pinPosition, APPOINTMENTS_UPDATED,
+  getAppointments, getAppointment, createAppointment, updateAppointment, lookupPosition, pinPosition, suggestAddresses, APPOINTMENTS_UPDATED,
 } from './appointmentsStore'
 import {
-  APPOINTMENT_TYPES, TYPE_LABELS, TYPE_COLORS, TYPE_SHORT, defaultPerson, floridaDate, floridaHM, floridaTime, minutesOf, hmOf,
-  suggestSlots, overlapWarnings, isOpen, addDays, confirmationText, smsLink, mailtoLink, buildIcs, longWhen,
+  APPOINTMENT_TYPES, TYPE_LABELS, TYPE_COLORS, TYPE_SHORT, defaultPerson, floridaDate, floridaHM, floridaTime, minutesOf,
+  overlapWarnings, isOpen, addDays, confirmationText, smsLink, mailtoLink, buildIcs, longWhen, weekdayOf,
   type Appointment, type AppointmentType,
 } from './appointmentLogic'
+import {
+  dayInput, bestTimes, timeGrid, warningsFor, timeline, otherDays, parseTypedTime, clock, clockAmPm, differentStreets,
+} from './bookingPlanner'
+import AddressAutocomplete from './AddressAutocomplete'
 import { applyBooking } from './appointmentPipeline'
 import MapView, { type MapPoint } from './MapView'
 import { useBackLayer } from './nav'
@@ -81,7 +89,14 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const [person, setPerson] = useState(existing?.assignedTo || defaultPerson(settings))
   const startIso = existing?.startAt || (req.date && req.date.length > 10 ? req.date : null)
   const [date, setDate] = useState(startIso ? floridaDate(startIso) : req.date || addDays(floridaDate(new Date()), 1))
+  // Empty until a time is picked (never the clock time).
   const [time, setTime] = useState(startIso ? floridaHM(startIso) : '')
+  const [gridOpen, setGridOpen] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [typedBad, setTypedBad] = useState(false)
+  // The business clock, a minute at a time: options never start in the past.
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60_000); return () => clearInterval(t) }, [])
   const defaultMinutes = (t: AppointmentType) => settings.durations[t] ?? 60
   const [minutes, setMinutes] = useState(() => existing?.startAt && existing.endAt && !existing.allDay
     ? Math.round((new Date(existing.endAt).getTime() - new Date(existing.startAt).getTime()) / 60000) : defaultMinutes(existing?.type || req.type || 'estimate'))
@@ -89,6 +104,10 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const [days, setDays] = useState(() => existing?.allDay && existing.startAt && existing.endAt
     ? Math.max(1, Math.round((new Date(existing.endAt).getTime() - new Date(existing.startAt).getTime()) / 86_400_000)) : 1)
   const [address, setAddress] = useState(existing?.address ?? '')
+  // The address Jonathan settled on when two differ (the pin waits until then).
+  const [chosenAddress, setChosenAddress] = useState(existing?.address ?? '')
+  // What the address lookup matched, when it is a different street from what was typed.
+  const [lookupMatch, setLookupMatch] = useState<string | null>(null)
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(existing?.lat != null ? { lat: existing.lat, lng: existing.lng! } : null)
   const [notes, setNotes] = useState(existing?.notes || '')
   const [jobId, setJobId] = useState(existing?.jobId || req.jobId || '')
@@ -103,14 +122,41 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   // The customer's address until another property is typed in.
   useEffect(() => { if (!existing && customer && !address) setAddress(customer.serviceAddress || '') }, [customerId])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Other addresses this customer has used (earlier appointments, the customer record).
+  const otherAddresses = useMemo(() => [...new Set([
+    ...all.filter(a => a.crmContactId === customerId && a.address).map(a => a.address),
+    ...(customer?.serviceAddress ? [customer.serviceAddress] : []),
+  ])].filter(a => a.trim() && a.trim().toLowerCase() !== address.trim().toLowerCase()).slice(0, 4), [all, customerId, address, customer?.serviceAddress])
+
+  // Same house number, another street: one of them is wrong. The pin waits for a choice.
+  const mismatch = useMemo(() => {
+    if (!address.trim() || address === chosenAddress) return null
+    const alt = otherAddresses.find(a => differentStreets(address, a)) ?? (lookupMatch && differentStreets(address, lookupMatch) ? lookupMatch : null)
+    return alt ?? null
+  }, [address, chosenAddress, otherAddresses, lookupMatch])
+
+  // What the address list finds for a typed address: a different street there is a mismatch too.
+  useEffect(() => {
+    setLookupMatch(null)
+    if (!address.trim() || address === chosenAddress) return
+    let stale = false
+    const t = setTimeout(async () => {
+      const found = await suggestAddresses(address)
+      if (stale || !found.length || found.some(f => !differentStreets(address, f.formatted))) return
+      const other = found.find(f => differentStreets(address, f.formatted))
+      if (other) setLookupMatch(other.formatted)
+    }, 600)
+    return () => { stale = true; clearTimeout(t) }
+  }, [address, chosenAddress])
+
   // Where the property is: looked up when the address settles (kept on the server).
   useEffect(() => {
-    if (!address.trim()) { setPos(null); return }
-    if (existing && address === existing.address && existing.lat != null) return
+    if (!address.trim() || mismatch) { setPos(null); return }
+    if (existing && address === existing.address && existing.lat != null) { setPos({ lat: existing.lat, lng: existing.lng! }); return }
     let stale = false
     const t = setTimeout(async () => { const p = await lookupPosition(address); if (!stale) setPos(p ? { lat: p.lat, lng: p.lng } : null) }, 600)
     return () => { stale = true; clearTimeout(t) }
-  }, [address])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [address, mismatch])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const customerMatches = useMemo(() => {
     const q = search.trim().toLowerCase(), qd = q.replace(/\D/g, '')
@@ -122,21 +168,37 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
     ).slice(0, 8)
   }, [search])
 
-  const otherAddresses = useMemo(() => [...new Set(all.filter(a => a.crmContactId === customerId && a.address).map(a => a.address))]
-    .filter(a => a !== address).slice(0, 4), [all, customerId, address])
-  const jobs = useMemo(() => getJobs().filter(j => j.customerId === customerId), [customerId])
+  const allJobs = useMemo(() => getJobs(), [])
+  const jobs = useMemo(() => allJobs.filter(j => j.customerId === customerId), [allJobs, customerId])
 
   const dayList = useMemo(() => all
     .filter(a => a.assignedTo === person && isOpen(a) && a.startAt && floridaDate(a.startAt) === date && a.id !== existing?.id)
     .sort((x, y) => x.startAt!.localeCompare(y.startAt!)), [all, person, date, existing?.id])
 
-  const suggestions = useMemo(() => allDay ? [] : suggestSlots({
-    date, minutes, person, target: pos, appointments: all, settings, ignoreId: existing?.id,
-  }), [date, minutes, person, pos, all, allDay])  // eslint-disable-line react-hooks/exhaustive-deps
+  // The day as the planner sees it: home base, appointments, work hours, drive times.
+  const day = useMemo(() => dayInput({ date, minutes, target: pos, person, appointments: all, settings, now, ignoreId: existing?.id }),
+    [date, minutes, pos, person, all, now, existing?.id])  // eslint-disable-line react-hooks/exhaustive-deps
+  const bookingDay = settings.slotDays.includes(weekdayOf(date))
+  const options = useMemo(() => (allDay || !bookingDay ? [] : bestTimes(day)), [day, allDay, bookingDay])
+  const grid = useMemo(() => (allDay ? [] : timeGrid(day)), [day, allDay])
+  const nearby = useMemo(() => (allDay ? [] : otherDays({
+    date, minutes, target: pos, person, appointments: all, jobs: allJobs, settings, now, ignoreId: existing?.id,
+  })), [date, minutes, pos, person, all, allJobs, now, allDay])  // eslint-disable-line react-hooks/exhaustive-deps
+  const segments = useMemo(() => timeline(day, allDay ? null : time || null), [day, time, allDay])
+  const timeWarnings = !allDay && time ? warningsFor(day, time) : []
 
   const startAt = allDay ? floridaTime(date, '00:00') : time ? floridaTime(date, time) : null
   const endAt = startAt ? (allDay ? floridaTime(addDays(date, days), '00:00') : new Date(startAt.getTime() + Math.max(5, minutes) * 60_000)) : null
-  const warnings = startAt && endAt ? overlapWarnings({ startAt: startAt.toISOString(), endAt: endAt.toISOString(), person, customerId, ignoreId: existing?.id }, all) : []
+  // This person's own clashes are in the time warnings (with drive time); here: the customer's other appointments, and all day ones.
+  const warnings = startAt && endAt ? overlapWarnings({ startAt: startAt.toISOString(), endAt: endAt.toISOString(), person, customerId, ignoreId: existing?.id },
+    all.filter(a => allDay || a.allDay || a.assignedTo !== person)) : []
+
+  function typeTime(text: string) {
+    if (!text.trim()) { setTypedBad(false); return }
+    const hm = parseTypedTime(text)
+    if (!hm) { setTypedBad(true); return }
+    setTypedBad(false); setTime(hm); setTyped(''); setGridOpen(false)
+  }
   const timeChanged = !!existing && (existing.startAt || null) !== (startAt?.toISOString() ?? null)
 
   async function save() {
@@ -179,9 +241,12 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
     ...dayList.filter(a => a.lat != null).map((a, i) => ({ id: a.id, lat: a.lat!, lng: a.lng!, label: String(i + 1), color: TYPE_COLORS[a.type], title: `${fmtTime(a.startAt!)} ${a.customerName}` })),
     ...(pos ? [{ id: 'new', lat: pos.lat, lng: pos.lng, label: '★', color: '#111827', title: 'This appointment (drag to correct)', draggable: true }] : []),
   ]
-  const dayStart = Math.min(minutesOf(settings.slotStart), ...dayList.filter(a => !a.allDay).map(a => minutesOf(floridaHM(a.startAt!))))
-  const dayEnd = Math.max(minutesOf(settings.slotEnd), ...dayList.filter(a => !a.allDay && a.endAt).map(a => minutesOf(floridaHM(a.endAt!))))
+  const dayStart = Math.floor(Math.min(day.workStart, ...segments.map(g => g.start)) / 60) * 60
+  const dayEnd = Math.ceil(Math.max(day.workEnd, ...segments.map(g => g.end)) / 60) * 60
   const pct = (m: number) => `${((m - dayStart) / Math.max(60, dayEnd - dayStart)) * 100}%`
+  const span = (a: number, b: number) => ({ left: pct(a), width: `calc(${pct(b)} - ${pct(a)})` })
+  const hourTicks = Array.from({ length: Math.floor((dayEnd - dayStart) / 120) + 1 }, (_, i) => dayStart + i * 120)
+  const typeOf = new Map(dayList.map(a => [a.id, a.type]))
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 sm:p-4" onClick={close}>
@@ -265,9 +330,34 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                     <input type="number" min={1} max={30} value={days} onChange={e => setDays(Math.max(1, Number(e.target.value) || 1))} className="mt-1 w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900" />
                   </label>
                 ) : (
-                  <label className="text-xs font-semibold text-gray-500">Time
-                    <input type="time" step={900} value={time} data-field="time" onChange={e => setTime(e.target.value)} className="mt-1 w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900" />
-                  </label>
+                  <div className="text-xs font-semibold text-gray-500">Time
+                    <button type="button" data-field="time" aria-expanded={gridOpen} onClick={() => setGridOpen(o => !o)}
+                      className={`mt-1 w-full border rounded-lg px-2 py-2 text-sm text-left ${time ? 'text-gray-900 border-gray-200' : 'text-gray-400 border-gray-200'} ${gridOpen ? 'ring-2 ring-orange-300' : ''}`}>
+                      {time ? clockAmPm(minutesOf(time)) : 'Pick a time'}
+                    </button>
+                  </div>
+                )}
+                {!allDay && gridOpen && (
+                  <div className="col-span-2 rounded-xl border border-gray-200 p-2 space-y-2" data-time-grid>
+                    <p className="text-[11px] text-gray-500">Work hours {clockAmPm(day.workStart)} to {clockAmPm(day.workEnd)}. Grey times don't fit (drive time included); tap one anyway to see why.</p>
+                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                      {grid.map(c => (
+                        <button key={c.time} type="button" onClick={() => { setTime(c.time); setGridOpen(false) }} title={c.reason || 'Fits'}
+                          data-grid-time={c.time} data-ok={c.ok ? '1' : '0'}
+                          className={`min-h-[48px] rounded-lg border px-1 py-1 text-center leading-tight ${time === c.time ? 'border-orange-500 bg-orange-50 text-gray-900'
+                            : c.ok ? 'border-gray-200 bg-white text-gray-900 hover:border-orange-300' : 'border-gray-100 bg-gray-100 text-gray-400'}`}>
+                          <span className="block text-sm font-semibold">{clock(c.start)}<span className="text-[10px] font-normal ml-0.5">{c.start < 720 ? 'am' : 'pm'}</span></span>
+                          {!c.ok && <span className="block text-[9px] font-normal truncate" data-grid-reason>{c.short}</span>}
+                        </button>
+                      ))}
+                    </div>
+                    <label className="flex items-center gap-2 text-[11px] font-normal text-gray-500">Or type a time
+                      <input value={typed} onChange={e => { setTyped(e.target.value); setTypedBad(false) }} data-typed-time inputMode="text" placeholder="e.g. 2:30 pm"
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); typeTime(typed) } }} onBlur={() => typeTime(typed)}
+                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900" />
+                    </label>
+                    {typedBad && <p className="text-[11px] text-red-600">Not a time. Try 2:30 pm or 14:30.</p>}
+                  </div>
                 )}
                 <label className="text-xs font-semibold text-gray-500 col-span-2">Length
                   <select value={minutes} onChange={e => setMinutes(Number(e.target.value))} className="mt-1 w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900">
@@ -277,13 +367,26 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                 </label>
               </div>
 
-              <label className="block text-xs font-semibold text-gray-500">Property address
-                <input value={address} data-field="address" onChange={e => setAddress(e.target.value)} className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900" />
-              </label>
-              {otherAddresses.length > 0 && (
-                <div className="flex flex-wrap gap-1">{otherAddresses.map(a => <button key={a} onClick={() => setAddress(a)} className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{a}</button>)}</div>
+              <div className="text-xs font-semibold text-gray-500">Property address
+                <AddressAutocomplete value={address} onChange={setAddress} inputAttrs={{ 'data-field': 'address' }}
+                  onSelect={p => { setAddress(p.formatted); setChosenAddress(p.formatted); if (p.lat != null && p.lng != null) setPos({ lat: p.lat, lng: p.lng }) }}
+                  className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-normal text-gray-900" />
+              </div>
+              {mismatch ? (
+                <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 space-y-2" data-address-mismatch>
+                  <p className="text-sm font-bold text-red-800">These are different streets, check the address</p>
+                  <p className="text-xs text-red-800">Same house number, another street. The pin and drive times wait until you pick one.</p>
+                  <div className="grid gap-1.5">
+                    <button type="button" onClick={() => setChosenAddress(address)} data-use-address="typed"
+                      className="text-left text-sm px-3 py-2 min-h-[44px] rounded-lg bg-white border border-red-200 text-gray-900">Use <b>{address}</b></button>
+                    <button type="button" onClick={() => { setAddress(mismatch); setChosenAddress(mismatch) }} data-use-address="other"
+                      className="text-left text-sm px-3 py-2 min-h-[44px] rounded-lg bg-white border border-red-200 text-gray-900">Use <b>{mismatch}</b></button>
+                  </div>
+                </div>
+              ) : otherAddresses.length > 0 && (
+                <div className="flex flex-wrap gap-1">{otherAddresses.map(a => <button key={a} onClick={() => { setAddress(a); setChosenAddress(a) }} className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{a}</button>)}</div>
               )}
-              {address && !pos && <p className="text-xs text-amber-700">Not found on the map yet. It still saves; you can place it by hand later.</p>}
+              {address && !pos && !mismatch && <p className="text-xs text-amber-700">Not found on the map yet. It still saves; you can place it by hand later.</p>}
 
               {type === 'install' && (
                 <label className="block text-xs font-semibold text-gray-500">Job
@@ -308,20 +411,33 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
             <div className="space-y-3">
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-1">{person || 'Nobody'}'s day, {new Date(date + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' })}</p>
-                <div className="relative h-10 bg-gray-50 rounded-lg border border-gray-200 overflow-hidden" data-timeline>
-                  {dayList.filter(a => !a.allDay).map(a => (
-                    <div key={a.id} title={`${fmtTime(a.startAt!)} ${a.customerName}`} className="absolute top-1 bottom-1 rounded text-[10px] text-white px-1 truncate"
-                      style={{ left: pct(minutesOf(floridaHM(a.startAt!))), width: `calc(${pct(minutesOf(floridaHM(a.endAt || a.startAt!)))} - ${pct(minutesOf(floridaHM(a.startAt!)))})`, background: TYPE_COLORS[a.type] }}>
-                      {a.customerName}
+                <div className="relative h-14 bg-gray-50 rounded-lg border border-gray-200 overflow-hidden" data-timeline>
+                  {hourTicks.map(m => <div key={m} className="absolute top-0 bottom-0 border-l border-gray-200" style={{ left: pct(m) }} />)}
+                  {segments.map((g, i) => g.kind === 'drive' ? (
+                    <div key={i} title={`Drive: ${g.label}`} data-timeline-drive className="absolute top-3 bottom-3 rounded-sm text-[9px] leading-[1.1] text-gray-600 px-0.5 overflow-hidden whitespace-nowrap"
+                      style={{ ...span(g.start, g.end), background: 'repeating-linear-gradient(45deg,#e5e7eb 0 4px,#f3f4f6 4px 8px)' }}>{g.label.replace(' drive', '').replace(' from home', '')}</div>
+                  ) : g.kind === 'new' ? (
+                    <div key={i} data-timeline-new title={g.label} className="absolute top-0 bottom-0 border-2 border-gray-900 rounded bg-gray-900/10 text-[10px] leading-tight text-gray-900 font-semibold px-0.5 overflow-hidden whitespace-nowrap"
+                      style={span(g.start, g.end)}>{clock(g.start)}</div>
+                  ) : (
+                    <div key={i} data-timeline-appt title={g.label} className="absolute top-1 bottom-1 rounded text-[10px] leading-tight text-white px-1 overflow-hidden whitespace-nowrap"
+                      style={{ ...span(g.start, g.end), background: TYPE_COLORS[typeOf.get(g.id || '') ?? 'other'] }}>
+                      <span className="block font-semibold">{clock(g.start)}</span><span className="block truncate">{g.label.replace(/^\S+ /, '')}</span>
                     </div>
                   ))}
-                  {startAt && endAt && !allDay && (
-                    <div className="absolute top-0 bottom-0 border-2 border-gray-900 rounded bg-gray-900/10"
-                      style={{ left: pct(minutesOf(floridaHM(startAt))), width: `calc(${pct(minutesOf(floridaHM(endAt)))} - ${pct(minutesOf(floridaHM(startAt)))})` }} />
-                  )}
                 </div>
-                <div className="flex justify-between text-[10px] text-gray-400 mt-0.5"><span>{hmOf(dayStart)}</span><span>{hmOf(dayEnd)}</span></div>
-                {dayList.filter(a => a.allDay).map(a => <p key={a.id} className="text-[11px] text-gray-500">All day: {a.customerName}</p>)}
+                <div className="relative h-3 text-[10px] text-gray-400 mt-0.5">
+                  {hourTicks.map(m => <span key={m} className="absolute -translate-x-1/2 first:translate-x-0" style={{ left: pct(m) }}>{clock(m).replace(':00', '')}</span>)}
+                </div>
+                <ul className="mt-1 space-y-0.5" data-day-list>
+                  {dayList.map(a => (
+                    <li key={a.id} className="text-[11px] text-gray-600" data-day-item>
+                      <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: TYPE_COLORS[a.type] }} />
+                      {a.allDay ? 'All day' : `${clock(minutesOf(floridaHM(a.startAt!)))} to ${clockAmPm(minutesOf(floridaHM(a.endAt || a.startAt!)))}`} · {a.customerName}{a.address ? ` · ${a.address.split(',').slice(0, 2).join(',')}` : ''}
+                    </li>
+                  ))}
+                  {!dayList.length && <li className="text-[11px] text-gray-400">Nothing booked{day.home ? '; the day starts from home base' : ''}.</li>}
+                </ul>
               </div>
 
               <MapView points={points} height={200} onMove={(id, lat, lng) => {
@@ -334,21 +450,45 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
               {!allDay && (
                 <div>
                   <p className="text-xs font-semibold text-gray-500 mb-1">Best open times</p>
-                  {suggestions.length === 0 ? (
-                    <p className="text-xs text-gray-400">{settings.slotDays.includes(new Date(date + 'T12:00:00Z').getUTCDay()) ? 'No open time left that day.' : 'Not a booking day in Settings.'}</p>
+                  {!day.home && <p className="text-[11px] text-gray-400 mb-1">No home base set for {person || 'this person'} in Settings, Appointments: the first appointment of a day is figured from the start of work hours.</p>}
+                  {mismatch && <p className="text-[11px] text-red-700 mb-1">Pick the address above first; drive times wait for it.</p>}
+                  {options.length === 0 ? (
+                    <p className="text-xs text-gray-400" data-no-options>{bookingDay ? 'No time left that day that fits the drive and work hours.' : 'Not a booking day in Settings.'}</p>
                   ) : (
                     <div className="grid gap-1.5" data-suggestions>
-                      {suggestions.map(s => (
-                        <button key={s.startAt} onClick={() => setTime(floridaHM(s.startAt))}
-                          className={`text-left px-3 py-2 rounded-lg border text-sm ${time === floridaHM(s.startAt) ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-orange-300'}`}>
-                          <b>{fmtTime(s.startAt)}</b> <span className="text-xs text-gray-500">· {s.reason}</span>
+                      {options.map(o => (
+                        <button key={o.startAt} onClick={() => { setTime(o.time); setGridOpen(false) }} data-option={o.time}
+                          className={`text-left px-3 py-2 rounded-lg border text-sm ${time === o.time ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-orange-300'}`}>
+                          <span className="flex items-center gap-2">
+                            <b>{clockAmPm(o.start)}</b>
+                            {o.best && <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-green-100 text-green-800" data-best>Best</span>}
+                          </span>
+                          <span className="block text-xs text-gray-500 mt-0.5" data-option-line>{o.line}</span>
                         </button>
                       ))}
+                    </div>
+                  )}
+                  {nearby.length > 0 && (
+                    <div className="mt-2" data-other-days>
+                      <p className="text-xs font-semibold text-gray-500 mb-1">Other days you're already nearby</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {nearby.map(n => (
+                          <button key={n.startAt} onClick={() => { setDate(n.date); setTime(n.time); setGridOpen(false) }} data-other-day={n.date}
+                            className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-orange-300 text-gray-700">{n.line}</button>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
               )}
 
+              {timeWarnings.length > 0 && (
+                <div className="text-xs bg-amber-50 text-amber-900 border-2 border-amber-300 rounded-lg px-3 py-2" data-time-warning>
+                  <p className="font-bold">Check this time: {clockAmPm(minutesOf(time))}</p>
+                  <ul className="list-disc ml-4 mt-1">{timeWarnings.map(w => <li key={w}>{w}</li>)}</ul>
+                  <p className="mt-1">You can still book it.</p>
+                </div>
+              )}
               {warnings.map(w => <p key={w} className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-lg px-3 py-2" data-warning>⚠ {w}</p>)}
 
               <button onClick={save} disabled={!customerId || saving || (!allDay && !time)} data-save
