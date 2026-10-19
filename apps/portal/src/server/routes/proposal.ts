@@ -19,6 +19,7 @@ import path from 'path'
 import multer from 'multer'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { Prisma } from '@prisma/client'
 import { audit } from '../lib/auditLog.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAccepted.js'
@@ -84,6 +85,9 @@ interface Proposal {
   financing?: { provider?: string; apr?: number; months?: number; link?: string } | null
   recommended?: number
   options: ProposalOption[]
+  /** A fence move or repair: the plain words of the work. */
+  kind?: 'move' | 'repair'
+  description?: string
 }
 
 export function logoPath(): string | null {
@@ -139,7 +143,31 @@ publicProposal.get('/:token', async (req, res) => {
   }
   if (!p || !Array.isArray(p.options) || p.options.length === 0) { res.status(404).type('html').send(page('Proposal not found', '<main class="wrap"><h1>This proposal is not ready yet</h1><p>Please call us.</p></main>', nonce)); return }
   await prisma.savedQuote.update({ where: { id: q.id }, data: { firstViewedAt: q.firstViewedAt || new Date(), viewCount: { increment: 1 } } }).catch(() => {})
-  res.type('html').send(renderProposal(q, p, token, nonce))
+  // A move or repair shows the photos marked Customer on this quote.
+  const photos = p.kind ? await customerPhotos(q) : []
+  res.type('html').send(renderProposal(q, p, token, nonce, photos))
+})
+
+/** Photos on a quote marked Customer (never Internal or Crew). */
+async function customerPhotos(q: { id: string; accountId: string }) {
+  return prisma.mediaItem.findMany({
+    where: { accountId: q.accountId, quoteKey: q.id, deletedAt: null, visibility: 'customer', kind: 'photo' },
+    orderBy: { takenAt: 'asc' }, take: 24, select: { id: true, caption: true, category: true },
+  }).catch(() => [] as Array<{ id: string; caption: string; category: string }>)
+}
+
+// A photo marked Customer on this proposal's quote (marked up when it was).
+publicProposal.get('/:token/media/:id', async (req, res) => {
+  const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) }, select: { id: true, accountId: true, archivedAt: true, shareDisabledAt: true, shareExpiresAt: true } }).catch(() => null)
+  if (!q || q.archivedAt || linkClosed(q)) { res.status(404).end(); return }
+  const m = await prisma.mediaItem.findUnique({ where: { id: String(req.params.id) } }).catch(() => null)
+  if (!m || m.deletedAt || m.accountId !== q.accountId || m.quoteKey !== q.id || m.visibility !== 'customer' || m.kind !== 'photo') { res.status(404).end(); return }
+  const file = m.markupPath && fs.existsSync(m.markupPath) ? m.markupPath : m.path
+  if (!file || !fs.existsSync(file)) { res.status(404).end(); return }
+  res.setHeader('Content-Type', file === m.markupPath ? 'image/jpeg' : m.mime)
+  res.setHeader('Cache-Control', 'private, max-age=3600')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  fs.createReadStream(file).pipe(res)
 })
 
 const acceptSchema = z.object({
@@ -179,6 +207,8 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
         ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
         ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : {}),
         ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections } } : {}),
+        // A move or repair option carries its work; "New fence instead" carries null (the quote becomes a new fence).
+        ...(s && Object.prototype.hasOwnProperty.call(s, 'work') ? { work: s.work === null ? Prisma.JsonNull : s.work } : {}),
       },
     })
     const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
@@ -236,7 +266,7 @@ function page(title: string, body: string, nonce: string, script = ''): string {
 <title>${esc(title)}</title><meta name="robots" content="noindex"><style>${CSS}</style></head><body>${body}${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`
 }
 
-function renderProposal(q: any, p: Proposal, token: string, nonce: string): string {
+function renderProposal(q: any, p: Proposal, token: string, nonce: string, photos: Array<{ id: string; caption: string; category: string }> = []): string {
   const company = p.company ?? {}
   const rec = Math.min(Math.max(0, p.recommended ?? 0), p.options.length - 1)
   const accepted = !!q.acceptedAt
@@ -258,7 +288,7 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string): stri
         <span class="optlabel">${esc(o.label)}</span>
         ${o.tier?.blurb ? `<span class="blurb">${esc(o.tier.blurb)}</span>` : ''}
         <span class="price">${money(o.finalPrice)}</span>
-        <span class="small">${money2(o.perFoot)} a foot · ${o.sections} sections</span>
+        ${o.perFoot > 0 ? `<span class="small">${money2(o.perFoot)} a foot · ${o.sections} sections</span>` : ''}
         ${save}${monthly}
       </span>
     </label>`
@@ -284,12 +314,13 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string): stri
 
   const body = `<header class="top"><img src="logo.png" alt="" class="logo"><div><p class="co">${esc(company.name || 'Getter Done Fence')}</p><p class="small">${[company.phone ? tel(company.phone) : '', company.email ? esc(company.email) : ''].filter(Boolean).join(' · ')}</p></div></header>
   <main class="wrap">
-    <p class="small upper">Fence proposal</p>
+    <p class="small upper">${p.kind === 'move' ? 'Fence move proposal' : p.kind === 'repair' ? 'Fence repair proposal' : 'Fence proposal'}</p>
     <h1>${esc(p.customer?.name || q.customerName)}</h1>
     <p class="small">${esc(p.customer?.address || q.customerAddress || '')}</p>
-    <p class="facts">${p.footageFt ? `${Math.round(p.footageFt)} ft of fence` : ''}${p.gatesText ? ` · ${esc(p.gatesText)}` : ''}</p>
-    ${plan ? `<section><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Gray dashed: existing fence or no fence, not included. Not to scale for permitting.</p></section>` : ''}
-    <section><h2>${p.options.length > 1 ? 'Your options' : 'Your fence'}</h2><div class="opts${p.options.some(o => o.tier) ? ' tiers' : ''}">${options}</div></section>
+    ${p.kind ? `<p class="facts" data-work-description>${esc(p.description || '')}</p>` : `<p class="facts">${p.footageFt ? `${Math.round(p.footageFt)} ft of fence` : ''}${p.gatesText ? ` · ${esc(p.gatesText)}` : ''}</p>`}
+    ${photos.length ? `<section><h2>Photos</h2><div class="opts">${photos.map(m => `<figure style="margin:0"><img class="photo" src="${esc(token)}/media/${esc(m.id)}" alt="${esc(m.caption || m.category)}" loading="lazy" style="width:100%;border-radius:10px">${m.caption ? `<figcaption class="small">${esc(m.caption)}</figcaption>` : ''}</figure>`).join('')}</div></section>` : ''}
+    ${plan ? `<section><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Gray dashed: existing fence or no fence, not included.${p.kind === 'move' ? ' Brown dashed: the old fence line.' : p.kind === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p></section>` : ''}
+    <section><h2>${p.options.length > 1 ? 'Your options' : p.kind ? 'Your price' : 'Your fence'}</h2><div class="opts${p.options.some(o => o.tier) ? ' tiers' : ''}">${options}</div></section>
     ${included}${warranty}${deposit}${acceptBlock}
     <p class="small foot">Questions? Call ${company.phone ? tel(company.phone) : 'us'}.</p>
   </main>`

@@ -2,13 +2,14 @@ import { withTargetMargins, typedOverheadPct } from './targetMargin'
 import { DEFAULT_CONFIG, mergeSavedConfig } from './configDefaults'
 import { stripDerived, type FenceCatalog } from './fenceCatalog'
 import type { StyleJobLot } from './materialCalculator'
+import type { MoveRepairSettings } from './moveRepair'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface FenceStyle {
   id: string
   name: string
-  category: 'Vinyl' | 'Chainlink' | 'Commercial' | 'Aluminum' | 'Other'
+  category: 'Vinyl' | 'Chainlink' | 'Commercial' | 'Aluminum' | 'Wood' | 'Other'
   /** What price is divided into: 1 − Target Margin (0.56 for 44%). Worked out
    *  from Overhead % and this style's Target Profit % when the config is read;
    *  never typed. */
@@ -50,6 +51,8 @@ export interface FenceStyle {
   madeFrom?: string
   /** Auto mix made in Settings: the kit set it reads (its own name). */
   kitKey?: string
+  /** Wood: the White Vinyl 6 ft privacy style it is priced from (material and labor × the Wood factor, wood.ts). */
+  woodOf?: string
   // ── Worked out on every read (fenceCatalog.resolveFenceStyles); not saved ──
   /** The plain name: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig". */
   label?: string
@@ -59,6 +62,9 @@ export interface FenceStyle {
   jobLot?: StyleJobLot
   /** The color's own Target Profit %, when set (wins over the style's). */
   colorTargetProfitPct?: number
+  /** Wood: the vinyl style it is priced from, as read (with its Target Margin), and the Wood factor (1.15). */
+  woodBase?: FenceStyle
+  woodFactor?: number
 }
 
 export interface PricingConfig {
@@ -156,6 +162,8 @@ export interface AppConfig {
   appointments?: Partial<AppointmentSettings>
   /** Photos and video kept smaller once a job has been Complete this long (server lib/mediaShrink.ts). */
   media?: { shrinkAfterDays?: number }
+  /** Fence moves and repairs, the minimum job price and the Wood factor (Settings → Moves and Repairs, moveRepair.ts). */
+  moveRepair?: Partial<MoveRepairSettings>
 }
 
 // Defaults live in configDefaults.ts (pure: the server's estimates use them too).

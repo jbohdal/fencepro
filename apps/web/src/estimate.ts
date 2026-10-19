@@ -15,6 +15,8 @@ import type { AppConfig, FenceStyle } from './configStore'
 import { isQuotable, isOnHold, NOT_QUOTABLE_MESSAGE } from './styleAvailability'
 
 export { NOT_QUOTABLE_MESSAGE }
+// The server's wood seed (lib/woodSeed.ts) runs this through the bundle.
+export { planWood } from './wood'
 
 export interface EstimateData {
   /** The saved Settings (business state config), as stored. */

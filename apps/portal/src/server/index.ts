@@ -68,6 +68,7 @@ import { startAddressRefresh } from './lib/addressIndex.js'
 import { startDuplicateCheck } from './lib/duplicateCheck.js'
 import { startAutomationWorker } from './lib/automations/queue.js'
 import { ensureStylesOnHoldAll } from './lib/stylesOnHold.js'
+import { ensureWoodAll } from './lib/woodSeed.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
 import quoteWidget from './routes/quote-widget.js'
 import systemRoutes from './routes/system.js'
@@ -346,6 +347,8 @@ if (!isVercel) {
     try { startAutomationWorker() } catch (err) { console.error('[automations] worker could not start:', err) }
     // Commercial and industrial styles not available for quoting: once per company (lib/stylesOnHold.ts).
     ensureStylesOnHoldAll().catch(err => console.error('[styles] on hold check failed:', err))
+    // Wood privacy styles, kits and unpriced wood parts: once per company (lib/woodSeed.ts).
+    ensureWoodAll().catch(err => console.error('[wood] check failed:', err))
     try { startMediaShrink() } catch (err) {
       console.warn('[startup] media shrink failed to start:', (err as Error).message)
     }

@@ -55,6 +55,7 @@ interface EstimateModule {
   estimateStyles(config: unknown, data?: unknown): Array<StyleListItem>
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }
   styleLabels(config: unknown, data?: unknown): Record<string, string>
+  planWood(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean }
 }
 
 /**
@@ -70,6 +71,8 @@ export function isNotQuotable(err: unknown): boolean {
 }
 
 let loaded: Promise<EstimateModule> | null = null
+/** The web pricing code (bundled in the build, the source in development). */
+export function pricingModule(): Promise<EstimateModule> { return pricing() }
 function pricing(): Promise<EstimateModule> {
   if (!loaded) {
     const fromSource = fileURLToPath(import.meta.url).endsWith('.ts')

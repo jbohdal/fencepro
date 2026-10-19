@@ -14,6 +14,7 @@ import type { LineItem } from './materialCalculator'
 import type { TierSet } from './tiers'
 import { isQuotable } from './styleAvailability'
 import { styleLabel } from './fenceCatalog'
+import type { SavedWork, WorkResult } from './moveRepair'
 
 export interface ProposalSettings {
   /** Extra "what's included" text, one item per line. */
@@ -45,6 +46,8 @@ export interface ProposalOption {
   snapshot: {
     materialCost: number; laborCost: number; tearOutCost: number; totalCOGS: number; gmPct: number
     pullSheet: LineItem[]; runRails?: Array<'auto' | '6ft' | '8ft'>; runSections: number[]
+    /** A move or repair option: the work the quote becomes if picked; null: a new fence (the quote stops being a move or repair). */
+    work?: SavedWork | null
   }
 }
 
@@ -68,6 +71,9 @@ export interface QuoteProposal {
   tierPrefs?: { off: string[]; swap: Record<string, string> }
   /** The tier set as it was when this proposal was made: a sent quote reopens with it, not with later Settings. */
   tierSet?: Pick<TierSet, 'category' | 'tiers' | 'popular'>
+  /** A fence move or repair: the plain words of the work (no cost lines). */
+  kind?: 'move' | 'repair'
+  description?: string
 }
 
 // ── Which options make sense for a style ──────────────────────────────────────
@@ -200,4 +206,54 @@ export function buildProposal(args: {
 export function proposalUrl(token: string): string {
   const { protocol, hostname, origin } = window.location
   return hostname.endsWith('.ts.net') ? `${protocol}//${hostname}:8443/p/${token}` : `${origin}/p/${token}`
+}
+
+// ── Moves and repairs ────────────────────────────────────────────────────────
+
+/** A move or repair as a proposal option: one price, its plain words as the label; the work it was priced with rides in the snapshot. */
+export function workOption(label: string, styleName: string, w: WorkResult, saved: SavedWork, runSections: number[]): ProposalOption {
+  return {
+    label, fenceStyle: styleName, finalPrice: w.priceCents / 100, perFoot: 0, sections: w.sections,
+    snapshot: {
+      materialCost: w.materialCents / 100, laborCost: w.laborCents / 100, tearOutCost: w.disposalCents / 100, totalCOGS: w.costCents / 100,
+      gmPct: w.gmPct, pullSheet: w.pullSheet, runSections, work: saved,
+    },
+  }
+}
+
+/** The customer's proposal for a move or repair: the plain description, the plan, one price per option, no cost lines. Good, Better, Best are off. */
+export function buildWorkProposal(args: {
+  kind: 'move' | 'repair'
+  description: string
+  options: ProposalOption[]
+  company: { name: string; phone: string; email: string }
+  customer: { name: string; address: string }
+  planSvg?: string
+  warranty: string
+  settings: ProposalSettings
+  footageFt: number
+  gatesText: string
+  photoIds: Record<string, string>
+}): QuoteProposal {
+  const { settings } = args
+  const fin = settings.financing
+  return {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    kind: args.kind,
+    description: args.description,
+    company: args.company,
+    customer: args.customer,
+    planSvg: args.planSvg,
+    footageFt: args.footageFt,
+    gatesText: args.gatesText,
+    included: [args.description],
+    includedNote: settings.included?.trim() ?? '',
+    warranty: args.warranty,
+    depositPct: settings.depositPct && settings.depositPct > 0 ? settings.depositPct : 0,
+    depositNote: settings.depositNote?.trim() ?? '',
+    financing: fin && (fin.months ?? 0) > 0 ? { provider: fin.provider ?? '', apr: fin.apr ?? 0, months: fin.months!, link: fin.link ?? '' } : null,
+    recommended: 0,
+    options: args.options.map(o => ({ ...o, photoId: o.photoId || args.photoIds[o.fenceStyle] || null })),
+  }
 }

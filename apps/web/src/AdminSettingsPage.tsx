@@ -21,9 +21,10 @@ import { useNav } from './nav'
 import { sectionWidthForStyle, styleHasPartsList } from './materialCalculator'
 import CalendarSyncSettings from './CalendarSyncSettings'
 import FenceStylesSettings from './FenceStylesSettings'
+import MoveRepairSettings from './MoveRepairSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'tiers' | 'voice' | 'walkthrough'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'tiers' | 'voice' | 'walkthrough' | 'moves'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -569,6 +570,7 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'company',         label: 'Company' },
   { key: 'pricing',         label: 'Pricing' },
   { key: 'styles',          label: 'Fence Styles' },
+  { key: 'moves',           label: 'Moves and Repairs' },
   { key: 'optimizer',       label: 'Quote Optimizer' },
   { key: 'leads',           label: 'Lead Sources' },
   { key: 'tags',            label: 'Tags' },
@@ -708,6 +710,7 @@ export default function AdminSettingsPage() {
               placeholder="e.g. Follow-up Call..."
             />
           )}
+          {tab === 'moves' && <MoveRepairSettings config={config} onChange={handleChange} />}
           {tab === 'optimizer' && <OptimizerTab config={config} onChange={handleChange} />}
           {tab === 'ops_stages' && <OperationsStagesSettings />}
           {tab === 'email_templates' && <EmailTemplatesSettings />}

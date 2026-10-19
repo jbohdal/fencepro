@@ -1653,6 +1653,10 @@ model SavedQuote {
   // Per quote pricing choices (labor mode, subcontractor rate, price method,
   // manual price). Null means the quote uses Settings → Pricing as is.
   pricing      Json?
+  // A fence move or repair (web/src/moveRepair.ts): the job type, what was
+  // entered and the cost lines it was priced with (integer cents). Null: a new
+  // fence. Internal: a customer's link only ever sees the job type.
+  work         Json?
 
   status   SavedQuoteStatus @default(DRAFT)
   date     String           @default("") // YYYY-MM-DD legacy format

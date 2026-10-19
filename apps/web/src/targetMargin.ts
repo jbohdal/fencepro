@@ -5,6 +5,7 @@
  */
 
 import type { AppConfig, FenceStyle } from './configStore'
+import { woodFactorOf } from './wood'
 
 export const DEFAULT_OVERHEAD_PCT = 30
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -20,20 +21,24 @@ export function typedOverheadPct(cfg: Pick<AppConfig, 'pricing'>): number {
  * overhead, so its price does not change. `overhead` is the overhead in use
  * (live from the budget when that is on).
  */
-export function withTargetMargins<C extends Pick<AppConfig, 'pricing' | 'fenceStyles'>>(cfg: C, overhead = typedOverheadPct(cfg)): C {
+export function withTargetMargins<C extends Pick<AppConfig, 'pricing' | 'fenceStyles'> & { moveRepair?: AppConfig['moveRepair'] }>(cfg: C, overhead = typedOverheadPct(cfg)): C {
   const typed = typedOverheadPct(cfg)
-  return {
-    ...cfg,
-    pricing: { ...cfg.pricing, overheadPct: typed },
-    fenceStyles: (cfg.fenceStyles ?? []).map((s: FenceStyle) => {
-      const profit = typeof s.targetProfitPct === 'number' && Number.isFinite(s.targetProfitPct)
-        ? s.targetProfitPct
-        : round2((1 - (s.margin || 0.64)) * 100 - typed)
-      // A color with its own Target Profit % (Settings → Fence styles) earns that instead.
-      const earn = typeof s.colorTargetProfitPct === 'number' && Number.isFinite(s.colorTargetProfitPct) ? s.colorTargetProfitPct : profit
-      return { ...s, targetProfitPct: profit, margin: (100 - overhead - earn) / 100 }
-    }),
-  }
+  const styles = (cfg.fenceStyles ?? []).map((s: FenceStyle) => {
+    const profit = typeof s.targetProfitPct === 'number' && Number.isFinite(s.targetProfitPct)
+      ? s.targetProfitPct
+      : round2((1 - (s.margin || 0.64)) * 100 - typed)
+    // A color with its own Target Profit % (Settings → Fence styles) earns that instead.
+    const earn = typeof s.colorTargetProfitPct === 'number' && Number.isFinite(s.colorTargetProfitPct) ? s.colorTargetProfitPct : profit
+    return { ...s, targetProfitPct: profit, margin: (100 - overhead - earn) / 100 }
+  })
+  // Wood is priced from its white vinyl style (wood.ts): that style as read, and the Wood factor.
+  const factor = woodFactorOf(cfg)
+  const fenceStyles = styles.map(s => {
+    if (!s.woodOf) return s
+    const base = styles.find(v => v.name === s.woodOf)
+    return base ? { ...s, woodBase: base, woodFactor: factor } : s
+  })
+  return { ...cfg, pricing: { ...cfg.pricing, overheadPct: typed }, fenceStyles }
 }
 
 /** A style's Target Margin as a percent (44 for 44%). */

@@ -77,6 +77,7 @@ function fromApi(r: SavedQuoteRecord): SavedQuote {
     notes: r.notes,
     leadTemp: r.leadTemp,
     pricing: r.pricing || undefined,
+    work: r.work || undefined,
   }
 }
 
@@ -116,6 +117,7 @@ function toApiPayload(q: Partial<SavedQuote>): SavedQuotePayload {
     notes: q.notes || '',
     leadTemp: q.leadTemp ?? 0,
     pricing: q.pricing ?? null,
+    work: q.work ?? null,
   }
 }
 
@@ -217,6 +219,7 @@ export function upsertQuote(partial: Partial<SavedQuote> & { fenceStyle?: string
     notes: partial.notes || '',
     leadTemp: partial.leadTemp ?? 0,
     pricing: partial.pricing,
+    work: partial.work,
   }
   cache = [fresh, ...cache]
   emit()

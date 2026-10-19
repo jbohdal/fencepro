@@ -4,6 +4,7 @@ import type { QuoteLayoutRecord } from './yardLayout'
 import { useState, useMemo, useEffect } from 'react'
 import type { LineItem } from './materialCalculator'
 import type { QuotePricingOverrides } from './pricingEngine'
+import type { SavedWork } from './moveRepair'
 import { ChangeOrderPanel } from './ChangeOrders'
 import { POButton } from './PurchaseOrder'
 import { pullFromInventory, getLocations } from './inventoryStore'
@@ -64,6 +65,8 @@ export interface SavedQuote {
   /** Pricing choices made on this quote (labor mode, subcontractor rate,
    *  price method, manual price). Absent means "use Settings". */
   pricing?: QuotePricingOverrides
+  /** A fence move or repair: what was entered and how it was priced (moveRepair.ts). Absent for a new fence. */
+  work?: SavedWork
 }
 
 const fmt = (n: number) =>

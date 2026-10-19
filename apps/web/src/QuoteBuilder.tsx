@@ -38,6 +38,14 @@ import { targetMarginPct, overheadPctOf } from './configStore'
 import DollarPickets from './DollarPickets'
 import { businessDate } from './businessDate'
 import { isQuotable } from './styleAvailability'
+import { calculateQuote as calcNewFence } from './quoteCalc'
+import {
+  priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText,
+  REPAIR_ITEMS, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
+} from './moveRepair'
+import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
+import { workOption, buildWorkProposal } from './proposal'
+import { signedInRole } from './permissions'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
 /** "2026-10-19" → "Oct 19, 2026" */
@@ -486,12 +494,18 @@ export default function QuoteBuilder({
     listStylePhotos().then(list => setPhotoIds(Object.fromEntries(list.map(p => [p.styleName, p.id])))).catch(() => {})
   }, [])
   const [showSaveModal, setShowSaveModal] = useState(false)
+  // Fence moves and repairs (moveRepair.ts). A new fence is priced exactly as before.
+  const [jobType, setJobType] = useState<JobType>(init?.work?.type ?? 'new')
+  const [move, setMove] = useState<Omit<MoveInputs, 'oldPostType'> & { oldPostType?: PostType }>(() => init?.work?.move ?? { oldFt: 0, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false })
+  const [repair, setRepair] = useState<Omit<RepairInputs, 'postType'> & { postType?: PostType }>(() => init?.work?.repair ?? { what: 'other', items: {}, newPostCaps: false, gateKind: 'walk' })
+  const [offerNewFence, setOfferNewFence] = useState<boolean>(!!init?.work?.newFence?.offered)
+  const [offerMoveAsIs, setOfferMoveAsIs] = useState<boolean>(true)
 
   // Unsaved work: anything changed since the builder opened (after it settles).
   // Back, the close button and closing the tab ask before it is dropped.
   const workRef = useRef('')
   workRef.current = JSON.stringify([customerName, styleId, runs, entry, yard, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, adjLaborHrs, priceAdjust, hasSalesman,
-    laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, offer, tierPrefs, voiceNotes])
+    laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, offer, tierPrefs, voiceNotes, jobType, move, repair, offerNewFence, offerMoveAsIs])
   const startWork = useRef<string | null>(null)
   useEffect(() => { const t = setTimeout(() => { startWork.current = workRef.current }, 400); return () => clearTimeout(t) }, [])
   const dirty = () => startWork.current !== null && workRef.current !== startWork.current
@@ -562,8 +576,8 @@ export default function QuoteBuilder({
   const materials: MaterialResult = calc.materials
   const priced = calc.priced
 
-  const materialItems: LineItem[] = materials.items
-  const materialCost = useMemo(() => totalMaterialCost(materialItems), [materialItems])
+  const newFenceItems: LineItem[] = materials.items
+  const newFenceMaterial = useMemo(() => totalMaterialCost(newFenceItems), [newFenceItems])
   const totalFootage = Math.round(effRuns.reduce((s, r) => s + r.ft, 0) * 100) / 100
   const totalsRef = useRef({ footage: 0, sections: 0, price: 0 })
 
@@ -576,16 +590,56 @@ export default function QuoteBuilder({
     }
     setEntry('advanced')
   }
-  const adjustedMH  = priced.manHours
-  const laborCost   = priced.laborCost
-  const tearOutCost = priced.tearOutCost
-  const totalCOGS   = priced.totalCOGS
-  const adjPrice    = priced.price
-  const commAmt     = priced.commissionAmt
-  const grossMargin = priced.grossMargin
-  const gmPct       = priced.gmPct
   // Overhead % this quote is priced at (kept with it, so "where every dollar goes" does not move later).
   const overheadNow = typeof initPricing.overheadPct === 'number' && init?.id ? initPricing.overheadPct : overheadPctOf(cfg)
+  // ── Move or repair: priced by moveRepair.ts from the same style, Settings and kits ──
+  const mr = moveRepairSettings(cfg)
+  const stylePostType: PostType = style ? postTypeOf(style) : 'nd'
+  const moveIn: MoveInputs = { ...move, oldPostType: move.oldPostType ?? stylePostType }
+  const repairIn: RepairInputs = { ...repair, postType: repair.postType ?? stylePostType }
+  const newLine = { runs: effRuns.map(r => r.ft), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl }
+  const workCommon = style ? { style, pricing: cfg.pricing, overrides: pricingOverrides, settings: mr, overheadPct: overheadNow, hasSalesman, priceAdjust, extraLaborHrs: parseFloat(adjLaborHrs) || 0 } : null
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const work: WorkResult | null = useMemo(() => (!workCommon || jobType === 'new' ? null
+    : jobType === 'move' ? priceMove(workCommon, moveIn, newLine) : priceRepair(workCommon, repairIn)),
+  [jobType, JSON.stringify(moveIn), JSON.stringify(repairIn), JSON.stringify(newLine), JSON.stringify(calcInput), invTick, overheadNow])  // eslint-disable-line react-hooks/exhaustive-deps
+  // A move to a longer line: "Move as is" (only the old length, the same shape) next to "Move plus new fence for the extra length".
+  const moveAsIs: WorkResult | null = useMemo(() => {
+    if (!workCommon || jobType !== 'move' || !work || !(moveIn.oldFt > 0)) return null
+    const total = newLine.runs.reduce((t, n) => t + (n > 0 ? n : 0), 0)
+    if (!(total > moveIn.oldFt + 0.01)) return null
+    const k = moveIn.oldFt / total
+    return priceMove(workCommon, moveIn, { ...newLine, runs: newLine.runs.map(ft => Math.round(ft * k * 100) / 100) })
+  }, [work])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Repair: "A new fence may be the better deal" (damaged sections over half a run, or price over 60% of a new fence there).
+  const repairCheck = useMemo(() => {
+    if (jobType !== 'repair' || !work || !style) return null
+    const runs = calc.perRunSections
+    const tapped = repairIn.tapped ?? []
+    const damagedRuns = tapped.length ? [...new Set(tapped.map(k => Number(k.split(':')[0])))] : runs.map((_, i) => i)
+    const damagedByRun = tapped.length
+      ? damagedRuns.map(r => ({ damaged: tapped.filter(k => Number(k.split(':')[0]) === r).length, sections: runs[r] ?? 0 }))
+      : runs.some(n => n > 0) ? [{ damaged: (repairIn.items.repairSection ?? 0) + (repairIn.items.replaceSection ?? 0), sections: runs.reduce((t, n) => t + n, 0) }] : []
+    const runsFt = effRuns.map((r, i) => (damagedRuns.includes(i) ? r.ft : 0))
+    const nf = runsFt.some(f => f > 0) ? calcNewFence({ ...calcInput, runs: runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0, overrides: { ...pricingOverrides, finalPrice: undefined } }) : null
+    const newFenceCents = nf ? Math.round(nf.priced.price * 100) : null
+    return { ...newFenceBetter({ repairCents: work.priceCents, newFenceCents, damagedByRun }), newFenceCents, nf, runsFt }
+  }, [work, JSON.stringify(calc.perRunSections)])  // eslint-disable-line react-hooks/exhaustive-deps
+  const matchWarning = jobType !== 'new' && style ? matchRisk(style) : null
+  // A new fence under the minimum job price, when Settings say the minimum applies to new fences too.
+  const newMin = jobType === 'new' && mr.minimumAppliesToNew && priced.priceMethod !== 'manual' && priced.price > 0 && Math.round(priced.price * 100) < mr.minimumJobCents
+  const adjustedMH  = work ? work.manHours : priced.manHours
+  const laborCost   = work ? work.laborCents / 100 : priced.laborCost
+  const tearOutCost = work ? work.disposalCents / 100 : priced.tearOutCost
+  const totalCOGS   = work ? work.costCents / 100 : priced.totalCOGS
+  const adjPrice    = work ? work.priceCents / 100 : newMin ? mr.minimumJobCents / 100 : priced.price
+  const commAmt     = work ? work.commissionCents / 100 : newMin ? Math.round(adjPrice * priced.commissionPct * 100) / 100 : priced.commissionAmt
+  const grossMargin = work ? work.grossMarginCents / 100 : newMin ? Math.round((adjPrice - totalCOGS - commAmt) * 100) / 100 : priced.grossMargin
+  const gmPct       = work ? work.gmPct : newMin ? (adjPrice > 0 ? grossMargin / adjPrice : 0) : priced.gmPct
+  const internal = seesCosts(signedInRole())
+  // The pull sheet: a move or repair lists only the NEW material.
+  const materialItems: LineItem[] = work ? work.pullSheet : newFenceItems
+  const materialCost = work ? work.materialCents / 100 : newFenceMaterial
   const gmGood      = cfg.margins?.good ?? 0.34
   const gmWarn      = cfg.margins?.warning ?? 0.27
   const gmColor     = gmPct >= gmGood ? 'text-green-600' : gmPct >= gmWarn ? 'text-yellow-500' : 'text-red-500'
@@ -618,12 +672,19 @@ export default function QuoteBuilder({
   const staleMonths = cfg.pricing.priceStaleMonths ?? DEFAULT_PRICE_STALE_MONTHS
   const staleParts = useMemo(() => (style
     // Parts a job lot piece price covers are not priced from Inventory, so their Inventory date does not matter.
-    ? stalePartsOnQuote(materialItems.filter(i => i.qty > 0 && i.costSource !== 'jobLot').map(i => i.item), getInventory(), businessDate(new Date()), staleMonths, normalizeItemName)
+    ? stalePartsOnQuote(materialItems.filter(i => i.qty > 0 && i.costSource !== 'jobLot' && i.costSource !== 'wood').map(i => i.item), getInventory(), businessDate(new Date()), staleMonths, normalizeItemName)
     : []), [style, materialItems, invTick, staleMonths])  // eslint-disable-line react-hooks/exhaustive-deps
   // A color priced by the piece: whose job lot quote, from when, and whether that quote is old.
   const jobLot = style?.jobLot
   const jobLotOld = !!jobLot && !!jobLot.quotedOn && jobLot.quotedOn <= staleCutoff(businessDate(new Date()), staleMonths)
-  const quoteWarnings = [
+  const quoteWarnings = work ? [
+    ...(style && jobType === 'move' ? tapeChecks(namedRuns, runWidths) : []),
+    ...(fromLayout && jobType === 'move' ? gateChecks(yard) : []),
+    ...work.warnings,
+    ...(matchWarning ? [matchWarning] : []),
+    ...(work.needs811 ? ['New posts go in the ground: an 811 locate ticket is needed before digging. It goes on the crew packet.'] : []),
+    ...[work.costCents > 0 && !work.minimumApplied ? marginCheck(work.gmPct, cfg.margins?.good ?? 0.34, adjPrice) : null].filter((x): x is string => !!x),
+  ] : [
     ...(style ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout ? gateChecks(yard) : []),
     // Pricing notes only once a style is picked (before that there is nothing to price).
@@ -643,7 +704,9 @@ export default function QuoteBuilder({
   }
 
   const categories = [...new Set(FENCE_STYLES.map(s => s.category))]
-  const canSave = styleId && sections > 0
+  const canSave = !!styleId && (jobType === 'new' ? sections > 0
+    : jobType === 'move' ? moveIn.oldFt > 0 && !!work && work.sections > 0
+    : REPAIR_ITEMS.some(k => (repairIn.items[k] ?? 0) > 0))
 
   // A yard shape just picked opens on its first side.
   useEffect(() => {
@@ -691,6 +754,38 @@ export default function QuoteBuilder({
     notes: string
     leadTemp: number
   }) {
+    const company = { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' }
+    const warranty = getContractSections().find(x => x.key === 'warranty' && x.visible !== false)?.body ?? ''
+    // A move or repair keeps what was entered and every cost line it was priced with (internal).
+    const savedWork = work ? toSavedWork(work, jobType === 'move' ? { move: moveIn } : { repair: repairIn }, {
+      newFence: repairCheck?.show && repairCheck.newFenceCents ? { cents: repairCheck.newFenceCents, offered: offerNewFence } : null,
+      photoOverride: init?.work?.photoOverride ?? null,
+    }) : undefined
+    const runSecs = calc.perRunSections.filter((_, i) => effRuns[i].ft > 0)
+    const workPlan = fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt}
+      oldLine={jobType === 'move' && moveIn.oldLinePlan ? { ...moveIn.oldLinePlan, ft: moveIn.oldFt, label: `Old line ${Math.round(moveIn.oldFt)} ft` } : null}
+      damaged={jobType === 'repair' ? repairIn.tapped : undefined} />) : undefined
+    const workProposal = work && style && savedWork ? (() => {
+      const options = []
+      if (jobType === 'move') {
+        if (moveAsIs && offerMoveAsIs) {
+          options.push(workOption(`Move as is: ${Math.round(moveIn.oldFt)} ft of your fence on the new line`, style.name, moveAsIs, toSavedWork(moveAsIs, { move: moveIn }), runSecs))
+          options.push({ ...workOption('Move plus new fence for the extra length', style.name, work, savedWork, runSecs), finalPrice: adjPrice })
+        } else options.push({ ...workOption('Move your fence to the new line', style.name, work, savedWork, runSecs), finalPrice: adjPrice })
+      } else {
+        options.push({ ...workOption('Repair', style.name, work, savedWork, runSecs), finalPrice: adjPrice })
+        if (offerNewFence && repairCheck?.nf) {
+          const o = priceOption({ ...calcInput, runs: repairCheck.runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0 }, style)
+          options.push({ ...o, label: `New fence instead: ${o.label}`, snapshot: { ...o.snapshot, work: null } })
+        }
+      }
+      return buildWorkProposal({
+        kind: jobType as 'move' | 'repair', description: work.description, options, company,
+        customer: { name: data.customerName, address: data.customerAddress }, planSvg: workPlan, warranty, settings: cfg.proposal ?? {},
+        footageFt: jobType === 'move' ? work.footage : 0,
+        gatesText: jobType === 'move' ? workGatesText(effWalk, effDbl) : '', photoIds,
+      })
+    })() : undefined
     const quote: SavedQuote = {
       id: quoteIdRef.current,
       customerId: data.customerId,
@@ -719,7 +814,7 @@ export default function QuoteBuilder({
       adjLaborHrs: parseFloat(adjLaborHrs) || 0,
       hasSalesman,
       priceAdjust,
-      sections,
+      sections: work ? work.sections : sections,
       materialCost,
       laborCost,
       tearOutCost,
@@ -732,8 +827,9 @@ export default function QuoteBuilder({
       notes: data.notes,
       leadTemp: data.leadTemp ?? 0,
       // The Target Margin it was priced at is kept, so this quote's price never moves when Settings change.
-      pricing: cleanOverrides({ ...pricingOverrides, ...(priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow }),
-      proposal: style ? buildProposal({
+      pricing: cleanOverrides({ ...pricingOverrides, ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow }),
+      work: savedWork,
+      proposal: workProposal ?? (style ? buildProposal({
         input: calcInput,
         styles: [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)],
         ownPrice: adjPrice,
@@ -746,7 +842,7 @@ export default function QuoteBuilder({
         tiers: tierOptions(tiers, photoIds),
         tierPrefs: { off: tierPrefs.off, swap: tierPrefs.swap as Record<string, string> },
         tierSet: tierSet ?? undefined,
-      }) : undefined,
+      }) : undefined),
     }
     setShowSaveModal(false)
     onSave(quote)
@@ -823,6 +919,11 @@ export default function QuoteBuilder({
           </div>
 
           <div className={step === 'yard' ? 'space-y-6' : 'hidden'} data-step-panel="yard">
+            {jobType !== 'new' && (
+              <p className="text-sm text-gray-800 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2" data-yard-job-hint>
+                {jobType === 'move' ? 'Fence move: draw the NEW fence line here. The old line is entered at the Style step.' : 'Repair: drawing the existing fence is optional. With it you can tap the damaged sections and see a new fence price beside the repair.'}
+              </p>
+            )}
             <div data-yard-section>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-semibold text-gray-500">{entry === 'layout' ? 'Yard layout' : 'Fence runs (advanced)'}</h3>
@@ -1005,8 +1106,9 @@ export default function QuoteBuilder({
           </div>
 
           <div className={step === 'style' ? 'space-y-6' : 'hidden'} data-step-panel="style">
+            <JobTypePicker value={jobType} onChange={setJobType} />
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 mb-3">Fence</h3>
+              <h3 className="text-xs font-semibold text-gray-500 mb-3">{jobType === 'new' ? 'Fence' : 'The fence (its style)'}</h3>
               <StyleChoices styles={PICKER_STYLES} catalog={catalog} value={styleId} onChange={setStyleId} isOk={pickable} />
               <p className="text-xs font-semibold text-gray-500 mt-4 mb-2">Or pick from the list</p>
               <select
@@ -1047,7 +1149,18 @@ export default function QuoteBuilder({
               )}
             </div>
 
-            <div>
+            {jobType === 'move' && (
+              <MovePanel style={style} move={moveIn} setMove={fn => setMove(m => fn({ ...m, oldPostType: m.oldPostType ?? stylePostType }))}
+                defaultPostType={stylePostType} defaultDamagePct={style ? damagePctFor(mr, style.name) : mr.damagePctDefault}
+                newLine={{ walkGates: effWalk, dblGates: effDbl, footage: totalFootage, sections: work?.sections ?? 0 }}
+                yard={fromLayout ? yard : null} layoutResult={layoutResult} runSections={calc.perRunSections} widthFt={widthFt} />
+            )}
+            {jobType === 'repair' && (
+              <RepairPanel style={style} repair={repairIn} setRepair={fn => setRepair(r => fn({ ...r, postType: r.postType ?? stylePostType }))}
+                yard={fromLayout ? yard : null} layoutResult={layoutResult} runSections={calc.perRunSections} widthFt={widthFt} />
+            )}
+
+            <div className={jobType === 'new' ? '' : 'hidden'}>
               <h3 className="text-xs font-semibold text-gray-500 mb-3">Tear out</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
@@ -1144,16 +1257,45 @@ export default function QuoteBuilder({
                     <button type="button" className="underline font-semibold min-h-[44px]" onClick={() => setFinalPriceStr(String(oldPrice))} data-use-old-price>Use the old price</button>
                   </p>
                 )}
-                {totalFootage > 0 && <p className="text-gray-400 text-xs mt-1">{fmt(priced.pricePerFoot)} per foot</p>}
+                {work && <p className="text-gray-300 text-xs mt-1" data-work-kind>{jobType === 'move' ? 'Fence move' : 'Repair'}: {work.description}</p>}
+                {work?.minimumApplied && internal && <p className="text-blue-200 text-xs mt-1 font-semibold" data-price-minimum>Minimum job price applied (internal)</p>}
+                {newMin && internal && <p className="text-blue-200 text-xs mt-1 font-semibold" data-price-minimum>Minimum job price applied (internal)</p>}
+                {!work && totalFootage > 0 && <p className="text-gray-400 text-xs mt-1">{fmt(priced.pricePerFoot)} per foot</p>}
                 {commAmt > 0 && <p className="text-gray-400 text-xs mt-1">Commission: {fmt(commAmt)}</p>}
-                {compare && (
+                {compare && !work && (
                   <p className="text-gray-300 text-xs mt-2 pt-2 border-t border-gray-700" data-width-compare>
                     Same job at 6 ft wide: {fmt(compare.at6)}  |  at 8 ft wide: {fmt(compare.at8)}
                   </p>
                 )}
               </div>
 
-              {style && sections > 0 && (
+              {jobType === 'move' && moveAsIs && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2" data-move-options>
+                  <p className="text-xs font-semibold text-gray-500">On the proposal</p>
+                  <label className="flex items-start gap-3 min-h-[48px]">
+                    <input type="checkbox" className="mt-1 w-5 h-5 accent-orange-500" checked={offerMoveAsIs} onChange={e => setOfferMoveAsIs(e.target.checked)} data-offer-move-as-is />
+                    <span className="flex-1 text-sm">Also offer "Move as is" (only the old {Math.round(moveIn.oldFt)} ft, on the same shape): <b className="tabular-nums">{fmt(moveAsIs.priceCents / 100)}</b>, next to "Move plus new fence for the extra length": <b className="tabular-nums">{fmt(adjPrice)}</b></span>
+                  </label>
+                </div>
+              )}
+
+              {jobType === 'repair' && repairCheck?.show && (
+                <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 space-y-2" data-new-fence-better>
+                  <p className="text-sm font-bold text-amber-900">A new fence may be the better deal</p>
+                  <p className="text-xs text-amber-900">
+                    {repairCheck.over50 ? 'More than half of a run is damaged. ' : ''}
+                    {repairCheck.over60 ? 'This repair is more than 60% of a new fence there. ' : ''}
+                    {repairCheck.newFenceCents !== null ? <>New fence for {repairCheck.runsFt.filter(f => f > 0).length === effRuns.filter(r => r.ft > 0).length ? 'the whole fence' : 'the damaged run'}: <b className="tabular-nums" data-new-fence-price>{fmt(repairCheck.newFenceCents / 100)}</b> (repair: {fmt(adjPrice)}).</> : 'Draw the fence in the Yard step to see a new fence price beside it.'}
+                  </p>
+                  {repairCheck.nf && (
+                    <button type="button" className={`btn ${offerNewFence ? 'btn-secondary' : 'btn-primary'} w-full`} onClick={() => setOfferNewFence(v => !v)} data-offer-new-fence>
+                      {offerNewFence ? 'New fence is offered as an option (tap to remove)' : 'Add the new fence as an option'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {jobType === 'new' && style && sections > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2" data-tiers>
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs font-semibold text-gray-500">Good, Better, Best <span className="font-normal">· on the proposal</span></p>
@@ -1216,7 +1358,8 @@ export default function QuoteBuilder({
                 </div>
               )}
 
-              <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} />
+              {work && internal && <WorkBreakdown work={work} />}
+              {(!work || internal) && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} />}
 
               {quoteWarnings.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
@@ -1251,7 +1394,7 @@ export default function QuoteBuilder({
                 </div>
               )}
 
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className={`bg-white rounded-xl border border-gray-200 p-4 ${work && !internal ? 'hidden' : ''}`}>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">Gross Margin</span>
                   <span className={`text-2xl font-bold ${gmColor}`}>{(gmPct * 100).toFixed(1)}%</span>
@@ -1297,7 +1440,7 @@ export default function QuoteBuilder({
                 )}
               </div>
 
-              <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2">
+              <div className={`bg-white rounded-xl border border-gray-200 p-4 space-y-2 ${work ? 'hidden' : ''}`}>
                 {[
                   { label: 'Material cost', val: fmt(materialCost) },
                   { label: priced.laborMode === 'flat' ? 'Labor (flat)' : priced.laborMode === 'subcontractor' ? `Labor (sub, $${priced.subRate}/${priced.subUnit === 'section' ? 'sec' : 'ft'})` : 'Labor Cost', val: fmt(laborCost) },
@@ -1315,7 +1458,7 @@ export default function QuoteBuilder({
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className={`flex items-center justify-between ${work ? 'hidden' : ''}`}>
                   <span className="text-xs text-gray-500">Price from</span>
                   <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5">
                     {([['cost_factor', 'Cost'], ['per_foot', 'Per foot']] as const).map(([m, label]) => (
@@ -1328,7 +1471,7 @@ export default function QuoteBuilder({
                     ))}
                   </div>
                 </div>
-                {priceMethod === 'cost_factor' ? (
+                {priceMethod === 'cost_factor' || work ? (
                   <div>
                     <label className="text-xs text-gray-400 mb-1 block">Target Margin for this quote</label>
                     {/* Typed as a percent (44 or 44%); kept on the quote as the number price is divided into. */}
@@ -1362,7 +1505,7 @@ export default function QuoteBuilder({
                 </div>
               </div>
 
-              {style && sections > 0 && (
+              {jobType === 'new' && style && sections > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4" data-compare>
                   <button type="button" className="btn btn-secondary w-full" onClick={() => setShowCompare(v => !v)} data-compare-toggle>
                     {showCompare ? 'Hide options' : 'Compare options'}
@@ -1404,11 +1547,11 @@ export default function QuoteBuilder({
               >
                 {init?.id ? 'Update quote' : 'Save quote'}
               </button>
-              {!canSave && <p className="text-xs text-gray-400 text-center">Select a style and enter at least one run</p>}
+              {!canSave && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? 'Select a style, draw the new line and enter the old line footage' : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
             {showPullSheet && materialItems.length > 0 && (
               <div className="flex-1 overflow-y-auto px-6 py-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-xs font-semibold text-gray-500">Pull Sheet</h3>
+                  <h3 className="text-xs font-semibold text-gray-500">{work ? 'Pull sheet (new material only)' : 'Pull Sheet'}</h3>
                   <span className="text-xs text-gray-400">{materialItems.length} items</span>
                 </div>
                 <div className="space-y-1">
@@ -1416,13 +1559,13 @@ export default function QuoteBuilder({
                     <div key={i} className="flex items-start justify-between text-xs py-1.5 border-b border-gray-100 last:border-0">
                       <div className="flex-1 pr-2">
                         <p className="text-gray-800 font-medium leading-tight">{item.item}</p>
-                        <p className="text-gray-400 mt-0.5">{item.qty} × {fmt(item.unitCost)}</p>
+                        <p className="text-gray-400 mt-0.5">{work && !internal ? `${item.qty}` : `${item.qty} × ${fmt(item.unitCost)}`}</p>
                       </div>
-                      <span className="text-gray-900 font-semibold whitespace-nowrap">{fmt(item.total)}</span>
+                      {(!work || internal) && <span className="text-gray-900 font-semibold whitespace-nowrap">{fmt(item.total)}</span>}
                     </div>
                   ))}
                 </div>
-                <div className="mt-3 pt-3 border-t border-gray-300 flex justify-between items-center">
+                <div className={`mt-3 pt-3 border-t border-gray-300 flex justify-between items-center ${work && !internal ? 'hidden' : ''}`}>
                   <span className="text-sm font-semibold text-gray-700">Total Material</span>
                   <span className="text-sm font-bold text-gray-900">{fmt(materialCost)}</span>
                 </div>
@@ -1443,6 +1586,7 @@ export default function QuoteBuilder({
             <p className="text-xs font-semibold text-gray-600 truncate tabular-nums" data-bar-facts>
               {step === 'yard' && entry === 'layout' && yard
                 ? `${sidesDone} of ${sidesOn} sides · ${totalFootage} ft · ${effCorners} corner, ${effEnds} end`
+                : work ? (jobType === 'move' ? `Move ${Math.round(moveIn.oldFt)} ft → ${totalFootage} ft · ${work.sections} sections` : `Repair · ${REPAIR_ITEMS.reduce((t, k) => t + (repairIn.items[k] ?? 0), 0)} items`)
                 : totalFootage > 0 ? `${totalFootage} ft · ${sections} sections · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
             </p>
             <div className="flex items-center gap-2 mt-1">

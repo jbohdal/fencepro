@@ -231,9 +231,11 @@ export interface LineItem {
   /** Where unitCost came from. Absent on quotes saved before this field.
    *  'jobLot': a color priced by the piece: a part a piece price covers ($0
    *  here, its cost is in the piece line) or the piece line itself. */
-  costSource?: 'inventory' | 'builtin' | 'jobLot'
+  costSource?: 'inventory' | 'builtin' | 'jobLot' | 'wood'
   /** A job lot piece price line (section, post, gate): money only, not a part to pull or order. */
   jobLotPiece?: boolean
+  /** Money only, not a part to pull or order: wood's material (white vinyl × the Wood factor, wood.ts). Wood parts themselves are listed at $0 ('wood'). */
+  moneyOnly?: boolean
 }
 
 // ── Section width and count per run ───────────────────────────────────────────

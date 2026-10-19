@@ -5,6 +5,7 @@
  *   Vinyl        Style > Height > Color > Install > Panel width
  *   Chain link   Height > Finish > Grade
  *   Aluminum     Panel style > Height > Install
+ *   Wood         Style > Height > Install > Panel width (priced from white vinyl × the Wood factor, wood.ts)
  *   Other        Product
  *
  * Every style keeps its old code ("WV-ND 6'x8' Privacy") as its hidden
@@ -32,6 +33,7 @@
 import type { FenceStyle } from './configStore'
 import { inventoryCost, normalizeItemName, sectionWidthForStyle, type StyleJobLot } from './materialCalculator'
 import { kitSetFor, KIT_KINDS, KIT_LABEL, PIECE_OF_KIT, type KitKind, type KitPart, type KitSet } from './materialKits'
+import { WOOD_MATERIAL } from './wood'
 
 // ── The tree ─────────────────────────────────────────────────────────────────
 
@@ -160,6 +162,7 @@ export const DEFAULT_CATALOG: FenceCatalog = {
         { key: 'install', label: 'Install', options: [o('nd', 'No dig'), o('ds', 'Dig set')] },
       ],
     },
+    WOOD_MATERIAL,
     {
       key: 'other', label: 'Other', category: 'Other',
       nameTemplate: '{product}',
@@ -401,7 +404,7 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
   const statusCache = new Map<string, ColorStatus>()
   const out = styles.map(raw => {
     const s: FenceStyle = { ...raw }
-    delete s.label; delete s.held; delete s.jobLot; delete s.colorTargetProfitPct
+    delete s.label; delete s.held; delete s.jobLot; delete s.colorTargetProfitPct; delete s.woodBase; delete s.woodFactor
     const sc = styleChoicesOf(s)
     const m = sc ? materialOf(catalog, sc.material) : undefined
     if (!sc || !m) { next.set(s.name, s.name); return s }
@@ -439,7 +442,7 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
 
 /** Fields worked out on every read; not saved. */
 export function stripDerived(styles: FenceStyle[]): FenceStyle[] {
-  return styles.map(s => { const c: FenceStyle = { ...s }; delete c.label; delete c.held; delete c.jobLot; delete c.colorTargetProfitPct; return c })
+  return styles.map(s => { const c: FenceStyle = { ...s }; delete c.label; delete c.held; delete c.jobLot; delete c.colorTargetProfitPct; delete c.woodBase; delete c.woodFactor; return c })
 }
 
 // ── The quote builder's picker ───────────────────────────────────────────────

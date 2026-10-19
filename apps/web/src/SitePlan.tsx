@@ -44,7 +44,10 @@ type Drag =
   | { mode: 'corner'; index: number | 'all'; start: PlanPoint; points: PlanPoint[]; moved: boolean }
   | { mode: 'house' | 'attach'; which: 'both' | 'left' | 'right'; sy: number; ftPerPx: number; bounds: Plan['bounds']; left: number; right: number; last: string; moved: boolean }
 
-export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap }: {
+/** A fence move's old line: drawn dashed along a side of the new line, this many feet inside it. */
+export interface PlanOldLine { sideId: string; offsetFt: number; ft: number; label: string }
+
+export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap, oldLine, damaged, onSectionTap }: {
   layout: YardLayout
   result?: LayoutResult
   runSections?: number[]
@@ -63,6 +66,12 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   onHouseDragEnd?: () => void
   /** With this, tapping a gate on the plan cycles its swing and hinge. */
   onGateTap?: (sideId: string) => void
+  /** A move: the old line, dashed. */
+  oldLine?: PlanOldLine | null
+  /** A repair: sections marked damaged ("run:section", runs in the order the layout counts them), drawn red. */
+  damaged?: string[]
+  /** With this, each section can be tapped (a repair's damaged sections). */
+  onSectionTap?: (key: string) => void
 }) {
   const plan = useMemo(() => buildPlan(layout, result, runSections, widthFt), [layout, result, runSections, widthFt])
   const svgRef = useRef<SVGSVGElement | null>(null)
@@ -187,6 +196,35 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     setLive('')
   }
 
+  // Each section as its own piece of the line, keyed "run:section" (runs counted as the layout counts them).
+  const sectionSegs = useMemo(() => {
+    const out: Array<{ key: string; a: PlanPoint; b: PlanPoint }> = []
+    if (!onSectionTap && !damaged?.length) return out
+    let r = 0
+    for (const sd of plan.sides) for (const f of sd.fence) {
+      const len = Math.hypot(f.b.x - f.a.x, f.b.y - f.a.y)
+      const n = runSections?.[r] ?? Math.max(1, Math.ceil(len / widthFt - 1e-9))
+      for (let k = 0; k < n; k++) {
+        const t0 = k / n, t1 = (k + 1) / n
+        out.push({ key: `${r}:${k}`, a: { x: f.a.x + (f.b.x - f.a.x) * t0, y: f.a.y + (f.b.y - f.a.y) * t0 }, b: { x: f.a.x + (f.b.x - f.a.x) * t1, y: f.a.y + (f.b.y - f.a.y) * t1 } })
+      }
+      r++
+    }
+    return out
+  }, [plan, runSections, widthFt, !!onSectionTap, damaged?.length])  // eslint-disable-line react-hooks/exhaustive-deps
+  const old = useMemo(() => {
+    if (!oldLine || !(oldLine.ft > 0)) return null
+    const sd = plan.sides.find(x => x.sideId === oldLine.sideId)
+    if (!sd) return null
+    const len = Math.hypot(sd.b.x - sd.a.x, sd.b.y - sd.a.y)
+    if (!(len > 0)) return null
+    const dir = { x: (sd.b.x - sd.a.x) / len, y: (sd.b.y - sd.a.y) / len }
+    const off = oldLine.offsetFt || 0
+    const a = { x: sd.a.x - sd.out.x * off, y: sd.a.y - sd.out.y * off }
+    const b = { x: a.x + dir.x * oldLine.ft, y: a.y + dir.y * oldLine.ft }
+    return { a, b, label: oldLine.label }
+  }, [oldLine, plan])
+
   const center = plan.vertices.reduce((t, p) => ({ x: t.x + p.x / plan.vertices.length, y: t.y + p.y / plan.vertices.length }), { x: 0, y: 0 })
   const houseC = plan.house ? { x: plan.house.reduce((t, p) => t + toX(p.x), 0) / plan.house.length, y: plan.house.reduce((t, p) => t + toY(p.y), 0) / plan.house.length } : null
   const houseMovable = !aerial && !!onHouseMeetsChange && plan.houseAttach.length > 0 && !!houseC
@@ -223,6 +261,25 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
           )}
         </g>
       ))}
+
+      {old && (
+        <g data-plan-old-line>
+          <line x1={toX(old.a.x)} y1={toY(old.a.y)} x2={toX(old.b.x)} y2={toY(old.b.y)} stroke="#92400E" strokeWidth={3} strokeDasharray="10 7" strokeLinecap="round" />
+          <text x={(toX(old.a.x) + toX(old.b.x)) / 2} y={(toY(old.a.y) + toY(old.b.y)) / 2 - 8} textAnchor="middle" fontSize={12 * fs} fontWeight={700} fill="#92400E"
+            style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3}>{old.label}</text>
+        </g>
+      )}
+
+      {sectionSegs.map(sg => {
+        const hit = damaged?.includes(sg.key)
+        return (
+          <g key={`sec-${sg.key}`}>
+            {hit && <line x1={toX(sg.a.x)} y1={toY(sg.a.y)} x2={toX(sg.b.x)} y2={toY(sg.b.y)} stroke="#DC2626" strokeWidth={7} strokeLinecap="round" data-plan-damaged={sg.key} />}
+            {onSectionTap && <line x1={toX(sg.a.x)} y1={toY(sg.a.y)} x2={toX(sg.b.x)} y2={toY(sg.b.y)} stroke="transparent" strokeWidth={26}
+              style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); onSectionTap(sg.key) }} data-plan-section={sg.key} />}
+          </g>
+        )
+      })}
 
       {labels.map(l => (
         <g key={l.key} data-plan-text={l.kind}>

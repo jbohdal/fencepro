@@ -45,8 +45,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !file)('every saved quote price
     setMaterialPriceSource(inventoryPriceSource(Array.isArray(inv?.items) ? inv.items : []))
     const kits = (Array.isArray(inv?.kits) ? inv.kits : []) as KitSet[]
     setSavedKitSets(() => kits)
-    // The fence styles as they were before the change: the 28 saved ones, by their codes.
-    const styleNames: string[] = cfg.fenceStyles.map(s => s.name)
+    // The fence styles as they were before the change, by their internal names.
+    // Comparing: every one of them must still be there, and styles added since
+    // (wood, colors made in Settings) are left out, so only existing styles are compared.
+    const allNames: string[] = cfg.fenceStyles.map(s => s.name)
+    const baseline = process.env.SAVE_BASELINE ? null : JSON.parse(fs.readFileSync(file!, 'utf8'))
+    const styleNames: string[] = baseline ? allNames.filter(n => baseline.styles.includes(n)) : allNames
 
     const pick = (c: ReturnType<typeof calculateQuote>) => ({
       sections: c.sections, perRunSections: c.perRunSections, perRunRail: c.perRunRail,
@@ -99,8 +103,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !file)('every saved quote price
       console.log(`[baseline] ${priced} saved quotes, ${yards} yards on ${styleNames.length} styles written to ${file}`)
       return
     }
-    const before = JSON.parse(fs.readFileSync(file!, 'utf8'))
-    expect(styleNames.filter(n => before.styles.includes(n))).toEqual(before.styles)
+    const before = baseline
+    expect(styleNames).toEqual(before.styles)
     const ids = Object.keys(before.results)
     let diffs = 0
     const first: string[] = []

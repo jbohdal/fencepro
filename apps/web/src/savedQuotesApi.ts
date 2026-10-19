@@ -12,6 +12,7 @@ import { getAccessToken, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import type { LineItem } from './materialCalculator'
 import type { QuotePricingOverrides } from './pricingEngine'
+import type { SavedWork } from './moveRepair'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { plainError, plainThrown } from './plainError'
 
@@ -55,11 +56,14 @@ export interface SavedQuotePayload {
   notes?: string
   leadTemp?: number
   pricing?: QuotePricingOverrides | null
+  /** A fence move or repair (moveRepair.ts); null for a new fence. */
+  work?: SavedWork | null
 }
 
-export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing'>> {
+export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work'>> {
   id: string
   pricing: QuotePricingOverrides | null
+  work: SavedWork | null
   accountId: string
   ownerId: string | null
   crmContactId: string | null

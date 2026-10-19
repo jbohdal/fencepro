@@ -4,7 +4,7 @@
  * salesman's own phone or mail app; nothing is sent by a service.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import type { SavedQuote } from './QuotesPage'
 import { issueShareToken, turnOffShare } from './savedQuotesApi'
@@ -13,6 +13,8 @@ import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { toast } from './toast'
 import { updateQuote } from './quoteStore'
+import { listMedia, localMedia } from './mediaStore'
+import { moveRepairSettings } from './moveRepair'
 
 export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   const [url, setUrl] = useState<string | null>(null)
@@ -24,6 +26,28 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   const cfg = getConfig()
   const company = cfg.company?.name || 'Getter Done Fence'
   const p = quote.proposal
+  // A move or repair: at least N photos before it is sent (Settings → Moves and Repairs), or one tap to send anyway with a reason.
+  const isWork = !!quote.work
+  const need = isWork ? moveRepairSettings(cfg).photosRequired : 0
+  const [photos, setPhotos] = useState<number | null>(isWork ? null : 0)
+  const [override, setOverride] = useState(quote.work?.photoOverride ?? null)
+  const [asking, setAsking] = useState(false)
+  const [reason, setReason] = useState('')
+  useEffect(() => {
+    if (!isWork) return
+    let live = true
+    Promise.all([listMedia({ quoteKey: quote.id }).catch(() => []), localMedia({ quoteKey: quote.id }).catch(() => [])])
+      .then(([server, local]) => { if (live) setPhotos(server.filter(m => m.kind === 'photo').length + local.filter(m => m.meta.kind === 'photo' && !m.serverId).length) })
+    return () => { live = false }
+  }, [isWork, quote.id])
+  const photoBlock = isWork && !override && (photos ?? 0) < need
+  function sendAnyway() {
+    const r = reason.trim()
+    if (!r || !quote.work) return
+    const o = { reason: r, at: new Date().toISOString() }
+    updateQuote(quote.id, { work: { ...quote.work, photoOverride: o } })
+    setOverride(o); setAsking(false)
+  }
   if (!p) {
     return <p className="text-sm text-gray-600" data-proposal-missing>Open this quote and save it once to make its proposal.</p>
   }
@@ -51,6 +75,7 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   const message = (u: string) => `Hi ${first}, here is your fence proposal from ${company}. You can pick an option and sign right on your phone: ${u}`
 
   async function go(kind: 'open' | 'text' | 'email' | 'copy') {
+    if (kind !== 'open' && photoBlock) { toast.error(`Take at least ${need} photos of the fence first, or tap Send anyway.`); return }
     const u = await link()
     if (!u) return
     if (kind === 'open') window.open(u, '_blank', 'noopener')
@@ -81,11 +106,20 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
           Right now this link opens only on your own phones and computers, not on the customer's phone. Once outside access is set up, turn it on in Settings → Proposals.
         </p>
       )}
+      {isWork && (photoBlock ? (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-900 space-y-2" data-photos-needed>
+          <p>{photos === null ? 'Counting photos…' : `${photos} of ${need} photos. A ${quote.work!.type === 'move' ? 'move' : 'repair'} proposal needs at least ${need} photos of the fence before it is sent (open the quote, tap the camera).`}</p>
+          {!asking
+            ? <button type="button" className="btn btn-quiet btn-sm" onClick={() => setAsking(true)} data-photos-override>Send anyway</button>
+            : <div className="flex gap-2"><input className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm" placeholder="Why (required)" value={reason} onChange={e => setReason(e.target.value)} data-photos-reason />
+                <button type="button" className="btn btn-primary btn-sm" disabled={!reason.trim()} onClick={sendAnyway} data-photos-override-ok>OK</button></div>}
+        </div>
+      ) : override ? <p className="text-xs text-gray-600" data-photos-overridden>Sent without the photos: {override.reason}</p> : null)}
       <div className="grid grid-cols-2 gap-2">
         <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => go('open')} data-proposal-open><ExternalLink size={16} aria-hidden="true" /> Open</button>
-        <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => go('copy')}><Copy size={16} aria-hidden="true" /> Copy link</button>
-        <button type="button" className="btn btn-primary" disabled={busy || !quote.customerPhone} onClick={() => go('text')} data-proposal-text><MessageSquare size={16} aria-hidden="true" /> Text it</button>
-        <button type="button" className="btn btn-secondary" disabled={busy || !quote.customerEmail} onClick={() => go('email')}><Mail size={16} aria-hidden="true" /> Email it</button>
+        <button type="button" className="btn btn-secondary" disabled={busy || photoBlock} onClick={() => go('copy')} data-proposal-copy><Copy size={16} aria-hidden="true" /> Copy link</button>
+        <button type="button" className="btn btn-primary" disabled={busy || !quote.customerPhone || photoBlock} onClick={() => go('text')} data-proposal-text><MessageSquare size={16} aria-hidden="true" /> Text it</button>
+        <button type="button" className="btn btn-secondary" disabled={busy || !quote.customerEmail || photoBlock} onClick={() => go('email')}><Mail size={16} aria-hidden="true" /> Email it</button>
       </div>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-gray-600" data-link-state>{linkLine}</p>

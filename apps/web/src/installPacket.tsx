@@ -36,6 +36,8 @@ export interface PacketSnapshot {
   notes?: string
   companyName?: string
   companyPhone?: string
+  /** A fence move or repair: what to do, in order; the gate hardware; whether new posts need an 811 ticket. */
+  work?: { type: 'move' | 'repair'; title: string; steps: string[]; gateHardware: string[]; needs811: boolean }
 }
 
 /** Everything the crew needs from the quote, without a single price. */
@@ -64,7 +66,15 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
   snap.sections = sections.reduce((s, n) => s + n, 0)
   const gatePosts = derived ? derived.counted.gatePosts : 2 * ((quote.walkGates ?? 0) + (quote.dblGates ?? 0))
   snap.posts = { corners: quote.corners ?? 0, ends: quote.ends ?? 0, gatePosts: Math.min(gatePosts, quote.ends ?? gatePosts) }
-  snap.pullSheet = (quote.pullSheet ?? []).map(i => ({ item: i.item, qty: i.qty }))
+  // Parts only: a money line (wood material) is not something to load.
+  snap.pullSheet = (quote.pullSheet ?? []).filter(i => !i.moneyOnly).map(i => ({ item: i.item, qty: i.qty }))
+  if (quote.work) {
+    snap.work = {
+      type: quote.work.type, title: quote.work.type === 'move' ? 'Fence move: what to do' : 'Repair: what to do', steps: quote.work.crew,
+      gateHardware: (quote.pullSheet ?? []).filter(i => !i.moneyOnly && /hinge|latch|\bfork\b/i.test(i.item)).map(i => `${i.qty} × ${i.item.replace(/^\*+/, '')}`),
+      needs811: quote.work.needs811,
+    }
+  }
   if (yard && derived) {
     snap.gates = []; snap.skips = []
     // Swing and hinge come from the drawing (left / right as seen from inside the yard).
@@ -83,7 +93,10 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
     const pins = media.filter(m => m.pin && (m.visibility === 'crew' || m.visibility === 'customer'))
       .map(m => ({ id: m.id, x: m.pin!.x, y: m.pin!.y, angle: m.pin!.angle ?? null }))
     const runSections = quote.layout?.runSections && quote.layout.runSections.length === derived.runs.length ? quote.layout.runSections : undefined
-    snap.planSvg = renderToStaticMarkup(<SitePlan layout={yard} result={derived} runSections={runSections} pins={pins} title="Site plan" />)
+    const mv = quote.work?.type === 'move' ? quote.work.move : undefined
+    snap.planSvg = renderToStaticMarkup(<SitePlan layout={yard} result={derived} runSections={runSections} pins={pins} title="Site plan"
+      oldLine={mv?.oldLinePlan ? { ...mv.oldLinePlan, ft: mv.oldFt, label: `Old line ${Math.round(mv.oldFt)} ft` } : null}
+      damaged={quote.work?.type === 'repair' ? quote.work.repair?.tapped : undefined} />)
   } else {
     const g: string[] = []
     if (quote.walkGates) g.push(`${quote.walkGates} walk gate${quote.walkGates > 1 ? 's' : ''}`)

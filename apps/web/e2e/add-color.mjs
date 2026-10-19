@@ -63,7 +63,7 @@ const wizNext = async () => { await tap('[data-wiz-next]'); await sleep(350) }
 try {
   // ── The tree ──
   await openStyles()
-  check('Settings → Fence Styles: a tree by material, not a table of codes', await page.locator('[data-tree-material]').count() === 4 && await page.locator('[data-tree-option="vinyl:style:privacy"]').isVisible())
+  check('Settings → Fence Styles: a tree by material (vinyl, chain link, aluminum, other, wood), not a table of codes', await page.locator('[data-tree-material]').count() === 5 && await page.locator('[data-tree-option="vinyl:style:privacy"]').isVisible())
   await page.locator('[data-tree-material="vinyl"]').scrollIntoViewIfNeeded(); await shot(page, 'dev-styles-tree')
 
   // ── Add color, step by step ──

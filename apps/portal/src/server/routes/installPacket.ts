@@ -69,6 +69,7 @@ interface Snapshot {
   notes?: string
   companyName?: string
   companyPhone?: string
+  work?: { type: 'move' | 'repair'; title: string; steps: string[]; gateHardware: string[]; needs811: boolean }
 }
 
 // ── Staff ─────────────────────────────────────────────────────────────────────
@@ -88,6 +89,11 @@ const snapSchema = z.object({
   notes: z.string().max(10_000).optional(),
   companyName: z.string().max(200).optional(),
   companyPhone: z.string().max(60).optional(),
+  // A fence move or repair: the steps, the gate hardware and whether new posts need an 811 ticket. Words only, no prices.
+  work: z.object({
+    type: z.enum(['move', 'repair']), title: z.string().max(200), steps: z.array(z.string().max(1000)).max(60),
+    gateHardware: z.array(z.string().max(300)).max(60), needs811: z.boolean(),
+  }).strip().optional(),
 }).strip()
 
 packetStaff.use(requireUser, requireAccount)
@@ -185,7 +191,8 @@ packetPublic.get('/:token', async (req, res) => {
     <p class="facts">Install: ${esc(job_.scheduledDate || 'not scheduled yet')}${job_.crewAssigned ? ` · Crew: ${esc(job_.crewAssigned)}` : ''}</p>
     ${s.notes ? `<section class="notes"><h2>Gate codes and notes</h2><p>${esc(s.notes).replace(/\n/g, '<br>')}</p></section>` : ''}
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
-    <section><h2>811 locate</h2>
+    ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
+    <section><h2>811 locate</h2>${s.work?.needs811 ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
       <div class="row"><label class="field">Ticket number<input id="ticket" value="${esc(p.locateTicket ?? '')}" maxlength="60" inputmode="numeric"></label>
       <label class="field">Date<input id="ldate" type="date" value="${esc(p.locateDate ?? '')}"></label></div>
       <button type="button" id="saveLocate" class="btn noprint">Save locate</button><p id="locMsg" class="small"></p>
@@ -193,7 +200,7 @@ packetPublic.get('/:token', async (req, res) => {
     <section><h2>The fence</h2>
       <p class="facts">${esc(styleText)}${s.footageFt ? ` · ${Math.round(s.footageFt)} ft` : ''}${s.sections ? ` · ${s.sections} sections` : ''}</p>
       ${s.posts ? `<p>${s.posts.corners} corner posts · ${s.posts.ends - s.posts.gatePosts} end posts · ${s.posts.gatePosts} gate posts</p>` : ''}
-      ${safeSvg(s.planSvg) ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Open dots: line posts. Dark arrows: where photos were taken. Not to scale for permitting.</p>` : ''}
+      ${safeSvg(s.planSvg) ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Open dots: line posts. Dark arrows: where photos were taken.${s.work?.type === 'move' ? ' Brown dashed: the old fence line.' : s.work?.type === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p>` : ''}
       ${s.runs?.length ? `<table><thead><tr><th>Run</th><th>Length</th><th>Sections</th><th>Posts apart</th></tr></thead><tbody>${s.runs.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.length)}</td><td>${r.sections}</td><td>${esc(r.spacing)}</td></tr>`).join('')}</tbody></table>` : ''}
       ${s.gates?.length ? `<h3>Gates</h3><ul>${s.gates.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
       ${s.skips?.length ? `<h3>Skips (not included)</h3><ul>${s.skips.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}

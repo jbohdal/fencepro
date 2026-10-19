@@ -122,6 +122,9 @@ const quoteSchema = z.object({
   // Per quote pricing choices (labor mode, subcontractor rate, price method,
   // manual price). Stored as is; the web pricing engine owns the shape.
   pricing: z.record(z.any()).optional().nullable(),
+  // A fence move or repair: job type, inputs and the cost lines it was priced
+  // with (web/src/moveRepair.ts). Null for a new fence.
+  work: z.object({ type: z.enum(['move', 'repair']) }).passthrough().optional().nullable(),
 })
 
 const quoteUpdateSchema = quoteSchema.partial()
@@ -216,6 +219,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
         layout: toNullableJson(data.layout),
         proposal: toNullableJson(data.proposal),
         pricing: toNullableJson(data.pricing),
+        work: toNullableJson(data.work),
         corners: data.corners,
         ends: data.ends,
         walkGates: data.walkGates,
@@ -279,6 +283,7 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         layout: toNullableJson(data.layout),
         proposal: toNullableJson(data.proposal),
         pricing: toNullableJson(data.pricing),
+        work: toNullableJson(data.work),
         corners: data.corners,
         ends: data.ends,
         walkGates: data.walkGates,
@@ -359,6 +364,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
               layout: toNullableJson(q.layout),
               proposal: toNullableJson(q.proposal),
               pricing: toNullableJson(q.pricing),
+              work: toNullableJson(q.work),
               pullSheet: toJsonValue(q.pullSheet),
             },
           })
@@ -392,6 +398,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
               layout: toNullableJson(q.layout),
               proposal: toNullableJson(q.proposal),
             pricing: toNullableJson(q.pricing),
+            work: toNullableJson(q.work),
             corners: q.corners,
             ends: q.ends,
             walkGates: q.walkGates,
@@ -499,12 +506,14 @@ router.get('/share/:token', async (req: any, res) => {
 /** What a customer's browser gets: the quote without costs, margin, the
  *  pull sheet or the internal pricing choices. */
 function forCustomer<T extends Record<string, any>>(q: T) {
-  const { materialCost, laborCost, tearOutCost, totalCOGS, gmPct, pullSheet, pricing, ownerId, adjLaborHrs, ...rest } = q
+  const { materialCost, laborCost, tearOutCost, totalCOGS, gmPct, pullSheet, pricing, ownerId, adjLaborHrs, work, ...rest } = q
   void materialCost; void laborCost; void tearOutCost; void totalCOGS; void gmPct; void pullSheet; void pricing; void ownerId; void adjLaborHrs
   const proposal = rest.proposal && typeof rest.proposal === 'object' && Array.isArray((rest.proposal as any).options)
     ? { ...(rest.proposal as any), options: (rest.proposal as any).options.map(({ snapshot, ...o }: any) => { void snapshot; return o }) }
     : rest.proposal
-  return { ...rest, proposal, materialCost: 0, laborCost: 0, tearOutCost: 0, totalCOGS: 0, gmPct: 0, pullSheet: [], pricing: null, adjLaborHrs: 0 }
+  // A move or repair: only what kind of job it is (its cost lines stay inside).
+  const jobType = work && typeof work === 'object' && typeof (work as any).type === 'string' ? (work as any).type : null
+  return { ...rest, proposal, materialCost: 0, laborCost: 0, tearOutCost: 0, totalCOGS: 0, gmPct: 0, pullSheet: [], pricing: null, adjLaborHrs: 0, work: jobType ? { type: jobType } : null }
 }
 
 // ── Public accept by share token (no auth) ──
