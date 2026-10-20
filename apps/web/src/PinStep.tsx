@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import SitePlan from './SitePlan'
-import { aerialUrl, aerialFtPerPx, AERIAL_PX } from './sitePlanGeometry'
+import { photoBackdrop, gpsToPlan, headingOnPhoto } from './sitePlanPhoto'
 import { deriveLayout, type YardLayout, type PlanPoint } from './yardLayout'
 import { feetFrom, watchHeading, askForCompass } from './sensors'
 import type { MediaPin } from './mediaStore'
@@ -18,7 +18,8 @@ import { useBackLayer } from './nav'
 /** Which way a compass heading points on this plan (0 = up the page), or null. */
 export function planAngle(layout: YardLayout, heading: number | null | undefined): number | null {
   if (heading == null || !Number.isFinite(heading)) return null
-  if (layout.plan?.aerial) return ((heading % 360) + 360) % 360
+  // On the photo, north is where the (maybe turned) photo's north is.
+  if (layout.plan?.aerial) return headingOnPhoto(layout, heading)
   const ref = layout.plan?.facingRef
   return ref == null ? null : (((heading - ref) % 360) + 360) % 360
 }
@@ -36,7 +37,7 @@ export default function PinStep({ layout, onLayout, count, gps, heading, existin
 }) {
   useBackLayer(onSkip, { key: 'pin-step' })
   const aerial = layout.plan?.aerial
-  const suggested = aerial && gps ? feetFrom(aerial, gps) : null
+  const suggested = aerial && gps ? gpsToPlan(layout, feetFrom(aerial, gps)) : null
   const [spot, setSpot] = useState<PlanPoint | null>(suggested)
   const [setting, setSetting] = useState(false)
   const live = useRef<number | null>(heading)
@@ -61,7 +62,7 @@ export default function PinStep({ layout, onLayout, count, gps, heading, existin
         </p>
         <SitePlan
           layout={layout} result={result}
-          aerial={aerial ? { href: aerialUrl(aerial.lat, aerial.lng, aerial.halfM), ftPerPx: aerialFtPerPx(aerial.halfM), sizePx: AERIAL_PX } : null}
+          aerial={photoBackdrop(layout)}
           pins={[...existing, ...(spot ? [{ id: 'new', x: spot.x, y: spot.y, angle, highlight: true }] : [])]}
           onPlanTap={pt => setSpot(pt)}
         />

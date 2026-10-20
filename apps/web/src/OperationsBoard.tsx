@@ -26,7 +26,6 @@ import { fireOpsStageChange } from './automationTrigger'
 import { onJobCompleted } from './jobCompleteFlow'
 import { getChecklistProgress } from './checklistStore'
 import { toast } from './toast'
-import { BottomSheet } from './SalesPipelineBoard'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 import { Search, SlidersHorizontal } from 'lucide-react'
 import { useBackLayer, useScreenMemory, useNav, takeOpenedParam, replaceUrl } from './nav'
@@ -543,31 +542,17 @@ export default function OperationsBoard() {
         >+</button>
       )}
 
-      {/* Detail panel / bottom sheet */}
+      {/* Detail panel: a full screen of its own on a phone (it has its own Close), a side panel on a wide screen */}
       {selected && (
-        isMobile ? (
-          <BottomSheet onClose={() => setSelected(null)}>
-            <DetailPanel
-              job={selected}
-              onClose={() => setSelected(null)}
-              onAdvance={() => { onAdvance(selected); setSelected(null) }}
-              onHold={() => onHold(selected)}
-              onUnhold={() => onUnhold(selected)}
-              onMoveStage={(stage) => moveJobToStage(selected, stage)}
-              onUpdate={(updates) => onUpdateJob(selected, updates)}
-            />
-          </BottomSheet>
-        ) : (
-          <DetailPanel
-            job={selected}
-            onClose={() => setSelected(null)}
-            onAdvance={() => { onAdvance(selected); setSelected(null) }}
-            onHold={() => onHold(selected)}
-            onUnhold={() => onUnhold(selected)}
-            onMoveStage={(stage) => moveJobToStage(selected, stage)}
-            onUpdate={(updates) => onUpdateJob(selected, updates)}
-          />
-        )
+        <DetailPanel
+          job={selected}
+          onClose={() => setSelected(null)}
+          onAdvance={() => { onAdvance(selected); setSelected(null) }}
+          onHold={() => onHold(selected)}
+          onUnhold={() => onUnhold(selected)}
+          onMoveStage={(stage) => moveJobToStage(selected, stage)}
+          onUpdate={(updates) => onUpdateJob(selected, updates)}
+        />
       )}
 
       {/* Complete confirmation */}

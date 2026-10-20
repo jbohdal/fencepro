@@ -42,6 +42,7 @@ import { walkthroughPublic, walkthroughStaff } from './routes/walkthroughs.js'
 import { startMediaWorker } from './lib/media.js'
 import { startVoiceWorker } from './lib/voiceTranscribe.js'
 import savedJobRoutes from './routes/saved-jobs.js'
+import jobCostingRoutes from './routes/job-costing.js'
 import scheduleRoutes from './routes/schedule.js'
 import pipelineRoutes from './routes/pipeline.js'
 import inventoryStateRoutes from './routes/inventory.js'
@@ -69,6 +70,8 @@ import { startDuplicateCheck } from './lib/duplicateCheck.js'
 import { startAutomationWorker } from './lib/automations/queue.js'
 import { ensureStylesOnHoldAll } from './lib/stylesOnHold.js'
 import { ensureWoodAll } from './lib/woodSeed.js'
+import vendorInvoiceRoutes from './routes/vendor-invoices.js'
+import { resumeInvoiceReading } from './lib/vendorInvoices.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
 import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
 import { hidesCosts, staffRoleOf, redactCosts } from './lib/costRedact.js'
@@ -225,10 +228,12 @@ app.use('/api/walkthroughs', walkthroughStaff)
 app.use('/p/w', walkthroughPublic)
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
+app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff after install (lib/jobCosting.ts)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/pipeline', pipelineRoutes)
 app.use('/api/inventory-state', inventoryStateRoutes)
 app.use('/api/vendor-state', vendorStateRoutes)
+app.use('/api/vendor-invoices', vendorInvoiceRoutes) // Vendor invoices update Inventory prices (lib/vendorInvoices.ts)
 app.use('/api/business-state', businessStateRoutes)
 app.use('/api/kv', kvRoutes)
 app.use('/api/intake', intakeRoutes)
@@ -380,6 +385,8 @@ if (!isVercel) {
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))
+    // Vendor invoices that were being read when the server stopped.
+    resumeInvoiceReading().catch(err => console.error('[invoices] resume failed:', err))
     try { startMediaShrink() } catch (err) {
       console.warn('[startup] media shrink failed to start:', (err as Error).message)
     }

@@ -32,10 +32,12 @@ export interface PlanScreen {
 }
 
 /** Feet → drawing units. `fontScale` > 1 leaves more room at the sides for bigger labels (phones). */
-export function planScreen(plan: Pick<Plan, 'bounds' | 'street'>, opts: { aerial?: { ftPerPx: number; sizePx: number } | null; held?: Plan['bounds'] | null; fontScale?: number } = {}): PlanScreen {
+export function planScreen(plan: Pick<Plan, 'bounds' | 'street'>, opts: { aerial?: { ftPerPx: number; sizePx: number; shiftFt?: PlanPoint } | null; held?: Plan['bounds'] | null; fontScale?: number } = {}): PlanScreen {
   if (opts.aerial) {
+    // The photo's real ground scale; the plan moved on it by shiftFt (feet).
     const W = opts.aerial.sizePx, H = W, f = opts.aerial.ftPerPx
-    return { W, H, ftPerPx: f, toX: x => W / 2 + x / f, toY: y => H / 2 - y / f, fromX: sx => (sx - W / 2) * f, fromY: sy => (H / 2 - sy) * f }
+    const sx0 = opts.aerial.shiftFt?.x ?? 0, sy0 = opts.aerial.shiftFt?.y ?? 0
+    return { W, H, ftPerPx: f, toX: x => W / 2 + (x + sx0) / f, toY: y => H / 2 - (y + sy0) / f, fromX: sx => (sx - W / 2) * f - sx0, fromY: sy => (H / 2 - sy) * f - sy0 }
   }
   const fs = opts.fontScale ?? 1
   const b = opts.held ?? plan.bounds

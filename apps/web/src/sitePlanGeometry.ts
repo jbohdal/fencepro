@@ -480,6 +480,34 @@ function gateOf(s: YardSide, finishes: { start: string; end: string }, ga: PlanP
 /** Pixels across the aerial photo (it is square). */
 export const AERIAL_PX = 800
 
+/** The one aerial photo source, for the quote drawing and every map: USGS NAIP Plus, as a picture of any box. */
+export const NAIP_EXPORT = 'https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage'
+/**
+ * The closest map zoom where a pixel is still a real photo pixel: the service's
+ * finest pixel is 0.3 Web Mercator meters, and zoom 19 is 0.2986 m. Past this
+ * the picture would only be enlarged, so nothing asks for more.
+ */
+export const NAIP_MAX_NATIVE_ZOOM = 19
+/** Web Mercator meters per pixel at the photo's closest zoom. */
+export const NAIP_FINEST_M_PER_PX = 156543.03392 / 2 ** NAIP_MAX_NATIVE_ZOOM
+
+/** One 256 px tile of the older, softer USGS imagery (it stops at zoom 16): shown only where a sharp tile is missing. */
+export function usgsBackupTileUrl(z: number, x: number, y: number): string {
+  return `https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/${z}/${y}/${x}`
+}
+export const USGS_BACKUP_MAX_ZOOM = 16
+
+/** One 256 px map tile of that photo (Web Mercator tile x, y at zoom z). */
+export function naipTileUrl(z: number, x: number, y: number): string {
+  const world = 2 * Math.PI * 6378137, half = world / 2, span = world / 2 ** z
+  const x0 = -half + x * span, y1 = half - y * span
+  const q = new URLSearchParams({
+    bbox: `${x0},${y1 - span},${x0 + span},${y1}`,
+    bboxSR: '3857', imageSR: '3857', size: '256,256', format: 'jpg', f: 'image',
+  })
+  return `${NAIP_EXPORT}?${q}`
+}
+
 /**
  * USGS National Map NAIP aerial photo (public domain, free, no key) of the
  * square `halfM` meters each way around a point. About 0.3 m per pixel in
@@ -492,7 +520,7 @@ export function aerialUrl(lat: number, lng: number, halfM: number, sizePx = AERI
     bbox: `${lng - dLng},${lat - dLat},${lng + dLng},${lat + dLat}`,
     bboxSR: '4326', imageSR: '3857', size: `${sizePx},${sizePx}`, format: 'jpg', f: 'image',
   })
-  return `https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage?${q}`
+  return `${NAIP_EXPORT}?${q}`
 }
 
 /** Feet per pixel of that photo. */

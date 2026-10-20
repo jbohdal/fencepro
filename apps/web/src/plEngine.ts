@@ -15,6 +15,7 @@ import type { PlManualEntry } from './financeStore'
 import type { VendorBillCategory } from './vendorStore'
 import { cloudStorage } from './cloudStorage'
 import { getConfig } from './configStore'
+import { financeLabor } from './takeoffStore'
 
 export interface PlLine {
   key: string
@@ -101,15 +102,23 @@ function sumJobCostingLabor(from: Date, to: Date): number {
   // field names, so the P&L never saw any job costing labor.)
   try {
     const raw = cloudStorage.getItem('fencepro_jobcosting')
-    if (!raw) return 0
     const records: Array<{
       completionDate?: string; dateISO?: string; date?: string
       actualLaborHrs?: number; crew?: Array<{ hours?: number; rate?: number }>
       laborCents?: number; labor?: number
-    }> = JSON.parse(raw)
+    }> = raw ? JSON.parse(raw) : []
     const hourlyRate = getConfig().pricing?.manHourRate ?? 22
+    // Approved job takeoffs (job costing): their crew labor, by install date.
+    // A hand entry for the same quote is left out so it is not counted twice.
+    const takeoffs = financeLabor()
+    const takenQuotes = new Set(takeoffs.map(t => t.quoteId).filter(Boolean))
     let total = 0
+    for (const t of takeoffs) {
+      if (inPeriod(new Date(`${t.installDate}T12:00:00`), from, to)) total += t.crewLaborCostCents
+    }
     for (const r of records) {
+      const quoteId = (r as { quoteId?: string }).quoteId
+      if (quoteId && takenQuotes.has(quoteId)) continue
       const dateStr = r.completionDate || r.dateISO || r.date
       if (!dateStr) continue
       const d = new Date(dateStr)

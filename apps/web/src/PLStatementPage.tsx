@@ -5,7 +5,7 @@
  * into a standard P&L with EBITDA highlighted.
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   calculatePl,
   calculateMonthlyPl,
@@ -18,6 +18,7 @@ import {
 } from './financeStore'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
+import { loadFinanceLabor } from './takeoffStore'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -49,6 +50,8 @@ export default function PLStatementPage() {
   const [viewMode, setViewMode] = useState<'summary' | 'monthly'>('summary')
   const [showEntries, setShowEntries] = useState(false)
   const [bumpKey, setBumpKey] = useState(0)
+  // Crew labor from approved job takeoffs (job costing) goes into Direct Labor once it is loaded.
+  useEffect(() => { loadFinanceLabor().then(ok => { if (ok) setBumpKey(k => k + 1) }) }, [])
 
   const period: PeriodRange = useMemo(() => {
     switch (preset) {

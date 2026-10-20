@@ -128,6 +128,23 @@ export function initInventory(): Promise<void> {
 /** True once inventory has loaded from the server. */
 export function isInventoryHydrated(): boolean { return invHydrated }
 
+/**
+ * Read Inventory again from the server: an uploaded vendor invoice changed
+ * prices there (Inventory > Invoices). Skipped while a change made on this
+ * phone is waiting to be saved; that save is merged with the server copy anyway.
+ */
+export async function refreshInventory(): Promise<void> {
+  if (!invHydrated || invFlusher.isDirty()) return
+  const r = await invCall<InventoryStateBlob>('GET')
+  if (!r.ok || !r.data || invFlusher.isDirty()) return
+  const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
+  invCache = pickInventory(r.data)
+  costIndexFor = null
+  rememberCosts()
+  invFlusher.loaded(invCache, version)
+  invEmit()
+}
+
 export const INVENTORY_UPDATED_EVENT = INV_EVT
 
 export interface InventoryItem {

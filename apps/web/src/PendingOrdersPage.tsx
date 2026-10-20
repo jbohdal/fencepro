@@ -56,12 +56,12 @@ export default function PendingOrdersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Pending Orders</h1>
           <p className="text-sm text-gray-500 mt-1">Materials reserved from pull sheets on sold jobs, awaiting ordering and receipt.</p>
         </div>
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+        <div className="flex flex-wrap gap-1 bg-gray-100 rounded-xl p-1">
           {(['all', 'pending', 'ordered', 'received', 'cancelled'] as const).map(s => (
             <button key={s} onClick={() => setFilter(s)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition capitalize ${filter === s ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>

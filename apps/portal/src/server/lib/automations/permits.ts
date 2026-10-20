@@ -163,8 +163,8 @@ export function renderPacket(p: PacketInput): Promise<Buffer> {
 }
 
 // ── A small SVG renderer for the app's site plans ────────────────────────────
-// The plans use only g, line, rect, circle, polygon, path and text, so this
-// draws those directly with pdfkit (no extra library).
+// The plans use only g, line, rect, circle, polygon, path, text and (on the
+// aerial photo) one image, so this draws those directly with pdfkit (no extra library).
 
 function attrs(tag: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -216,6 +216,16 @@ export function drawSvg(doc: PDFKit.PDFDocument, svg: string, box: { x: number; 
     const lw = Number(a['stroke-width'] || 1)
     const op = Number(a.opacity ?? 1)
     const n = (k: string) => { const v = Number(a[k] ?? 0); return Number.isFinite(v) ? v : 0 }
+    if (name === 'image') {
+      // The site plan's aerial photo, already turned and cut to the frame in the app.
+      const m = /^data:image\/(?:jpeg|png);base64,([A-Za-z0-9+/=]+)$/.exec(a.href || a['xlink:href'] || '')
+      if (m) {
+        doc.save().opacity(Number(a.opacity ?? 1))
+        try { doc.image(Buffer.from(m[1], 'base64'), n('x'), n('y'), { width: n('width'), height: n('height') }) } catch { /* not a picture pdfkit can read */ }
+        doc.restore()
+      }
+      continue
+    }
     switch (name) {
       case 'line': doc.moveTo(n('x1'), n('y1')).lineTo(n('x2'), n('y2')); break
       case 'rect': doc.rect(n('x'), n('y'), n('width'), n('height')); break

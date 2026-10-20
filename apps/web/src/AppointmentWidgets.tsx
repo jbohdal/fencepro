@@ -175,7 +175,7 @@ export function AppointmentSettingsTab() {
           {s.team.map((t, i) => (
             <div key={i} className="rounded-lg border border-gray-100 p-2 space-y-1.5" data-team-member={t.name}>
               <div className="flex items-center gap-2">
-                <input value={t.name} onChange={e => setMember(i, { name: e.target.value })} className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+                <input value={t.name} onChange={e => setMember(i, { name: e.target.value })} className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
                 <label className="text-xs text-gray-600 flex items-center gap-1"><input type="radio" checked={!!t.isDefault} onChange={() => set({ team: s.team.map((x, j) => ({ ...x, isDefault: j === i })) })} /> Default</label>
                 <button onClick={() => set({ team: s.team.filter((_, j) => j !== i) })} className="text-xs text-red-600 px-2">Remove</button>
               </div>

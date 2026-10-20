@@ -23,6 +23,7 @@ import { Prisma } from '@prisma/client'
 import { audit } from '../lib/auditLog.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAccepted.js'
+import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireCan } from '../lib/permissions.js'
 
@@ -58,7 +59,8 @@ const money2 = (n: number) => '$' + (n || 0).toFixed(2)
 /** Only our own drawing: an <svg> with no scripts, handlers or links. */
 export function safeSvg(svg: unknown): string {
   if (typeof svg !== 'string' || !/^\s*<svg[\s>]/i.test(svg) || svg.length > 400_000) return ''
-  if (/<script|<foreignObject|\son\w+\s*=|javascript:|<iframe|<a[\s>]|href\s*=\s*["'](?!#)/i.test(svg)) return ''
+  // A picture only from inside the drawing itself: the site plan's aerial photo, a JPEG or PNG kept in it.
+  if (/<script|<foreignObject|\son\w+\s*=|javascript:|<iframe|<a[\s>]|href\s*=\s*["'](?!#|data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+["'])/i.test(svg)) return ''
   return svg
 }
 
@@ -217,6 +219,8 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
       res.status(409).json({ success: false, error: 'This proposal was already accepted.' }); return
     }
     console.log(`[proposal] customer accepted quote ${q.id} option ${body.option} (${opt.fenceStyle}) as "${body.name}"`)
+    // Job costing: the quoted cost, as the chosen option was priced, saved once at signing.
+    await snapshotAfterSigning(q.accountId, q.id, 'proposal')
     await onProposalAccepted(q, opt, body.name).catch(err => console.error('[proposal] after accept:', err))
     // Sold online: the job goes to Operations, as when a card is moved to Signed Contract.
     await ensureJobForAcceptedQuote(updated as any).catch(err => console.error('[proposal] job after accept:', err))

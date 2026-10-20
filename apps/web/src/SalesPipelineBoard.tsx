@@ -1170,7 +1170,7 @@ function ConfirmModal({ title, body, confirmLabel, onConfirm, onCancel }: { titl
 /* ─────────── Mobile bottom sheet wrapper ─────────── */
 export function BottomSheet({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose} data-bottom-sheet>
       <div className="absolute inset-0 bg-black/40" />
       <div onClick={e => e.stopPropagation()} className="relative w-full bg-white rounded-t-2xl shadow-2xl max-h-[85vh] overflow-hidden flex flex-col">
         <div className="flex items-center justify-center pt-2 pb-1">

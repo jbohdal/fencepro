@@ -5,10 +5,12 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Pencil, Trash2, Plus, Image as ImageIcon, Mic, Check, ChevronDown, ChevronUp } from 'lucide-react'
+import { Pencil, Trash2, Plus, Image as ImageIcon, Mic, Check, ChevronDown, ChevronUp, RotateCcw, RotateCw } from 'lucide-react'
 import FtInPad from './FtInPad'
 import SitePlan, { type PlanPin } from './SitePlan'
-import { aerialUrl, aerialFtPerPx, centeredVertices, AERIAL_PX, buildPlan, layoutSignature, returnHouseEnd, setHouseMeets, clearHouseMeets, canMoveHouse } from './sitePlanGeometry'
+import { centeredVertices, buildPlan, layoutSignature, returnHouseEnd, setHouseMeets, clearHouseMeets, canMoveHouse } from './sitePlanGeometry'
+import { bakePhoto, loadImage } from './aerialBake'
+import { photoBackdrop, photoView, withPhotoView, lineUpRotation, normDeg, stepDeg, turnAbout, FRAME_PX } from './sitePlanPhoto'
 import { lookupPosition } from './appointmentsStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import {
@@ -76,21 +78,37 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     const t = setTimeout(() => document.querySelector(`[data-side-id="${openId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60)
     return () => clearTimeout(t)
   }, [openId])
-  const [aerialOn, setAerialOn] = useState(false)
+  // A quote saved with the photo on opens with it on.
+  const [aerialOn, setAerialOn] = useState(() => !!layout?.plan?.aerial?.shown)
   const [aerialAddress, setAerialAddress] = useState(address ?? '')
   const [aerialMsg, setAerialMsg] = useState('')
   const [photoReady, setPhotoReady] = useState<string | null>(null)
   const aerial = layout?.plan?.aerial ?? null
-  const photo = aerialOn && aerial ? aerialUrl(aerial.lat, aerial.lng, aerial.halfM) : null
+  const backdrop = aerialOn ? photoBackdrop(layout) : null
+  const photo = backdrop?.href ?? null
+  // Line up: two taps along one wall of the house on the photo (drawing units).
+  const [lineUp, setLineUp] = useState(false)
+  const [lineTaps, setLineTaps] = useState<Array<{ x: number; y: number }>>([])
   useEffect(() => { if (address && !aerialAddress) setAerialAddress(address) }, [address])  // eslint-disable-line react-hooks/exhaustive-deps
   // Preload the photo so the plan can say it is still coming.
   useEffect(() => {
     if (!photo || photoReady === photo) return
-    const img = new Image()
-    img.onload = () => setPhotoReady(photo)
-    img.onerror = () => setAerialMsg('The aerial photo did not load. Try again in a minute.')
-    img.src = photo
-  }, [photo, photoReady])
+    // Every tile of it (each is tried twice; the photo service sometimes drops one).
+    let live = true
+    const urls = backdrop?.tiles?.map(t => t.href) ?? [photo]
+    Promise.all(urls.map(u => loadImage(u, 45_000).then(i => i ?? loadImage(`${u}&again=1`, 45_000)))).then(imgs => {
+      if (!live) return
+      if (imgs.some(Boolean)) setPhotoReady(photo)
+      else setAerialMsg('The aerial photo did not load. Try again in a minute.')
+    })
+    return () => { live = false }
+  }, [photo, photoReady])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Turn and cut the photo for the proposal and crew packet ahead of the save, once it settles.
+  useEffect(() => {
+    if (!backdrop || photoReady !== backdrop.href) return
+    const t = setTimeout(() => { void bakePhoto(backdrop) }, 1200)
+    return () => clearTimeout(t)
+  }, [backdrop?.href, backdrop?.rotDeg, photoReady])  // eslint-disable-line react-hooks/exhaustive-deps
   const [renaming, setRenaming] = useState<string | null>(null)
   // Corner handles only while the drawing is being adjusted (or lined up on the aerial photo).
   const [adjusting, setAdjusting] = useState(false)
@@ -227,7 +245,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
 
   async function showAerial() {
     setAerialMsg('')
-    if (aerial && aerial.address === aerialAddress.trim()) { setAerialOn(true); return }
+    if (aerial && aerial.address === aerialAddress.trim()) { setShown(true); return }
     if (!aerialAddress.trim()) { setAerialMsg('Type the property address first.'); return }
     setAerialMsg('Finding the address…')
     const at = await lookupPosition(aerialAddress.trim()).catch(() => null)
@@ -237,8 +255,28 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     const pts = centeredVertices(layout!)
     const reachFt = Math.max(...pts.map(p => Math.max(Math.abs(p.x), Math.abs(p.y))))
     const halfM = Math.min(150, Math.max(40, Math.ceil(reachFt * 0.3048 * 1.5)))
-    onChange({ ...layout!, plan: { points: pts, aerial: { lat: at.lat, lng: at.lng, halfM, address: aerialAddress.trim() } } })
+    // The plan at the photo's real scale, square and level, in the middle of the photo, the photo north up.
+    onChange({ ...layout!, plan: { ...(layout!.plan ?? {}), aerial: { lat: at.lat, lng: at.lng, halfM, address: aerialAddress.trim(), rotDeg: 0, planAt: { x: 0, y: 0 }, shown: true } } })
     setAerialOn(true)
+  }
+  function setShown(on: boolean) {
+    setAerialOn(on)
+    setLineUp(false); setLineTaps([])
+    if (layout?.plan?.aerial && !!layout.plan.aerial.shown !== on) onChange({ ...layout, plan: { ...layout.plan, aerial: { ...layout.plan.aerial, shown: on } } })
+  }
+  const rot = photoView(layout).rotDeg
+  function turnTo(deg: number) {
+    setLineTaps([])
+    onChange(withPhotoView(layout!, { rotDeg: normDeg(deg) }))
+  }
+  function lineUpTap(pt: { x: number; y: number }) {
+    if (lineTaps.length !== 1) { setLineTaps([pt]); return }
+    const next = lineUpRotation(rot, lineTaps[0], pt)
+    const d = normDeg(next - rot)
+    // The two marks turn with the photo, so they stay on the wall that is now level.
+    setLineTaps([lineTaps[0], pt].map(p => turnAbout(p, d, FRAME_PX / 2, FRAME_PX / 2)))
+    setLineUp(false)
+    onChange(withPhotoView(layout!, { rotDeg: next }))
   }
   function tapSide(id: string) {
     setOpen(id)
@@ -287,9 +325,14 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           runSections={runSections}
           widthFt={widthFt}
           onSideTap={tapSide}
-          aerial={onPhoto ? { href: photo!, ftPerPx: aerialFtPerPx(aerial!.halfM), sizePx: AERIAL_PX } : null}
+          aerial={onPhoto ? backdrop : null}
           // Dragging only moves the drawing; on the plain plan it holds until a length changes.
-          onPointsChange={onPhoto || adjusting ? pts => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: pts, pointsFor: onPhoto ? null : layoutSignature(layout) } }) : undefined}
+          onPointsChange={!onPhoto && adjusting ? pts => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: pts, pointsFor: layoutSignature(layout) } }) : undefined}
+          // On the photo the plan stays square and level at the photo's scale: it only moves, and the photo turns.
+          onPlanMove={onPhoto && !lineUp ? at => onChange(withPhotoView(layout, { planAt: at })) : undefined}
+          onRotate={onPhoto && !lineUp ? turnTo : undefined}
+          onLineUpTap={onPhoto && lineUp ? lineUpTap : undefined}
+          lineUpTaps={onPhoto ? lineTaps : undefined}
           pins={pins}
           onPinTap={onPinTap}
           onHouseMeetsChange={adjusting && houseMovable ? m => onChange(setHouseMeets(layout, m)) : undefined}
@@ -306,7 +349,30 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           Drag the house to where the fence meets it. The round handles at the house move one return alone.
         </p>
       )}
-      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{onPhoto ? ' Drag the corners onto the yard; the center button moves the whole plan.' : adjusting ? ` Drag a corner to match an odd yard${houseMovable ? ', or the house to where the returns meet it' : ''}. Tap a gate to change its swing. Footage and price stay as typed.` : ''}</p>
+      {onPhoto && (
+        <div className="rounded-xl border border-gray-200 bg-white p-2 space-y-2" data-photo-turn>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-gray-900">Turn the photo</span>
+            <span className="text-sm tabular-nums text-gray-700 min-w-[3.5ch]" data-photo-angle>{Math.round(rot)}°</span>
+            <span className="flex-1" />
+            <button type="button" className={`btn ${lineUp ? 'btn-primary' : 'btn-secondary'} btn-sm`} data-photo-lineup
+              onClick={() => { setLineTaps([]); setLineUp(l => !l) }}>{lineUp ? 'Cancel' : 'Line up'}</button>
+            <button type="button" className="btn btn-quiet btn-sm" data-photo-reset-turn disabled={rot === 0} onClick={() => { setLineUp(false); turnTo(0) }}>Reset</button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn btn-secondary btn-icon shrink-0" aria-label="Turn the photo 1 degree left" data-photo-rot-minus onClick={() => turnTo(stepDeg(rot - 1))}><RotateCcw size={18} aria-hidden="true" /></button>
+            <input type="range" min={-180} max={180} step={1} value={Math.round(rot)} aria-label="Turn the photo (degrees)"
+              className="flex-1 min-w-0 h-11 accent-orange-600" data-photo-rotate onChange={e => turnTo(stepDeg(Number(e.target.value)))} />
+            <button type="button" className="btn btn-secondary btn-icon shrink-0" aria-label="Turn the photo 1 degree right" data-photo-rot-plus onClick={() => turnTo(stepDeg(rot + 1))}><RotateCw size={18} aria-hidden="true" /></button>
+          </div>
+          {lineUp && (
+            <p className="text-sm font-semibold text-orange-900 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2" data-photo-lineup-hint>
+              {lineTaps.length === 0 ? 'Tap one corner of the house on the photo.' : 'Now tap the next corner along the same wall.'}
+            </p>
+          )}
+        </div>
+      )}
+      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{onPhoto ? ' The plan is drawn to the photo\'s real scale. Turn the photo to match the house (Line up, the slider, or twist two fingers), then drag the center button to move the plan onto the yard. Footage and price stay as typed.' : adjusting ? ` Drag a corner to match an odd yard${houseMovable ? ', or the house to where the returns meet it' : ''}. Tap a gate to change its swing. Footage and price stay as typed.` : ''}</p>
       <div className="flex flex-wrap items-center gap-2" data-aerial>
         {!onPhoto && (
           <button type="button" className={`btn ${adjusting ? 'btn-primary' : 'btn-quiet'} btn-sm`} onClick={() => setAdjusting(a => !a)} data-plan-adjust>
@@ -324,13 +390,15 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
             <button type="button" className="btn btn-quiet btn-sm" onClick={() => setAerialForm(true)} data-aerial-open><ImageIcon size={16} aria-hidden="true" /> Aerial photo</button>
           )
         ) : (
-          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setAerialOn(false)} data-aerial-hide>Hide aerial photo</button>
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setShown(false)} data-aerial-hide>Hide aerial photo</button>
         )}
-        {(layout.plan?.points || meetsSet) && (
+        {(layout.plan?.points || meetsSet || (onPhoto && photoView(layout).planAt && (photoView(layout).planAt!.x !== 0 || photoView(layout).planAt!.y !== 0))) && (
           <button type="button" className="btn btn-quiet btn-sm" data-plan-reset onClick={() => {
             // Back as typed: corners where the measurements put them, returns at the house's back corners.
             const l = clearHouseMeets(layout)
-            onChange({ ...l, plan: { ...(l.plan ?? {}), points: aerialOn ? centeredVertices(l) : null, pointsFor: null } })
+            const back = { ...l, plan: { ...(l.plan ?? {}), points: null, pointsFor: null } }
+            // On the photo: the plan back in the middle of it (the photo keeps its turn).
+            onChange(aerialOn ? withPhotoView(back, { planAt: { x: 0, y: 0 } }) : back)
           }}>Reset the drawing</button>
         )}
         {aerialMsg && <p className="w-full text-sm text-amber-800">{aerialMsg}</p>}

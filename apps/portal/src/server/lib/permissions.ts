@@ -59,18 +59,24 @@ export type Action =
    * it (Salesman, Installer) the server sends prices only (lib/costRedact.ts).
    */
   | 'costs.view'
+  /**
+   * Vendor invoices: upload them, fix and match their lines, OK a big price
+   * change, undo one; see vendor price history. Owner, admin, manager and
+   * office; never a Salesman or Installer (they see no costs).
+   */
+  | 'invoices.manage'
 
 const FULL: Action[] = [
   'settings.change', 'prices.change', 'automations.change', 'records.delete', 'ops.delete',
   'schedule.change', 'billing.change', 'finance.change', 'quotes.change', 'permits.change',
-  'packets.change', 'inventory.stock', 'records.import', 'costs.view',
+  'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'invoices.manage',
 ]
 
 const ALLOWED: Record<StaffRole, ReadonlySet<Action>> = {
   super_admin: new Set([...FULL, 'users.manage', 'system']),
   admin: new Set([...FULL, 'users.manage', 'system']),
   manager: new Set(FULL),
-  office_staff: new Set(['ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view']),
+  office_staff: new Set(['ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage']),
   sales_rep: new Set(['quotes.change']),
   field_crew: new Set([]),
 }
@@ -102,6 +108,7 @@ export const REFUSAL: Record<Action, string> = {
   'inventory.stock': 'Your role cannot change inventory. Ask Jonathan.',
   'records.import': 'Your role cannot import records. Ask Jonathan.',
   'costs.view': 'Your role sees prices, not costs. Ask Jonathan.',
+  'invoices.manage': 'Only the owner and the office can see vendor invoices. Ask Jonathan.',
 }
 
 /** The CRM role on a request. Routes behind requireAuth carry it as crmRole (the portal role is in role). */

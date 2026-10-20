@@ -6,12 +6,13 @@
 
 import { useMemo, useState } from 'react'
 import AdminPage from './AdminPage'
+import VendorInvoicesTab from './VendorInvoicesTab'
 import PendingOrdersPage from './PendingOrdersPage'
 import { getPendingOrders, updatePendingOrderStatus, type PendingOrderStatus } from './pendingOrderStore'
 import { replaceUrl } from './nav'
-import { can } from './permissions'
+import { can, useCan } from './permissions'
 
-type InvTab = 'items' | 'sales_orders' | 'operations'
+type InvTab = 'items' | 'sales_orders' | 'operations' | 'invoices'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(c / 100)
@@ -19,7 +20,9 @@ const fmt = (c: number) =>
 const costText = (c: number | undefined) => (can('costs.view') && typeof c === 'number' ? fmt(c) : '—')
 
 export default function InventoryPage() {
-  const [tab, setTab] = useState<InvTab>('items')
+  // Vendor invoices (upload, review, price history): owner and office only.
+  const seesInvoices = useCan('invoices.manage')
+  const [tab, setTab] = useState<InvTab>(() => (new URLSearchParams(window.location.search).get('tab') === 'invoices' ? 'invoices' : 'items'))
   // ?items=a,b: opened from a quote's price warning, showing just those parts.
   const [onlyIds, setOnlyIds] = useState<string[] | undefined>(() => {
     const ids = new URLSearchParams(window.location.search).get('items')
@@ -36,13 +39,14 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+      <div className="flex flex-wrap gap-1 bg-gray-100 rounded-xl p-1 w-fit max-w-full">
         {([
           ['items', 'Items'],
           ['sales_orders', 'Sales Orders'],
           ['operations', 'Operations'],
+          ...(seesInvoices ? [['invoices', 'Invoices']] : []),
         ] as [InvTab, string][]).map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)}
+          <button key={k} onClick={() => setTab(k)} data-inventory-tab={k}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
             {l}
           </button>
@@ -52,6 +56,7 @@ export default function InventoryPage() {
       {tab === 'items' && <AdminPage onlyIds={onlyIds} onShowAll={showAll} />}
       {tab === 'sales_orders' && <PendingOrdersPage />}
       {tab === 'operations' && <OperationsView />}
+      {tab === 'invoices' && seesInvoices && <VendorInvoicesTab />}
     </div>
   )
 }

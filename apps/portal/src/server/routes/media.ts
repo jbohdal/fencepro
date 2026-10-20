@@ -21,12 +21,13 @@ import { recordPhotoUploaded } from '../lib/automations/hooks.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { mediaDir, serializeMedia, processMediaQueue, checkMediaSig, CATEGORIES, VISIBILITY } from '../lib/media.js'
 import { plainZod } from '../lib/plainZod.js'
-import { requireCan } from '../lib/permissions.js'
+import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
+import { receiveInvoiceFile } from '../lib/vendorInvoices.js'
 
 const router = Router()
 const MAX_BYTES = 2 * 1024 * 1024 * 1024 // 2 GB
 const CHUNK_LIMIT = '12mb'
-const TYPES = /^(image\/(jpeg|png|webp|heic|heif)|video\/(mp4|quicktime|webm|3gpp))$/
+const TYPES = /^(image\/(jpeg|png|webp|heic|heif)|video\/(mp4|quicktime|webm|3gpp)|application\/pdf)$/
 
 const extFor = (mime: string) => ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif', 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'video/3gpp': '3gp' } as Record<string, string>)[mime] ?? 'bin'
 
@@ -72,8 +73,9 @@ function sendWithRange(req: any, res: any, file: string, type: string) {
 // Everything below needs a signed in staff user.
 router.use(requireUser, requireAccount)
 
-const metaSchema = z.object({
-  kind: z.enum(['photo', 'video']),
+const metaBase = z.object({
+  // 'invoice': a vendor invoice file (PDF or a photo of a page), saved on the phone first like photos (lib/vendorInvoices.ts).
+  kind: z.enum(['photo', 'video', 'invoice']),
   mime: z.string().regex(TYPES, 'Not a photo or video this app takes'),
   quoteKey: z.string().max(100).optional().nullable(),
   jobId: z.string().max(100).optional().nullable(),
@@ -87,7 +89,14 @@ const metaSchema = z.object({
   category: z.enum(CATEGORIES).optional(),
   visibility: z.enum(VISIBILITY).optional(),
   pin: z.object({ x: z.number(), y: z.number(), angle: z.number().nullable().optional() }).nullable().optional(),
+  // Vendor invoices: the files of one invoice share a batch; seq is the page order.
+  invoiceBatch: z.string().min(8).max(100).optional(),
+  invoiceSeq: z.number().int().min(0).max(200).optional(),
+  invoicePages: z.number().int().min(1).max(200).optional(),
+  fileName: z.string().max(200).optional(),
+  invoiceJobId: z.string().max(100).nullable().optional(),
 })
+const metaSchema = metaBase.refine(m => m.kind === 'invoice' ? !!m.invoiceBatch && /^(application\/pdf|image\/)/.test(m.mime) : m.mime !== 'application/pdf', 'Not a photo or video this app takes')
 
 const startSchema = z.object({ clientId: z.string().min(8).max(100), size: z.number().int().positive().max(MAX_BYTES), meta: metaSchema })
 
@@ -95,6 +104,13 @@ const startSchema = z.object({ clientId: z.string().min(8).max(100), size: z.num
 router.post('/uploads', express.json({ limit: '64kb' }), async (req: any, res) => {
   try {
     const b = startSchema.parse(req.body)
+    // Vendor invoices are for the owner and the office only.
+    if (b.meta.kind === 'invoice' && !can(roleOf(req), 'invoices.manage')) { refuse(res, 'invoices.manage'); return }
+    if (b.meta.kind === 'invoice') {
+      const got = await prisma.vendorInvoiceFile.findUnique({ where: { clientId: b.clientId } })
+      if (got && got.accountId !== req.user.crmAccountId) { res.status(409).json({ success: false, error: 'Invalid id' }); return }
+      if (got) { res.json({ success: true, data: { done: true, item: invoiceItem(got.clientId, got.invoiceId) } }); return }
+    }
     const done = await prisma.mediaItem.findUnique({ where: { clientId: b.clientId } })
     if (done && done.accountId !== req.user.crmAccountId) { res.status(409).json({ success: false, error: 'Invalid id' }); return }
     if (done) { res.json({ success: true, data: { done: true, item: serializeMedia(done) } }); return }
@@ -145,7 +161,12 @@ router.post('/uploads/:clientId/finish', async (req: any, res) => {
   }
 })
 
+/** What the phone gets back for an invoice file (it only needs to know the Mac has it). */
+const invoiceItem = (clientId: string, invoiceId: string) => ({ id: invoiceId, clientId, kind: 'invoice', status: 'ready' })
+
 async function finishUpload(req: any, res: any, clientId: string): Promise<void> {
+  const got = await prisma.vendorInvoiceFile.findUnique({ where: { clientId } })
+  if (got && got.accountId === req.user.crmAccountId) { res.json({ success: true, data: invoiceItem(clientId, got.invoiceId) }); return }
   const done = await prisma.mediaItem.findUnique({ where: { clientId } })
   if (done && done.accountId !== req.user.crmAccountId) { res.status(404).json({ success: false, error: 'No such upload' }); return }
   if (done) { res.json({ success: true, data: serializeMedia(done) }); return }
@@ -154,6 +175,18 @@ async function finishUpload(req: any, res: any, clientId: string): Promise<void>
   const have = fs.existsSync(u.path) ? fs.statSync(u.path).size : 0
   if (have !== u.size) { res.status(409).json({ success: false, error: 'Not all of the file has arrived', data: { received: have } }); return }
   const meta = metaSchema.parse(u.meta)
+  if (meta.kind === 'invoice') {
+    if (!can(roleOf(req), 'invoices.manage')) { refuse(res, 'invoices.manage'); return }
+    const user = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } }).catch(() => null)
+    const r = await receiveInvoiceFile({
+      accountId: u.accountId, actor: { id: req.user.id, name: user ? `${user.firstName} ${user.lastName}`.trim() : req.user.email },
+      clientId, batchId: meta.invoiceBatch!, seq: meta.invoiceSeq ?? 0, pageCount: meta.invoicePages ?? 1,
+      fileName: meta.fileName ?? '', mime: meta.mime, path: u.path, bytes: have, jobId: meta.invoiceJobId ?? null,
+    })
+    await prisma.mediaUpload.delete({ where: { clientId } }).catch(() => {})
+    res.json({ success: true, data: invoiceItem(clientId, r.invoiceId) })
+    return
+  }
   const user = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } }).catch(() => null)
   const id = crypto.randomUUID()
   const final = path.join(mediaDir(u.accountId), `${id}.${extFor(meta.mime)}`)
@@ -201,7 +234,7 @@ router.get('/', async (req: any, res) => {
   res.json({ success: true, data: items.map(m => serializeMedia(m)) })
 })
 
-const patchSchema = metaSchema.pick({ caption: true, category: true, visibility: true, pin: true, quoteKey: true, jobId: true, customerId: true }).partial()
+const patchSchema = metaBase.pick({ caption: true, category: true, visibility: true, pin: true, quoteKey: true, jobId: true, customerId: true }).partial()
 
 router.patch('/:id', express.json({ limit: '64kb' }), async (req: any, res) => {
   try {

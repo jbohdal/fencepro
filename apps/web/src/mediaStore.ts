@@ -40,9 +40,27 @@ export interface MediaMeta {
   pin?: MediaPin | null
 }
 
-export interface LocalMedia {
+/**
+ * A vendor invoice file (a PDF or a photo of a page), Inventory > Invoices.
+ * It waits on the phone and uploads in the same queue as photos, but is never
+ * shown with them.
+ */
+export interface InvoiceFileMeta {
+  kind: 'invoice'
+  mime: string
+  takenAt: string
+  /** The files of one invoice share a batch, in page order (seq). */
+  invoiceBatch: string
+  invoiceSeq: number
+  invoicePages: number
+  /** Optional job for a job lot order (apart from jobId, so it is not shown with the job's photos). */
+  invoiceJobId?: string | null
+  fileName?: string
+}
+
+export interface LocalMedia<M = MediaMeta> {
   clientId: string
-  meta: MediaMeta
+  meta: M
   blob: Blob
   markupBlob?: Blob | null
   size: number
@@ -93,14 +111,15 @@ async function store<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDB
   })
 }
 /** As kept on the phone: a photo as it is, or (where the phone refuses that) its bytes. */
-type Stored = LocalMedia & { bytes?: ArrayBuffer; type?: string; markupBytes?: ArrayBuffer; markupType?: string }
-const revive = (m: Stored): LocalMedia => ({
+type AnyMeta = MediaMeta | InvoiceFileMeta
+type Stored = LocalMedia<AnyMeta> & { bytes?: ArrayBuffer; type?: string; markupBytes?: ArrayBuffer; markupType?: string }
+const revive = (m: Stored): LocalMedia<AnyMeta> => ({
   ...m,
   blob: m.bytes ? new Blob([m.bytes], { type: m.type }) : m.blob,
   markupBlob: m.markupBytes ? new Blob([m.markupBytes], { type: m.markupType }) : m.markupBlob,
 })
-const all = () => store<Stored[]>('readonly', s => s.getAll() as IDBRequest<Stored[]>).then(l => l.map(revive)).catch(() => [] as LocalMedia[])
-async function put(m: LocalMedia): Promise<void> {
+const all = () => store<Stored[]>('readonly', s => s.getAll() as IDBRequest<Stored[]>).then(l => l.map(revive)).catch(() => [] as LocalMedia<AnyMeta>[])
+async function put(m: LocalMedia<AnyMeta>): Promise<void> {
   try {
     await store('readwrite', s => s.put(m))
   } catch {
@@ -120,8 +139,8 @@ function newClientId(): string {
 }
 
 /** Save a capture on the phone right away, then upload in the background. */
-export async function addCapture(blob: Blob, meta: MediaMeta): Promise<LocalMedia> {
-  const m: LocalMedia = { clientId: newClientId(), meta, blob, size: blob.size, sent: 0, createdAt: Date.now() }
+export async function addCapture<M extends AnyMeta = MediaMeta>(blob: Blob, meta: M): Promise<LocalMedia<M>> {
+  const m: LocalMedia<M> = { clientId: newClientId(), meta, blob, size: blob.size, sent: 0, createdAt: Date.now() }
   await put(m)
   // Ask the phone not to clear this app's storage when it runs low.
   navigator.storage?.persist?.().catch(() => {})
@@ -134,18 +153,25 @@ export async function addCapture(blob: Blob, meta: MediaMeta): Promise<LocalMedi
 export async function updateLocal(clientId: string, patch: Partial<Pick<LocalMedia, 'meta' | 'markupBlob'>>): Promise<void> {
   const raw = await store<Stored | undefined>('readonly', s => s.get(clientId) as IDBRequest<Stored | undefined>).catch(() => undefined)
   const m = raw ? revive(raw) : undefined
-  if (!m) return
-  await put({ ...m, ...patch, meta: { ...m.meta, ...(patch.meta ?? {}) } })
+  if (!m || m.meta.kind === 'invoice') return
+  await put({ ...m, ...patch, meta: { ...m.meta, ...(patch.meta ?? {}) } as MediaMeta })
   notify()
 }
 
 /** Captures still on the phone for a quote, job or customer. */
+const isPhotoOrVideo = (m: LocalMedia<AnyMeta>): m is LocalMedia<MediaMeta> => m.meta.kind !== 'invoice'
+
 export async function localMedia(where: { quoteKey?: string; jobId?: string; customerId?: string } = {}): Promise<LocalMedia[]> {
-  return (await all()).filter(m => !m.serverId && (
+  return (await all()).filter(isPhotoOrVideo).filter(m => !m.serverId && (
     (!where.quoteKey && !where.jobId && !where.customerId)
     || (where.quoteKey && m.meta.quoteKey === where.quoteKey)
     || (where.jobId && m.meta.jobId === where.jobId)
     || (where.customerId && m.meta.customerId === where.customerId)))
+}
+
+/** Vendor invoice files still on the phone (Inventory > Invoices). */
+export async function localInvoiceFiles(): Promise<LocalMedia<InvoiceFileMeta>[]> {
+  return (await all()).filter((m): m is LocalMedia<InvoiceFileMeta> => !m.serverId && m.meta.kind === 'invoice')
 }
 
 export async function waitingCount(): Promise<number> {
@@ -178,7 +204,7 @@ export async function uploadAll(): Promise<void> {
   }
 }
 
-async function uploadOne(m: LocalMedia): Promise<boolean> {
+async function uploadOne(m: LocalMedia<AnyMeta>): Promise<boolean> {
   const start = await json<{ received?: number; done?: boolean; item?: ServerMedia }>(await fetchWithAuth(`${API}/uploads`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId: m.clientId, size: m.size, meta: m.meta }),
   }).catch(() => null))
@@ -202,7 +228,7 @@ async function uploadOne(m: LocalMedia): Promise<boolean> {
   }
   // Settings changed on the phone after the upload started go along too.
   if (item && m.markupBlob) { const ok = await uploadMarkup(item.id, m.markupBlob); if (!ok) return false }
-  if (item && (m.meta.caption || m.meta.pin || m.meta.category || m.meta.visibility)) {
+  if (item && m.meta.kind !== 'invoice' && (m.meta.caption || m.meta.pin || m.meta.category || m.meta.visibility)) {
     await patchMedia(item.id, { caption: m.meta.caption, pin: m.meta.pin ?? null, category: m.meta.category, visibility: m.meta.visibility })
   }
   await remove(m.clientId)

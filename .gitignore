@@ -27,3 +27,4 @@ uploads/
 # Logs
 *.log
 npm-debug.log*
+apps/portal/tools/.bin/

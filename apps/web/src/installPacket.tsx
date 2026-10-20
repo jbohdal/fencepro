@@ -10,6 +10,8 @@ import { useEffect, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Send, ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import SitePlan from './SitePlan'
+import { bakedBackdrop } from './aerialBake'
+import type { AerialBackdrop } from './sitePlanPhoto'
 import { buildPlan } from './sitePlanGeometry'
 import { deriveLayout, formatFtIn, postSpacing, GATE_LABEL, FINISH_NEAR, effectiveFinishes } from './yardLayout'
 import { savedRunSections } from './quoteCalc'
@@ -41,7 +43,7 @@ export interface PacketSnapshot {
 }
 
 /** Everything the crew needs from the quote, without a single price. */
-export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number }, quote: SavedQuote | undefined, media: ServerMedia[]): PacketSnapshot {
+export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number }, quote: SavedQuote | undefined, media: ServerMedia[], photo: AerialBackdrop | null = null): PacketSnapshot {
   const cfg = getConfig()
   const snap: PacketSnapshot = { style: styleLabel(quote?.fenceStyle || job.fenceStyle), companyName: cfg.company?.name || 'Getter Done Fence', companyPhone: cfg.company?.phone || '' }
   const notes = [job.notes, quote?.notes].filter(n => n && n.trim()).join('\n')
@@ -94,7 +96,7 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
       .map(m => ({ id: m.id, x: m.pin!.x, y: m.pin!.y, angle: m.pin!.angle ?? null }))
     const runSections = quote.layout?.runSections && quote.layout.runSections.length === derived.runs.length ? quote.layout.runSections : undefined
     const mv = quote.work?.type === 'move' ? quote.work.move : undefined
-    snap.planSvg = renderToStaticMarkup(<SitePlan layout={yard} result={derived} runSections={runSections} pins={pins} title="Site plan"
+    snap.planSvg = renderToStaticMarkup(<SitePlan layout={yard} result={derived} runSections={runSections} pins={pins} title="Site plan" aerial={photo}
       oldLine={mv?.oldLinePlan ? { ...mv.oldLinePlan, ft: mv.oldFt, label: `Old line ${Math.round(mv.oldFt)} ft` } : null}
       damaged={quote.work?.type === 'repair' ? quote.work.repair?.tapped : undefined} />)
   } else {
@@ -130,7 +132,9 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
   async function send() {
     setBusy(true)
     const media = await listMedia({ jobId })
-    const snapshot = buildPacketSnapshot(job, quote, media)
+    // The aerial photo, turned as saved with the quote, under the plan (when it was on).
+    const photo = await bakedBackdrop(quote?.layout?.yard ?? null)
+    const snapshot = buildPacketSnapshot(job, quote, media, photo)
     const p = await call<Packet>('', { method: 'POST', body: JSON.stringify({ jobId, snapshot }) })
     setBusy(false)
     if (!p) { toast.error('Could not make the install packet. Try again.'); return }

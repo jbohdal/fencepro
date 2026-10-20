@@ -2559,3 +2559,262 @@ model PendingTouch {
   name         String   @default("")
   startedAt    DateTime @default(now())
 }
+
+/// Job costing, the "Quoted cost": what a sold quote was priced at, frozen the
+/// moment it was signed (lib/jobCosting.ts). Integer cents. One per quote.
+/// Quotes signed before job costing went live have none (shown "No takeoff").
+model JobQuotedCost {
+  id            String   @id @default(uuid())
+  accountId     String
+  quoteId       String
+  /// proposal (the customer's link) | share (the old quote link) | app (sold in the app)
+  signedVia     String   @default("app")
+  signedAt      DateTime @default(now())
+  fenceStyle    String   @default("")
+  salesRep      String   @default("")
+  /// new | move | repair
+  jobType       String   @default("new")
+  sections      Int      @default(0)
+  footage       Int      @default(0)
+  priceCents    Int      @default(0)
+  materialCents Int      @default(0)
+  laborCents    Int      @default(0)
+  tearOutCents  Int      @default(0)
+  totalCents    Int      @default(0)
+  /// The pull sheet as priced: [{ key, part, inventoryItemId, qty, unitCostCents, totalCostCents }]
+  lines         Json     @default("[]")
+  /// How labor was priced: { mode: sub|crew|flat, subUnit, subUnits, subRateCostCents, hourlyCostCents }
+  labor         Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@unique([accountId, quoteId])
+}
+
+/// Job costing, the final quantity takeoff after install: the pull sheet line
+/// by line (used, back to the shop, back to the vendor), extras, actual labor.
+/// draft -> submitted (crew or office) -> approved (owner or office). The
+/// actual cost is frozen in `actualCost` when approved. The crew's phone never
+/// receives a cost (lib/costRedact.ts and routes/job-costing.ts).
+model JobTakeoff {
+  id          String    @id
+  accountId   String
+  jobId       String    @unique
+  quoteId     String?
+  /// draft | submitted | approved
+  status      String    @default("draft")
+  /// YYYY-MM-DD: landed costs are taken on this day.
+  installDate String    @default("")
+  /// [{ id, key, part, inventoryItemId, plannedQty, usedQty, shopReturnQty, vendorReturnQty, extra, reason, note, photoClientId }]
+  lines       Json      @default("[]")
+  /// { mode: sub|crew, subUnit, subUnits, crew: [{ id, name, hours }] }
+  labor       Json      @default("{}")
+  note        String    @default("")
+  startedBy   String?
+  submittedAt DateTime?
+  submittedBy String?
+  approvedAt  DateTime?
+  approvedBy  String?
+  /// Frozen at approval (owner and office only): lines with landed costs, labor, totals in cents.
+  actualCost  Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([accountId, status])
+}
+
+// ── Vendor invoices: uploads that update Inventory prices (lib/vendorInvoices.ts) ──
+//
+// A vendor invoice (one or more files: PDFs or photos of the pages) is read on
+// the Mac, checked (lines + tax + freight + fees = total), matched to
+// Inventory items, and its landed costs applied. Owner and office only.
+
+model VendorInvoice {
+  id             String    @id @default(uuid())
+  accountId      String
+  // receiving | reading | needs_review | needs_match | applied | refused | undone | failed
+  // | quote (a vendor quotation: saved, never applied) | replaced (an older revision of a quote)
+  status         String    @default("receiving")
+  // invoice | quote. A quote changes no price until someone taps "We ordered this" (ordered).
+  docType        String    @default("invoice")
+  ordered        Boolean   @default(false)
+  orderedAt      DateTime?
+  orderedBy      String?
+  // A newer revision of the same quote (same vendor and number) replaced this one.
+  replacedById   String?
+  // Orders revisions of one quote: the vendor's document id from the file name ("...-1429376.pdf"), when there is one.
+  revision       String    @default("")
+  // A tax row was printed. Without one the invoice waits until someone OKs "no tax".
+  taxFound       Boolean   @default(true)
+  taxOk          Boolean   @default(false)
+  taxRate        String    @default("")
+  // Rows left out on purpose (*Fab notes, separators, $0.00 lines): [{ page, row, text, why }]
+  skipped        Json      @default("[]")
+  // The phone's id for the upload, so sending it twice makes one invoice.
+  batchId        String
+  pageCount      Int       @default(1)
+  // The vendor in Vendors (VendorState.vendors[].id) once known.
+  vendorId       String?
+  vendorName     String    @default("")
+  invoiceNumber  String    @default("")
+  // invoiceNumber with spaces, "INV", "#" and leading zeros taken out: what duplicates are found by.
+  invoiceKey     String    @default("")
+  // YYYY-MM-DD
+  invoiceDate    String    @default("")
+  subtotalCents  Int?
+  taxCents       Int       @default(0)
+  freightCents   Int       @default(0)
+  // Other fees and discounts: [{ label, cents }]
+  fees           Json      @default("[]")
+  feesCents      Int       @default(0)
+  totalCents     Int?
+  // Optional: only for a job lot order.
+  jobId          String?
+  jobName        String?
+  // The bill made for it in Vendors (VendorState.bills[].id).
+  billId         String?
+  // vision | tesseract | pdf-text
+  engine         String    @default("")
+  readMs         Int       @default(0)
+  // The pages as read: [{ page, image, source, rows: [{ i, text, box, conf }] }]
+  pages          Json      @default("[]")
+  // What stops it: header problems and the total check.
+  problems       Json      @default("[]")
+  // Set when refused as a duplicate: the invoice it repeats.
+  duplicateOfId  String?
+  message        String    @default("")
+  uploadedById   String?
+  uploadedBy     String    @default("")
+  appliedAt      DateTime?
+  undoneAt       DateTime?
+  undoneBy       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  files VendorInvoiceFile[]
+  lines VendorInvoiceLine[]
+
+  @@unique([accountId, batchId])
+  @@index([accountId, status])
+  @@index([accountId, vendorId, invoiceKey])
+  @@index([accountId, jobId])
+}
+
+model VendorInvoiceFile {
+  id        String   @id @default(uuid())
+  accountId String
+  invoiceId String
+  // The phone's id for this file (one upload).
+  clientId  String   @unique
+  // Order within the invoice (page photos are in the order taken).
+  seq       Int      @default(0)
+  fileName  String   @default("")
+  mime      String
+  bytes     Int      @default(0)
+  path      String
+  // The same file uploaded again is refused.
+  sha256    String
+  createdAt DateTime @default(now())
+
+  invoice VendorInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, sha256])
+  @@index([invoiceId])
+}
+
+model VendorInvoiceLine {
+  id              String    @id @default(uuid())
+  invoiceId       String
+  seq             Int
+  page            Int       @default(1)
+  row             Int       @default(0)
+  // Where it is on the page picture (fractions 0..1).
+  box             Json?
+  raw             String    @default("")
+  itemNumber      String    @default("")
+  description     String    @default("")
+  qty             Float?
+  unit            String    @default("EA")
+  // Unit price in hundredths of a cent ($0.0425 = 425), so it is kept exactly.
+  unitPriceHc     Int?
+  totalCents      Int?
+  conf            Float     @default(1)
+  // Reader problems still open: math | unclear | no_quantity | no_price | no_amount | credit
+  problems        Json      @default("[]")
+  // Not a line to price (a note or a duplicate row read by mistake), set in review.
+  ignored         Boolean   @default(false)
+  // Fixed or confirmed by hand in review.
+  edited          Boolean   @default(false)
+  // item:<code> or desc:<words>: how the vendor's item is remembered.
+  matchKey        String    @default("")
+  inventoryItemId String?
+  inventoryName   String    @default("")
+  // vendorPer of the vendor's unit = invPer Inventory units.
+  vendorPer       Float?
+  invPer          Float?
+  invQty          Float?
+  extraCents      Int?
+  landedCents     Int?
+  unitLandedCents Int?
+  unitLandedExact Float?
+  prevUnitCents   Int?
+  changePct       Float?
+  // open | needs_match | waiting_ok | applied | rejected | skipped
+  state           String    @default("open")
+  stateNote       String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  invoice VendorInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([inventoryItemId])
+}
+
+// A vendor's item, learned once: which Inventory item it is and how its unit converts.
+model VendorItemLink {
+  id              String   @id @default(uuid())
+  accountId       String
+  vendorId        String
+  // item:<code> or desc:<words> (lib/invoiceMath.matchKey)
+  key             String
+  inventoryItemId String
+  vendorUnit      String   @default("EA")
+  vendorPer       Float    @default(1)
+  invPer          Float    @default(1)
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([accountId, vendorId, key])
+  @@index([accountId, inventoryItemId])
+}
+
+// Every landed cost applied to an Inventory item, per vendor (job costing reads it: lib/priceHistory.ts).
+model PriceHistory {
+  id                 String    @id @default(uuid())
+  accountId          String
+  inventoryItemId    String
+  vendorId           String?
+  vendorName         String    @default("")
+  invoiceId          String?
+  lineId             String?
+  // The invoice date, YYYY-MM-DD: the day this cost was paid.
+  day                String
+  unitLandedCents    Int
+  unitLandedExact    Float?
+  // What it replaced, so Undo can put it back.
+  prevUnitCents      Int?
+  prevPriceUpdatedAt String?
+  prevPriceImported  Boolean?
+  appliedById        String?
+  appliedBy          String    @default("")
+  // Applied after waiting for an OK.
+  approved           Boolean   @default(false)
+  // False when Inventory already had a newer price: kept for history (job costing) only.
+  changedInventory   Boolean   @default(true)
+  undoneAt           DateTime?
+  createdAt          DateTime  @default(now())
+
+  @@index([accountId, inventoryItemId, day])
+  @@index([invoiceId])
+}

@@ -12,6 +12,8 @@ import { InstallPacketPanel } from './installPacket'
 import PermitPanel from './PermitPanel'
 import AutomationRunLog from './AutomationRunLog'
 import FinalWalkthroughPanel from './FinalWalkthrough'
+import JobTakeoffPanel from './JobTakeoff'
+import JobQuotedVsActual from './JobQuotedVsActual'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { getJobs, updateJob, advanceJob, holdJob, unholdJob, type Job, type JobStatus } from './jobStore'
 import { fireOpsStageChange } from './automationTrigger'
@@ -656,7 +658,10 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           </div>
         )}
 
+        {/* Job costing: the takeoff right before the walkthrough; quoted vs actual for the owner and office. */}
+        {isJobSource && job.rawJob && <JobTakeoffPanel job={job.rawJob} />}
         {isJobSource && job.rawJob && <FinalWalkthroughPanel job={job.rawJob} />}
+        {isJobSource && <JobQuotedVsActual jobId={job.id} />}
 
         {isJobSource && (
           <Section title="Install packet">

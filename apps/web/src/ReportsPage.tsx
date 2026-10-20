@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { styleLabel } from './fenceCatalog'
 import type { SavedQuote } from './QuotesPage'
 import FollowUpReport from './FollowUpReport'
+import JobCostingReport from './JobCostingReport'
 
 /* ───────── helpers ───────── */
 
@@ -221,7 +222,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
   const [year, setYear] = useState(currentYear)
   const [gran, setGran] = useState<Granularity>('monthly')
   const [section, setSection] = useState<'tier1' | 'tier2' | 'tier3' | 'tier4'>('tier1')
-  const [tab, setTab] = useState<'revenue' | 'margin' | 'style' | 'deals' | 'close_rate' | 'lead_source' | 'sales_rep' | 'pipeline' | 'follow_ups' | 'budget_rev' | 'budget_cost' | 'budget_overhead' | 'cust_revenue' | 'cust_repeat' | 'cust_segments'>('revenue')
+  const [tab, setTab] = useState<'revenue' | 'margin' | 'style' | 'deals' | 'close_rate' | 'lead_source' | 'sales_rep' | 'pipeline' | 'follow_ups' | 'job_costing' | 'budget_rev' | 'budget_cost' | 'budget_overhead' | 'cust_revenue' | 'cust_repeat' | 'cust_segments'>('revenue')
 
   const budget = useMemo(() => loadBudget(), [])
 
@@ -442,6 +443,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
     { key: 'margin' as const, label: 'Margins' },
     { key: 'style' as const, label: 'By Style' },
     { key: 'deals' as const, label: 'Deal Size' },
+    { key: 'job_costing' as const, label: 'Job Costing' },
   ]
 
   const TABS_TIER2 = [
@@ -1395,6 +1397,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
       )}
 
       {tab === 'follow_ups' && <FollowUpReport />}
+      {tab === 'job_costing' && <JobCostingReport />}
 
       {tab === 'pipeline' && (
         <div className="space-y-6">

@@ -2,7 +2,10 @@ import MediaGallery from './MediaGallery'
 import { styleLabel } from './fenceCatalog'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { getConfig } from './configStore'
-import { Phone, MessageSquare, Navigation } from 'lucide-react'
+import { Phone, MessageSquare, Navigation, FilePlus2, CalendarPlus, Pencil } from 'lucide-react'
+import { telHref } from './phoneFormat'
+import { smsLink } from './appointmentLogic'
+import { startTouch } from './followUpStore'
 import { openBooking } from './BookingDialog'
 import { NextAppointmentBadge, CustomerAppointmentsTab } from './AppointmentWidgets'
 import {
@@ -872,6 +875,62 @@ function PipelineStageSelect({ customerId }: { customerId: string }) {
   )
 }
 
+/** Wide enough for the side by side customer screen (Tailwind's lg). */
+function useWide(): boolean {
+  const q = '(min-width: 1024px)'
+  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia(q).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(q)
+    const h = () => setWide(mq.matches)
+    mq.addEventListener('change', h)
+    return () => mq.removeEventListener('change', h)
+  }, [])
+  return wide
+}
+
+/** Call and Text from the customer screen ask "How'd it go?" afterwards, as the pipeline card does. */
+function touchCustomer(customer: Customer, channel: 'call' | 'text') {
+  const lead = (getPipeline().leads || []).find((l: any) => l.customerId === customer.id)
+  if (!lead || !customer.phone) return
+  const name = `${customer.firstName} ${customer.lastName}`.trim() || 'Customer'
+  startTouch({ cardId: lead.id, customerId: customer.id, name, firstName: customer.firstName, phone: customer.phone, stage: lead.stage, channel })
+}
+
+/**
+ * The customer's main actions on a phone: one row that stays put at the
+ * bottom, above the tab bar (and the safe area), while the rest scrolls.
+ */
+function CustomerActionBar({ customer, onNewQuote, onEdit }: { customer: Customer; onNewQuote: () => void; onEdit: () => void }) {
+  const item = 'flex flex-col items-center justify-center gap-0.5 min-w-0 h-14 rounded-xl text-[11px] font-semibold leading-tight text-center'
+  const plain = `${item} text-gray-800 bg-white border border-gray-200 active:bg-orange-50`
+  const off = 'opacity-40 pointer-events-none'
+  const phone = customer.phone || ''
+  const address = customer.serviceAddress || ''
+  return (
+    <div data-customer-actions
+      className="fixed inset-x-0 z-30 bottom-[calc(64px+env(safe-area-inset-bottom))] md:bottom-0 md:pb-[env(safe-area-inset-bottom)] bg-white/95 backdrop-blur border-t border-gray-200 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] px-2 py-1.5 grid grid-cols-[1.45fr_1fr_1fr_1.25fr_1fr_1fr] gap-1">
+      <button type="button" onClick={onNewQuote} data-customer-action="new-quote" className={`${item} bg-orange-500 text-white active:bg-orange-600`}>
+        <FilePlus2 size={20} aria-hidden="true" />New quote
+      </button>
+      <a href={phone ? telHref(phone) : undefined} onClick={() => touchCustomer(customer, 'call')} aria-disabled={!phone} data-customer-action="call" className={`${plain} ${phone ? '' : off}`}>
+        <Phone size={20} aria-hidden="true" />Call
+      </a>
+      <a href={phone ? smsLink(phone, '') : undefined} onClick={() => touchCustomer(customer, 'text')} aria-disabled={!phone} data-customer-action="text" className={`${plain} ${phone ? '' : off}`}>
+        <MessageSquare size={20} aria-hidden="true" />Text
+      </a>
+      <a href={address ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}` : undefined} target="_blank" rel="noreferrer" aria-disabled={!address} data-customer-action="navigate" className={`${plain} ${address ? '' : off}`}>
+        <Navigation size={20} aria-hidden="true" />Navigate
+      </a>
+      <button type="button" onClick={() => openBooking({ customerId: customer.id })} aria-label="Book appointment" data-customer-action="book" data-book-appointment className={plain}>
+        <CalendarPlus size={20} aria-hidden="true" />Book
+      </button>
+      <button type="button" onClick={onEdit} data-customer-action="edit" className={plain}>
+        <Pencil size={20} aria-hidden="true" />Edit
+      </button>
+    </div>
+  )
+}
+
 function CustomerDetail({
   customer, quotes, importedQuotes, jobs, files,
   onEdit, onNewQuote, onDelete, onDeleteFile, onQuoteClick, onFileClick, initialTab, onTabConsumed,
@@ -905,9 +964,12 @@ function CustomerDetail({
   const totalRevenue = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.price, 0)
     + importedQuotes.reduce((s, q) => s + q.quotedPrice, 0)
   const allQuoteCount = quotes.length + importedQuotes.length
+  // A phone gets the action bar at the bottom; a wide screen keeps them in the header.
+  const wide = useWide()
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col lg:overflow-hidden max-lg:pb-[76px]" data-customer-detail>
+      {!wide && <CustomerActionBar customer={customer} onNewQuote={() => onNewQuote(customer)} onEdit={onEdit} />}
       <div className="px-4 py-4 lg:px-8 lg:py-6 border-b border-gray-200 bg-white">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
@@ -931,11 +993,11 @@ function CustomerDetail({
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2"><PipelineStageSelect customerId={customer.id} /><NextAppointmentBadge customerId={customer.id} /></div>
               {/* One tap to reach the customer or the property */}
-              <div className="flex flex-wrap gap-2 mt-3" data-contact-actions>
-                {customer.phone && <a href={`tel:${customer.phone.replace(/[^\d+]/g, '')}`} className="btn btn-secondary btn-sm"><Phone size={16} aria-hidden="true" /> Call</a>}
-                {customer.phone && <a href={`sms:${customer.phone.replace(/[^\d+]/g, '')}`} className="btn btn-secondary btn-sm"><MessageSquare size={16} aria-hidden="true" /> Text</a>}
+              {wide && <div className="flex flex-wrap gap-2 mt-3" data-contact-actions>
+                {customer.phone && <a href={telHref(customer.phone)} onClick={() => touchCustomer(customer, 'call')} className="btn btn-secondary btn-sm"><Phone size={16} aria-hidden="true" /> Call</a>}
+                {customer.phone && <a href={smsLink(customer.phone, '')} onClick={() => touchCustomer(customer, 'text')} className="btn btn-secondary btn-sm"><MessageSquare size={16} aria-hidden="true" /> Text</a>}
                 {customer.serviceAddress && <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(customer.serviceAddress)}`} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm"><Navigation size={16} aria-hidden="true" /> Navigate</a>}
-              </div>
+              </div>}
               <div className="flex gap-1.5 mt-2 flex-wrap">
                 {customer.tags.map(tag => (
                   <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{tag}</span>
@@ -946,10 +1008,12 @@ function CustomerDetail({
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 max-lg:empty:hidden">
+            {wide && <>
             <button onClick={() => openBooking({ customerId: customer.id })} data-book-appointment className="btn btn-secondary flex-1 lg:flex-none">Book appointment</button>
             <button onClick={() => onNewQuote(customer)} className="btn btn-primary flex-1 lg:flex-none">+ New quote</button>
             <button onClick={onEdit} className="btn btn-quiet">Edit</button>
+            </>}
             {/* Delete lives behind "More" and a confirmation, never one tap away. */}
             {can('records.delete') && <details className="relative" data-customer-more>
               <summary className="btn btn-quiet list-none [&::-webkit-details-marker]:hidden" aria-label="More actions">More ▾</summary>
@@ -993,7 +1057,7 @@ function CustomerDetail({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
+      <div className="lg:flex-1 lg:overflow-y-auto px-4 py-4 lg:px-8 lg:py-6" data-customer-scroll>
         {activeTab === 'appointments' && <CustomerAppointmentsTab customerId={customer.id} />}
         {activeTab === 'overview' && (
           <div className="space-y-6 max-w-2xl">
@@ -1010,8 +1074,8 @@ function CustomerDetail({
                 { label: 'Job Status',  value: customer.jobStatus },
               ].filter(Boolean).map((row: any) => row?.value ? (
                 <div key={row.label} className="flex gap-4">
-                  <span className="text-xs text-gray-400 w-32 shrink-0 pt-0.5">{row.label}</span>
-                  <span className="text-sm text-gray-800">{row.value}</span>
+                  <span className="text-xs text-gray-400 w-28 sm:w-32 shrink-0 pt-0.5">{row.label}</span>
+                  <span className="text-sm text-gray-800 min-w-0 [overflow-wrap:anywhere]">{row.value}</span>
                 </div>
               ) : null)}
             </div>
@@ -1521,7 +1585,7 @@ export default function CustomersPage({ onNewQuote }: {
   // show side by side as before.
   const detailVisible = mode !== 'view' || !!selected
   return (
-    <div className="flex flex-col lg:flex-row h-full bg-white rounded-2xl border border-gray-200 overflow-hidden" style={{ minHeight: 'calc(100vh - 120px)' }}>
+    <div className="flex flex-col lg:flex-row lg:h-full bg-white rounded-2xl border border-gray-200 lg:overflow-hidden lg:min-h-[calc(100vh-120px)]">
       <div className={`${detailVisible ? 'hidden lg:flex' : 'flex'} w-full lg:w-72 border-b lg:border-b-0 lg:border-r border-gray-200 flex-col shrink-0`}>
         <div className="px-4 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between mb-3">

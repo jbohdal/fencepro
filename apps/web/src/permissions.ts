@@ -15,18 +15,20 @@ export type Action =
   | 'quotes.change' | 'permits.change' | 'packets.change' | 'inventory.stock' | 'records.import'
   /** See costs, margins, sub rates and profit; Salesman and Installer see prices only (the server never sends them costs). */
   | 'costs.view'
+  /** Vendor invoices: upload, review, match, OK, undo; vendor price history. Owner, admin, manager and office. */
+  | 'invoices.manage'
 
 const FULL: Action[] = [
   'settings.change', 'prices.change', 'automations.change', 'records.delete', 'ops.delete',
   'schedule.change', 'billing.change', 'finance.change', 'quotes.change', 'permits.change',
-  'packets.change', 'inventory.stock', 'records.import', 'costs.view',
+  'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'invoices.manage',
 ]
 
 export const ALLOWED: Record<CrmRole, ReadonlySet<Action>> = {
   super_admin: new Set([...FULL, 'users.manage', 'system']),
   admin: new Set([...FULL, 'users.manage', 'system']),
   manager: new Set(FULL),
-  office_staff: new Set(['ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view']),
+  office_staff: new Set(['ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage']),
   sales_rep: new Set(['quotes.change']),
   field_crew: new Set([]),
 }
@@ -49,6 +51,7 @@ export const REFUSAL: Record<Action, string> = {
   'inventory.stock': 'Your role cannot change inventory. Ask Jonathan.',
   'records.import': 'Your role cannot import records. Ask Jonathan.',
   'costs.view': 'Your role sees prices, not costs. Ask Jonathan.',
+  'invoices.manage': 'Only the owner and the office can see vendor invoices. Ask Jonathan.',
 }
 
 export function roleCan(role: string | null | undefined, action: Action): boolean {

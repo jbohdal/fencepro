@@ -12,15 +12,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { buildPlan, planVertices, type Plan, type PlanGate } from './sitePlanGeometry'
 import { placeLabels, planScreen, screenLeaves, PLAN_COLORS, type PlanScreen } from './sitePlanLabels'
 import type { LayoutResult, PlanPoint, YardLayout } from './yardLayout'
+import { currentPlanAt, stepDeg, normDeg, type AerialBackdrop } from './sitePlanPhoto'
 
 const { PURPLE, GRAY, LIGHT, INK } = PLAN_COLORS
 
-export interface AerialBackdrop {
-  href: string
-  /** Feet per pixel of the photo, and its size in pixels (square). */
-  ftPerPx: number
-  sizePx: number
-}
+export type { AerialBackdrop }
 
 /** A photo pin on the plan: where it was taken and which way it faced (degrees, 0 = up the page). */
 export interface PlanPin { id: string; x: number; y: number; angle?: number | null; count?: number; highlight?: boolean }
@@ -42,12 +38,13 @@ export function meetsText(m: HouseMeets, names: { left?: string; right?: string 
 
 type Drag =
   | { mode: 'corner'; index: number | 'all'; start: PlanPoint; points: PlanPoint[]; moved: boolean }
+  | { mode: 'plan'; sx: number; sy: number; at: PlanPoint; ftPerPx: number; moved: boolean }
   | { mode: 'house' | 'attach'; which: 'both' | 'left' | 'right'; sy: number; ftPerPx: number; bounds: Plan['bounds']; left: number; right: number; last: string; moved: boolean }
 
 /** A fence move's old line: drawn dashed along a side of the new line, this many feet inside it. */
 export interface PlanOldLine { sideId: string; offsetFt: number; ft: number; label: string }
 
-export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap, oldLine, damaged, onSectionTap }: {
+export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap, oldLine, damaged, onSectionTap, onPlanMove, onRotate, onLineUpTap, lineUpTaps }: {
   layout: YardLayout
   result?: LayoutResult
   runSections?: number[]
@@ -72,6 +69,14 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   damaged?: string[]
   /** With this, each section can be tapped (a repair's damaged sections). */
   onSectionTap?: (key: string) => void
+  /** On the photo: the center button moves the whole plan; the new middle of the plan, feet right and up of the photo's center. */
+  onPlanMove?: (planAt: PlanPoint) => void
+  /** On the photo: a two-finger twist turns the photo (whole degrees). */
+  onRotate?: (rotDeg: number) => void
+  /** Line up: each tap on the photo, in drawing units (y down). */
+  onLineUpTap?: (pt: PlanPoint) => void
+  /** Line up: the taps to mark, in drawing units. */
+  lineUpTaps?: PlanPoint[]
 }) {
   const plan = useMemo(() => buildPlan(layout, result, runSections, widthFt), [layout, result, runSections, widthFt])
   const svgRef = useRef<SVGSVGElement | null>(null)
@@ -109,7 +114,43 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   const sc: PlanScreen = planScreen(plan, { aerial: aerial ?? null, held: heldBounds, fontScale: fs })
   const { W, H, toX, toY, fromX, fromY, ftPerPx } = sc
   const P = (p: PlanPoint) => `${toX(p.x).toFixed(1)},${toY(p.y).toFixed(1)}`
-  const labels = useMemo(() => placeLabels(plan, sc, fs), [plan, heldBounds, fs, aerial?.sizePx, aerial?.ftPerPx])  // eslint-disable-line react-hooks/exhaustive-deps
+  const labels = useMemo(() => placeLabels(plan, sc, fs), [plan, heldBounds, fs, aerial?.sizePx, aerial?.ftPerPx, aerial?.shiftFt?.x, aerial?.shiftFt?.y])  // eslint-disable-line react-hooks/exhaustive-deps
+  const rot = aerial ? normDeg(aerial.rotDeg ?? 0) : 0
+
+  // Two fingers on the photo: a twist turns it. A pinch with no twist does nothing here.
+  const touches = useRef(new Map<number, { x: number; y: number }>())
+  const twist = useRef<{ a0: number; rot0: number; engaged: boolean; last: number } | null>(null)
+  const fingerAngle = () => {
+    const [p, q] = [...touches.current.values()]
+    return (Math.atan2(q.y - p.y, q.x - p.x) * 180) / Math.PI
+  }
+  function touchDown(e: React.PointerEvent) {
+    if (!aerial || !onRotate || e.pointerType !== 'touch') return
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (touches.current.size === 2) {
+      // A second finger: no drag, a twist.
+      drag.current = null
+      setHeldBounds(null)
+      twist.current = { a0: fingerAngle(), rot0: rot, engaged: false, last: rot }
+    }
+  }
+  function touchMove(e: React.PointerEvent): boolean {
+    if (!touches.current.has(e.pointerId)) return false
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const t = twist.current
+    if (!t || touches.current.size !== 2) return false
+    const d = normDeg(fingerAngle() - t.a0)
+    // A few degrees before it counts as a twist, so a pinch never turns the photo.
+    if (!t.engaged && Math.abs(d) < 4) return true
+    t.engaged = true
+    const next = stepDeg(t.rot0 + d)
+    if (next !== t.last) { t.last = next; onRotate?.(next) }
+    return true
+  }
+  function touchUp(e: React.PointerEvent) {
+    touches.current.delete(e.pointerId)
+    if (touches.current.size < 2) twist.current = null
+  }
 
   function screenY(e: React.PointerEvent): number {
     const svg = svgRef.current!
@@ -134,6 +175,14 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     e.stopPropagation()
     try { (e.target as Element).setPointerCapture(e.pointerId) } catch { /* a pointer the browser no longer tracks */ }
   }
+  function startPlanMove(e: React.PointerEvent) {
+    if (!onPlanMove || twist.current) return
+    capture(e)
+    const svg = svgRef.current!
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
+    const q = pt.matrixTransform(svg.getScreenCTM()!.inverse())
+    drag.current = { mode: 'plan', sx: q.x, sy: q.y, at: currentPlanAt(layout), ftPerPx, moved: false }
+  }
   function startDrag(e: React.PointerEvent, index: number | 'all') {
     if (!onPointsChange) return
     capture(e)
@@ -150,8 +199,20 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   const has = (w: 'left' | 'right') => plan.houseAttach.some(h => h.which === w)
   const names = { left: plan.houseAttach.find(h => h.which === 'left')?.name, right: plan.houseAttach.find(h => h.which === 'right')?.name }
   function moveDrag(e: React.PointerEvent) {
+    if (touchMove(e)) return
     const d = drag.current
     if (!d) return
+    if (d.mode === 'plan') {
+      // In drawing units, which do not move with the plan, so it stays under the finger.
+      const svg = svgRef.current!
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
+      const q = pt.matrixTransform(svg.getScreenCTM()!.inverse())
+      const dx = q.x - d.sx, dy = q.y - d.sy
+      if (!d.moved && Math.hypot(dx, dy) < 4) return
+      d.moved = true
+      onPlanMove?.({ x: d.at.x + dx * d.ftPerPx, y: d.at.y - dy * d.ftPerPx })
+      return
+    }
     if (d.mode === 'corner') {
       if (!onPointsChange) return
       const now = svgPoint(e)
@@ -186,9 +247,10 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     const key = JSON.stringify(m)
     if (key !== d.last) { d.last = key; onHouseMeetsChange(m) }
   }
-  const endDrag = () => {
+  const endDrag = (e?: React.PointerEvent) => {
+    if (e) touchUp(e)
     const d = drag.current
-    if (d && d.mode !== 'corner' && d.moved) onHouseDragEnd?.()
+    if (d && (d.mode === 'house' || d.mode === 'attach') && d.moved) onHouseDragEnd?.()
     // Swallow the click that follows a drag so it is not a tap on a side.
     if (d?.moved) setTimeout(() => { drag.current = null }, 0)
     else drag.current = null
@@ -231,13 +293,27 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none touch-none bg-white rounded-xl border border-gray-200"
-      role="img" aria-label={title ?? 'Site plan'} data-site-plan onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
+      role="img" aria-label={title ?? 'Site plan'} data-site-plan onPointerDownCapture={touchDown} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
+      {...(aerial ? { 'data-photo-rotation': String(rot), 'data-ft-per-px': String(aerial.ftPerPx) } : {})}
       onClick={onPlanTap ? planTap : undefined} style={onPlanTap ? { cursor: 'crosshair' } : undefined}>
-      {aerial && <image href={aerial.href} x={0} y={0} width={W} height={H} preserveAspectRatio="none" opacity={0.9} />}
+      {aerial && (aerial.baked
+        // Already turned and cut to the frame (proposal, crew packet, PDF).
+        ? <image href={aerial.href} x={0} y={0} width={W} height={H} preserveAspectRatio="none" data-plan-photo />
+        : (() => {
+          const S = aerial.imagePx ?? W
+          return (
+            <g transform={`translate(${W / 2} ${H / 2}) rotate(${rot})`} opacity={0.9} data-plan-photo>
+              {aerial.tiles
+                // Map tiles, a hair bigger so no seam shows between them.
+                ? aerial.tiles.map(t => <image key={t.href} href={t.href} x={t.x} y={t.y} width={t.size + 0.6} height={t.size + 0.6} preserveAspectRatio="none" />)
+                : <image href={aerial.href} x={-S / 2} y={-S / 2} width={S} height={S} preserveAspectRatio="none" />}
+            </g>
+          )
+        })())}
 
-      {plan.house && !aerial && houseC && (
+      {plan.house && houseC && (
         <g>
-          <polygon points={plan.house.map(P).join(' ')} fill={LIGHT} stroke={GRAY} strokeWidth={1.5}
+          <polygon points={plan.house.map(P).join(' ')} fill={LIGHT} fillOpacity={aerial ? 0.45 : 1} stroke={aerial ? 'white' : GRAY} strokeWidth={aerial ? 2 : 1.5} strokeDasharray={aerial ? '6 4' : undefined}
             onPointerDown={houseMovable ? e => startHouseDrag(e, 'both') : undefined} style={houseMovable ? { cursor: 'ns-resize' } : undefined} data-plan-house />
           {/* While the house can be dragged its handle sits where the word was. */}
           {!houseMovable && <text x={houseC.x} y={houseC.y + (plan.houseNotToScale ? -2 : 5)}
@@ -322,23 +398,49 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
         )
       })}
 
-      {aerial && (
-        <g aria-label="North">
-          <path d={`M${W - 28},${44} l8,-22 l8,22 l-8,-6 z`} fill={INK} stroke="white" strokeWidth={1.5} />
-          <text x={W - 20} y={60} textAnchor="middle" fontSize={12} fontWeight={700} fill={INK} style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3}>N</text>
+      {aerial && (() => {
+        // True north on the turned photo: the arrow turns with it. Points worked out here
+        // (no transform), so the PDF draws it the same.
+        const cx = W - 34, cy = 46
+        const t = (x: number, y: number) => { const r = (rot * Math.PI) / 180; return `${(cx + x * Math.cos(r) - y * Math.sin(r)).toFixed(1)},${(cy + x * Math.sin(r) + y * Math.cos(r)).toFixed(1)}` }
+        return (
+          <g aria-label="North" data-plan-north={String(rot)}>
+            <circle cx={cx} cy={cy} r={22} fill="white" fillOpacity={0.8} stroke={GRAY} strokeWidth={1} />
+            <polygon points={`${t(0, -18)} ${t(7, 6)} ${t(0, 1)} ${t(-7, 6)}`} fill={INK} stroke="white" strokeWidth={1.2} />
+            <text x={cx} y={cy + 38} textAnchor="middle" fontSize={12} fontWeight={700} fill={INK} style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3}>N</text>
+          </g>
+        )
+      })()}
+
+      {aerial && onPlanMove && (
+        <g onPointerDown={startPlanMove} onClick={e => e.stopPropagation()} style={{ cursor: 'move' }} data-plan-move>
+          {/* At least 44 px across on a phone. */}
+          <circle cx={toX(center.x)} cy={toY(center.y)} r={Math.max(16, 22 * unitsPerPx)} fill={PURPLE} fillOpacity={0.85} stroke="white" strokeWidth={2} />
+          <path d={`M${toX(center.x) - 9},${toY(center.y)} h18 M${toX(center.x)},${toY(center.y) - 9} v18`} stroke="white" strokeWidth={2.5} />
         </g>
       )}
 
-      {aerial && onPointsChange && (
-        <g>
-          {plan.vertices.map((p, i) => (
-            <circle key={i} cx={toX(p.x)} cy={toY(p.y)} r={13} fill="white" fillOpacity={0.55} stroke={PURPLE} strokeWidth={2.5}
-              style={{ cursor: 'grab' }} onPointerDown={e => startDrag(e, i)} data-plan-corner={i} />
+      {aerial && onLineUpTap && (
+        // Line up: every tap lands here, not on a side or a button.
+        <rect x={0} y={0} width={W} height={H} fill="transparent" style={{ cursor: 'crosshair' }} data-plan-lineup-area
+          onClick={e => {
+            e.stopPropagation()
+            const svg = svgRef.current!
+            const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
+            const q = pt.matrixTransform(svg.getScreenCTM()!.inverse())
+            onLineUpTap({ x: q.x, y: q.y })
+          }} />
+      )}
+      {aerial && lineUpTaps && lineUpTaps.length > 0 && (
+        <g pointerEvents="none" data-plan-lineup-taps={lineUpTaps.length}>
+          {lineUpTaps.length === 2 && <line x1={lineUpTaps[0].x} y1={lineUpTaps[0].y} x2={lineUpTaps[1].x} y2={lineUpTaps[1].y} stroke="#F97316" strokeWidth={3} strokeDasharray="8 5" />}
+          {lineUpTaps.map((p, i) => (
+            <g key={i}>
+              <circle cx={p.x} cy={p.y} r={11} fill="none" stroke="white" strokeWidth={4} />
+              <circle cx={p.x} cy={p.y} r={11} fill="#F97316" fillOpacity={0.35} stroke="#F97316" strokeWidth={2.5} />
+              <text x={p.x} y={p.y - 16} textAnchor="middle" fontSize={13} fontWeight={700} fill="#9A3412" style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3}>{i + 1}</text>
+            </g>
           ))}
-          <g onPointerDown={e => startDrag(e, 'all')} style={{ cursor: 'move' }} data-plan-move>
-            <circle cx={toX(center.x)} cy={toY(center.y)} r={16} fill={PURPLE} fillOpacity={0.85} />
-            <path d={`M${toX(center.x) - 8},${toY(center.y)} h16 M${toX(center.x)},${toY(center.y) - 8} v16`} stroke="white" strokeWidth={2.5} />
-          </g>
         </g>
       )}
 

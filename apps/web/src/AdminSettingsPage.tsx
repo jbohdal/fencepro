@@ -262,6 +262,12 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
               value={p.priceStaleMonths ?? DEFAULT_PRICE_STALE_MONTHS}
               onChange={e => { const n = Math.round(Number(e.target.value)); if (n >= 1 && n <= 36) setP('priceStaleMonths', n) }} />
           </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Invoice price change waits for my OK above (%)</label>
+            <input type="number" min={1} max={500} step={1} className={inputCls} data-invoice-jump-pct
+              value={p.invoiceJumpPct ?? 20}
+              onChange={e => { const n = Math.round(Number(e.target.value)); if (n >= 1 && n <= 500) setP('invoiceJumpPct', n) }} />
+          </div>
         </div>
       </div>
 
@@ -507,8 +513,7 @@ function OptimizerTab({ config, onChange }: { config: AppConfig; onChange: (c: A
       <div>
         <h3 className="text-xs font-semibold text-gray-500 mb-2">Smart Rail Optimization</h3>
         <p className="text-sm text-gray-500 mb-6">
-          For vinyl jobs, recommends 6ft or 8ft rails per run to minimize material cost and maximize productivity.
-          Recommendation only — does not yet drive the pull-sheet quantities (Milestone B will land that).
+          Picks 6 ft or 8 ft panels for each side to give the lowest price. The pull sheet follows the same choice.
         </p>
 
         <div className="space-y-5">

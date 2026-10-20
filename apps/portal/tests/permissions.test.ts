@@ -34,7 +34,7 @@ describe('the role table', () => {
   test('salesman: quotes only among the guarded actions, no costs; crew: none; office: operations and costs', () => {
     expect(ACTIONS.filter(a => can('sales_rep', a))).toEqual(['quotes.change'])
     expect(ACTIONS.filter(a => can('field_crew', a))).toEqual([])
-    expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'costs.view', 'inventory.stock', 'ops.delete', 'packets.change', 'permits.change', 'quotes.change', 'schedule.change'])
+    expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'costs.view', 'inventory.stock', 'invoices.manage', 'ops.delete', 'packets.change', 'permits.change', 'quotes.change', 'schedule.change'])
     for (const r of ['sales_rep', 'field_crew', 'office_staff']) {
       for (const a of ['settings.change', 'prices.change', 'users.manage', 'records.delete', 'automations.change', 'system'] as Action[]) expect(can(r, a)).toBe(false)
     }

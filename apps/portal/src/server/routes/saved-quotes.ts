@@ -33,6 +33,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
+import { snapshotAfterSigning } from '../lib/jobCosting.js'
 
 const router = Router()
 
@@ -257,6 +258,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     })
     await audit(req, 'create', 'SavedQuote', created.id, { newValues: created })
     await linkQuoteMedia(created)
+    // Job costing: a quote saved as Sold is signed now; its quoted cost is saved once.
+    if (created.status === 'SOLD') await snapshotAfterSigning(created.accountId, created.id, 'app')
     res.status(201).json({ success: true, data: created })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -321,6 +324,8 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     })
     await audit(req, 'update', 'SavedQuote', updated.id, { oldValues: existing, newValues: updated })
     await linkQuoteMedia(updated)
+    // Job costing: marked Sold (signed in person) now; its quoted cost is saved once. A quote already Sold keeps the one from its signing.
+    if (existing.status !== 'SOLD' && updated.status === 'SOLD') await snapshotAfterSigning(updated.accountId, updated.id, 'app')
     res.json({ success: true, data: updated })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -562,6 +567,8 @@ router.post('/share/:token/accept', async (req: any, res) => {
     })
     const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
     console.log(`[saved-quotes] customer accepted quote ${q.id} as "${data.name}"`)
+    // Job costing: the quoted cost, saved once at signing.
+    await snapshotAfterSigning(updated.accountId, updated.id, 'share')
     res.json({ success: true, data: forCustomer(updated) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }

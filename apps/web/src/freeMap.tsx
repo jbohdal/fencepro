@@ -2,13 +2,17 @@
  * Free maps for the drawing and planning tools: Leaflet with no key and no
  * paid account. Two base layers:
  *  - street: OpenStreetMap tiles
- *  - aerial: USGS The National Map imagery (public domain). Its tiles stop at
- *    zoom 16, so closer zooms are the zoom-16 picture enlarged. Points placed
- *    on the map are exact at any zoom; only the picture gets softer.
+ *  - aerial: USGS NAIP Plus (public domain), the same photo service and
+ *    request the quote's yard drawing uses (a picture of each tile's box), down
+ *    to its real resolution (zoom 19, about 0.26 m a pixel here). The map stops
+ *    there and says "Sharpest photo available here": nothing is enlarged.
+ *    (The old USGS Imagery Only tiles stop at zoom 16, about 2 m a pixel, and
+ *    were enlarged eight times at zoom 19.)
  */
 
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { naipTileUrl, NAIP_MAX_NATIVE_ZOOM, NAIP_EXPORT, USGS_BACKUP_MAX_ZOOM } from './sitePlanGeometry'
 
 export type BaseKind = 'aerial' | 'street'
 
@@ -17,6 +21,27 @@ export const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/co
 // Note the order: {y} before {x}.
 export const USGS_TILES = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}'
 export const USGS_ATTRIBUTION = 'USGS The National Map'
+export const NAIP_ATTRIBUTION = 'USGS The National Map: NAIP Plus (public domain)'
+export const SHARPEST_TEXT = 'Sharpest photo available here'
+
+/** The aerial layer: NAIP Plus pictures per tile, up to its real resolution and no further. */
+const NaipLayer = L.TileLayer.extend({
+  getTileUrl(coords: L.Coords) { return naipTileUrl(coords.z, coords.x, coords.y) },
+})
+export function naipLayer(): L.TileLayer {
+  const layer = new (NaipLayer as unknown as new (url: string, o: L.TileLayerOptions) => L.TileLayer)(NAIP_EXPORT, {
+    maxNativeZoom: NAIP_MAX_NATIVE_ZOOM, maxZoom: NAIP_MAX_NATIVE_ZOOM, attribution: NAIP_ATTRIBUTION,
+  })
+  // The photo service sometimes drops a request: a missing tile is asked for again, twice at most.
+  layer.on('tileerror', (e: L.TileErrorEvent) => {
+    const img = e.tile as HTMLImageElement
+    const n = Number(img.dataset.retry || 0)
+    if (n >= 2) return
+    img.dataset.retry = String(n + 1)
+    setTimeout(() => { img.src = `${naipTileUrl(e.coords.z, e.coords.x, e.coords.y)}&again=${n + 1}` }, 1500 * (n + 1))
+  })
+  return layer
+}
 
 export const MAX_ZOOM = 20
 
@@ -36,9 +61,27 @@ export function createFreeMap(el: HTMLElement, opts: { center: [number, number];
   }).setView(opts.center, opts.zoom)
 
   const street = L.tileLayer(OSM_TILES, { maxNativeZoom: 19, maxZoom: MAX_ZOOM, attribution: OSM_ATTRIBUTION })
-  const aerial = L.tileLayer(USGS_TILES, { maxNativeZoom: 16, maxZoom: MAX_ZOOM, attribution: USGS_ATTRIBUTION })
-  let current: L.TileLayer = opts.base === 'aerial' ? aerial : street
+  // Under the sharp photo, the old soft USGS tiles: a tile the photo service does not send in
+  // time shows soft instead of gray. They are enlarged only where the sharp one is missing.
+  const backup = L.tileLayer(USGS_TILES, { maxNativeZoom: USGS_BACKUP_MAX_ZOOM, maxZoom: NAIP_MAX_NATIVE_ZOOM, attribution: USGS_ATTRIBUTION })
+  const aerial = L.featureGroup([backup, naipLayer()])
+  let current: L.TileLayer | L.FeatureGroup = opts.base === 'aerial' ? aerial : street
   current.addTo(map)
+  // The photo is never enlarged past its real resolution: the aerial map stops there and says so.
+  el.setAttribute('data-aerial-source', NAIP_EXPORT)
+  el.setAttribute('data-aerial-max-native-zoom', String(NAIP_MAX_NATIVE_ZOOM))
+  const note = document.createElement('div')
+  note.setAttribute('data-aerial-limit', '')
+  note.textContent = SHARPEST_TEXT
+  note.style.cssText = 'position:absolute;z-index:600;top:56px;left:50%;transform:translateX(-50%);background:rgba(17,24,39,.85);color:#fff;font:600 12px/1.2 system-ui,sans-serif;padding:6px 10px;border-radius:8px;pointer-events:none;white-space:nowrap;display:none'
+  el.appendChild(note)
+  const limits = () => {
+    const onAerial = current === aerial
+    map.setMaxZoom(onAerial ? NAIP_MAX_NATIVE_ZOOM : MAX_ZOOM)
+    note.style.display = onAerial && map.getZoom() >= NAIP_MAX_NATIVE_ZOOM ? 'block' : 'none'
+  }
+  map.on('zoomend', limits)
+  limits()
 
   // The map often sits in a dialog or a panel that is still sizing itself.
   const t = setTimeout(() => map.invalidateSize(), 150)
@@ -55,8 +98,10 @@ export function createFreeMap(el: HTMLElement, opts: { center: [number, number];
       if (next === current) return
       map.removeLayer(current)
       next.addTo(map)
-      next.bringToBack()
+      // (The aerial pair keeps its own order: the sharp photo over the soft backup.)
+      if (next instanceof L.TileLayer) next.bringToBack()
       current = next
+      limits()
     },
     destroy() {
       clearTimeout(t)

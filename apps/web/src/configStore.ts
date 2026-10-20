@@ -100,6 +100,8 @@ export interface PricingConfig {
   overheadHistory?: Array<{ month: string; pct: number }>
   /** A quote warns when a part's Inventory price is older than this many months (default 6). */
   priceStaleMonths?: number
+  /** An uploaded vendor invoice whose landed cost moves an Inventory price by more than this % waits for an OK (default 20). */
+  invoiceJumpPct?: number
 }
 
 export interface MarginThresholds {

@@ -285,7 +285,7 @@ function FenceMapCanvas({
 
       <p className="text-xs text-gray-400 mt-2">
         Tap the map to place fence points. Each segment = one run. Orange dots = end posts. Yellow = corner posts. Drag to adjust.
-        Aerial photos are USGS (free); they get soft when zoomed in close, but measurements stay exact.
+        Aerial photos are USGS NAIP (free), the same as the quote drawing; the map stops at their sharpest zoom. Measurements stay exact.
       </p>
     </div>
   )

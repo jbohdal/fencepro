@@ -1,0 +1,504 @@
+/**
+ * Job costing math: quoted vs actual (Jonathan, Oct 2026). Pure functions,
+ * shared by the server (lib/jobCosting.ts) and the web app (JobCosting.tsx,
+ * JobCostingReport.tsx). Money is integer cents throughout.
+ *
+ * Quoted cost: the sold quote as priced, frozen when it was signed: the pull
+ * sheet lines (qty x unit cost), labor, tear out, and any material on the quote
+ * that is not a pull sheet line (a move's disposal, rounding).
+ *
+ * Actual cost, once the crew's takeoff is in:
+ *   material  = sum over lines of (used qty x landed cost on the install date);
+ *               a job lot invoice linked to the job replaces the Inventory cost
+ *               for the parts it covers. "Used" is what went into the job
+ *               (installed, broken, cut to waste); what came back to the shop or
+ *               went back to the vendor is recorded on the line and is not a job
+ *               cost.
+ *   labor     = sub: units paid (sections or feet, as the quote was priced) x
+ *               the sub rate the quote was priced with; crew: hours x the hourly
+ *               rate in Settings; plus any other labor pay the office adds.
+ *   tear out and other quoted material: carried as quoted (the takeoff does
+ *               not count them), and labeled so.
+ *
+ * Field names: quantities never contain "cost", so the cost scrubber
+ * (lib/costRedact.ts) leaves them for the crew; every cost field does.
+ */
+
+// ── Shapes ────────────────────────────────────────────────────────────────────
+
+/** A pull sheet line as priced at signing (owner and office only). */
+export interface QuotedLine {
+  key: string
+  part: string
+  inventoryItemId: string | null
+  qty: number
+  unitCostCents: number
+  totalCostCents: number
+}
+
+export type LaborMode = 'sub' | 'crew'
+
+export interface QuotedLabor {
+  /** How the quote priced labor: sub (per section or foot), crew (man hours), flat (typed on the quote). */
+  mode: LaborMode | 'flat'
+  subUnit: 'section' | 'foot'
+  /** Sections or feet the sub was to be paid on. */
+  subUnits: number
+  /** The sub rate per unit the quote was priced with. */
+  subRateCostCents: number
+  /** Settings' hourly rate when it was signed. */
+  hourlyCostCents: number
+}
+
+export interface QuotedCost {
+  quoteId: string
+  signedAt: string
+  signedVia: string
+  fenceStyle: string
+  salesRep: string
+  jobType: string
+  sections: number
+  footage: number
+  priceCents: number
+  materialCents: number
+  laborCents: number
+  tearOutCents: number
+  totalCents: number
+  lines: QuotedLine[]
+  labor: QuotedLabor
+}
+
+/** One line of the crew's takeoff: quantities only. */
+export interface TakeoffLine {
+  id: string
+  /** The pull sheet line it came from (QuotedLine.key); null for an item added on the job. */
+  key: string | null
+  part: string
+  inventoryItemId: string | null
+  /** On the pull sheet (0 for an added item). */
+  plannedQty: number
+  /** Went into the job: installed, broken, cut to waste. */
+  usedQty: number
+  /** Brought back to the shop (into stock). */
+  shopReturnQty: number
+  /** Sent back to the vendor (credit expected). */
+  vendorReturnQty: number
+  /** Added on the job, not on the pull sheet. */
+  extra: boolean
+  /** Why it was added: extra, broken, other. */
+  reason: string
+  note: string
+  photoClientId: string | null
+}
+
+export interface CrewHours { id: string; name: string; hours: number }
+
+export interface TakeoffLabor {
+  mode: LaborMode
+  subUnit: 'section' | 'foot'
+  /** Sections (or feet) the sub was paid for. */
+  subUnits: number
+  crew: CrewHours[]
+}
+
+export type TakeoffStatus = 'draft' | 'submitted' | 'approved'
+
+/** Where a line's actual unit cost came from. */
+export type CostSource = 'invoice' | 'job_lot' | 'inventory' | 'quote' | 'none'
+
+export interface ActualLine {
+  lineId: string
+  key: string | null
+  part: string
+  inventoryItemId: string | null
+  plannedQty: number
+  usedQty: number
+  shopReturnQty: number
+  vendorReturnQty: number
+  extra: boolean
+  unitCostCents: number
+  totalCostCents: number
+  costSource: CostSource
+  invoiceId?: string
+}
+
+export interface ActualCost {
+  installDate: string
+  lines: ActualLine[]
+  materialCents: number
+  laborCents: number
+  /** How labor was worked out, in words. */
+  laborMath: string
+  otherLaborCostCents: number
+  tearOutCents: number
+  /** Quoted material not on the pull sheet, carried as quoted. */
+  otherMaterialCents: number
+  totalCents: number
+  /** Frozen (approved) or worked out now (a preview). */
+  frozen: boolean
+}
+
+// ── Small helpers ─────────────────────────────────────────────────────────────
+
+const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : d)
+/** Dollars (a float as saved on quotes and Inventory) to integer cents. */
+export const toCents = (dollars: unknown) => Math.round(num(dollars) * 100)
+/** A quantity: whole or a fraction to 2 places, never negative. */
+export const qty = (v: unknown) => Math.max(0, Math.round(num(v) * 100) / 100)
+
+/** The match key for a part: its Inventory item when known, else its name (case and spaces ignored). */
+export function partKey(p: { inventoryItemId?: string | null; part: string }): string {
+  return p.inventoryItemId ? `id:${p.inventoryItemId}` : `name:${p.part.trim().toLowerCase().replace(/\s+/g, ' ')}`
+}
+
+/** An Inventory item for a pull sheet name: exact name, else the same name ignoring case and spaces. */
+export function findItemId(items: Array<{ id?: unknown; name?: unknown }>, name: string): string | null {
+  const exact = items.find(i => i?.name === name && typeof i.id === 'string')
+  if (exact) return exact.id as string
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
+  const n = norm(name)
+  const loose = items.find(i => typeof i?.name === 'string' && norm(i.name) === n && typeof i.id === 'string')
+  return loose ? (loose.id as string) : null
+}
+
+// ── Quoted cost, at signing ───────────────────────────────────────────────────
+
+export interface QuoteForSnapshot {
+  id: string
+  fenceStyle: string
+  salesRep: string
+  sections: number
+  runs: unknown
+  materialCost: number
+  laborCost: number
+  tearOutCost: number
+  totalCOGS: number
+  finalPrice: number
+  pullSheet: unknown
+  pricing: unknown
+  work: unknown
+}
+
+export interface PricingSettings {
+  laborMode?: string
+  subUnit?: string
+  manHourRate?: number
+  subRateDefault?: number
+  subRateByCategory?: Record<string, number>
+}
+
+export interface StyleForRate { name?: string; category?: string; subRate?: number }
+
+const pos = (v: unknown) => { const n = num(v, NaN); return Number.isFinite(n) && n > 0 ? n : undefined }
+
+/** The sub rate a quote is priced with: its own, the style's, the style category's, Settings' default (as pricingEngine.resolveSubRate). */
+export function subRateFor(style: StyleForRate | undefined, pricing: PricingSettings, quoteOverride?: unknown): number {
+  return pos(quoteOverride) ?? pos(style?.subRate) ?? pos(style?.category ? pricing.subRateByCategory?.[style.category] : undefined) ?? pos(pricing.subRateDefault) ?? 0
+}
+
+/** The quoted cost of a quote as it is now (called once, when it is signed). */
+export function quotedCostOf(q: QuoteForSnapshot, ctx: {
+  inventory: Array<{ id?: unknown; name?: unknown }>
+  pricing: PricingSettings
+  style?: StyleForRate
+  signedVia: string
+  signedAt: Date
+}): QuotedCost {
+  const sheet = Array.isArray(q.pullSheet) ? (q.pullSheet as any[]) : []
+  const lines: QuotedLine[] = sheet
+    .filter(l => l && typeof l.item === 'string' && l.item.trim())
+    .map((l, i) => {
+      const unitCostCents = toCents(l.unitCost)
+      const n = qty(l.qty)
+      return {
+        key: `q${i}`, part: String(l.item), inventoryItemId: findItemId(ctx.inventory, String(l.item)), qty: n,
+        unitCostCents, totalCostCents: typeof l.total === 'number' ? toCents(l.total) : Math.round(n * unitCostCents),
+      }
+    })
+  const pricing = (q.pricing && typeof q.pricing === 'object' ? q.pricing : {}) as Record<string, unknown>
+  const work = (q.work && typeof q.work === 'object' ? q.work : null) as Record<string, unknown> | null
+  const runs = Array.isArray(q.runs) ? (q.runs as unknown[]).map(r => num(typeof r === 'object' && r ? (r as any).ft : r)).filter(n => n > 0) : []
+  const footage = Math.round(runs.reduce((s, n) => s + n, 0))
+  const requested = String(pricing.laborMode ?? ctx.pricing.laborMode ?? 'hourly')
+  const flat = typeof pricing.laborCost === 'number'
+  const subUnit = (pricing.subUnit ?? ctx.pricing.subUnit) === 'section' ? 'section' : 'foot'
+  const laborMode: QuotedLabor['mode'] = flat || work ? 'flat' : requested === 'subcontractor' ? 'sub' : 'crew'
+  const materialCents = toCents(q.materialCost)
+  const laborCents = toCents(q.laborCost)
+  const tearOutCents = toCents(q.tearOutCost)
+  return {
+    quoteId: q.id, signedAt: ctx.signedAt.toISOString(), signedVia: ctx.signedVia, fenceStyle: q.fenceStyle, salesRep: q.salesRep,
+    jobType: work && (work.type === 'move' || work.type === 'repair') ? String(work.type) : 'new',
+    sections: Math.max(0, Math.round(num(q.sections))), footage,
+    priceCents: toCents(q.finalPrice), materialCents, laborCents, tearOutCents,
+    totalCents: toCents(q.totalCOGS) || materialCents + laborCents + tearOutCents,
+    lines,
+    labor: {
+      mode: laborMode, subUnit, subUnits: subUnit === 'section' ? Math.max(0, Math.round(num(q.sections))) : footage,
+      subRateCostCents: toCents(subRateFor(ctx.style, ctx.pricing, pricing.subRate)), hourlyCostCents: toCents(ctx.pricing.manHourRate),
+    },
+  }
+}
+
+/** Quoted material that is not a pull sheet line (a move's disposal, rounding); never below 0. */
+export function otherQuotedMaterial(q: Pick<QuotedCost, 'materialCents' | 'lines'>): number {
+  return Math.max(0, q.materialCents - q.lines.reduce((s, l) => s + l.totalCostCents, 0))
+}
+
+// ── The takeoff ───────────────────────────────────────────────────────────────
+
+/** The takeoff's starting lines: the pull sheet, used = planned. */
+export function linesFromQuoted(lines: QuotedLine[], newId: (key: string) => string): TakeoffLine[] {
+  return lines.map(l => ({
+    id: newId(l.key), key: l.key, part: l.part, inventoryItemId: l.inventoryItemId, plannedQty: l.qty, usedQty: l.qty,
+    shopReturnQty: 0, vendorReturnQty: 0, extra: false, reason: '', note: '', photoClientId: null,
+  }))
+}
+
+/** The takeoff's starting labor: as the quote was priced (sub units = the quote's sections or feet). */
+export function laborFromQuoted(q: QuotedLabor | null, fallback: { mode: LaborMode; subUnit: 'section' | 'foot'; subUnits: number }): TakeoffLabor {
+  if (!q) return { mode: fallback.mode, subUnit: fallback.subUnit, subUnits: fallback.subUnits, crew: [] }
+  return { mode: q.mode === 'sub' ? 'sub' : 'crew', subUnit: q.subUnit, subUnits: q.mode === 'sub' ? q.subUnits : 0, crew: [] }
+}
+
+export const crewHoursTotal = (l: TakeoffLabor) => Math.round(l.crew.reduce((s, c) => s + qty(c.hours), 0) * 100) / 100
+
+// ── Actual cost ───────────────────────────────────────────────────────────────
+
+export interface UnitCost { cents: number; source: CostSource; invoiceId?: string }
+
+/**
+ * The actual cost of a takeoff. `unitCostOf` gives each line's landed cost
+ * (job lot invoice, else Inventory on the install date, else the quote's).
+ */
+export function actualCostOf(t: { lines: TakeoffLine[]; labor: TakeoffLabor; installDate: string }, ctx: {
+  quoted: QuotedCost | null
+  unitCostOf: (line: TakeoffLine) => UnitCost
+  /** Settings' hourly rate (crew hours). */
+  hourlyCostCents: number
+  /** The sub rate when there is no quoted cost (Settings now). */
+  subRateCostCents: number
+  otherLaborCostCents: number
+  frozen: boolean
+}): ActualCost {
+  const lines: ActualLine[] = t.lines.map(l => {
+    const u = ctx.unitCostOf(l)
+    const used = qty(l.usedQty)
+    return {
+      lineId: l.id, key: l.key, part: l.part, inventoryItemId: l.inventoryItemId, plannedQty: qty(l.plannedQty), usedQty: used, shopReturnQty: qty(l.shopReturnQty), vendorReturnQty: qty(l.vendorReturnQty),
+      extra: l.extra, unitCostCents: u.cents, totalCostCents: Math.round(used * u.cents), costSource: u.source, ...(u.invoiceId ? { invoiceId: u.invoiceId } : {}),
+    }
+  })
+  const materialCents = lines.reduce((s, l) => s + l.totalCostCents, 0)
+  const other = Math.max(0, Math.round(ctx.otherLaborCostCents))
+  let laborCents: number
+  let laborMath: string
+  if (t.labor.mode === 'sub') {
+    const rate = ctx.quoted?.labor.subRateCostCents || ctx.subRateCostCents
+    const units = qty(t.labor.subUnits)
+    laborCents = Math.round(units * rate)
+    laborMath = `${units} ${t.labor.subUnit === 'section' ? 'sections' : 'ft'} paid × ${usd(rate)}`
+  } else {
+    const hours = crewHoursTotal(t.labor)
+    laborCents = Math.round(hours * ctx.hourlyCostCents)
+    laborMath = `${hours} crew hours × ${usd(ctx.hourlyCostCents)}/hr`
+  }
+  if (other) laborMath += ` + ${usd(other)} other labor`
+  laborCents += other
+  const tearOutCents = ctx.quoted?.tearOutCents ?? 0
+  const otherMaterialCents = ctx.quoted ? otherQuotedMaterial(ctx.quoted) : 0
+  return {
+    installDate: t.installDate, lines, materialCents, laborCents, laborMath, otherLaborCostCents: other, tearOutCents, otherMaterialCents,
+    totalCents: materialCents + laborCents + tearOutCents + otherMaterialCents, frozen: ctx.frozen,
+  }
+}
+
+/**
+ * Unit cost from job lot invoice lines, by Inventory item: each line's landed
+ * cents is what the whole line really cost (its amount plus its share of tax,
+ * freight and fees; lib/priceHistory.ts), so the unit cost is the lines'
+ * landed total over their quantity.
+ */
+export function jobLotUnitCosts(lines: Array<{ invoiceId: string; inventoryItemId: string | null; quantity: number; landedCents: number }>): Map<string, UnitCost> {
+  const acc = new Map<string, { qty: number; cents: number; invoiceId: string }>()
+  for (const l of lines) {
+    if (!l.inventoryItemId || !(l.quantity > 0) || !(l.landedCents >= 0)) continue
+    const a = acc.get(l.inventoryItemId) ?? { qty: 0, cents: 0, invoiceId: l.invoiceId }
+    a.qty += l.quantity
+    a.cents += l.landedCents
+    acc.set(l.inventoryItemId, a)
+  }
+  return new Map([...acc].map(([id, a]) => [id, { cents: Math.round(a.cents / a.qty), source: 'job_lot' as const, invoiceId: a.invoiceId }]))
+}
+
+// ── Quoted vs actual ──────────────────────────────────────────────────────────
+
+export interface CompareRow {
+  part: string
+  extra: boolean
+  plannedQty: number
+  usedQty: number
+  qtyDiff: number
+  shopReturnQty: number
+  vendorReturnQty: number
+  quotedUnitCostCents: number
+  actualUnitCostCents: number
+  quotedCostCents: number
+  actualCostCents: number
+  diffCostCents: number
+  costSource: CostSource | null
+}
+
+export interface Comparison {
+  rows: CompareRow[]
+  quoted: { materialCents: number; laborCents: number; tearOutCents: number; otherMaterialCents: number; totalCents: number; priceCents: number; profitCents: number; marginPct: number } | null
+  actual: { materialCents: number; laborCents: number; tearOutCents: number; otherMaterialCents: number; totalCents: number; priceCents: number; profitCents: number; marginPct: number; laborMath: string } | null
+  diffCents: number | null
+}
+
+/** Profit and margin % (to 0.1) for a price and a cost. */
+export function marginOf(priceCents: number, costCents: number): { profitCents: number; marginPct: number } {
+  const profitCents = priceCents - costCents
+  return { profitCents, marginPct: priceCents > 0 ? Math.round((profitCents / priceCents) * 1000) / 10 : 0 }
+}
+
+/**
+ * Line by line: each pull sheet line next to what the crew confirmed, items
+ * added on the job last. `priceCents` for actual is the job's contract value
+ * (change orders in); quoted uses the price it was signed at.
+ */
+export function compare(quoted: QuotedCost | null, actual: ActualCost | null, actualPriceCents: number): Comparison {
+  const rows: CompareRow[] = []
+  const byKey = new Map<string, ActualLine[]>()
+  for (const a of actual?.lines ?? []) {
+    const k = a.key ?? `extra:${partKey(a)}`
+    byKey.set(k, [...(byKey.get(k) ?? []), a])
+  }
+  const sum = (ls: ActualLine[], f: (l: ActualLine) => number) => ls.reduce((s, l) => s + f(l), 0)
+  for (const q of quoted?.lines ?? []) {
+    const as = byKey.get(q.key) ?? []
+    byKey.delete(q.key)
+    const used = actual ? sum(as, l => l.usedQty) : 0
+    const actualCost = sum(as, l => l.totalCostCents)
+    rows.push({
+      part: q.part, extra: false, plannedQty: q.qty, usedQty: used, qtyDiff: actual ? round2(used - q.qty) : 0,
+      shopReturnQty: sum(as, l => l.shopReturnQty), vendorReturnQty: sum(as, l => l.vendorReturnQty),
+      quotedUnitCostCents: q.unitCostCents, actualUnitCostCents: as[0]?.unitCostCents ?? 0,
+      quotedCostCents: q.totalCostCents, actualCostCents: actualCost, diffCostCents: actual ? actualCost - q.totalCostCents : 0, costSource: as[0]?.costSource ?? null,
+    })
+  }
+  // Lines with no quoted line: added on the job (or a takeoff with no quoted cost).
+  for (const as of byKey.values()) {
+    const a = as[0]
+    const used = sum(as, l => l.usedQty)
+    const planned = sum(as, l => l.plannedQty)
+    rows.push({
+      part: a.part, extra: as.every(l => l.extra), plannedQty: planned, usedQty: used, qtyDiff: round2(used - planned),
+      shopReturnQty: sum(as, l => l.shopReturnQty), vendorReturnQty: sum(as, l => l.vendorReturnQty),
+      quotedUnitCostCents: 0, actualUnitCostCents: a.unitCostCents, quotedCostCents: 0, actualCostCents: sum(as, l => l.totalCostCents),
+      diffCostCents: quoted ? sum(as, l => l.totalCostCents) : 0, costSource: a.costSource,
+    })
+  }
+  const q = quoted ? (() => {
+    const other = otherQuotedMaterial(quoted)
+    return { materialCents: quoted.materialCents - other, laborCents: quoted.laborCents, tearOutCents: quoted.tearOutCents, otherMaterialCents: other, totalCents: quoted.totalCents, priceCents: quoted.priceCents, ...marginOf(quoted.priceCents, quoted.totalCents) }
+  })() : null
+  const a = actual ? { materialCents: actual.materialCents, laborCents: actual.laborCents, tearOutCents: actual.tearOutCents, otherMaterialCents: actual.otherMaterialCents, totalCents: actual.totalCents, priceCents: actualPriceCents, laborMath: actual.laborMath, ...marginOf(actualPriceCents, actual.totalCents) } : null
+  return { rows, quoted: q, actual: a, diffCents: q && a ? a.totalCents - q.totalCents : null }
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+// ── The report ────────────────────────────────────────────────────────────────
+
+/** One completed job in the report. Costs are null when there is no takeoff (or no quoted cost). */
+export interface ReportJob {
+  jobId: string
+  customerName: string
+  fenceStyle: string
+  salesRep: string
+  /** YYYY-MM of the install date (or completion). */
+  month: string
+  priceCents: number
+  quotedCents: number | null
+  actualCents: number | null
+  /** No approved takeoff: "No takeoff". */
+  takeoff: TakeoffStatus | 'none'
+  /** Per part: planned vs used (approved takeoffs only). */
+  parts: Array<{ part: string; plannedQty: number; usedQty: number }>
+}
+
+export interface ReportGroup {
+  key: string
+  label: string
+  jobs: number
+  /** Jobs with an approved takeoff and a quoted cost (what the totals are made of). */
+  costed: number
+  noTakeoff: number
+  priceCents: number
+  quotedCents: number
+  actualCents: number
+  diffCents: number
+  profitCents: number
+  marginPct: number
+}
+
+/** Group jobs; the money adds up only jobs with both a quoted cost and an approved takeoff. */
+export function groupReport(jobs: ReportJob[], keyOf: (j: ReportJob) => string, labelOf: (key: string) => string = k => k): ReportGroup[] {
+  const groups = new Map<string, ReportGroup>()
+  for (const j of jobs) {
+    const key = keyOf(j) || 'Not set'
+    const g = groups.get(key) ?? { key, label: labelOf(key), jobs: 0, costed: 0, noTakeoff: 0, priceCents: 0, quotedCents: 0, actualCents: 0, diffCents: 0, profitCents: 0, marginPct: 0 }
+    g.jobs += 1
+    if (j.takeoff !== 'approved') g.noTakeoff += 1
+    if (j.takeoff === 'approved' && j.quotedCents != null && j.actualCents != null) {
+      g.costed += 1
+      g.priceCents += j.priceCents
+      g.quotedCents += j.quotedCents
+      g.actualCents += j.actualCents
+    }
+    groups.set(key, g)
+  }
+  return [...groups.values()].map(g => {
+    const m = marginOf(g.priceCents, g.actualCents)
+    return { ...g, diffCents: g.actualCents - g.quotedCents, profitCents: m.profitCents, marginPct: m.marginPct }
+  }).sort((a, b) => b.jobs - a.jobs || a.label.localeCompare(b.label))
+}
+
+export interface PartTrend { part: string; jobs: number; overJobs: number; underJobs: number; overQty: number; underQty: number; netQty: number }
+
+/** Parts most often over or under the pull sheet, across approved takeoffs (to fix the kits). */
+export function partTrends(jobs: ReportJob[]): PartTrend[] {
+  const m = new Map<string, PartTrend>()
+  for (const j of jobs) {
+    if (j.takeoff !== 'approved') continue
+    for (const p of j.parts) {
+      const t = m.get(p.part) ?? { part: p.part, jobs: 0, overJobs: 0, underJobs: 0, overQty: 0, underQty: 0, netQty: 0 }
+      const d = round2(p.usedQty - p.plannedQty)
+      t.jobs += 1
+      if (d > 0) { t.overJobs += 1; t.overQty = round2(t.overQty + d) }
+      if (d < 0) { t.underJobs += 1; t.underQty = round2(t.underQty - d) }
+      t.netQty = round2(t.netQty + d)
+      m.set(p.part, t)
+    }
+  }
+  return [...m.values()].filter(t => t.overJobs || t.underJobs).sort((a, b) => (b.overJobs + b.underJobs) - (a.overJobs + a.underJobs) || Math.abs(b.netQty) - Math.abs(a.netQty))
+}
+
+/** Planned vs used per part for one takeoff (same part on two lines is one). */
+export function partsOf(lines: TakeoffLine[]): Array<{ part: string; plannedQty: number; usedQty: number }> {
+  const m = new Map<string, { part: string; plannedQty: number; usedQty: number }>()
+  for (const l of lines) {
+    const p = m.get(l.part) ?? { part: l.part, plannedQty: 0, usedQty: 0 }
+    p.plannedQty = round2(p.plannedQty + qty(l.plannedQty))
+    p.usedQty = round2(p.usedQty + qty(l.usedQty))
+    m.set(l.part, p)
+  }
+  return [...m.values()]
+}
+
+export function usd(cents: number): string {
+  const neg = cents < 0
+  const s = (Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return `${neg ? '-' : ''}$${s}`
+}

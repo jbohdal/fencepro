@@ -88,7 +88,15 @@ export interface YardLayout {
      *  When the lengths change after, the drag no longer applies. Unset on the
      *  aerial photo, where corners are placed on the picture. */
     pointsFor?: string | null
-    aerial?: { lat: number; lng: number; halfM: number; address: string } | null
+    aerial?: {
+      lat: number; lng: number; halfM: number; address: string
+      /** How far the photo is turned, degrees clockwise on screen, in (−180, 180]. Unset: 0 (north up). */
+      rotDeg?: number | null
+      /** Where the middle of the plan sits on the photo: feet right and up of the photo's center. Unset: where the points put it. */
+      planAt?: PlanPoint | null
+      /** The photo was on when last saved: it shows under the plan on the proposal and crew packet. */
+      shown?: boolean | null
+    } | null
     /** Compass heading (degrees) of "up the page", from standing at the house
      *  and pointing the phone at the back fence. Used without an aerial photo. */
     facingRef?: number | null

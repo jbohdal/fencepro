@@ -48,6 +48,7 @@ import { workOption, buildWorkProposal } from './proposal'
 import { signedInRole, can } from './permissions'
 import { useServerQuoteView, viewCalc, viewWork, viewTiers, viewCompare, viewProposalOptions } from './quoteViewApi'
 import type { QuoteJobRequest } from './quoteJob'
+import { bakedBackdrop } from './aerialBake'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
 /** "2026-10-19" → "Oct 19, 2026" */
@@ -766,7 +767,7 @@ export default function QuoteBuilder({
   const showOptimizer = optSettings.enabled && optSettings.showDetailsInBuilder && !!calc.optimizer
   const optimizerResult = calc.optimizer
 
-  function handleSave(data: {
+  async function handleSave(data: {
     customerId: string
     customerName: string
     customerPhone: string
@@ -778,6 +779,8 @@ export default function QuoteBuilder({
     notes: string
     leadTemp: number
   }) {
+    // The aerial photo, turned as saved, under the plan on the proposal (when it is on).
+    const photo = fromLayout && yard ? await bakedBackdrop(yard) : null
     const company = { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' }
     const warranty = getContractSections().find(x => x.key === 'warranty' && x.visible !== false)?.body ?? ''
     // A move or repair keeps what was entered and every cost line it was priced with (internal).
@@ -786,7 +789,7 @@ export default function QuoteBuilder({
       photoOverride: init?.work?.photoOverride ?? null,
     }) : undefined
     const runSecs = calc.perRunSections.filter((_, i) => effRuns[i].ft > 0)
-    const workPlan = fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt}
+    const workPlan = fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo}
       oldLine={jobType === 'move' && moveIn.oldLinePlan ? { ...moveIn.oldLinePlan, ft: moveIn.oldFt, label: `Old line ${Math.round(moveIn.oldFt)} ft` } : null}
       damaged={jobType === 'repair' ? repairIn.tapped : undefined} />) : undefined
     const workProposal = work && style && savedWork ? (() => {
@@ -863,7 +866,7 @@ export default function QuoteBuilder({
         ownPrice: adjPrice,
         company: { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' },
         customer: { name: data.customerName, address: data.customerAddress },
-        planSvg: fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} />) : undefined,
+        planSvg: fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo} />) : undefined,
         warranty: getContractSections().find(x => x.key === 'warranty' && x.visible !== false)?.body ?? '',
         settings: cfg.proposal ?? {},
         photoIds,
