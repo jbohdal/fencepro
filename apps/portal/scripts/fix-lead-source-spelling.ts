@@ -15,9 +15,12 @@ import os from 'os'
 import path from 'path'
 import { PrismaClient } from '@prisma/client'
 import { liveDatabaseMisuse, LIVE_DATABASE_NAME } from '../src/server/lib/liveGuard.js'
+import { assertLiveWriteAllowed } from '../src/server/lib/liveWriteGuard.js'
 
 const FROM = 'refferal', TO = 'Referral'
 const APPLY = process.argv.includes('--apply')
+// --apply on the live database also needs EZBIZ_LIVE_WRITE_OK=1 and a backup from the last 30 minutes (lib/liveWriteGuard.ts).
+if (APPLY) assertLiveWriteAllowed('fix-lead-source-spelling.ts')
 const dbUrl = process.env.DATABASE_URL || ''
 const dbName = (() => { try { return decodeURIComponent(new URL(dbUrl).pathname.replace(/^\//, '')) } catch { return '' } })()
 const misuse = liveDatabaseMisuse(dbUrl, process.cwd())

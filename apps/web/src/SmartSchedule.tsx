@@ -6,8 +6,9 @@ import { createFreeMap, centeredIcon, aboveIcon, type FreeMap } from './freeMap'
 import { lookupPosition } from './appointmentsStore'
 import { clusterByDistance } from './geoUtils'
 import type { LatLng } from './geoUtils'
-import { cloudStorage } from './cloudStorage'
-import { stageOf, stageName } from './opsStagesStore'
+import { stageOf, stageName, stagePhase } from './opsStagesStore'
+import { loadSchedule } from './scheduleStore'
+import { addWorkDays, onWorkDay } from './workDays'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -18,7 +19,6 @@ const CLUSTER_COLORS = ['#f97316', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '
 
 interface SchedulableJob {
   id: string
-  source: 'jobs' | 'staging'
   customerName: string
   address: string
   fenceType: string
@@ -36,12 +36,13 @@ interface SchedulableJob {
   scheduledDate: string
   lat?: number
   lng?: number
-  // staging-specific
-  stagingStatus?: string
-  manhoursSold?: number
+  /** The job's Operations stage name (Settings > Operations Stages). */
+  stageLabel: string
+  /** In a side lane (on hold): shown gray with its stage name. */
+  held: boolean
 }
 
-/* ───────── Load from both stores ───────── */
+/* ───────── Load from the jobs ───────── */
 
 function loadSchedulableJobs(): SchedulableJob[] {
   const result: SchedulableJob[] = []
@@ -50,9 +51,9 @@ function loadSchedulableJobs(): SchedulableJob[] {
   const jobs = getJobs()
   jobs.filter(j => j.status === 'staging' || j.status === 'scheduled' || j.status === 'on_hold')
     .forEach(j => {
+      const stage = stageOf(j)
       result.push({
         id: j.id,
-        source: 'jobs',
         customerName: j.customerName,
         address: j.customerAddress,
         fenceType: j.fenceStyle,
@@ -70,61 +71,19 @@ function loadSchedulableJobs(): SchedulableJob[] {
         scheduledDate: j.scheduledDate,
         lat: j.lat,
         lng: j.lng,
-        // A job on hold shows the name of its side lane (Settings > Operations Stages).
-        stagingStatus: j.status === 'on_hold' ? stageName(stageOf(j)) : j.status,
+        // The job's Operations stage; a job on hold shows the name of its side lane.
+        stageLabel: stageName(stage) || j.status,
+        held: j.status === 'on_hold' || stagePhase(stage) === 'on_hold',
       })
     })
-
-  // From staging store (catch jobs not yet in the unified store)
-  try {
-    const raw = cloudStorage.getItem('fencepro_staging')
-    if (raw) {
-      const staging = JSON.parse(raw) as any[]
-      const jobIds = new Set(result.map(r => r.id))
-      const stageStatuses = new Set([
-        'Awaiting Locates', 'Need Drawing', 'Materials Ordered', 'Ready to Pull',
-        'Scheduled', 'Customer Delay', 'Hold (HOA)', 'Deed Restricted', 'Backorder',
-      ])
-
-      staging.filter(s => stageStatuses.has(s.status) && !jobIds.has(s.id))
-        .forEach(s => {
-          result.push({
-            id: s.id,
-            source: 'staging',
-            customerName: s.clientName,
-            address: s.area || '',
-            fenceType: s.fenceType,
-            sections: s.sections,
-            estimatedDays: Math.max(1, Math.ceil((s.sections || 10) / 15)),
-            contractValue: s.jobPrice || 0,
-            tearOut: s.tearout || false,
-            materialsStatus: s.status === 'Materials Ordered' ? 'ordered' : s.status === 'Ready to Pull' ? 'received' : 'not_ordered',
-            locatesExpDate: s.locatesExpDate,
-            locatesGoodDate: s.locatesGoodDate,
-            drawingComplete: s.status !== 'Need Drawing',
-            pullSheetPulled: s.status === 'Ready to Pull',
-            notes: s.notes || '',
-            crewAssigned: '',
-            scheduledDate: '',
-            lat: undefined,
-            lng: undefined,
-            stagingStatus: s.status,
-            manhoursSold: s.manhoursSold,
-          })
-        })
-    }
-  } catch { /* ignore */ }
 
   return result
 }
 
 /* ───────── Tags ───────── */
 
-/** On hold: a job in a side lane, or an old Staging sheet row in one of its hold statuses. */
-function isHeld(job: SchedulableJob): boolean {
-  if (job.source === 'jobs') return !['staging', 'scheduled'].includes(job.stagingStatus || '')
-  return ['Customer Delay', 'Hold (HOA)', 'Deed Restricted', 'Backorder'].includes(job.stagingStatus || '')
-}
+/** On hold: a job in a side lane of Settings > Operations Stages. */
+const isHeld = (job: SchedulableJob): boolean => job.held
 
 interface Tag { label: string; bg: string; text: string }
 
@@ -169,9 +128,8 @@ function getJobTags(job: SchedulableJob): Tag[] {
   // Drawing
   if (!job.drawingComplete) tags.push({ label: 'Need Drawing', bg: 'bg-yellow-50', text: 'text-yellow-700' })
 
-  // Hold statuses
-  if (isHeld(job))
-    tags.push({ label: job.stagingStatus!, bg: 'bg-gray-200', text: 'text-gray-600' })
+  // The Operations stage first; a hold (side lane) in gray.
+  if (job.stageLabel) tags.unshift(isHeld(job) ? { label: job.stageLabel, bg: 'bg-gray-200', text: 'text-gray-600' } : { label: job.stageLabel, bg: 'bg-sky-50', text: 'text-sky-700' })
 
   return tags
 }
@@ -248,7 +206,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
       const result = await geocodeAddress(updated[i].address)
       if (result.coords) {
         updated[i] = { ...updated[i], lat: result.coords.lat, lng: result.coords.lng }
-        if (updated[i].source === 'jobs') updateJob(updated[i].id, { lat: result.coords.lat, lng: result.coords.lng })
+        updateJob(updated[i].id, { lat: result.coords.lat, lng: result.coords.lng })
       } else {
         errors[updated[i].id] = result.error || 'Unknown error'
       }
@@ -355,7 +313,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
       box-shadow:0 1px 4px rgba(0,0,0,0.3);cursor:pointer;
       ${isSelected ? 'outline:3px solid ' + color + ';outline-offset:2px;' : ''}
     `
-    el.title = `${job.customerName} — ${job.address}\n${styleLabel(job.fenceType)} · ${job.sections} sections\nStage: ${job.stagingStatus || 'staging'}${job.scheduledDate ? '\nScheduled: ' + job.scheduledDate : ''}`
+    el.title = `${job.customerName} — ${job.address}\n${styleLabel(job.fenceType)} · ${job.sections} sections\nStage: ${job.stageLabel}${job.scheduledDate ? '\nScheduled: ' + job.scheduledDate : ''}`
 
     const marker = L.marker([job.lat, job.lng], { icon: centeredIcon(el), keyboard: false, zIndexOffset: isSelected ? 1000 : 0 }).addTo(group)
     marker.on('click', () => setSelectedJobId(job.id === selectedJobId ? null : job.id))
@@ -377,9 +335,8 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
     if (!crewName || !startDate) return
     const job = allJobs.find(j => j.id === jobId)
     if (!job) return
-    if (job.source === 'jobs') {
-      updateJob(jobId, { status: 'scheduled', crewAssigned: crewName, scheduledDate: startDate })
-    }
+    // Never on a crew day off (Settings: Monday to Thursday by default).
+    updateJob(jobId, { status: 'scheduled', crewAssigned: crewName, scheduledDate: onWorkDay(startDate, loadSchedule().settings.workDays) })
     setApplied(`Scheduled ${job.customerName}`)
     setTimeout(() => { setApplied(''); setAllJobs(loadSchedulableJobs()) }, 1500)
   }
@@ -388,14 +345,12 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
     if (!crewName || !startDate) return
     const cluster = clusters[ci]
     if (!cluster) return
+    // Each job starts after the one before it, counted in crew working days only.
+    const workDays = loadSchedule().settings.workDays
     let dateOffset = 0
     cluster.items.forEach(job => {
-      const d = new Date(startDate)
-      d.setDate(d.getDate() + dateOffset)
-      if (job.source === 'jobs') {
-        updateJob(job.id, { status: 'scheduled', crewAssigned: crewName, scheduledDate: d.toISOString().slice(0, 10) })
-      }
-      dateOffset += job.estimatedDays
+      updateJob(job.id, { status: 'scheduled', crewAssigned: crewName, scheduledDate: addWorkDays(startDate, dateOffset, workDays) })
+      dateOffset += Math.max(1, job.estimatedDays || 1)
     })
     setApplied(`Scheduled ${cluster.items.length} jobs`)
     setTimeout(() => { setApplied(''); setAllJobs(loadSchedulableJobs()); setSelectedCluster(null) }, 1500)
@@ -524,7 +479,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
               const tags = getJobTags(job)
               const isSel = job.id === selectedJobId
               return (
-                <div key={job.id}
+                <div key={job.id} data-smart-job={job.id} data-smart-job-stage={job.stageLabel} data-smart-job-held={job.held ? 'yes' : 'no'}
                   onClick={() => { setSelectedJobId(isSel ? null : job.id); if (job.lat && job.lng && freeRef.current) freeRef.current.map.panTo([job.lat, job.lng]) }}
                   className={`px-3 py-2.5 border-b border-gray-50 cursor-pointer transition-colors ${isSel ? 'bg-orange-50 border-l-2 border-l-orange-500' : 'hover:bg-gray-50'}`}>
                   <div className="flex items-center justify-between">
@@ -538,7 +493,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
                     ))}
                   </div>
                   {isSel && crewName && startDate && (
-                    <button onClick={e => { e.stopPropagation(); scheduleJob(job.id) }}
+                    <button onClick={e => { e.stopPropagation(); scheduleJob(job.id) }} data-smart-schedule-job
                       className="w-full mt-2 bg-orange-500 text-white text-xs font-semibold py-1.5 rounded-lg">
                       Schedule → {crewName} on {startDate}
                     </button>
@@ -548,7 +503,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
             })}
             {filtered.length === 0 && (
               <div className="text-center py-8 text-xs text-gray-400">
-                {allJobs.length === 0 ? 'No jobs in staging' : 'No jobs match filter'}
+                {allJobs.length === 0 ? 'No sold jobs waiting to be scheduled' : 'No jobs match filter'}
               </div>
             )}
           </div>

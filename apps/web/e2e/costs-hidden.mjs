@@ -21,6 +21,7 @@
 //   5. The owner still sees all of it.
 // Screenshot (E2E_SHOTS): dev-salesman-quote-no-costs.png (phone).
 // Dev only (port 4001). Removes both logins, the customer and every quote it made.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import fs from 'fs'
 import path from 'path'

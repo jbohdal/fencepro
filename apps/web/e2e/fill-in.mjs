@@ -8,6 +8,8 @@
 // commercial chain link walk gate, starts a Durafence parts list with a new
 // part, saves each, and checks Inventory, the kits and a quote's material.
 // Puts Inventory and the styles back after.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
 const API = 'http://localhost:4001', TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }

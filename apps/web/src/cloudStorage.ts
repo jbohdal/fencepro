@@ -40,7 +40,6 @@ export const CLOUD_KEYS = [
   'fencepro_imported_quotes',
   'fencepro_files',
   'fencepro_siteplans',
-  'fencepro_staging',
 ] as const
 export type CloudKey = typeof CLOUD_KEYS[number]
 const KEY_SET = new Set<string>(CLOUD_KEYS)
@@ -88,7 +87,6 @@ const LABELS: Record<CloudKey, string> = {
   fencepro_imported_quotes: 'Imported quotes',
   fencepro_files: 'Customer files',
   fencepro_siteplans: 'Site plans',
-  fencepro_staging: 'Staging',
 }
 
 /** Load every key for the company. Called once after login. */

@@ -7,6 +7,7 @@
 //
 // Makes quotes with a drawn backyard, opens each in the builder, then deletes them.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:5173'

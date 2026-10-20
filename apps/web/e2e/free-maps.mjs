@@ -1,10 +1,14 @@
 // Smart Schedule, Site Plans and the Map Quote on free maps (no Google Maps).
+// Smart Schedule also: its jobs come from Jobs with their Operations stage, a
+// job on hold shows its side lane in gray, and Schedule sends the job as
+// scheduled (the save is caught and stopped, so dev data is not changed).
 //
 //   E2E_ACCESS_TOKEN=<dev staff token> SHOTS=<folder, optional> node e2e/free-maps.mjs
 //
 // Dev only (4001), writes nothing (every save is stopped). Each opens on free
 // tiles with no request to Google and no page error; the map quote measures a
 // run of known length from two taps.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 const APP = 'http://localhost:4001', TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
@@ -24,12 +28,37 @@ async function page(phone = false) {
 }
 const tiles = (p, sel) => p.locator(`${sel} .leaflet-tile-loaded`).count()
 try {
-  // Smart Schedule
+  // Smart Schedule. One staging job is shown on hold in Customer Delay: the
+  // jobs list is changed on its way in, nothing is saved.
   let { c, p } = await page()
+  let heldId = ''
+  await c.route(/\/api\/saved-jobs\/?(\?.*)?$/, async r => {
+    if (r.request().method() !== 'GET') return r.abort()
+    const res = await r.fetch(); const json = await res.json()
+    const j = Array.isArray(json?.data) ? json.data.find(x => x.status === 'staging') : null
+    if (j) { heldId = j.id; j.previousStatus = j.status; j.status = 'on_hold'; j.opsStage = 'customer_delay' }
+    await r.fulfill({ response: res, json })
+  })
+  const jobSaves = []
+  p.on('request', r => { if (r.method() === 'PATCH' && /\/api\/saved-jobs\//.test(r.url())) jobSaves.push(r.postDataJSON()) })
   await p.goto(`${APP}/dispatch`); await p.waitForSelector('[data-global-appointment]', { timeout: 60000 }); await sleep(1500)
   await p.locator('button:has-text("Smart Schedule")').click(); await p.waitForSelector('[data-smart-schedule-map]'); await sleep(8000)
   check('Smart Schedule: free street map with job dots', (await tiles(p, '[data-smart-schedule-map]')) > 0 && (await p.locator('[data-smart-schedule-map] .leaflet-marker-icon').count()) > 0, `${await tiles(p, '[data-smart-schedule-map]')} tiles, ${await p.locator('[data-smart-schedule-map] .leaflet-marker-icon').count()} dots`)
   if (SHOTS) await p.screenshot({ path: `${SHOTS}/dev-smart-schedule-free-map.png` })
+  const rows = p.locator('[data-smart-job]')
+  const stages = await rows.evaluateAll(els => els.map(e => e.getAttribute('data-smart-job-stage') || ''))
+  check('Smart Schedule: jobs listed, each with its Operations stage', stages.length > 0 && stages.every(Boolean), `${stages.length} jobs; stages: ${[...new Set(stages)].join(', ')}`)
+  const held = p.locator(`[data-smart-job="${heldId}"]`)
+  check('Smart Schedule: a job on hold shows its side lane, in gray', !!heldId && await held.getAttribute('data-smart-job-held') === 'yes' && await held.getAttribute('data-smart-job-stage') === 'Customer Delay' && (await held.locator('span.bg-gray-200', { hasText: 'Customer Delay' }).count()) === 1)
+  // Schedule the first job that is not on hold: Monday Oct 26, 2026, crew "E2E Crew".
+  const target = p.locator('[data-smart-job][data-smart-job-held="no"]').first()
+  const targetId = await target.getAttribute('data-smart-job')
+  await p.locator('input[placeholder="Crew..."]').fill('E2E Crew')
+  await p.locator('[data-smart-schedule] input[type="date"]').fill('2026-10-26')
+  await target.click(); await target.locator('[data-smart-schedule-job]').click(); await sleep(1500)
+  const sent = jobSaves.find(b => b && b.status === 'scheduled')
+  check('Smart Schedule: Schedule sends the job as scheduled, with crew, date and the Scheduled stage', !!sent && sent.crewAssigned === 'E2E Crew' && sent.scheduledDate === '2026-10-26' && sent.opsStage === 'scheduled', JSON.stringify(sent && { id: sent.id === targetId ? 'the job' : sent.id, status: sent.status, crewAssigned: sent.crewAssigned, scheduledDate: sent.scheduledDate, opsStage: sent.opsStage }))
+  if (SHOTS) await p.screenshot({ path: `${SHOTS}/dev-smart-schedule.png` })
   await c.close()
 
   // Site Plans, on a phone

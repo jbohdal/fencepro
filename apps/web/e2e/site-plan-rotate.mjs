@@ -16,6 +16,7 @@
 // made-up yard photo, so the test needs no network. Makes a customer, a quote
 // and a sold job, then deletes them.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'

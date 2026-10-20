@@ -8,6 +8,8 @@
 // cards show the new name and words. The quote's "Edit tiers" link opens the
 // page. Sets the vinyl tiers back as they were at the end. Nothing else saved.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'

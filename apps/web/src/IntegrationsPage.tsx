@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
-import { BackClose } from './nav'
+import { BackClose, navigate } from './nav'
 import { plainText } from './plainError'
 
 const API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/integrations'
@@ -28,6 +28,8 @@ interface IntegrationCard {
   slug: string; name: string; category: string; description: string
   capabilities: string[]; configFields: any[]; isActive: boolean
   status: string; connectedAt?: string; lastSyncedAt?: string; comingSoon?: boolean
+  /** Built in (Google Calendar, SendGrid): set up elsewhere; setupNote says where. */
+  builtIn?: boolean; setupNote?: string
 }
 
 export default function IntegrationsPage() {
@@ -124,8 +126,16 @@ export default function IntegrationsPage() {
                           </div>
                         </div>
 
+                        {integ.builtIn && !integ.isActive && (
+                          <div className="flex items-center gap-2 mb-3" data-integration-status={integ.slug}>
+                            <span className="w-2 h-2 rounded-full bg-amber-400" />
+                            <span className="text-xs text-amber-700 font-medium">Set up</span>
+                          </div>
+                        )}
+                        {integ.builtIn && integ.setupNote && <p className="text-xs text-gray-500 mb-3">{integ.setupNote}</p>}
+
                         {integ.isActive && (
-                          <div className="flex items-center gap-2 mb-3">
+                          <div className="flex items-center gap-2 mb-3" data-integration-status={integ.slug}>
                             <span className="w-2 h-2 rounded-full bg-green-500" />
                             <span className="text-xs text-green-700 font-medium">Connected</span>
                             {integ.lastSyncedAt && <span className="text-xs text-gray-400 ml-auto">Synced {new Date(integ.lastSyncedAt).toLocaleDateString()}</span>}
@@ -135,6 +145,11 @@ export default function IntegrationsPage() {
                         <div className="flex gap-2">
                           {integ.comingSoon ? (
                             <span className="text-xs text-gray-400">Available in a future update</span>
+                          ) : integ.builtIn ? (
+                            integ.slug === 'google_calendar' ? (
+                              <button onClick={() => navigate('/settings?tab=calendar')} data-integration-open={integ.slug}
+                                className="text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50">Open Settings &gt; Google Calendar</button>
+                            ) : null
                           ) : integ.isActive ? (
                             <>
                               <button onClick={() => handleSync(integ.slug)} className="text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50">Sync</button>

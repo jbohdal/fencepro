@@ -9,6 +9,7 @@
 // on a computer sized screen and check the layout and post spacing came back.
 // The test quote is deleted at the end.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:5173'

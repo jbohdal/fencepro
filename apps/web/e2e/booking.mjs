@@ -10,6 +10,7 @@
 // Dev only (port 4001). Makes three test customers and their appointments on
 // a week with nothing booked, sets a test home base for the default person in
 // Settings, and removes all of it at the end (the home base is put back).
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import { execFileSync } from 'child_process'
 

@@ -10,6 +10,7 @@
 // only the crew's photo; saves the 811 ticket; uploads a crew photo (it
 // lands Internal on the job); prints; turns the link off. Deletes what it made.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import fs from 'fs'
 

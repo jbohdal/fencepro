@@ -18,6 +18,7 @@
 //   4. The owner approves; the job page shows quoted vs actual line by line
 //      (desktop and phone), and Reports → Job Costing shows the job.
 // Removes everything it made (hard deletes on ezbiz_dev only).
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, chromium } from 'playwright'
 import crypto from 'crypto'
 import fs from 'fs'

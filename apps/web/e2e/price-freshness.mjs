@@ -9,6 +9,8 @@
 // inventory is put back exactly as it was at the end; one quote is made and
 // deleted.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'

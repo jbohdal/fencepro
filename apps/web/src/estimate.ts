@@ -21,6 +21,8 @@ export { NOT_QUOTABLE_MESSAGE }
 export { planWood } from './wood'
 // The server's chain link dig set seed (lib/chainDigSetSeed.ts).
 export { planChainDigSet, planChainDigSetPipesAndTies } from './chainDigSet'
+// The server's tan dig set auto mix seed (lib/tanAutoDsSeed.ts).
+export { planTanAutoDs } from './tanAutoDs'
 
 export interface EstimateData {
   /** The saved Settings (business state config), as stored. */

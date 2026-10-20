@@ -9,6 +9,7 @@ import prisma from './lib/prisma.js'
 import { printEnvValidation } from './lib/urls.js'
 import { mountStaticSites } from './lib/staticSites.js'
 import { liveDatabaseMisuse } from './lib/liveGuard.js'
+import { requireLiveSession } from './lib/sessionGuard.js'
 import { retitleUpcomingCalendarEventsAll, startCalendarSyncRetry } from './lib/calendarSync/index.js'
 
 // Before anything touches the database: only the live install may use the live database.
@@ -43,6 +44,7 @@ import { startMediaWorker } from './lib/media.js'
 import { startVoiceWorker } from './lib/voiceTranscribe.js'
 import savedJobRoutes from './routes/saved-jobs.js'
 import jobCostingRoutes from './routes/job-costing.js'
+import changeOrderRoutes from './routes/change-orders.js'
 import scheduleRoutes from './routes/schedule.js'
 import pipelineRoutes from './routes/pipeline.js'
 import inventoryStateRoutes from './routes/inventory.js'
@@ -74,6 +76,7 @@ import vendorInvoiceRoutes from './routes/vendor-invoices.js'
 import { resumeInvoiceReading } from './lib/vendorInvoices.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
 import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
+import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { hidesCosts, staffRoleOf, redactCosts } from './lib/costRedact.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
 import { ensureTwoOptionTiersAll } from './lib/tierSets.js'
@@ -86,6 +89,8 @@ import feedbackRoutes from './routes/feedback.js'
 import followUpRoutes from './routes/follow-ups.js'
 import opsStagesRoutes from './routes/ops-stages.js'
 import { ensureOpsStageListAll } from './lib/opsStages.js'
+import { ensureStagingSheetRemovedAll } from './lib/stagingSheetCleanup.js'
+import { ensureNoOrphanPendingCallsAll } from './lib/loginDelete.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
@@ -202,6 +207,9 @@ app.use('/api/portal/login', loginLimiter)
 app.use('/api/portal/activate', loginLimiter)
 app.use('/api/documents', uploadLimiter)
 
+// A staff token must name a live sign in session (not just carry the signing secret): lib/sessionGuard.ts.
+app.use('/api', requireLiveSession)
+
 // ── Routes ──
 app.use('/api/auth', authRoutes)
 app.use('/api/dashboard', dashboardRoutes)
@@ -231,6 +239,7 @@ app.use('/p/w', walkthroughPublic)
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff after install (lib/jobCosting.ts)
+app.use('/api/change-orders', changeOrderRoutes)  // Change orders on signed quotes (lib/changeOrders.ts)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/pipeline', pipelineRoutes)
 app.use('/api/inventory-state', inventoryStateRoutes)
@@ -385,8 +394,14 @@ if (!isVercel) {
       await ensureChainDigSetAll().catch(err => console.error('[chain link] dig set check failed:', err))
       // Chain link dig set post names with 0.055 wall and size, and hook ties per section on saved kits: once per company (lib/chainDigSetPipes.ts).
       await ensureChainDigSetPipesAll().catch(err => console.error('[chain link] dig set pipe names check failed:', err))
+      // Tan dig set, 6 or 8 ft panels (best price), TV-Auto DS Privacy: once per company (lib/tanAutoDsSeed.ts).
+      await ensureTanAutoDsAll().catch(err => console.error('[tan dig set] 6/8 ft mix check failed:', err))
       // The one Operations stage list from the old Settings one; no job changes: once per company (lib/opsStages.ts).
       await ensureOpsStageListAll().catch(err => console.error('[ops stages] one list check failed:', err))
+      // The old Staging sheet, removed when empty, kept with a warning when not: once per company (lib/stagingSheetCleanup.ts).
+      await ensureStagingSheetRemovedAll().catch(err => console.error('[staging] old sheet check failed:', err))
+      // Pending calls of logins deleted before Oct 2026: once per company (lib/loginDelete.ts).
+      await ensureNoOrphanPendingCallsAll().catch(err => console.error('[follow ups] orphan pending call cleanup failed:', err))
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))

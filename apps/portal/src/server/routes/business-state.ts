@@ -22,6 +22,7 @@ import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { businessPatchRefusal, refuse, roleOf } from '../lib/permissions.js'
 import { hidesCosts, restoreCosts } from '../lib/costRedact.js'
+import { auditSettingChange } from '../lib/settingsAudit.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -56,6 +57,9 @@ const fields = [
   'emailTemplates', 'settings', 'config', 'budget', 'pendingOrders', 'purchaseOrders',
   'invoices', 'payments', 'statements', 'pullSheets',
 ] as const
+
+/** The parts of the record that are settings, not the books (those have their own history). */
+const SETTINGS_FIELDS = ['bundles', 'quoteOptions', 'contractSections', 'jobChecklists', 'defaultMilestones', 'automations', 'emailTemplates', 'settings', 'config', 'budget'] as const
 
 const patchSchema = z.object(Object.fromEntries(fields.map(f => [f, z.any().optional()])))
 
@@ -112,6 +116,10 @@ router.patch('/', async (req: any, res) => {
       }
     }
     const s = (await prisma.businessState.findUnique({ where: { accountId } }))!
+    // Settings saved here (company config, appointments, templates...) go to the change log (Settings > Change log).
+    for (const f of SETTINGS_FIELDS) {
+      if (updateData[f] !== undefined) await auditSettingChange(req, `business-state/${f}`, (saved as any)?.[f] ?? null, (s as any)[f], { version: s.version })
+    }
     res.json({ success: true, data: s })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }

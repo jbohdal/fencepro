@@ -10,6 +10,7 @@
 // on any other site is refused the frame. The test records are removed after.
 
 // Clicks, not taps: Playwright 1.56 does not deliver a tap inside a frame from another site.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import { execFileSync } from 'child_process'
 
@@ -66,7 +67,8 @@ try {
   await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"]').click()
   await w.locator('[data-w-height="6ft"]').click(); await w.locator('[data-w-color="White"]').click()
   const photo = await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"] img').count()
-  check('style cards use the Settings style photo when there is one, else say a photo is coming', photo === 1 || (await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"]').textContent()).includes('Photo coming soon'))
+  check('style cards use the Settings style photo when there is one, else a plain drawn picture of the fence type', photo === 1 || (await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"] [data-w-style-picture="vinyl"]').count()) === 1)
+  check('no style card says "Photo coming soon"', !(await w.locator('[data-w-step="fence"]').textContent()).includes('Photo coming soon'))
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/w3-fence.png` })
   await w.locator('[data-w-step="fence"] [data-w-next]').click(); await sleep(2500)
 

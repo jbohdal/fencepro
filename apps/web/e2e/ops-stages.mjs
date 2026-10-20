@@ -14,6 +14,8 @@
 // the added stage with the job in it asks where the job goes, moves it and
 // deletes the stage. Finally the list is put back as it was and everything
 // made is removed; checks nothing is left.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // tests that change shared dev data take turns
 import crypto from 'crypto'
 import { chromium } from 'playwright'
 

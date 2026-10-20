@@ -14,6 +14,8 @@
 // color, and the proposal shows plain names. Then a choice (Semi privacy) is
 // added and removed, the test quote is deleted and the color removed, and
 // Settings, Inventory and kits are checked to be exactly as before.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
 const APP = process.env.APP_URL || 'http://localhost:4001', API = process.env.API_URL || APP
 const TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''

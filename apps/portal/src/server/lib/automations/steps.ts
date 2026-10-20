@@ -276,7 +276,8 @@ async function moveCard(r: StepRun, stage: string): Promise<StepOutcome> {
 async function finalInvoice(r: StepRun, dueInDays: number): Promise<StepOutcome> {
   const job = r.entity.job
   if (!job) throw new PermanentStepError('There is no job for this card yet, so there is nothing to invoice.')
-  const totalCents = Math.round(Number(job.contractValue || 0) * 100) + Math.round(Number(job.changeOrderTotal || 0) * 100)
+  // The contract value already holds the approved change orders (quote price + change orders, lib/changeOrders.ts).
+  const totalCents = Math.round(Number(job.contractValue || 0) * 100) || (Math.round(Number(job.quotePrice || 0) * 100) + Math.round(Number(job.changeOrderTotal || 0) * 100))
   const paidCents = Math.round(Number(job.amountPaid || 0) * 100)
   const balance = totalCents - paidCents
   if (totalCents <= 0) throw new PermanentStepError('The job has no contract price, so the final invoice cannot be made.')

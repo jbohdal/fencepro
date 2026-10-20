@@ -24,7 +24,7 @@ export interface FenceStyle {
   /** When true, the rail width (6ft vs 8ft) is decided per run by the
    *  smart-rail optimizer instead of being fixed by the style. The
    *  panelWidth field acts as a display fallback only. Currently only
-   *  set for the WV-Auto ND / WV-Auto DS umbrella styles. */
+   *  set for the WV-Auto ND / WV-Auto DS / TV-Auto DS umbrella styles. */
   autoRailMix?: boolean
   /** Installation method — drives post / concrete / pipe selection. Used by
    *  the mixed-rail material calculator. 'no-dig' = steel pipe + donuts;

@@ -7,6 +7,7 @@
 // failed to load must refuse to save.
 //
 // Needs an EMPTY test database (it asserts exact counts). See README.md.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium, newSession, login, ready, reporter } from './lib.mjs'
 const { check, finish } = reporter()
 

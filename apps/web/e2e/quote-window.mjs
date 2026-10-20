@@ -13,6 +13,7 @@
 // with no Back button in it. Nothing is saved; the test card and customer are
 // deleted at the end.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'

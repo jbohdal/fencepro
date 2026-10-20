@@ -13,7 +13,9 @@ import prisma from '../lib/prisma.js'
 import { requireAuth } from '../middleware/auth.js'
 import { auditLog } from '../middleware/audit.js'
 import { str } from '../lib/helpers.js'
-import { getAllAdapters, getAdapter, COMING_SOON } from '../integrations/registry.js'
+import { getAllAdapters, getAdapter, COMING_SOON, BUILT_IN } from '../integrations/registry.js'
+import { calendarStatus } from '../lib/calendarSync/index.js'
+import { isEmailServiceConfigured } from '../lib/emailService.js'
 import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
@@ -138,7 +140,23 @@ router.get('/', requireAuth, async (req, res) => {
       ...c, configFields: [], isActive: false, status: 'disconnected', comingSoon: true,
     }))
 
-    res.json({ success: true, data: [...available, ...comingSoon] })
+    // Built in: Google Calendar and email, shown as they are (no key or address is sent).
+    const accountId = req.user!.accountId
+    const cal = accountId ? await calendarStatus(accountId).catch(() => null) : null
+    const builtIn = BUILT_IN.map(b => {
+      let connected = false
+      let setupNote = ''
+      if (b.slug === 'google_calendar') {
+        connected = !!cal?.connected
+        setupNote = connected ? 'Managed in Settings > Google Calendar.' : cal && !cal.configured ? 'Google is not set up on this server yet. See Settings > Google Calendar.' : 'Connect it in Settings > Google Calendar.'
+      } else if (b.slug === 'sendgrid') {
+        connected = !!process.env.SENDGRID_API_KEY
+        setupNote = connected ? 'Email is sent through SendGrid. The key is kept in the server\u2019s settings file.' : isEmailServiceConfigured() ? 'Email is sent through the mail server in the server\u2019s settings file, not SendGrid.' : 'Not set up: add SENDGRID_API_KEY to the server\u2019s settings file.'
+      }
+      return { ...b, configFields: [], isActive: connected, status: connected ? 'connected' : 'disconnected', comingSoon: false, builtIn: true, setupNote }
+    })
+
+    res.json({ success: true, data: [...available, ...builtIn, ...comingSoon] })
   } catch {
     res.status(500).json({ success: false, error: 'Failed to load integrations' })
   }

@@ -4,7 +4,8 @@
  * navigates to the customer's Messages tab.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
+import PopMenu from './PopMenu'
 import { getMessagesInbox, type InboxThread } from './portalApiClient'
 import { getCustomerById } from './customerStore'
 
@@ -21,7 +22,6 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
   const [threads, setThreads] = useState<InboxThread[]>([])
   const [totalUnread, setTotalUnread] = useState(0)
   const [loading, setLoading] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
   async function load() {
     try {
@@ -43,14 +43,6 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
     }
   }, [])
 
-  useEffect(() => {
-    function onClickAway(e: MouseEvent) {
-      if (!dropdownRef.current) return
-      if (!dropdownRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    if (open) document.addEventListener('mousedown', onClickAway)
-    return () => document.removeEventListener('mousedown', onClickAway)
-  }, [open])
 
   function handleThreadClick(t: InboxThread) {
     setOpen(false)
@@ -58,10 +50,10 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
   }
 
   return (
-    <div className="relative" ref={dropdownRef}>
-      <button onClick={() => setOpen(o => !o)}
-        className="relative text-gray-500 hover:text-gray-900 min-w-[48px] min-h-[48px] grid place-items-center rounded-lg hover:bg-gray-100 transition-colors"
-        title="Customer messages">
+    <PopMenu name="messages" kind="dialog" title="Customer messages" width={384} className="" open={open} onOpenChange={setOpen}
+      triggerClassName="relative text-gray-500 hover:text-gray-900 min-w-[48px] min-h-[48px] grid place-items-center rounded-lg hover:bg-gray-100 transition-colors"
+      triggerProps={{ title: 'Customer messages', 'aria-label': 'Customer messages' }}
+      label={<>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         </svg>
@@ -70,9 +62,8 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
             {totalUnread > 99 ? '99+' : totalUnread}
           </span>
         )}
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-2 w-96 max-h-[480px] bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden z-50">
+      </>}>
+        <div>
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-gray-900">Customer Messages</p>
@@ -120,7 +111,6 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
             )}
           </div>
         </div>
-      )}
-    </div>
+    </PopMenu>
   )
 }

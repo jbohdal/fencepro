@@ -34,6 +34,7 @@ import { requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
+import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE } from '../lib/quoteLock.js'
 
 const router = Router()
 
@@ -128,9 +129,22 @@ const quoteSchema = z.object({
   // A fence move or repair: job type, inputs and the cost lines it was priced
   // with (web/src/moveRepair.ts). Null for a new fence.
   work: z.object({ type: z.enum(['move', 'repair']) }).passthrough().optional().nullable(),
+  // A sent quote saved again at today's prices: it has to be sent again.
+  needsResend: z.boolean().optional(),
 })
 
 const quoteUpdateSchema = quoteSchema.partial()
+
+/** Is this saved quote signed (Sold, accepted, or a quoted cost saved at signing)? Signed quotes are locked (lib/quoteLock.ts). */
+export async function signedNow(q: { id: string; accountId: string; status: string; acceptedAt: Date | null }): Promise<boolean> {
+  if (isSignedQuote(q)) return true
+  return !!(await prisma.jobQuotedCost.findUnique({ where: { accountId_quoteId: { accountId: q.accountId, quoteId: q.id } }, select: { id: true } }))
+}
+
+/** 409 for a write that would change a signed quote's price; nothing is saved. `data` is the saved copy. */
+function refuseLocked(res: any, fields: string[], saved: unknown) {
+  res.status(409).json({ success: false, code: LOCKED_CODE, error: lockMessage(fields), fields, data: saved })
+}
 
 function toJsonValue(value: unknown): any {
   return value === undefined ? undefined : (value === null ? null : JSON.parse(JSON.stringify(value)))
@@ -254,6 +268,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
         date: data.date,
         notes: data.notes,
         leadTemp: data.leadTemp,
+        needsResend: data.needsResend ?? false,
       },
     })
     await audit(req, 'create', 'SavedQuote', created.id, { newValues: created })
@@ -282,6 +297,11 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
       return
     }
     const data = quoteUpdateSchema.parse(await costsForLimited(req, existing))
+    // A signed quote keeps its price: a change to it goes on a change order (lib/quoteLock.ts).
+    if (await signedNow(existing)) {
+      const fields = lockedChanges(existing, data)
+      if (fields.length) { refuseLocked(res, fields, existing); return }
+    }
     const updated = await prisma.savedQuote.update({
       where: { id: existing.id },
       data: {
@@ -320,6 +340,7 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         date: data.date,
         notes: data.notes,
         leadTemp: data.leadTemp,
+        needsResend: data.needsResend,
       },
     })
     await audit(req, 'update', 'SavedQuote', updated.id, { oldValues: existing, newValues: updated })
@@ -365,13 +386,15 @@ const syncSchema = z.object({
 router.post('/sync', requireUser, requireAccount, requireCan('records.import'), async (req: any, res) => {
   try {
     const { quotes } = syncSchema.parse(req.body)
-    let created = 0, updated = 0, skipped = 0
+    let created = 0, updated = 0, skipped = 0, locked = 0
     for (const q of quotes) {
       // If client supplied an id and we already have a row with it under the
       // same account, treat as update.
       if (q.id) {
         const existing = await prisma.savedQuote.findUnique({ where: { id: q.id } })
         if (existing && existing.accountId === req.user.crmAccountId) {
+          // A signed quote is not rewritten from an old browser copy.
+          if (await signedNow(existing) && lockedChanges(existing, q).length) { locked++; continue }
           await prisma.savedQuote.update({
             where: { id: existing.id },
             data: {
@@ -444,8 +467,8 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
         skipped++
       }
     }
-    console.log(`[saved-quotes] sync: ${created} created, ${updated} updated, ${skipped} skipped for account ${req.user.crmAccountId}`)
-    res.json({ success: true, data: { created, updated, skipped, total: quotes.length } })
+    console.log(`[saved-quotes] sync: ${created} created, ${updated} updated, ${skipped} skipped, ${locked} signed (kept) for account ${req.user.crmAccountId}`)
+    res.json({ success: true, data: { created, updated, skipped, locked, total: quotes.length } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-quotes] sync error:', err)

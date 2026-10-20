@@ -8,6 +8,8 @@
 // browser after a reload and the quote builder; a 6'x8' gate leaf is built
 // from 6 ft parts. Makes one quote and deletes it; the saved kits are put back.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'

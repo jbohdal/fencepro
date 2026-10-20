@@ -13,6 +13,7 @@
 //    with whisper.cpp, and Apply fills in the sides.
 // Nothing is saved; the test clip is deleted.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import fs from 'fs'
 

@@ -19,6 +19,7 @@ import { requireCan } from '../lib/permissions.js'
 import { baseVersionOf } from '../lib/versioned.js'
 import { loadOpsStages, saveOpsStages, deleteOpsStage, stageUsage, type ChangeAnswer } from '../lib/opsStages.js'
 import { floridaDay } from '../lib/automations/context.js'
+import { auditSettingChange } from '../lib/settingsAudit.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -61,7 +62,13 @@ router.put('/', requireCan('settings.change'), async (req: any, res) => {
   const base = baseVersionOf(req.body)
   if (base === null) { res.status(400).json({ success: false, error: 'baseVersion is required' }); return }
   if (!Array.isArray(req.body?.stages)) { res.status(400).json({ success: false, error: 'stages is required' }); return }
-  try { answer(res, await saveOpsStages(req.user.crmAccountId, req.body.stages, base, req.user.id ?? null)) }
+  try {
+    const before = await loadOpsStages(req.user.crmAccountId)
+    const r = await saveOpsStages(req.user.crmAccountId, req.body.stages, base, req.user.id ?? null)
+    // Who changed which stage, from which device (Settings > Change log).
+    if (r.ok) await auditSettingChange(req, 'ops-stages', before.stages, r.list.stages, { version: r.list.version })
+    answer(res, r)
+  }
   catch (err) { fail(res, err, 'save the Operations stages') }
 })
 
@@ -76,7 +83,12 @@ router.post('/:id/delete', requireCan('settings.change'), async (req: any, res) 
   const base = baseVersionOf(req.body)
   if (base === null) { res.status(400).json({ success: false, error: 'baseVersion is required' }); return }
   const moveTo = typeof req.body?.moveTo === 'string' && req.body.moveTo ? req.body.moveTo : null
-  try { answer(res, await deleteOpsStage(req.user.crmAccountId, String(req.params.id), moveTo, base, req.user.id ?? null, floridaDay(new Date()))) }
+  try {
+    const before = await loadOpsStages(req.user.crmAccountId)
+    const r = await deleteOpsStage(req.user.crmAccountId, String(req.params.id), moveTo, base, req.user.id ?? null, floridaDay(new Date()))
+    if (r.ok) await auditSettingChange(req, 'ops-stages', before.stages, r.list.stages, { version: r.list.version, deleted: String(req.params.id), movedTo: moveTo, moved: r.moved ?? null })
+    answer(res, r)
+  }
   catch (err) { fail(res, err, 'delete the stage') }
 })
 

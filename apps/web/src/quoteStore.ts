@@ -7,7 +7,7 @@
  *
  * Public surface preserves the legacy SavedQuote shape exported from
  * QuotesPage so existing callers (QuoteBuilder, QuoteDetailDrawer,
- * StagingPage, JobsPage, signedContractFlow, BudgetPage, etc.) keep working
+ * JobsPage, signedContractFlow, BudgetPage, etc.) keep working
  * with a one line import swap.
  */
 
@@ -79,6 +79,7 @@ function fromApi(r: SavedQuoteRecord): SavedQuote {
     leadTemp: r.leadTemp,
     pricing: r.pricing || undefined,
     work: r.work || undefined,
+    needsResend: !!r.needsResend,
   }
 }
 
@@ -119,6 +120,7 @@ function toApiPayload(q: Partial<SavedQuote>): SavedQuotePayload {
     leadTemp: q.leadTemp ?? 0,
     pricing: q.pricing ?? null,
     work: q.work ?? null,
+    ...(q.needsResend !== undefined ? { needsResend: !!q.needsResend } : {}),
     // A Salesman's or Installer's save: the quote builder's inputs, so the server works out the costs.
     ...(q.priceRequest ? { priceRequest: q.priceRequest } : {}),
   }

@@ -6,6 +6,7 @@
 // Dev only (4001). Reads the list from the server, then for each item that
 // is not done clicks its Open on the dashboard card and checks where it
 // lands. Writes nothing.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 const APP = process.env.APP_URL || 'http://localhost:4001', API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''

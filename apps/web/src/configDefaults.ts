@@ -13,6 +13,8 @@ export const DEFAULT_FENCE_STYLES: FenceStyle[] = [
   // ── Auto-mix umbrella styles (Milestone B) — optimizer picks 6'/8' per run ──
   { id: 'auto-wv-nd', name: "WV-Auto ND Privacy",  category: 'Vinyl', margin: 0.64, sectionsPerMH: 1.2, panelWidth: 6, mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true, autoRailMix: true, installMethod: 'no-dig',  colorFamily: 'white' },
   { id: 'auto-wv-ds', name: "WV-Auto DS Privacy",  category: 'Vinyl', margin: 0.64, sectionsPerMH: 0.8, panelWidth: 6, mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true, autoRailMix: true, installMethod: 'dig-set', colorFamily: 'white' },
+  // Tan dig set: man hours and margin as TV-DS 6'x6' / 6'x8' (id 12, 13).
+  { id: 'auto-tv-ds', name: "TV-Auto DS Privacy",  category: 'Vinyl', margin: 0.64, sectionsPerMH: 1.1, panelWidth: 6, mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true, autoRailMix: true, installMethod: 'dig-set', colorFamily: 'tan' },
   // ── Locked-width styles ──
   { id: '1',  name: "WV-ND 6'x6' Privacy",    category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 6,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },
   { id: '2',  name: "WV-ND 6'x8' Privacy",     category: 'Vinyl',      margin: 0.64, sectionsPerMH: 1.2,  panelWidth: 8,  mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true },

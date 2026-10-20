@@ -59,6 +59,35 @@ router.get('/audit-log', async (req: any, res) => {
   }
 })
 
+// ── Settings change log (owner only): who changed which setting when, from which device ──
+router.get('/settings-changes', async (req: any, res) => {
+  if (req.user.role !== 'super_admin') { res.status(403).json({ success: false, error: 'Only the owner can see the change log.' }); return }
+  const { setting, user, since, until } = req.query
+  const where: Record<string, unknown> = { action: 'settings_changed' }
+  if (setting) where.entityId = { startsWith: String(setting) }
+  if (user) where.userEmail = { contains: String(user), mode: 'insensitive' }
+  if (since || until) {
+    where.createdAt = {
+      ...(since ? { gte: new Date(String(since)) } : {}),
+      ...(until ? { lte: new Date(String(until)) } : {}),
+    }
+  }
+  const take = Math.min(200, parseInt(String(req.query.limit ?? '50'), 10) || 50)
+  const skip = Math.max(0, parseInt(String(req.query.offset ?? '0'), 10) || 0)
+  try {
+    const [rows, total, settings] = await Promise.all([
+      prisma.crmAuditLog.findMany({ where, orderBy: { createdAt: 'desc' }, take, skip,
+        select: { id: true, createdAt: true, userEmail: true, entityId: true, newValues: true, ipAddress: true, userAgent: true } }),
+      prisma.crmAuditLog.count({ where }),
+      prisma.crmAuditLog.findMany({ where: { action: 'settings_changed' }, distinct: ['entityId'], select: { entityId: true }, take: 200 }),
+    ])
+    res.json({ success: true, data: { rows, total, limit: take, offset: skip, settings: settings.map(s => s.entityId).filter(Boolean).sort() } })
+  } catch (err) {
+    console.error('[admin-audit] settings changes error:', err)
+    res.status(500).json({ success: false, error: 'Could not load the change log' })
+  }
+})
+
 // ── CSV export ──
 router.get('/audit-log.csv', async (req: any, res) => {
   const { user, entityType, action, since, until } = req.query

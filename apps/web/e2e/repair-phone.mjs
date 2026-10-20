@@ -9,6 +9,7 @@
 // step: one price, the minimum said internally. Every button tapped must be a
 // finger's size. Nothing is saved.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'

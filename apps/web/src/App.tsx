@@ -6,7 +6,7 @@ import { startLiveRefresh } from './liveRefresh'
 import './liveOverhead'
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment, lazy, Suspense } from 'react'
 import QuoteBuilder from './QuoteBuilder'
-import { Banknote, BarChart3, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
+import { BarChart3, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
 import AdminPage from './AdminPage'
 const AdminSettingsPage = lazy(() => import('./AdminSettingsPage'))
 const BudgetPage = lazy(() => import('./BudgetPage'))
@@ -20,13 +20,11 @@ const AuditLogPage = lazy(() => import('./AuditLogPage'))
 const FeedbackPage = lazy(() => import('./FeedbackPage'))
 import FeedbackButton from './FeedbackButton'
 import { MessageSquarePlus, PhoneCall } from 'lucide-react'
-import StagingPage from './StagingPage'
 const SchedulePage = lazy(() => import('./SchedulePage'))
 const ReportsPage = lazy(() => import('./ReportsPage'))
 const MapQuoteBuilder = lazy(() => import('./MapQuoteBuilder'))
 import type { MapFenceData } from './MapQuoteBuilder'
 const SitePlanTool = lazy(() => import('./SitePlanTool'))
-import JobsPipeline from './JobsPipeline'
 const PortalInbox = lazy(() => import('./PortalInbox'))
 const SmartSchedule = lazy(() => import('./SmartSchedule'))
 const DispatchPage = lazy(() => import('./DispatchPage'))
@@ -129,7 +127,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'P&L Statement',      icon: TrendingUp, roles: ['owner', 'admin'] },
       { name: 'Balance Sheet',      icon: Scale, roles: ['owner', 'admin'] },
-      { name: 'Cash Flow',          icon: Banknote, roles: ['owner', 'admin'] },
+      // Cash Flow comes back here once its statement is built.
       { name: 'Billing',            icon: CreditCard, roles: ['owner', 'admin'] },
       { name: 'Accounts Payable',   icon: Receipt, roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Vendors',            icon: Building2, roles: ['owner', 'admin', 'ops_manager'] },
@@ -811,7 +809,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       {/* ═══ MOBILE NAV OVERLAY + DRAWER (hidden on desktop via CSS) ═══ */}
       <div className={`mobile-nav-backdrop ${mobileMenuOpen ? 'open' : ''}`} onClick={() => setMobileMenuOpen(false)} />
       {mobileMenuOpen && <BackClose name="menu" onClose={() => setMobileMenuOpen(false)} />}
-      <div className={`mobile-nav-drawer bg-gray-900 flex flex-col ${mobileMenuOpen ? 'open' : ''}`}>
+      <div className={`mobile-nav-drawer bg-gray-900 flex flex-col ${mobileMenuOpen ? 'open' : ''}`} data-popup="nav-drawer">
         <div className="border-b border-white/10 px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="" className="w-10 h-10 rounded-lg bg-white object-contain shrink-0" />
@@ -1061,7 +1059,6 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Balance Sheet' && <BalanceSheetPage />}
           {active === 'Accounts Payable' && <AccountsPayablePage />}
           {active === 'Vendors'   && <VendorsPage />}
-          {active === 'Cash Flow' && <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center"><p className="text-4xl mb-3">💸</p><h2 className="text-lg font-bold text-gray-900">Cash Flow</h2><p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">Cash Flow statement coming soon. For now, check the P&amp;L Statement and Accounts Receivable/Payable dashboards.</p></div>}
           {active === 'Customers' && <CustomersPage
             onNewQuote={(c) => {
             if (c) openQuoteFor(c)
@@ -1238,7 +1235,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             <span className={`grid place-items-center h-8 w-14 rounded-full ${active === page ? 'bg-orange-100' : ''}`}><Icon size={22} aria-hidden="true" /></span>{label}
           </button>
         ))}
-        <button onClick={() => setMobileMenuOpen(true)} className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${mobileMenuOpen ? 'text-orange-500' : 'text-gray-500'}`}>
+        <button onClick={() => setMobileMenuOpen(true)} aria-haspopup="menu" aria-expanded={mobileMenuOpen} data-popup-trigger="nav-drawer" className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${mobileMenuOpen ? 'text-orange-500' : 'text-gray-500'}`}>
           <span className="grid place-items-center h-8 w-14 rounded-full"><Menu size={22} aria-hidden="true" /></span>More
         </button>
       </nav>

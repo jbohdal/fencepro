@@ -9,6 +9,7 @@
 // the same with the answer cut twice mid-send (the server saved it, the phone
 // never heard) and once with no signal at all: each arrives exactly once.
 // Removes what it made (rows and screenshot files, ezbiz_dev only).
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import crypto from 'crypto'
 import fs from 'fs'

@@ -6,6 +6,7 @@
 // see the same thing.
 //
 // Needs an EMPTY test database (it asserts exact counts). See README.md.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium, newSession, login, sleep, ready, nav, reporter, API, IMP } from './lib.mjs'
 import crypto from 'crypto'
 const { check, finish } = reporter()

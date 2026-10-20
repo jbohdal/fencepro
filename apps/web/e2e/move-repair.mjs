@@ -22,6 +22,7 @@
 // Screenshots: dev-move-*, dev-repair-*, dev-wood-*, dev-moves-settings*.
 // Removes every quote, job and photo it made and puts Settings back.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import fs from 'fs'
 import path from 'path'

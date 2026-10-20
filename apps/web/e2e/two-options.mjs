@@ -12,6 +12,8 @@
 //      Dig set says it is not available until its parts are priced; in the
 //      quote builder it is greyed (off).
 // Nothing is saved. Screenshots: dev-cl-two-options, dev-alum-two-options, dev-cl-dig-set-off.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
 const APP = process.env.APP_URL || 'http://localhost:4001', API = process.env.API_URL || APP
 const TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''

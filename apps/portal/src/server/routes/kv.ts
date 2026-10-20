@@ -21,6 +21,7 @@ import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.
 import { kvChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
 import { hidesCosts, KV_COST_KEYS } from '../lib/costRedact.js'
 import { OPS_STAGES_KEY } from '../lib/opsStages.js'
+import { auditSettingChange } from '../lib/settingsAudit.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -99,6 +100,7 @@ router.put('/:key', async (req: any, res) => {
     if (value === null || value === undefined) {
       const del = await prisma.accountKeyValue.deleteMany({ where: { accountId, key, version: base } })
       if (del.count === 0 && (base !== 0 || await prisma.accountKeyValue.findUnique({ where }))) { await stale(); return }
+      await auditSettingChange(req, `kv/${key}`, saved ? saved.value : null, null)
       res.json({ success: true, data: null, version: 0 })
       return
     }
@@ -120,6 +122,8 @@ router.put('/:key', async (req: any, res) => {
       }
     }
     const row = await prisma.accountKeyValue.findUnique({ where })
+    // Who changed which saved setting, from which device (Settings > Change log).
+    await auditSettingChange(req, `kv/${key}`, saved ? saved.value : null, clean, { version: row?.version ?? 1 })
     res.json({ success: true, data: true, version: row?.version ?? 1 })
   } catch (err) {
     console.error('[kv] put error:', err)

@@ -18,6 +18,7 @@ import {
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
 import { can } from './permissions'
+import PopMenu, { PopItem } from './PopMenu'
 
 const ACCEPTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif']
 const ACCEPT_ATTR = 'image/jpeg,image/png,image/webp,image/heic,image/heif,image/gif'
@@ -231,7 +232,6 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
 function PhotoCard({ photo, onOpen, onDelete, onDownload }: {
   photo: PortalPhotoRow; onOpen: () => void; onDelete: () => void; onDownload: () => void;
 }) {
-  const [menu, setMenu] = useState(false)
   const src = resolveFileUrl(photo.fileUrl)
   const badge = sourceBadge(photo.source)
   return (
@@ -248,15 +248,16 @@ function PhotoCard({ photo, onOpen, onDelete, onDownload }: {
           <p className="text-xs font-medium text-gray-900 truncate">{photo.name}</p>
           <p className="text-[10px] text-gray-400">{new Date(photo.uploadedAt).toLocaleDateString()}</p>
         </div>
-        <button onClick={() => setMenu(!menu)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">⋮</button>
+        <PopMenu name="photo-actions" label="⋮" title={photo.name} width={176}
+          triggerClassName="text-gray-400 hover:text-gray-600 text-lg leading-none min-w-[44px] min-h-[44px] -mr-2 grid place-items-center"
+          triggerProps={{ 'aria-label': 'Photo actions' }}>
+          {close => <>
+            <PopItem onClick={() => { close(); onOpen() }}>View Full Size</PopItem>
+            <PopItem onClick={() => { close(); onDownload() }}>Download</PopItem>
+            {can('ops.delete') && <PopItem danger onClick={() => { close(); onDelete() }}>Delete</PopItem>}
+          </>}
+        </PopMenu>
       </div>
-      {menu && (
-        <div className="absolute bottom-10 right-2 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 text-sm" onMouseLeave={() => setMenu(false)}>
-          <button onClick={() => { setMenu(false); onOpen() }} className="block w-full text-left px-3 py-1.5 hover:bg-orange-50">View Full Size</button>
-          <button onClick={() => { setMenu(false); onDownload() }} className="block w-full text-left px-3 py-1.5 hover:bg-orange-50">Download</button>
-          {can('ops.delete') && <button onClick={() => { setMenu(false); onDelete() }} className="block w-full text-left px-3 py-1.5 text-red-600 hover:bg-red-50">Delete</button>}
-        </div>
-      )}
     </div>
   )
 }

@@ -542,17 +542,6 @@ export function getJobStats(): {
   return { byStatus, totalContractValue, totalPaid, totalOutstanding: totalContractValue - totalPaid, activeJobs }
 }
 
-/* ───────── change order sync ───────── */
-
-export function syncChangeOrderTotal(jobId: string, coTotal: number): void {
-  const job = getJob(jobId)
-  if (!job) return
-  updateJob(jobId, {
-    changeOrderTotal: coTotal,
-    contractValue: job.quotePrice + coTotal,
-  })
-}
-
 /** When this list was last read from the server (the server's own clock). */
 let lastSync: string | null = null
 

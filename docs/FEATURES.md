@@ -1,6 +1,6 @@
 # Getter Done Fence (EZ Biz): feature list
 
-Last updated: Oct 19, 2026 (evening) (kept by Claude Code in the repo as docs/FEATURES.md; updated with every change). One place for every feature, rule and decision, so nothing gets lost.
+Last updated: Oct 20, 2026 (kept by Claude Code in the repo as docs/FEATURES.md; updated with every change). One place for every feature, rule and decision, so nothing gets lost.
 
 Status key:
 * **LIVE**: built and running on the Mac mini
@@ -40,7 +40,7 @@ Status key:
 * Gate leaves: every gate leaf (4, 5 or 6 ft) uses the parts of one 6 ft wide section: 11 pickets, two 6 ft rails, U trim, no insert, plus gate hardware. A double gate is two leaves. **LIVE** (Oct 17; in the kits; 6'x8' vinyl and auto mix all 8 ft jobs with gates now price this way; 8 ft tall styles keep their complete 8 x 4 gates)
 * Sub rates still needed: walk gate, double gate, tear out per section, tear out per gate, chain link per 10 ft section, aluminum per section. Quotes warn until they're set. **NEEDS JONATHAN**
 * Industrial Abigail: 6 or 8 ft sections? (spreadsheet says 6, app says 8). **NEEDS JONATHAN**
-* Smart rail optimization (Settings > Quote Optimizer) now says what it does: "Picks 6 ft or 8 ft panels for each side to give the lowest price. The pull sheet follows the same choice." (8 ft is kept when it costs no more than the set percentage extra.) Checked on every path (quote builder, saved quotes, proposals, website instant quote) and on a real quote: 2 six-foot + 29 eight-foot sections, and every pull sheet line matches (rail-proof-2026-10-19.md). Tan dig set has no Auto mix style; it is quoted at fixed 6'x6' or 6'x8' widths. **DEV**
+* Smart rail optimization (Settings > Quote Optimizer) now says what it does: "Picks 6 ft or 8 ft panels for each side to give the lowest price. The pull sheet follows the same choice." (8 ft is kept when it costs no more than the set percentage extra.) Checked on every path (quote builder, saved quotes, proposals, website instant quote) and on a real quote: 2 six-foot + 29 eight-foot sections, and every pull sheet line matches (rail-proof-2026-10-19.md). Tan dig set has no Auto mix style; it is quoted at fixed 6'x6' or 6'x8' widths. **LIVE**
 
 ## 3. Material kits (bundles)
 
@@ -66,12 +66,12 @@ Status key:
 
 ## 3b. Vendor invoices update Inventory prices (Oct 19)
 
-* Inventory › Invoices: upload PDFs or photos of paper invoices from a phone or computer; files are saved on the device first and upload when there is signal. Read for free on the Mac (PDF text, or the Mac's own text recognition for photos and scans; it read the test photo better than Tesseract: 96% of characters and 100% of numbers). Owner, admin, manager and office only; salesman and installer get nothing. **DEV**
-* Nothing is applied unless the lines + tax + freight + fees add up to the total to the penny and every line is clear; otherwise it goes to Needs review with the problem lines highlighted on the page, fixable by tapping. A document with no tax line waits for an OK. **DEV**
-* Inventory cost becomes the landed cost: tax, freight and fees spread by each line's share of the subtotal (a $100 line on a $1,000 subtotal with $70 tax and $50 freight carries $12), divided by the quantity in Inventory units, confirmed on the invoice date (clears the price freshness warning). A change over 20% (Settings) waits for an OK; the rest of the invoice applies. **DEV**
-* New vendor items are never guessed: matched once in Needs a match (by item number, or the vendor's description when there is none), with the unit (box of 100, 50 ft roll, 220 per lb, each), then automatic. "Not an Inventory item" is remembered too. **DEV**
-* Quotations (Stephens Pipe & Steel sends QUOTATIONs) are saved as vendor quotes and change nothing until "We ordered this"; a revised quote with the same number replaces the older one. Skips *Fab notes, separators and $0.00 lines; reads the $25 fuel charge, freight and the 7.22% tax line. All 17 Stephens documents read and add up to the penny. **DEV**
-* Duplicates (same file, or same vendor and invoice number) are refused. Every change is in price history per item per vendor with its invoice; Undo puts the prices back (skipping an item changed since). Each invoice is a vendor bill; vendors show totals by month; an invoice can be linked to a job lot order. **DEV**
+* Inventory › Invoices: upload PDFs or photos of paper invoices from a phone or computer; files are saved on the device first and upload when there is signal. Read for free on the Mac (PDF text, or the Mac's own text recognition for photos and scans; it read the test photo better than Tesseract: 96% of characters and 100% of numbers). Owner, admin, manager and office only; salesman and installer get nothing. **LIVE**
+* Nothing is applied unless the lines + tax + freight + fees add up to the total to the penny and every line is clear; otherwise it goes to Needs review with the problem lines highlighted on the page, fixable by tapping. A document with no tax line waits for an OK. **LIVE**
+* Inventory cost becomes the landed cost: tax, freight and fees spread by each line's share of the subtotal (a $100 line on a $1,000 subtotal with $70 tax and $50 freight carries $12), divided by the quantity in Inventory units, confirmed on the invoice date (clears the price freshness warning). A change over 20% (Settings) waits for an OK; the rest of the invoice applies. **LIVE**
+* New vendor items are never guessed: matched once in Needs a match (by item number, or the vendor's description when there is none), with the unit (box of 100, 50 ft roll, 220 per lb, each), then automatic. "Not an Inventory item" is remembered too. **LIVE**
+* Quotations (Stephens Pipe & Steel sends QUOTATIONs) are saved as vendor quotes and change nothing until "We ordered this"; a revised quote with the same number replaces the older one. Skips *Fab notes, separators and $0.00 lines; reads the $25 fuel charge, freight and the 7.22% tax line. All 17 Stephens documents read and add up to the penny. **LIVE**
+* Duplicates (same file, or same vendor and invoice number) are refused. Every change is in price history per item per vendor with its invoice; Undo puts the prices back (skipping an item changed since). Each invoice is a vendor bill; vendors show totals by month; an invoice can be linked to a job lot order. **LIVE**
 
 
 ## 4. Quoting in the field
@@ -110,8 +110,8 @@ Status key:
 * In "Adjust the drawing" the house slides toward the back fence or the street (big grip, works with a finger); a live label shows "Meets the house 12 ft from the back corner", snapped to whole feet, saved as each return's "Meets the house at" (the same setting as More options, in sync both ways); each return's meeting point can be dragged on its own along the wall; Reset puts both back at the back corners. Footage, sections, posts and price never change. **LIVE** (direction follows the finger: toward the back fence the returns meet the house farther down its sides)
 * Every piece of a side split by a gate or a skip is labeled with its own length (40' right return with a 14' double gate in the middle: 13' / 14' double gate / 13'); gates drawn at their real position; labels never overlap each other, the fence or the house (leader lines on short pieces); on the quote, proposal, install packet, printed copies and the permit packet. Proposals and packets made before this show it once made again. **LIVE**
 * Gate swing: in or out, walk gates hinge left or right (seen from inside the yard), double gates both leaves or each leaf; set in More options or by tapping the gate while adjusting; swing arcs drawn to scale on the right side, hinge posts marked; printed on the install packet ("swings in, hinges left"). Default: swings in, hinge on the house end (or the side's start where the side does not touch the house). **LIVE**
-* Site plan on the aerial photo: the photo turns, not the drawing. With the photo on, the plan is drawn at the photo's real ground scale (143 ft on the plan covers 143 ft of the yard) and stays square and level. Turn the photo with the slider, the 1° buttons or a two-finger twist (a pinch does not turn it), or tap Line up and tap two corners along one wall of the house. Reset puts north back up; the center button moves the plan onto the yard; the north arrow (photo on only) turns with the photo. Saved with the quote; the proposal, crew packet and permit PDF show the photo turned the same way. Footage, sections and price never change. **DEV**
-* One sharp aerial everywhere: Site Plans, Map Quote and the quote drawing use the same free USGS NAIP photo (public domain) down to its real resolution (zoom 19, about 0.26 m a pixel here); the map stops there and says "Sharpest photo available here". Site Plans used older 2 m tiles stretched 8 times before. Where USGS misses a tile, the older, softer picture shows instead of a gray square. **DEV**
+* Site plan on the aerial photo: the photo turns, not the drawing. With the photo on, the plan is drawn at the photo's real ground scale (143 ft on the plan covers 143 ft of the yard) and stays square and level. Turn the photo with the slider, the 1° buttons or a two-finger twist (a pinch does not turn it), or tap Line up and tap two corners along one wall of the house. Reset puts north back up; the center button moves the plan onto the yard; the north arrow (photo on only) turns with the photo. Saved with the quote; the proposal, crew packet and permit PDF show the photo turned the same way. Footage, sections and price never change. **LIVE**
+* One sharp aerial everywhere: Site Plans, Map Quote and the quote drawing use the same free USGS NAIP photo (public domain) down to its real resolution (zoom 19, about 0.26 m a pixel here); the map stops there and says "Sharpest photo available here". Site Plans used older 2 m tiles stretched 8 times before. Where USGS misses a tile, the older, softer picture shows instead of a gray square. **LIVE**
 
 ## 6. Photos and video
 
@@ -151,6 +151,14 @@ Status key:
 * The saved quotes price check failed once because it read "the first Settings record", which was sometimes a test company made by another test at the same moment; it now reads the company with the quotes, in one consistent snapshot. **LIVE**
 * Chain link hook ties counted per section, not by footage: 3 on the line post at 4 ft plus 1 for every extra foot of height, plus 6 on the top rail = 9 per section at 4 ft, 10 at 5 ft, 11 at 6 ft (sections per run, 10 ft max). Boxes of 100, rounded up once per job (a 100 ft run at 4 ft: 10 sections, 90 ties, 1 box; it was 6). In the section kit (Inventory > Material Kits), galvanized and black, no dig and dig set. Moves: new ties on every reinstalled section. Repairs: ties on repaired and replaced sections (a replaced post no longer brings a box of ties). Commercial chain link keeps its own count. Chain link prices go down; every other style prices the same to the cent. No saved quote on live changes (no chain link quote there has measured runs). **LIVE**
 * Chain link dig set posts: 0.055 wall pipe, the same diameter as the no dig post. The 12 dig set post parts are renamed (line post 1-5/8", terminal post 2-1/2", e.g. "DS, Pipe, Galv, Line Post, 1-5/8" 0.055 wall, 4' Chain Link"), still unpriced, once on the server along with every kit line that names them. Dig set stays Not available for quoting until they are priced. Concrete is half a bag per post, a line in each dig set post kit (Inventory > Material Kits) so it can be changed, rounded up once per job. No dig line posts: 1-5/8" Schedule 40, confirmed. **LIVE** (prices and the concrete from Jonathan)
+
+## 7d. Signed quotes locked, change orders (Oct 20)
+
+* Once a quote is signed (Sold, accepted on the customer's link, or signed in the app) its price, fence, runs, gates, pull sheet and proposal options stay as signed, on every phone and on the server; no override. Notes, customer details, the drawing's labels and the photo's turn can still change. Changing the fence on a signed quote says "This quote is signed. Make a change order instead." **DEV**
+* Change orders: open filled in with each change on its own line (feet added or removed, gates, a style change) priced at today's costs; Draft, Sent, Approved or Void. Salesmen can make and send them (prices only); owner and office approve. Approved change orders add to the job's contract value (job costing and the final invoice use it). Listed on the job page with Approve and Void. Not yet shown to customers. **DEV**
+* Sent quotes: saving one whose price today differs from what the customer saw asks "Prices changed since this was sent (was $X, now $Y). Save as a new version and send again, or keep the sent prices?" A new version is marked to be sent again. Drafts keep repricing as before. **DEV**
+* Tan dig set best price: "Tan Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), Dig set" (TV-Auto DS). The optimizer picks 6 or 8 ft per side; each width uses the TV-DS 6'x6' or 6'x8' parts (16 tan pickets per 8 ft section). On a real 7 side yard it was $244.76 below the cheaper fixed width. Every existing style prices the same to the cent. **DEV**
+
 
 ## 8. Install packet for the crew
 
@@ -198,10 +206,10 @@ Status key:
 
 ## 8f. Job costing: quoted vs actual (Oct 19)
 
-* When a quote is signed (the customer's link, or marked Sold), its cost is saved as priced: the pull sheet with unit costs, labor and tear out, in cents. Quotes signed before this show "No quoted cost". **DEV**
-* Final takeoff, right before the final walkthrough, on the crew's phone: the pull sheet line by line with − / +, back to the shop or back to the vendor, add items not on the pull sheet (extra, broken, other), sub sections paid or crew hours, a photo per line, "Send to the office". Works with no signal. The crew sees quantities only, never a cost. **DEV**
-* Owner or office approves; the actual cost is then frozen: used quantities × the landed cost on the install date (a job lot invoice linked to the job first), plus labor. Returns are not a job cost. **DEV**
-* Job page (owner and office): quoted vs actual line by line with the differences, actual profit and margin. Reports › Job Costing: every completed job by style, salesman and month, and the parts most often over or under the pull sheet. Approved crew labor feeds Direct Labor on the P&L (materials and sub pay come in through vendor bills). Jobs finished before this show "No takeoff". **DEV**
+* When a quote is signed (the customer's link, or marked Sold), its cost is saved as priced: the pull sheet with unit costs, labor and tear out, in cents. Quotes signed before this show "No quoted cost". **LIVE**
+* Final takeoff, right before the final walkthrough, on the crew's phone: the pull sheet line by line with − / +, back to the shop or back to the vendor, add items not on the pull sheet (extra, broken, other), sub sections paid or crew hours, a photo per line, "Send to the office". Works with no signal. The crew sees quantities only, never a cost. **LIVE**
+* Owner or office approves; the actual cost is then frozen: used quantities × the landed cost on the install date (a job lot invoice linked to the job first), plus labor. Returns are not a job cost. **LIVE**
+* Job page (owner and office): quoted vs actual line by line with the differences, actual profit and margin. Reports › Job Costing: every completed job by style, salesman and month, and the parts most often over or under the pull sheet. Approved crew labor feeds Direct Labor on the P&L (materials and sub pay come in through vendor bills). Jobs finished before this show "No takeoff". **LIVE**
 
 
 ## 9. Pipeline, customers, navigation
@@ -254,17 +262,29 @@ Status key:
 
 ## 9f. Phones (Oct 19)
 
-* Customer screen on a phone: the whole screen scrolls (before, everything below the four number boxes, including the tabs, was cut off). A bar that stays at the bottom, above the tab bar, holds New quote, Call, Text, Navigate, Book and Edit; Call and Text ask "How'd it go?" afterwards. Delete stays behind More. **DEV**
-* Also fixed at 360 px: Sales Orders filters, the Remove button per team member in Settings › Appointments, and a job opens full screen on a phone. **DEV**
-* Browser test e2e/phone-fit.mjs (WebKit, Chromium and the Android emulator, 360 px): fails if any main screen scrolls sideways or any button is off screen, cut off or covered. **DEV**
+* Customer screen on a phone: the whole screen scrolls (before, everything below the four number boxes, including the tabs, was cut off). A bar that stays at the bottom, above the tab bar, holds New quote, Call, Text, Navigate, Book and Edit; Call and Text ask "How'd it go?" afterwards. Delete stays behind More. **LIVE**
+* Also fixed at 360 px: Sales Orders filters, the Remove button per team member in Settings › Appointments, and a job opens full screen on a phone. **LIVE**
+* Browser test e2e/phone-fit.mjs (WebKit, Chromium and the Android emulator, 360 px): fails if any main screen scrolls sideways or any button is off screen, cut off or covered. **LIVE**
 
 ## 9g. Operations stages: one list in Settings (Oct 20)
 
-* Settings > Operations Stages is the only list: the Operations board columns, order and colors, the stage filters, the job page (stage pill, stage buttons, Advance), Dispatch, the customer screen and automations and stage rules (server too) all read it. Before, the board used its own hard coded 12 stages and the Settings list (8) was read by nothing. **DEV**
-* Rename, recolor, reorder (drag, or arrows on a phone), add, hide, side lanes, and mark the First stage (new jobs land there) and the Complete stage (moving a job there marks it complete). Every stage has a permanent id; jobs, automations and stage rules store the id, so a rename never moves a job or breaks a rule. Changes show on every device without a reload. **DEV**
-* A stage that jobs or automations use can't be deleted until you pick where they go; then they move and the stage is deleted in one step. Hide is always allowed. **DEV**
-* Start list: Awaiting Locates, Permit Pending, Need Drawing, Materials Ordered, Ready to Pull, Scheduled, In Progress, Punch List, Complete, Invoiced, Paid; side lanes On Hold, Customer Delay, Backorder. No job moves: live 654 Paid, 5 Awaiting Locates, 3 Complete, 2 Invoiced before and after (dry run). **DEV**
-* Lead sources and customer tags in every form now come from Settings; website chat bookings use the appointment lengths set in Settings. Pipeline Stages and follow-up steps still use the stage names in code (a bigger job, not done). **DEV**
+* Settings > Operations Stages is the only list: the Operations board columns, order and colors, the stage filters, the job page (stage pill, stage buttons, Advance), Dispatch, the customer screen and automations and stage rules (server too) all read it. Before, the board used its own hard coded 12 stages and the Settings list (8) was read by nothing. **LIVE**
+* Rename, recolor, reorder (drag, or arrows on a phone), add, hide, side lanes, and mark the First stage (new jobs land there) and the Complete stage (moving a job there marks it complete). Every stage has a permanent id; jobs, automations and stage rules store the id, so a rename never moves a job or breaks a rule. Changes show on every device without a reload. **LIVE**
+* A stage that jobs or automations use can't be deleted until you pick where they go; then they move and the stage is deleted in one step. Hide is always allowed. **LIVE**
+* Start list: Awaiting Locates, Permit Pending, Need Drawing, Materials Ordered, Ready to Pull, Scheduled, In Progress, Punch List, Complete, Invoiced, Paid; side lanes On Hold, Customer Delay, Backorder. No job moves: live 654 Paid, 5 Awaiting Locates, 3 Complete, 2 Invoiced before and after (dry run). **LIVE**
+* Lead sources and customer tags in every form now come from Settings; website chat bookings use the appointment lengths set in Settings. Pipeline Stages and follow-up steps still use the stage names in code (a bigger job, not done). **LIVE**
+
+## 9h. Sign ins, Settings change log, phones, clean up (Oct 20)
+
+* Every staff sign in belongs to a session the server keeps; a sign in can't be made from the server's secret alone. Signing out, removing a login, ending a session or changing a password stops that device straight away. Open screens renew silently: nobody is signed out by the change. **DEV**
+* Settings > Change log (owner): every Settings save with who, when, which device and address, and what changed ("Permit Pending: Done off → on"). Secrets are never logged. Found this way: the Oct 19, 11:29 PM "Permit Pending Done" came from the owner's own Chrome Beta on the Mac mini, through the old Settings screen. **DEV**
+* Scripts that change data refuse the live database unless run on purpose within 30 minutes of a backup; browser tests refuse the live server. **DEV**
+* Menus always open on screen: one shared menu for the customer More menu, Notifications, Messages, Filter and sort and the card menus. On a phone it opens as a sheet above the tab bar; on a computer it flips to stay on screen. The phone fit test opens every one at 360 px (WebKit, Chromium, Android). **DEV**
+* Delete customer asks you to type the customer's name first. **DEV**
+* Removed: the old Staging screen, the old Jobs pipeline and the Staging sheet (empty). Smart Schedule works from real jobs and Operations stages, and never puts a job on a crew day off (Settings working days, Monday to Thursday by default). **DEV**
+* Finance > Cash Flow is hidden until it is built. Integrations shows Google Calendar and SendGrid as Connected or Set up. The website widget shows a drawn picture of the fence type when a style has no photo. Optimizer help: "When off, every side uses 6 ft panels." **DEV**
+* Deleting a login removes its pending calls and push subscriptions, and only works on your own company's logins. **DEV**
+
 
 ## 10. Reliability (top priority)
 

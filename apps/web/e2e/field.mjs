@@ -15,6 +15,7 @@
 //   android   Chrome on the Android emulator (adb reverse + remote debugging)
 // The phone's camera is a stand-in test pattern on every device.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium, webkit, devices } from 'playwright'
 import { execSync } from 'child_process'
 import { startSignal } from './signal.mjs'

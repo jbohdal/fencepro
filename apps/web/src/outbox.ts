@@ -262,8 +262,9 @@ async function pump() {
       if (r.retryNow && op.attempts < 5) { op.attempts += 1; await persist(op); continue }
       // Refused for this login's role: never sent again. The change leaves the
       // phone, the screen goes back to the server's copy, and the reason is shown.
-      if (r.status === 403 && r.code === 'NOT_ALLOWED') {
-        const message = plainError(403, r.error, handler.what?.(op) ?? 'This change').message
+      // Or a signed quote's price (409 QUOTE_LOCKED): it stays as signed; the change goes on a change order.
+      if ((r.status === 403 && r.code === 'NOT_ALLOWED') || (r.status === 409 && r.code === 'QUOTE_LOCKED')) {
+        const message = r.status === 409 && r.error ? r.error : plainError(403, r.error, handler.what?.(op) ?? 'This change').message
         await drop(op)
         try { handler.refused?.(op, message) } catch { /* the next load shows the server's copy */ }
         try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message, label: op.label } })) } catch { /* no window (tests) */ }

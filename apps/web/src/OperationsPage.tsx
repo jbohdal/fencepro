@@ -1,8 +1,8 @@
 /**
  * Operations data and the job page.
  *
- * buildUnifiedList merges Jobs (jobStore) and old Staging sheet rows into one
- * list for the Operations board (OperationsBoard.tsx); DetailPanel is the job
+ * buildUnifiedList turns the Jobs (jobStore) into the one list for the
+ * Operations board (OperationsBoard.tsx); DetailPanel is the job
  * page. Stages come from Settings > Operations Stages (opsStagesStore).
  */
 
@@ -18,33 +18,13 @@ import JobQuotedVsActual from './JobQuotedVsActual'
 import { useState, useEffect } from 'react'
 import { getJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
-import { getOpsStages, getFirstOpsStage, stageOf, stageName, stageInfo, stagePhase, nextOpsStage, pickable, useOpsStages } from './opsStagesStore'
-
-// Also pull staging jobs from localStorage
-interface StagingJob {
-  id: string; clientName: string; contractDate: string; locatesGoodDate: string
-  locatesExpDate: string; area: string; sections: number; fenceType: string
-  manhoursSold: number; jobPrice: number; tearout: boolean; notes: string
-  status: string; quoteId?: string; createdAt: string; lastMoved: string
-}
-
-function loadStaging(): StagingJob[] {
-  try {
-    const raw = cloudStorage.getItem('fencepro_staging')
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
-}
-
-// An old Staging sheet row keeps its stage as a name: it shows in the stage of that name, else the first stage.
-function stagingStageId(status: string): string {
-  const n = (status || '').trim().toLowerCase()
-  return getOpsStages().find(s => s.name.trim().toLowerCase() === n)?.id ?? getFirstOpsStage()?.id ?? ''
-}
+import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, pickable, useOpsStages } from './opsStagesStore'
+import { ChangeOrderPanel } from './ChangeOrders'
 
 // Unified job type for display
 export interface UnifiedJob {
   id: string
-  source: 'job' | 'staging'
+  source: 'job'
   customerName: string
   address: string
   fenceType: string
@@ -65,18 +45,14 @@ export interface UnifiedJob {
   holdReason: string
   // Raw refs
   rawJob?: Job
-  rawStaging?: StagingJob
 }
 
 export function buildUnifiedList(): UnifiedJob[] {
   const jobs = getJobs()
-  const staging = loadStaging()
   const result: UnifiedJob[] = []
-  const seenQuoteIds = new Set<string>()
 
   // Jobs from jobStore
   for (const j of jobs) {
-    seenQuoteIds.add(j.quoteId)
     const opsStage = stageOf(j)
     result.push({
       id: j.id,
@@ -100,35 +76,6 @@ export function buildUnifiedList(): UnifiedJob[] {
       locatesExpDate: j.locatesExpDate || '',
       holdReason: j.holdReason || '',
       rawJob: j,
-    })
-  }
-
-  // Staging jobs that DON'T have a corresponding job (avoid duplicates)
-  for (const s of staging) {
-    if (s.quoteId && seenQuoteIds.has(s.quoteId)) continue
-    const opsStage = stagingStageId(s.status)
-    result.push({
-      id: s.id,
-      source: 'staging',
-      customerName: s.clientName,
-      address: s.area || '',
-      fenceType: s.fenceType,
-      sections: s.sections,
-      opsStage,
-      opsStageLabel: stageName(opsStage) || s.status,
-      crewAssigned: '',
-      scheduledDate: '',
-      contractValue: s.jobPrice,
-      paymentStatus: 'not_invoiced',
-      amountPaid: 0,
-      notes: s.notes || '',
-      salesRep: '',
-      materialsStatus: 'not_ordered',
-      drawingComplete: false,
-      locatesDate: s.locatesGoodDate || '',
-      locatesExpDate: s.locatesExpDate || '',
-      holdReason: '',
-      rawStaging: s,
     })
   }
 
@@ -276,6 +223,13 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           <Field label="Payment Status" value={PAYMENT_WORDS[job.paymentStatus] ?? job.paymentStatus} />
         </Section>
 
+        {/* Change orders: the signed quote is locked, changes to the work go here; approved ones are in the contract value. */}
+        {isJobSource && job.rawJob?.quoteId && (
+          <Section title="Change Orders">
+            <ChangeOrderPanel quoteId={job.rawJob.quoteId} originalPrice={job.rawJob.quotePrice || 0} customerName={job.customerName} />
+          </Section>
+        )}
+
         {/* Notes */}
         <Section title="Notes">
           {isJobSource ? (
@@ -352,7 +306,6 @@ function CheckItem({ label, done, detail }: { label: string; done: boolean; deta
 
 import { getChecklistForJob, toggleChecklistItem, type ChecklistItem } from './checklistStore'
 import { toast } from './toast'
-import { cloudStorage } from './cloudStorage'
 
 function MilestoneChecklist({ jobId }: { jobId: string }) {
   const [items, setItems] = useState<ChecklistItem[]>([])

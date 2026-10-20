@@ -15,6 +15,7 @@
 //
 // Or on its own: node e2e/signal.mjs 4010 4001, and POST /__signal?mode=down
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import http from 'http'
 import { fileURLToPath } from 'url'
 import path from 'path'

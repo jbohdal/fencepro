@@ -12,6 +12,7 @@ import SitePlan from '../SitePlan'
 import FtInPad from '../FtInPad'
 import { aerialUrl } from '../sitePlanGeometry'
 import { layoutForShape, deriveLayout, formatFtIn, GATE_LABEL, GATE_WIDTH_IN, type YardLayout, type YardShape, type GateType } from '../yardLayout'
+import StylePicture from './StylePicture'
 
 interface WStyle { id: string; name: string; colors: string[]; panelWidth: number; crm: Record<string, Record<string, string>>; photoUrl: string | null }
 interface WMaterial { material: string; label: string; styles: WStyle[] }
@@ -316,7 +317,7 @@ export default function WidgetApp() {
                   <button key={s.id} type="button" onClick={() => setStyleId(s.id)} data-w-style={s.name}
                     className={`rounded-xl border-2 overflow-hidden text-left ${styleId === s.id ? 'border-orange-500' : 'border-gray-200'}`}>
                     <div className="aspect-[4/3] bg-gray-100">
-                      {s.photoUrl ? <img src={s.photoUrl} alt={s.name} className="w-full h-full object-cover" /> : <div className="w-full h-full grid place-items-center text-xs text-gray-500">Photo coming soon</div>}
+                      {s.photoUrl ? <img src={s.photoUrl} alt={s.name} className="w-full h-full object-cover" /> : <StylePicture material={material.material} family={s.name} colors={s.colors} />}
                     </div>
                     <p className={`p-2 text-sm font-semibold ${styleId === s.id ? 'text-orange-800' : 'text-gray-900'}`}>{s.name}</p>
                   </button>

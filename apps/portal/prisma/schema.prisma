@@ -1686,6 +1686,9 @@ model SavedQuote {
   proposal          Json?
   // Which proposal option the customer chose when accepting (index into proposal.options).
   chosenOption      Int?
+  // A sent quote saved again at today's prices (a new version): it has to be
+  // sent to the customer again. Cleared when the proposal is sent.
+  needsResend       Boolean   @default(false)
 
   archivedAt DateTime?
   createdAt  DateTime  @default(now())
@@ -2561,6 +2564,38 @@ model PendingTouch {
   channel      String   @default("call")
   name         String   @default("")
   startedAt    DateTime @default(now())
+}
+
+/// A change order on a signed quote (lib/changeOrders.ts, Oct 2026): a signed
+/// quote is locked (lib/quoteLock.ts), so added or removed fence, gates or a
+/// style change go here. Lines in integer cents; approved ones add to the
+/// job's contract value. Saved whole with a version (lib/versioned.ts).
+model ChangeOrder {
+  id         String    @id @default(uuid())
+  accountId  String
+  quoteId    String
+  /// The change order's number on its quote: 1, 2, 3 ...
+  number     Int       @default(1)
+  /// draft | sent | approved | void
+  status     String    @default("draft")
+  reason     String    @default("")
+  /// [{ id, description, amountCents }] (a credit is negative)
+  lines      Json      @default("[]")
+  totalCents Int       @default(0)
+  /// What it changes in the work, from the quote builder:
+  /// { footageFt, walkGates, dblGates, sections, fromStyle, toStyle } (differences). Null: typed by hand.
+  scope      Json?
+  createdBy  String?
+  sentAt     DateTime?
+  approvedAt DateTime?
+  approvedBy String?
+  voidedAt   DateTime?
+  version    Int       @default(1)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([accountId, quoteId, number])
+  @@index([accountId, quoteId])
 }
 
 /// Job costing, the "Quoted cost": what a sold quote was priced at, frozen the

@@ -11,6 +11,7 @@
 //   3. Save quote (from the lead's card): one quote
 //   4. Book an appointment (customer page): one appointment
 // Dev only (port 4001); removes what it made.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import { execFileSync } from 'child_process'
 

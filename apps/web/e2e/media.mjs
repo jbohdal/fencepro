@@ -13,6 +13,7 @@
 // the quote for the customer brings the photos to the customer; the portal
 // shows only items marked Customer. Everything made is deleted at the end.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import fs from 'fs'
 

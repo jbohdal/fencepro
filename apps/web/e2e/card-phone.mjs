@@ -15,6 +15,7 @@
 //
 // E2E_SHOTS=<folder> saves dev-card-phone.png (phone), dev-card-phone-desktop.png
 // and dev-card-window-phone-number.png there.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:5173'

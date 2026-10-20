@@ -85,6 +85,7 @@ const MIXED: Record<string, { installMethod: 'no-dig' | 'dig-set'; colorFamily: 
   'WV-Auto ND Privacy': { installMethod: 'no-dig', colorFamily: 'white' },
   'WV-Auto DS Privacy': { installMethod: 'dig-set', colorFamily: 'white' },
   'TV-Auto ND Privacy': { installMethod: 'no-dig', colorFamily: 'tan' },
+  'TV-Auto DS Privacy': { installMethod: 'dig-set', colorFamily: 'tan' },
 }
 export const isAutoKitStyle = (name: string) => name in MIXED
 

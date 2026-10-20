@@ -958,7 +958,8 @@ function round2(n: number): number {
 // ════════════════════════════════════════════════════════════════════════════
 // Mixed-rail material calculator (Milestone B)
 //
-// For auto-mix umbrella styles ("WV-Auto ND Privacy", "WV-Auto DS Privacy").
+// For auto-mix umbrella styles ("WV-Auto ND Privacy", "WV-Auto DS Privacy",
+// "TV-Auto DS Privacy").
 // Each run independently uses 6ft or 8ft rails per the optimizer (or override).
 // Panel goods (rails, u-trim, pickets, stiffener) are computed per-run with
 // the matching 6x6 or 6x8 unit cost; post / hardware / gate counts come from
@@ -999,7 +1000,7 @@ export function calculateMixedMaterials(input: MixedJobInputs): LineItem[] {
   return calculateMixedMaterialsDetailed(input).items
 }
 
-/** The kit set an auto mix job reads (white no dig, white dig set; tan no dig is used only for the 6/8 hint on tan styles). */
+/** The kit set an auto mix job reads (white no dig, white dig set, tan dig set; tan no dig is used only for the 6/8 hint on tan styles). */
 export function mixedKitKey(installMethod: 'no-dig' | 'dig-set', colorFamily: 'white' | 'tan'): string {
   return `${colorFamily === 'white' ? 'WV' : 'TV'}-Auto ${installMethod === 'no-dig' ? 'ND' : 'DS'} Privacy`
 }
@@ -1091,6 +1092,13 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
     add('*Vinyl, Tan, Post, Blank, 5" x 5" x 102"', blankPosts, 16.38)
     add('ND, Donut', totalPostCount * 2, 3.19) // as white: the blank post is set in concrete, not in totalPostCount
     add('Pipe, PT40, Galv, 2-1/2" x 8\'', corners + ends + linePosts, 19.50)
+  } else if (isTan && isDS) {
+    // As the TV-DS 6'x6' / 6'x8' list: 102" tan posts set in concrete.
+    add('*Vinyl, Tan, Post, Corner, 5" x 5" x 102"', corners, 19.24)
+    add('*Vinyl, Tan, Post, End, 5" x 5" x 102"', ends, 19.24)
+    add('*Vinyl, Tan, Post, Line, 5" x 5" x 102"', linePosts, 19.24)
+    add('*Vinyl, Tan, Post, Blank, 5" x 5" x 102"', blankPosts, 16.38)
+    add('Misc, Concrete', Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2), 6.25)
   }
 
   // ── Panel goods, split by rail width ──
@@ -1135,6 +1143,10 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
   } else if (isTan && isND) {
     add('*Vinyl, Hex, 1/4 x 3" (Rail Ties/Bottom)', totalPostCount * 3, 0.123)
     add('**Vinyl, Donut Pin', totalPostCount * 4, 0.10)
+    add('*Vinyl, Truss, 8 x 3/4" (U-Trim)', totalSections * 6, 0.03)
+    add('Vinyl, Tan, Cap, 5"x5"', totalPostCount, 1.00)
+  } else if (isTan && isDS) {
+    add('*Vinyl, Hex, 1/4 x 3" (Rail Ties/Bottom)', totalPostCount * 2, 0.123)
     add('*Vinyl, Truss, 8 x 3/4" (U-Trim)', totalSections * 6, 0.03)
     add('Vinyl, Tan, Cap, 5"x5"', totalPostCount, 1.00)
   }
@@ -1194,7 +1206,28 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
       add('*Vinyl, Tan, Upright', dblGates * 2, 9.69)
       add('*Vinyl, Tan, Rivet, 1"', dblGates * 100, 0.20)
     }
+  } else if (isTan && isDS) {
+    // The TV-DS gate lines.
+    if (walkGates > 0) {
+      add("*Vinyl, Gate, H-Beam, 6'", walkGates * 2, 22.80)
+      add('*Vinyl, Gate, Brace', walkGates, 36.37)
+      add('*Vinyl, Gate, Hinge', walkGates, 29.03)
+      add('*Vinyl, Gate, Latch', walkGates, 20.46)
+      add('Vinyl, Tan, Cap, Gate', walkGates * 2, 1.00)
+      add('*Vinyl, Tan, Upright', walkGates, 9.69)
+      add('*Vinyl, Tan, Rivet, 1"', walkGates * 50, 0.20)
+    }
+    if (dblGates > 0) {
+      add("*Vinyl, Gate, H-Beam, 8'", dblGates * 3, 29.60)
+      add('*Vinyl, Gate, Brace', dblGates * 2, 36.37)
+      add('*Vinyl, Gate, Hinge', dblGates * 2, 29.03)
+      add('*Vinyl, Gate, Latch', dblGates, 20.46)
+      add('Vinyl, Tan, Cap, Gate', dblGates * 4, 1.00)
+      add('*Vinyl, Tan, Upright', dblGates * 2, 9.69)
+      add('*Vinyl, Tan, Rivet, 1"', dblGates * 100, 0.20)
+    }
   }
+  if (isTan && isDS) col.warnings.push('Tan dig set uses the white dig set parts list with tan parts. Check the pull sheet against how you build it.')
 
   return col.finish()
 }

@@ -43,6 +43,8 @@ import { newId } from './recordSync'
 import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
 import { can } from './permissions'
+import PopMenu, { PopItem } from './PopMenu'
+import ConfirmByTyping from './ConfirmByTyping'
 
 interface Customer {
   id: string
@@ -989,13 +991,11 @@ function CustomerDetail({
             <button onClick={() => onNewQuote(customer)} className="btn btn-primary flex-1 lg:flex-none">+ New quote</button>
             <button onClick={onEdit} className="btn btn-quiet">Edit</button>
             </>}
-            {/* Delete lives behind "More" and a confirmation, never one tap away. */}
-            {can('records.delete') && <details className="relative" data-customer-more>
-              <summary className="btn btn-quiet list-none [&::-webkit-details-marker]:hidden" aria-label="More actions">More ▾</summary>
-              <div className="absolute right-0 mt-1 w-48 panel p-1 z-20">
-                <button onClick={() => onDelete(customer.id)} className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-semibold text-red-700 hover:bg-red-50">Delete customer…</button>
-              </div>
-            </details>}
+            {/* Delete lives behind "More" and typing the name, never one tap away. */}
+            {can('records.delete') && <PopMenu name="customer-more" label="More ▾" title="More actions" width={208}
+              triggerClassName="btn btn-quiet" triggerProps={{ 'aria-label': 'More actions', 'data-customer-more': true }}>
+              {close => <PopItem danger onClick={() => { close(); onDelete(customer.id) }} data-customer-delete>Delete customer…</PopItem>}
+            </PopMenu>}
           </div>
         </div>
 
@@ -1386,10 +1386,18 @@ export default function CustomersPage({ onNewQuote }: {
     }
   }
 
+  // Deleting a customer asks for their name to be typed (see ConfirmByTyping).
+  const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null)
   function handleDelete(id: string) {
     const c = customers.find(x => x.id === id)
-    const name = c ? `${c.firstName} ${c.lastName}`.trim() : 'this customer'
-    if (!confirm(`Delete ${name}?\n\nTheir customer record is removed. This cannot be undone from here.`)) return
+    if (!c) return
+    const name = `${c.firstName} ${c.lastName}`.trim().replace(/\s+/g, ' ') || c.phone || c.email || 'DELETE'
+    setDeleting({ id, name })
+  }
+  function confirmDelete() {
+    if (!deleting) return
+    const { id } = deleting
+    setDeleting(null)
     storeDeleteCustomer(id)
     if (selectedId === id) navigate('/customers', { replace: true })
   }
@@ -1682,6 +1690,12 @@ export default function CustomersPage({ onNewQuote }: {
           />
         )}
       </div>
+
+      {deleting && (
+        <ConfirmByTyping title={`Delete ${deleting.name}?`} name={deleting.name}
+          body="Their customer record is removed. This cannot be undone from here."
+          action="Delete customer" onConfirm={confirmDelete} onCancel={() => setDeleting(null)} />
+      )}
 
       {viewerFile && (
         <FileViewerModal

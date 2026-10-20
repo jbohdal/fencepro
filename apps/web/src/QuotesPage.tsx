@@ -68,6 +68,8 @@ export interface SavedQuote {
   pricing?: QuotePricingOverrides
   /** A fence move or repair: what was entered and how it was priced (moveRepair.ts). Absent for a new fence. */
   work?: SavedWork
+  /** A sent quote saved again at today's prices: it has to be sent to the customer again. */
+  needsResend?: boolean
   /** Sent once with a Salesman's or Installer's save (never kept): the quote builder's inputs, so the server works out the costs (quoteJob.ts). */
   priceRequest?: QuoteJobRequest
 }

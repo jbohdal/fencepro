@@ -30,6 +30,7 @@ import { formatPhone, telHref } from './phoneFormat'
 import { leadValue, pipelineMetrics } from './pipelineValue'
 import { useMergedRefresh } from './useMergedRefresh'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
+import PopMenu, { PopItem } from './PopMenu'
 import { openBooking } from './BookingDialog'
 import { CalendarPlus, CalendarDays, Eye, Search, SlidersHorizontal } from 'lucide-react'
 import { moveCard } from './appointmentPipeline'
@@ -767,7 +768,6 @@ function PipelineCard({
   const city = (lead.address || '').split(',').slice(-2)[0]?.trim() || lead.address || ''
   // The card's own phone, else the linked customer's (already loaded; no request per card).
   const phone = (lead.phone || (lead.customerId ? getCustomerById(lead.customerId)?.phone : '') || '').trim()
-  const [menuOpen, setMenuOpen] = useState(false)
 
   return (
     <div
@@ -840,19 +840,16 @@ function PipelineCard({
       {/* hover three-dot menu */}
       {!isMobile && (
         <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition">
-          <button
-            onClick={e => { e.stopPropagation(); setMenuOpen(o => !o) }}
-            className="px-1 py-0.5 text-gray-400 hover:text-gray-700 text-sm rounded hover:bg-gray-100"
-            aria-label="Card actions"
-          >⋯</button>
-          {menuOpen && (
-            <div onClick={e => e.stopPropagation()} className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg text-xs z-20">
-              <button onClick={onClick} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Open</button>
-              <button onClick={onQuickView} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Quick view</button>
-              <button onClick={onNextStage} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to Next Stage</button>
-              <button onClick={onMarkLost} className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600">Mark Lost</button>
-            </div>
-          )}
+          <PopMenu name="card-actions" label="⋯" title="Card actions" width={176}
+            triggerClassName="px-1 py-0.5 text-gray-400 hover:text-gray-700 text-sm rounded hover:bg-gray-100"
+            triggerProps={{ 'aria-label': 'Card actions' }}>
+            {close => <>
+              <PopItem onClick={() => { close(); onClick() }}>Open</PopItem>
+              <PopItem onClick={() => { close(); onQuickView() }}>Quick view</PopItem>
+              <PopItem onClick={() => { close(); onNextStage() }}>Move to Next Stage</PopItem>
+              <PopItem danger onClick={() => { close(); onMarkLost() }}>Mark Lost</PopItem>
+            </>}
+          </PopMenu>
         </div>
       )}
 
@@ -898,7 +895,6 @@ function ControlsBar({
   isMobile: boolean
 }) {
   const [openSearch, setOpenSearch] = useState(false)
-  const [openFilter, setOpenFilter] = useState(false)
   if (isMobile) {
     return (
       <div className="flex items-center justify-between gap-2 mb-3">
@@ -908,15 +904,9 @@ function ControlsBar({
         </div>
         <div className="flex items-center gap-1.5">
           <button onClick={() => setOpenSearch(o => !o)} className="btn btn-secondary btn-icon" aria-label="Search this board"><Search size={18} aria-hidden="true" /></button>
-          <button onClick={() => setOpenFilter(o => !o)} className="btn btn-secondary btn-icon" aria-label="Filter and sort"><SlidersHorizontal size={18} aria-hidden="true" /></button>
-          <ViewToggle value={view} onChange={onViewChange} />
-        </div>
-        {openSearch && (
-          <input autoFocus value={search} onChange={e => onSearchChange(e.target.value)}
-            placeholder="Search..." className="absolute left-4 right-4 top-32 z-30 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white" />
-        )}
-        {openFilter && (
-          <div className="absolute left-4 right-4 top-32 z-30 bg-white border border-gray-200 rounded-lg p-3 space-y-2 shadow-lg">
+          <PopMenu name="filter" kind="dialog" title="Filter and sort" width={288} className="p-3 space-y-2" align="end"
+            label={<SlidersHorizontal size={18} aria-hidden="true" />}
+            triggerClassName="btn btn-secondary btn-icon" triggerProps={{ 'aria-label': 'Filter and sort' }}>
             <select value={repFilter} onChange={e => onRepFilterChange(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="">All reps</option>
               {repOptions.map(r => <option key={r} value={r}>{r}</option>)}
@@ -933,7 +923,12 @@ function ControlsBar({
               Needs follow up
             </label>
             <button onClick={onToggleAnalytics} className="w-full text-left text-xs text-orange-600 hover:underline">{analyticsOpen ? 'Hide analytics' : 'Show analytics'}</button>
-          </div>
+          </PopMenu>
+          <ViewToggle value={view} onChange={onViewChange} />
+        </div>
+        {openSearch && (
+          <input autoFocus value={search} onChange={e => onSearchChange(e.target.value)}
+            placeholder="Search..." className="absolute left-4 right-4 top-32 z-30 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white" />
         )}
       </div>
     )

@@ -13,6 +13,12 @@ import path from 'path'
 
 export const LIVE_DATABASE_NAME = 'ezbiz'
 
+/** The database name in a Postgres URL, or '' when there is none. */
+export function databaseNameOf(url: string | undefined): string {
+  if (!url) return ''
+  try { return decodeURIComponent(new URL(url).pathname.replace(/^\//, '')) } catch { return '' }
+}
+
 /** A sentence saying what is wrong, or null when this copy may use this database. */
 export function liveDatabaseMisuse(databaseUrl: string | undefined, cwd: string, home: string = os.homedir()): string | null {
   if (!databaseUrl) return null

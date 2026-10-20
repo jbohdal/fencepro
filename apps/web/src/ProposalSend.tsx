@@ -83,7 +83,9 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
     if (kind === 'email') window.location.href = `mailto:${encodeURIComponent(quote.customerEmail || '')}?subject=${encodeURIComponent(`Your fence proposal from ${company}`)}&body=${encodeURIComponent(message(u))}`
     if (kind === 'copy') { await navigator.clipboard?.writeText(u).catch(() => {}); toast.success('Link copied') }
     // Given to the customer (texted, emailed or copied to send): the quote is Sent. Opening it yourself is not.
-    if (kind !== 'open' && quote.status === 'DRAFT') updateQuote(quote.id, { status: 'SENT' })
+    if (kind !== 'open' && quote.status === 'DRAFT') updateQuote(quote.id, { status: 'SENT', needsResend: false })
+    // A new version (saved at today's prices) has now gone to the customer.
+    else if (kind !== 'open' && quote.needsResend) updateQuote(quote.id, { needsResend: false })
   }
 
   const chosen = quote.acceptedAt != null && quote.chosenOption != null ? p.options[quote.chosenOption] : null
@@ -95,6 +97,11 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
     : 'No link sent yet.'
   return (
     <div className="space-y-3" data-proposal-send>
+      {quote.needsResend && !quote.acceptedAt && (
+        <p className="rounded-lg bg-amber-50 border border-amber-300 px-3 py-2 text-sm text-amber-900" data-proposal-needs-resend>
+          This quote was saved at new prices after it was sent. Send it to the customer again.
+        </p>
+      )}
       {chosen && (
         <p className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-900" data-proposal-chosen>
           Accepted by {quote.acceptedBy} on {new Date(quote.acceptedAt!).toLocaleDateString()}: {chosen.label}, ${Math.round(chosen.finalPrice).toLocaleString('en-US')}.

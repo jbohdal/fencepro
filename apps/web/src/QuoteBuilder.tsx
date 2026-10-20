@@ -49,6 +49,10 @@ import { signedInRole, can } from './permissions'
 import { useServerQuoteView, viewCalc, viewWork, viewTiers, viewCompare, viewProposalOptions } from './quoteViewApi'
 import type { QuoteJobRequest } from './quoteJob'
 import { bakedBackdrop } from './aerialBake'
+// A signed quote's lock: the same rules the server checks every save with.
+import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../portal/src/server/lib/quoteLock'
+import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, type ChangeOrderPrefill } from './ChangeOrders'
+import { changeOrderDraft } from './changeOrderDraft'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
 /** "2026-10-19" → "Oct 19, 2026" */
@@ -98,6 +102,7 @@ function SaveModal({
   initialCustomerId,
   initialAddress = '',
   initialNotes = '',
+  initialStatus = 'DRAFT',
 }: {
   onSave: (data: {
     customerId: string
@@ -117,6 +122,8 @@ function SaveModal({
   /** The property this quote is for (it can differ from the customer's main address). */
   initialAddress?: string
   initialNotes?: string
+  /** A saved quote keeps its status unless another is picked (it used to start at Draft every time). */
+  initialStatus?: SavedQuote['status']
 }) {
   const [mode, setMode]           = useState<'search' | 'new'>('search')
   const [search, setSearch]       = useState(initialCustomerName)
@@ -133,7 +140,7 @@ function SaveModal({
   const [address, setAddress]     = useState('')
   const [leadSource, setLeadSource] = useState('')
   const [salesRep, setSalesRep]   = useState('')
-  const [status, setStatus]       = useState<SavedQuote['status']>('DRAFT')
+  const [status, setStatus]       = useState<SavedQuote['status']>(initialStatus)
   const [notes, setNotes]         = useState(initialNotes)
   const [leadTemp, setLeadTemp]   = useState(0)
   const [propertyAddress, setPropertyAddress] = useState(initialAddress || selectedCustomer?.serviceAddress || '')
@@ -493,6 +500,12 @@ export default function QuoteBuilder({
     listStylePhotos().then(list => setPhotoIds(Object.fromEntries(list.map(p => [p.styleName, p.id])))).catch(() => {})
   }, [])
   const [showSaveModal, setShowSaveModal] = useState(false)
+  // Signed (Sold or accepted): the price is locked, changes go on a change order. Sent: the price the customer saw.
+  const signedQuote = !!init?.id && isSignedQuote({ status: init.status, acceptedAt: init.acceptedAt })
+  const sentQuote = !!init?.id && !signedQuote && init.status === 'SENT'
+  const [pending, setPending] = useState<{ quote: SavedQuote; kind: 'locked' | 'sent' } | null>(null)
+  const [coPrefill, setCoPrefill] = useState<ChangeOrderPrefill | null>(null)
+  useEffect(() => { if (signedQuote && init?.id) void refreshChangeOrders(init.id) }, [signedQuote, init?.id])
   // Fence moves and repairs (moveRepair.ts). A new fence is priced exactly as before.
   const [jobType, setJobType] = useState<JobType>(init?.work?.type ?? 'new')
   const [move, setMove] = useState<Omit<MoveInputs, 'oldPostType'> & { oldPostType?: PostType }>(() => init?.work?.move ?? { oldFt: 0, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false })
@@ -671,6 +684,19 @@ export default function QuoteBuilder({
   const gmColor     = gmPct >= gmGood ? 'text-green-600' : gmPct >= gmWarn ? 'text-yellow-500' : 'text-red-500'
   const defaultSubRate = resolveSubRate(cfgStyle, cfg.pricing)
   totalsRef.current = { footage: totalFootage, sections, price: adjPrice }
+  // What the quote prices at today, as it opened (before any change): a sent quote compares it with the price sent.
+  const openPriceRef = useRef<number | null>(null)
+  if (!dirty() && (internal || sv)) openPriceRef.current = adjPrice
+  // The pricing and option choices it opened with: a signed quote compares what was changed against them.
+  const openChoices = useRef<{ pricing: string; work: string; proposal: string } | null>(null)
+  const choicesNow = {
+    pricing: JSON.stringify(cleanOverrides(pricingOverrides)),
+    work: JSON.stringify([jobType, move, repair, offerNewFence, offerMoveAsIs]),
+    proposal: JSON.stringify([offer, tierPrefs, keepSentTiers, showCompare]),
+  }
+  if (!openChoices.current) openChoices.current = choicesNow
+  const openOverrides = useRef(pricingOverrides)
+  const sentPricesChanged = sentQuote && openPriceRef.current != null && Math.round(openPriceRef.current * 100) !== Math.round((init?.finalPrice ?? 0) * 100)
   const commissionPctLabel = `${Math.round((cfg.pricing.commissionSalesman ?? 0) * 1000) / 10}%`
   // Help that prevents bad quotes: plain warnings, never a block.
   const namedRuns: NamedRun[] = fromLayout
@@ -872,7 +898,29 @@ export default function QuoteBuilder({
       }) : undefined),
     }
     setShowSaveModal(false)
+    if (init?.id && signedQuote) {
+      // Only what was changed counts (today's costs moving the figures does not): the work, the choices.
+      const changed = lockedChanges(init, {
+        fenceStyle: quote.fenceStyle, runs: quote.runs, runRails: quote.runRails, corners: quote.corners, ends: quote.ends,
+        walkGates: quote.walkGates, dblGates: quote.dblGates, tearOutSections: quote.tearOutSections, tearOutGates: quote.tearOutGates,
+        adjLaborHrs: quote.adjLaborHrs, hasSalesman: quote.hasSalesman, priceAdjust: quote.priceAdjust, layout: quote.layout,
+      })
+      for (const k of ['pricing', 'work', 'proposal'] as const) if (choicesNow[k] !== openChoices.current![k]) changed.push(k)
+      if (changed.filter(k => k !== 'status').length) { setPending({ quote, kind: 'locked' }); return }
+      onSave(keepPrices(init, { ...quote, date: init.date }))
+      return
+    }
+    if (init?.id && sentPricesChanged) { setPending({ quote, kind: 'sent' }); return }
     onSave(quote)
+  }
+
+  /** The change order, filled in from what was changed here, priced at today's costs. */
+  function startChangeOrder() {
+    if (!init || !pending) return
+    setCoPrefill(changeOrderDraft({
+      signed: init, current: calcInput, signedOverrides: openOverrides.current, styles: FENCE_STYLES,
+      priceNow: adjPrice, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
+    }))
   }
 
   return (
@@ -884,6 +932,8 @@ export default function QuoteBuilder({
           <div>
             <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
+            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>Signed: the price is locked. Changes to the fence go on a change order.</p>}
+            {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({fmt(init!.finalPrice)} then, {fmt(adjPrice)} now).</p>}
           </div>
           <div className="flex items-center gap-3">
             {materialItems.length > 0 && (
@@ -1671,9 +1721,49 @@ export default function QuoteBuilder({
           initialCustomerName={customerName}
           initialCustomerId={init?.customerId}
           initialAddress={init?.customerAddress}
+          initialStatus={init?.status ?? 'DRAFT'}
           initialNotes={[init?.notes, ...voiceNotes.map(n => `Crew note: ${n}`)].filter(Boolean).join('\n')}
           onCancel={() => setShowSaveModal(false)}
           onSave={handleSave}
+        />
+      )}
+
+      {pending && !coPrefill && <BackClose name="quote-lock" onClose={() => setPending(null)} />}
+      {pending && !coPrefill && (
+        <div className="fixed inset-0 z-[75] bg-black/50 flex items-center justify-center p-3" data-quote-lock-dialog={pending.kind}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4">
+            {pending.kind === 'locked' ? (
+              <>
+                <p className="text-base font-bold text-gray-900" data-quote-lock-message>{LOCKED_MESSAGE}</p>
+                <p className="text-sm text-gray-600">The customer signed at {fmt(init!.finalPrice)}. That price, the fence and the pull sheet stay as signed. A change order adds the changes, priced at today's costs.</p>
+                <div className="flex flex-col gap-2">
+                  <button type="button" className="btn btn-primary min-h-[48px]" onClick={startChangeOrder} data-quote-lock-co>Make a change order</button>
+                  <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave(keepPrices(init!, { ...q, date: init!.date })) }} data-quote-lock-keep>Save notes and customer details only</button>
+                  <button type="button" className="min-h-[44px] text-sm text-gray-600" onClick={() => setPending(null)} data-quote-lock-cancel>Back to the quote</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-base font-bold text-gray-900" data-quote-sent-message>Prices changed since this was sent (was {fmt(init!.finalPrice)}, now {fmt(openPriceRef.current ?? adjPrice)}). Save as a new version and send again, or keep the sent prices?</p>
+                <div className="flex flex-col gap-2">
+                  <button type="button" className="btn btn-primary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave({ ...q, needsResend: true }) }} data-quote-sent-new>Save new version (send it again)</button>
+                  <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave(keepPrices(init!, q)) }} data-quote-sent-keep>Keep the sent prices</button>
+                  <button type="button" className="min-h-[44px] text-sm text-gray-600" onClick={() => setPending(null)}>Back to the quote</button>
+                </div>
+                <p className="text-xs text-gray-500">Keep the sent prices saves notes and customer details only; the fence, price and proposal stay as sent.</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      {coPrefill && pending && init?.id && (
+        <QuickChangeOrderModal
+          quoteId={init.id}
+          customerName={init.customerName}
+          existingCount={getOrdersForQuote(init.id).length}
+          prefill={coPrefill}
+          onSaved={() => { const q = pending.quote; setCoPrefill(null); setPending(null); onSave(keepPrices(init, { ...q, date: init.date })) }}
+          onClose={() => setCoPrefill(null)}
         />
       )}
     </div>

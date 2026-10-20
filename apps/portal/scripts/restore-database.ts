@@ -23,6 +23,10 @@ import { execFileSync } from 'child_process'
 import readline from 'readline'
 import prisma from '../src/server/lib/prisma.js'
 import { gunzipFile, applySqlFile, quickCounts } from './backup-shared.js'
+import { assertLiveWriteAllowed } from '../src/server/lib/liveWriteGuard.js'
+
+// Changes data: refuses the live database without 'EZBIZ_LIVE_WRITE_OK=1' and a backup from the last 30 minutes.
+assertLiveWriteAllowed('restore-database.ts')
 
 function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })

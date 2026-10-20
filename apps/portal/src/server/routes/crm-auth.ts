@@ -11,6 +11,7 @@ import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { deleteLogin } from '../lib/loginDelete.js'
 import { withLock } from '../lib/once.js'
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
 import { buildFrontendUrl } from '../lib/urls.js'
@@ -33,9 +34,10 @@ const LOCKOUT_MINUTES = 15
 
 // ── Helpers ──
 
-function generateAccessToken(user: { id: string; email: string; role: string; firstName: string; lastName: string; crmAccountId: string | null }): string {
+/** `sid` is the CrmUserSession row this sign in lives in (lib/sessionGuard.ts): only the steps below make one. */
+function generateAccessToken(user: { id: string; email: string; role: string; firstName: string; lastName: string; crmAccountId: string | null }, sid: string): string {
   return jwt.sign(
-    { sub: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName, crmAccountId: user.crmAccountId },
+    { sub: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName, crmAccountId: user.crmAccountId, sid },
     JWT_SECRET,
     { expiresIn: ACCESS_EXPIRY }
   )
@@ -144,13 +146,10 @@ router.post('/login', async (req, res) => {
     // Make sure an owner/admin has a company before the token is issued
     user = await ensureStaffAccount(user)
 
-    // Generate tokens
-    const accessToken = generateAccessToken(user)
+    // Store the session, then the access token that names it
     const refreshToken = generateRefreshToken()
     const refreshHash = await bcrypt.hash(refreshToken, 10)
-
-    // Store session
-    await prisma.crmUserSession.create({
+    const session = await prisma.crmUserSession.create({
       data: {
         userId: user.id,
         tokenHash: refreshHash,
@@ -159,6 +158,7 @@ router.post('/login', async (req, res) => {
         expiresAt: new Date(Date.now() + REFRESH_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
       },
     })
+    const accessToken = generateAccessToken(user, session.id)
 
     // Log activity
     await prisma.crmUserActivity.create({
@@ -222,12 +222,12 @@ router.post('/refresh', async (req, res) => {
     })
 
     // Issue new tokens
+    // A token made before session ids (no `sid`) becomes one with a `sid` here (lib/sessionGuard.ts).
     const user = await ensureStaffAccount(matchedSession.user)
-    const accessToken = generateAccessToken(user)
     const newRefreshToken = generateRefreshToken()
     const newRefreshHash = await bcrypt.hash(newRefreshToken, 10)
 
-    await prisma.crmUserSession.create({
+    const session = await prisma.crmUserSession.create({
       data: {
         userId: user.id,
         tokenHash: newRefreshHash,
@@ -236,6 +236,7 @@ router.post('/refresh', async (req, res) => {
         expiresAt: new Date(Date.now() + REFRESH_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
       },
     })
+    const accessToken = generateAccessToken(user, session.id)
 
     res.json({
       success: true,
@@ -539,11 +540,10 @@ router.post('/accept-invite', async (req, res) => {
     })
 
     // Auto-login
-    const accessToken = generateAccessToken(user)
     const refreshToken = generateRefreshToken()
     const refreshHash = await bcrypt.hash(refreshToken, 10)
 
-    await prisma.crmUserSession.create({
+    const session = await prisma.crmUserSession.create({
       data: {
         userId: user.id,
         tokenHash: refreshHash,
@@ -552,6 +552,7 @@ router.post('/accept-invite', async (req, res) => {
         expiresAt: new Date(Date.now() + REFRESH_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
       },
     })
+    const accessToken = generateAccessToken(user, session.id)
 
     res.json({
       success: true,
@@ -699,9 +700,8 @@ router.post('/change-password', async (req, res) => {
       where: { userId: user.id, revokedAt: null },
       data: { revokedAt: new Date() },
     })
-    const accessToken = generateAccessToken(user)
     const refreshToken = generateRefreshToken()
-    await prisma.crmUserSession.create({
+    const session = await prisma.crmUserSession.create({
       data: {
         userId: user.id,
         tokenHash: await bcrypt.hash(refreshToken, 10),
@@ -710,6 +710,7 @@ router.post('/change-password', async (req, res) => {
         expiresAt: new Date(Date.now() + REFRESH_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
       },
     })
+    const accessToken = generateAccessToken(user, session.id)
     await prisma.crmUserActivity.create({
       data: { userId: user.id, action: 'password_changed', ipAddress: req.ip || null },
     }).catch(() => {})
@@ -794,9 +795,10 @@ router.get('/sessions', async (req, res) => {
     const payload = verifyAccess(auth.slice(7))
     if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
 
+    // Never the refresh token's hash.
     const sessions = await prisma.crmUserSession.findMany({
       where: { revokedAt: null, expiresAt: { gt: new Date() } },
-      include: { user: { select: { firstName: true, lastName: true, email: true } } },
+      select: { id: true, userId: true, ipAddress: true, userAgent: true, createdAt: true, expiresAt: true, revokedAt: true, user: { select: { firstName: true, lastName: true, email: true } } },
       orderBy: { createdAt: 'desc' },
       take: 100,
     })
@@ -844,16 +846,16 @@ router.delete('/users/:id', async (req, res) => {
 
     // Prevent deleting super_admin unless you are super_admin
     const target = await prisma.crmUser.findUnique({ where: { id: userId } })
-    if (!target) { res.status(404).json({ success: false, error: 'User not found' }); return }
+    // Only a login of the caller's own company: another company's login is "not found".
+    const callerAccountId = payload.crmAccountId ?? (await prisma.crmUser.findUnique({ where: { id: payload.sub }, select: { crmAccountId: true } }))?.crmAccountId ?? null
+    if (!target || !callerAccountId || target.crmAccountId !== callerAccountId) { res.status(404).json({ success: false, error: 'User not found' }); return }
     if (target.role === 'super_admin' && payload.role !== 'super_admin') {
       res.status(403).json({ success: false, error: 'Cannot delete a super admin' })
       return
     }
 
-    // Delete sessions and activity first, then user
-    await prisma.crmUserSession.deleteMany({ where: { userId } })
-    await prisma.crmUserActivity.deleteMany({ where: { userId } })
-    await prisma.crmUser.delete({ where: { id: userId } })
+    // Sessions, activity and the pending call go with the login, in one transaction (lib/loginDelete.ts).
+    await deleteLogin(userId)
 
     // Log the deletion
     await prisma.crmUserActivity.create({

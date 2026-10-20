@@ -10,6 +10,7 @@
 // the Pending Start stage rule, moves the card there and sees it refused with
 // what is missing (permit approved) and put back; opens the job's permit
 // panel; makes the permit packet PDF. Removes everything it made.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import crypto from 'crypto'
 import fs from 'fs'
 import { execFileSync } from 'child_process'

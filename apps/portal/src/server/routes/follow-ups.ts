@@ -24,6 +24,7 @@ import { resolveSecret } from '../lib/secrets.js'
 import { requireCan, roleOf } from '../lib/permissions.js'
 import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
+import { auditSettingChange } from '../lib/settingsAudit.js'
 import {
   loadConfig, saveConfig, cardRows, followUpList, logCall, changeNext, customerHistory, followUpReport,
   firstFollowUpPreview, runFirstFollowUp, floridaDay,
@@ -74,6 +75,7 @@ router.put('/settings', requireCan('settings.change'), async (req: any, res) => 
   try {
     const base = Number(req.body?.baseVersion)
     if (!Number.isInteger(base) || base < 0) { res.status(400).json({ success: false, error: 'Missing baseVersion.' }); return }
+    const before = await loadConfig(req.user.crmAccountId)
     let saved
     try { saved = await saveConfig(req.user.crmAccountId, req.body, base, req.user.id) } catch (e) { res.status(400).json({ success: false, error: String((e as Error).message) }); return }
     if (!saved) {
@@ -82,6 +84,7 @@ router.put('/settings', requireCan('settings.change'), async (req: any, res) => 
       return
     }
     await audit(req, 'update', 'FollowUpSettings', req.user.crmAccountId, { newValues: { stages: Object.keys(saved.config.steps), templates: saved.config.templates.length } })
+    await auditSettingChange(req, 'follow-ups/settings', before.config, saved.config, { version: saved.version })
     res.json({ success: true, data: saved.config, version: saved.version })
   } catch (err) { fail(res, err, 'save the follow up settings') }
 })

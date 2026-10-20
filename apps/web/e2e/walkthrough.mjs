@@ -10,6 +10,7 @@
 // with a finger on the canvas, the homeowner signs through the link in a
 // second browser, and the certificate is made and is in the customer portal.
 // Removes what it made (hard deletes on ezbiz_dev only).
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import crypto from 'crypto'
 import zlib from 'zlib'

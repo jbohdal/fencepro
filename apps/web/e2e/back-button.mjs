@@ -11,6 +11,7 @@
 // reloading on a customer, a quote, a card or a job opens that same page.
 // Deletes what it made.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:5173'

@@ -9,6 +9,8 @@
 // and industrial fencing"), and a saved CL - Com 6' quote still opens and
 // prices. Then CL - Com 6' is switched back on in Settings and comes back in
 // each place. The styles and the test quote are put back after.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || '', WIDGET = process.env.EZ_QUOTE_WIDGET_TOKEN || '', SHOTS = process.env.SHOTS || ''

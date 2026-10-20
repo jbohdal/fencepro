@@ -2,6 +2,7 @@
 // on the Mac, then the Census lookup. Dev only (4001), writes nothing.
 //
 //   E2E_ACCESS_TOKEN=<dev staff token> SHOTS=<folder, optional> node e2e/address-suggest.mjs
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 const APP = 'http://localhost:4001', TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }

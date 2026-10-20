@@ -99,7 +99,7 @@ export interface VinylKind {
 }
 
 /** Color and install method of a 6 ft tall vinyl privacy style the 6/8 picker
- *  can price, or null. Tan dig set has no mixed width parts list. */
+ *  can price, or null. */
 export function vinylKind(style: QuoteStyle): VinylKind | null {
   if (style.autoRailMix) {
     if (!style.installMethod || !style.colorFamily) return null
@@ -109,7 +109,7 @@ export function vinylKind(style: QuoteStyle): VinylKind | null {
     return kind
   }
   const m = style.name.match(/^(WV|TV)-(ND|DS) 6'x[68]'/)
-  if (!m || (m[1] === 'TV' && m[2] === 'DS')) return null
+  if (!m) return null
   return { installMethod: m[2] === 'ND' ? 'no-dig' : 'dig-set', colorFamily: m[1] === 'WV' ? 'white' : 'tan' }
 }
 

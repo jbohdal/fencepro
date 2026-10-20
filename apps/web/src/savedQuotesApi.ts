@@ -59,11 +59,14 @@ export interface SavedQuotePayload {
   pricing?: QuotePricingOverrides | null
   /** A fence move or repair (moveRepair.ts); null for a new fence. */
   work?: SavedWork | null
+  /** A sent quote saved again at today's prices: it has to be sent again. */
+  needsResend?: boolean
   /** A Salesman's or Installer's save: the quote builder's inputs (the server works out the costs). */
   priceRequest?: QuoteJobRequest
 }
 
-export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work'>> {
+export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work' | 'needsResend'>> {
+  needsResend?: boolean
   id: string
   pricing: QuotePricingOverrides | null
   work: SavedWork | null

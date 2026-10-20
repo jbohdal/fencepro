@@ -16,7 +16,7 @@ function Description({ text }: { text: string }) {
     <p className="text-sm text-gray-600 whitespace-pre-line break-words">
       {parts.map((p, i) => {
         if (/^sms:/.test(p)) return <a key={i} href={p} className="btn btn-primary btn-sm my-1" data-task-sms>Send the text</a>
-        if (/^https?:\/\//.test(p)) return <a key={i} href={p} target="_blank" rel="noreferrer" className="underline text-[color:var(--color-brand)] break-all">{p.replace(/^https?:\/\//, '').slice(0, 48)}</a>
+        if (/^https?:\/\//.test(p)) return <a key={i} href={p} target="_blank" rel="noreferrer" className="inline-block max-w-full truncate align-bottom underline text-[color:var(--color-brand)]">{p.replace(/^https?:\/\//, '').slice(0, 48)}</a>
         if (/^\/api\/automations\//.test(p)) return <button key={i} type="button" className="underline text-[color:var(--color-brand)]" onClick={() => openPdf(p).catch(err => toast.error('Could not open it', (err as Error).message))}>Open the PDF</button>
         return <span key={i}>{p}</span>
       })}

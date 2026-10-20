@@ -7,7 +7,6 @@ import {
   loadRainLog as storeLoadRainLog,
   saveRainLog as storeSaveRainLog,
 } from './scheduleStore'
-import { cloudStorage } from './cloudStorage'
 import { useMergedRefresh } from './useMergedRefresh'
 import { useBackLayer, BackClose } from './nav'
 import ScheduleDay from './ScheduleDay'
@@ -148,13 +147,6 @@ function getMonthWeeks(year: number, month: number, workDays: number[]): Date[][
 const loadSchedule = (): { jobs: ScheduledJob[], settings: ScheduleSettings } => storeLoadSchedule()
 const saveSchedule = (jobs: ScheduledJob[], settings: ScheduleSettings) => storeSaveSchedule(jobs, settings)
 
-function loadStagingJobs() {
-  try {
-    const raw = cloudStorage.getItem('fencepro_staging')
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
-}
-
 // ── Settings Modal ────────────────────────────────────────────────────────────
 
 function SettingsModal({
@@ -279,7 +271,6 @@ export default function SchedulePage() {
   useEffect(() => { fetchForecast().then(setForecast) }, [])
 
   const { jobs, settings } = data
-  const stagingJobs = loadStagingJobs()
 
   const year = viewMonth.getFullYear()
   const month = viewMonth.getMonth()
@@ -299,24 +290,6 @@ export default function SchedulePage() {
     const updated = jobs.map(j => j.id === dragJob.id ? { ...j, date: dateStr, crewId } : j)
     updateData(updated)
     setDragJob(null)
-  }
-
-  function addFromStaging(staging: any, dateStr: string, crewId: string) {
-    const newJob: ScheduledJob = {
-      id: uid(),
-      clientName: staging.clientName || staging.name || 'Unknown',
-      area: staging.area || '',
-      sections: staging.sections || 0,
-      fenceType: staging.fenceType || staging.type || '',
-      jobPrice: staging.jobPrice || staging.price || 0,
-      tearout: staging.tearout || false,
-      crewId,
-      date: dateStr,
-      notes: staging.notes || '',
-      stagingJobId: staging.id,
-      status: 'Scheduled',
-    }
-    updateData([...jobs, newJob])
   }
 
   function removeJob(id: string) {
@@ -428,10 +401,6 @@ export default function SchedulePage() {
     setCascadeSelections(new Set())
   }
 
-  const unscheduled = stagingJobs.filter(
-    (s: any) => !jobs.some(j => j.stagingJobId === s.id)
-  )
-
   return (
     <div className="space-y-6">
       {/* One day at a time: installs and that day's appointments (the phone's Schedule tab lands here). */}
@@ -490,12 +459,7 @@ export default function SchedulePage() {
                         e.preventDefault()
                         setDragOverDate(null)
                         const crewId = settings.crews[0]?.id || 'crew1'
-                        const stagingData = e.dataTransfer.getData('staging')
-                        if (stagingData) {
-                          addFromStaging(JSON.parse(stagingData), dateStr, crewId)
-                        } else {
-                          handleDrop(dateStr, crewId)
-                        }
+                        handleDrop(dateStr, crewId)
                       }}
                     >
                       {dragOverDate === dateStr && (
@@ -553,49 +517,6 @@ export default function SchedulePage() {
           </tbody>
         </table>
       </div>
-
-      {unscheduled.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-gray-900">Unscheduled Jobs ({unscheduled.length})</h3>
-            <p className="text-xs text-gray-400">Drag onto the calendar to schedule</p>
-          </div>
-          <div className="grid grid-cols-4 lg:grid-cols-6 gap-1.5">
-            {unscheduled.map((s: any) => {
-              const name = s.clientName || s.name || 'Unknown'
-              const city = (s.area || s.address || '').split(',')[0] || ''
-              const phone = s.phone || s.customerPhone || ''
-              return (
-                <div
-                  key={s.id}
-                  draggable={!readOnly}
-                  onDragStart={e => e.dataTransfer.setData('staging', JSON.stringify(s))}
-                  className="border border-gray-200 rounded-lg px-2.5 py-2 cursor-grab hover:border-orange-400 hover:shadow-sm transition-all group relative"
-                  title={`${name}\n${styleLabel(s.fenceType) || s.type} · ${s.sections || 0} sections\n${city}\n${phone}\n${fmt(s.jobPrice || s.price || 0)}`}
-                >
-                  <p className="text-xs font-semibold text-gray-900 truncate">{name}</p>
-                  <p className="text-[10px] text-gray-500 truncate">{city || styleLabel(s.fenceType) || s.type}</p>
-                  {phone && <p className="text-[10px] text-gray-400 truncate">{phone}</p>}
-                  <div className="flex items-center justify-between mt-0.5">
-                    <span className="text-[10px] font-medium text-gray-700">{fmt(s.jobPrice || s.price || 0)}</span>
-                    <span className="px-1 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px] font-medium">{s.status || 'Ready'}</span>
-                  </div>
-                  {/* Hover tooltip with full details */}
-                  <div className="absolute left-0 bottom-full mb-1 z-40 bg-gray-900 text-white rounded-lg p-3 text-xs w-56 opacity-0 group-hover:opacity-100 pointer-events-none transition shadow-lg">
-                    <p className="font-semibold">{name}</p>
-                    <p className="text-gray-300">{styleLabel(s.fenceType) || s.type} · {s.sections || 0} sections</p>
-                    {city && <p className="text-gray-300">{city}</p>}
-                    {phone && <p className="text-gray-300">{phone}</p>}
-                    <p className="text-gray-300 mt-1">{fmt(s.jobPrice || s.price || 0)}</p>
-                    {s.tearout && <p className="text-amber-400 mt-0.5">⚠ Has tear-out</p>}
-                    {s.notes && <p className="text-gray-400 mt-1 truncate">{s.notes}</p>}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Weather Forecast Strip */}
       {forecast.length > 0 && (

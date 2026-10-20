@@ -7,6 +7,8 @@
 // 46% as a quote's Target Margin prices it at cost ÷ 0.54; the proposal page
 // never shows the split. Makes one quote and deletes it.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'

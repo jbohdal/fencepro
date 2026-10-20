@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { findOrCreate, isUniqueViolation, oneById } from '../lib/once.js'
 import { audit } from '../lib/auditLog.js'
+import { auditSettingChange } from '../lib/settingsAudit.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { applyPipelineDelta } from '../lib/pipelineDelta.js'
@@ -109,6 +110,8 @@ router.put('/', async (req: any, res) => {
     }
     const p = (await prisma.pipelineState.findUnique({ where: { accountId } }))!
     await audit(req, 'update', 'PipelineState', p.id, { newValues: { leadsCount: data.leads.length, stagesCount: data.stages.length } })
+    // A change to the stage list itself goes to the change log (Settings > Change log).
+    await auditSettingChange(req, 'pipeline/stages', prev?.stages ?? null, fields.stages)
     res.json({ success: true, data: p })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -154,6 +157,7 @@ router.patch('/', async (req: any, res) => {
       refuseStale(res, now, now?.version ?? 0); return
     }
     await audit(req, 'update', 'PipelineState', current.id, { newValues: { cardsSaved: delta.upsert.length, cardsRemoved: delta.remove.length, leadsCount: next.leads.length } })
+    if (delta.stages) await auditSettingChange(req, 'pipeline/stages', current.stages, fields.stages)
     // Only the new version goes back: the browser already holds the cards.
     res.json({ success: true, version: base + 1 })
   } catch (err) {

@@ -30,6 +30,7 @@ import { hidesCosts } from '../lib/costRedact.js'
 import { loadOpsStages } from '../lib/opsStages.js'
 import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage } from '../lib/opsStageModel.js'
 import { floridaDay } from '../lib/automations/context.js'
+import { jobTotalsFor } from '../lib/changeOrders.js'
 
 const router = Router()
 
@@ -239,6 +240,9 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     // Moved on purpose: the status (and the rest) that stage stands for, whatever an older screen sent.
     if (nextStage !== wasStage && data.opsStage === nextStage) Object.assign(data, fieldsForStage(stages, nextStage, existing as any, floridaDay(new Date())) ?? {})
     ;(data as any).opsStage = nextStage
+    // Change orders: the change order total and contract value come from the approved ones (lib/changeOrders.ts), whatever an older screen sent.
+    const coTotals = await jobTotalsFor(req.user.crmAccountId, data.quoteId === undefined ? existing.quoteId : data.quoteId, data.quotePrice ?? existing.quotePrice)
+    if (coTotals) Object.assign(data, coTotals)
     // Stage rules: a job cannot enter a stage whose requirements are not met.
     const blocked = await checkJobMove(req.user.crmAccountId, existing, { ...existing, ...data })
     if (blocked) { refuseBlocked(res, [blocked], { data: existing, version: 0 }); return }

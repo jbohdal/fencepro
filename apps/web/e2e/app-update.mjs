@@ -6,6 +6,7 @@
 // a newer app file. Brought back to the screen with nothing waiting, the app
 // reloads by itself. With a quote open and changed (unsaved), it does not:
 // "A newer version of EZ Biz is ready" shows, and Update says to finish first.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 const APP = 'http://localhost:4001', TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }

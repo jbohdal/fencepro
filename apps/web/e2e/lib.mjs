@@ -1,9 +1,10 @@
 // Shared helpers for the browser tests. See README.md in this folder.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 export { chromium }
 
 export const APP = process.env.APP_URL || 'http://localhost:5173'
-export const API = process.env.API_URL || 'http://localhost:4000'
+export const API = process.env.API_URL || 'http://localhost:4001'
 export const EMAIL = process.env.E2E_EMAIL || ''
 export const PASSWORD = process.env.E2E_PASSWORD || ''
 

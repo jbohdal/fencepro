@@ -17,6 +17,7 @@
 //   6. Signs in again on a phone (390 x 844) with the password.
 // Screenshots (E2E_SHOTS=<folder>): dev-salesman-*.png at both sizes.
 // Dev only (port 4001). Removes the user and everything it made.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import fs from 'fs'
 import path from 'path'

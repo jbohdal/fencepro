@@ -8,6 +8,7 @@
 // (one ID each), 3 times; then signal returns and a 4th send gets its answer.
 // Passes only with exactly one customer and one pipeline card on the server.
 // Then the same for a quote. Dev only (port 4001); removes what it made.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import crypto from 'crypto'
 import { startSignal } from './signal.mjs'
 

@@ -19,6 +19,7 @@
 //   4. Pipeline, New Lead: typed, picked, Add: city, state and ZIP saved.
 //   5. The website instant quote: suggestions and the same message on failure.
 // Dev only (port 4001). Removes the login and everything it made.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, chromium } from 'playwright'
 import { execFileSync } from 'child_process'
 import crypto from 'crypto'

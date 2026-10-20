@@ -23,6 +23,11 @@
 //   - a button or link covered at its middle by something else, after being
 //     scrolled into view (a window that is open counts only its own buttons)
 //   - words cut off on a button in an action bar
+// Then on each screen it opens every menu, dropdown and popup (see popups()):
+// each must open fully on screen (above the tab bar unless drawn over it), every
+// button in it reachable (on screen, not covered at its middle), and it must close.
+// Screens with known menus (Today, pipeline, customer, Operations) fail if none open.
+//
 // The customer screen's six main actions (New quote, Call, Text, Navigate,
 // Book appointment, Edit) must be on screen without scrolling, and still be on
 // screen after scrolling to the bottom. Tapping Call starts "How'd it go?" (the
@@ -30,10 +35,12 @@
 //
 // Dev copy only (port 4001). Makes one test customer with a pipeline card and
 // one salesman login, and removes them at the end.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, chromium } from 'playwright'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import { execFileSync } from 'child_process'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -167,6 +174,12 @@ function mainActions(main) {
 }
 
 const stamp = Date.now().toString(36).slice(-6)
+// A phone number of this run's own, so no other test (widget-quote) matches a contact made here.
+const PHONE = `352555${String(crypto.randomInt(10000)).padStart(4, '0')}`
+const LAST = `Phone Fit ${stamp}`
+// The dev database by name (never live): the API only archives a contact, so the
+// rows are removed here, the way widget-quote.mjs removes its own.
+const psql = sql => execFileSync('psql', ['-d', 'ezbiz_dev', '-At', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim()
 const made = { contactId: null, cardId: null, userId: null, salesEmail: null }
 
 async function makeCustomer() {
@@ -174,9 +187,9 @@ async function makeCustomer() {
   const cardId = `pf${stamp}`
   const today = new Date().toISOString().slice(0, 10)
   const r = await owner('POST', '/api/crm-contacts', {
-    firstName: 'E2E', lastName: `Phone Fit ${stamp}`, phone: '3525550199', email: `e2e-phone-fit-${stamp}@example.test`,
+    firstName: 'E2E', lastName: LAST, phone: PHONE, email: `e2e-phone-fit-${stamp}@example.test`,
     serviceAddress: '1234 SW Long Street Name Road, Ocala, FL 34476', leadSource: 'Referral', tags: ['Test', 'Phone fit'],
-    lead: { id: cardId, firstName: 'E2E', lastName: `Phone Fit ${stamp}`, phone: '3525550199', address: '1234 SW Long Street Name Road, Ocala, FL 34476', stage: (v?.stages ?? [])[0] || 'First Contact', createdAt: today, lastMoved: today, leadSource: 'Referral', email: '', notes: '' },
+    lead: { id: cardId, firstName: 'E2E', lastName: LAST, phone: PHONE, address: '1234 SW Long Street Name Road, Ocala, FL 34476', stage: (v?.stages ?? [])[0] || 'First Contact', createdAt: today, lastMoved: today, leadSource: 'Referral', email: '', notes: '' },
   })
   made.contactId = r.json.data?.contact?.id ?? r.json.data?.id ?? null
   if (made.contactId) made.cardId = cardId
@@ -195,27 +208,40 @@ async function makeSalesman() {
   return a.json.data?.accessToken ?? null
 }
 
+// Removes everything this run made, each step on its own so one failing does not
+// stop the rest: the pending call, the card (by id and by name), the contact and
+// what hangs off it (quotes the quote steps saved, website intake rows, notes,
+// calls, pending touches), its activity entries, and the salesman login.
 async function cleanup() {
-  await owner('DELETE', '/api/follow-ups/pending').catch(() => {})
-  if (made.cardId) {
+  const step = async (name, fn) => { try { await fn() } catch (e) { console.log(`clean up: ${name} failed -- ${String(e).split('\n')[0]}`) } }
+  await step('pending call', () => owner('DELETE', '/api/follow-ups/pending'))
+  await step('card', async () => {
     for (let i = 0; i < 3; i++) {
-      const v = (await owner('GET', '/api/pipeline')).json.data?.version
-      const r = await owner('PATCH', '/api/pipeline', { upsert: [], remove: [made.cardId], baseVersion: v })
+      const v = (await owner('GET', '/api/pipeline')).json.data
+      const ids = (v?.leads ?? []).filter(l => l.id === made.cardId || (l.firstName === 'E2E' && l.lastName === LAST)).map(l => l.id)
+      if (!ids.length) break
+      const r = await owner('PATCH', '/api/pipeline', { upsert: [], remove: ids, baseVersion: v.version })
       if (r.status === 200) break
     }
-  }
-  if (made.contactId) {
-    await owner('DELETE', `/api/crm-contacts/${made.contactId}`).catch(() => {})
+  })
+  let ids = made.contactId ? [made.contactId] : []
+  await step('find contacts', () => { ids = [...new Set([...ids, ...psql(`select id from "CrmContact" where "firstName"='E2E' and "lastName"='${LAST}'`).split('\n').filter(Boolean)])] })
+  for (const id of ids) await step(`archive ${id}`, () => owner('DELETE', `/api/crm-contacts/${id}`))
+  await step('activity', async () => {
     const kv = (await owner('GET', '/api/kv')).json
     const acts = kv.data?.fencepro_customer_activity
-    if (Array.isArray(acts) && acts.some(a => a.customerId === made.contactId)) {
-      await owner('PUT', '/api/kv/fencepro_customer_activity', { value: acts.filter(a => a.customerId !== made.contactId), baseVersion: kv.versions.fencepro_customer_activity })
+    if (Array.isArray(acts) && acts.some(a => ids.includes(a.customerId))) {
+      await owner('PUT', '/api/kv/fencepro_customer_activity', { value: acts.filter(a => !ids.includes(a.customerId)), baseVersion: kv.versions.fencepro_customer_activity })
     }
+  })
+  if (ids.length) {
+    const list = ids.map(id => `'${id.replace(/'/g, '')}'`).join(',')
+    await step('contact rows', () => psql(`begin; delete from "IntakeLead" where "crmContactId" in (${list}); delete from "SavedQuote" where "crmContactId" in (${list}); delete from "CrmContactNote" where "crmContactId" in (${list}); delete from "PendingTouch" where "crmContactId" in (${list}); delete from "CallLog" where "crmContactId" in (${list}); delete from "CrmContact" where id in (${list}); commit;`))
   }
-  if (made.salesEmail) {
+  if (made.salesEmail) await step('salesman login', async () => {
     const users = (await owner('GET', '/api/crm-auth/users')).json.data ?? []
     for (const u of users.filter(x => x.email === made.salesEmail)) await owner('DELETE', `/api/crm-auth/users/${u.id}`)
-  }
+  })
 }
 
 // ── One browser at a time ──
@@ -282,6 +308,157 @@ async function judge(s, screen, opts = {}) {
   return a
 }
 
+// ── Menus, dropdowns and popups: open each one and check it ──
+// The triggers: anything marked data-popup-trigger (every PopMenu), aria-haspopup,
+// data-menu, a <summary>, aria-expanded, or a button named More / Filter / Sort /
+// Actions / Pick / Choose. Those in the header and tab bar are opened on Today and
+// the customer screen only (they are the same on every screen).
+function listTriggers({ scope, header }) {
+  const vw = window.innerWidth, vh = window.innerHeight
+  document.querySelectorAll('[data-pf-trigger]').forEach(e => e.removeAttribute('data-pf-trigger'))
+  const root = scope ? document.querySelector(scope) : document.body
+  if (!root) return []
+  const shown = el => {
+    const r = el.getBoundingClientRect()
+    if (r.width < 2 || r.height < 2) return false
+    for (let e = el; e && e !== document.documentElement; e = e.parentElement) {
+      const cs = getComputedStyle(e)
+      if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return false
+      if (cs.position === 'fixed') { const fr = e.getBoundingClientRect(); if (fr.right <= 0 || fr.left >= vw || fr.bottom <= 0 || fr.top >= vh) return false }
+    }
+    return !el.closest('[aria-hidden="true"], [inert], details:not([open]) > :not(summary)')
+  }
+  const words = /^(more\b|filter|sort|actions\b|pick |choose )/i
+  const set = new Set(root.querySelectorAll('[data-popup-trigger], [aria-haspopup]:not([aria-haspopup="false"]), [data-menu], summary, [aria-expanded]'))
+  for (const b of root.querySelectorAll('button')) if (words.test((b.getAttribute('aria-label') || b.innerText || '').trim())) set.add(b)
+  const out = []
+  let i = 0
+  for (const el of set) {
+    if (!shown(el) || el.disabled || el.closest('[data-popup]')) continue
+    const global = !scope && (!!el.closest('[data-tabbar], header') || !el.closest('[data-page-scroll]'))
+    if (global && !header) continue
+    // Already open (an expanded row): left as it is.
+    if (el.getAttribute('aria-expanded') === 'true') continue
+    const menu = el.hasAttribute('data-popup-trigger') || (el.hasAttribute('aria-haspopup') && el.getAttribute('aria-haspopup') !== 'false') || el.hasAttribute('data-menu')
+    el.setAttribute('data-pf-trigger', String(i))
+    const name = (el.getAttribute('data-popup-trigger') || el.getAttribute('aria-label') || el.innerText || el.getAttribute('title') || el.tagName).trim().replace(/\s+/g, ' ').slice(0, 30)
+    out.push({ i: i++, name, menu, global })
+  }
+  return out
+}
+
+// Marks what is open before a tap, so the popup the tap opened can be told apart.
+const POPUPS = '[data-popup], [role="menu"], [role="listbox"], [data-bottom-sheet]'
+function markOpenPopups(sel) {
+  document.querySelectorAll('[data-pf-seen], [data-pf-open]').forEach(e => { e.removeAttribute('data-pf-seen'); e.removeAttribute('data-pf-open') })
+  for (const p of document.querySelectorAll(sel)) { const r = p.getBoundingClientRect(); if (r.width > 2 && r.height > 2 && r.right > 0 && r.left < innerWidth) p.setAttribute('data-pf-seen', '1') }
+}
+function findNewPopup(sel) {
+  const vis = p => { const r = p.getBoundingClientRect(); const cs = getComputedStyle(p); return r.width > 2 && r.height > 2 && r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight && cs.visibility !== 'hidden' && cs.display !== 'none' }
+  const fresh = [...document.querySelectorAll(sel)].filter(p => !p.hasAttribute('data-pf-seen') && vis(p))
+  const p = fresh.find(x => x.hasAttribute('data-popup')) || fresh[0]
+  if (!p) return null
+  p.setAttribute('data-pf-open', '1')
+  return p.getAttribute('data-popup') || p.getAttribute('role') || p.tagName.toLowerCase()
+}
+function popupIsOpen() {
+  const p = document.querySelector('[data-pf-open]')
+  if (!p || !p.isConnected) return false
+  const r = p.getBoundingClientRect()
+  return r.width > 2 && r.right > 1 && r.left < innerWidth - 1 && getComputedStyle(p).visibility !== 'hidden'
+}
+
+// The open popup: its box fully on the screen and above the tab bar (unless it is
+// drawn over the tab bar), and every button, link and field in it on the screen and
+// not covered at its middle (after scrolling it into view inside the popup).
+function checkPopup() {
+  const vw = window.innerWidth, vh = window.innerHeight
+  const p = document.querySelector('[data-pf-open]')
+  const out = { box: null, problems: [], items: 0 }
+  if (!p) { out.problems.push('popup gone'); return out }
+  const r = p.getBoundingClientRect()
+  out.box = { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom) }
+  if (r.left < -1) out.problems.push(`${Math.round(-r.left)}px off the left`)
+  if (r.right > vw + 1) out.problems.push(`${Math.round(r.right - vw)}px off the right`)
+  if (r.top < -1) out.problems.push(`${Math.round(-r.top)}px off the top`)
+  if (r.bottom > vh + 1) out.problems.push(`${Math.round(r.bottom - vh)}px off the bottom`)
+  const tb = document.querySelector('[data-tabbar]')
+  const tr = tb ? tb.getBoundingClientRect() : null
+  if (tr && tr.height > 2 && getComputedStyle(tb).display !== 'none' && r.bottom > tr.top + 1) {
+    const x = Math.min(Math.max(r.left + 4, 1), Math.min(r.right, vw) - 4), y = Math.min(r.bottom, vh) - 3
+    const h = document.elementFromPoint(x, y)
+    if (!h || !p.contains(h)) out.problems.push(`${Math.round(r.bottom - tr.top)}px under the tab bar`)
+  }
+  const label = el => (el.getAttribute('aria-label') || el.innerText || el.getAttribute('placeholder') || el.tagName).trim().replace(/\s+/g, ' ').slice(0, 30)
+  const shown = el => { const b = el.getBoundingClientRect(); if (b.width < 2 || b.height < 2) return false; for (let e = el; e && e !== p.parentElement; e = e.parentElement) { const cs = getComputedStyle(e); if (cs.display === 'none' || cs.visibility === 'hidden') return false } return true }
+  const items = [...p.querySelectorAll('button, a[href], [role="button"], [role="menuitem"], summary, input:not([type="hidden"]), select, textarea')].filter(shown)
+  out.items = items.length
+  for (const el of items) {
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    const b = el.getBoundingClientRect()
+    const cx = b.left + b.width / 2, cy = b.top + b.height / 2
+    if (b.left < -1 || b.right > vw + 1 || cy < 0 || cy > vh) { out.problems.push(`"${label(el)}" off the screen x ${Math.round(b.left)}..${Math.round(b.right)} y ${Math.round(b.top)}`); continue }
+    const h = document.elementFromPoint(cx, cy)
+    if (!h || !(h === el || el.contains(h) || (h.closest('label') && h.closest('label').contains(el)))) out.problems.push(`"${label(el)}" covered by ${h ? h.tagName.toLowerCase() + (h.closest('[data-tabbar]') ? ' (tab bar)' : '') : 'nothing'}`)
+  }
+  return out
+}
+
+// Opens each menu on the screen, checks it, and closes it. min: the screen has known
+// menus, so at least this many must open. Expanders (a row that opens in place) are
+// tapped too, at most six a screen: the page must still not run off the side.
+async function popups(s, screen, opts = {}) {
+  const tag = `${s.name} ${s.width}: ${screen}`
+  const triggers = await s.page.evaluate(listTriggers, { scope: opts.scope || null, header: !!opts.header })
+  let opened = 0, expanders = 0
+  const names = []
+  for (const t of triggers) {
+    if (!t.menu && expanders >= 6) continue
+    const trig = s.page.locator(`[data-pf-trigger="${t.i}"]`)
+    if (!(await trig.count())) continue
+    await s.page.evaluate(markOpenPopups, POPUPS)
+    try { await tapOn(s, trig) } catch (e) { check(`${tag}: "${t.name}" can be tapped`, false, String(e).split('\n')[0]); continue }
+    await sleep(300)
+    const found = await s.page.evaluate(findNewPopup, POPUPS)
+    if (!found) {
+      if (t.menu) { check(`${tag}: "${t.name}" opens its popup`, false, 'nothing opened'); continue }
+      // An expander: what it opened must not push anything off the side.
+      expanders++
+      const a = await s.page.evaluate(audit, { scope: opts.scope || null, bars: [], scroll: false })
+      if (a.hscroll || a.off.length) check(`${tag}: opening "${t.name}" keeps everything on screen`, false, `${a.hscroll}px sideways; ${a.off.slice(0, 3).join(' | ')}`)
+      if (await trig.count() && (await trig.getAttribute('aria-expanded')) === 'true') await tapOn(s, trig).catch(() => {})
+      continue
+    }
+    opened++
+    names.push(found)
+    if (opts.shotFor && opts.shotFor[found] && SHOTS) await s.page.screenshot({ path: path.join(SHOTS, opts.shotFor[found]) })
+    const c = await s.page.evaluate(checkPopup)
+    check(`${tag}: popup "${found}" (from "${t.name}") is fully on screen with its ${c.items} buttons reachable`, c.problems.length === 0,
+      `${c.box ? `box ${c.box.left}..${c.box.right} x ${c.box.top}..${c.box.bottom}; ` : ''}${c.problems.slice(0, 5).join(' | ')}`)
+    // Close it: its Close button, the button again, Escape, then Back.
+    const steps = [
+      async () => { const x = s.page.locator('[data-pf-open] [data-popup-close], [data-pf-open] [aria-label^="Close"]').first(); if (await x.count()) await tapOn(s, x) },
+      async () => { await tapOn(s, trig) },
+      async () => { await s.page.keyboard.press('Escape'); await sleep(400) },
+      async () => { await s.page.goBack(); await sleep(800) },
+    ]
+    let closed = false
+    for (const step of steps) {
+      if (!(await s.page.evaluate(popupIsOpen))) { closed = true; break }
+      await step().catch(() => {})
+    }
+    if (!closed) closed = !(await s.page.evaluate(popupIsOpen))
+    check(`${tag}: popup "${found}" closes`, closed)
+  }
+  const min = opts.min ?? 0
+  const missing = (opts.need || []).filter(n => !names.includes(n))
+  check(`${tag}: ${opened} popup${opened === 1 ? '' : 's'} opened (${names.join(', ') || 'none'})${expanders ? `, ${expanders} expander${expanders === 1 ? '' : 's'}` : ''}`, opened >= min && !missing.length,
+    [min && opened < min ? `expected at least ${min}` : '', missing.length ? `did not open: ${missing.join(', ')}` : ''].filter(Boolean).join('; '))
+  s.popupCounts = s.popupCounts || []
+  s.popupCounts.push(`${screen}: ${opened}${expanders ? ` (+${expanders} expanders)` : ''}`)
+  return opened
+}
+
 async function customerScreen(s, who) {
   await go(s, `/customers/${made.contactId}`, '[data-customer-tab]')
   await shot(s, who === 'owner' ? 'customer' : 'customer-salesman')
@@ -304,13 +481,19 @@ async function customerScreen(s, who) {
   if (bar) check(`${tag}: the action bar sits above the tab bar`, bar.bar <= bar.tab + 1, `${bar.bar} vs ${bar.tab}`)
   await s.page.evaluate(() => { const sc = document.querySelector('[data-page-scroll]'); sc.scrollTop = 0; const c = document.querySelector('[data-customer-scroll]'); if (c) c.scrollTop = 0 })
   await judge(s, `customer (${who})`)
+  // Every menu on the customer screen, the header's too; the owner's More holds Delete customer.
+  await popups(s, `customer (${who})`, {
+    header: true, min: 1, need: who === 'owner' ? ['customer-more', 'notifications', 'nav-drawer'] : ['nav-drawer'],
+    shotFor: who === 'owner' && s.name !== 'chromium' ? { 'customer-more': s.name === 'android' ? `dev-more-menu-after-${NATIVE ? 'native-' : ''}android.png` : `dev-more-menu-after-${s.width}.png` } : null,
+  })
+  await go(s, `/customers/${made.contactId}`, '[data-customer-tab]')
   // Call from the customer screen asks "How'd it go?" like the pipeline card (the pending call reaches the server).
   const callBtn = s.page.locator('[data-customer-action="call"]')
   if (await callBtn.count()) {
     const before = s.pending.length
     await tapOn(s, callBtn)
     const tel = await s.page.evaluate(() => window.__tel || [])
-    check(`${tag}: Call is a tel: link and starts the follow up`, tel.some(h => /^tel:\+?1?3525550199$/.test(h)) && s.pending.length > before, `${tel.join(',')} pending ${s.pending.length - before}`)
+    check(`${tag}: Call is a tel: link and starts the follow up`, tel.some(h => new RegExp(`^tel:\\+?1?${PHONE}$`).test(h)) && s.pending.length > before, `${tel.join(',')} pending ${s.pending.length - before}`)
     await owner('DELETE', '/api/follow-ups/pending')
     const text = s.page.locator('[data-customer-action="text"]')
     await tapOn(s, text)
@@ -332,13 +515,17 @@ async function customerScreen(s, who) {
 }
 
 async function ownerScreens(s) {
-  if (want('today')) { await go(s, '/today'); await shot(s, 'today'); await judge(s, 'Today') }
-  if (want('pipeline')) { await go(s, '/pipeline', '[data-kanban-board]'); await shot(s, 'pipeline'); await judge(s, 'pipeline') }
+  if (want('today')) {
+    await go(s, '/today'); await shot(s, 'today'); await judge(s, 'Today')
+    await popups(s, 'Today', { header: true, min: 3, need: ['messages', 'notifications', 'nav-drawer'],
+      shotFor: s.name === 'webkit' ? { notifications: `dev-notifications-after-${s.width}.png`, messages: `dev-messages-after-${s.width}.png` } : null })
+  }
+  if (want('pipeline')) { await go(s, '/pipeline', '[data-kanban-board]'); await shot(s, 'pipeline'); await judge(s, 'pipeline'); await popups(s, 'pipeline', { min: 1, need: ['filter'] }) }
   if (want('card')) {
     await go(s, `/pipeline?card=${made.cardId}`, '[data-kanban-board]')
     if (!(await s.page.locator('[data-card-window]').count())) await tapOn(s, s.page.locator(`[data-kanban-card="${made.cardId}"]`))
     await s.page.waitForSelector('[data-card-window]', { timeout: 15000 }).catch(() => {})
-    await shot(s, 'card'); await judge(s, 'card window', { scope: '[data-card-window]' })
+    await shot(s, 'card'); await judge(s, 'card window', { scope: '[data-card-window]' }); await popups(s, 'card window', { scope: '[data-card-window]' })
   }
   if (want('customer')) await customerScreen(s, 'owner')
   if (want('quote')) {
@@ -350,10 +537,10 @@ async function ownerScreens(s) {
       await tapOn(s, s.page.locator(`[data-quote-builder] [data-step="${step}"]`))
       if (step === 'style') await s.page.locator('[data-step-panel="style"] select').first().selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig' }).catch(() => {})
       await s.page.evaluate(() => document.querySelector('[data-quote-builder]')?.scrollTo({ top: 0 }))
-      await shot(s, `quote-${step}`); await judge(s, `quote step ${step}`, { scope: '[data-quote-builder]' })
+      await shot(s, `quote-${step}`); await judge(s, `quote step ${step}`, { scope: '[data-quote-builder]' }); await popups(s, `quote step ${step}`, { scope: '[data-quote-builder]' })
     }
   }
-  if (want('follow-ups')) { await go(s, '/follow-ups'); await shot(s, 'follow-ups'); await judge(s, 'Follow ups') }
+  if (want('follow-ups')) { await go(s, '/follow-ups'); await shot(s, 'follow-ups'); await judge(s, 'Follow ups'); await popups(s, 'Follow ups') }
   if (want('inventory')) {
     await go(s, '/inventory')
     for (const outer of ['Items', 'Sales Orders', 'Operations']) {
@@ -368,12 +555,12 @@ async function ownerScreens(s) {
           if (!(await loc.count())) continue
           await tapOn(s, loc); await s.page.evaluate(() => { document.querySelector('[data-page-scroll]').scrollTop = 0 })
           const nm = `inventory-${String(t).toLowerCase().replace(/[^a-z]+/g, '-')}`
-          await shot(s, nm); await judge(s, `Inventory ${t}`)
+          await shot(s, nm); await judge(s, `Inventory ${t}`); await popups(s, `Inventory ${t}`)
         }
       } else {
         await s.page.evaluate(() => { document.querySelector('[data-page-scroll]').scrollTop = 0 })
         const nm = `inventory-${outer.toLowerCase().replace(/[^a-z]+/g, '-')}`
-        await shot(s, nm); await judge(s, `Inventory ${outer}`)
+        await shot(s, nm); await judge(s, `Inventory ${outer}`); await popups(s, `Inventory ${outer}`)
       }
     }
   }
@@ -383,21 +570,23 @@ async function ownerScreens(s) {
     for (const t of tabs) {
       await tapOn(s, s.page.locator(`[data-settings-tab="${t}"]`))
       await s.page.evaluate(() => { document.querySelector('[data-page-scroll]').scrollTop = 0 })
-      await shot(s, `settings-${t}`); await judge(s, `Settings ${t}`)
+      await shot(s, `settings-${t}`); await judge(s, `Settings ${t}`); await popups(s, `Settings ${t}`)
     }
   }
-  if (want('schedule')) { await go(s, '/schedule'); await shot(s, 'schedule'); await judge(s, 'schedule') }
+  if (want('schedule')) { await go(s, '/schedule'); await shot(s, 'schedule'); await judge(s, 'schedule'); await popups(s, 'schedule') }
   if (want('job')) {
     await go(s, '/operations')
     const card = s.page.locator('[data-kanban-card]').first()
     await card.waitFor({ timeout: 20000 }).catch(() => {})
+    await popups(s, 'Operations board', { min: 1, need: ['filter'] })
+    await go(s, '/operations'); await card.waitFor({ timeout: 20000 }).catch(() => {})
     if (await card.count()) {
       await tapOn(s, card)
       const sheet = '[data-job-detail], div.fixed.inset-y-0.right-0.z-50, [data-bottom-sheet]'
       await s.page.waitForSelector(sheet, { timeout: 10000 }).catch(() => {})
       await sleep(500)
       await shot(s, 'job')
-      await judge(s, 'job page', { scope: sheet })
+      await judge(s, 'job page', { scope: sheet }); await popups(s, 'job page', { scope: sheet })
     } else check(`${s.name} ${s.width}: job page opens`, false, 'no job on the Operations board')
   }
 }
@@ -411,10 +600,12 @@ try {
     const s = await openSession(name, OWNER)
     try { await ownerScreens(s) } catch (e) { check(`${name}: owner screens ran to the end`, false, String(e).split('\n').slice(0, 3).join(' ')) }
     check(`${name}: no page errors`, s.errors.length === 0, s.errors.slice(0, 3).join(' | '))
+    console.log(`${name}: popups opened per screen -- ${(s.popupCounts || []).join('; ')}`)
     if (name === 'android') { if (s.cdp) await s.cdp.send('Emulation.clearDeviceMetricsOverride').catch(() => {}); await s.page.close() } else await s.browser.close()
     if (salesToken) {
       const t = await openSession(name, salesToken)
       try { await customerScreen(t, 'salesman') } catch (e) { check(`${name}: salesman customer screen ran to the end`, false, String(e).split('\n').slice(0, 3).join(' ')) }
+      console.log(`${name} (salesman): popups opened -- ${(t.popupCounts || []).join('; ')}`)
       if (name === 'android') {
         // Put the emulator's Chrome back on the owner's login.
         await t.page.evaluate(tok => { localStorage.setItem('crm_access_token', tok) }, OWNER)
@@ -428,7 +619,10 @@ try {
 } finally {
   await cleanup()
   const users = made.salesEmail ? ((await owner('GET', '/api/crm-auth/users')).json.data ?? []).filter(x => x.email === made.salesEmail).length : 0
-  check('clean up: the test customer, card and login are gone', users === 0)
+  let rows = '?'
+  try { rows = psql(`select count(*) from "CrmContact" where ("firstName"='E2E' and "lastName"='${LAST}') or phone='${PHONE}'`) } catch {}
+  const cards = ((await owner('GET', '/api/pipeline')).json.data?.leads ?? []).filter(l => l.lastName === LAST).length
+  check('clean up: the test customer, card and login are gone', users === 0 && rows === '0' && cards === 0, `logins ${users}, contacts ${rows}, cards ${cards}`)
   const passed = results.filter(Boolean).length
   console.log(`\n${passed} of ${results.length} checks passed (${engines.join(', ')} at ${NATIVE ? 'native' : W} x ${H})`)
   process.exit(passed === results.length ? 0 : 1)

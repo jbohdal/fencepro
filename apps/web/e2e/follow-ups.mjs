@@ -23,6 +23,7 @@
 // Also: text templates (the phone's texting app, never sent by the app), the
 // card's history, Settings > Follow ups and the report.
 // Removes everything it made (users, customers, cards, call log rows).
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, chromium } from 'playwright'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
@@ -229,7 +230,9 @@ try {
   const shownNow = await page.locator('[data-kanban-col="Pending Signature"]').innerText()
   check('pipeline filter "Needs follow up": overdue and none set stay, tomorrow is hidden', shownNow.includes(`Lostsale ${stamp}`) && shownNow.includes(`Nosignal ${stamp}`) && !shownNow.includes(`Callback ${stamp}`))
   await page.locator('[data-filter-needs-follow-up]').uncheck(); await sleep(300)
-  await page.locator('button[aria-label="Filter and sort"]').click(); await sleep(300)
+  // On a phone the filters open as a sheet with its own Close button.
+  const closeSheet = page.locator('[data-popup-close]')
+  await ((await closeSheet.count()) ? closeSheet.click() : page.locator('button[aria-label="Filter and sort"]').click()); await sleep(300)
 
   await tap(page.locator('[data-tabbar] button:has-text("Follow ups")'))
   await page.waitForSelector('[data-follow-ups-page]', { timeout: 15000 }); await sleep(1500)

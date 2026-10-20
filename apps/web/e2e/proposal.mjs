@@ -8,6 +8,7 @@
 // option, sign, accept, and the quote becomes that option as priced. The
 // test quote and photo are removed and the settings put back at the end.
 
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import fs from 'fs'
 import path from 'path'

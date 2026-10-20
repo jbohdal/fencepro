@@ -12,12 +12,14 @@ import twilioAdapter from './adapters/twilio/index.js'
 import weatherAdapter from './adapters/openweathermap/index.js'
 import zapierAdapter from './adapters/zapier/index.js'
 
-// NOTE: Stripe, QuickBooks, Google Calendar, and CompanyCam adapters exist on disk
-// (under ./adapters/{stripe,quickbooks,google_calendar,companycam}/index.ts) but are
-// intentionally NOT registered here yet. They are listed in COMING_SOON below so they
-// appear in the integrations UI as "Connect later" placeholders. To enable any of them,
-// import the adapter and call registerAdapter() with it, and remove its entry from
-// COMING_SOON.
+// NOTE: Stripe, QuickBooks and CompanyCam adapters exist on disk (under
+// ./adapters/{stripe,quickbooks,companycam}/index.ts) but are intentionally NOT
+// registered here yet. They are listed in COMING_SOON below so they appear in the
+// integrations UI as "Coming Soon". To enable any of them, import the adapter and
+// call registerAdapter() with it, and remove its entry from COMING_SOON.
+//
+// Google Calendar and SendGrid are built in (BUILT_IN below): they are set up
+// elsewhere, and the list shows whether they are working.
 
 const adapters = new Map<string, IntegrationAdapter>()
 
@@ -50,11 +52,20 @@ registerAdapter(zapierAdapter)
 const COMING_SOON: Partial<IntegrationAdapter>[] = [
   { slug: 'stripe', name: 'Stripe', category: 'Payments', description: 'Generate payment links from invoices and auto-mark invoices paid via webhook.', capabilities: ['payment_links', 'webhook_status_updates'] },
   { slug: 'quickbooks', name: 'QuickBooks Online', category: 'Accounting', description: 'Push new invoices to QBO and pull expenses for P&L reporting.', capabilities: ['push_invoices', 'pull_expenses'] },
-  { slug: 'google_calendar', name: 'Google Calendar', category: 'Scheduling', description: 'Two-way sync between portal appointments and your reps\u2019 calendars.', capabilities: ['push_events', 'pull_events', 'two_way_sync'] },
   { slug: 'companycam', name: 'CompanyCam', category: 'Field Operations', description: 'Surface job-site photos from CompanyCam in the customer portal.', capabilities: ['pull_photos', 'webhook_photo_updates'] },
   { slug: 'connecteam', name: 'Connecteam', category: 'Workforce Management', description: 'Sync crew schedules, time tracking, and tasks.', capabilities: ['sync_employees', 'push_shifts', 'pull_timeclock'] },
   { slug: 'google_maps', name: 'Google Maps', category: 'Field Operations', description: 'Geocode addresses, route optimization, and map views.', capabilities: ['geocode', 'route_optimize', 'distance_calc'] },
-  { slug: 'sendgrid', name: 'SendGrid', category: 'Communication', description: 'Transactional email delivery for customer notifications.', capabilities: ['send_email'] },
 ]
 
-export { COMING_SOON }
+/**
+ * Built in: working parts of the app that are set up somewhere else, not with
+ * a Connect form. The list route works out whether each is connected.
+ *   google_calendar: Settings > Google Calendar (lib/calendarSync)
+ *   sendgrid: email, sent with SENDGRID_API_KEY in the server's settings file (lib/emailService.ts)
+ */
+const BUILT_IN: Partial<IntegrationAdapter>[] = [
+  { slug: 'google_calendar', name: 'Google Calendar', category: 'Scheduling', description: 'Installs and appointments go to the company calendar on Google.', capabilities: ['push_events'] },
+  { slug: 'sendgrid', name: 'SendGrid', category: 'Communication', description: 'Sends the app\u2019s email: sign-in invites, password resets and notices.', capabilities: ['send_email'] },
+]
+
+export { COMING_SOON, BUILT_IN }

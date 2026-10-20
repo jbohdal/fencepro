@@ -21,7 +21,7 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { Prisma } from '@prisma/client'
 import { audit } from '../lib/auditLog.js'
-import { requireUser, requireAccount } from './saved-quotes.js'
+import { requireUser, requireAccount, signedNow } from './saved-quotes.js'
 import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAccepted.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { plainZod } from '../lib/plainZod.js'
@@ -190,6 +190,12 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
     const p = q.proposal as unknown as Proposal | null
     const opt = p?.options?.[body.option]
     if (!opt) { res.status(400).json({ success: false, error: 'Please choose an option.' }); return }
+    // Already signed in the app (Sold, or its quoted cost saved): the price stays as signed (lib/quoteLock.ts).
+    // The customer's acceptance is recorded only for the option it was signed at.
+    const signed = await signedNow(q)
+    if (signed && !(opt.fenceStyle === q.fenceStyle && Math.round(Number(opt.finalPrice) * 100) === Math.round(q.finalPrice * 100))) {
+      res.status(409).json({ success: false, error: 'This proposal was already signed for a different option. Please call us to make a change.' }); return
+    }
     // The quote becomes the option the customer chose, exactly as it was priced.
     const s = opt.snapshot ?? {}
     const layout = q.layout as any
@@ -202,15 +208,17 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
         acceptedBy: body.name,
         acceptedSignature: body.signature ?? null,
         chosenOption: body.option,
-        fenceStyle: opt.fenceStyle,
-        finalPrice: opt.finalPrice,
-        sections: opt.sections,
-        ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: s.gmPct } : {}),
-        ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
-        ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : {}),
-        ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections } } : {}),
-        // A move or repair option carries its work; "New fence instead" carries null (the quote becomes a new fence).
-        ...(s && Object.prototype.hasOwnProperty.call(s, 'work') ? { work: s.work === null ? Prisma.JsonNull : s.work } : {}),
+        ...(signed ? {} : {
+          fenceStyle: opt.fenceStyle,
+          finalPrice: opt.finalPrice,
+          sections: opt.sections,
+          ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: s.gmPct } : {}),
+          ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
+          ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : {}),
+          ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections } } : {}),
+          // A move or repair option carries its work; "New fence instead" carries null (the quote becomes a new fence).
+          ...(s && Object.prototype.hasOwnProperty.call(s, 'work') ? { work: s.work === null ? Prisma.JsonNull : s.work } : {}),
+        }),
       },
     })
     const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!

@@ -16,6 +16,10 @@
 import 'dotenv/config'
 import bcrypt from 'bcryptjs'
 import prisma from '../src/server/lib/prisma.js'
+import { assertLiveWriteAllowed } from '../src/server/lib/liveWriteGuard.js'
+
+// Changes data: refuses the live database without 'EZBIZ_LIVE_WRITE_OK=1' and a backup from the last 30 minutes.
+assertLiveWriteAllowed('create-owner.ts')
 
 async function main() {
   const args = process.argv.slice(2)

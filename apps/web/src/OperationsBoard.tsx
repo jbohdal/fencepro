@@ -31,6 +31,7 @@ import { onJobCompleted } from './jobCompleteFlow'
 import { getChecklistProgress } from './checklistStore'
 import { toast } from './toast'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
+import PopMenu, { PopItem } from './PopMenu'
 import { Search, SlidersHorizontal } from 'lucide-react'
 import { useBackLayer, useScreenMemory, useNav, takeOpenedParam, replaceUrl } from './nav'
 import { refreshNow } from './liveRefresh'
@@ -582,7 +583,6 @@ function OpsCard({
   const stage = stageInfo(job.opsStage)
   const hex = stage?.color ?? '#9ca3af'
   const [progress, setProgress] = useState<{ total: number; complete: number }>({ total: 0, complete: 0 })
-  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     if (job.source !== 'job') return
@@ -650,17 +650,16 @@ function OpsCard({
 
       {!isMobile && (
         <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition">
-          <button onClick={e => { e.stopPropagation(); setMenuOpen(o => !o) }}
-            className="px-1 py-0.5 text-gray-400 hover:text-gray-700 text-sm rounded hover:bg-gray-100"
-            aria-label="Card actions">⋯</button>
-          {menuOpen && (
-            <div onClick={e => e.stopPropagation()} className="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg text-xs z-20">
-              <button onClick={onClick} className="block w-full text-left px-3 py-2 hover:bg-gray-50">View / Edit</button>
-              {nextOpsStage(job.opsStage) && <button onClick={onNextStage} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to {nextOpsStage(job.opsStage)!.name}</button>}
-              {job.source === 'job' && !stage?.isComplete && <button onClick={onComplete} className="block w-full text-left px-3 py-2 hover:bg-gray-50 font-semibold text-green-700">Mark complete</button>}
-              <button onClick={onRainDay} className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600">Flag Rain Day</button>
-            </div>
-          )}
+          <PopMenu name="card-actions" label="⋯" title="Job actions" width={192}
+            triggerClassName="px-1 py-0.5 text-gray-400 hover:text-gray-700 text-sm rounded hover:bg-gray-100"
+            triggerProps={{ 'aria-label': 'Card actions' }}>
+            {close => <>
+              <PopItem onClick={() => { close(); onClick() }}>View / Edit</PopItem>
+              {nextOpsStage(job.opsStage) && <PopItem onClick={() => { close(); onNextStage() }}>Move to {nextOpsStage(job.opsStage)!.name}</PopItem>}
+              {job.source === 'job' && !stage?.isComplete && <PopItem className="font-semibold !text-green-700" onClick={() => { close(); onComplete() }}>Mark complete</PopItem>}
+              <PopItem danger onClick={() => { close(); onRainDay() }}>Flag Rain Day</PopItem>
+            </>}
+          </PopMenu>
         </div>
       )}
     </div>
@@ -710,7 +709,6 @@ function ControlsBar({
   isMobile: boolean
 }) {
   const [openSearch, setOpenSearch] = useState(false)
-  const [openFilter, setOpenFilter] = useState(false)
   if (isMobile) {
     return (
       <div className="flex items-center justify-between gap-2 mb-3 relative">
@@ -720,15 +718,9 @@ function ControlsBar({
         </div>
         <div className="flex items-center gap-1.5">
           <button onClick={() => setOpenSearch(o => !o)} className="btn btn-secondary btn-icon" aria-label="Search this board"><Search size={18} aria-hidden="true" /></button>
-          <button onClick={() => setOpenFilter(o => !o)} className="btn btn-secondary btn-icon" aria-label="Filter and sort"><SlidersHorizontal size={18} aria-hidden="true" /></button>
-          <ViewToggle value={view} onChange={onViewChange} />
-        </div>
-        {openSearch && (
-          <input autoFocus value={search} onChange={e => onSearchChange(e.target.value)}
-            placeholder="Search jobs..." className="absolute left-0 right-0 top-full mt-2 z-30 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-lg" />
-        )}
-        {openFilter && (
-          <div className="absolute left-0 right-0 top-full mt-2 z-30 bg-white border border-gray-200 rounded-lg p-3 space-y-2 shadow-lg">
+          <PopMenu name="filter" kind="dialog" title="Filter and sort" width={288} className="p-3 space-y-2" align="end"
+            label={<SlidersHorizontal size={18} aria-hidden="true" />}
+            triggerClassName="btn btn-secondary btn-icon" triggerProps={{ 'aria-label': 'Filter and sort' }}>
             <select value={stageFilter} onChange={e => onStageFilterChange(e.target.value)} aria-label="Stage filter" data-ops-stage-filter className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="">All stages</option>
               {stageOptions.map(s => <option key={s.id} value={s.id}>{s.name}{s.hidden ? ' (hidden)' : ''}</option>)}
@@ -750,7 +742,12 @@ function ControlsBar({
             <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showCompleted} onChange={e => onShowCompletedChange(e.target.checked)} />Show completed (&gt;48h)</label>
             <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={highlightToday} onChange={e => onHighlightTodayChange(e.target.checked)} />Highlight today</label>
             <button onClick={onToggleAnalytics} className="w-full text-left text-xs text-orange-600 hover:underline">{analyticsOpen ? 'Hide analytics' : 'Show analytics'}</button>
-          </div>
+          </PopMenu>
+          <ViewToggle value={view} onChange={onViewChange} />
+        </div>
+        {openSearch && (
+          <input autoFocus value={search} onChange={e => onSearchChange(e.target.value)}
+            placeholder="Search jobs..." className="absolute left-0 right-0 top-full mt-2 z-30 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-lg" />
         )}
       </div>
     )

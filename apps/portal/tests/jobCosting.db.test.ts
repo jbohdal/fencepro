@@ -100,8 +100,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     const [r] = await quotedRows(q.id)
     expect(r?.signedVia).toBe('app')
     expect(r?.totalCents).toBe(50500)
+    // A signed quote is locked (lib/quoteLock.ts): the change is refused and nothing moves.
     const p2 = await call(owner, 'PATCH', `/api/saved-quotes/${q.id}`, { pullSheet: [{ item: 'Changed', qty: 1, unitCost: 999, total: 999 }], materialCost: 999, totalCOGS: 1239 })
-    expect(p2.status).toBe(200)
+    expect(p2.status).toBe(409)
     const after = await quotedRows(q.id)
     expect(after).toHaveLength(1)
     expect(after[0].totalCents).toBe(50500)
@@ -167,8 +168,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     expect(byPart['E2E Job Costing Post'].totalCostCents).toBe(11 * 1350)
     expect(byPart['E2E Job Costing Concrete'].totalCostCents).toBe(18 * 650)
     expect(byPart['E2E Broken Panel'].costSource).toBe('none')
-    expect(actual.laborCents).toBe(10 * 2400 + 2500)
-    expect(actual.totalCents).toBe(11 * 1350 + 18 * 650 + 24000 + 2500)
+    // The sub rate is the company's Settings rate for the style (not a fixed $24: dev is a copy of live).
+    const { subRateFor } = await import('../src/server/lib/jobCostingMath.js')
+    const cfg = ((await prisma.businessState.findUnique({ where: { accountId } }))?.config ?? {}) as any
+    const rateCents = Math.round(subRateFor((cfg.fenceStyles ?? []).find((x: any) => x?.name === "WV-ND 6'x8' Privacy"), cfg.pricing ?? {}) * 100)
+    expect(rateCents).toBeGreaterThan(0)
+    expect(actual.laborCents).toBe(10 * rateCents + 2500)
+    expect(actual.totalCents).toBe(11 * 1350 + 18 * 650 + 10 * rateCents + 2500)
 
     const cmp = await call(owner, 'GET', `/api/job-costing/job/${job.id}`)
     expect(cmp.status).toBe(200)

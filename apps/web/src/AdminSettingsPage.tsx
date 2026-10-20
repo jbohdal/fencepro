@@ -24,8 +24,10 @@ import FenceStylesSettings from './FenceStylesSettings'
 import MoveRepairSettings from './MoveRepairSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
 import FollowUpSettings from './FollowUpSettings'
+import SettingsChangeLog from './SettingsChangeLog'
+import { signedInRole } from './permissions'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups' | 'change_log'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -520,7 +522,7 @@ function OptimizerTab({ config, onChange }: { config: AppConfig; onChange: (c: A
           <label className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 cursor-pointer hover:bg-gray-100">
             <div>
               <p className="text-sm font-medium text-gray-900">Enable smart rail optimization</p>
-              <p className="text-xs text-gray-500 mt-0.5">When off, the optimizer recommendation is hidden and 6ft is the default.</p>
+              <p className="text-xs text-gray-500 mt-0.5">When off, every side uses 6 ft panels.</p>
             </div>
             <input type="checkbox" checked={opt.enabled} onChange={e => set('enabled', e.target.checked)} className="w-5 h-5 accent-orange-500" />
           </label>
@@ -552,7 +554,7 @@ function OptimizerTab({ config, onChange }: { config: AppConfig; onChange: (c: A
           <label className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 cursor-pointer hover:bg-gray-100">
             <div>
               <p className="text-sm font-medium text-gray-900">Show optimization details in quote builder</p>
-              <p className="text-xs text-gray-500 mt-0.5">Per-run recommendation table with savings and reasoning.</p>
+              <p className="text-xs text-gray-500 mt-0.5">Show the 6 ft / 8 ft choice for each side, with the savings and the reason.</p>
             </div>
             <input type="checkbox" checked={opt.showDetailsInBuilder} onChange={e => set('showDetailsInBuilder', e.target.checked)} className="w-5 h-5 accent-orange-500" />
           </label>
@@ -592,6 +594,7 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'follow_ups',         label: 'Follow ups' },
   { key: 'walkthrough',        label: 'Final Walkthrough' },
   { key: 'calendar',           label: 'Google Calendar' },
+  { key: 'change_log',         label: 'Change log' },        // owner only (SettingsChangeLog.tsx)
 ]
 
 export default function AdminSettingsPage() {
@@ -679,7 +682,7 @@ export default function AdminSettingsPage() {
         </div>
 
         <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-xl p-1 lg:w-fit mb-6 lg:mb-8 overflow-x-auto">
-          {TABS.map(t => (
+          {TABS.filter(t => t.key !== 'change_log' || signedInRole() === 'super_admin').map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} data-settings-tab={t.key} aria-pressed={tab === t.key} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.key ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-800'}`}>
               {t.label}
             </button>
@@ -730,6 +733,7 @@ export default function AdminSettingsPage() {
           {tab === 'appointments' && <AppointmentSettingsTab />}
           {tab === 'follow_ups' && <FollowUpSettings />}
           {tab === 'walkthrough' && <WalkthroughSettings config={config} onChange={handleChange} />}
+          {tab === 'change_log' && signedInRole() === 'super_admin' && <SettingsChangeLog />}
         </div>
       </div>
     </div>

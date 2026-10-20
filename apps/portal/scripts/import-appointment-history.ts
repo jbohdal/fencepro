@@ -26,6 +26,7 @@ import path from 'path'
 import { PrismaClient } from '@prisma/client'
 import { liveDatabaseMisuse, LIVE_DATABASE_NAME } from '../src/server/lib/liveGuard.js'
 import { floridaTime } from '../src/server/lib/appointments.js'
+import { assertLiveWriteAllowed } from '../src/server/lib/liveWriteGuard.js'
 
 const BATCH = 200
 const argv = process.argv.slice(2)
@@ -34,6 +35,8 @@ const opt = (n: string) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? a
 const expand = (p = '') => (p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p)
 const FILE = expand(opt('file')), PROJECTS_LOG = expand(opt('projects-log'))
 const APPLY = flag('apply')
+// --apply on the live database also needs EZBIZ_LIVE_WRITE_OK=1 and a backup from the last 30 minutes (lib/liveWriteGuard.ts).
+if (APPLY) assertLiveWriteAllowed('import-appointment-history.ts')
 if (!FILE || !fs.existsSync(FILE) || !PROJECTS_LOG || !fs.existsSync(PROJECTS_LOG)) {
   console.error('Give --file <projects csv> and --projects-log <project-import log csv>.'); process.exit(2)
 }

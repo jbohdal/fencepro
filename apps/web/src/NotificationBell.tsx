@@ -3,7 +3,8 @@
  * Polls /api/automations/notifications every 60s.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
+import PopMenu from './PopMenu'
 import { authFetch } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { navigate } from './nav'
@@ -31,7 +32,6 @@ export default function NotificationBell() {
   const [notifs, setNotifs] = useState<Notification[]>([])
   const [unread, setUnread] = useState(0)
   const [loading, setLoading] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
   async function load() {
     try {
@@ -50,14 +50,6 @@ export default function NotificationBell() {
     return () => clearInterval(t)
   }, [])
 
-  useEffect(() => {
-    function onClickAway(e: MouseEvent) {
-      if (!dropdownRef.current) return
-      if (!dropdownRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    if (open) document.addEventListener('mousedown', onClickAway)
-    return () => document.removeEventListener('mousedown', onClickAway)
-  }, [open])
 
   /** Go where the notification is about (a customer, a job). */
   function openLink(link?: string | null) {
@@ -87,10 +79,10 @@ export default function NotificationBell() {
   }
 
   return (
-    <div className="relative" ref={dropdownRef}>
-      <button onClick={() => setOpen(o => !o)}
-        className="relative text-gray-500 hover:text-gray-900 min-w-[48px] min-h-[48px] grid place-items-center rounded-lg hover:bg-gray-100 transition-colors"
-        title="Notifications">
+    <PopMenu name="notifications" kind="dialog" title="Notifications" width={320} className="" open={open} onOpenChange={setOpen}
+      triggerClassName="relative text-gray-500 hover:text-gray-900 min-w-[48px] min-h-[48px] grid place-items-center rounded-lg hover:bg-gray-100 transition-colors"
+      triggerProps={{ title: 'Notifications', 'aria-label': 'Notifications' }}
+      label={<>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
           <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
@@ -100,9 +92,8 @@ export default function NotificationBell() {
             {unread > 99 ? '99+' : unread}
           </span>
         )}
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 max-h-[460px] bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden z-50">
+      </>}>
+        <div>
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-gray-900">Notifications</p>
@@ -136,7 +127,6 @@ export default function NotificationBell() {
             )}
           </div>
         </div>
-      )}
-    </div>
+    </PopMenu>
   )
 }

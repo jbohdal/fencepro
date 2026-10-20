@@ -19,6 +19,8 @@
 // dev-invoice-needs-match.png, dev-invoice-applied.png, dev-invoice-waiting-ok.png,
 // dev-invoice-price-history.png, dev-vendors-by-month.png.
 // Dev only (port 4001). Test Inventory items, vendors, bills, invoices and the login are removed at the end.
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
 import fs from 'fs'
 import path from 'path'

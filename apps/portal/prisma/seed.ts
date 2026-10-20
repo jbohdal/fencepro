@@ -1,5 +1,9 @@
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { assertLiveWriteAllowed } from '../src/server/lib/liveWriteGuard.js'
+
+// Changes data: refuses the live database without 'EZBIZ_LIVE_WRITE_OK=1' and a backup from the last 30 minutes.
+assertLiveWriteAllowed('seed.ts')
 
 const prisma = new PrismaClient()
 
