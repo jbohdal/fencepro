@@ -24,3 +24,14 @@ Read GO_LIVE.md before doing anything that touches a database or a server.
 - Refresh the practice data with `bash deploy/mac/refresh-dev-db.sh`.
 
 Details and what enforces this: GO_LIVE.md, section 15.
+
+## Hard rule: ask before reading anything personal
+
+Never read Jonathan's personal files, browser history or profiles, email,
+messages, or anything outside this project folder and the app's own data
+(the dev and live databases, the app's logs in ~/.pm2/logs, its backups in
+~/ezbiz-backups, and the reference files he named for the work) without
+asking him first and getting his OK for that specific thing. This applies to
+every agent and script. If an investigation needs it, stop and ask; say what
+you want to read and why. (Set by Jonathan on Oct 20, 2026, after an agent
+read a copy of his Chrome Beta history while tracing a Settings change.)
