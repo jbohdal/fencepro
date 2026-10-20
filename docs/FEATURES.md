@@ -96,6 +96,13 @@ Status key:
 * The tier sets load with the rest of the company's data when the app starts and are retried on weak signal; if they still have not loaded, the quote says so (found by the field test: on a dropping signal a proposal could have gone out without Good, Better, Best). **LIVE**
 * New quotes and proposals use the settings at once; a sent proposal keeps the prices and tiers it was sent with (reopening it shows "Tiers as they were when this proposal was sent" with "Use the current tiers"). **LIVE**
 
+## 4c. Website quote drawn on the photo, gate sliding (Oct 20)
+
+* Website quote (EZ Budget, /p/quote): the customer types the address and the free USGS aerial photo of the house opens with the county lot lines. They tap the fence on it: corners, separate runs, gates they can slide along the fence, and any side typed if they measured it. Lengths are true ground distance, shown live to the foot, with "straight and square" snapping and a magnifier. They pick vinyl, chain link, aluminum or wood, color and height; after name and phone (or before, with "Show price before contact"), they see the quote builder's own options (Good / Better / Best, or Dig set / No dig) priced by the builder's math to the cent. EZ Biz gets one customer, one card ("Website, drawn by customer") and one quote that opens in the builder already drawn, with the customer's drawing kept beside it. Progress is kept on the server for 30 days (on an iPhone inside the GoDaddy page it likely starts over). ?test=1 tries it without making a lead. **DEV**
+* Slide a gate along the fence (quote builder and website quote): drag it along its side; it never covers a corner, an end or a gap. While dragging: "12 ft ← [5 ft gate] → 31 ft" and the sections on each side, a magnifier on a phone, the price updating. Whole feet, or "Half feet" in the builder. Tap a distance to type it. A size change keeps the gate centered. Each piece is priced as its own run; footage never changes. The saved quote, proposal drawing and crew packet give both distances ("Back: 5 ft walk gate, 12 ft from the Left side corner, 31 ft to the Right side corner"). A signed quote's gate can't move. **DEV**
+* Fence rules from TAKEOFF_RULES (Jonathan, Oct 20): white and tan dig set walk gates take 2 bags of concrete each; tan dig set gates take 2 uprights per walk gate and 4 per double, a 6 ft P-channel per gate leaf and 2 latches per double gate; every white and tan privacy style with a parts list gets 2 gate handles per gate leaf; tan walk gate H-beams stay 6 ft. Saved quotes keep their prices (on live, Jaziel Ortiz's sent quote would re-price from $10,527.30 to $10,610.63). **DEV**
+
+
 ## 5. Site plan
 
 * Drawn automatically while typing: footage, sections, posts, gates, house, street side. Not to scale for permitting. **LIVE**
@@ -284,6 +291,14 @@ Status key:
 * Removed: the old Staging screen, the old Jobs pipeline and the Staging sheet (empty). Smart Schedule works from real jobs and Operations stages, and never puts a job on a crew day off (Settings working days, Monday to Thursday by default). **DEV**
 * Finance > Cash Flow is hidden until it is built. Integrations shows Google Calendar and SendGrid as Connected or Set up. The website widget shows a drawn picture of the fence type when a style has no photo. Optimizer help: "When off, every side uses 6 ft panels." **DEV**
 * Deleting a login removes its pending calls and push subscriptions, and only works on your own company's logins. **DEV**
+
+## 9i. Customer portal, change orders signed, locks (Oct 20)
+
+* Customer portal: nothing kept in the customer's browser. Sign in sets a cookie the page cannot read, the session is kept on the server (sign out, revoke or a password change end it at once), every page reads from the server limited to that customer, and file links are signed and expire after 7 days. Tested: customer A can never see B's files, photos, messages, quotes or change orders. (Before: the portal did not limit requests to the signed in customer, and uploaded files could be fetched without signing in from the Tailscale network; no customer had signed in.) **DEV**
+* Customers see and sign change orders: in the portal or on their own link (/p/co/…) that the office texts or emails from its own phone. Signing approves it and adds it to the contract value; the office sees "Signed by the customer on …". **DEV**
+* A quote once Sold or accepted stays locked, even if later marked Lost (3 on live: Jessica Rogers, Shardae Perry, Diane Pahl). **DEV**
+* Job costing labor uses the sub rate and crew hourly rate saved at signing, or "Sub paid $" (owner and office only) when entered on the takeoff. **DEV**
+* Deleting a login asks for its full name to be typed. **DEV**
 
 
 ## 10. Reliability (top priority)

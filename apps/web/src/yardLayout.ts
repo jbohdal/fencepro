@@ -109,6 +109,23 @@ export interface QuoteLayoutRecord {
   yard: YardLayout | null
   /** Sections in each saved run, same order, as priced. */
   runSections: number[]
+  /** A quote from the website quote: the customer's drawing as they drew it (never changed by the builder). */
+  widgetDrawing?: WidgetDrawingRecord | null
+}
+
+/** What the website quote keeps of the customer's drawing on the quote (server lib/widgetDrawQuote.ts). */
+export interface WidgetDrawingRecord {
+  v: 1
+  source: string
+  drawnAt: string
+  address: string
+  at: { lat: number; lng: number }
+  runs: unknown[]
+  sides: Array<Array<{ run: number; side: number; measuredFt: number; typedFt: number | null; ft: number; how: 'measured' | 'typed' }>>
+  pick: { material: string; color: string; height: string; kind: string }
+  shown: Array<{ name: string; fenceStyle: string; price: number; perFoot: number; popular?: boolean }>
+  chosen: { fenceStyle: string; name: string; price: number }
+  snapshotUrl: string | null
 }
 
 export const GATE_WIDTH_IN: Record<GateType, number> = { walk: 48, double: 120 }

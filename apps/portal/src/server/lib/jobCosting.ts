@@ -16,10 +16,11 @@
  */
 
 import prisma from './prisma.js'
+import { markSignedNow } from './everSold.js'
 import { serializeMedia } from './media.js'
 import { landedCostOn, jobLotInvoiceLines } from './priceHistory.js'
 import {
-  quotedCostOf, linesFromQuoted, laborFromQuoted, actualCostOf, jobLotUnitCosts, compare, partsOf, subRateFor, toCents, findItemId, qty,
+  quotedCostOf, linesFromQuoted, laborFromQuoted, actualCostOf, subPaidOf, jobLotUnitCosts, compare, partsOf, subRateFor, toCents, findItemId, qty,
   type QuotedCost, type TakeoffLine, type TakeoffLabor, type ActualCost, type UnitCost, type ReportJob, type TakeoffStatus, type PricingSettings,
 } from './jobCostingMath.js'
 
@@ -64,6 +65,7 @@ export async function snapshotQuotedCost(accountId: string, quoteId: string, sig
         tearOutCents: snap.tearOutCents, totalCents: snap.totalCents, lines: snap.lines as any, labor: snap.labor as any,
       },
     })
+    await markSignedNow(accountId, quoteId)
     return true
   } catch (e) {
     if ((e as any)?.code === 'P2002') return false // saved at the same moment by the other request
@@ -96,7 +98,7 @@ export async function quotedCostFor(accountId: string, quoteId: string | null | 
 export const linesOf = (t: { lines: unknown }) => (Array.isArray(t.lines) ? t.lines : []) as TakeoffLine[]
 export const laborOf = (t: { labor: unknown }): TakeoffLabor => {
   const l = (t.labor && typeof t.labor === 'object' ? t.labor : {}) as any
-  return { mode: l.mode === 'sub' ? 'sub' : 'crew', subUnit: l.subUnit === 'foot' ? 'foot' : 'section', subUnits: qty(l.subUnits), crew: Array.isArray(l.crew) ? l.crew : [] }
+  return { mode: l.mode === 'sub' ? 'sub' : 'crew', subUnit: l.subUnit === 'foot' ? 'foot' : 'section', subUnits: qty(l.subUnits), subPaidCents: subPaidOf(l), crew: Array.isArray(l.crew) ? l.crew : [] }
 }
 
 async function jobOf(accountId: string, jobId: string) {
@@ -205,6 +207,8 @@ export async function actualNow(accountId: string, t: TakeoffRow, quoted: Quoted
   const day = t.installDate || today()
   const unitCostOf = await unitCostsFor(accountId, t.jobId, lines, day, quoted)
   const job = await prisma.savedJob.findUnique({ where: { id: t.jobId }, select: { fenceStyle: true } })
+  // Settings' rates of today are only the fallback for a job with no quoted cost: with one, the
+  // sub rate and hourly rate saved at signing are used (jobCostingMath actualCostOf).
   return actualCostOf({ lines, labor: laborOf(t), installDate: day }, {
     quoted, unitCostOf, hourlyCostCents: toCents(s.pricing.manHourRate), subRateCostCents: toCents(subRateFor(s.styles.find(x => x?.name === job?.fenceStyle), s.pricing)),
     otherLaborCostCents, frozen,

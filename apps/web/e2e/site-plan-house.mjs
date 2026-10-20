@@ -255,7 +255,7 @@ try {
   const crew = await ctx.newPage()
   await crew.goto(url.replace(/^https?:\/\/[^/]+/, API)); await sleep(1000)
   let text = (await crew.locator('body').textContent()).replace(/\s+/g, ' ')
-  check('install packet: "swings in, hinges left" in the gate details', text.includes(`Left return: 4' 0" walk gate near the house`) && text.includes('swings in, hinges left (as seen from inside the yard)'), text.slice(text.indexOf('Gates'), text.indexOf('Gates') + 220))
+  check('install packet: "swings in, hinges left" in the gate details', text.includes('Left return: 4 ft walk gate, 8 ft from the house, 28 ft to the Left side corner') && text.includes('swings in, hinges left (as seen from inside the yard)'), text.slice(text.indexOf('Gates'), text.indexOf('Gates') + 220))
   const ig = await labelCheck('.plan svg')(crew)
   check('install packet: every piece labeled, no overlaps', ig.pieces.filter(p => p.side === 'Left return').length === 5 && ig.bad.length === 0, ig.bad.join(' | '))
   await shot(crew, 'dev-plan-install-packet-pieces', '.plan')

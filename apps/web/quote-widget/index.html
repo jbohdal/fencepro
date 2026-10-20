@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex" />
     <title>Instant fence estimate · Getter Done Fence</title>
-    <style>html, body, #root { height: 100%; } body { margin: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; background: #fff; }</style>
+    <!-- The page itself scrolls (no inner scroll box): touches inside the website's frame land where the finger is. -->
+    <style>body { margin: 0; background: #fff; } #root { min-height: 100vh; }</style>
   </head>
   <body>
     <div id="root"></div>

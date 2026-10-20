@@ -516,6 +516,9 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     add("*Vinyl, Truss, 8 x 3/4\" (U-Trim)", 6 * tanPanels, 0.03)
     add("Vinyl, Tan, Cap, 5\"x5\"", totalPostCount, 1.00)
 
+    // TAKEOFF_RULES "*Vinyl, Gate, Handle": gateCount*2, a double gate counting as two (Jonathan, Oct 20, 2026).
+    add("*Vinyl, Gate, Handle", (walkGates + dblGates * 2) * 2, 5.98)
+
     if (walkGates > 0) {
       add("*Vinyl, Gate, H-Beam, 6'", walkGates * 2, 22.80)
       add("*Vinyl, Gate, Brace", walkGates, 36.37)
@@ -544,9 +547,10 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     add("*Vinyl, White, Post, End, 5\" x 5\" x 102\"", ends, 13.64)
     add("*Vinyl, White, Post, Line, 5\" x 5\" x 102\"", linePosts, 17.49)
     add("*Vinyl, White, Post, Blank, 5\" x 5\" x 102\"", blankPosts, 13.64)
-    // Concrete: all posts + blank posts + 2 per double gate
+    // TAKEOFF_RULES "Misc, Concrete", WV-DS row: ceil(postCount+blankPosts+2*dblGates+2*walkGates)
+    // (2 bags per walk gate added Oct 20, 2026, Jonathan: follow TAKEOFF_RULES).
     add('Misc, Concrete',
-      Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2), 6.25)
+      Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2 + walkGates * 2), 6.25)
 
     // Panel goods: sections plus every gate leaf (a double gate is two leaves).
     const dsPanels = sections + walkGates + dblGates * 2
@@ -565,6 +569,9 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     add("*Vinyl, Hex, 1/4 x 3\" (Rail Ties/Bottom)", totalPostCount * 2, 0.123)
     add("*Vinyl, Truss, 8 x 3/4\" (U-Trim)", 6 * dsPanels, 0.03)
     add("*Vinyl, White, Cap, 5\"x5\"", totalPostCount, 1.00)
+
+    // TAKEOFF_RULES "*Vinyl, Gate, Handle": gateCount*2, a double gate counting as two (Jonathan, Oct 20, 2026).
+    add("*Vinyl, Gate, Handle", (walkGates + dblGates * 2) * 2, 5.98)
 
     if (walkGates > 0) {
       add("*Vinyl, Gate, H-Beam, 6'", walkGates * 2, 22.80)
@@ -594,8 +601,10 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     add("*Vinyl, Tan, Post, End, 5\" x 5\" x 102\"", ends, 19.24)
     add("*Vinyl, Tan, Post, Line, 5\" x 5\" x 102\"", linePosts, 19.24)
     add("*Vinyl, Tan, Post, Blank, 5\" x 5\" x 102\"", blankPosts, 16.38)
+    // TAKEOFF_RULES "Misc, Concrete", TV-DS row: ceil(postCount+blankPosts+2*dblGates+2*walkGates)
+    // (2 bags per walk gate added Oct 20, 2026, Jonathan: follow TAKEOFF_RULES).
     add('Misc, Concrete',
-      Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2), 6.25)
+      Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2 + walkGates * 2), 6.25)
 
     const tanDsPanels = sections + walkGates + dblGates * 2
     if (isVinyl6x6(s)) {
@@ -614,22 +623,30 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     add("*Vinyl, Truss, 8 x 3/4\" (U-Trim)", 6 * tanDsPanels, 0.03)
     add("Vinyl, Tan, Cap, 5\"x5\"", totalPostCount, 1.00)
 
+    // TAKEOFF_RULES "*Vinyl, Gate, Handle": gateCount*2, a double gate counting as two (Jonathan, Oct 20, 2026).
+    add("*Vinyl, Gate, Handle", (walkGates + dblGates * 2) * 2, 5.98)
+
     if (walkGates > 0) {
       add("*Vinyl, Gate, H-Beam, 6'", walkGates * 2, 22.80)
       add("*Vinyl, Gate, Brace", walkGates, 36.37)
       add("*Vinyl, Gate, Hinge", walkGates, 29.03)
       add("*Vinyl, Gate, Latch", walkGates, 20.46)
       add("Vinyl, Tan, Cap, Gate", walkGates * 2, 1.00)
-      add("*Vinyl, Tan, Upright", walkGates, 9.69)
+      // TAKEOFF_RULES "*Vinyl, Tan, Upright": 2 per walk gate; "*Vinyl, Gate, P-Channel, 6'": 1 per walk gate.
+      add("*Vinyl, Tan, Upright", walkGates * 2, 9.69)
+      add("*Vinyl, Gate, P-Channel, 6'", walkGates, 12.30)
       add("*Vinyl, Tan, Rivet, 1\"", walkGates * 50, 0.20)
     }
     if (dblGates > 0) {
       add("*Vinyl, Gate, H-Beam, 8'", dblGates * 3, 29.60)
       add("*Vinyl, Gate, Brace", dblGates * 2, 36.37)
       add("*Vinyl, Gate, Hinge", dblGates * 2, 29.03)
-      add("*Vinyl, Gate, Latch", dblGates, 20.46)
+      // TAKEOFF_RULES "*Vinyl, Gate, Latch": 2 per double gate; "*Vinyl, Tan, Upright": 4 per
+      // double gate; "*Vinyl, Gate, P-Channel, 6'": 2 per double gate (Jonathan, Oct 20, 2026).
+      add("*Vinyl, Gate, Latch", dblGates * 2, 20.46)
       add("Vinyl, Tan, Cap, Gate", dblGates * 4, 1.00)
-      add("*Vinyl, Tan, Upright", dblGates * 2, 9.69)
+      add("*Vinyl, Tan, Upright", dblGates * 4, 9.69)
+      add("*Vinyl, Gate, P-Channel, 6'", dblGates * 2, 12.30)
       add("*Vinyl, Tan, Rivet, 1\"", dblGates * 100, 0.20)
     }
     warnings.push('Tan dig set uses the white dig set parts list with tan parts. Check the pull sheet against how you build it.')
@@ -653,8 +670,9 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       add('ND, Donut', totalPostCount * 2, 3.19)
       add("Pipe, PT40, Galv, 2-1/2\" x 8'", totalPostCount, 19.50)
     } else {
-      // Taller post, deeper hole: 2 bags per post.
-      add('Misc, Concrete', totalPostCount * 2, 6.25)
+      // Taller post, deeper hole: 2 bags per post. White dig set walk gates take 2 bags
+      // each too (TAKEOFF_RULES "Misc, Concrete" WV-DS row; Jonathan, Oct 20, 2026).
+      add('Misc, Concrete', totalPostCount * 2 + (tall.white ? walkGates * 2 : 0), 6.25)
     }
 
     const gateLeaves = walkGates + dblGates * 2
@@ -1084,7 +1102,8 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
     add('*Vinyl, White, Post, End, 5" x 5" x 102"', ends, 13.64)
     add('*Vinyl, White, Post, Line, 5" x 5" x 102"', linePosts, 17.49)
     add('*Vinyl, White, Post, Blank, 5" x 5" x 102"', blankPosts, 13.64)
-    add('Misc, Concrete', Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2), 6.25)
+    // TAKEOFF_RULES WV-DS concrete: 2 bags per walk gate too (Jonathan, Oct 20, 2026).
+    add('Misc, Concrete', Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2 + walkGates * 2), 6.25)
   } else if (isTan && isND) {
     add('*Vinyl, Tan, Post, Corner, 5" x 5" x 78"', corners, 12.90)
     add('*Vinyl, Tan, Post, End, 5" x 5" x 78"', ends, 12.90)
@@ -1098,7 +1117,8 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
     add('*Vinyl, Tan, Post, End, 5" x 5" x 102"', ends, 19.24)
     add('*Vinyl, Tan, Post, Line, 5" x 5" x 102"', linePosts, 19.24)
     add('*Vinyl, Tan, Post, Blank, 5" x 5" x 102"', blankPosts, 16.38)
-    add('Misc, Concrete', Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2), 6.25)
+    // TAKEOFF_RULES TV-DS concrete: 2 bags per walk gate too (Jonathan, Oct 20, 2026).
+    add('Misc, Concrete', Math.ceil(corners + ends + linePosts + blankPosts + dblGates * 2 + walkGates * 2), 6.25)
   }
 
   // ── Panel goods, split by rail width ──
@@ -1153,7 +1173,9 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
 
   // ── Gate hardware (style-name agnostic; uses installMethod + color) ──
   const gateOpenings = walkGates + dblGates * 2
-  if (isWhite && isND && gateOpenings > 0) {
+  // TAKEOFF_RULES "*Vinyl, Gate, Handle": gateCount*2 on every WV/TV ND/DS privacy style
+  // (white no dig had it; dig set and tan added Oct 20, 2026, Jonathan).
+  if (gateOpenings > 0) {
     add('*Vinyl, Gate, Handle', gateOpenings * 2, 5.98)
   }
   if (isWhite) {
@@ -1207,23 +1229,26 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
       add('*Vinyl, Tan, Rivet, 1"', dblGates * 100, 0.20)
     }
   } else if (isTan && isDS) {
-    // The TV-DS gate lines.
+    // The TV-DS gate lines, as TAKEOFF_RULES (Jonathan, Oct 20, 2026): 2 uprights and
+    // 1 P-channel per walk gate; 2 latches, 4 uprights and 2 P-channels per double gate.
     if (walkGates > 0) {
       add("*Vinyl, Gate, H-Beam, 6'", walkGates * 2, 22.80)
       add('*Vinyl, Gate, Brace', walkGates, 36.37)
       add('*Vinyl, Gate, Hinge', walkGates, 29.03)
       add('*Vinyl, Gate, Latch', walkGates, 20.46)
       add('Vinyl, Tan, Cap, Gate', walkGates * 2, 1.00)
-      add('*Vinyl, Tan, Upright', walkGates, 9.69)
+      add('*Vinyl, Tan, Upright', walkGates * 2, 9.69)
+      add("*Vinyl, Gate, P-Channel, 6'", walkGates, 12.30)
       add('*Vinyl, Tan, Rivet, 1"', walkGates * 50, 0.20)
     }
     if (dblGates > 0) {
       add("*Vinyl, Gate, H-Beam, 8'", dblGates * 3, 29.60)
       add('*Vinyl, Gate, Brace', dblGates * 2, 36.37)
       add('*Vinyl, Gate, Hinge', dblGates * 2, 29.03)
-      add('*Vinyl, Gate, Latch', dblGates, 20.46)
+      add('*Vinyl, Gate, Latch', dblGates * 2, 20.46)
       add('Vinyl, Tan, Cap, Gate', dblGates * 4, 1.00)
-      add('*Vinyl, Tan, Upright', dblGates * 2, 9.69)
+      add('*Vinyl, Tan, Upright', dblGates * 4, 9.69)
+      add("*Vinyl, Gate, P-Channel, 6'", dblGates * 2, 12.30)
       add('*Vinyl, Tan, Rivet, 1"', dblGates * 100, 0.20)
     }
   }

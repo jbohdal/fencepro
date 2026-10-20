@@ -40,7 +40,7 @@ export const COST_KEYS: ReadonlySet<string> = new Set([
   'commissionSalesman', 'commissionNonSalesman', 'tearOutFence', 'tearOutGate', 'repairProfitPct',
   'pullNdLaborCents', 'pullNdDisposalCents', 'pullDsLaborCents', 'pullDsDisposalCents', 'woodFactor', 'woodFactorPct',
   // Job costing (actual costs)
-  'actualMaterialCost', 'actualOtherCosts', 'actualLaborCost',
+  'actualMaterialCost', 'actualOtherCosts', 'actualLaborCost', 'subPaidCents',
   // Parts and supplier prices
   'unitCost', 'fallbackCost', 'cost', 'costs', 'lastCost', 'avgCost', 'jobLot', 'pieceCents',
   // The rail optimizer's cost per run

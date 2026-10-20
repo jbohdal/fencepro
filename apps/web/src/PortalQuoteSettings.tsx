@@ -33,6 +33,10 @@ type AllSettings = {
     notifyCustomerOnSchedule: boolean
     notifyCustomerOnComplete: boolean
   }
+  /** The website quote (EZ Budget, /p/quote; server lib/widgetDrawQuote.ts). */
+  quoteWidget: {
+    showPriceBeforeContact: boolean
+  }
 }
 
 const DEFAULTS: AllSettings = {
@@ -56,6 +60,8 @@ const DEFAULTS: AllSettings = {
     notifyCustomerOnSchedule: true,
     notifyCustomerOnComplete: true,
   },
+  // Off: the website asks for the name and phone before it shows the prices.
+  quoteWidget: { showPriceBeforeContact: false },
 }
 
 function load(): AllSettings {
@@ -64,12 +70,13 @@ function load(): AllSettings {
     portal: { ...DEFAULTS.portal, ...(cfg.portal || {}) },
     quote: { ...DEFAULTS.quote, ...(cfg.quote || {}) },
     notifications: { ...DEFAULTS.notifications, ...(cfg.notifications || {}) },
+    quoteWidget: { ...DEFAULTS.quoteWidget, ...(cfg.quoteWidget || {}) },
   }
 }
 
 function save(s: AllSettings) {
   const cfg = getConfig() as any
-  saveConfig({ ...cfg, portal: s.portal, quote: s.quote, notifications: s.notifications })
+  saveConfig({ ...cfg, portal: s.portal, quote: s.quote, notifications: s.notifications, quoteWidget: s.quoteWidget })
   try { window.dispatchEvent(new CustomEvent('fencepro:settings:updated')) } catch {}
 }
 
@@ -116,6 +123,12 @@ export default function PortalQuoteSettings() {
           <Field label="Support Phone"><input value={s.portal.supportPhone} onChange={e => update('portal', { supportPhone: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>
           <Field label="Accent Color"><input type="color" value={s.portal.accentColor} onChange={e => update('portal', { accentColor: e.target.value })} className="w-full h-10 border border-gray-200 rounded-lg" /></Field>
         </div>
+      </section>
+
+      <section className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3" data-settings-quote-widget>
+        <h4 className="text-sm font-bold text-gray-700">Website quote (EZ Budget)</h4>
+        <p className="text-sm text-gray-600">The customer draws the fence on the aerial photo of their property at gdfencepro.com and sees the prices for it. Off: they give their name and phone first, then the prices show.</p>
+        <Toggle label="Show price before contact" checked={s.quoteWidget.showPriceBeforeContact} onChange={v => update('quoteWidget', { showPriceBeforeContact: v })} />
       </section>
 
       <section className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3">

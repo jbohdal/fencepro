@@ -1,7 +1,7 @@
 // Photos and video, end to end on the dev copy.
 //
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 \
-//   E2E_ACCESS_TOKEN=<dev staff token> E2E_PORTAL_TOKEN=<dev portal token for the customer> \
+//   E2E_ACCESS_TOKEN=<dev staff token> E2E_PORTAL_TOKEN=<the customer's ezbiz_portal cookie value, from a portal sign in on dev> \
 //   E2E_CUSTOMER="Shawn Collins" MEDIA_PHOTO=photo.jpg MEDIA_VIDEO=clip.mp4 node e2e/media.mjs
 //
 // Test browsers have no camera or compass, so stand-ins provide a moving
@@ -31,7 +31,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  -- ' + detail : ''}`) }
 const api = async (p, init = {}, tok = TOKEN) => {
-  const r = await fetch(API + p, { ...init, headers: { Authorization: `Bearer ${tok}`, ...(init.headers || {}) } })
+  // The portal signs in with its session cookie (Oct 20, 2026); staff with the Bearer token.
+  const auth = tok === PORTAL ? { Cookie: `ezbiz_portal=${tok}` } : { Authorization: `Bearer ${tok}` }
+  const r = await fetch(API + p, { ...init, headers: { ...auth, ...(init.headers || {}) } })
   const j = await r.json().catch(() => ({}))
   return j.data ?? j
 }

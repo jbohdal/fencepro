@@ -42,7 +42,6 @@ const AccountsPayablePage = lazy(() => import('./AccountsPayablePage'))
 const PendingOrdersPage = lazy(() => import('./PendingOrdersPage'))
 const SitePlansPage = lazy(() => import('./SitePlansPage'))
 const InventoryPage = lazy(() => import('./InventoryPage'))
-import CustomerPortalApp from './CustomerPortalApp'
 import NotificationBell from './NotificationBell'
 import MessagesInbox from './MessagesInbox'
 import PublicQuotePage from './PublicQuotePage'
@@ -427,6 +426,11 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
   )
 }
 
+function PortalReload() {
+  useEffect(() => { window.location.reload() }, [])
+  return null
+}
+
 export default function App() {
   // Public quote route: /#/quote/:token — no auth required
   const [hash, setHash] = useState(typeof window !== 'undefined' ? window.location.hash : '')
@@ -439,9 +443,9 @@ export default function App() {
   if (quoteMatch) {
     return <PublicQuotePage token={quoteMatch[1]} />
   }
-  const portalMatch = hash.match(/^#\/portal\/([a-zA-Z]+)(?:\?.*)?$/)
-  if (portalMatch) {
-    return <CustomerPortalApp route={portalMatch[1]} />
+  // The customer portal runs on its own (main.tsx), without the office's app: load it fresh.
+  if (/^#\/portal\//.test(hash)) {
+    return <PortalReload />
   }
 
   return (

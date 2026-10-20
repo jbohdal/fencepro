@@ -208,6 +208,8 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
         acceptedBy: body.name,
         acceptedSignature: body.signature ?? null,
         chosenOption: body.option,
+        // Ever sold: set once, never cleared (lib/everSold.ts).
+        ...(q.soldAt ? {} : { soldAt: new Date() }),
         ...(signed ? {} : {
           fenceStyle: opt.fenceStyle,
           finalPrice: opt.finalPrice,

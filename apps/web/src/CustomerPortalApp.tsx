@@ -1,11 +1,13 @@
 /**
- * Customer-facing portal — hash-routed inside the main web app.
+ * Customer-facing portal — hash-routed, loaded on its own (main.tsx) so a
+ * customer's browser never loads the office's code.
  *
  * Routes:
  *   /#/portal/activate?token=…   — set initial password
  *   /#/portal/login              — email/password login
  *   /#/portal/dashboard          — overview
  *   /#/portal/quotes             — list of quotes
+ *   /#/portal/change-orders      — change orders: approve and sign the sent ones
  *   /#/portal/projects           — list of jobs
  *   /#/portal/invoices           — invoices + balance
  *   /#/portal/documents          — file list + upload
@@ -13,34 +15,56 @@
  *   /#/portal/messages           — two-way messaging
  *   /#/portal/account            — settings
  *
- * All data is read from the shared localStorage stores — no separate API.
+ * Every page reads from the server (/api/portal/*, scoped on the server to the
+ * signed in customer). The sign in is an httpOnly cookie the page never sees;
+ * nothing is kept in the browser (portalApiClient.ts).
  * The portal has its own visual language (white/accent, top nav, no FencePro branding).
  */
 
 import { styleLabel } from './fenceCatalog'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { SignaturePad } from './SignaturePad'
 import {
-  getCurrentSession, login, verifyAndActivate, setPassword, logout,
-  type CurrentSession as PortalAccount,
-} from './portalAccountStore'
-import { getCustomerById } from './customerStore'
-import { getQuotes } from './quoteStore'
-import { getJobs } from './jobStore'
-import { LOCAL_API_ORIGIN } from './apiOrigin'
+  fetchMe, login, verifyAndActivate, logout, resendPortalInvite, changePassword, fetchCompany,
+  listPortalQuotes, listPortalProjects, listPortalInvoices, listPortalChangeOrders, signPortalChangeOrder,
+  listPortalDocuments, uploadPortalDocument, listPortalPhotos, uploadPortalPhoto, listPortalMedia,
+  listPortalMessages, sendPortalMessage, fileHref, PORTAL_SIGNED_OUT_EVENT,
+  type PortalUser as PortalAccount, type PortalCompany, type PortalQuote, type PortalProject, type PortalInvoice,
+  type PortalChangeOrder, type PortalFileRow, type PortalPhotoRow, type PortalMediaRow, type PortalMessage,
+} from './portalApiClient'
 
-function readCompanyInfo() {
-  try {
-    const r = localStorage.getItem('fencepro_config')
-    if (!r) return { name: 'Getter Done Fence', phone: '', email: '', address: '', portal: {} as any }
-    const cfg = JSON.parse(r)
-    return { ...cfg.company, portal: cfg.portal || {} }
-  } catch { return { name: 'Getter Done Fence', phone: '', email: '', address: '', portal: {} as any } }
+const DEFAULT_COMPANY: PortalCompany = { name: 'Getter Done Fence', phone: '', email: '', portal: { accentColor: '', supportEmail: '', supportPhone: '', welcomeMessage: '' } }
+
+/** The company's name, phone and portal color, from the server. */
+function useCompany(): PortalCompany {
+  const [c, setC] = useState<PortalCompany>(DEFAULT_COMPANY)
+  useEffect(() => { fetchCompany().then(r => { if (r) setC(r) }) }, [])
+  return c
 }
 
-function accentColor() {
-  const info = readCompanyInfo()
-  return info.portal?.accentColor || '#f97316'
+/** One server list for a page: null while loading, 'error' when it could not load. */
+function useServerList<T>(load: () => Promise<T[] | null>, deps: unknown[] = []): [T[] | null | 'error', () => void] {
+  const [rows, setRows] = useState<T[] | null | 'error'>(null)
+  const reload = () => { load().then(r => setRows(r ?? 'error')) }
+  useEffect(reload, deps)
+  return [rows, reload]
+}
+
+/** The portal on its own page (main.tsx): follows the address's #/portal/<page>. */
+export function PortalRoot() {
+  const routeOf = () => (window.location.hash.match(/^#\/portal\/([a-zA-Z-]+)/)?.[1] ?? 'login')
+  const [route, setRoute] = useState(routeOf)
+  useEffect(() => {
+    const on = () => {
+      // Left the portal for the office's app: load it fresh (it is a different program).
+      if (!window.location.hash.startsWith('#/portal/')) { window.location.reload(); return }
+      setRoute(routeOf())
+    }
+    window.addEventListener('hashchange', on)
+    return () => window.removeEventListener('hashchange', on)
+  }, [])
+  return <CustomerPortalApp route={route} />
 }
 
 /** What the customer sees, by the job's status (not the office's stage names, which Jonathan can rename). */
@@ -69,38 +93,50 @@ function parseHashQuery(): Record<string, string> {
 }
 
 export default function CustomerPortalApp({ route }: { route: string }) {
-  const [session, setSession] = useState<PortalAccount | null>(() => getCurrentSession())
-  const company = readCompanyInfo()
-  const accent = accentColor()
+  // Who is signed in: asked of the server (the cookie). undefined: still asking.
+  const [session, setSession] = useState<PortalAccount | null | undefined>(undefined)
+  const [offline, setOffline] = useState(false)
+  const company = useCompany()
+  const accent = company.portal?.accentColor || '#f97316'
 
+  const refresh = () => fetchMe().then(me => {
+    if (me === 'offline') { setOffline(true); setSession(s => s ?? null); return }
+    setOffline(false); setSession(me)
+  })
+  useEffect(() => { void refresh() }, [])
   useEffect(() => {
-    const onUpdate = () => setSession(getCurrentSession())
-    window.addEventListener('fencepro:portal:updated', onUpdate)
-    return () => window.removeEventListener('fencepro:portal:updated', onUpdate)
+    const onOut = () => setSession(null)
+    window.addEventListener(PORTAL_SIGNED_OUT_EVENT, onOut)
+    return () => window.removeEventListener(PORTAL_SIGNED_OUT_EVENT, onOut)
   }, [])
 
   // Activation page — public
   if (route.startsWith('activate')) {
-    return <ActivatePage company={company} accent={accent} onActivated={() => { window.location.hash = '#/portal/dashboard' }} />
+    return <ActivatePage company={company} accent={accent} onActivated={() => { void refresh().then(() => { window.location.hash = '#/portal/dashboard' }) }} />
+  }
+
+  if (session === undefined) {
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-500" data-portal-loading>Loading…</div>
   }
 
   // Login page — public
   if (route.startsWith('login') || !session) {
-    return <LoginPage company={company} accent={accent} />
+    return <LoginPage company={company} accent={accent} offline={offline} onSignedIn={() => { void refresh().then(() => { window.location.hash = '#/portal/dashboard' }) }} />
   }
 
-  const customer = getCustomerById(session.customerId)
+  const customer = session.customer
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col" style={{ ['--accent' as any]: accent }}>
-      <TopNav session={session} company={company} accent={accent} />
+      <TopNav session={session} company={company} accent={accent} onSignedOut={() => setSession(null)} />
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
         {route.startsWith('dashboard') && <DashboardPage session={session} customer={customer} accent={accent} company={company} />}
         {route.startsWith('quotes') && <QuotesPage session={session} customer={customer} accent={accent} />}
+        {route.startsWith('change-orders') && <ChangeOrdersPage session={session} accent={accent} />}
         {route.startsWith('projects') && <ProjectsPage session={session} customer={customer} accent={accent} />}
         {route.startsWith('invoices') && <InvoicesPage session={session} customer={customer} accent={accent} />}
         {route.startsWith('documents') && <DocumentsPage session={session} customer={customer} accent={accent} />}
-        {route.startsWith('photos') && <PhotosPage session={session} customer={customer} accent={accent} />}
+        {route.startsWith('photos') && <PhotosPage session={session} customer={customer} accent={accent} company={company} />}
         {route.startsWith('messages') && <MessagesPage session={session} customer={customer} accent={accent} />}
         {route.startsWith('account') && <AccountPage session={session} customer={customer} accent={accent} />}
       </main>
@@ -120,11 +156,12 @@ export default function CustomerPortalApp({ route }: { route: string }) {
 
 // ─────── Top navigation ───────
 
-function TopNav({ session, company, accent }: { session: PortalAccount; company: any; accent: string }) {
+function TopNav({ session, company, accent, onSignedOut }: { session: PortalAccount; company: PortalCompany; accent: string; onSignedOut: () => void }) {
   const [open, setOpen] = useState(false)
   const nav = [
     ['dashboard', 'Dashboard'],
     ['quotes', 'My Quotes'],
+    ['change-orders', 'Change Orders'],
     ['projects', 'My Projects'],
     ['invoices', 'Invoices'],
     ['documents', 'Documents'],
@@ -159,7 +196,7 @@ function TopNav({ session, company, accent }: { session: PortalAccount; company:
         </nav>
         <div className="ml-auto flex items-center gap-3">
           <span className="hidden sm:inline text-xs text-gray-500">{session.firstName} {session.lastName}</span>
-          <button onClick={() => { logout(); window.location.hash = '#/portal/login' }}
+          <button onClick={() => { void logout().then(() => { onSignedOut(); window.location.hash = '#/portal/login' }) }} data-portal-signout
             className="text-xs text-gray-500 hover:text-gray-900">Sign out</button>
           <button className="lg:hidden text-gray-600" onClick={() => setOpen(o => !o)}>☰</button>
         </div>
@@ -180,8 +217,8 @@ function TopNav({ session, company, accent }: { session: PortalAccount; company:
 
 // ─────── Login / Activation ───────
 
-function LoginPage({ company, accent }: { company: any; accent: string }) {
-  const [email, setEmail] = useState(() => (getCurrentSession()?.email) || '')
+function LoginPage({ company, accent, offline, onSignedIn }: { company: PortalCompany; accent: string; offline: boolean; onSignedIn: () => void }) {
+  const [email, setEmail] = useState('')
   const [password, setPasswordValue] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [showForgot, setShowForgot] = useState(false)
@@ -204,17 +241,17 @@ function LoginPage({ company, accent }: { company: any; accent: string }) {
       if (code === 'ACCOUNT_SUSPENDED') {
         setErr('This account has been suspended. Please contact us for help.'); return
       }
+      if (code === 'NETWORK') { setErr('Could not reach us. Check your connection and try again.'); return }
       setErr('Invalid email or password. Please try again or contact us for help.')
       return
     }
-    window.location.hash = '#/portal/dashboard'
+    onSignedIn()
   }
 
   async function handleResendInvite() {
     if (!email) { setErr('Enter your email first.'); return }
     try {
-      const mod = await import('./portalAccountStore')
-      const r = await mod.resendPortalInvite(email)
+      const r = await resendPortalInvite(email)
       if (r.ok) setErr('If an account exists for that email, a fresh activation link has been sent.')
       else if (r.error === 'RATE_LIMITED') setErr('Too many resend requests — please wait an hour and try again.')
       else setErr('Could not resend activation email — please contact us.')
@@ -247,7 +284,8 @@ function LoginPage({ company, accent }: { company: any; accent: string }) {
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2"
               style={{ ['--tw-ring-color' as any]: accent }} />
           </div>
-          {err && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
+          {offline && !err && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">Could not reach us just now. Check your connection.</p>}
+          {err && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2" data-portal-login-error>{err}</p>}
           <button type="submit" disabled={busy}
             className="w-full text-white font-semibold py-2.5 rounded-lg transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: accent }}>{busy ? 'Signing in…' : 'Sign In'}</button>
@@ -274,7 +312,7 @@ function LoginPage({ company, accent }: { company: any; accent: string }) {
   )
 }
 
-function ActivatePage({ company, accent, onActivated }: { company: any; accent: string; onActivated: () => void }) {
+function ActivatePage({ company, accent, onActivated }: { company: PortalCompany; accent: string; onActivated: () => void }) {
   const qs = parseHashQuery()
   const token = qs.token || ''
   const [password, setPasswordValue] = useState('')
@@ -303,6 +341,7 @@ function ActivatePage({ company, accent, onActivated }: { company: any; accent: 
         EXPIRED_TOKEN: 'This activation link has expired. Please contact us and we will send you a new one.',
         PASSWORD_TOO_SHORT: 'Your password must be at least 8 characters.',
         PASSWORDS_DO_NOT_MATCH: 'Passwords do not match. Please try again.',
+        NETWORK: 'Could not reach us. Check your connection and try again.',
       }
       setErr(friendly[code] || 'Activation failed — please contact us for a new link.')
       return
@@ -313,12 +352,11 @@ function ActivatePage({ company, accent, onActivated }: { company: any; accent: 
   async function requestResend() {
     if (resent) return
     try {
-      const mod = await import('./portalAccountStore')
       // We don't know the email at this point, so ask the backend to resend
       // by prompting the user to type their email. Keep UX simple with a prompt.
       const email = prompt('Enter your email to get a fresh activation link:')
       if (!email) return
-      const r = await mod.resendPortalInvite(email.trim())
+      const r = await resendPortalInvite(email.trim())
       if (r.ok) { setResent(true); setErr('If an account exists for that email, a fresh link has been sent.') }
       else if (r.error === 'RATE_LIMITED') setErr('Too many resend requests — please wait an hour and try again.')
       else setErr('Could not send a new link — please contact us directly.')
@@ -380,14 +418,16 @@ function ActivatePage({ company, accent, onActivated }: { company: any; accent: 
 
 // ─────── Dashboard ───────
 
-function DashboardPage({ session, customer, accent, company }: { session: PortalAccount; customer: any; accent: string; company: any }) {
+function DashboardPage({ session, customer, accent }: { session: PortalAccount; customer: PortalAccount['customer']; accent: string; company: PortalCompany }) {
   const now = new Date()
   const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening'
 
-  const jobs = useMemo(() => readJobsFor(session.customerId), [session.customerId])
-  const quotes = useMemo(() => readQuotesFor(session.customerId), [session.customerId])
-  const invoices = useMemo(() => readInvoicesFor(session.customerId), [session.customerId])
-  const activity = useMemo(() => readActivityFor(session.customerId).slice(0, 5), [session.customerId])
+  const [jobRows] = useServerList(listPortalProjects)
+  const [quoteRows] = useServerList(listPortalQuotes)
+  const [invoiceRows] = useServerList(listPortalInvoices)
+  const jobs = Array.isArray(jobRows) ? jobRows : []
+  const quotes = Array.isArray(quoteRows) ? quoteRows : []
+  const invoices = Array.isArray(invoiceRows) ? invoiceRows : []
 
   const activeJob = jobs.find(j => j.status !== 'completed' && j.status !== 'paid')
   const pendingQuotes = quotes.filter(q => q.status === 'SENT')
@@ -405,8 +445,8 @@ function DashboardPage({ session, customer, accent, company }: { session: Portal
         {activeJob && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
             <p className="text-xs font-bold" style={{ color: accent }}>Active Project</p>
-            <p className="text-lg font-bold text-gray-900 mt-1">{styleLabel(activeJob.fenceStyle) || activeJob.type || 'Project'}</p>
-            <p className="text-sm text-gray-500 mt-1">{friendlyStage(activeJob.status || activeJob.stage)}</p>
+            <p className="text-lg font-bold text-gray-900 mt-1">{styleLabel(activeJob.fenceStyle) || 'Project'}</p>
+            <p className="text-sm text-gray-500 mt-1">{friendlyStage(activeJob.status)}</p>
             {activeJob.scheduledDate && <p className="text-xs text-gray-500 mt-2">📅 Scheduled {activeJob.scheduledDate}</p>}
             {activeJob.crewAssigned && <p className="text-xs text-gray-500">👷 Crew: {activeJob.crewAssigned}</p>}
             <a href="#/portal/projects" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>View Project →</a>
@@ -416,35 +456,19 @@ function DashboardPage({ session, customer, accent, company }: { session: Portal
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
             <p className="text-xs font-bold" style={{ color: accent }}>Quotes Awaiting Review</p>
             <p className="text-3xl font-black text-gray-900 mt-1">{pendingQuotes.length}</p>
-            <p className="text-sm text-gray-500 mt-1">{pendingQuotes[0].fenceStyle || ''} · ${pendingQuotes[0].finalPrice?.toLocaleString() || 0}</p>
+            <p className="text-sm text-gray-500 mt-1">{styleLabel(pendingQuotes[0].fenceStyle) || ''} · {money(pendingQuotes[0].priceCents)}</p>
             <a href="#/portal/quotes" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>Review and Accept →</a>
           </div>
         )}
+        <ChangeOrdersToSign accent={accent} />
         {outstanding > 0 && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
             <p className="text-xs font-bold" style={{ color: accent }}>Balance Due</p>
-            <p className="text-3xl font-black text-gray-900 mt-1">${(outstanding / 100).toLocaleString()}</p>
+            <p className="text-3xl font-black text-gray-900 mt-1">{money(outstanding)}</p>
             <a href="#/portal/invoices" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>View Invoices →</a>
           </div>
         )}
       </div>
-
-      {activity.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
-          <p className="text-xs font-bold text-gray-500 mb-3">Recent Activity</p>
-          <ul className="space-y-2">
-            {activity.map(a => (
-              <li key={a.id} className="text-sm text-gray-700 flex items-start gap-2">
-                <span style={{ color: accent }}>●</span>
-                <div className="flex-1">
-                  <p>{a.body}</p>
-                  <p className="text-[10px] text-gray-400">{new Date(a.at).toLocaleDateString()}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <QuickLink href="#/portal/quotes" label="My Quotes" icon="📋" accent={accent} />
@@ -467,36 +491,39 @@ function QuickLink({ href, label, icon, accent }: { href: string; label: string;
 
 // ─────── Quotes ───────
 
-function QuotesPage({ session, accent }: { session: PortalAccount; customer: any; accent: string }) {
-  const quotes = readQuotesFor(session.customerId)
+function QuotesPage({ accent }: { session: PortalAccount; customer: PortalAccount['customer']; accent: string }) {
+  const [rows] = useServerList(listPortalQuotes)
+  if (rows === null) return <p className="text-sm text-gray-500">Loading…</p>
+  if (rows === 'error') return <EmptyState emoji="⚠️" title="Could not load your quotes" body="Check your connection and try again." />
+  const quotes = rows
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-portal-quotes>
       <h1 className="text-2xl font-bold text-gray-900">My Quotes</h1>
       {quotes.length === 0 ? (
         <EmptyState emoji="📋" title="No quotes yet" body="Quotes sent to you by our team will appear here." />
       ) : (
         <div className="space-y-3">
-          {quotes.map((q: any) => {
+          {quotes.map(q => {
             const statusLabel = q.status === 'SOLD' ? 'Accepted' : q.status === 'SENT' ? 'Pending Review' : q.status === 'LOST' ? 'Closed' : q.status
             const statusBg = q.status === 'SOLD' ? 'bg-green-100 text-green-700' : q.status === 'SENT' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
             return (
-              <div key={q.id} className="bg-white border border-gray-200 rounded-2xl p-5">
+              <div key={q.id} className="bg-white border border-gray-200 rounded-2xl p-5" data-portal-quote={q.id}>
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="text-xs text-gray-400">Quote #{q.id?.slice(-6)?.toUpperCase()}</p>
+                  <p className="text-xs text-gray-400">Quote #{q.id.slice(-6).toUpperCase()}</p>
                   <p className="font-semibold text-gray-900 truncate">{styleLabel(q.fenceStyle)}</p>
                   <p className="text-xs text-gray-500">{q.date}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-xl font-bold text-gray-900">${Math.round(q.finalPrice || 0).toLocaleString()}</p>
+                  <p className="text-xl font-bold text-gray-900">{money(q.priceCents)}</p>
                   <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBg}`}>{statusLabel}</span>
                 </div>
-                <QuoteViewButton quoteId={q.id} accent={accent} />
+                <QuoteViewButton shareToken={q.shareToken} accent={accent} />
               </div>
               {quoteHasPlan(q) && (
                 <details className="mt-3" data-portal-plan>
                   <summary className="text-sm font-semibold cursor-pointer" style={{ color: accent }}>See the site plan</summary>
-                  <div className="mt-2"><QuotePlan quote={q} /></div>
+                  <div className="mt-2"><QuotePlan quote={{ layout: q.layout, runs: q.runs }} /></div>
                 </details>
               )}
               </div>
@@ -508,16 +535,9 @@ function QuotesPage({ session, accent }: { session: PortalAccount; customer: any
   )
 }
 
-function QuoteViewButton({ quoteId, accent }: { quoteId: string; accent: string }) {
-  const [url, setUrl] = useState<string | null>(null)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('fencepro_quote_shares')
-      const shares = raw ? JSON.parse(raw) : []
-      const share = shares.find((s: any) => s.quoteId === quoteId)
-      if (share) setUrl(`${window.location.origin}/#/quote/${share.token}`)
-    } catch {}
-  }, [quoteId])
+/** The quote's own page, when the office made a link for it (the server says which, and that it still works). */
+function QuoteViewButton({ shareToken, accent }: { shareToken: string | null; accent: string }) {
+  const url = shareToken ? `${window.location.origin}/#/quote/${shareToken}` : null
   if (!url) return <span className="text-[10px] text-gray-400 px-3">not shared</span>
   return (
     <a href={url} target="_blank" rel="noreferrer"
@@ -528,10 +548,121 @@ function QuoteViewButton({ quoteId, accent }: { quoteId: string; accent: string 
   )
 }
 
+// ─────── Change orders (server: /api/portal/change-orders) ───────
+
+const coMoney = (cents: number) => (cents < 0 ? '−' : '') + '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const coDay = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+
+/** The dashboard's card: change orders waiting for the customer's signature. */
+function ChangeOrdersToSign({ accent }: { accent: string }) {
+  const [n, setN] = useState(0)
+  useEffect(() => { listPortalChangeOrders().then(r => setN((r ?? []).filter(c => c.status === 'sent').length)) }, [])
+  if (!n) return null
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm" data-portal-co-waiting>
+      <p className="text-xs font-bold" style={{ color: accent }}>Change Orders to Sign</p>
+      <p className="text-3xl font-black text-gray-900 mt-1">{n}</p>
+      <a href="#/portal/change-orders" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>Review and sign →</a>
+    </div>
+  )
+}
+
+function ChangeOrdersPage({ session, accent }: { session: PortalAccount; accent: string }) {
+  const [rows, setRows] = useState<PortalChangeOrder[] | null | 'error'>(null)
+  const load = () => listPortalChangeOrders().then(r => setRows(r ?? 'error'))
+  useEffect(() => { void load() }, [])
+  if (rows === null) return <p className="text-sm text-gray-500">Loading…</p>
+  if (rows === 'error') return <EmptyState emoji="⚠️" title="Could not load your change orders" body="Check your connection and try again." />
+  const open = rows.filter(r => r.status === 'sent')
+  const history = rows.filter(r => r.status !== 'sent')
+  const defaultName = `${session.firstName ?? ''} ${session.lastName ?? ''}`.trim()
+  return (
+    <div className="space-y-5" data-portal-change-orders>
+      <h1 className="text-2xl font-bold text-gray-900">Change Orders</h1>
+      {rows.length === 0 && <EmptyState emoji="📝" title="No change orders" body="If the work on your fence changes after you sign, the change will appear here for you to approve." />}
+      {open.map(co => <ChangeOrderCard key={co.id} co={co} accent={accent} defaultName={defaultName} onSigned={() => void load()} />)}
+      {history.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-gray-900">History</h2>
+          {history.map(co => <ChangeOrderCard key={co.id} co={co} accent={accent} defaultName={defaultName} onSigned={() => void load()} />)}
+        </section>
+      )}
+    </div>
+  )
+}
+
+function ChangeOrderCard({ co, accent, defaultName, onSigned }: { co: PortalChangeOrder; accent: string; defaultName: string; onSigned: () => void }) {
+  const [name, setName] = useState(defaultName)
+  const [ink, setInk] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function sign() {
+    if (!name.trim()) { setError('Please type your name.'); return }
+    if (!ink) { setError('Please sign in the box.'); return }
+    setBusy(true); setError('')
+    const r = await signPortalChangeOrder(co.id, name.trim(), ink)
+    setBusy(false)
+    if (!r.ok) { setError(r.error || 'Could not sign. Please try again.'); return }
+    onSigned()
+  }
+  const badge = co.status === 'approved' ? ['Approved', 'bg-green-100 text-green-700'] : co.status === 'void' ? ['Cancelled', 'bg-gray-100 text-gray-600'] : ['Waiting for your signature', 'bg-orange-100 text-orange-700']
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3 min-w-0" data-portal-co={co.id} data-portal-co-status={co.status}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs text-gray-400">Change order #{co.number}{co.quote?.fenceStyle ? ` · ${styleLabel(co.quote.fenceStyle)}` : ''}</p>
+          {co.reason && <p className="font-semibold text-gray-900 break-words">{co.reason}</p>}
+        </div>
+        <span className={`shrink-0 inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${badge[1]}`}>{badge[0]}</span>
+      </div>
+      <table className="w-full text-sm">
+        <tbody>
+          {co.lines.map(l => (
+            <tr key={l.id} className="border-b border-gray-100">
+              <td className="py-2 pr-3 text-gray-700 break-words">{l.description || 'Change'}</td>
+              <td className="py-2 text-right font-semibold tabular-nums whitespace-nowrap">{coMoney(l.amountCents)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td className="pt-2 pr-3 font-bold text-gray-900">{co.totalCents < 0 ? 'Total credit' : 'Total'}</td>
+            <td className="pt-2 text-right text-lg font-black tabular-nums whitespace-nowrap" data-portal-co-total>{coMoney(co.totalCents)}</td>
+          </tr>
+        </tbody>
+      </table>
+      {co.quote && <p className="text-xs text-gray-500">The original price was {coMoney(co.quote.priceCents)}. This change {co.totalCents < 0 ? 'takes off' : 'adds'} {coMoney(Math.abs(co.totalCents))}.</p>}
+      {co.status === 'approved' && (
+        <p className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-900" data-portal-co-signed>
+          {co.signedBy && co.signedAt ? `Approved and signed by ${co.signedBy} on ${coDay(co.signedAt)}.` : co.approvedAt ? `Approved on ${coDay(co.approvedAt)}.` : 'Approved.'}
+        </p>
+      )}
+      {co.status === 'void' && <p className="text-sm text-gray-600">This change order was cancelled and is not part of your contract.</p>}
+      {co.status === 'sent' && (
+        <div className="space-y-3 pt-1" data-portal-co-sign>
+          <p className="text-sm font-semibold text-gray-900">Approve and sign</p>
+          <p className="text-xs text-gray-500">If this change looks right, type your name and sign with your finger. It is added to your contract.</p>
+          <label className="block text-sm text-gray-700">Your name
+            <input value={name} onChange={e => setName(e.target.value)} autoComplete="name" maxLength={200}
+              className="mt-1 w-full h-12 border border-gray-300 rounded-lg px-3 text-base" data-portal-co-name />
+          </label>
+          <SignaturePad onChange={setInk} />
+          {error && <p className="text-sm text-red-700" role="alert">{error}</p>}
+          <button type="button" onClick={sign} disabled={busy} className="w-full min-h-[52px] rounded-xl text-white font-bold disabled:opacity-60"
+            style={{ backgroundColor: accent }} data-portal-co-approve>
+            {busy ? 'Sending…' : 'Approve and sign'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─────── Projects ───────
 
-function ProjectsPage({ session, accent }: { session: PortalAccount; customer: any; accent: string }) {
-  const jobs = readJobsFor(session.customerId)
+function ProjectsPage({ accent }: { session: PortalAccount; customer: PortalAccount['customer']; accent: string }) {
+  const [rows] = useServerList(listPortalProjects)
+  if (rows === null) return <p className="text-sm text-gray-500">Loading…</p>
+  if (rows === 'error') return <EmptyState emoji="⚠️" title="Could not load your projects" body="Check your connection and try again." />
+  const jobs: PortalProject[] = rows
   const milestones = ['Quote Accepted', 'Locates Scheduled', 'Permit Approved', 'Materials Ordered', 'Installation Scheduled', 'Installation Complete', 'Invoice Sent', 'Complete']
 
   return (
@@ -539,10 +670,10 @@ function ProjectsPage({ session, accent }: { session: PortalAccount; customer: a
       <h1 className="text-2xl font-bold text-gray-900">My Projects</h1>
       {jobs.length === 0 ? (
         <EmptyState emoji="🏗" title="No active projects" body="Your fence project will appear here once scheduled." />
-      ) : jobs.map((j: any) => {
+      ) : jobs.map(j => {
         const currentIdx = mapStatusToMilestone(j.status)
         return (
-          <div key={j.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+          <div key={j.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm" data-portal-project={j.id}>
             <div className="flex items-start justify-between mb-4">
               <div>
                 <p className="font-bold text-gray-900 text-lg">{styleLabel(j.fenceStyle) || 'Project'}</p>
@@ -593,8 +724,11 @@ function mapStatusToMilestone(status: string | undefined): number {
 
 // ─────── Invoices ───────
 
-function InvoicesPage({ session, accent }: { session: PortalAccount; customer: any; accent: string }) {
-  const invoices = readInvoicesFor(session.customerId)
+function InvoicesPage({ accent }: { session: PortalAccount; customer: PortalAccount['customer']; accent: string }) {
+  const [rows] = useServerList(listPortalInvoices)
+  if (rows === null) return <p className="text-sm text-gray-500">Loading…</p>
+  if (rows === 'error') return <EmptyState emoji="⚠️" title="Could not load your invoices" body="Check your connection and try again." />
+  const invoices: PortalInvoice[] = rows
   const outstanding = invoices.reduce((s, i) => s + (i.balanceDueCents || 0), 0)
 
   return (
@@ -603,24 +737,24 @@ function InvoicesPage({ session, accent }: { session: PortalAccount; customer: a
         <h1 className="text-2xl font-bold text-gray-900">Invoices &amp; Payments</h1>
         <div className="text-right">
           <p className="text-xs text-gray-500 font-bold">Total Outstanding</p>
-          <p className="text-2xl font-black" style={{ color: outstanding > 0 ? accent : '#10b981' }}>${(outstanding / 100).toLocaleString()}</p>
+          <p className="text-2xl font-black" style={{ color: outstanding > 0 ? accent : '#10b981' }}>{money(outstanding)}</p>
         </div>
       </div>
       {invoices.length === 0 ? (
         <EmptyState emoji="🧾" title="No invoices yet" body="Invoices will appear here once sent." />
       ) : (
         <div className="space-y-2">
-          {invoices.map((i: any) => {
+          {invoices.map(i => {
             const status = i.balanceDueCents <= 0 ? 'Paid' : new Date(i.dueDate) < new Date() ? 'Overdue' : 'Due'
             const statusBg = status === 'Paid' ? 'bg-green-100 text-green-700' : status === 'Overdue' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
             return (
-              <div key={i.id} className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-4">
+              <div key={i.id} className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-4" data-portal-invoice={i.id}>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900">#{i.invoiceNumber || i.id?.slice(-6)?.toUpperCase()}</p>
+                  <p className="font-semibold text-gray-900">#{i.invoiceNumber || i.id.slice(-6).toUpperCase()}</p>
                   <p className="text-xs text-gray-500">Due {i.dueDate}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-gray-900">${((i.totalCents || 0) / 100).toLocaleString()}</p>
+                  <p className="font-bold text-gray-900">{money(i.totalCents)}</p>
                   <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBg}`}>{status}</span>
                 </div>
               </div>
@@ -634,8 +768,8 @@ function InvoicesPage({ session, accent }: { session: PortalAccount; customer: a
 
 // ─────── Documents ───────
 
-function DocumentsPage({ accent }: { session: PortalAccount; customer: any; accent: string }) {
-  const [files, setFiles] = useState<import('./portalApiClient').PortalFileRow[]>([])
+function DocumentsPage({ accent }: { session: PortalAccount; customer: PortalAccount['customer']; accent: string }) {
+  const [files, setFiles] = useState<PortalFileRow[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [label, setLabel] = useState('')
@@ -643,8 +777,9 @@ function DocumentsPage({ accent }: { session: PortalAccount; customer: any; acce
 
   async function reload() {
     setLoading(true)
-    const mod = await import('./portalApiClient')
-    setFiles(await mod.listPortalDocuments())
+    const r = await listPortalDocuments()
+    if (r) setFiles(r)
+    else setError('Could not load your documents. Check your connection and try again.')
     setLoading(false)
   }
 
@@ -655,8 +790,7 @@ function DocumentsPage({ accent }: { session: PortalAccount; customer: any; acce
     e.target.value = ''
     if (!file) return
     setError(null); setUploading(true)
-    const mod = await import('./portalApiClient')
-    const r = await mod.uploadPortalDocument(file, label.trim() || undefined)
+    const r = await uploadPortalDocument(file, label.trim() || undefined)
     setUploading(false)
     if (!r.ok) {
       const code = r.error
@@ -694,7 +828,7 @@ function DocumentsPage({ accent }: { session: PortalAccount; customer: any; acce
       ) : (
         <div className="space-y-1">
           {files.map(f => (
-            <a key={f.id} href={resolveFileUrlSync(f.fileUrl)} target="_blank" rel="noreferrer"
+            <a key={f.id} href={fileHref(f.fileUrl)} target="_blank" rel="noreferrer" data-portal-doc={f.id}
               className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-3 hover:shadow-md transition-all">
               <span className="text-xl">📄</span>
               <div className="flex-1 min-w-0">
@@ -712,8 +846,8 @@ function DocumentsPage({ accent }: { session: PortalAccount; customer: any; acce
 
 // ─────── Photos ───────
 
-function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent: string }) {
-  const [photos, setPhotos] = useState<import('./portalApiClient').PortalPhotoRow[]>([])
+function PhotosPage({ accent, company }: { session: PortalAccount; customer: PortalAccount['customer']; accent: string; company: PortalCompany }) {
+  const [photos, setPhotos] = useState<PortalPhotoRow[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -721,9 +855,9 @@ function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent:
 
   async function reload() {
     setLoading(true)
-    const mod = await import('./portalApiClient')
-    const list = await mod.listPortalPhotos()
-    setPhotos(list)
+    const list = await listPortalPhotos()
+    if (list) setPhotos(list)
+    else setError('Could not load your photos. Check your connection and try again.')
     setLoading(false)
   }
 
@@ -734,11 +868,10 @@ function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent:
     e.target.value = ''
     if (files.length === 0) return
     setUploading(true); setError(null)
-    const mod = await import('./portalApiClient')
     let okCount = 0
     let lastErr: string | null = null
     for (const f of files) {
-      const r = await mod.uploadPortalPhoto(f)
+      const r = await uploadPortalPhoto(f)
       if (r.ok) okCount++
       else lastErr = errorMessage(r.error)
     }
@@ -768,7 +901,7 @@ function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent:
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">{error}</div>
       )}
-      <SharedMedia accent={accent} />
+      <SharedMedia accent={accent} companyName={company.name} />
       {loading ? (
         <p className="text-sm text-gray-400 text-center py-10">Loading…</p>
       ) : photos.length === 0 ? (
@@ -776,9 +909,9 @@ function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent:
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {photos.map((p, i) => (
-            <button key={p.id} onClick={() => setLightboxIdx(i)}
+            <button key={p.id} onClick={() => setLightboxIdx(i)} data-portal-photo={p.id}
               className="aspect-square bg-gray-100 rounded-xl overflow-hidden group">
-              <img src={resolveFileUrlSync(p.fileUrl)} alt={p.name}
+              <img src={fileHref(p.fileUrl)} alt={p.name}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
             </button>
           ))}
@@ -786,7 +919,7 @@ function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent:
       )}
       {lightboxIdx !== null && photos[lightboxIdx] && (
         <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-6" onClick={() => setLightboxIdx(null)}>
-          <img src={resolveFileUrlSync(photos[lightboxIdx].fileUrl)} alt={photos[lightboxIdx].name}
+          <img src={fileHref(photos[lightboxIdx].fileUrl)} alt={photos[lightboxIdx].name}
             className="max-w-full max-h-full object-contain" />
           <button onClick={() => setLightboxIdx(null)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center absolute top-4 right-4 text-white text-3xl">×</button>
         </div>
@@ -795,26 +928,19 @@ function PhotosPage({ accent }: { session: PortalAccount; customer: any; accent:
   )
 }
 
-function resolveFileUrlSync(fileUrl: string): string {
-  if (!fileUrl) return ''
-  if (/^https?:\/\//i.test(fileUrl)) return fileUrl
-  const base = window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
-  return `${base}${fileUrl}`
-}
-
 // ─────── Messages ───────
 
-function MessagesPage({ accent }: { session: PortalAccount; customer: any; accent: string }) {
-  const [messages, setMessages] = useState<import('./portalApiClient').PortalMessage[]>([])
+function MessagesPage({ accent }: { session: PortalAccount; customer: PortalAccount['customer']; accent: string }) {
+  const [messages, setMessages] = useState<PortalMessage[]>([])
+  const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
 
   async function reload() {
-    setLoading(true)
-    const mod = await import('./portalApiClient')
-    const data = await mod.listPortalMessages()
-    setMessages(data.messages || [])
+    const data = await listPortalMessages()
+    if (data) { setMessages(data); setError(null) }
+    else setError('Could not load your messages. Check your connection.')
     setLoading(false)
   }
 
@@ -831,12 +957,12 @@ function MessagesPage({ accent }: { session: PortalAccount; customer: any; accen
     if (!draft.trim() || inFlight.current) return
     inFlight.current = true
     setSending(true)
-    const mod = await import('./portalApiClient')
     // One id per message typed: tapped twice, or sent again after an error, it is saved once.
-    const r = await mod.sendPortalMessage(draft.trim(), requestId.current)
+    const r = await sendPortalMessage(draft.trim(), requestId.current)
     inFlight.current = false
     setSending(false)
     if (r.ok) { setDraft(''); requestId.current = crypto.randomUUID(); await reload() }
+    else setError('Your message was not sent. Check your connection and tap Send again.')
   }
 
   return (
@@ -848,7 +974,7 @@ function MessagesPage({ accent }: { session: PortalAccount; customer: any; accen
         ) : messages.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-10">No messages yet — send one below.</p>
         ) : messages.map(m => (
-          <div key={m.id} className={`flex ${m.senderType === 'customer' ? 'justify-end' : 'justify-start'}`}>
+          <div key={m.id} className={`flex ${m.senderType === 'customer' ? 'justify-end' : 'justify-start'}`} data-portal-message={m.id}>
             <div className={`max-w-[70%] rounded-2xl px-4 py-2 text-sm ${m.senderType === 'customer' ? 'text-white' : 'bg-gray-100 text-gray-900'}`}
               style={m.senderType === 'customer' ? { backgroundColor: accent } : {}}>
               <p className="whitespace-pre-wrap">{m.body}</p>
@@ -859,8 +985,9 @@ function MessagesPage({ accent }: { session: PortalAccount; customer: any; accen
           </div>
         ))}
       </div>
+      {error && <p className="text-sm text-red-700" role="alert">{error}</p>}
       <div className="bg-white border border-gray-200 rounded-2xl p-3 flex gap-2">
-        <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={2}
+        <textarea data-portal-message-draft value={draft} onChange={e => setDraft(e.target.value)} rows={2}
           placeholder="Type your message…"
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
           className="flex-1 border-0 resize-none text-sm focus:outline-none focus:ring-0 placeholder:text-gray-400" />
@@ -874,19 +1001,23 @@ function MessagesPage({ accent }: { session: PortalAccount; customer: any; accen
 
 // ─────── Account ───────
 
-function AccountPage({ session, customer, accent }: { session: PortalAccount; customer: any; accent: string }) {
+function AccountPage({ session, customer, accent }: { session: PortalAccount; customer: PortalAccount['customer']; accent: string }) {
+  const [current, setCurrent] = useState('')
   const [pw1, setPw1] = useState('')
   const [pw2, setPw2] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  function changePw(e: React.FormEvent) {
+  async function changePw(e: React.FormEvent) {
     e.preventDefault()
     setMsg(null)
     if (pw1 !== pw2) { setMsg('Passwords do not match'); return }
     if (pw1.length < 8) { setMsg('Password must be at least 8 characters'); return }
-    const ok = setPassword(session.id, pw1)
-    setMsg(ok ? 'Password updated.' : 'Could not update password.')
-    setPw1(''); setPw2('')
+    setBusy(true)
+    const r = await changePassword(current, pw1, pw2)
+    setBusy(false)
+    if (r.ok) { setMsg('Password updated. Any other device you were signed in on is signed out.'); setCurrent(''); setPw1(''); setPw2(''); return }
+    setMsg(r.error === 'WRONG_PASSWORD' ? 'Your current password is not right.' : r.error === 'NETWORK' ? 'Could not reach us. Try again.' : 'Could not update your password. Please try again.')
   }
 
   return (
@@ -895,22 +1026,24 @@ function AccountPage({ session, customer, accent }: { session: PortalAccount; cu
       <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
         <p className="text-xs font-bold text-gray-500 mb-3">Your Info</p>
         <div className="space-y-1 text-sm">
-          <p><span className="text-gray-500">Name:</span> {customer?.firstName} {customer?.lastName}</p>
+          <p><span className="text-gray-500">Name:</span> {customer?.firstName ?? session.firstName} {customer?.lastName ?? session.lastName}</p>
           <p><span className="text-gray-500">Email:</span> {session.email}</p>
           <p><span className="text-gray-500">Phone:</span> {customer?.phone || '—'}</p>
           <p><span className="text-gray-500">Service Address:</span> {customer?.serviceAddress || '—'}</p>
         </div>
         <p className="text-xs text-gray-400 mt-3">To update your info, send us a message.</p>
       </div>
-      <form onSubmit={changePw} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-3">
+      <form onSubmit={changePw} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-3" data-portal-password>
         <p className="text-xs font-bold text-gray-500">Change Password</p>
-        <input type="password" value={pw1} onChange={e => setPw1(e.target.value)} placeholder="New password"
+        <input type="password" value={current} onChange={e => setCurrent(e.target.value)} placeholder="Current password" autoComplete="current-password" required
           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-        <input type="password" value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Confirm new password"
+        <input type="password" value={pw1} onChange={e => setPw1(e.target.value)} placeholder="New password" autoComplete="new-password" required
           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-        {msg && <p className="text-xs text-gray-600">{msg}</p>}
-        <button type="submit" className="text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90" style={{ backgroundColor: accent }}>
-          Update Password
+        <input type="password" value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Confirm new password" autoComplete="new-password" required
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+        {msg && <p className="text-xs text-gray-600" role="status">{msg}</p>}
+        <button type="submit" disabled={busy} className="text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: accent }}>
+          {busy ? 'Saving…' : 'Update Password'}
         </button>
       </form>
     </div>
@@ -929,48 +1062,19 @@ function EmptyState({ emoji, title, body }: { emoji: string; title: string; body
   )
 }
 
-function readJobsFor(customerId: string): any[] {
-  return getJobs().filter(j => j.customerId === customerId)
-}
-
-function readQuotesFor(customerId: string): any[] {
-  return getQuotes()
-    .filter(q => q.customerId === customerId)
-    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-}
-
-function readInvoicesFor(customerId: string): any[] {
-  try {
-    const r = localStorage.getItem('fencepro_invoices')
-    const all: any[] = r ? JSON.parse(r) : []
-    return all.filter((i: any) => i.customerId === customerId)
-  } catch { return [] }
-}
-
-function readFilesFor(customerId: string): any[] {
-  try {
-    const r = localStorage.getItem('fencepro_files')
-    const all: any[] = r ? JSON.parse(r) : []
-    return all.filter((f: any) => f.customerId === customerId)
-  } catch { return [] }
-}
-
-function readActivityFor(customerId: string): any[] {
-  try {
-    const r = localStorage.getItem('fencepro_customer_activity')
-    const all: any[] = r ? JSON.parse(r) : []
-    return all.filter((a: any) => a.customerId === customerId)
-  } catch { return [] }
+/** Whole cents as dollars ($1,234.50). */
+function money(cents: number): string {
+  return '$' + ((cents || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 })
 }
 
 /** Photos and video from the company, with their captions (only items marked Customer). */
-function SharedMedia({ accent }: { accent: string }) {
-  const [items, setItems] = useState<import('./portalApiClient').PortalMediaRow[]>([])
-  useEffect(() => { import('./portalApiClient').then(m => m.listPortalMedia()).then(setItems) }, [])
+function SharedMedia({ accent, companyName }: { accent: string; companyName: string }) {
+  const [items, setItems] = useState<PortalMediaRow[]>([])
+  useEffect(() => { listPortalMedia().then(r => setItems(r ?? [])) }, [])
   if (items.length === 0) return null
   return (
     <section className="space-y-3" data-portal-media>
-      <h2 className="text-lg font-semibold text-gray-900">From {readCompanyInfo().name || "Getter Done Fence"}</h2>
+      <h2 className="text-lg font-semibold text-gray-900">From {companyName || 'Getter Done Fence'}</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {items.map(m => (
           <figure key={m.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden">

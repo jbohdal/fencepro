@@ -149,7 +149,8 @@ describe('styles that used to quote $0 material', () => {
   test("8'x8' uses 8 ft wide sections", () => {
     const r = calculateMaterialsDetailed(job("WV-DS 8'x8' Privacy"))
     expect(find(r.items, "V , W, Picket Section 8' x 8' Privacy")?.qty).toBe(13 + 7)
-    expect(find(r.items, 'Misc, Concrete')?.qty).toBe((2 + 2 + 12 + 6) * 2)
+    // 2 bags per post, plus 2 per walk gate (TAKEOFF_RULES WV-DS concrete row; Jonathan, Oct 20, 2026).
+    expect(find(r.items, 'Misc, Concrete')?.qty).toBe((2 + 2 + 12 + 6) * 2 + 1 * 2)
   })
 
   test('a style with no parts list says so instead of quoting $0 silently', () => {

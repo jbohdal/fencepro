@@ -13,11 +13,20 @@
  * the server from the approved change orders (applyToJob), so a job page, job
  * costing and the final invoice all read the same figure.
  *
+ * The customer sees a change order once it is sent: in the customer portal
+ * (routes/portal.ts, their own quotes only) and on its own link
+ * /p/co/<token> (routes/changeOrderPublic.ts), the way proposals reach them.
+ * "Approve and sign" there (signByCustomer) records the typed name, the drawn
+ * signature, the time, IP and browser, and approves it exactly as the office
+ * does (applyToJob). Nothing is texted or emailed by the server: the office
+ * sends the link from its own phone.
+ *
  * Change orders saved before this were a list in the account's key value
  * store (fencepro_changeorders, dollars); importFromKv copies them in once
  * (by id) and leaves the list as it was.
  */
 
+import crypto from 'crypto'
 import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 
@@ -41,13 +50,90 @@ export function view(r: Row) {
     id: r.id, quoteId: r.quoteId, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason,
     lines: linesOf(r), totalCents: r.totalCents, scope: r.scope ?? null, createdBy: r.createdBy,
     sentAt: r.sentAt, approvedAt: r.approvedAt, approvedBy: r.approvedBy, voidedAt: r.voidedAt,
+    signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null, signedVia: r.signedVia ?? null, hasLink: !!r.shareToken,
     version: r.version, createdAt: r.createdAt, updatedAt: r.updatedAt,
   }
 }
 
+/** What the customer sees: the lines, amounts and total; never who made it, a cost, the IP or the signature image. */
+export function customerView(r: Row, q?: { fenceStyle?: string | null; finalPrice?: number | null; customerName?: string | null } | null) {
+  return {
+    id: r.id, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason, lines: linesOf(r), totalCents: r.totalCents,
+    sentAt: r.sentAt, approvedAt: r.approvedAt, voidedAt: r.voidedAt, signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null,
+    quote: q ? { fenceStyle: q.fenceStyle ?? '', priceCents: Math.round((q.finalPrice ?? 0) * 100) } : null,
+  }
+}
+
+/** The customer's change orders: sent, approved, and void ones they were shown. */
+export const CUSTOMER_VISIBLE = { OR: [{ status: 'sent' }, { status: 'approved' }, { status: 'void', sentAt: { not: null } }] }
+
+/** The change orders on a portal customer's own quotes (the quote's contact is the customer), newest quote first. */
+export async function changeOrdersForContact(contactId: string) {
+  if (typeof contactId !== 'string' || !contactId) return [] // never "every quote"
+  const quotes = await prisma.savedQuote.findMany({
+    where: { crmContactId: contactId, archivedAt: null },
+    select: { id: true, accountId: true, fenceStyle: true, finalPrice: true, customerName: true },
+  })
+  if (!quotes.length) return []
+  const rows = await prisma.changeOrder.findMany({
+    where: { AND: [{ OR: quotes.map(q => ({ accountId: q.accountId, quoteId: q.id })) }, CUSTOMER_VISIBLE] },
+    orderBy: [{ createdAt: 'desc' }],
+  })
+  const byId = new Map(quotes.map(q => [q.id, q]))
+  return rows.map(r => customerView(r, byId.get(r.quoteId)))
+}
+
+/** The link to send the customer: made once, kept (32 random bytes, base64url). Draft or sent change orders only get a new one. */
+export async function linkFor(accountId: string, id: string): Promise<{ token: string; row: Row }> {
+  const row = await prisma.changeOrder.findUnique({ where: { id } })
+  if (!row || row.accountId !== accountId) throw err(404, 'Change order not found')
+  if (row.shareToken) return { token: row.shareToken, row }
+  if (row.status === 'void') throw err(409, 'This change order is void.')
+  const token = crypto.randomBytes(24).toString('base64url')
+  const n = await prisma.changeOrder.updateMany({ where: { id, shareToken: null }, data: { shareToken: token } })
+  const now = (await prisma.changeOrder.findUnique({ where: { id } }))!
+  return { token: n.count ? token : now.shareToken!, row: now }
+}
+
+export async function byLink(token: string): Promise<Row | null> {
+  if (!/^[A-Za-z0-9_-]{24,64}$/.test(token)) return null
+  return prisma.changeOrder.findFirst({ where: { shareToken: token } }).catch(() => null)
+}
+
+export interface CustomerSignature { name: string; signature: string; ip: string | null; userAgent: string | null; via: 'portal' | 'link' }
+
+/**
+ * The customer approves and signs a sent change order: approved (as the office
+ * approves one: applyToJob puts its total on the job's contract value), with
+ * the typed name, the signature, the time, IP and browser. The same signature
+ * sent again (the answer was lost) stands; a different one is refused.
+ */
+export async function signByCustomer(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean }> {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "ChangeOrder" WHERE id = ${id} FOR UPDATE`
+    const cur = await tx.changeOrder.findUnique({ where: { id } })
+    if (!cur || cur.accountId !== accountId) throw err(404, 'This change order is not available.')
+    if (cur.status === 'approved' && cur.signedBy === s.name && cur.signedVia === s.via) return { row: cur, again: true }
+    if (cur.status === 'approved') throw err(409, 'This change order is already approved.')
+    if (cur.status === 'void') throw err(409, 'This change order was cancelled. Please call us.')
+    if (cur.status !== 'sent') throw err(409, 'This change order is not ready to sign yet. Please call us.')
+    const now = new Date()
+    const row = await tx.changeOrder.update({
+      where: { id },
+      data: {
+        status: 'approved', approvedAt: now, approvedBy: `${s.name} (customer)`,
+        signedBy: s.name, signature: s.signature, signedAt: now, signedIp: s.ip?.slice(0, 100) ?? null, signedUserAgent: s.userAgent?.slice(0, 500) ?? null, signedVia: s.via,
+        version: cur.version + 1,
+      },
+    })
+    await applyToJob(accountId, cur.quoteId, tx)
+    return { row, again: false }
+  }, { timeout: 15_000 })
+}
+
 /** Is the quote signed (Sold, accepted, or a quoted cost saved at signing)? */
 export async function quoteIsSigned(accountId: string, quoteId: string): Promise<boolean> {
-  const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId }, select: { status: true, acceptedAt: true } })
+  const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId }, select: { status: true, acceptedAt: true, soldAt: true } })
   if (!q) return false
   if (isSignedQuote(q)) return true
   return !!(await prisma.jobQuotedCost.findUnique({ where: { accountId_quoteId: { accountId, quoteId } }, select: { id: true } }))

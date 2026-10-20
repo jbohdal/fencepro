@@ -1,7 +1,7 @@
 /**
  * Messages tab for a customer profile (staff side).
  *
- * Server-backed via portalApiClient. Auto-marks customer messages as read by
+ * Server-backed via portalStaffApi. Auto-marks customer messages as read by
  * staff on first load. Polls every 15s for new messages while open.
  */
 
@@ -11,7 +11,7 @@ import {
   listCustomerMessages,
   staffReplyToCustomer,
   type PortalMessage,
-} from './portalApiClient'
+} from './portalStaffApi'
 
 export default function CustomerMessagesTab({ customerId, sender }: { customerId: string; sender: string }) {
   const [messages, setMessages] = useState<PortalMessage[]>([])

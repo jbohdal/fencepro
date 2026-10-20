@@ -1,4 +1,6 @@
-// The website instant quote, end to end on the dev copy, on a phone.
+// The website quote (/p/quote) inside a page on www.gdfencepro.com, on the dev copy, on a phone:
+// it shows there and is refused anywhere else, opens on the address, prices a drawing in test
+// mode without making a lead. The full customer path is e2e/widget-draw.mjs.
 //
 //   APP_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev staff token> SHOTS=<folder> node e2e/widget-quote.mjs
 //
@@ -21,9 +23,7 @@ if (!/localhost:4001/.test(APP)) { console.error('Refusing to run: the dev copy 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  -- ' + detail : ''}`) }
-const api = async (p, init = {}) => (await (await fetch(APP + p, { ...init, headers: { Authorization: `Bearer ${TOKEN}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } })).json())
 const psql = sql => execFileSync('psql', ['-d', 'ezbiz_dev', '-At', '-c', sql], { encoding: 'utf8' }).trim()
-const NAME = 'E2E Widget Customer'
 // On live the widget is https behind the public door; here an https stand in
 // passes every request to the dev server unchanged (headers and all), so the
 // real frame rule is what is tested.
@@ -47,59 +47,24 @@ try {
   check('the widget shows inside a page on www.gdfencepro.com', await w.locator('[data-w-address]').isVisible())
   check('no sign in, no outer header: it opens on the address', (await w.locator('h1').textContent()).includes('instant fence estimate'))
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/w1-address.png` })
-
-  await w.locator('[data-w-address]').fill('201 SE 3rd St, Ocala, FL 34471')
-  await w.locator('[data-w-next]').click(); await sleep(4000)
-  // Found: on to the yard. Not found: "Carry on".
-  if (await w.locator('[data-w-step="address"]').count()) await w.locator('[data-w-next]').click()
-  await w.locator('[data-w-shape="backyard"]').click(); await sleep(400)
-  check('the yard: the same Backyard sides as the quote builder', (await w.locator('[data-w-side]').count()) === 5)
-  await w.locator('[data-w-side="Left return"] [data-w-length]').click()
-  for (const [ft, last] of [['30', false], ['120', false], ['150', false], ['120', false], ['30', true]]) {
-    for (const k of ft) await w.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-    await w.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click(); await sleep(150)
-  }
-  await w.locator('[data-w-side="Left return"] [data-w-gate] button:has-text("Walk gate")').click()
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/w2-yard.png` })
-  await w.locator('[data-w-step="yard"] [data-w-next]').click(); await sleep(300)
-
-  await w.locator('[data-w-material="vinyl"]').click()
-  await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"]').click()
-  await w.locator('[data-w-height="6ft"]').click(); await w.locator('[data-w-color="White"]').click()
-  const photo = await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"] img').count()
-  check('style cards use the Settings style photo when there is one, else a plain drawn picture of the fence type', photo === 1 || (await w.locator('[data-w-style="Privacy, 6 ft sections, no dig"] [data-w-style-picture="vinyl"]').count()) === 1)
-  check('no style card says "Photo coming soon"', !(await w.locator('[data-w-step="fence"]').textContent()).includes('Photo coming soon'))
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/w3-fence.png` })
-  await w.locator('[data-w-step="fence"] [data-w-next]').click(); await sleep(2500)
-
-  const estimate = Number(await w.locator('[data-w-estimate]').getAttribute('data-w-estimate'))
-  check('the customer gets a price', estimate > 1000, `$${estimate}`)
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/w4-estimate.png` })
-  await w.locator('[data-w-name]').fill(NAME)
-  await w.locator('[data-w-phone]').fill('352-555-0199')
-  await w.locator('[data-w-email]').fill('e2e.widget@example.com')
-  await w.locator('[data-w-send]').click(); await sleep(3000)
-  check('sent: the thank you shows the estimate', (await w.locator('[data-w-sent]').textContent()).includes(`$${estimate.toLocaleString('en-US')}`))
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/w5-sent.png` })
-
-  // In EZ Biz: the customer, the quote and the pipeline card, together.
-  const contact = psql(`select id from "CrmContact" where "firstName"='E2E' and "lastName"='Widget Customer' order by "createdAt" desc limit 1`)
-  const quote = psql(`select id||'|'||"finalPrice"||'|'||"leadSource"||'|'||coalesce(layout::jsonb->'yard'->>'shape','') from "SavedQuote" where "crmContactId"='${contact}'`)
-  const card = psql(`select l->>'id' from "PipelineState", jsonb_array_elements(leads::jsonb) l where l->>'customerId'='${contact}'`)
-  const intake = psql(`select status from "IntakeLead" where "crmContactId"='${contact}'`)
-  check('the customer, the quote and the pipeline card are all in EZ Biz', !!contact && !!quote && !!card, `${contact} | ${quote} | ${card}`)
-  check('the quote keeps the yard and is marked as a website quote; the lead is already on the pipeline', quote.endsWith('|Website Quote|backyard') && intake === 'imported', `${quote} · ${intake}`)
-  const quoteId = quote.split('|')[0]
-  check('the saved price is the estimate the customer saw', Math.round(Number(quote.split('|')[1])) === estimate)
-
-  // The builder opens it at the same price.
-  const staff = await browser.newContext({ viewport: { width: 1280, height: 950 } })
-  await staff.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
-  const sp = await staff.newPage()
-  await sp.goto(`${APP}/quotes?quote=${quoteId}`); await sp.waitForSelector('[data-quote-price]', { timeout: 30000 }); await sleep(1500)
-  const builder = Number((await sp.locator('[data-quote-price]').textContent()).replace(/[$,]/g, ''))
-  check('the quote builder prices it the same', Math.round(builder) === estimate, `builder $${builder}, widget $${estimate}`)
-  await staff.close()
+  // The rest of the customer's path (drawing on the photo, the lead, the builder) is e2e/widget-draw.mjs.
+  // Here: the materials it offers come with a picture, and a test mode price inside the frame makes no lead.
+  const frame = page.frames().find(f => f.url().startsWith(WIDGET))
+  const cfg = await frame.evaluate(async () => (await fetch('/p/quote/api/config')).json())
+  check('vinyl, chain link and aluminum are offered (wood where quotable)', ['vinyl', 'chain', 'alum'].every(m => cfg.materials.some(x => x.material === m)), cfg.materials.map(m => m.material).join(', '))
+  await w.locator('[data-w-address]').fill('110 SE Watula'); await sleep(1500)
+  await w.locator('[data-w-suggestion]').first().click(); await sleep(1500)
+  check('picking the address opens the photo step', await w.locator('[data-w-step="draw"]').isVisible())
+  const before = psql(`select count(*) from "IntakeLead"`)
+  const r = await frame.evaluate(async () => {
+    const at = { lat: 29.185118, lng: -82.134209 }
+    const p = (e, n) => ({ lat: at.lat + n * 0.3048 / 110837, lng: at.lng + e * 0.3048 / 97377 })
+    const drawing = { v: 1, address: '110 SE Watula Ave, Ocala, FL 34471', at, runs: [{ id: 'a', pts: [p(0, 0), p(0, 60), p(80, 60)], start: 'free', end: 'free', typedFt: [null, null], gates: [{ type: 'walk', widthFt: 4, startFt: 20 }, null] }] }
+    const res = await fetch('/p/quote/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draftId: 'widgetquotewidgetquote', name: 'E2E Widget Customer', phone: '352-555-0199', address: drawing.address, drawing, pick: { material: 'vinyl', color: 'white', height: '6', kind: 'privacy' }, test: true }) })
+    return { status: res.status, body: await res.json() }
+  })
+  check('inside the frame the widget reaches EZ Biz and prices a drawing (test mode)', r.status === 200 && r.body.test === true && r.body.options.length >= 1, `${r.status} ${r.body.options?.map(o => `${o.name} $${o.price}`).join(', ')}`)
+  check('test mode made no lead', psql(`select count(*) from "IntakeLead"`) === before)
 
   // Any other site is refused.
   await page.goto('https://other-site.example/instant-quote'); await sleep(2500)
@@ -107,12 +72,6 @@ try {
   check('a page on any other site cannot show it', !blocked || !(await blocked.locator('[data-w-address]').count().catch(() => 0)), blocked?.url())
   check('no page errors', errors.length === 0, errors.join(' | '))
 
-  // Remove the test records.
-  if (quoteId) await api(`/api/saved-quotes/${quoteId}`, { method: 'DELETE' })
-  const pipe = await api('/api/pipeline')
-  if (card) await api('/api/pipeline', { method: 'PATCH', body: JSON.stringify({ upsert: [], remove: [card], baseVersion: pipe.data.version }) })
-  psql(`delete from "IntakeLead" where "crmContactId"='${contact}'; delete from "CrmContactNote" where "crmContactId"='${contact}'; delete from "CrmContact" where id='${contact}'`)
-  check('test records removed', psql(`select count(*) from "CrmContact" where id='${contact}'`) === '0')
   await ctx.close()
 } catch (e) {
   check('test run finished', false, String(e?.message || e).split('\n').slice(0, 3).join(' '))

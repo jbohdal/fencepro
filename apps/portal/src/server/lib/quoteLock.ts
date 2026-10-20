@@ -5,7 +5,9 @@
  * override.
  *
  * Signed means any of: status Sold, accepted on the customer's link
- * (acceptedAt), or a quoted cost saved at signing (JobQuotedCost).
+ * (acceptedAt), a quoted cost saved at signing (JobQuotedCost), or ever sold
+ * (soldAt, lib/everSold.ts: set the first time and never cleared, so a sold
+ * quote later marked Lost stays locked).
  *
  * This file is pure (no database): the server checks every write with it, and
  * the quote builder (apps/web/src/QuoteBuilder.tsx imports this file) uses the
@@ -48,9 +50,9 @@ export const ALLOWED_FIELDS = [
 export const PARTLY_ALLOWED = ['work', 'proposal', 'layout'] as const
 
 /** Is this quote signed? `hasQuotedCost`: a JobQuotedCost row exists for it. */
-export function isSignedQuote(q: { status?: string | null; acceptedAt?: unknown } | null | undefined, hasQuotedCost = false): boolean {
+export function isSignedQuote(q: { status?: string | null; acceptedAt?: unknown; soldAt?: unknown } | null | undefined, hasQuotedCost = false): boolean {
   if (!q) return false
-  return q.status === 'SOLD' || !!q.acceptedAt || hasQuotedCost
+  return q.status === 'SOLD' || !!q.acceptedAt || !!q.soldAt || hasQuotedCost
 }
 
 // ── Comparing ────────────────────────────────────────────────────────────────

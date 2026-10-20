@@ -161,7 +161,7 @@ function TakeoffScreen({ t, job, me, onClose }: { t: Takeoff; job: Job; me: stri
           {!readOnly && <button type="button" className={`btn btn-secondary ${BIG} w-full`} onClick={() => setAdding(true)} data-takeoff-add><Plus size={16} aria-hidden="true" /> Add an item</button>}
         </Block>
 
-        <LaborBlock t={t} readOnly={readOnly} />
+        <LaborBlock t={t} readOnly={readOnly} office={office} />
 
         <Block title="Note">
           <NoteBox value={t.note} disabled={readOnly} onSave={v => setLabor(t, t.labor, t.installDate, v)} testId="takeoff-note" />
@@ -320,7 +320,7 @@ function AddItemSheet({ t, onClose }: { t: Takeoff; onClose: () => void }) {
 
 // ── Labor ─────────────────────────────────────────────────────────────────────
 
-function LaborBlock({ t, readOnly }: { t: Takeoff; readOnly: boolean }) {
+function LaborBlock({ t, readOnly, office }: { t: Takeoff; readOnly: boolean; office: boolean }) {
   const l = t.labor
   const save = (next: TakeoffLabor) => setLabor(t, next, t.installDate, t.note)
   return (
@@ -333,7 +333,11 @@ function LaborBlock({ t, readOnly }: { t: Takeoff; readOnly: boolean }) {
         ))}
       </div>
       {l.mode === 'sub' ? (
-        <Qty label={l.subUnit === 'foot' ? 'Feet paid to the sub' : 'Sections paid to the sub'} value={l.subUnits} onChange={v => save({ ...l, subUnits: v })} disabled={readOnly} testId="sub-units" />
+        <div className="space-y-2">
+          <Qty label={l.subUnit === 'foot' ? 'Feet paid to the sub' : 'Sections paid to the sub'} value={l.subUnits} onChange={v => save({ ...l, subUnits: v })} disabled={readOnly} testId="sub-units" />
+          {/* What the sub was paid is a cost: owner and office only (an installer's phone never shows a cost). */}
+          {office && <SubPaidBox cents={l.subPaidCents ?? null} disabled={readOnly} onSave={c => save({ ...l, subPaidCents: c })} />}
+        </div>
       ) : (
         <div className="space-y-2">
           {l.crew.map((c, i) => (
@@ -349,6 +353,26 @@ function LaborBlock({ t, readOnly }: { t: Takeoff; readOnly: boolean }) {
         </div>
       )}
     </Block>
+  )
+}
+
+/** "Sub paid $": what the sub was actually paid (blank: the sections paid x the sub rate saved at signing). */
+function SubPaidBox({ cents, disabled, onSave }: { cents: number | null; disabled: boolean; onSave: (c: number | null) => void }) {
+  const shown = (c: number | null) => (c === null ? '' : (c / 100).toFixed(2))
+  const [v, setV] = useState(shown(cents))
+  useEffect(() => { setV(shown(cents)) }, [cents])
+  const commit = () => {
+    const t = v.trim()
+    const next = t === '' ? null : Math.max(0, Math.round((Number(t) || 0) * 100))
+    if (next !== cents) onSave(next); else setV(shown(cents))
+  }
+  return (
+    <label className="block">
+      <span className="text-xs text-gray-500">Sub paid $ (optional; blank uses the sections paid × the sub rate saved at signing)</span>
+      <input inputMode="decimal" className={`w-full border border-gray-300 rounded-lg px-3 ${BIG} text-base bg-white disabled:bg-gray-50`} value={v} disabled={disabled}
+        onChange={e => setV(e.target.value.replace(/[^\d.]/g, ''))} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+        aria-label="Sub paid, dollars" data-takeoff-sub-paid />
+    </label>
   )
 }
 

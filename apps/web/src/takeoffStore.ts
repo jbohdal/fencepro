@@ -130,7 +130,7 @@ kind<LineP>('takeoff.line', {
 
 kind<LaborP>('takeoff.labor', {
   what: 'The labor',
-  send: op => sendJson('PUT', path(op.payload, '/labor'), { mode: op.payload.labor.mode, subUnits: op.payload.labor.subUnits, crew: op.payload.labor.crew, installDate: op.payload.installDate, note: op.payload.note }).then(r => r.result),
+  send: op => sendJson('PUT', path(op.payload, '/labor'), { mode: op.payload.labor.mode, subUnits: op.payload.labor.subUnits, ...(op.payload.labor.subPaidCents !== undefined ? { subPaidCents: op.payload.labor.subPaidCents } : {}), crew: op.payload.labor.crew, installDate: op.payload.installDate, note: op.payload.note }).then(r => r.result),
   apply: op => update(op.payload.jobId, t => ({ ...t, labor: op.payload.labor, installDate: op.payload.installDate, note: op.payload.note })),
 })
 

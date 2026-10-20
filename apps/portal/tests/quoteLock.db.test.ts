@@ -123,8 +123,55 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     const after = await prisma.savedQuote.findUnique({ where: { id: q.id } })
     expect([after!.notes, after!.customerPhone, (after!.layout as any).yard.plan.aerial.rotDeg, after!.finalPrice]).toEqual(['gate code 4411', '3525550178', 30, 1000])
     expect((await call(owner, 'PATCH', `/api/saved-quotes/${q.id}`, { status: 'LOST' })).status).toBe(200)
-    // Sold before job costing (no quoted cost) and now Lost: no longer signed, so it is not locked (see the next test for one signed in the app).
-    expect((await call(owner, 'PATCH', `/api/saved-quotes/${q.id}`, { finalPrice: 1 })).status).toBe(200)
+    // Sold before job costing (no quoted cost) and now Lost: it was sold once (soldAt, set on the first save
+    // while Sold and never cleared), so it stays locked (Jonathan, Oct 20, 2026).
+    expect((await prisma.savedQuote.findUnique({ where: { id: q.id } }))!.soldAt).not.toBeNull()
+    expect((await call(owner, 'PATCH', `/api/saved-quotes/${q.id}`, { finalPrice: 1 })).status).toBe(409)
+    expect((await prisma.savedQuote.findUnique({ where: { id: q.id } }))!.finalPrice).toBe(1000)
+  })
+
+  test('ever sold: soldAt is set on Sold and kept through Lost; the backfill marks Sold, accepted, quoted cost and job quotes once', async () => {
+    const { everSoldCandidates, backfillEverSold, EVER_SOLD_KEY } = await import('../src/server/lib/everSold.js')
+    // Through the app: Draft -> Sold sets it; Lost keeps it; nothing clears it.
+    const q = await prisma.savedQuote.create({ data: quoteData('DRAFT') as any })
+    ids.quotes.push(q.id)
+    expect((await call(owner, 'PATCH', `/api/saved-quotes/${q.id}`, { status: 'SOLD' })).status).toBe(200)
+    const sold = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!.soldAt
+    expect(sold).not.toBeNull()
+    expect((await call(owner, 'PATCH', `/api/saved-quotes/${q.id}`, { status: 'LOST' })).status).toBe(200)
+    expect((await prisma.savedQuote.findUnique({ where: { id: q.id } }))!.soldAt).toEqual(sold)
+
+    // The one-time step, on a company of its own: four quotes sold before soldAt existed, one never sold.
+    const acct = (await prisma.crmAccount.create({ data: { name: `Test ever-sold-${Date.now().toString(36)}`, status: 'active' } })).id
+    try {
+      const mk = async (status: string, extra: Record<string, unknown> = {}) => {
+        const r = await prisma.savedQuote.create({ data: { ...quoteData(status), accountId: acct, ...extra } as any })
+        return r.id
+      }
+      const soldNow = await mk('SOLD')
+      const accepted = await mk('SENT', { acceptedAt: new Date() })
+      const costed = await mk('LOST')
+      await prisma.jobQuotedCost.create({ data: { accountId: acct, quoteId: costed, priceCents: 100000 } })
+      const jobbed = await mk('LOST')
+      await prisma.savedJob.create({ data: { accountId: acct, quoteId: jobbed, customerName: 'E2E Ever Sold Job' } as any })
+      const never = await mk('LOST')
+      const dry = await everSoldCandidates(acct)
+      expect([...dry.ids.keys()].sort()).toEqual([soldNow, accepted, costed, jobbed].sort())
+      expect(dry.counts).toMatchObject({ sold: 1, accepted: 1, quotedCost: 1, job: 1, total: 4, alreadySet: 0 })
+      const ran = await backfillEverSold(acct)
+      expect(ran).toMatchObject({ total: 4 })
+      expect(await backfillEverSold(acct)).toBeNull() // once
+      const rows = await prisma.savedQuote.findMany({ where: { accountId: acct }, select: { id: true, soldAt: true } })
+      expect(rows.filter(r => r.soldAt).map(r => r.id).sort()).toEqual([soldNow, accepted, costed, jobbed].sort())
+      expect(rows.find(r => r.id === never)!.soldAt).toBeNull()
+      expect(await prisma.accountKeyValue.count({ where: { accountId: acct, key: EVER_SOLD_KEY } })).toBe(1)
+    } finally {
+      await prisma.savedJob.deleteMany({ where: { accountId: acct } })
+      await prisma.jobQuotedCost.deleteMany({ where: { accountId: acct } })
+      await prisma.savedQuote.deleteMany({ where: { accountId: acct } })
+      await prisma.accountKeyValue.deleteMany({ where: { accountId: acct } })
+      await prisma.crmAccount.delete({ where: { id: acct } }).catch(() => {})
+    }
   })
 
   test('signed through the app (quoted cost saved), then Lost: still locked', async () => {

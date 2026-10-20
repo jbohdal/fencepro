@@ -180,6 +180,9 @@ try {
   check('New Lead saved: street, city, state and ZIP', c3?.serviceAddress === '17008 SE 60th St, Ocklawaha, FL 32179' && c3?.city === 'Ocklawaha' && c3?.state === 'FL' && c3?.zip === '32179', JSON.stringify(c3 && { a: c3.serviceAddress, city: c3.city, state: c3.state, zip: c3.zip }))
 
   // ── 5. The website instant quote ──
+  // A widget draft saved earlier on this browser (the shared emulator) reopens at the photo step;
+  // start this check from the address, as a new visitor would.
+  await page.context().clearCookies({ name: 'ezq_draft' }).catch(() => {})
   await page.goto(`${APP}/p/quote/`, { waitUntil: 'domcontentloaded' })
   const w = page.locator('[data-w-address]')
   await w.waitFor({ timeout: 30000 })
@@ -188,7 +191,11 @@ try {
   await ws.first().waitFor({ timeout: 10000 }).catch(() => {})
   check('instant quote: suggestions as the customer types', /3995 NE 58th Cir/.test((await ws.allTextContents())[0] ?? ''))
   await tap(ws.first())
-  check('instant quote: picked, the full address is in the box', (await w.inputValue()) === '3995 NE 58th Cir, Silver Springs, FL 34488', await w.inputValue())
+  // The drawing widget opens the photo as soon as an address is picked (the box goes away), so either
+  // the photo step is showing, or (still on the address step) the full address is in the box.
+  const photo = await page.locator('[data-w-step="draw"]').waitFor({ timeout: 15000 }).then(() => true, () => false)
+  const boxValue = photo ? '' : await w.inputValue({ timeout: 2000 }).catch(() => '')
+  check('instant quote: picking a suggestion opens the photo for that address', photo || boxValue === '3995 NE 58th Cir, Silver Springs, FL 34488', photo ? 'photo step' : boxValue)
   // WebKit: the app's service worker fetches for the page and steps around the block, so it is
   // taken off in this throwaway browser. Never on the shared emulator (its push sign up lives there).
   if (!CDP) await page.evaluate(() => navigator.serviceWorker?.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister()))))

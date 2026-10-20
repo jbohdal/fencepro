@@ -13,6 +13,7 @@ import { bakePhoto, loadImage } from './aerialBake'
 import { photoBackdrop, photoView, withPhotoView, lineUpRotation, normDeg, stepDeg, turnAbout, FRAME_PX } from './sitePlanPhoto'
 import { lookupPosition } from './appointmentsStore'
 import AddressAutocomplete from './AddressAutocomplete'
+import { slideGate, slideGateFromEnd, resizeGate, sameGateSpot, gateDistances, gateWhereText, sideEndName, ftText, STEP_FOOT, STEP_HALF_FOOT } from './gateSlide'
 import {
   layoutForShape, newSideId, joinedFromPrev, joinsNext, neighborName, formatFtIn, postSpacing,
   FINISH_LABEL, FINISH_NEAR, GATE_LABEL, GATE_WIDTH_IN, SHAPE_LABEL,
@@ -27,7 +28,13 @@ const SHAPES: Array<{ shape: YardShape; hint: string; path: string }> = [
   { shape: 'custom', hint: 'Add sides one by one', path: 'M6 30 L16 10 L32 14 L42 28' },
 ]
 
-type PadTarget = { sideId: string; field: 'length' | 'gateWidth' | 'gateDistance' | 'skipLength' | 'skipDistance' | 'meetDistance' }
+type PadTarget = { sideId: string; field: 'length' | 'gateWidth' | 'gateDistance' | 'gateBefore' | 'gateAfter' | 'skipLength' | 'skipDistance' | 'meetDistance' }
+
+/** Quick gate sizes, feet (the same as the website quote's). Any other width is typed. */
+const GATE_SIZES_FT: Record<GateType, number[]> = { walk: [4, 5, 6], double: [8, 10, 12] }
+
+/** What a signed quote says when its gate is pressed. */
+export const GATE_LOCKED_TEXT = 'Signed: make a change order'
 
 /** How a side's ends finish, in one line ("Corner at both ends"). */
 export function endsLine(start: EndFinish, end: EndFinish): string {
@@ -43,7 +50,7 @@ export function nextEmptySide(layout: YardLayout, id: string | null): YardSide |
   return order.find(s => s.on && !(s.lengthIn > 0)) ?? null
 }
 
-export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap, openSideId, onOpenSide }: {
+export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap, openSideId, onOpenSide, locked = false }: {
   layout: YardLayout | null
   onChange: (l: YardLayout | null) => void
   result: LayoutResult | null
@@ -65,6 +72,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   /** The one side shown open (the quote builder's Next side moves it); without these the editor keeps its own. */
   openSideId?: string | null
   onOpenSide?: (id: string | null) => void
+  /** A signed quote: its gates cannot be moved here (a change order does that). */
+  locked?: boolean
 }) {
   const [pad, setPad] = useState<PadTarget | null>(null)
   const [openLocal, setOpenLocal] = useState<string | null>(null)
@@ -117,6 +126,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   const [aerialForm, setAerialForm] = useState(false)
   // "Drag the house..." shows while adjusting until the house is first dragged in this quote (screen state only).
   const [houseHintDone, setHouseHintDone] = useState(false)
+  // Dragged gates snap to whole feet, or half feet with this on (screen state only).
+  const [halfFeet, setHalfFeet] = useState(false)
 
   if (!layout) {
     return (
@@ -143,6 +154,22 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   const updateSide = (id: string, patch: Partial<YardSide>) =>
     set({ ...layout, sides: layout.sides.map(s => (s.id === id ? { ...s, ...patch } : s)) })
   const idx = (id: string) => layout.sides.findIndex(s => s.id === id)
+
+  /** A new gate width (or type): in the middle it stays in the middle; anywhere else its middle stays where it was (gateSlide.ts). */
+  function setGateWidth(sideId: string, type: GateType, widthIn: number) {
+    const i = idx(sideId), s = layout!.sides[i]
+    if (!s?.gate) return
+    if (s.gate.position === 'middle') { updateSide(sideId, { gate: { ...s.gate, type, widthIn } }); return }
+    const typed = { ...layout!, sides: layout!.sides.map((x, k) => (k === i ? { ...x, gate: { ...x.gate!, type } } : x)) }
+    set(resizeGate(typed, i, widthIn, { nearIn, snap: false }))
+  }
+  /** A gate dragged along its side: snapped to whole (or half) feet, kept on the side, off the skip; footage never changes. */
+  function slideTo(sideId: string, startIn: number) {
+    if (locked) return
+    const i = idx(sideId)
+    const next = slideGate(layout!, i, startIn, { nearIn, stepIn: halfFeet ? STEP_HALF_FOOT : STEP_FOOT })
+    if (next !== layout && !sameGateSpot(layout!, next, i, nearIn)) set(next)
+  }
   const neighbor = (i: number, d: -1 | 1) => {
     const j = i + d
     if (j >= 0 && j < layout.sides.length) return j
@@ -210,6 +237,12 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     : pad.field === 'length' ? padSide.lengthIn
     : pad.field === 'gateWidth' ? padSide.gate?.widthIn ?? 0
     : pad.field === 'gateDistance' ? padSide.gate?.distanceIn ?? 0
+    : pad.field === 'gateBefore' || pad.field === 'gateAfter' ? (() => {
+      const i = idx(padSide.id), at = result?.sides[i]?.gateAtIn
+      if (!padSide.gate || at == null) return 0
+      const d = gateDistances(padSide.lengthIn, at, padSide.gate.widthIn)
+      return pad.field === 'gateBefore' ? d.beforeIn : d.afterIn
+    })()
     : pad.field === 'skipLength' ? padSide.skip?.lengthIn ?? 0
     : pad.field === 'meetDistance' ? padSide.meetsHouse?.distanceIn ?? 0
     : padSide.skip?.distanceIn ?? 0
@@ -224,8 +257,11 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   function padDone(inches: number, next: boolean) {
     if (!pad || !padSide) return
     if (pad.field === 'length') updateSide(padSide.id, { lengthIn: inches })
-    if (pad.field === 'gateWidth' && padSide.gate) updateSide(padSide.id, { gate: { ...padSide.gate, widthIn: inches } })
+    if (pad.field === 'gateWidth' && padSide.gate) setGateWidth(padSide.id, padSide.gate.type, inches)
     if (pad.field === 'gateDistance' && padSide.gate) updateSide(padSide.id, { gate: { ...padSide.gate, position: 'distance', distanceIn: inches } })
+    // Typed exactly ("the gate starts 12' 4\" from the corner"), kept on the side and off the skip.
+    if (pad.field === 'gateBefore' && padSide.gate && !locked) set(slideGate(layout!, idx(padSide.id), inches, { nearIn, exact: true }))
+    if (pad.field === 'gateAfter' && padSide.gate && !locked) set(slideGateFromEnd(layout!, idx(padSide.id), inches, { nearIn }))
     if (pad.field === 'skipLength' && padSide.skip) updateSide(padSide.id, { skip: { ...padSide.skip, lengthIn: inches } })
     if (pad.field === 'skipDistance' && padSide.skip) updateSide(padSide.id, { skip: { ...padSide.skip, position: 'distance', distanceIn: inches } })
     if (pad.field === 'meetDistance') updateSide(padSide.id, { meetsHouse: { at: 'distance', distanceIn: inches } })
@@ -338,6 +374,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           onHouseMeetsChange={adjusting && houseMovable ? m => onChange(setHouseMeets(layout, m)) : undefined}
           onHouseDragEnd={() => setHouseHintDone(true)}
           onGateTap={adjusting && !onPhoto ? cycleGate : undefined}
+          onGateSlide={locked ? undefined : slideTo}
+          gateLocked={locked ? GATE_LOCKED_TEXT : null}
+          onGateDistanceTap={locked ? undefined : (id, which) => { setOpen(id); setPad({ sideId: id, field: which === 'before' ? 'gateBefore' : 'gateAfter' }) }}
         />
         {photo && photoReady !== photo && !aerialMsg && (
           <p className="absolute inset-x-0 top-8 mx-auto w-fit bg-white/90 rounded-lg px-3 py-1.5 text-sm text-gray-700 shadow">Loading the aerial photo. It can take 20 seconds.</p>
@@ -377,6 +416,11 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
         {!onPhoto && (
           <button type="button" className={`btn ${adjusting ? 'btn-primary' : 'btn-quiet'} btn-sm`} onClick={() => setAdjusting(a => !a)} data-plan-adjust>
             {adjusting ? 'Done adjusting' : 'Adjust the drawing'}
+          </button>
+        )}
+        {layout.sides.some(s => s.on && s.gate) && !locked && (
+          <button type="button" role="switch" aria-checked={halfFeet} className={`btn ${halfFeet ? 'btn-primary' : 'btn-quiet'} btn-sm`} onClick={() => setHalfFeet(h => !h)} data-gate-half-feet>
+            {halfFeet ? 'Gates snap to half feet' : 'Half feet'}
           </button>
         )}
         {!aerialOn ? (
@@ -462,7 +506,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                 <div className="grid grid-cols-3 gap-1 bg-gray-100 rounded-xl p-1" data-gate-choice>
                   {([null, 'walk', 'double'] as Array<GateType | null>).map(t => (
                     <button key={t ?? 'none'} type="button"
-                      onClick={() => updateSide(s.id, { gate: t ? { type: t, widthIn: s.gate?.type === t ? s.gate.widthIn : GATE_WIDTH_IN[t], position: s.gate?.position ?? 'middle', distanceIn: s.gate?.distanceIn } : null })}
+                      onClick={() => (t && s.gate && s.gate.type !== t
+                        ? setGateWidth(s.id, t, GATE_WIDTH_IN[t])
+                        : updateSide(s.id, { gate: t ? { type: t, widthIn: s.gate?.type === t ? s.gate.widthIn : GATE_WIDTH_IN[t], position: s.gate?.position ?? 'middle', distanceIn: s.gate?.distanceIn } : null }))}
                       className={`h-11 rounded-lg text-sm font-semibold ${(s.gate?.type ?? null) === t ? 'bg-white text-orange-700 shadow-sm' : 'text-gray-600'}`}>
                       {t ? GATE_LABEL[t] : 'No gate'}
                     </button>
@@ -470,11 +516,36 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <p className="flex-1 text-sm text-gray-700" data-side-ends>{endsLine(startF, endF)}{s.gate ? ` · ${formatFtIn(s.gate.widthIn)} gate ${s.gate.position === 'middle' ? 'in the middle' : s.gate.position === 'distance' ? `${formatFtIn(s.gate.distanceIn ?? 0)} from the start` : FINISH_NEAR[s.gate.position === 'start' ? startF : endF]}` : ''}</p>
+                  <p className="flex-1 text-sm text-gray-700" data-side-ends>{endsLine(startF, endF)}{s.gate ? ` · ${formatFtIn(s.gate.widthIn)} gate ${s.gate.position === 'middle' ? 'in the middle' : s.gate.position === 'distance' ? (r?.gateAtIn != null ? `${ftText(r.gateAtIn)} from ${sideEndName(layout, i, 'start')}, ${ftText(Math.max(0, s.lengthIn - r.gateAtIn - s.gate.widthIn))} to ${sideEndName(layout, i, 'end')}` : `${formatFtIn(s.gate.distanceIn ?? 0)} from the start`) : FINISH_NEAR[s.gate.position === 'start' ? startF : endF]}` : ''}</p>
                   <button type="button" className="btn btn-quiet btn-sm shrink-0" onClick={() => setMoreFor(more ? null : s.id)} aria-expanded={more} data-side-more>
                     More options {more ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
                   </button>
                 </div>
+
+                {s.gate && r?.gateAtIn != null && (() => {
+                  const d = gateDistances(s.lengthIn, r.gateAtIn, s.gate.widthIn)
+                  const btn = 'min-h-[48px] rounded-xl border-2 px-3 py-1.5 text-left disabled:opacity-70 disabled:cursor-not-allowed'
+                  return (
+                    <div className="rounded-xl border border-gray-200 bg-white p-2 space-y-2" data-gate-distances data-before-in={String(d.beforeIn)} data-after-in={String(d.afterIn)}>
+                      <p className="text-sm font-semibold text-gray-900 tabular-nums" data-gate-where>{gateWhereText(layout, i, nearIn)}</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" className={`${btn} border-gray-300 bg-white`} disabled={locked} data-gate-before
+                          onClick={() => setPad({ sideId: s.id, field: 'gateBefore' })} aria-label={`Distance from ${sideEndName(layout, i, 'start')} to the gate`}>
+                          <span className="block text-lg font-bold tabular-nums text-gray-900">{ftText(d.beforeIn)}</span>
+                          <span className="block text-xs text-gray-600">from {sideEndName(layout, i, 'start')}</span>
+                        </button>
+                        <button type="button" className={`${btn} border-gray-300 bg-white`} disabled={locked} data-gate-after
+                          onClick={() => setPad({ sideId: s.id, field: 'gateAfter' })} aria-label={`Distance from the gate to ${sideEndName(layout, i, 'end')}`}>
+                          <span className="block text-lg font-bold tabular-nums text-gray-900">{ftText(d.afterIn)}</span>
+                          <span className="block text-xs text-gray-600">to {sideEndName(layout, i, 'end')}</span>
+                        </button>
+                      </div>
+                      <p className={`text-xs ${locked ? 'font-semibold text-amber-800' : 'text-gray-600'}`} data-gate-move-hint>
+                        {locked ? `${GATE_LOCKED_TEXT} to move the gate.` : 'Drag the gate on the drawing, or tap a distance to type it exactly.'}
+                      </p>
+                    </div>
+                  )
+                })()}
 
                 {runsHere.length > 0 && (hasStyle || runsHere.length > 1 || runsHere.some(r => r.tape)) && (
                   <div className="text-sm text-gray-700 space-y-0.5" data-side-runs>
@@ -519,6 +590,15 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                     )}
 
                     {s.gate && (
+                      <div className="flex flex-wrap items-center gap-2" data-gate-sizes>
+                        <span className="text-xs text-gray-600">Gate size</span>
+                        {GATE_SIZES_FT[s.gate.type].map(w => (
+                          <button key={w} type="button" className={`btn btn-sm ${s.gate!.widthIn === w * 12 ? 'btn-primary' : 'btn-secondary'}`} disabled={w * 12 > s.lengthIn && s.lengthIn > 0}
+                            onClick={() => setGateWidth(s.id, s.gate!.type, w * 12)} data-gate-size={w}>{w} ft</button>
+                        ))}
+                      </div>
+                    )}
+                    {s.gate && (
                       <div className="grid grid-cols-2 gap-2">
                         <button type="button" onClick={() => setPad({ sideId: s.id, field: 'gateWidth' })} className="h-11 rounded-lg border border-gray-300 px-3 text-left text-sm" data-gate-width>
                           <span className="text-gray-600">Gate width </span><span className="font-semibold text-gray-900">{formatFtIn(s.gate.widthIn)}</span>
@@ -532,7 +612,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                           <option value="middle">In the middle</option>
                           <option value="start">{cap(FINISH_NEAR[startF])}</option>
                           <option value="end">{cap(FINISH_NEAR[endF])}</option>
-                          <option value="distance">{s.gate.position === 'distance' ? `${formatFtIn(s.gate.distanceIn ?? 0)} from the start` : 'Type a distance from the start'}</option>
+                          <option value="distance">{s.gate.position === 'distance' ? `${formatFtIn(s.gate.distanceIn ?? 0)} from ${sideEndName(layout, i, 'start')}` : `Type a distance from ${sideEndName(layout, i, 'start')}`}</option>
                         </select>
                       </div>
                     )}
@@ -663,7 +743,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
       {pad && padSide && (
         <FtInPad
           key={`${pad.sideId}-${pad.field}`}
-          title={pad.field === 'length' ? `${padSide.name} length` : pad.field === 'gateWidth' ? `${padSide.name} gate width` : pad.field === 'skipLength' ? `${padSide.name} skip length` : pad.field === 'meetDistance' ? `${padSide.name}: meets the house this far from its back corner` : `${padSide.name}: distance from the start`}
+          title={pad.field === 'length' ? `${padSide.name} length` : pad.field === 'gateWidth' ? `${padSide.name} gate width` : pad.field === 'skipLength' ? `${padSide.name} skip length` : pad.field === 'meetDistance' ? `${padSide.name}: meets the house this far from its back corner` : pad.field === 'gateBefore' ? `${padSide.name}: gate starts this far from ${sideEndName(layout, idx(padSide.id), 'start')}` : pad.field === 'gateAfter' ? `${padSide.name}: gate ends this far from ${sideEndName(layout, idx(padSide.id), 'end')}` : `${padSide.name}: distance from the start`}
           valueIn={padValue}
           onDone={padDone}
           onClose={() => setPad(null)}

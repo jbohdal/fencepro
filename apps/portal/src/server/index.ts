@@ -35,6 +35,7 @@ import pricingRoutes from './routes/pricing.js'
 import quoteApiRoutes from './routes/quotes-api.js'
 import savedQuoteRoutes from './routes/saved-quotes.js'
 import { publicProposal, stylePhotos } from './routes/proposal.js'
+import { changeOrderPublic } from './routes/changeOrderPublic.js'
 import tierSetRoutes from './routes/tier-sets.js'
 import voiceRoutes from './routes/voice.js'
 import mediaRoutes from './routes/media.js'
@@ -77,6 +78,7 @@ import { resumeInvoiceReading } from './lib/vendorInvoices.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
 import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
 import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
+import { backfillEverSoldAll } from './lib/everSold.js'
 import { hidesCosts, staffRoleOf, redactCosts } from './lib/costRedact.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
 import { ensureTwoOptionTiersAll } from './lib/tierSets.js'
@@ -236,6 +238,7 @@ app.use('/p/quote', quoteWidget)
 app.use('/p/i', packetPublic)
 app.use('/api/walkthroughs', walkthroughStaff)
 app.use('/p/w', walkthroughPublic)
+app.use('/p/co', changeOrderPublic)  // A change order's customer link (routes/changeOrderPublic.ts)
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff after install (lib/jobCosting.ts)
@@ -402,6 +405,8 @@ if (!isVercel) {
       await ensureStagingSheetRemovedAll().catch(err => console.error('[staging] old sheet check failed:', err))
       // Pending calls of logins deleted before Oct 2026: once per company (lib/loginDelete.ts).
       await ensureNoOrphanPendingCallsAll().catch(err => console.error('[follow ups] orphan pending call cleanup failed:', err))
+      // "Was ever sold" for quotes sold before soldAt existed: once per company (lib/everSold.ts).
+      await backfillEverSoldAll().catch(err => console.error('[ever sold] check failed:', err))
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))

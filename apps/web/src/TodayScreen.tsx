@@ -13,7 +13,7 @@ import { Phone, Navigation } from 'lucide-react'
 import { getAppointments, updateAppointment, APPOINTMENTS_UPDATED } from './appointmentsStore'
 import { getAppointmentSettings, getConfig } from './configStore'
 import { getQuotesForCustomer } from './quoteStore'
-import { uploadStaffPhotoForCustomer } from './portalApiClient'
+import { uploadStaffPhotoForCustomer } from './portalStaffApi'
 import {
   TYPE_SHORT, TYPE_COLORS, STATUS_LABELS, OUTCOME_LABELS, floridaDate, isOpen, needsOutcome, statusForOutcome, defaultPerson,
   directionsUrl, onMyWayText, smsLink, driveMinutes, type Appointment, type AppointmentOutcome,

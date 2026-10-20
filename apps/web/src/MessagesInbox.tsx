@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import PopMenu from './PopMenu'
-import { getMessagesInbox, type InboxThread } from './portalApiClient'
+import { getMessagesInbox, type InboxThread } from './portalStaffApi'
 import { getCustomerById } from './customerStore'
 
 const POLL_MS = 30_000

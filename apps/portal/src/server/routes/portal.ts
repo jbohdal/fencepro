@@ -4,12 +4,24 @@
  * Endpoints (all /api/portal):
  *   POST /invite         — create/refresh an invite for a CRM customer (staff authed via CRM sync key)
  *   POST /resend-invite  — customer-initiated resend by email (rate-limited)
- *   POST /activate       — accept the invite: validate token, set password, return session
- *   POST /login          — customer login
- *   POST /logout         — clear session (client-side really, just for parity)
- *   GET  /me             — current session (requires portal access token)
+ *   POST /activate       — accept the invite: validate token, set password, sign in (session cookie)
+ *   POST /login          — customer login (session cookie)
+ *   POST /logout         — end this session and clear the cookie
+ *   GET  /me             — who is signed in, with their name, phone and address from the CRM
+ *   POST /me/password    — change the password (ends the other sessions)
+ *   GET  /company        — the company's name, phone and portal colors (no sign in needed)
+ *   GET  /quotes         — the customer's sent, sold and lost quotes (price, never a cost)
+ *   GET  /projects       — the customer's jobs (status, install date, crew)
+ *   GET  /invoices       — the customer's sent invoices
+ *   GET  /change-orders  — the customer's own change orders (sent, approved, void ones they were shown)
+ *   POST /change-orders/:id/sign — approve and sign one ({ name, signature }), lib/changeOrders.ts
  *
- * Token architecture:
+ * Sign in: a server side session in an httpOnly cookie (lib/portalSession.ts).
+ * Nothing about the sign in, and no business data, is kept in the browser's
+ * storage. Every customer route reads the customer from the session's login
+ * row on the server.
+ *
+ * Invite token architecture:
  *   - Raw tokens: crypto.randomBytes(32).toString('hex') → 64 hex chars, URL-safe
  *   - Stored: sha256(rawToken) — never the raw value
  *   - Validation: sha256 the incoming token, lookup by hash
@@ -26,13 +38,18 @@ import { z } from 'zod'
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import prisma from '../lib/prisma.js'
 import { isUniqueViolation, requestIdOf } from '../lib/once.js'
-import { hashPassword, verifyPassword, generateTokens, verifyAccessToken } from '../lib/auth.js'
+import { hashPassword, verifyPassword } from '../lib/auth.js'
+import { requirePortalAuth, startPortalSession, clearPortalCookie, endPortalSessionOf, revokePortalSessions, portalIdentityOf, type PortalIdentity } from '../lib/portalSession.js'
+import { signedFileUrl, checkFileSig, isPublicFileKey } from '../lib/portalFiles.js'
+import { resolveIntakeAccountId } from '../lib/intake.js'
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
 import { createNotification } from '../lib/notificationService.js'
 import { buildFrontendUrl } from '../lib/urls.js'
 import { isStaffRequest } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireStaffCan } from '../lib/permissions.js'
+import { changeOrdersForContact, signByCustomer, customerView } from '../lib/changeOrders.js'
+import { signSchema as coSignSchema } from './changeOrderPublic.js'
 
 // File storage helpers
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
@@ -73,27 +90,11 @@ const router = Router()
 // ── Auth middleware for portal customers ──
 
 interface PortalAuthRequest extends Request {
-  portalAccount?: { id: string; email: string; crmCustomerId: string }
+  portalAccount?: PortalIdentity
 }
 
-function requirePortalAuth(req: PortalAuthRequest, res: Response, next: Function): void {
-  const auth = req.headers.authorization
-  if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS' }); return }
-  const token = auth.slice(7)
-  try {
-    const payload = verifyAccessToken(token) as any
-    if (payload?.role !== 'portal_customer') { res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS' }); return }
-    // The portal's tokens carry the customer as accountId (activate and login below); crmCustomerId is read too.
-    // Without a customer every query below would lose its filter (Prisma drops an undefined where), so none: refused.
-    const crmCustomerId = typeof payload.crmCustomerId === 'string' && payload.crmCustomerId ? payload.crmCustomerId
-      : typeof payload.accountId === 'string' && payload.accountId ? payload.accountId : null
-    if (!crmCustomerId || typeof payload.sub !== 'string' || !payload.sub) { res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS' }); return }
-    req.portalAccount = { id: payload.sub, email: payload.email, crmCustomerId }
-    next()
-  } catch {
-    res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS' })
-  }
-}
+// requirePortalAuth (lib/portalSession.ts): the session cookie, looked up on
+// the server; writes also need the X-Portal-Request header.
 
 // ── Sync-key auth for staff-initiated actions ──
 
@@ -364,13 +365,8 @@ router.post('/activate', async (req, res) => {
       })
     } catch { /* non-fatal */ }
 
-    const tokens = generateTokens({
-      sub: updated.id,
-      email: updated.email,
-      role: 'portal_customer',
-      accountId: updated.crmCustomerId,
-    } as any)
-
+    // Signed in: the session cookie (no token in the answer, nothing for the page to keep).
+    await startPortalSession(req, res, updated.id)
     res.json({
       success: true,
       data: {
@@ -381,8 +377,6 @@ router.post('/activate', async (req, res) => {
           lastName: updated.lastName,
           crmCustomerId: updated.crmCustomerId,
         },
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
       },
     })
   } catch (err: any) {
@@ -423,13 +417,7 @@ router.post('/login', async (req, res) => {
       data: { lastLoginAt: now },
     })
 
-    const tokens = generateTokens({
-      sub: account.id,
-      email: account.email,
-      role: 'portal_customer',
-      accountId: account.crmCustomerId,
-    } as any)
-
+    await startPortalSession(req, res, account.id)
     res.json({
       success: true,
       data: {
@@ -438,8 +426,6 @@ router.post('/login', async (req, res) => {
           firstName: account.firstName, lastName: account.lastName,
           crmCustomerId: account.crmCustomerId,
         },
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
       },
     })
   } catch (err: any) {
@@ -449,23 +435,191 @@ router.post('/login', async (req, res) => {
   }
 })
 
-router.post('/logout', async (_req, res) => { res.json({ success: true }) })
+router.post('/logout', async (req, res) => {
+  try { await endPortalSessionOf(req) } catch (err) { console.error('[portal-logout]', err) }
+  clearPortalCookie(req, res)
+  res.json({ success: true })
+})
+
+/** The customer's CRM record (the portal login's customer), or null. */
+async function contactOf(crmCustomerId: string) {
+  return prisma.crmContact.findUnique({
+    where: { id: crmCustomerId },
+    select: { id: true, accountId: true, firstName: true, lastName: true, phone: true, serviceAddress: true },
+  })
+}
 
 router.get('/me', requirePortalAuth, async (req: PortalAuthRequest, res) => {
   try {
     const account = await prisma.portalAccount.findUnique({ where: { id: req.portalAccount!.id } })
     if (!account) { res.status(404).json({ success: false, error: 'NOT_FOUND' }); return }
+    const c = await contactOf(account.crmCustomerId)
     res.json({
       success: true,
       data: {
         id: account.id, email: account.email,
-        firstName: account.firstName, lastName: account.lastName,
+        firstName: account.firstName ?? c?.firstName ?? '', lastName: account.lastName ?? c?.lastName ?? '',
         crmCustomerId: account.crmCustomerId,
         status: account.status,
+        customer: c ? { firstName: c.firstName, lastName: c.lastName, phone: c.phone ?? '', serviceAddress: c.serviceAddress ?? '' } : null,
       },
     })
   } catch {
     res.status(500).json({ success: false, error: 'ME_FAILED' })
+  }
+})
+
+// Change the password: the current one, then the new one twice. Every other
+// session of this login ends; this one stays signed in.
+router.post('/me/password', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const b = z.object({ currentPassword: z.string().min(1).max(200), password: z.string().max(200), confirmPassword: z.string().max(200) }).parse(req.body)
+    if (b.password.length < 8) { res.status(400).json({ success: false, error: 'PASSWORD_TOO_SHORT' }); return }
+    if (b.password !== b.confirmPassword) { res.status(400).json({ success: false, error: 'PASSWORDS_DO_NOT_MATCH' }); return }
+    const account = await prisma.portalAccount.findUnique({ where: { id: req.portalAccount!.id } })
+    if (!account?.passwordHash || !(await verifyPassword(b.currentPassword, account.passwordHash))) {
+      res.status(401).json({ success: false, error: 'WRONG_PASSWORD' }); return
+    }
+    await prisma.portalAccount.update({ where: { id: account.id }, data: { passwordHash: await hashPassword(b.password), mustChangePassword: false } })
+    const ended = await revokePortalSessions(account.id, req.portalAccount!.sessionId)
+    console.log(`[portal] ${account.email} changed their password; ${ended} other sign in(s) ended`)
+    res.json({ success: true })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    console.error('[portal-password]', err)
+    res.status(500).json({ success: false, error: 'PASSWORD_FAILED' })
+  }
+})
+
+// ── The company: name, phone, email and the portal's look (Settings → Company / Portal) ──
+// No sign in needed (the sign in page shows it). Only these fields leave the server.
+
+const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, any> : {})
+const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+
+router.get('/company', async (req, res) => {
+  try {
+    const who = await portalIdentityOf(req)
+    const accountId = (who ? (await contactOf(who.crmCustomerId))?.accountId : null) ?? await resolveIntakeAccountId()
+    const b = accountId ? await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }) : null
+    const cfg = obj(b?.config), company = obj(cfg.company), portal = obj(cfg.portal)
+    res.json({
+      success: true,
+      data: {
+        name: str(company.name) || companyName(), phone: str(company.phone), email: str(company.email),
+        portal: {
+          accentColor: /^#[0-9a-f]{3,8}$/i.test(str(portal.accentColor)) ? str(portal.accentColor) : '',
+          supportEmail: str(portal.supportEmail), supportPhone: str(portal.supportPhone), welcomeMessage: str(portal.welcomeMessage),
+        },
+      },
+    })
+  } catch (err) {
+    console.error('[portal-company]', err)
+    res.status(500).json({ success: false, error: 'COMPANY_FAILED' })
+  }
+})
+
+// ── Quotes, projects and invoices: this customer's only ──
+// Every query is filtered by the session's customer and that customer's
+// company. Prices the customer was given, never a cost or margin.
+
+const QUOTE_STATUSES_SHOWN = ['SENT', 'SOLD', 'LOST'] as const
+
+router.get('/quotes', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const c = await contactOf(req.portalAccount!.crmCustomerId)
+    if (!c?.accountId) { res.json({ success: true, data: [] }); return }
+    const now = Date.now()
+    const rows = await prisma.savedQuote.findMany({
+      where: { accountId: c.accountId, crmContactId: c.id, archivedAt: null, status: { in: [...QUOTE_STATUSES_SHOWN] as any } },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true, fenceStyle: true, date: true, finalPrice: true, status: true, layout: true, runs: true, shareToken: true, shareDisabledAt: true, shareExpiresAt: true },
+    })
+    res.json({
+      success: true,
+      data: rows.map(q => ({
+        id: q.id, fenceStyle: q.fenceStyle, date: q.date, status: q.status,
+        priceCents: Math.round((q.finalPrice || 0) * 100),
+        layout: q.layout ?? null, runs: Array.isArray(q.runs) ? q.runs : [],
+        // The customer's own quote link, when the office made one and it still works.
+        shareToken: q.shareToken && !q.shareDisabledAt && (!q.shareExpiresAt || q.shareExpiresAt.getTime() > now) ? q.shareToken : null,
+      })),
+    })
+  } catch (err) {
+    console.error('[portal-quotes]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+router.get('/projects', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const c = await contactOf(req.portalAccount!.crmCustomerId)
+    if (!c?.accountId) { res.json({ success: true, data: [] }); return }
+    const quotes = await prisma.savedQuote.findMany({ where: { accountId: c.accountId, crmContactId: c.id }, select: { id: true } })
+    const jobs = await prisma.savedJob.findMany({
+      where: { accountId: c.accountId, archivedAt: null, OR: [{ crmContactId: c.id }, ...(quotes.length ? [{ quoteId: { in: quotes.map(q => q.id) } }] : [])] },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, fenceStyle: true, status: true, scheduledDate: true, crewAssigned: true, customerAddress: true },
+    })
+    res.json({ success: true, data: jobs })
+  } catch (err) {
+    console.error('[portal-projects]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+const int = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 0)
+
+router.get('/invoices', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const c = await contactOf(req.portalAccount!.crmCustomerId)
+    if (!c?.accountId) { res.json({ success: true, data: [] }); return }
+    const b = await prisma.businessState.findUnique({ where: { accountId: c.accountId }, select: { invoices: true } })
+    const all = Array.isArray(b?.invoices) ? (b!.invoices as any[]) : []
+    const mine = all.filter(i => i && i.customerId === c.id && i.status !== 'draft' && i.status !== 'void')
+    res.json({
+      success: true,
+      data: mine.map(i => ({
+        id: str(i.id), invoiceNumber: str(i.invoiceNumber), title: str(i.title), status: str(i.status),
+        dueDate: str(i.dueDate), issuedDate: str(i.issuedDate),
+        totalCents: int(i.totalCents), amountPaidCents: int(i.amountPaidCents), balanceDueCents: int(i.balanceDueCents),
+      })),
+    })
+  } catch (err) {
+    console.error('[portal-invoices]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// ── Change orders: the customer's own, and "Approve and sign" ──
+// Only change orders on quotes whose customer is this portal login's customer
+// (the portal token's crmCustomerId); lines, amounts and totals, never a cost.
+
+router.get('/change-orders', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    res.json({ success: true, data: await changeOrdersForContact(req.portalAccount!.crmCustomerId) })
+  } catch (err) {
+    console.error('[portal-change-orders]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+router.post('/change-orders/:id/sign', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const b = coSignSchema.parse(req.body)
+    const co = await prisma.changeOrder.findUnique({ where: { id: String(req.params.id) } })
+    const q = co ? await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId: co.accountId }, select: { crmContactId: true, archivedAt: true, fenceStyle: true, finalPrice: true } }) : null
+    // Someone else's change order is "not found", the same as one that does not exist.
+    if (!co || !q || q.archivedAt || !q.crmContactId || q.crmContactId !== req.portalAccount!.crmCustomerId) { res.status(404).json({ success: false, error: 'This change order is not available.' }); return }
+    const { row, again } = await signByCustomer(co.accountId, co.id, { name: b.name, signature: b.signature, ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '') || null, via: 'portal' })
+    if (!again) console.log(`[portal] customer signed change order ${row.id} (#${row.number}) in the portal as "${b.name}"`)
+    res.json({ success: true, data: customerView(row, q) })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    const status = (err as any)?.status
+    if (status === 404 || status === 409) { res.status(status).json({ success: false, error: (err as Error).message }); return }
+    console.error('[portal-change-order-sign]', err)
+    res.status(500).json({ success: false, error: 'Something went wrong. Please call us.' })
   }
 })
 
@@ -528,6 +682,8 @@ router.post('/accounts/:id/revoke', requireStaffSyncKey, requireStaffCan('users.
       where: { id },
       data: { status: 'suspended', inviteToken: null, inviteTokenExpiresAt: null },
     })
+    // Signed in browsers are signed out at once (the session check also refuses a suspended login).
+    await revokePortalSessions(id)
     res.json({ success: true })
   } catch (err) {
     console.error('[portal-revoke]', err)
@@ -713,19 +869,8 @@ router.post('/customer/:customerId/photos', requireStaffSyncKey, photoUpload.sin
 router.delete('/photos/:id', requireStaffCan('ops.delete'), async (req, res) => {
   try {
     const id = String(req.params.id)
-    const auth = req.headers.authorization
-    let allow = false
-    if (auth?.startsWith('Bearer ')) {
-      try {
-        const payload = verifyAccessToken(auth.slice(7)) as any
-        if (payload?.role === 'portal_customer') {
-          const photo = await prisma.portalPhoto.findUnique({ where: { id } })
-          if (photo && photo.uploadedByAccountId === payload.sub) allow = true
-        }
-      } catch {}
-    }
-    if (!allow && isStaffRequest(req)) allow = true
-    if (!allow) { res.status(401).json({ success: false, error: 'AUTH_REQUIRED' }); return }
+    // The office only (the portal has no delete); a customer's sign in is not a staff one.
+    if (!isStaffRequest(req)) { res.status(401).json({ success: false, error: 'AUTH_REQUIRED' }); return }
     await prisma.portalPhoto.update({ where: { id }, data: { deletedAt: new Date() } })
     res.json({ success: true })
   } catch (err) {
@@ -734,10 +879,16 @@ router.delete('/photos/:id', requireStaffCan('ops.delete'), async (req, res) => 
   }
 })
 
+/** A file's link: signed when it is one of ours (lib/portalFiles.ts), else the outside address (CompanyCam). */
+function fileLink(p: { fileKey: string; fileUrl: string | null }): string {
+  if (p.fileUrl && /^https?:\/\//i.test(p.fileUrl)) return p.fileUrl
+  return signedFileUrl(p.fileKey)
+}
+
 function serializePhoto(p: any) {
   return {
     id: p.id, customerId: p.crmCustomerId,
-    fileKey: p.fileKey, fileUrl: p.fileUrl,
+    fileKey: p.fileKey, fileUrl: fileLink(p),
     name: p.originalFilename, size: p.fileSizeBytes, mimeType: p.mimeType,
     caption: p.caption, source: p.source,
     uploadedAt: p.createdAt,
@@ -876,19 +1027,7 @@ router.post('/customer/:customerId/documents', requireStaffSyncKey, docUpload.si
 router.delete('/documents/:id', requireStaffCan('ops.delete'), async (req, res) => {
   try {
     const id = String(req.params.id)
-    let allow = false
-    const auth = req.headers.authorization
-    if (auth?.startsWith('Bearer ')) {
-      try {
-        const payload = verifyAccessToken(auth.slice(7)) as any
-        if (payload?.role === 'portal_customer') {
-          const f = await prisma.portalFile.findUnique({ where: { id } })
-          if (f && f.uploadedByAccountId === payload.sub) allow = true
-        }
-      } catch {}
-    }
-    if (!allow && isStaffRequest(req)) allow = true
-    if (!allow) { res.status(401).json({ success: false, error: 'AUTH_REQUIRED' }); return }
+    if (!isStaffRequest(req)) { res.status(401).json({ success: false, error: 'AUTH_REQUIRED' }); return }
     await prisma.portalFile.update({ where: { id }, data: { deletedAt: new Date() } })
     res.json({ success: true })
   } catch (err) {
@@ -900,7 +1039,7 @@ router.delete('/documents/:id', requireStaffCan('ops.delete'), async (req, res) 
 function serializeFile(f: any) {
   return {
     id: f.id, customerId: f.crmCustomerId,
-    fileKey: f.fileKey, fileUrl: f.fileUrl,
+    fileKey: f.fileKey, fileUrl: fileLink(f),
     name: f.originalFilename, size: f.fileSizeBytes, mimeType: f.mimeType,
     fileKind: f.fileKind, source: f.source, label: f.label,
     isVisibleToCustomer: f.isVisibleToCustomer,
@@ -909,10 +1048,18 @@ function serializeFile(f: any) {
   }
 }
 
-// File-serve endpoint (any authenticated party — staff via sync key, customer via portal JWT)
+// File-serve endpoint: a signed link (lib/portalFiles.ts) handed out with a
+// list the asker may see; website intake pictures (intake/) need none. A file
+// with no link, a wrong or run out signature, or a file that was deleted: 404,
+// the same as one that does not exist.
 router.get(/^\/files\/(.+)$/, async (req, res) => {
   try {
     const fileKey = String((req.params as any)[0] || '')
+    if (!isPublicFileKey(fileKey)) {
+      if (!checkFileSig(fileKey, req.query.e, req.query.s)) { res.status(404).end(); return }
+      const live = (await prisma.portalPhoto.count({ where: { fileKey, deletedAt: null } })) + (await prisma.portalFile.count({ where: { fileKey, deletedAt: null } }))
+      if (!live) { res.status(404).end(); return }
+    }
     // Containment check, not string scrubbing: resolve the requested key under
     // the upload folder and refuse anything that lands outside it. (Stripping
     // "../" let "....//" and absolute paths like "//etc/passwd" through, which

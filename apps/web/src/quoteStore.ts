@@ -51,6 +51,7 @@ function fromApi(r: SavedQuoteRecord): SavedQuote {
     proposal: r.proposal || undefined,
     chosenOption: r.chosenOption ?? null,
     acceptedAt: r.acceptedAt ?? undefined,
+    soldAt: r.soldAt ?? null,
     shareToken: r.shareToken ?? null,
     shareExpiresAt: r.shareExpiresAt ?? null,
     shareDisabledAt: r.shareDisabledAt ?? null,

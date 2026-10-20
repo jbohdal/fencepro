@@ -1,17 +1,142 @@
 /**
- * HTTP wrappers for the portal data plane (photos / documents / messages).
- * Used by both the customer-facing portal pages (with portal JWT) and the
- * CRM staff side (with X-API-Key for sync auth).
+ * The customer portal's only way to the server (/api/portal/*).
+ *
+ * Signing in sets an httpOnly session cookie on the server's answer; this
+ * file never sees, stores or sends a token. Every call goes with the cookie
+ * (credentials: 'include'), and every change also sends X-Portal-Request: 1,
+ * which the server requires on writes (lib/portalSession.ts). Nothing is kept
+ * in the browser: what the pages show is read from the server each time.
+ *
+ * The office's side (invites, a customer's photos and messages) is
+ * portalStaffApi.ts. This file and the portal pages never import staff code,
+ * and a test (portalNoBrowserStorage.test.ts) fails if anything they load
+ * touches the browser's storage.
  */
 
-import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 
-/**
- * The id a file upload is saved under: the same file for the same place
- * gives the same id, so a double tap or a resend saves it once.
- */
-export function fileRequestId(scope: string, file: File): string {
+function apiBase(): string {
+  if (typeof window === 'undefined') return ''
+  return window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
+}
+
+/** Signed out by the server (session ended or run out): the pages go to the sign in page. */
+export const PORTAL_SIGNED_OUT_EVENT = 'ezbiz:portal:signed-out'
+
+async function call(method: string, p: string, body?: unknown): Promise<{ status: number; json: any }> {
+  const write = method !== 'GET'
+  const headers: Record<string, string> = {}
+  if (write) headers['X-Portal-Request'] = '1'
+  if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json'
+  const res = await fetch(`${apiBase()}/api/portal${p}`, {
+    method, credentials: 'include', headers,
+    body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
+  })
+  const json = await res.json().catch(() => null)
+  if (res.status === 401 && p !== '/login' && p !== '/me/password') {
+    try { window.dispatchEvent(new CustomEvent(PORTAL_SIGNED_OUT_EVENT)) } catch { /* no window */ }
+  }
+  return { status: res.status, json }
+}
+
+const failed = (r: { status: number; json: any }) => (r.json?.error as string) || `HTTP ${r.status}`
+
+// ── Sign in ──
+
+export interface PortalUser {
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+  crmCustomerId: string
+  customer: { firstName: string; lastName: string; phone: string; serviceAddress: string } | null
+}
+
+/** Who is signed in (from the server, by the cookie), or null. 'offline': the server could not be reached. */
+export async function fetchMe(): Promise<PortalUser | null | 'offline'> {
+  try {
+    const r = await call('GET', '/me')
+    if (r.status === 401) return null
+    return r.json?.success ? (r.json.data as PortalUser) : 'offline'
+  } catch { return 'offline' }
+}
+
+export async function login(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await call('POST', '/login', { email, password })
+    return r.json?.success ? { ok: true } : { ok: false, error: r.json?.error || 'INVALID_CREDENTIALS' }
+  } catch { return { ok: false, error: 'NETWORK' } }
+}
+
+/** Set a password on the invite link; the answer signs the customer in. */
+export async function verifyAndActivate(rawToken: string, password: string, confirmPassword?: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await call('POST', '/activate', { token: rawToken, password, confirmPassword: confirmPassword ?? password })
+    return r.json?.success ? { ok: true } : { ok: false, error: r.json?.error || 'ACTIVATION_FAILED' }
+  } catch { return { ok: false, error: 'NETWORK' } }
+}
+
+export async function logout(): Promise<void> {
+  try { await call('POST', '/logout', {}) } catch { /* the cookie runs out by itself */ }
+}
+
+export async function resendPortalInvite(email: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await call('POST', '/resend-invite', { email })
+    return r.json?.success ? { ok: true } : { ok: false, error: r.json?.error || failed(r) }
+  } catch { return { ok: false, error: 'NETWORK' } }
+}
+
+export async function changePassword(currentPassword: string, password: string, confirmPassword: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await call('POST', '/me/password', { currentPassword, password, confirmPassword })
+    return r.json?.success ? { ok: true } : { ok: false, error: r.json?.error || failed(r) }
+  } catch { return { ok: false, error: 'NETWORK' } }
+}
+
+// ── The company (name, phone, the portal's color) ──
+
+export interface PortalCompany {
+  name: string; phone: string; email: string
+  portal: { accentColor: string; supportEmail: string; supportPhone: string; welcomeMessage: string }
+}
+
+export async function fetchCompany(): Promise<PortalCompany | null> {
+  try {
+    const r = await call('GET', '/company')
+    return r.json?.success ? (r.json.data as PortalCompany) : null
+  } catch { return null }
+}
+
+// ── Quotes, projects, invoices (null: could not load) ──
+
+export interface PortalQuote {
+  id: string; fenceStyle: string; date: string; status: 'SENT' | 'SOLD' | 'LOST'
+  priceCents: number
+  layout: any; runs: number[]
+  shareToken: string | null
+}
+export interface PortalProject { id: string; fenceStyle: string; status: string; scheduledDate: string; crewAssigned: string; customerAddress: string }
+export interface PortalInvoice { id: string; invoiceNumber: string; title: string; status: string; dueDate: string; issuedDate: string; totalCents: number; amountPaidCents: number; balanceDueCents: number }
+
+async function list<T>(p: string): Promise<T[] | null> {
+  try {
+    const r = await call('GET', p)
+    return r.json?.success ? (r.json.data as T[]) : null
+  } catch { return null }
+}
+export const listPortalQuotes = () => list<PortalQuote>('/quotes')
+export const listPortalProjects = () => list<PortalProject>('/projects')
+export const listPortalInvoices = () => list<PortalInvoice>('/invoices')
+
+// ── Photos and documents ──
+
+export interface PortalPhotoRow { id: string; fileUrl: string; name: string; size: number; mimeType: string; caption?: string | null; source: string; uploadedAt: string }
+export interface PortalFileRow { id: string; fileUrl: string; name: string; size: number; mimeType: string; fileKind: string; source: string; label?: string | null; uploadedAt: string; uploadedBy: string }
+export interface PortalMediaRow { id: string; kind: 'photo' | 'video'; caption: string; category: string; takenAt: string; url: string; originalUrl: string; previewUrl: string | null; thumbUrl: string | null }
+
+/** The id an upload is saved under: the same file again saves once. */
+function fileRequestId(scope: string, file: File): string {
   const text = `${scope}|${file.name}|${file.size}|${file.lastModified}`
   let a = 0x811c9dc5, b = 0x01000193
   for (let i = 0; i < text.length; i++) {
@@ -22,274 +147,72 @@ export function fileRequestId(scope: string, file: File): string {
   return `f-${a.toString(16).padStart(8, '0')}${b.toString(16).padStart(8, '0')}${file.size.toString(16)}`
 }
 
-function apiBase(): string {
-  if (typeof window === 'undefined') return ''
-  return window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
-}
-
-function portalAuthHeaders(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem('fencepro_portal_session')
-    if (raw) {
-      const s = JSON.parse(raw)
-      if (s.accessToken) return { Authorization: `Bearer ${s.accessToken}` }
-    }
-  } catch {}
-  return {}
-}
-
-function staffAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {}
-  try {
-    // The login token itself is attached (and refreshed) by fetchWithAuth.
-    const token = localStorage.getItem('crm_access_token')
-    if (token) headers['Authorization'] = `Bearer ${token}`
-  } catch {}
-  return headers
-}
-
-// ── Photos (portal-side, customer-authed) ──────────────────────────
-
-export interface PortalPhotoRow {
-  id: string
-  customerId: string
-  fileKey: string
-  fileUrl: string
-  name: string
-  size: number
-  mimeType: string
-  caption?: string | null
-  source: 'portal_customer' | 'crm_staff' | 'system_generated' | 'companycam'
-  uploadedAt: string
-}
-
-export async function uploadPortalPhoto(file: File, caption?: string): Promise<{ ok: boolean; data?: PortalPhotoRow; error?: string }> {
-  try {
-    const fd = new FormData()
-    fd.append('clientId', fileRequestId('portal-photo', file))
-    fd.append('file', file)
-    if (caption) fd.append('caption', caption)
-    const res = await fetch(`${apiBase()}/api/portal/photos`, {
-      method: 'POST', headers: portalAuthHeaders(), body: fd,
-    })
-    const json = await res.json()
-    if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
-    return { ok: true, data: json.data }
-  } catch (err: any) { return { ok: false, error: err?.message || 'Network error' } }
-}
-
-export async function listPortalPhotos(): Promise<PortalPhotoRow[]> {
-  try {
-    const res = await fetch(`${apiBase()}/api/portal/photos`, { headers: portalAuthHeaders() })
-    const json = await res.json()
-    return json.success ? (json.data as PortalPhotoRow[]) : []
-  } catch { return [] }
-}
-
-export interface PortalMediaRow { id: string; kind: 'photo' | 'video'; caption: string; category: string; takenAt: string; url: string; originalUrl: string; previewUrl: string | null; thumbUrl: string | null }
-
-/** Photos and video the company shared with this customer (marked Customer). */
-export async function listPortalMedia(): Promise<PortalMediaRow[]> {
-  try {
-    const res = await fetch(`${apiBase()}/api/portal/media`, { headers: portalAuthHeaders() })
-    const json = await res.json()
-    if (!json.success) return []
-    const base = apiBase()
-    return (json.data as PortalMediaRow[]).map(m => ({ ...m, url: base + m.url, originalUrl: base + m.originalUrl, previewUrl: m.previewUrl && base + m.previewUrl, thumbUrl: m.thumbUrl && base + m.thumbUrl }))
-  } catch { return [] }
-}
-
-export async function deletePortalPhoto(id: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${apiBase()}/api/portal/photos/${id}`, {
-      method: 'DELETE', headers: portalAuthHeaders(),
-    })
-    return res.ok
-  } catch { return false }
-}
-
-// ── Photos (staff-side, by customer id) ────────────────────────────
-
-export async function listCustomerPhotos(customerId: string): Promise<PortalPhotoRow[]> {
-  try {
-    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/photos`, {
-      headers: staffAuthHeaders(),
-    })
-    const json = await res.json()
-    return json.success ? json.data : []
-  } catch { return [] }
-}
-
-export async function uploadStaffPhotoForCustomer(customerId: string, file: File, caption?: string, uploadedBy?: string): Promise<{ ok: boolean; data?: PortalPhotoRow; error?: string }> {
-  try {
-    const fd = new FormData()
-    fd.append('clientId', fileRequestId(`photo:${customerId}`, file))
-    fd.append('file', file)
-    if (caption) fd.append('caption', caption)
-    if (uploadedBy) fd.append('uploadedBy', uploadedBy)
-    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/photos`, {
-      method: 'POST', headers: staffAuthHeaders(), body: fd,
-    })
-    const json = await res.json()
-    if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
-    return { ok: true, data: json.data }
-  } catch (err: any) { return { ok: false, error: err?.message || 'Network error' } }
-}
-
-// ── Documents ──────────────────────────────────────────────────────
-
-export interface PortalFileRow {
-  id: string
-  customerId: string
-  fileKey: string
-  fileUrl: string
-  name: string
-  size: number
-  mimeType: string
-  fileKind: 'photo' | 'document' | 'site_plan' | 'contract' | 'permit' | 'warranty' | 'other'
-  source: 'portal_customer' | 'crm_staff' | 'system_generated' | 'companycam'
-  label?: string | null
-  isVisibleToCustomer: boolean
-  uploadedAt: string
-  uploadedBy: string
-}
-
-export async function uploadPortalDocument(file: File, label?: string): Promise<{ ok: boolean; data?: PortalFileRow; error?: string }> {
-  try {
-    const fd = new FormData()
-    fd.append('clientId', fileRequestId('portal-doc', file))
-    fd.append('file', file)
-    if (label) fd.append('label', label)
-    const res = await fetch(`${apiBase()}/api/portal/documents`, {
-      method: 'POST', headers: portalAuthHeaders(), body: fd,
-    })
-    const json = await res.json()
-    if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
-    return { ok: true, data: json.data }
-  } catch (err: any) { return { ok: false, error: err?.message || 'Network error' } }
-}
-
-export async function listPortalDocuments(): Promise<PortalFileRow[]> {
-  try {
-    const res = await fetch(`${apiBase()}/api/portal/documents`, { headers: portalAuthHeaders() })
-    const json = await res.json()
-    return json.success ? json.data : []
-  } catch { return [] }
-}
-
-export async function listCustomerDocuments(customerId: string): Promise<PortalFileRow[]> {
-  try {
-    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/documents`, {
-      headers: staffAuthHeaders(),
-    })
-    const json = await res.json()
-    return json.success ? json.data : []
-  } catch { return [] }
-}
-
-export async function uploadStaffDocumentForCustomer(customerId: string, file: File, label?: string, uploadedBy?: string): Promise<{ ok: boolean; data?: PortalFileRow; error?: string }> {
-  try {
-    const fd = new FormData()
-    fd.append('clientId', fileRequestId(`doc:${customerId}`, file))
-    fd.append('file', file)
-    if (label) fd.append('label', label)
-    if (uploadedBy) fd.append('uploadedBy', uploadedBy)
-    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/documents`, {
-      method: 'POST', headers: staffAuthHeaders(), body: fd,
-    })
-    const json = await res.json()
-    if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
-    return { ok: true, data: json.data }
-  } catch (err: any) { return { ok: false, error: err?.message || 'Network error' } }
-}
-
-export async function deletePortalDocument(id: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${apiBase()}/api/portal/documents/${id}`, {
-      method: 'DELETE', headers: portalAuthHeaders(),
-    })
-    return res.ok
-  } catch { return false }
-}
-
-// Resolve a fileUrl onto an absolute URL the staff/customer browser can fetch
-export function resolveFileUrl(fileUrl: string): string {
+/** A file link from the server (signed for this file) as an address this browser can open. */
+export function fileHref(fileUrl: string): string {
   if (!fileUrl) return ''
   if (/^https?:\/\//i.test(fileUrl)) return fileUrl
   return `${apiBase()}${fileUrl}`
 }
 
-// ── Messages ───────────────────────────────────────────────────────
-
-export interface PortalMessage {
-  id: string
-  customerId: string
-  senderType: 'customer' | 'staff'
-  senderUser?: string | null
-  body: string
-  isReadByStaff: boolean
-  isReadByCustomer: boolean
-  createdAt: string
+async function upload<T>(p: string, scope: string, file: File, extra: Record<string, string | undefined>): Promise<{ ok: boolean; data?: T; error?: string }> {
+  try {
+    const fd = new FormData()
+    fd.append('clientId', fileRequestId(scope, file))
+    fd.append('file', file)
+    for (const [k, v] of Object.entries(extra)) if (v) fd.append(k, v)
+    const r = await call('POST', p, fd)
+    return r.json?.success ? { ok: true, data: r.json.data as T } : { ok: false, error: failed(r) }
+  } catch { return { ok: false, error: 'Network error' } }
 }
 
-export interface InboxThread {
-  crmCustomerId: string
-  lastAt: string
-  lastBody: string
-  lastSender: 'customer' | 'staff'
-  unreadCustomerCount: number
+export const uploadPortalPhoto = (file: File, caption?: string) => upload<PortalPhotoRow>('/photos', 'portal-photo', file, { caption })
+export const uploadPortalDocument = (file: File, label?: string) => upload<PortalFileRow>('/documents', 'portal-doc', file, { label })
+export const listPortalPhotos = () => list<PortalPhotoRow>('/photos')
+export const listPortalDocuments = () => list<PortalFileRow>('/documents')
+
+/** Photos and video the company shared with this customer (marked Customer). */
+export async function listPortalMedia(): Promise<PortalMediaRow[] | null> {
+  const rows = await list<PortalMediaRow>('/media')
+  if (!rows) return null
+  const base = apiBase()
+  return rows.map(m => ({ ...m, url: base + m.url, originalUrl: base + m.originalUrl, previewUrl: m.previewUrl && base + m.previewUrl, thumbUrl: m.thumbUrl && base + m.thumbUrl }))
+}
+
+// ── Messages ──
+
+export interface PortalMessage { id: string; senderType: 'customer' | 'staff'; body: string; createdAt: string }
+
+export async function listPortalMessages(): Promise<PortalMessage[] | null> {
+  try {
+    const r = await call('GET', '/messages')
+    return r.json?.success ? (r.json.data.messages as PortalMessage[]) : null
+  } catch { return null }
 }
 
 /** `requestId`: one per message typed (kept until it is sent), so sending it twice saves it once. */
-export async function sendPortalMessage(body: string, requestId?: string): Promise<{ ok: boolean; data?: PortalMessage; error?: string }> {
+export async function sendPortalMessage(body: string, requestId?: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${apiBase()}/api/portal/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...portalAuthHeaders() },
-      body: JSON.stringify({ body, clientId: requestId }),
-    })
-    const json = await res.json()
-    if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
-    return { ok: true, data: json.data }
-  } catch (err: any) { return { ok: false, error: err?.message || 'Network error' } }
+    const r = await call('POST', '/messages', { body, clientId: requestId })
+    return r.json?.success ? { ok: true } : { ok: false, error: failed(r) }
+  } catch { return { ok: false, error: 'Network error' } }
 }
 
-export async function listPortalMessages(): Promise<{ messages: PortalMessage[]; unreadByCustomer: number }> {
-  try {
-    const res = await fetch(`${apiBase()}/api/portal/messages`, { headers: portalAuthHeaders() })
-    const json = await res.json()
-    return json.success ? json.data : { messages: [], unreadByCustomer: 0 }
-  } catch { return { messages: [], unreadByCustomer: 0 } }
+// ── Change orders (server lib/changeOrders.ts) ──
+
+export interface PortalChangeOrder {
+  id: string; number: number; status: 'sent' | 'approved' | 'void'; reason: string
+  lines: Array<{ id: string; description: string; amountCents: number }>; totalCents: number
+  sentAt: string | null; approvedAt: string | null; voidedAt: string | null; signedBy: string | null; signedAt: string | null
+  quote: { fenceStyle: string; priceCents: number } | null
 }
 
-export async function listCustomerMessages(customerId: string): Promise<PortalMessage[]> {
-  try {
-    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/messages`, {
-      headers: staffAuthHeaders(),
-    })
-    const json = await res.json()
-    return json.success ? json.data.messages : []
-  } catch { return [] }
-}
+/** This customer's change orders: sent (to sign), approved and void (history). null: could not load. */
+export const listPortalChangeOrders = () => list<PortalChangeOrder>('/change-orders')
 
-/** `requestId`: one per message typed (kept until it is sent), so sending it twice saves it once. */
-export async function staffReplyToCustomer(customerId: string, body: string, sender?: string, requestId?: string): Promise<{ ok: boolean; data?: PortalMessage; error?: string }> {
+/** Approve and sign one: the typed name and the drawn signature (PNG data URL). */
+export async function signPortalChangeOrder(id: string, name: string, signature: string): Promise<{ ok: boolean; data?: PortalChangeOrder; error?: string }> {
   try {
-    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...staffAuthHeaders() },
-      body: JSON.stringify({ body, sender, clientId: requestId }),
-    })
-    const json = await res.json()
-    if (!res.ok || !json.success) return { ok: false, error: json?.error || `HTTP ${res.status}` }
-    return { ok: true, data: json.data }
-  } catch (err: any) { return { ok: false, error: err?.message || 'Network error' } }
-}
-
-export async function getMessagesInbox(): Promise<{ threads: InboxThread[]; totalUnread: number }> {
-  try {
-    const res = await fetchWithAuth(`${apiBase()}/api/portal/messages/inbox`, { headers: staffAuthHeaders() })
-    const json = await res.json()
-    return json.success ? json.data : { threads: [], totalUnread: 0 }
-  } catch { return { threads: [], totalUnread: 0 } }
+    const r = await call('POST', `/change-orders/${encodeURIComponent(id)}/sign`, { name, signature })
+    return r.json?.success ? { ok: true, data: r.json.data } : { ok: false, error: r.json?.error || 'Could not sign. Please try again.' }
+  } catch { return { ok: false, error: 'No connection. Please try again.' } }
 }

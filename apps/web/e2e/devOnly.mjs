@@ -6,7 +6,10 @@
 //
 // Not imported by live-readonly.mjs (read only by design, every non GET is
 // stopped) or by godaddy-embed.mjs / real-site-embed.mjs (they load the
-// public quote widget the way a customer does and send nothing).
+// public quote widget the way a customer does and send nothing), or by
+// widget-draw-public.mjs (the public door in test mode only, behind
+// PUBLIC_WIDGET_TEST=1; any request that is not a GET and not test mode is
+// stopped, and live is only read).
 
 const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/
 

@@ -14,9 +14,13 @@
  *               (installed, broken, cut to waste); what came back to the shop or
  *               went back to the vendor is recorded on the line and is not a job
  *               cost.
- *   labor     = sub: units paid (sections or feet, as the quote was priced) x
- *               the sub rate the quote was priced with; crew: hours x the hourly
- *               rate in Settings; plus any other labor pay the office adds.
+ *   labor     = sub: the amount the takeoff records as paid to the sub ("Sub
+ *               paid $", entered by the owner or office), else units
+ *               paid (sections or feet, as the quote was priced) x the sub rate
+ *               saved at signing (JobQuotedCost); crew: hours x the hourly rate
+ *               saved at signing; plus any other labor pay the office adds
+ *               (Jonathan, Oct 20, 2026). A job signed before job costing has
+ *               no saved rates, so it uses Settings' rates of today.
  *   tear out and other quoted material: carried as quoted (the takeoff does
  *               not count them), and labeled so.
  *
@@ -98,6 +102,8 @@ export interface TakeoffLabor {
   subUnit: 'section' | 'foot'
   /** Sections (or feet) the sub was paid for. */
   subUnits: number
+  /** What the sub was actually paid, in cents, entered by the owner or office (a cost: never on an installer's phone); null: units x the rate saved at signing. */
+  subPaidCents?: number | null
   crew: CrewHours[]
 }
 
@@ -261,6 +267,14 @@ export function laborFromQuoted(q: QuotedLabor | null, fallback: { mode: LaborMo
   return { mode: q.mode === 'sub' ? 'sub' : 'crew', subUnit: q.subUnit, subUnits: q.mode === 'sub' ? q.subUnits : 0, crew: [] }
 }
 
+/** The amount the takeoff records as paid to the sub, in whole cents, or null when none is entered. */
+export function subPaidOf(l: { subPaidCents?: unknown }): number | null {
+  const v = l?.subPaidCents
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null
+}
+
 export const crewHoursTotal = (l: TakeoffLabor) => Math.round(l.crew.reduce((s, c) => s + qty(c.hours), 0) * 100) / 100
 
 // ── Actual cost ───────────────────────────────────────────────────────────────
@@ -274,9 +288,9 @@ export interface UnitCost { cents: number; source: CostSource; invoiceId?: strin
 export function actualCostOf(t: { lines: TakeoffLine[]; labor: TakeoffLabor; installDate: string }, ctx: {
   quoted: QuotedCost | null
   unitCostOf: (line: TakeoffLine) => UnitCost
-  /** Settings' hourly rate (crew hours). */
+  /** Settings' hourly rate today: used only when there is no quoted cost (nothing saved at signing). */
   hourlyCostCents: number
-  /** The sub rate when there is no quoted cost (Settings now). */
+  /** Settings' sub rate today: used only when there is no quoted cost. */
   subRateCostCents: number
   otherLaborCostCents: number
   frozen: boolean
@@ -293,17 +307,30 @@ export function actualCostOf(t: { lines: TakeoffLine[]; labor: TakeoffLabor; ins
   const other = Math.max(0, Math.round(ctx.otherLaborCostCents))
   let laborCents: number
   let laborMath: string
-  if (t.labor.mode === 'sub') {
-    const rate = ctx.quoted?.labor.subRateCostCents || ctx.subRateCostCents
+  // The rates saved at signing; Settings' rates of today only for a job signed before job costing.
+  const savedSub = ctx.quoted ? ctx.quoted.labor?.subRateCostCents : undefined
+  const savedHourly = ctx.quoted ? ctx.quoted.labor?.hourlyCostCents : undefined
+  let source = ''
+  const paid = subPaidOf(t.labor)
+  if (t.labor.mode === 'sub' && paid !== null) {
+    laborCents = paid
+    laborMath = `Sub paid ${usd(paid)}`
+    source = 'entered on the takeoff'
+  } else if (t.labor.mode === 'sub') {
+    const rate = typeof savedSub === 'number' && savedSub > 0 ? savedSub : ctx.subRateCostCents
     const units = qty(t.labor.subUnits)
     laborCents = Math.round(units * rate)
     laborMath = `${units} ${t.labor.subUnit === 'section' ? 'sections' : 'ft'} paid × ${usd(rate)}`
+    source = typeof savedSub === 'number' && savedSub > 0 ? 'sub rate saved at signing' : "Settings' sub rate today (none saved at signing)"
   } else {
+    const rate = typeof savedHourly === 'number' && savedHourly > 0 ? savedHourly : ctx.hourlyCostCents
     const hours = crewHoursTotal(t.labor)
-    laborCents = Math.round(hours * ctx.hourlyCostCents)
-    laborMath = `${hours} crew hours × ${usd(ctx.hourlyCostCents)}/hr`
+    laborCents = Math.round(hours * rate)
+    laborMath = `${hours} crew hours × ${usd(rate)}/hr`
+    source = typeof savedHourly === 'number' && savedHourly > 0 ? 'hourly rate saved at signing' : "Settings' hourly rate today (none saved at signing)"
   }
   if (other) laborMath += ` + ${usd(other)} other labor`
+  laborMath += ` (${source})`
   laborCents += other
   const tearOutCents = ctx.quoted?.tearOutCents ?? 0
   const otherMaterialCents = ctx.quoted ? otherQuotedMaterial(ctx.quoted) : 0

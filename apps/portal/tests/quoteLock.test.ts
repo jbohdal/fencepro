@@ -44,6 +44,11 @@ describe('which quotes are signed', () => {
     expect(isSignedQuote({ status: 'DRAFT' })).toBe(false)
     expect(isSignedQuote(null)).toBe(false)
   })
+  test('ever sold (soldAt) stays signed after Lost (Jonathan, Oct 20, 2026)', () => {
+    expect(isSignedQuote({ status: 'LOST', soldAt: new Date() })).toBe(true)
+    expect(isSignedQuote({ status: 'LOST', soldAt: '2026-01-02T00:00:00.000Z' })).toBe(true)
+    expect(isSignedQuote({ status: 'LOST', soldAt: null })).toBe(false)
+  })
 })
 
 describe('refused: every price-bearing field', () => {
@@ -68,6 +73,9 @@ describe('refused: every price-bearing field', () => {
     expect(edit(y => { y.sides[1].lengthIn = 1500 })).toEqual(['layout'])
     expect(edit(y => { y.sides[1].gate = { type: 'double', widthIn: 120, position: 'middle' } })).toEqual(['layout'])
     expect(edit(y => { y.sides[0].gate.widthIn = 60 })).toEqual(['layout'])
+    // A gate slid along its side (the builder's drag, gateSlide.ts): same footage, still a price bearing change.
+    expect(edit(y => { y.sides[0].gate = { ...y.sides[0].gate, position: 'distance', distanceIn: 12 } })).toEqual(['layout'])
+    expect(edit(y => { y.sides[0].gate = { ...y.sides[0].gate, position: 'distance', distanceIn: (y.sides[0].gate.distanceIn ?? 0) + 6 } })).toEqual(['layout'])
     expect(edit(y => { y.sides[1].skip = { kind: 'existing', lengthIn: 96, position: 'middle' } })).toEqual(['layout'])
     expect(edit(y => { y.sides[0].on = false })).toEqual(['layout'])
     expect(edit(y => { y.closed = true })).toEqual(['layout'])

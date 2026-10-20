@@ -1,7 +1,7 @@
 /**
  * Photos tab for a customer profile (staff side).
  *
- * Uses the server-backed portal data plane via portalApiClient. Customer-uploaded
+ * Uses the server-backed portal data plane via portalStaffApi. Customer-uploaded
  * photos appear here with a "Customer" source badge; staff uploads appear with a
  * "Staff" badge. CompanyCam sub-tab is preserved when the integration is linked.
  */
@@ -14,7 +14,7 @@ import {
   deletePortalPhoto,
   resolveFileUrl,
   type PortalPhotoRow,
-} from './portalApiClient'
+} from './portalStaffApi'
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
 import { can } from './permissions'

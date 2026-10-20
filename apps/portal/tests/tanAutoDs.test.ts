@@ -91,17 +91,22 @@ describe('tan dig set mixed parts list = the TV-DS rows', () => {
     expect(add(walk, '*Vinyl, Gate, Hinge')).toBe(1)
     expect(add(walk, '*Vinyl, Gate, Latch')).toBe(1)
     expect(add(walk, 'Vinyl, Tan, Cap, Gate')).toBe(2)
-    expect(add(walk, '*Vinyl, Tan, Upright')).toBe(1)
+    // TAKEOFF_RULES (Jonathan, Oct 20, 2026): 2 uprights, 1 P-channel and 2 bags of concrete per walk gate.
+    expect(add(walk, '*Vinyl, Tan, Upright')).toBe(2)
+    expect(add(walk, "*Vinyl, Gate, P-Channel, 6'")).toBe(1)
+    expect(add(walk, 'Misc, Concrete')).toBe(2)
     expect(add(walk, '*Vinyl, Tan, Rivet, 1"')).toBe(50)
     expect(add(dbl, "*Vinyl, Gate, H-Beam, 8'")).toBe(3)
     expect(add(dbl, '*Vinyl, Gate, Brace')).toBe(2)
     expect(add(dbl, '*Vinyl, Gate, Hinge')).toBe(2)
-    expect(add(dbl, '*Vinyl, Gate, Latch')).toBe(1)
+    // TAKEOFF_RULES (Jonathan, Oct 20, 2026): 2 latches, 4 uprights and 2 P-channels per double gate.
+    expect(add(dbl, '*Vinyl, Gate, Latch')).toBe(2)
     expect(add(dbl, 'Vinyl, Tan, Cap, Gate')).toBe(4)
-    expect(add(dbl, '*Vinyl, Tan, Upright')).toBe(2)
+    expect(add(dbl, '*Vinyl, Tan, Upright')).toBe(4)
+    expect(add(dbl, "*Vinyl, Gate, P-Channel, 6'")).toBe(2)
     expect(add(dbl, '*Vinyl, Tan, Rivet, 1"')).toBe(100)
-    // No P-channel and no H-beam bolts on the tan dig set list.
-    expect([...walk, ...dbl].some(i => /P-Channel|H-Beam\)/.test(i.item))).toBe(false)
+    // No H-beam bolts on the tan dig set list.
+    expect([...walk, ...dbl].some(i => /H-Beam\)/.test(i.item))).toBe(false)
   })
   test('the built in kit set derives cleanly and the quote reads it', () => {
     expect(isAutoKitStyle(TAN_AUTO_DS)).toBe(true)

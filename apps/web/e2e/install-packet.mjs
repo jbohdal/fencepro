@@ -97,7 +97,7 @@ try {
   check('gate codes, notes and crew notes', text.includes('Gate code 4512') && text.includes('Crew notes') && text.includes('sprinkler heads along the back') && text.includes('(352) 555-0100'))
   check('site plan with the photo pin', await cp.locator('.plan svg [data-plan-pin]').count() === 1)
   check('every run with post to post spacing', text.includes("Left return (1 of 2)") && text.includes("6' 6\"") && text.includes("7' 10 3/4\""), text.slice(text.indexOf('Run'), text.indexOf('Run') + 200))
-  check('section and post counts, and the gate', text.includes('57 sections') && text.includes('4 corner posts') && text.includes('2 gate posts') && text.includes('Left return: 4\' 0" walk gate in the middle'))
+  check('section and post counts, and the gate', text.includes('57 sections') && text.includes('4 corner posts') && text.includes('2 gate posts') && text.includes('Left return: 4 ft walk gate, 13 ft from the house, 13 ft to the Left side corner'))
   check('pull sheet quantities', text.includes('Rail, 8\'') && text.includes('114'))
   // The words a crew can read, and every number from the quote's money, anywhere in the page.
   const money = /14,?943|8,?368|1,?368|7,?000\.|1,?055|569\.67|11\.17|9\.26|unitCost|finalPrice|gmPct/i

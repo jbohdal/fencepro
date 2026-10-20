@@ -26,11 +26,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
   const { default: savedQuotes } = await import('../src/server/routes/saved-quotes.js')
   const { default: jobCosting } = await import('../src/server/routes/job-costing.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
+  const { laborOf } = await import('../src/server/lib/jobCosting.js')
   const { isCostKey } = await import('../src/server/lib/costRedact.js')
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
   const ids = { quotes: [] as string[], jobs: [] as string[], token: crypto.randomBytes(24).toString('base64url') }
-  let owner = '', installer = '', accountId = '', base = ''
+  let owner = '', installer = '', office = '', salesRep = '', accountId = '', base = ''
   let server: ReturnType<express.Express['listen']>
   const call = (who: string, method: string, p: string, body?: unknown) => fetch(base + p, { method, headers: { ...(who ? { Authorization: `Bearer ${who}` } : {}), 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
     .then(async r => ({ status: r.status, json: await r.json().catch(() => null) as any }))
@@ -58,8 +59,18 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     const sign = (role: string) => jwt.sign({ sub: user.id, email: user.email, role, firstName: user.firstName, lastName: user.lastName, crmAccountId: accountId }, secret, { expiresIn: '10m' })
     owner = sign('super_admin')
     installer = sign('field_crew')
+    office = sign('office_staff')
+    salesRep = sign('sales_rep')
     const app = express()
     app.use(express.json({ limit: '10mb' }))
+    // As index.ts: an installer's answers go out without costs.
+    const { hidesCosts, staffRoleOf, redactCosts } = await import('../src/server/lib/costRedact.js')
+    app.use('/api', (req, res, next) => {
+      if (!hidesCosts(staffRoleOf(req))) return next()
+      const json = res.json.bind(res)
+      res.json = (body: any) => json(redactCosts(body))
+      next()
+    })
     app.use('/api/saved-quotes', savedQuotes)
     app.use('/api/job-costing', jobCosting)
     server = app.listen(0)
@@ -138,7 +149,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     expect(ex.status).toBe(200)
     // A pull sheet line this takeoff does not have is refused, not added.
     expect((await asInstaller('PUT', `/api/job-costing/takeoff/${tid}/lines/${tid}:q9`, { part: 'x', usedQty: 1 })).status).toBe(409)
-    await asInstaller('PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, crew: [] })
+    // "Sub paid $" is a cost: an installer's is ignored and never comes back to the phone.
+    const instPaid = await asInstaller('PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, subPaidCents: 12345, crew: [] })
+    expect(instPaid.status).toBe(200)
+    expect('subPaidCents' in instPaid.json.data.labor).toBe(false)
+    expect(laborOf((await prisma.jobTakeoff.findUnique({ where: { id: tid } }))!).subPaidCents).toBeNull()
+    // Settings' sub rate changed since signing: labor uses the rate saved at signing (Jonathan, Oct 20, 2026).
+    // The quoted cost's saved rate is set to $22.22, which Settings never has, so the figure below proves where it came from.
+    const qc = (await prisma.jobQuotedCost.findUnique({ where: { accountId_quoteId: { accountId, quoteId } } }))!
+    await prisma.jobQuotedCost.update({ where: { id: qc.id }, data: { labor: { ...(qc.labor as any), subRateCostCents: 2222 } } })
     const sub = await asInstaller('POST', `/api/job-costing/takeoff/${tid}/submit`)
     expect(sub.json.data.status).toBe('submitted')
     // Submitted: the crew can no longer change it.
@@ -168,12 +187,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     expect(byPart['E2E Job Costing Post'].totalCostCents).toBe(11 * 1350)
     expect(byPart['E2E Job Costing Concrete'].totalCostCents).toBe(18 * 650)
     expect(byPart['E2E Broken Panel'].costSource).toBe('none')
-    // The sub rate is the company's Settings rate for the style (not a fixed $24: dev is a copy of live).
-    const { subRateFor } = await import('../src/server/lib/jobCostingMath.js')
-    const cfg = ((await prisma.businessState.findUnique({ where: { accountId } }))?.config ?? {}) as any
-    const rateCents = Math.round(subRateFor((cfg.fenceStyles ?? []).find((x: any) => x?.name === "WV-ND 6'x8' Privacy"), cfg.pricing ?? {}) * 100)
-    expect(rateCents).toBeGreaterThan(0)
+    // The sub rate saved at signing ($22.22), not the company's Settings rate today.
+    const rateCents = 2222
     expect(actual.laborCents).toBe(10 * rateCents + 2500)
+    expect(actual.laborMath).toBe('10 sections paid × $22.22 + $25.00 other labor (sub rate saved at signing)')
     expect(actual.totalCents).toBe(11 * 1350 + 18 * 650 + 10 * rateCents + 2500)
 
     const cmp = await call(owner, 'GET', `/api/job-costing/job/${job.id}`)
@@ -186,5 +203,34 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     const rep = await call(owner, 'GET', '/api/job-costing/report')
     const mine = rep.json.data.jobs.find((j: any) => j.jobId === job.id)
     expect(mine).toMatchObject({ takeoff: 'approved', quotedCents: 50500, actualCents: actual.totalCents, priceCents: 100000, month: '2026-10' })
+
+    // "Sub paid $": the office enters what the sub was actually paid (reopened); it replaces sections x rate.
+    expect((await call(owner, 'POST', `/api/job-costing/takeoff/${tid}/reopen`)).status).toBe(200)
+    const paid = await call(owner, 'PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, subPaidCents: 26075, crew: [] })
+    expect(paid.status).toBe(200)
+    expect(paid.json.data.labor.subPaidCents).toBe(26075)
+    // Left out on a later save (an older phone): kept.
+    expect((await call(owner, 'PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, crew: [] })).json.data.labor.subPaidCents).toBe(26075)
+    // "Sub paid $": owner and office only, not installers (Jonathan, Oct 20, 2026). The office sets and sees it;
+    // an installer's or a salesman's value is ignored and neither ever gets it back.
+    const byOffice = await call(office, 'PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, subPaidCents: 11111, crew: [] })
+    expect(byOffice.status).toBe(200)
+    expect(byOffice.json.data.labor.subPaidCents).toBe(11111)
+    expect((await call(office, 'GET', `/api/job-costing/takeoff?jobId=${job.id}`)).json.data.labor.subPaidCents).toBe(11111)
+    for (const who of [installer, salesRep]) {
+      const tried = await call(who, 'PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, subPaidCents: 99, crew: [] })
+      if (tried.status === 200) expect('subPaidCents' in tried.json.data.labor).toBe(false)
+      else expect(tried.status).toBe(403)
+      const seen = await call(who, 'GET', `/api/job-costing/takeoff?jobId=${job.id}`)
+      expect(JSON.stringify(seen.json)).not.toMatch(/subPaidCents|11111/)
+    }
+    expect(laborOf((await prisma.jobTakeoff.findUnique({ where: { id: tid } }))!).subPaidCents).toBe(11111)
+    expect((await call(owner, 'PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, subPaidCents: 26075, crew: [] })).json.data.labor.subPaidCents).toBe(26075)
+    const ap2 = await call(owner, 'POST', `/api/job-costing/takeoff/${tid}/approve`, { otherLaborCostCents: 0 })
+    expect(ap2.status).toBe(200)
+    const a2 = (await prisma.jobTakeoff.findUnique({ where: { id: tid } }))!.actualCost as any
+    expect(a2.laborCents).toBe(26075)
+    expect(a2.laborMath).toBe('Sub paid $260.75 (entered on the takeoff)')
+    expect(a2.totalCents).toBe(11 * 1350 + 18 * 650 + 26075)
   })
 })

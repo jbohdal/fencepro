@@ -19,6 +19,7 @@ import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCal
 import { sectionWidthForStyle } from './materialCalculator'
 import { deriveLayout, formatFtIn, postSpacing, type YardLayout } from './yardLayout'
 import LayoutEditor, { nextEmptySide } from './LayoutEditor'
+import CustomerDrawing from './CustomerDrawing'
 import VoicePanel, { type VoiceHandle } from './VoicePanel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { fetchCurrentUser } from './crmAuth'
@@ -501,7 +502,7 @@ export default function QuoteBuilder({
   }, [])
   const [showSaveModal, setShowSaveModal] = useState(false)
   // Signed (Sold or accepted): the price is locked, changes go on a change order. Sent: the price the customer saw.
-  const signedQuote = !!init?.id && isSignedQuote({ status: init.status, acceptedAt: init.acceptedAt })
+  const signedQuote = !!init?.id && isSignedQuote({ status: init.status, acceptedAt: init.acceptedAt, soldAt: init.soldAt })
   const sentQuote = !!init?.id && !signedQuote && init.status === 'SENT'
   const [pending, setPending] = useState<{ quote: SavedQuote; kind: 'locked' | 'sent' } | null>(null)
   const [coPrefill, setCoPrefill] = useState<ChangeOrderPrefill | null>(null)
@@ -1023,10 +1024,12 @@ export default function QuoteBuilder({
                   onPinTap={id => setOpenMedia(id)}
                   openSideId={openSide}
                   onOpenSide={setOpenSide}
+                  locked={signedQuote}
                   address={init?.customerAddress || getCustomers().find(c => `${c.firstName} ${c.lastName}`.trim().toLowerCase() === customerName.trim().toLowerCase())?.serviceAddress || ''}
                 />
               )}
             </div>
+            {init?.layout?.widgetDrawing && <CustomerDrawing record={init.layout.widgetDrawing} />}
 
             {entry === 'advanced' && (<>
             <div>

@@ -15,7 +15,7 @@ import {
   deletePortalDocument,
   resolveFileUrl,
   type PortalFileRow,
-} from './portalApiClient'
+} from './portalStaffApi'
 import { can } from './permissions'
 
 interface LegacyFile {

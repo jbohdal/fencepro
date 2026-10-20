@@ -14,6 +14,9 @@ import { setSavedKitSets, type KitSet } from './materialKits'
 import type { AppConfig, FenceStyle } from './configStore'
 import { isQuotable, isOnHold, NOT_QUOTABLE_MESSAGE } from './styleAvailability'
 import { priceQuoteJob, quoteView, savedWorkOf, type QuoteJob, type QuoteJobRequest } from './quoteJob'
+import { widgetCatalog, widgetOptions, widgetStyles, priceForStyle, type WidgetCatalog, type WidgetPick, type WidgetPriced } from './widgetPricing'
+import type { YardLayout } from './yardLayout'
+import type { TierSet } from './tiers'
 export { importedOldPrice } from './pricingEngine'
 
 export { NOT_QUOTABLE_MESSAGE }
@@ -109,6 +112,35 @@ export function quoteJobFor(data: EstimateData, req: QuoteJobRequest, overheadPc
   return priceQuoteJob(cfg, req, typeof overheadPct === 'number' && Number.isFinite(overheadPct) ? overheadPct : estimateOverheadPct(cfg))
 }
 export { quoteView, savedWorkOf }
+
+// ── The website quote (EZ Budget, /p/quote): drawn on the photo ──────────────
+export { toYardLayout, drawingProblem, totalFt as drawingTotalFt, runSides as drawingRunSides, joinRuns as drawingJoinRuns } from './widgetDraw'
+
+/** What the website quote offers: materials, colors and heights available for quoting. */
+export function widgetCatalogFor(data: EstimateData): WidgetCatalog {
+  useData(data)
+  return widgetCatalog(estimateConfig(data.config))
+}
+
+/** The options for a pick, each priced for the drawn yard exactly as the quote builder prices it (prices only). */
+export function widgetPricesFor(data: EstimateData, yard: YardLayout, pick: WidgetPick, tierSets: Array<Pick<TierSet, 'category' | 'tiers' | 'popular'>>): WidgetPriced {
+  useData(data)
+  const cfg = estimateConfig(data.config)
+  return widgetOptions(cfg, estimateOverheadPct(cfg), yard, pick, tierSets)
+}
+
+/** One style for the drawn yard, priced as the quote builder prices a new quote: what the saved quote keeps. */
+export function widgetQuoteFor(data: EstimateData, yard: YardLayout, fenceStyle: string, priceAdjust = 0): { job: QuoteJob; req: QuoteJobRequest; price: number; perFoot: number; footageFt: number } {
+  useData(data)
+  const cfg = estimateConfig(data.config)
+  const style = widgetStyles(cfg).find(s => s.name === fenceStyle)
+  if (!style) {
+    const named = cfg.fenceStyles.find(s => s.name === fenceStyle && s.isActive !== false)
+    if (named && !isQuotable(named)) throw new NotQuotableError(named.name)
+    throw new Error(`Unknown fence style: ${fenceStyle}`)
+  }
+  return priceForStyle(cfg, estimateOverheadPct(cfg), yard, style, priceAdjust)
+}
 
 /** Styles a customer can ask about: turned on and available for quoting. */
 export function estimateStyles(saved: Partial<AppConfig> | null, data?: Pick<EstimateData, 'inventory' | 'kits'>): FenceStyle[] {

@@ -678,11 +678,32 @@ model PortalAccount {
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
-  invites PortalInvite[]
+  invites  PortalInvite[]
+  sessions PortalSession[]
 
   @@index([crmCustomerId])
   @@index([inviteToken])
   @@index([status])
+}
+
+// A customer portal sign in (lib/portalSession.ts). The browser holds only a
+// random token in an httpOnly cookie; this row holds its SHA-256, so a sign in
+// can be ended (sign out, login revoked, password changed) and is checked on
+// every request. Nothing about the sign in is kept in the browser's storage.
+model PortalSession {
+  id              String    @id @default(uuid())
+  portalAccountId String
+  tokenHash       String    @unique
+  createdAt       DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  ip              String?
+  userAgent       String?
+
+  account PortalAccount @relation(fields: [portalAccountId], references: [id], onDelete: Cascade)
+
+  @@index([portalAccountId])
 }
 
 enum PortalFileSource {
@@ -1681,6 +1702,9 @@ model SavedQuote {
   acceptedAt        DateTime?
   acceptedBy        String? // typed name or display name from the accept form
   acceptedSignature String? // base64 data URL of the signature image, if any
+  // The first time this quote was Sold or accepted. Set once, never cleared
+  // (lib/everSold.ts): a sold quote stays locked even if later marked Lost.
+  soldAt            DateTime?
   // Proposal sent to the customer: the options offered (priced snapshots), the
   // drawn site plan and the words shown, frozen when the quote was saved.
   proposal          Json?
@@ -2049,6 +2073,26 @@ model IntakeLead {
 
   @@unique([source, sourceRef])
   @@index([accountId, status])
+}
+
+// ── Website quote drafts (EZ Budget, /p/quote) ──
+// The customer's drawing while they work, so leaving and coming back on the
+// same phone picks up where they were. Keyed by a random id (an httpOnly
+// cookie and the page address carry it). Holds the property address, the
+// drawing and the style picked; never a name, phone or email (those go
+// straight into the lead). Removed 30 days after it was last touched.
+model WidgetDraft {
+  id          String    @id
+  accountId   String?
+  data        Json
+  /// The quote made from it, once sent (the same draft never makes two).
+  quoteId     String?
+  submittedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  expiresAt   DateTime
+
+  @@index([expiresAt])
 }
 
 // ── Style photos for proposals (one per fence style, set in Settings) ──
@@ -2590,12 +2634,25 @@ model ChangeOrder {
   approvedAt DateTime?
   approvedBy String?
   voidedAt   DateTime?
+  /// The customer's link (/p/co/<token>), made when the office asks for it: 32
+  /// random bytes, so it is unique without a unique index (adding one to an
+  /// existing table stops the plain db push in deploy/mac/update.sh).
+  shareToken      String?
+  /// Signed by the customer (the portal or the link): typed name, drawn signature (PNG data URL), when, from where.
+  signedBy        String?
+  signature       String?
+  signedAt        DateTime?
+  signedIp        String?
+  signedUserAgent String?
+  /// portal | link
+  signedVia       String?
   version    Int       @default(1)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
   @@unique([accountId, quoteId, number])
   @@index([accountId, quoteId])
+  @@index([shareToken])
 }
 
 /// Job costing, the "Quoted cost": what a sold quote was priced at, frozen the

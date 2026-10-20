@@ -6,7 +6,7 @@
 
 import { describe, test, expect } from 'vitest'
 import {
-  quotedCostOf, linesFromQuoted, laborFromQuoted, actualCostOf, compare, jobLotUnitCosts, groupReport, partTrends, partsOf, otherQuotedMaterial,
+  quotedCostOf, linesFromQuoted, laborFromQuoted, actualCostOf, subPaidOf, compare, jobLotUnitCosts, groupReport, partTrends, partsOf, otherQuotedMaterial,
   subRateFor, findItemId, marginOf, type TakeoffLine, type UnitCost, type ReportJob,
 } from '../src/server/lib/jobCostingMath'
 import { isCostKey, redactCosts } from '../src/server/lib/costRedact'
@@ -100,7 +100,7 @@ describe('actual cost', () => {
   })
   test('sub labor = sections paid x the sub rate the quote was priced with, plus other labor pay', () => {
     expect(actual.laborCents).toBe(29000)
-    expect(actual.laborMath).toBe('10 sections paid × $24.00 + $50.00 other labor')
+    expect(actual.laborMath).toBe('10 sections paid × $24.00 + $50.00 other labor (sub rate saved at signing)')
     expect(actual.totalCents).toBe(92605)
   })
   test('crew labor = hours x the hourly rate', () => {
@@ -108,7 +108,39 @@ describe('actual cost', () => {
       quoted: null, unitCostOf, hourlyCostCents: 2500, subRateCostCents: 0, otherLaborCostCents: 0, frozen: false,
     })
     expect(a.laborCents).toBe(43750)
-    expect(a.laborMath).toBe('17.5 crew hours × $25.00/hr')
+    expect(a.laborMath).toBe("17.5 crew hours × $25.00/hr (Settings' hourly rate today (none saved at signing))")
+  })
+
+  // Jonathan, Oct 20, 2026: labor uses the rates saved at signing, unless the takeoff records what the sub was paid.
+  const crew = [{ id: 'a', name: 'Al', hours: 9 }, { id: 'b', name: 'Bo', hours: 8.5 }]
+  test('sub labor uses the sub rate saved at signing, not Settings today', () => {
+    // Settings now say $30 a section; the quote was signed at $24.
+    const a = actualCostOf({ lines: [], labor: { mode: 'sub', subUnit: 'section', subUnits: 10, crew: [] }, installDate: '2026-10-14' }, { quoted, unitCostOf, hourlyCostCents: 4000, subRateCostCents: 3000, otherLaborCostCents: 0, frozen: false })
+    expect(a.laborCents).toBe(24000)
+    expect(a.laborMath).toBe('10 sections paid × $24.00 (sub rate saved at signing)')
+  })
+  test('"Sub paid $" on the takeoff replaces units x rate', () => {
+    const a = actualCostOf({ lines: [], labor: { mode: 'sub', subUnit: 'section', subUnits: 10, subPaidCents: 27550, crew: [] }, installDate: '2026-10-14' }, { quoted, unitCostOf, hourlyCostCents: 4000, subRateCostCents: 3000, otherLaborCostCents: 1000, frozen: false })
+    expect(a.laborCents).toBe(28550)
+    expect(a.laborMath).toBe('Sub paid $275.50 + $10.00 other labor (entered on the takeoff)')
+    // Blank (null) goes back to units x the rate saved at signing; $0 entered is $0 paid.
+    expect(actualCostOf({ lines: [], labor: { mode: 'sub', subUnit: 'section', subUnits: 10, subPaidCents: null, crew: [] }, installDate: '2026-10-14' }, { quoted, unitCostOf, hourlyCostCents: 4000, subRateCostCents: 3000, otherLaborCostCents: 0, frozen: false }).laborCents).toBe(24000)
+    expect(actualCostOf({ lines: [], labor: { mode: 'sub', subUnit: 'section', subUnits: 10, subPaidCents: 0, crew: [] }, installDate: '2026-10-14' }, { quoted, unitCostOf, hourlyCostCents: 4000, subRateCostCents: 3000, otherLaborCostCents: 0, frozen: false }).laborCents).toBe(0)
+    // A crew job ignores a sub amount left on the takeoff.
+    expect(actualCostOf({ lines: [], labor: { mode: 'crew', subUnit: 'section', subUnits: 0, subPaidCents: 27550, crew }, installDate: '2026-10-14' }, { quoted, unitCostOf, hourlyCostCents: 4000, subRateCostCents: 3000, otherLaborCostCents: 0, frozen: false }).laborCents).toBe(43750)
+  })
+  test('crew hours use the hourly rate saved at signing (frozen), not Settings today', () => {
+    const a = actualCostOf({ lines: [], labor: { mode: 'crew', subUnit: 'section', subUnits: 0, crew }, installDate: '2026-10-14' }, { quoted, unitCostOf, hourlyCostCents: 4000, subRateCostCents: 3000, otherLaborCostCents: 0, frozen: false })
+    expect(a.laborCents).toBe(43750) // 17.5 h x $25 saved at signing, not $40 today
+    expect(a.laborMath).toBe('17.5 crew hours × $25.00/hr (hourly rate saved at signing)')
+  })
+  test('no quoted cost (signed before job costing): Settings today, said so', () => {
+    const a = actualCostOf({ lines: [], labor: { mode: 'sub', subUnit: 'section', subUnits: 10, crew: [] }, installDate: '2026-10-14' }, { quoted: null, unitCostOf, hourlyCostCents: 4000, subRateCostCents: 3000, otherLaborCostCents: 0, frozen: false })
+    expect(a.laborCents).toBe(30000)
+    expect(a.laborMath).toBe("10 sections paid × $30.00 (Settings' sub rate today (none saved at signing))")
+  })
+  test('subPaidOf: whole cents, blank is none', () => {
+    expect([subPaidOf({}), subPaidOf({ subPaidCents: null }), subPaidOf({ subPaidCents: '' }), subPaidOf({ subPaidCents: 1234.4 }), subPaidOf({ subPaidCents: -5 }), subPaidOf({ subPaidCents: 0 })]).toEqual([null, null, null, 1234, null, 0])
   })
   test('tear out and other quoted material are carried as quoted', () => {
     const q = { ...quoted, tearOutCents: 9500, materialCents: quoted.materialCents + 1000, totalCents: quoted.totalCents + 10500 }

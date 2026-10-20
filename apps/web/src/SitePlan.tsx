@@ -8,10 +8,12 @@
  * can be dragged for odd yards; the labels keep the typed lengths.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { buildPlan, planVertices, type Plan, type PlanGate } from './sitePlanGeometry'
-import { placeLabels, planScreen, screenLeaves, PLAN_COLORS, type PlanScreen } from './sitePlanLabels'
-import type { LayoutResult, PlanPoint, YardLayout } from './yardLayout'
+import { placeLabels, planScreen, screenLeaves, textWidth, PLAN_COLORS, type PlanScreen } from './sitePlanLabels'
+import { deriveLayout, type LayoutResult, type PlanPoint, type YardLayout } from './yardLayout'
+import { gateDistanceTextExact } from './gateSlide'
+import { sectionsForRun } from './sectionCount'
 import { currentPlanAt, stepDeg, normDeg, type AerialBackdrop } from './sitePlanPhoto'
 
 const { PURPLE, GRAY, LIGHT, INK } = PLAN_COLORS
@@ -40,11 +42,12 @@ type Drag =
   | { mode: 'corner'; index: number | 'all'; start: PlanPoint; points: PlanPoint[]; moved: boolean }
   | { mode: 'plan'; sx: number; sy: number; at: PlanPoint; ftPerPx: number; moved: boolean }
   | { mode: 'house' | 'attach'; which: 'both' | 'left' | 'right'; sy: number; ftPerPx: number; bounds: Plan['bounds']; left: number; right: number; last: string; moved: boolean }
+  | { mode: 'gate'; sideId: string; grabIn: number; sx: number; sy: number; touch: boolean; moved: boolean }
 
 /** A fence move's old line: drawn dashed along a side of the new line, this many feet inside it. */
 export interface PlanOldLine { sideId: string; offsetFt: number; ft: number; label: string }
 
-export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap, oldLine, damaged, onSectionTap, onPlanMove, onRotate, onLineUpTap, lineUpTaps }: {
+export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap, oldLine, damaged, onSectionTap, onPlanMove, onRotate, onLineUpTap, lineUpTaps, onGateSlide, gateLocked, onGateDistanceTap }: {
   layout: YardLayout
   result?: LayoutResult
   runSections?: number[]
@@ -77,8 +80,21 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   onLineUpTap?: (pt: PlanPoint) => void
   /** Line up: the taps to mark, in drawing units. */
   lineUpTaps?: PlanPoint[]
+  /** With this, a gate can be dragged along its side: called with where the finger puts its start
+   *  (inches from the side's start, not yet snapped or kept on the side; the caller does that, gateSlide.ts). */
+  onGateSlide?: (sideId: string, startIn: number) => void
+  /** A signed quote: pressing a gate shows this instead of moving it. */
+  gateLocked?: string | null
+  /** With this, tapping the length of a piece next to a gate types that distance. */
+  onGateDistanceTap?: (sideId: string, which: 'before' | 'after') => void
 }) {
   const plan = useMemo(() => buildPlan(layout, result, runSections, widthFt), [layout, result, runSections, widthFt])
+  const derived = useMemo(() => result ?? deriveLayout(layout), [layout, result])
+  // Ids for the magnifier (it shows the drawing again, closer); only on a plan where gates slide.
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
+  const drawId = `plan-draw-${uid}`
+  // The gate being dragged, and where the finger is (drawing units) for the magnifier on a phone.
+  const [gateDrag, setGateDrag] = useState<{ sideId: string; finger: PlanPoint | null } | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
   const drag = useRef<Drag | null>(null)
   // While something is dragged the drawing keeps its scale, so it stays under the finger.
@@ -196,6 +212,34 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     setHeldBounds(plan.bounds)
     drag.current = { mode: which === 'both' ? 'house' : 'attach', which, sy: screenY(e), ftPerPx, bounds: plan.bounds, left: at('left'), right: at('right'), last: '', moved: false }
   }
+  /** Where `p` (plan feet) falls along side `sd`, as a fraction of the side (not clamped). */
+  function along(sd: Plan['sides'][number], p: PlanPoint): number {
+    const dx = sd.b.x - sd.a.x, dy = sd.b.y - sd.a.y, L2 = dx * dx + dy * dy
+    return L2 > 0 ? ((p.x - sd.a.x) * dx + (p.y - sd.a.y) * dy) / L2 : 0
+  }
+  const lockTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function startGateDrag(e: React.PointerEvent, sd: Plan['sides'][number]) {
+    if (twist.current) return
+    if (gateLocked) {
+      // Signed: the gate stays put; say why.
+      e.stopPropagation()
+      setLive(gateLocked)
+      if (lockTimer.current) clearTimeout(lockTimer.current)
+      lockTimer.current = setTimeout(() => setLive(''), 3000)
+      return
+    }
+    if (!onGateSlide) return
+    const i = layout.sides.findIndex(s => s.id === sd.sideId)
+    const at = derived.sides[i]?.gateAtIn
+    if (i < 0 || at == null) return
+    capture(e)
+    if (!aerial) setHeldBounds(plan.bounds)
+    const svg = svgRef.current!
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
+    const q = pt.matrixTransform(svg.getScreenCTM()!.inverse())
+    // Held where it was picked up, so the gate does not jump to center on the finger.
+    drag.current = { mode: 'gate', sideId: sd.sideId, grabIn: along(sd, svgPoint(e)) * layout.sides[i].lengthIn - at, sx: q.x, sy: q.y, touch: e.pointerType !== 'mouse', moved: false }
+  }
   const has = (w: 'left' | 'right') => plan.houseAttach.some(h => h.which === w)
   const names = { left: plan.houseAttach.find(h => h.which === 'left')?.name, right: plan.houseAttach.find(h => h.which === 'right')?.name }
   function moveDrag(e: React.PointerEvent) {
@@ -211,6 +255,21 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
       if (!d.moved && Math.hypot(dx, dy) < 4) return
       d.moved = true
       onPlanMove?.({ x: d.at.x + dx * d.ftPerPx, y: d.at.y - dy * d.ftPerPx })
+      return
+    }
+    if (d.mode === 'gate') {
+      if (!onGateSlide) return
+      const svg = svgRef.current!
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
+      const q = pt.matrixTransform(svg.getScreenCTM()!.inverse())
+      // A tap on a gate is not a drag.
+      if (!d.moved && Math.hypot(q.x - d.sx, q.y - d.sy) < 5 * unitsPerPx) return
+      d.moved = true
+      const sd = plan.sides.find(x => x.sideId === d.sideId)
+      const s = layout.sides.find(x => x.id === d.sideId)
+      if (!sd || !s) return
+      onGateSlide(d.sideId, along(sd, svgPoint(e)) * s.lengthIn - d.grabIn)
+      setGateDrag({ sideId: d.sideId, finger: d.touch ? { x: q.x, y: q.y } : null })
       return
     }
     if (d.mode === 'corner') {
@@ -255,7 +314,9 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     if (d?.moved) setTimeout(() => { drag.current = null }, 0)
     else drag.current = null
     setHeldBounds(null)
-    setLive('')
+    // The signed quote's "make a change order" stays up a moment after the finger lifts.
+    setLive(l => (gateLocked && l === gateLocked ? l : ''))
+    setGateDrag(null)
   }
 
   // Each section as its own piece of the line, keyed "run:section" (runs counted as the layout counts them).
@@ -287,6 +348,18 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     return { a, b, label: oldLine.label }
   }, [oldLine, plan])
 
+  /** A piece label next to a gate: the distance before it or after it (null for any other label). */
+  function pieceSide(l: { kind: string; key: string; sideId: string }): 'before' | 'after' | null {
+    if (l.kind !== 'fence') return null
+    const sd = plan.sides.find(x => x.sideId === l.sideId)
+    const g = sd?.pieces.find(p => p.kind === 'gate')
+    const p = sd?.pieces[Number(l.key.slice(l.key.lastIndexOf('-') + 1))]
+    if (!g || !p) return null
+    if (Math.abs(p.toIn - g.fromIn) < 0.01) return 'before'
+    if (Math.abs(p.fromIn - g.toIn) < 0.01) return 'after'
+    return null
+  }
+
   const center = plan.vertices.reduce((t, p) => ({ x: t.x + p.x / plan.vertices.length, y: t.y + p.y / plan.vertices.length }), { x: 0, y: 0 })
   const houseC = plan.house ? { x: plan.house.reduce((t, p) => t + toX(p.x), 0) / plan.house.length, y: plan.house.reduce((t, p) => t + toY(p.y), 0) / plan.house.length } : null
   const houseMovable = !aerial && !!onHouseMeetsChange && plan.houseAttach.length > 0 && !!houseC
@@ -296,6 +369,8 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
       role="img" aria-label={title ?? 'Site plan'} data-site-plan onPointerDownCapture={touchDown} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
       {...(aerial ? { 'data-photo-rotation': String(rot), 'data-ft-per-px': String(aerial.ftPerPx) } : {})}
       onClick={onPlanTap ? planTap : undefined} style={onPlanTap ? { cursor: 'crosshair' } : undefined}>
+      {/* The drawing itself (the magnifier shows it again, closer, while a gate is dragged on a phone). */}
+      <g {...(onGateSlide ? { id: drawId } : {})}>
       {aerial && (aerial.baked
         // Already turned and cut to the frame (proposal, crew packet, PDF).
         ? <image href={aerial.href} x={0} y={0} width={W} height={H} preserveAspectRatio="none" data-plan-photo />
@@ -362,10 +437,17 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
           {l.leader && <line x1={l.leader.x1} y1={l.leader.y1} x2={l.leader.x2} y2={l.leader.y2} stroke={GRAY} strokeWidth={1} data-plan-leader />}
           {l.lines.map((ln, k) => (
             <text key={k} x={l.x} y={l.y + ln.dy} textAnchor={l.anchor} fontSize={ln.size} fontWeight={ln.weight} fill={ln.fill}
-              style={{ paintOrder: 'stroke', ...(l.kind === 'side' && onSideTap ? { cursor: 'pointer' } : {}) }} stroke="white" strokeWidth={k === 0 && l.kind === 'side' ? 4 : 3}
-              onClick={l.kind === 'side' && onSideTap ? e => { e.stopPropagation(); onSideTap(l.sideId) } : undefined}
-              {...(l.kind === 'side' ? {} : { 'data-plan-piece': l.sideName, 'data-piece-kind': l.kind })}>{ln.text}</text>
+              style={{ paintOrder: 'stroke', ...(l.kind === 'side' && onSideTap ? { cursor: 'pointer' } : {}), ...(onGateDistanceTap && pieceSide(l) ? { cursor: 'pointer', textDecoration: 'underline' } : {}) }} stroke="white" strokeWidth={k === 0 && l.kind === 'side' ? 4 : 3}
+              onClick={l.kind === 'side' && onSideTap ? e => { e.stopPropagation(); onSideTap(l.sideId) } : pieceSide(l) && onGateDistanceTap ? e => { e.stopPropagation(); onGateDistanceTap(l.sideId, pieceSide(l)!) } : undefined}
+              {...(l.kind === 'side' ? {} : { 'data-plan-piece': l.sideName, 'data-piece-kind': l.kind })}
+              {...(onGateDistanceTap && pieceSide(l) ? { 'data-gate-distance-text': pieceSide(l)! } : {})}>{ln.text}</text>
           ))}
+          {onGateDistanceTap && pieceSide(l) && (() => {
+            // A finger sized target around the distance (the text alone is a few pixels on a phone).
+            const pad = Math.max(6, 12 * unitsPerPx)
+            return <rect x={l.box.x0 - pad} y={l.box.y0 - pad} width={l.box.x1 - l.box.x0 + pad * 2} height={l.box.y1 - l.box.y0 + pad * 2} fill="transparent"
+              style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); onGateDistanceTap(l.sideId, pieceSide(l)!) }} data-gate-distance-tap={pieceSide(l)!} />
+          })()}
           {l.kind === 'side' && onSideTap && (
             <rect x={l.box.x0 - 4} y={l.box.y0 - 4} width={l.box.x1 - l.box.x0 + 8} height={l.box.y1 - l.box.y0 + 8} fill="transparent"
               style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); onSideTap(l.sideId) }} data-plan-label={l.sideName} />
@@ -380,6 +462,7 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
         if (p.kind === 'line') return <circle key={i} cx={x} cy={y} r={3.2} fill="white" stroke={PURPLE} strokeWidth={1.8} />
         return <circle key={i} cx={x} cy={y} r={5.5} fill={p.kind === 'gate' ? INK : PURPLE} stroke="white" strokeWidth={1.5} />
       })}
+      </g>
 
       {pins?.map(pn => {
         const x = toX(pn.x), y = toY(pn.y)
@@ -480,11 +563,89 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
         )
       })()}
 
-      {!aerial && onGateTap && plan.sides.map(sd => sd.gate && (
-        <circle key={`gate-${sd.sideId}`} cx={(toX(sd.gate.a.x) + toX(sd.gate.b.x)) / 2} cy={(toY(sd.gate.a.y) + toY(sd.gate.b.y)) / 2} r={Math.max(18, 20 * unitsPerPx)} fill="white" fillOpacity={0.01}
-          stroke={INK} strokeOpacity={0.45} strokeWidth={1.5} strokeDasharray="3 3" style={{ cursor: 'pointer' }}
-          onClick={e => { e.stopPropagation(); if (!drag.current) onGateTap(sd.sideId) }} data-plan-gate-tap={sd.name} />
-      ))}
+      {((!aerial && onGateTap) || onGateSlide || gateLocked) && plan.sides.map(sd => {
+        if (!sd.gate) return null
+        const cx = (toX(sd.gate.a.x) + toX(sd.gate.b.x)) / 2, cy = (toY(sd.gate.a.y) + toY(sd.gate.b.y)) / 2
+        const r = Math.max(18, 20 * unitsPerPx)
+        const tap = !aerial && onGateTap ? onGateTap : null
+        const slides = !!onGateSlide && !gateLocked
+        // Arrows along the side: drag me this way or that.
+        const len = Math.hypot(toX(sd.gate.b.x) - toX(sd.gate.a.x), toY(sd.gate.b.y) - toY(sd.gate.a.y)) || 1
+        const ux = (toX(sd.gate.b.x) - toX(sd.gate.a.x)) / len, uy = (toY(sd.gate.b.y) - toY(sd.gate.a.y)) / len
+        const arrow = (k: number) => {
+          const tx = cx + ux * r * 0.75 * k, ty = cy + uy * r * 0.75 * k, bx = cx + ux * r * 0.35 * k, by = cy + uy * r * 0.35 * k
+          return `M${tx.toFixed(1)},${ty.toFixed(1)} L${(bx - uy * r * 0.25).toFixed(1)},${(by + ux * r * 0.25).toFixed(1)} L${(bx + uy * r * 0.25).toFixed(1)},${(by - ux * r * 0.25).toFixed(1)} Z`
+        }
+        const i = layout.sides.findIndex(s => s.id === sd.sideId)
+        return (
+          <g key={`gate-${sd.sideId}`} style={{ cursor: slides ? 'grab' : tap ? 'pointer' : 'not-allowed', touchAction: 'none' }}
+            onPointerDown={slides || gateLocked ? e => startGateDrag(e, sd) : undefined}
+            onClick={e => { e.stopPropagation(); if (drag.current) return; if (tap) tap(sd.sideId); else if (!gateLocked) onSideTap?.(sd.sideId) }}
+            data-plan-gate-grip={sd.name} data-gate-start-in={String(derived.sides[i]?.gateAtIn ?? '')} {...(gateLocked ? { 'data-gate-locked': 'true' } : {})}>
+            <circle cx={cx} cy={cy} r={r} fill="white" fillOpacity={0.01}
+              stroke={INK} strokeOpacity={0.45} strokeWidth={1.5} strokeDasharray="3 3" {...(tap ? { 'data-plan-gate-tap': sd.name } : {})} />
+            {slides && <path d={`${arrow(1)} ${arrow(-1)}`} fill={INK} fillOpacity={0.55} pointerEvents="none" />}
+          </g>
+        )
+      })}
+
+      {gateDrag && (() => {
+        // While a gate is dragged: "12 ft ← [5 ft gate] → 31 ft" and the sections of both pieces, live.
+        const i = layout.sides.findIndex(s => s.id === gateDrag.sideId)
+        const s = layout.sides[i], r = derived.sides[i], sd = plan.sides.find(x => x.sideId === gateDrag.sideId)
+        if (!s?.gate || !r || r.gateAtIn == null || !sd?.gate) return null
+        const at = r.gateAtIn, w = s.gate.widthIn
+        const before = at, after = Math.max(0, r.lengthIn - at - w)
+        let off = 0
+        for (let k = 0; k < i; k++) off += derived.sides[k].runs.length
+        const secs = (match: (span: [number, number]) => boolean) => {
+          const k = r.pieceSpans.findIndex(match)
+          if (k < 0) return 0
+          const [a, b] = r.pieceSpans[k]
+          return runSections?.[off + k] ?? sectionsForRun((b - a) / 12, widthFt)
+        }
+        const bs = before > 0.01 ? secs(([, b]) => Math.abs(b - at) < 0.01) : 0
+        const as = after > 0.01 ? secs(([a]) => Math.abs(a - (at + w)) < 0.01) : 0
+        const line1 = gateDistanceTextExact(before, w, after)
+        const sec = (n: number) => `${n} section${n === 1 ? '' : 's'}`
+        const line2 = `${sec(bs)}  ·  ${sec(as)}`
+        const fsz = Math.max(16 * fs, 15 * unitsPerPx), fsz2 = fsz * 0.8
+        const bw = Math.max(textWidth(line1, fsz, 700), textWidth(line2, fsz2, 600)) + 24 * unitsPerPx
+        const bh = fsz + fsz2 + 22 * unitsPerPx
+        const gx = (toX(sd.gate.a.x) + toX(sd.gate.b.x)) / 2, gy = (toY(sd.gate.a.y) + toY(sd.gate.b.y)) / 2
+        // On a phone the magnifier sits above the finger and the label above it (or below the finger near the top).
+        const f = gateDrag.finger
+        const R = 58 * unitsPerPx, Z = 2.5
+        const lp = f ? { x: Math.min(Math.max(f.x, R + 4), W - R - 4), y: f.y - R - 34 * unitsPerPx < R + 4 ? f.y + R + 44 * unitsPerPx : f.y - R - 34 * unitsPerPx } : null
+        const anchorY = lp ? lp.y - R : gy - 30 * unitsPerPx
+        let ly = anchorY - bh - 8 * unitsPerPx
+        if (ly < 4) ly = (lp ? Math.max(lp.y + R, f!.y) : gy) + 36 * unitsPerPx
+        ly = Math.min(ly, H - bh - 4)
+        const lx = Math.min(Math.max((lp ? lp.x : gx), bw / 2 + 4), W - bw / 2 - 4)
+        const clipId = `plan-loupe-${uid}`
+        return (
+          <g pointerEvents="none">
+            {lp && f && (
+              <g data-plan-loupe>
+                <clipPath id={clipId}><circle cx={lp.x} cy={lp.y} r={R} /></clipPath>
+                <circle cx={lp.x} cy={lp.y} r={R} fill="white" />
+                <g clipPath={`url(#${clipId})`}>
+                  <use href={`#${drawId}`} transform={`translate(${lp.x} ${lp.y}) scale(${Z}) translate(${-f.x} ${-f.y})`} />
+                </g>
+                <circle cx={lp.x} cy={lp.y} r={R} fill="none" stroke="white" strokeWidth={5 * unitsPerPx} />
+                <circle cx={lp.x} cy={lp.y} r={R} fill="none" stroke={INK} strokeOpacity={0.5} strokeWidth={1.5 * unitsPerPx} />
+                <path d={`M${lp.x - 12 * unitsPerPx},${lp.y} h${24 * unitsPerPx} M${lp.x},${lp.y - 12 * unitsPerPx} v${24 * unitsPerPx}`} stroke={INK} strokeWidth={1.5 * unitsPerPx} />
+              </g>
+            )}
+            <g data-gate-live={gateDrag.sideId} data-before-in={String(before)} data-after-in={String(after)} data-width-in={String(w)}
+              data-before-sections={String(bs)} data-after-sections={String(as)}>
+              <rect x={lx - bw / 2} y={ly} width={bw} height={bh} rx={8 * unitsPerPx} fill={INK} fillOpacity={0.92} />
+              <text x={lx} y={ly + 8 * unitsPerPx + fsz * 0.85} textAnchor="middle" fontSize={fsz} fontWeight={700} fill="white" data-gate-live-text>{line1}</text>
+              <text x={lx} y={ly + 12 * unitsPerPx + fsz + fsz2 * 0.85} textAnchor="middle" fontSize={fsz2} fontWeight={600} fill="#E9D5FF" data-gate-live-sections>{line2}</text>
+            </g>
+          </g>
+        )
+      })()}
 
       {live && (() => {
         // Just above the house, near the finger (the top of the drawing can be under a sticky header on a phone).

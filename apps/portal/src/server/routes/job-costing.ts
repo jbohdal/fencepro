@@ -6,7 +6,7 @@
  *   POST /takeoff                    start it { id (the phone's), jobId }
  *   PUT  /takeoff/:id/lines/:lineId  one line: used, back to shop, back to vendor, note, photo;
  *                                    an added item (extra) or its removal { removed: true }
- *   PUT  /takeoff/:id/labor          sub units paid or crew hours, and the install date
+ *   PUT  /takeoff/:id/labor          sub units paid (and "Sub paid $") or crew hours, and the install date
  *   POST /takeoff/:id/submit         the crew (or office) is done
  * Owner and office only (costs.view):
  *   POST /takeoff/:id/approve        { otherLaborCostCents? } freezes the actual cost; refused for an installer
@@ -152,6 +152,9 @@ router.put('/takeoff/:id/labor', async (req: any, res) => {
     const b = z.object({
       mode: z.enum(['sub', 'crew']),
       subUnits: n.default(0),
+      // "Sub paid $": what the sub was actually paid, in cents. A cost, so owner and office only (an
+      // installer's is ignored, and never sees it: costRedact). null clears it; left out keeps it.
+      subPaidCents: z.number().int().min(0).max(100_000_000).nullable().optional(),
       crew: z.array(z.object({ id: z.string().min(1).max(64), name: z.string().max(100).default(''), hours: z.number().min(0).max(1000) })).max(30).default([]),
       installDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick the install date').optional(),
       note: z.string().max(2000).optional(),
@@ -159,7 +162,7 @@ router.put('/takeoff/:id/labor', async (req: any, res) => {
     const id = await tid(req)
     await mutateTakeoff(req.user.crmAccountId, id, async (t, tx) => {
       const cur = laborOf(t)
-      const labor = { ...cur, mode: b.mode, subUnits: qty(b.subUnits), crew: b.crew.map(c => ({ id: c.id, name: c.name, hours: qty(c.hours) })) }
+      const labor = { ...cur, mode: b.mode, subUnits: qty(b.subUnits), subPaidCents: b.subPaidCents === undefined || !can(roleOf(req), 'costs.view') ? cur.subPaidCents ?? null : b.subPaidCents, crew: b.crew.map(c => ({ id: c.id, name: c.name, hours: qty(c.hours) })) }
       const installDate = b.installDate ?? t.installDate
       const note = b.note ?? t.note
       const same = JSON.stringify(cur) === JSON.stringify(labor) && installDate === t.installDate && note === t.note

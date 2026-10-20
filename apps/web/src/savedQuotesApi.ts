@@ -77,6 +77,8 @@ export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmC
   layout: QuoteLayoutRecord | null
   proposal: QuoteProposal | null
   chosenOption: number | null
+  /** The first time it was Sold or accepted; never cleared (server lib/everSold.ts). */
+  soldAt?: string | null
   shareToken: string | null
   shareExpiresAt: string | null
   shareDisabledAt: string | null

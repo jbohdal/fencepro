@@ -166,6 +166,8 @@ export interface AppConfig {
   media?: { shrinkAfterDays?: number }
   /** Fence moves and repairs, the minimum job price and the Wood factor (Settings → Moves and Repairs, moveRepair.ts). */
   moveRepair?: Partial<MoveRepairSettings>
+  /** The website quote (Settings → Portal & Quotes): prices shown before the name and phone (default off). */
+  quoteWidget?: { showPriceBeforeContact?: boolean }
 }
 
 // Defaults live in configDefaults.ts (pure: the server's estimates use them too).

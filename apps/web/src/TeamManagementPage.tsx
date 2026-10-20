@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { authFetch } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { useBackLayer } from './nav'
+import ConfirmByTyping from './ConfirmByTyping'
 import { plainText } from './plainError'
 import { inviteStepsText, INVITE_STEP_1_LINES } from '../../portal/src/server/lib/inviteSteps'
 
@@ -46,6 +47,9 @@ const STATUS_BADGES: Record<string, string> = {
 
 type Tab = 'team' | 'sessions' | 'activity'
 
+/** What is typed to delete a login: the full name (the email when the login has no name). */
+const loginName = (u: TeamUser) => `${u.firstName ?? ''} ${u.lastName ?? ''}`.replace(/\s+/g, ' ').trim() || u.email
+
 export default function TeamManagementPage() {
   const [tab, setTab] = useState<Tab>('team')
   const [users, setUsers] = useState<TeamUser[]>([])
@@ -54,6 +58,8 @@ export default function TeamManagementPage() {
   const [loading, setLoading] = useState(true)
   const [showInvite, setShowInvite] = useState(false)
   const [editingUser, setEditingUser] = useState<TeamUser | null>(null)
+  // Deleting a login asks for its full name to be typed (ConfirmByTyping), as deleting a customer does.
+  const [deletingUser, setDeletingUser] = useState<TeamUser | null>(null)
   // The link from the last invite resent, to copy and text when the email is slow.
   const [resent, setResent] = useState<{ email: string; url: string } | null>(null)
 
@@ -144,13 +150,7 @@ export default function TeamManagementPage() {
                         }} className="text-xs text-orange-600 hover:text-orange-800 px-2 py-1" data-resend-invite>Resend</button>
                       )}
                       {user.role !== 'super_admin' && (
-                        <button onClick={async () => {
-                          if (!confirm(`Delete ${user.firstName} ${user.lastName}? This cannot be undone.`)) return
-                          try {
-                            await api(`/users/${user.id}`, { method: 'DELETE' })
-                            loadUsers()
-                          } catch (err: any) { alert(plainText(err)) }
-                        }} className="text-xs text-red-500 hover:text-red-700 px-2 py-1">Delete</button>
+                        <button onClick={() => setDeletingUser(user)} className="text-xs text-red-500 hover:text-red-700 px-2 py-1" data-delete-login={user.id}>Delete</button>
                       )}
                     </div>
                   </div>
@@ -215,6 +215,20 @@ export default function TeamManagementPage() {
       {showInvite && <InviteModal onClose={() => setShowInvite(false)} onInvited={() => { setShowInvite(false); loadUsers() }} />}
 
       {/* Edit Modal */}
+      {deletingUser && (
+        <ConfirmByTyping title={`Delete ${loginName(deletingUser)}?`} name={loginName(deletingUser)}
+          body="Their login and its sign-ins are removed. This cannot be undone."
+          action="Delete login"
+          onCancel={() => setDeletingUser(null)}
+          onConfirm={async () => {
+            const u = deletingUser
+            setDeletingUser(null)
+            try {
+              await api(`/users/${u.id}`, { method: 'DELETE' })
+            } catch (err: any) { alert(plainText(err)) }
+            loadUsers()
+          }} />
+      )}
       {editingUser && <EditUserModal user={editingUser} onClose={() => setEditingUser(null)} onSaved={() => { setEditingUser(null); loadUsers() }} />}
     </div>
   )

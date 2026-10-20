@@ -38,6 +38,8 @@ export interface SavedQuote {
   chosenOption?: number | null
   acceptedAt?: string
   acceptedBy?: string
+  /** The first time it was Sold or accepted; never cleared, so a sold quote marked Lost stays locked (server lib/everSold.ts). */
+  soldAt?: string | null
   /** Customer link state. */
   shareToken?: string | null
   shareExpiresAt?: string | null

@@ -277,7 +277,7 @@ async function openSession(name, token) {
   page.on('dialog', d => d.accept().catch(() => {}))
   page.on('request', r => { if (r.url().includes('/api/follow-ups/pending') && r.method() === 'PUT') pending.push(r.postData() || '') })
   await page.route('**/api/automations/trigger', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true,"data":{"matched":0}}' }))
-  return { browser, ctx, page, errors, pending, name, cdp, width: NATIVE ? await page.evaluate(() => innerWidth) : W }
+  return { browser, ctx, page, errors, pending, name, cdp, token, width: NATIVE ? await page.evaluate(() => innerWidth) : W }
 }
 
 async function go(s, url, sel) {
@@ -494,12 +494,12 @@ async function customerScreen(s, who) {
     await tapOn(s, callBtn)
     const tel = await s.page.evaluate(() => window.__tel || [])
     check(`${tag}: Call is a tel: link and starts the follow up`, tel.some(h => new RegExp(`^tel:\\+?1?${PHONE}$`).test(h)) && s.pending.length > before, `${tel.join(',')} pending ${s.pending.length - before}`)
-    await owner('DELETE', '/api/follow-ups/pending')
+    await call(s.token, 'DELETE', '/api/follow-ups/pending') // as whoever tapped Call, not the owner
     const text = s.page.locator('[data-customer-action="text"]')
     await tapOn(s, text)
     const tel2 = await s.page.evaluate(() => window.__tel || [])
     check(`${tag}: Text is an sms: link and starts the follow up`, tel2.some(h => /^sms:/.test(h)) && s.pending.length > before + 1)
-    await owner('DELETE', '/api/follow-ups/pending')
+    await call(s.token, 'DELETE', '/api/follow-ups/pending') // as whoever tapped Call, not the owner
     const nav = await s.page.locator('[data-customer-action="navigate"]').getAttribute('href')
     check(`${tag}: Navigate is Google Maps directions to the address`, /google\.com\/maps\/dir\/\?api=1&destination=1234/.test(nav || ''), nav || '')
     if (who === 'owner') {

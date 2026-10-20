@@ -105,6 +105,12 @@ async function estimateData() {
   return data
 }
 
+/** The pricing code and the saved Settings, Inventory and kits it prices with (the website quote's drawn yards use it). */
+export async function pricingWithData(): Promise<{ m: any; data: { config: unknown; inventory: unknown[]; kits: unknown[] } }> {
+  const [m, data] = await Promise.all([pricing(), estimateData()])
+  return { m, data }
+}
+
 export async function estimateJob(job: EstimateJob): Promise<Estimate> {
   const [m, data] = await Promise.all([pricing(), estimateData()])
   return m.estimate(data, job)

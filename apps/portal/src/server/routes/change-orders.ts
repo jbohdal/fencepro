@@ -4,6 +4,7 @@
  *   GET   /?quoteId= | ?jobId=   a quote's (or a job's) change orders; no query: all of them
  *   POST  /                      make one on a signed quote { id?, quoteId | jobId, reason, lines, scope?, status? }
  *   PATCH /:id                   { baseVersion, reason?, lines?, status? } (sent, approved, void)
+ *   POST  /:id/link              the customer's link token (/p/co/<token>), made once; the app sends it from the phone
  *
  * Who: anyone who may change quotes (a Salesman too) makes, edits and sends
  * them; approving one, or voiding an approved one, changes the contract value
@@ -19,7 +20,7 @@ import { requireCan, roleOf, can, refuse } from '../lib/permissions.js'
 import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
-import { createChangeOrder, editChangeOrder, importFromKv, view, quoteOfJob, CO_STATUSES } from '../lib/changeOrders.js'
+import { createChangeOrder, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, CO_STATUSES } from '../lib/changeOrders.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -100,6 +101,13 @@ router.patch('/:id', requireCan('quotes.change'), async (req: any, res) => {
     await audit(req, 'update', 'ChangeOrder', row.id, { oldValues: view(cur), newValues: view(row) })
     res.json({ success: true, data: view(row) })
   } catch (e) { fail(res, e, 'save the change order') }
+})
+
+router.post('/:id/link', requireCan('quotes.change'), async (req: any, res) => {
+  try {
+    const { token, row } = await linkFor(req.user.crmAccountId, String(req.params.id))
+    res.json({ success: true, data: { token, changeOrder: view(row) } })
+  } catch (e) { fail(res, e, 'make the customer link') }
 })
 
 export default router

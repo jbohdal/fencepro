@@ -35,6 +35,7 @@ import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE } from '../lib/quoteLock.js'
+import { markEverSold } from '../lib/everSold.js'
 
 const router = Router()
 
@@ -136,7 +137,7 @@ const quoteSchema = z.object({
 const quoteUpdateSchema = quoteSchema.partial()
 
 /** Is this saved quote signed (Sold, accepted, or a quoted cost saved at signing)? Signed quotes are locked (lib/quoteLock.ts). */
-export async function signedNow(q: { id: string; accountId: string; status: string; acceptedAt: Date | null }): Promise<boolean> {
+export async function signedNow(q: { id: string; accountId: string; status: string; acceptedAt: Date | null; soldAt?: Date | null }): Promise<boolean> {
   if (isSignedQuote(q)) return true
   return !!(await prisma.jobQuotedCost.findUnique({ where: { accountId_quoteId: { accountId: q.accountId, quoteId: q.id } }, select: { id: true } }))
 }
@@ -274,7 +275,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     await audit(req, 'create', 'SavedQuote', created.id, { newValues: created })
     await linkQuoteMedia(created)
     // Job costing: a quote saved as Sold is signed now; its quoted cost is saved once.
-    if (created.status === 'SOLD') await snapshotAfterSigning(created.accountId, created.id, 'app')
+    if (created.status === 'SOLD') { await markEverSold(created.accountId, created.id); await snapshotAfterSigning(created.accountId, created.id, 'app') }
     res.status(201).json({ success: true, data: created })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -315,7 +316,7 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         fenceStyle: data.fenceStyle,
         runs: toJsonValue(data.runs),
         runRails: toNullableJson(data.runRails),
-        layout: toNullableJson(data.layout),
+        layout: toNullableJson(keepWidgetDrawing(data.layout, existing.layout)),
         proposal: toNullableJson(data.proposal),
         pricing: toNullableJson(data.pricing),
         work: toNullableJson(data.work),
@@ -346,8 +347,9 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     await audit(req, 'update', 'SavedQuote', updated.id, { oldValues: existing, newValues: updated })
     await linkQuoteMedia(updated)
     // Job costing: marked Sold (signed in person) now; its quoted cost is saved once. A quote already Sold keeps the one from its signing.
+    if (updated.status === 'SOLD' && !updated.soldAt) await markEverSold(updated.accountId, updated.id)
     if (existing.status !== 'SOLD' && updated.status === 'SOLD') await snapshotAfterSigning(updated.accountId, updated.id, 'app')
-    res.json({ success: true, data: updated })
+    res.json({ success: true, data: updated.status === 'SOLD' && !updated.soldAt ? await prisma.savedQuote.findUnique({ where: { id: updated.id } }) : updated })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-quotes] update error:', err)
@@ -379,6 +381,19 @@ router.delete('/:id', requireUser, requireAccount, requireCan('records.delete'),
 // a new server row. crmContactId is preserved if it points at a contact in
 // the caller's account; cleared otherwise so legacy uid customers don't link
 // to nothing.
+/**
+ * A quote from the website quote keeps the customer's own drawing
+ * (layout.widgetDrawing) as they drew it: the quote builder's saves carry only
+ * its yard and run sections, so the drawing is put back from the saved quote.
+ */
+function keepWidgetDrawing(next: unknown, saved: unknown): unknown {
+  const kept = saved && typeof saved === 'object' ? (saved as { widgetDrawing?: unknown }).widgetDrawing : undefined
+  if (kept === undefined || next === undefined) return next
+  // Switched to the run list (no yard): the customer's drawing still stays.
+  if (next === null || typeof next !== 'object') return { yard: null, runSections: [], widgetDrawing: kept }
+  return { ...(next as object), widgetDrawing: kept }
+}
+
 const syncSchema = z.object({
   quotes: z.array(quoteSchema.extend({ id: z.string().optional() })),
 })
@@ -401,13 +416,14 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
               ...quoteSchema.partial().parse(q),
               runs: toJsonValue(q.runs),
               runRails: toNullableJson(q.runRails),
-              layout: toNullableJson(q.layout),
+              layout: toNullableJson(keepWidgetDrawing(q.layout, existing.layout)),
               proposal: toNullableJson(q.proposal),
               pricing: toNullableJson(q.pricing),
               work: toNullableJson(q.work),
               pullSheet: toJsonValue(q.pullSheet),
             },
           })
+          await markEverSold(existing.accountId, existing.id)
           updated++
           continue
         }
@@ -457,6 +473,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
             gmPct: q.gmPct,
             pullSheet: toJsonValue(q.pullSheet),
             status: q.status,
+            ...(q.status === 'SOLD' ? { soldAt: new Date() } : {}),
             date: q.date,
             notes: q.notes,
             leadTemp: q.leadTemp,
@@ -588,6 +605,7 @@ router.post('/share/:token/accept', async (req: any, res) => {
         acceptedSignature: data.signature || null,
       },
     })
+    await markEverSold(q.accountId, q.id)
     const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
     console.log(`[saved-quotes] customer accepted quote ${q.id} as "${data.name}"`)
     // Job costing: the quoted cost, saved once at signing.

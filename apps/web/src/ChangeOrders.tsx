@@ -15,6 +15,9 @@ import { sendJson } from './syncHttp'
 import { newId } from './recordSync'
 import { toast } from './toast'
 import { refreshJobs } from './jobStore'
+import { getQuotes } from './quoteStore'
+import { smsLink } from './appointmentLogic'
+import { getConfig } from './configStore'
 
 /* ───────── types ───────── */
 
@@ -51,6 +54,12 @@ export interface ChangeOrder {
   approvedAt: string | null
   approvedBy: string | null
   voidedAt: string | null
+  /** Signed by the customer (customer portal or the change order's link). */
+  signedBy?: string | null
+  signedAt?: string | null
+  signedVia?: 'portal' | 'link' | null
+  /** A customer link was made for it. */
+  hasLink?: boolean
   version: number
   createdAt: string
 }
@@ -125,6 +134,20 @@ export async function setChangeOrderStatus(co: ChangeOrder, status: ChangeOrderS
   put(row)
   if (status === 'approved' || co.status === 'approved') void refreshJobs()
   return row
+}
+
+/** The customer's link (/p/co/<token>): the public door on a Tailscale address, the app's own address otherwise (as proposals). */
+export function changeOrderUrl(token: string): string {
+  const { protocol, hostname, origin } = window.location
+  return hostname.endsWith('.ts.net') ? `${protocol}//${hostname}:8443/p/co/${token}` : `${origin}/p/co/${token}`
+}
+
+/** Make (or get) the customer's link. */
+export async function changeOrderLink(co: ChangeOrder): Promise<string | null> {
+  const r = await sendJson('POST', `/api/change-orders/${encodeURIComponent(co.id)}/link`, {})
+  if (!r.result.ok || !r.json?.data?.token) { toast.error('Could not make the link', r.json?.error || 'Check the signal and try again.'); return null }
+  if (r.json.data.changeOrder) put(r.json.data.changeOrder as ChangeOrder)
+  return changeOrderUrl(r.json.data.token)
 }
 
 /** The quote's change orders, kept fresh. */
@@ -264,6 +287,41 @@ export function QuickChangeOrderModal({
 
 /* ───────── A quote's (or job's) change orders ───────── */
 
+/**
+ * Send it to the customer to approve and sign: their link, texted or emailed
+ * from this phone (never sent by the server), or copied. Sending a draft marks
+ * it Sent. The customer also sees sent change orders in the customer portal.
+ */
+function SendToCustomer({ co, quoteId }: { co: ChangeOrder; quoteId: string }) {
+  const [busy, setBusy] = useState(false)
+  const cfg = getConfig()
+  const company = cfg.company?.name || 'Getter Done Fence'
+  const q = getQuotes().find(x => x.id === quoteId)
+  const first = (q?.customerName || '').split(' ')[0] || 'there'
+  const message = (u: string) => `Hi ${first}, here is change order #${co.number} from ${company} (${signed(co.totalCents)}). You can approve and sign it on your phone: ${u}`
+  async function go(kind: 'text' | 'email' | 'copy') {
+    setBusy(true)
+    const u = await changeOrderLink(co)
+    if (u && co.status === 'draft') await setChangeOrderStatus({ ...co, version: (getOrdersForQuote(quoteId).find(x => x.id === co.id) ?? co).version }, 'sent')
+    setBusy(false)
+    if (!u) return
+    if (kind === 'text') window.location.href = smsLink(q?.customerPhone || '', message(u))
+    if (kind === 'email') window.location.href = `mailto:${encodeURIComponent(q?.customerEmail || '')}?subject=${encodeURIComponent(`Change order #${co.number} from ${company}`)}&body=${encodeURIComponent(message(u))}`
+    if (kind === 'copy') { await navigator.clipboard?.writeText(u).catch(() => {}); toast.success('Link copied') }
+  }
+  return (
+    <div className="mt-2 space-y-1" data-co-customer-send>
+      <p className="text-xs text-gray-500">The customer approves and signs on their link or in the customer portal{co.status === 'draft' ? '; sending it marks it Sent' : ''}.</p>
+      {!cfg.proposal?.publicLinks && <p className="text-[11px] text-amber-800">Links open only on your own phones and computers until outside access is on (Settings → Proposals).</p>}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy} onClick={() => void go('text')} className="text-xs border border-gray-300 text-gray-700 font-semibold px-3 min-h-[44px] rounded-lg" data-co-text>Text the link</button>
+        <button type="button" disabled={busy} onClick={() => void go('email')} className="text-xs border border-gray-300 text-gray-700 font-semibold px-3 min-h-[44px] rounded-lg" data-co-email>Email</button>
+        <button type="button" disabled={busy} onClick={() => void go('copy')} className="text-xs border border-gray-300 text-gray-700 font-semibold px-3 min-h-[44px] rounded-lg" data-co-copy-link>Copy link</button>
+      </div>
+    </div>
+  )
+}
+
 export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: { quoteId: string; originalPrice: number; customerName?: string }) {
   const { orders, loaded } = useChangeOrders(quoteId)
   const [showModal, setShowModal] = useState(false)
@@ -336,8 +394,14 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: 
               ))}
               {co.reason && <p className="text-xs text-gray-500 mt-1 italic">{co.reason}</p>}
               <p className="text-xs text-gray-400 mt-1">
-                {co.createdBy ? `By ${co.createdBy}` : ''}{co.approvedBy ? ` · approved by ${co.approvedBy}` : ''}
+                {co.createdBy ? `By ${co.createdBy}` : ''}{co.approvedBy && !co.signedAt ? ` · approved by ${co.approvedBy}` : ''}
               </p>
+              {co.signedAt && (
+                <p className="text-xs text-green-800 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 mt-1.5" data-co-customer-signed>
+                  Signed by the customer on {new Date(co.signedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{co.signedBy ? ` (${co.signedBy})` : ''}{co.signedVia === 'portal' ? ', in the customer portal' : co.signedVia === 'link' ? ', on their link' : ''}.
+                </p>
+              )}
+              {(co.status === 'draft' || co.status === 'sent') && maker && <SendToCustomer co={co} quoteId={quoteId} />}
               {co.status !== 'void' && (
                 <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-gray-100">
                   {co.status === 'draft' && maker && (

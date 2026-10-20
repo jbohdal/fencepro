@@ -163,6 +163,66 @@ describe('material kits reproduce the old parts lists', () => {
     expect(tan.get("*Vinyl, Tan, Rail, 6'")).toBe(2)
   })
 
+  // Tan dig set gates follow TAKEOFF_RULES.md (Jonathan's decision, Oct 20, 2026):
+  //   Misc, Concrete (TV-DS row)        ceil(postCount + blankPosts + 2*dblGates + 2*walkGates)
+  //   *Vinyl, Tan, Upright              2 per walk gate, 4 per double gate
+  //   *Vinyl, Gate, P-Channel, 6'       1 per walk gate, 2 per double gate
+  //   *Vinyl, Gate, Latch               1 per walk gate, 2 per double gate
+  // Kits and the old list both carry this, so the item by item proof above still holds;
+  // this pins the gate's own lines on TV-DS 6'x6', TV-DS 6'x8' and TV-Auto DS.
+  test('tan dig set gate lines follow TAKEOFF_RULES (Oct 20, 2026)', () => {
+    const parts = ['Misc, Concrete', '*Vinyl, Tan, Upright', "*Vinyl, Gate, P-Channel, 6'", '*Vinyl, Gate, Latch']
+    const base = { runs: [60, 42], corners: 1, ends: 2, tearOutSections: 0, tearOutGates: 0 }
+    const price = (s: string, walkGates: number, dblGates: number) => {
+      const auto = AUTO[s]
+      const r = withKitSets([], () => auto
+        ? calculateMixedMaterialsDetailed({ ...base, ...auto, walkGates, dblGates, runs: base.runs.map(ft => ({ ft, rail: '6ft' as RailWidth })) })
+        : calculateMaterialsDetailed({ fenceStyle: s, ...base, walkGates, dblGates }))
+      return byPart(r.items)
+    }
+    for (const s of ["TV-DS 6'x6' Privacy", "TV-DS 6'x8' Privacy", 'TV-Auto DS Privacy']) {
+      const none = price(s, 0, 0), walk = price(s, 1, 0), dbl = price(s, 0, 1)
+      const d = (m: Map<string, { qty: number }>, p: string) => (m.get(p)?.qty ?? 0) - (none.get(p)?.qty ?? 0)
+      expect(parts.map(p => d(walk, p)), s).toEqual([2, 2, 1, 1])
+      // A double gate also adds its blank post's bag: 1 + 2 per double gate.
+      expect(parts.map(p => d(dbl, p)), s).toEqual([3, 4, 2, 2])
+    }
+  })
+
+  // White dig set concrete and the vinyl gate handle follow TAKEOFF_RULES.md (Jonathan's decision, Oct 20, 2026):
+  //   Misc, Concrete (WV-DS row)   ceil(postCount + blankPosts + 2*dblGates + 2*walkGates): 2 bags per walk gate
+  //                                (the 8 ft tall WV-DS list keeps its 2 bags per post and adds the 2 per walk gate)
+  //   *Vinyl, Gate, Handle         gateCount*2 on the TV-DS, TV-ND, WV-DS and WV-ND privacy styles (a double gate is 2)
+  // Tan walk gate H-beams stay 6 ft (Jonathan, Oct 20, 2026: no change).
+  test('white dig set walk gate concrete and the vinyl gate handle follow TAKEOFF_RULES (Oct 20, 2026)', () => {
+    const base = { runs: [60, 42], corners: 1, ends: 2, tearOutSections: 0, tearOutGates: 0 }
+    const price = (s: string, walkGates: number, dblGates: number) => {
+      const auto = AUTO[s]
+      const r = withKitSets([], () => auto
+        ? calculateMixedMaterialsDetailed({ ...base, ...auto, walkGates, dblGates, runs: base.runs.map(ft => ({ ft, rail: '6ft' as RailWidth })) })
+        : calculateMaterialsDetailed({ fenceStyle: s, ...base, walkGates, dblGates }))
+      return byPart(r.items)
+    }
+    const delta = (s: string, w: number, d: number, p: string) => (price(s, w, d).get(p)?.qty ?? 0) - (price(s, 0, 0).get(p)?.qty ?? 0)
+    for (const s of ["WV-DS 6'x6' Privacy", "WV-DS 6'x8' Privacy", "WV-DS 8'x6' Privacy", "WV-DS 8'x8' Privacy", 'WV-Auto DS Privacy']) {
+      expect(delta(s, 1, 0, 'Misc, Concrete'), s).toBe(2)
+    }
+    for (const s of ["WV-DS 6'x6' Privacy", "WV-DS 6'x8' Privacy", 'WV-Auto DS Privacy']) {
+      expect(delta(s, 0, 1, 'Misc, Concrete'), s).toBe(3) // its blank post's bag + 2 per double gate, as before
+    }
+    const handleStyles = [...LOCKED.filter(s => /^(WV|TV)-(ND|DS) /.test(s)), ...Object.keys(AUTO)]
+    expect(handleStyles.length).toBe(21)
+    for (const s of handleStyles) {
+      expect(delta(s, 1, 0, '*Vinyl, Gate, Handle'), s).toBe(2)
+      expect(delta(s, 0, 1, '*Vinyl, Gate, Handle'), s).toBe(4)
+      expect(price(s, 0, 0).has('*Vinyl, Gate, Handle'), s).toBe(false)
+    }
+    // Tan walk gate H-beams: still two 6 ft per walk gate.
+    for (const s of ["TV-DS 6'x6' Privacy", "TV-ND 6'x6' Privacy", 'TV-Auto DS Privacy']) {
+      expect(delta(s, 1, 0, "*Vinyl, Gate, H-Beam, 6'"), s).toBe(2)
+    }
+  })
+
   test('chain link per foot parts are rounded up once per job', () => {
     const set = builtInKitSet("CL - 4' Galv")!
     const foot = new Map(set.kits.perFoot!.map(p => [p.part, p.qty]))

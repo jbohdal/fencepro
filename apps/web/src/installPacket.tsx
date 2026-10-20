@@ -13,7 +13,8 @@ import SitePlan from './SitePlan'
 import { bakedBackdrop } from './aerialBake'
 import type { AerialBackdrop } from './sitePlanPhoto'
 import { buildPlan } from './sitePlanGeometry'
-import { deriveLayout, formatFtIn, postSpacing, GATE_LABEL, FINISH_NEAR, effectiveFinishes } from './yardLayout'
+import { deriveLayout, formatFtIn, postSpacing, GATE_LABEL } from './yardLayout'
+import { gateWhereText } from './gateSlide'
 import { savedRunSections } from './quoteCalc'
 import { listMedia, type ServerMedia } from './mediaStore'
 import { fetchWithAuth } from './crmAuth'
@@ -85,9 +86,9 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
       if (!s.on) return
       const r = derived.sides[i]
       if (s.gate && r.gateAtIn != null) {
-        const f = effectiveFinishes(yard, i)
-        const where = s.gate.position === 'middle' ? 'in the middle' : s.gate.position === 'start' ? FINISH_NEAR[f.start] : s.gate.position === 'end' ? FINISH_NEAR[f.end] : 'measured in'
-        snap.gates!.push(`${s.name}: ${formatFtIn(s.gate.widthIn)} ${GATE_LABEL[s.gate.type].toLowerCase()} ${where}, starting ${formatFtIn(r.gateAtIn)} from the start of the side; ${planGates.get(s.id)?.swingText ?? 'swings in'} (as seen from inside the yard)`)
+        // Both ways, by the side's real ends: "Back: 5 ft walk gate, 12 ft from the Left side corner, 31 ft to the Right side corner".
+        const where = gateWhereText(yard, i) ?? `${formatFtIn(s.gate.widthIn)} ${GATE_LABEL[s.gate.type].toLowerCase()}`
+        snap.gates!.push(`${s.name}: ${where}; ${planGates.get(s.id)?.swingText ?? 'swings in'} (as seen from inside the yard)`)
       }
       if (s.skip && r.skipAtIn != null) snap.skips!.push(`${s.name}: ${formatFtIn(s.skip.lengthIn)} ${s.skip.kind === 'existing' ? 'existing fence' : 'with no fence'}, starting ${formatFtIn(r.skipAtIn)} from the start of the side`)
     })
