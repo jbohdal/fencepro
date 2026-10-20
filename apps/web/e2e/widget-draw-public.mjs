@@ -38,10 +38,12 @@ for (const [label, engine, opts] of [['iPhone (WebKit)', webkit, { viewport: { w
   const browser = await engine.launch(engine === chromium ? args : {})
   try {
     const ctx = await browser.newContext(opts)
-    await ctx.route(HOST, r => r.fulfill({ contentType: 'text/html', body: host }))
-    // Read only: a request that is not a GET goes out only when it is test mode.
+    // Read only: a request that is not a GET goes out only when it is test mode. The stand-in for the
+    // website page is answered here too: Playwright runs the route added last first, so a separate
+    // route for it would never be reached and the real website would load instead.
     await ctx.route('**/*', r => {
       const q = r.request()
+      if (q.url() === HOST) return r.fulfill({ contentType: 'text/html', body: host })
       if (q.method() === 'GET' || q.method() === 'HEAD' || q.method() === 'OPTIONS') return r.continue()
       const body = q.postData() || ''
       const ok = q.url().startsWith(WIDGET) && (/"test":true/.test(body) || /[?&]test=1/.test(q.url()))
