@@ -9,7 +9,9 @@
 import type { Response } from 'express'
 import prisma from '../prisma.js'
 import { REQUIREMENT_LABEL, type Board, type Requirement } from './types.js'
-import { jobForCard, opsStageOfJob, OPS_STAGE_LABEL } from './context.js'
+import { jobForCard, opsStageName } from './context.js'
+import { loadOpsStages } from '../opsStages.js'
+import { stageOfJob, reconcileOpsStage } from '../opsStageModel.js'
 import { walkthroughApi, WALKTHROUGH_MISSING } from './walkthroughAdapter.js'
 
 export interface Missing { type: Requirement; label: string; detail: string }
@@ -87,17 +89,18 @@ export async function checkPipelineMoves(accountId: string, before: any[], after
   return blocked
 }
 
-/** A job save that moves it into an Operations stage with requirements not met. */
+/** A job save that moves it into an Operations stage with requirements not met. Stage rules keep the stage id. */
 export async function checkJobMove(accountId: string, before: any, after: any): Promise<Blocked | null> {
-  const from = opsStageOfJob(before)
-  const to = opsStageOfJob(after)
+  const { stages } = await loadOpsStages(accountId)
+  const from = stageOfJob(stages, before)
+  const to = reconcileOpsStage(stages, before, after)
   if (from === to) return null
   const rules = await enabledRules(accountId, 'ops')
   const reqs = rules.get(to)
   if (!reqs?.length) return null
   const missing = await missingFor(accountId, reqs, after, null)
   if (!missing.length) return null
-  return { id: before.id, name: before.customerName || 'This job', board: 'ops', from: OPS_STAGE_LABEL[from] ?? from, to: OPS_STAGE_LABEL[to] ?? to, missing }
+  return { id: before.id, name: before.customerName || 'This job', board: 'ops', from: opsStageName(stages, from), to: opsStageName(stages, to), missing }
 }
 
 /** The answer for a refused move: the app puts the card back and shows what is missing. */

@@ -10,42 +10,22 @@ import { countyPoint, suggestCounty } from '../addressIndex.js'
 import { getFrontendBase } from '../urls.js'
 import { plainStyleName } from '../estimates.js'
 import type { Board, Condition } from './types.js'
+import { stageOfJob, stageById, START_OPS_STAGES, type OpsStageDef, type OpsJobLike } from '../opsStageModel.js'
+import { loadOpsStages } from '../opsStages.js'
 
 export const CLOSED_SALES = new Set(['Lost Sale', 'No Answer', 'Paid & Closed'])
 
-/** The Operations stage a job shows in (the same rule as the board: apps/web/src/OperationsPage.tsx mapJobStatusToOps). */
-export function opsStageOfJob(job: { status: string; materialsStatus?: string | null; drawingComplete?: boolean | null; locatesDate?: string | null }): string {
-  if (job.status === 'on_hold') return 'on_hold'
-  if (job.status === 'staging') {
-    if (job.materialsStatus === 'ordered') return 'materials_ordered'
-    if (job.materialsStatus === 'received' || job.materialsStatus === 'loaded') return 'ready_to_pull'
-    if (job.drawingComplete === false && job.materialsStatus === 'not_ordered') return job.locatesDate ? 'need_drawing' : 'awaiting_locates'
-    return 'awaiting_locates'
-  }
-  if (['scheduled', 'in_progress', 'completed', 'invoiced', 'paid'].includes(job.status)) return job.status
-  return 'awaiting_locates'
+/**
+ * The Operations stage a job is in (its id), by the company's list from
+ * Settings > Operations Stages (lib/opsStages.ts loadOpsStages): the same rule
+ * as the board (opsStageModel.stageOfJob).
+ */
+export function opsStageOfJob(job: OpsJobLike, stages: OpsStageDef[] = START_OPS_STAGES): string {
+  return stageOfJob(stages, job)
 }
 
-export const OPS_STAGE_LABEL: Record<string, string> = {
-  awaiting_locates: 'Awaiting Locates', need_drawing: 'Need Drawing', materials_ordered: 'Materials Ordered', ready_to_pull: 'Ready to Pull',
-  scheduled: 'Scheduled', in_progress: 'In Progress', completed: 'Complete', invoiced: 'Invoiced', paid: 'Paid', on_hold: 'On Hold',
-  customer_delay: 'Customer Delay', backorder: 'Backorder',
-}
-
-/** What saving a job into an Operations stage changes (the board's own mapping). */
-export function jobFieldsForOpsStage(stage: string, today: string): Record<string, unknown> | null {
-  const status: Record<string, string> = {
-    awaiting_locates: 'staging', need_drawing: 'staging', materials_ordered: 'staging', ready_to_pull: 'staging',
-    scheduled: 'scheduled', in_progress: 'in_progress', completed: 'completed', invoiced: 'invoiced', paid: 'paid', on_hold: 'on_hold',
-  }
-  if (!status[stage]) return null
-  const out: Record<string, unknown> = { status: status[stage] }
-  if (stage === 'materials_ordered') out.materialsStatus = 'ordered'
-  if (stage === 'ready_to_pull') out.materialsStatus = 'received'
-  if (stage === 'need_drawing') out.drawingComplete = false
-  if (stage === 'completed') out.completedDate = today
-  return out
-}
+/** A stage's name in the company's list (its id when it is not there). */
+export const opsStageName = (stages: OpsStageDef[], id: string) => stageById(stages, id)?.name ?? id
 
 export const floridaDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
 
@@ -168,10 +148,11 @@ export async function buildContext(accountId: string, board: Board, entityId: st
     ...(Array.isArray(contact?.tags) ? (contact!.tags as unknown[]).map(String) : []),
     ...(Array.isArray(card?.tags) ? (card.tags as unknown[]).map(String) : []),
   ]
-  const stage = board === 'sales' ? String(card?.stage ?? '') : opsStageOfJob(job)
+  const opsStages = board === 'ops' ? (await loadOpsStages(accountId)).stages : START_OPS_STAGES
+  const stage = board === 'sales' ? String(card?.stage ?? '') : opsStageOfJob(job, opsStages)
   return {
     board, entityKind: board === 'sales' ? 'card' : 'job', entityId,
-    card, job, stage, stageLabel: board === 'sales' ? stage : (OPS_STAGE_LABEL[stage] ?? stage),
+    card, job, stage, stageLabel: board === 'sales' ? stage : opsStageName(opsStages, stage),
     customerId,
     firstName, lastName, name: `${firstName} ${lastName}`.trim() || String(job?.customerName || 'the customer'),
     email: String(contact?.email || card?.email || job?.customerEmail || '').trim(),

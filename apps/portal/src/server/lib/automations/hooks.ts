@@ -8,7 +8,8 @@
  */
 
 import { recordEvent } from '../automationEvents.js'
-import { opsStageOfJob } from './context.js'
+import { loadOpsStages } from '../opsStages.js'
+import { stageOfJob } from '../opsStageModel.js'
 
 type Db = Parameters<typeof recordEvent>[1]
 
@@ -36,8 +37,10 @@ export async function recordCardMoves(accountId: string, before: any[], after: a
 /** Operations: a job save that changes the stage it shows in, and a payment marked on the job. */
 export async function recordJobChanges(accountId: string, before: any | null, after: any, db?: Db): Promise<void> {
   const at = new Date(after.updatedAt ?? Date.now()).getTime()
-  const to = opsStageOfJob(after)
-  const from = before ? opsStageOfJob(before) : null
+  // By stage id (Settings > Operations Stages), so a renamed stage is the same stage.
+  const { stages } = await loadOpsStages(accountId, db ?? undefined)
+  const to = stageOfJob(stages, after)
+  const from = before ? stageOfJob(stages, before) : null
   if (from !== to) {
     const data = { stage: to, from, to, name: after.customerName ?? '', customerId: after.crmContactId ?? null }
     if (from) await recordEvent({ accountId, type: 'card_left', board: 'ops', entityKind: 'job', entityId: after.id, data: { ...data, stage: from }, dedupeKey: `ops:${after.id}:left:${from}:${at}` }, db)

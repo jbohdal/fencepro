@@ -20,6 +20,8 @@ export interface SavedJobPayload {
   crmContactId?: string | null
   status?: SavedJobStatus
   previousStatus?: SavedJobStatus | null
+  /** The Operations stage id ('' for a job saved before stages were kept on the job). */
+  opsStage?: string
   customerName?: string
   customerPhone?: string
   customerEmail?: string
@@ -68,6 +70,7 @@ export interface SavedJobRecord {
   crmContactId: string | null
   status: SavedJobStatus
   previousStatus: SavedJobStatus | null
+  opsStage?: string
   customerName: string
   customerPhone: string
   customerEmail: string

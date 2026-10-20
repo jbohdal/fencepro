@@ -84,6 +84,8 @@ import cronRoutes from './routes/cron.js'
 import portalRoutes from './routes/portal.js'
 import feedbackRoutes from './routes/feedback.js'
 import followUpRoutes from './routes/follow-ups.js'
+import opsStagesRoutes from './routes/ops-stages.js'
+import { ensureOpsStageListAll } from './lib/opsStages.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
@@ -236,6 +238,7 @@ app.use('/api/vendor-state', vendorStateRoutes)
 app.use('/api/vendor-invoices', vendorInvoiceRoutes) // Vendor invoices update Inventory prices (lib/vendorInvoices.ts)
 app.use('/api/business-state', businessStateRoutes)
 app.use('/api/kv', kvRoutes)
+app.use('/api/ops-stages', opsStagesRoutes)
 app.use('/api/intake', intakeRoutes)
 app.use('/api/scheduled-deletions', scheduledDeletionRoutes)
 app.use('/api/system', systemRoutes)
@@ -382,6 +385,8 @@ if (!isVercel) {
       await ensureChainDigSetAll().catch(err => console.error('[chain link] dig set check failed:', err))
       // Chain link dig set post names with 0.055 wall and size, and hook ties per section on saved kits: once per company (lib/chainDigSetPipes.ts).
       await ensureChainDigSetPipesAll().catch(err => console.error('[chain link] dig set pipe names check failed:', err))
+      // The one Operations stage list from the old Settings one; no job changes: once per company (lib/opsStages.ts).
+      await ensureOpsStageListAll().catch(err => console.error('[ops stages] one list check failed:', err))
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))

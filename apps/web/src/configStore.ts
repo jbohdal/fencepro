@@ -228,6 +228,20 @@ export function getConfig(): AppConfig {
   return out
 }
 
+/**
+ * The lead sources and customer tags from Settings (the lists every form
+ * offers). A record keeps the words it was saved with, so a value no longer in
+ * the list (renamed or removed in Settings) is still offered for that record.
+ */
+export function leadSourceOptions(current?: string | null): string[] {
+  const list = getConfig().leadSources?.length ? getConfig().leadSources : DEFAULT_CONFIG.leadSources
+  return current && !list.includes(current) ? [...list, current] : list
+}
+export function customerTagOptions(current: string[] = []): string[] {
+  const list = getConfig().customerTags?.length ? getConfig().customerTags : DEFAULT_CONFIG.customerTags
+  return [...list, ...current.filter(t => t && !list.includes(t))]
+}
+
 export function saveConfig(config: AppConfig): void {
   // What is worked out on every read (plain names, holds, job lot prices) is not saved.
   const clean = { ...config, fenceStyles: stripDerived(config.fenceStyles ?? []) }

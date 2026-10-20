@@ -5,7 +5,8 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { fillTemplate, evalConditions, opsStageOfJob, jobFieldsForOpsStage, cityOf, type EntityContext } from '../src/server/lib/automations/context.js'
+import { fillTemplate, evalConditions, opsStageOfJob, cityOf, type EntityContext } from '../src/server/lib/automations/context.js'
+import { fieldsForStage, START_OPS_STAGES } from '../src/server/lib/opsStageModel.js'
 import { rawMessage } from '../src/server/lib/automations/gmail.js'
 import { smsLink } from '../src/server/lib/automations/steps.js'
 import { ruleSchema, STARTER_RULES } from '../src/server/lib/automations/types.js'
@@ -73,11 +74,11 @@ describe('Operations stages', () => {
     expect(opsStageOfJob({ status: 'staging', materialsStatus: 'not_ordered', drawingComplete: false, locatesDate: null })).toBe('awaiting_locates')
     expect(opsStageOfJob({ status: 'staging', materialsStatus: 'ordered' })).toBe('materials_ordered')
     expect(opsStageOfJob({ status: 'completed' })).toBe('completed')
-    for (const s of ['awaiting_locates', 'materials_ordered', 'ready_to_pull', 'scheduled', 'in_progress', 'completed', 'invoiced', 'paid', 'on_hold']) {
-      const f = jobFieldsForOpsStage(s, '2026-10-18')!
-      expect(opsStageOfJob({ materialsStatus: 'not_ordered', drawingComplete: false, locatesDate: null, ...f } as any)).toBe(s)
+    for (const s of START_OPS_STAGES.map(x => x.id)) {
+      const f = fieldsForStage(START_OPS_STAGES, s, { status: 'staging' }, '2026-10-18')!
+      expect(opsStageOfJob({ status: 'staging', materialsStatus: 'not_ordered', drawingComplete: false, locatesDate: null, ...f } as any)).toBe(s)
     }
-    expect(jobFieldsForOpsStage('nope', '2026-10-18')).toBeNull()
+    expect(fieldsForStage(START_OPS_STAGES, 'nope', { status: 'staging' }, '2026-10-18')).toBeNull()
   })
   test('city from an address', () => {
     expect(cityOf('100 Pecan Dr, Ocala, FL 34472')).toBe('Ocala')

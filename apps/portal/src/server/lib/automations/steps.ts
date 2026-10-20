@@ -13,7 +13,9 @@
 import prisma from '../prisma.js'
 import { storeFile } from '../storage/index.js'
 import { applyPipelineDelta } from '../pipelineDelta.js'
-import { fillTemplate, floridaDay, proposalLinkFor, jobFieldsForOpsStage, loadLeads, OPS_STAGE_LABEL, type EntityContext } from './context.js'
+import { fillTemplate, floridaDay, proposalLinkFor, loadLeads, opsStageName, type EntityContext } from './context.js'
+import { loadOpsStages } from '../opsStages.js'
+import { fieldsForStage, stageOfJob } from '../opsStageModel.js'
 import { PermanentStepError, type Step } from './types.js'
 import { checkJobMove, checkPipelineMoves } from './stageRules.js'
 import { recordCardMoves, recordJobChanges } from './hooks.js'
@@ -257,15 +259,18 @@ async function moveCard(r: StepRun, stage: string): Promise<StepOutcome> {
   }
   const job = await prisma.savedJob.findFirst({ where: { id: e.entityId, accountId: r.accountId, archivedAt: null } })
   if (!job) throw new PermanentStepError('The job is not there any more.')
-  const fields = jobFieldsForOpsStage(stage, floridaDay(r.now))
-  if (!fields) throw new PermanentStepError(`"${stage}" is not an Operations stage a job can be moved to.`)
+  // By stage id, in the company's list (Settings > Operations Stages).
+  const { stages } = await loadOpsStages(r.accountId)
+  const fields = fieldsForStage(stages, stage, job, floridaDay(r.now))
+  if (!fields) throw new PermanentStepError(`"${stage}" is not one of the Operations stages (Settings > Operations Stages).`)
+  if (stageOfJob(stages, job) === stage) return { detail: `the job is in ${opsStageName(stages, stage)}` }
   const blocked = await checkJobMove(r.accountId, job, { ...job, ...fields })
   if (blocked) throw new PermanentStepError(`Cannot move to ${blocked.to}: ${blocked.missing.map(m => m.detail).join(' ')}`)
   await prisma.$transaction(async tx => {
     const updated = await tx.savedJob.update({ where: { id: job.id }, data: fields as any })
     await recordJobChanges(r.accountId, job, updated, tx)
   })
-  return { detail: `moved the job to ${OPS_STAGE_LABEL[stage] ?? stage}` }
+  return { detail: `moved the job to ${opsStageName(stages, stage)}` }
 }
 
 async function finalInvoice(r: StepRun, dueInDays: number): Promise<StepOutcome> {
@@ -366,16 +371,20 @@ export async function describeSteps(accountId: string, steps: Step[], e: EntityC
       case 'prepare_text': d(`prepare a text to ${e.phone || '(no phone on file)'}: "${fill(s.body)}"`, e.phone ? undefined : 'No phone number on file; the step would fail.'); break
       case 'move_card': {
         let warning: string | undefined
+        let toName = s.stage
         if (e.board === 'sales') {
           const { leads } = await loadLeads(accountId)
           const blocked = await checkPipelineMoves(accountId, leads, leads.map(l => l?.id === e.entityId ? { ...l, stage: s.stage } : l))
           if (blocked.length) warning = `A stage rule would block it: ${blocked[0].missing.map(m => m.label).join(', ')}`
         } else if (e.job) {
-          const fields = jobFieldsForOpsStage(s.stage, floridaDay(now))
+          const { stages } = await loadOpsStages(accountId)
+          toName = opsStageName(stages, s.stage)
+          const fields = fieldsForStage(stages, s.stage, e.job, floridaDay(now))
           const blocked = fields ? await checkJobMove(accountId, e.job, { ...e.job, ...fields }) : null
+          if (!fields) warning = `"${s.stage}" is not one of the Operations stages; the step would fail.`
           if (blocked) warning = `A stage rule would block it: ${blocked.missing.map(m => m.label).join(', ')}`
         }
-        d(`move the ${e.board === 'sales' ? 'card' : 'job'} from ${e.stageLabel} to ${e.board === 'sales' ? s.stage : (OPS_STAGE_LABEL[s.stage] ?? s.stage)}`, warning)
+        d(`move the ${e.board === 'sales' ? 'card' : 'job'} from ${e.stageLabel} to ${toName}`, warning)
         break
       }
       case 'add_checklist': d(`add to the job checklist: ${s.items.map(fill).join(', ')}`, e.job ? undefined : 'No job for this card yet; the step would fail.'); break

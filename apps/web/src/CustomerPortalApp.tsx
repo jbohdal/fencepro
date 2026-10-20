@@ -43,6 +43,7 @@ function accentColor() {
   return info.portal?.accentColor || '#f97316'
 }
 
+/** What the customer sees, by the job's status (not the office's stage names, which Jonathan can rename). */
 function friendlyStage(stage?: string): string {
   if (!stage) return ''
   const map: Record<string, string> = {
@@ -53,13 +54,6 @@ function friendlyStage(stage?: string): string {
     invoiced: 'Invoice Sent',
     paid: 'Complete · Paid',
     on_hold: 'On Hold',
-    'Awaiting Locates': 'Locates Scheduled',
-    'Permit Pending': 'Awaiting Permit',
-    'Materials Ordered': 'Materials Ordered',
-    'Scheduled': 'Installation Scheduled',
-    'In Progress': 'Installation in Progress',
-    'Punch List': 'Final Touches',
-    'Complete': 'Complete',
   }
   return map[stage] || stage
 }

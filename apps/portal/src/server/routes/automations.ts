@@ -35,7 +35,9 @@ import { getFilePath } from '../lib/storage/index.js'
 import { recordEvent } from '../lib/automationEvents.js'
 import { ruleSchema, stageRuleSchema, REQUIREMENT_LABEL, REQUIREMENTS, STEP_TYPES, CONDITION_FIELDS, EVENT_TRIGGERS, type Board } from '../lib/automations/types.js'
 import { dryRun, ensureStarters, runAgain, type LogEntry } from '../lib/automations/queue.js'
-import { buildContext, loadLeads, opsStageOfJob, OPS_STAGE_LABEL, TEMPLATE_FIELDS, CLOSED_SALES } from '../lib/automations/context.js'
+import { buildContext, loadLeads, opsStageOfJob, opsStageName, TEMPLATE_FIELDS, CLOSED_SALES } from '../lib/automations/context.js'
+import { loadOpsStages } from '../lib/opsStages.js'
+import { pickableStages, stageById, stageIdsInRule } from '../lib/opsStageModel.js'
 import { missingFor } from '../lib/automations/stageRules.js'
 import { saveSubscription, sendPush, vapidKeys } from '../lib/automations/push.js'
 import { disconnectGmail, gmailConsentUrl, gmailStatus } from '../lib/automations/gmail.js'
@@ -90,6 +92,14 @@ async function salesStages(accountId: string): Promise<string[]> {
   return custom.length ? custom : SALES_STAGES
 }
 
+/** An Operations rule names stages by id; every one must be in Settings > Operations Stages. */
+async function unknownOpsStage(accountId: string, r: { board: string; trigger: any; conditions: any; steps: any }): Promise<string | null> {
+  if (r.board !== 'ops') return null
+  const { stages } = await loadOpsStages(accountId)
+  const bad = stageIdsInRule(r).find(id => !stageById(stages, id))
+  return bad ? `"${bad}" is not one of the Operations stages (Settings > Operations Stages). Pick a stage from the list.` : null
+}
+
 // ── Meta ──
 
 router.get('/meta', async (req: any, res) => {
@@ -101,7 +111,8 @@ router.get('/meta', async (req: any, res) => {
       success: true,
       data: {
         salesStages: await salesStages(accountId),
-        opsStages: Object.entries(OPS_STAGE_LABEL).filter(([k]) => !['customer_delay', 'backorder'].includes(k)).map(([key, label]) => ({ key, label })),
+        // Settings > Operations Stages, shown ones in order; rules keep the id.
+        opsStages: pickableStages((await loadOpsStages(accountId)).stages).map(s => ({ key: s.id, label: s.name })),
         people: people.map(p => ({ id: p.id, name: `${p.firstName} ${p.lastName}`.trim(), email: p.email, role: p.role })),
         templateFields: TEMPLATE_FIELDS, stepTypes: STEP_TYPES, conditionFields: CONDITION_FIELDS, events: EVENT_TRIGGERS,
         requirements: REQUIREMENTS.map(r => ({ type: r, label: REQUIREMENT_LABEL[r] })),
@@ -139,6 +150,8 @@ router.post('/rules', requireAdmin, async (req: any, res) => {
   try {
     const r = ruleSchema.parse(req.body)
     const accountId = req.user.crmAccountId
+    const badStage = await unknownOpsStage(accountId, r)
+    if (badStage) { res.status(400).json({ success: false, error: badStage }); return }
     // The id the screen chose when the editor opened: the same Save sent again returns the rule already made.
     const decision = await decideClientId(clientIdSchema.parse(req.body?.id), accountId, id => prisma.automationRule.findUnique({ where: { id } }))
     if (decision.kind === 'exists') { res.status(200).json({ success: true, data: decision.row }); return }
@@ -163,6 +176,8 @@ router.put('/rules/:id', requireAdmin, async (req: any, res) => {
     const r = ruleSchema.parse(req.body)
     const cur = await prisma.automationRule.findFirst({ where: { id: req.params.id, accountId: req.user.crmAccountId } })
     if (!cur) { res.status(404).json({ success: false, error: 'This rule was deleted on another device.' }); return }
+    const badStage = await unknownOpsStage(req.user.crmAccountId, r)
+    if (badStage) { res.status(400).json({ success: false, error: badStage }); return }
     const row = await prisma.automationRule.update({
       where: { id: cur.id },
       data: { name: r.name, board: r.board, enabled: r.enabled, enabledAt: r.enabled && !cur.enabled ? new Date() : cur.enabledAt, trigger: r.trigger as any, conditions: r.conditions as any, steps: r.steps as any },
@@ -218,7 +233,8 @@ router.get('/samples', async (req: any, res) => {
       where: { accountId, archivedAt: null, ...(q ? { OR: [{ customerName: { contains: q, mode: 'insensitive' } }, { customerAddress: { contains: q, mode: 'insensitive' } }] } : {}) },
       orderBy: { updatedAt: 'desc' }, take: 40,
     })
-    res.json({ success: true, data: jobs.map(j => ({ id: j.id, name: j.customerName || '(no name)', stage: OPS_STAGE_LABEL[opsStageOfJob(j)] ?? j.status, address: j.customerAddress })) })
+    const { stages } = await loadOpsStages(accountId)
+    res.json({ success: true, data: jobs.map(j => ({ id: j.id, name: j.customerName || '(no name)', stage: opsStageName(stages, opsStageOfJob(j, stages)), address: j.customerAddress })) })
   } catch (err) { fail(res, err, 'load cards to test with') }
 })
 
@@ -236,6 +252,10 @@ router.put('/stage-rules', requireAdmin, async (req: any, res) => {
   try {
     const r = stageRuleSchema.parse(req.body)
     const accountId = req.user.crmAccountId
+    // An Operations stage rule keeps the stage id from Settings > Operations Stages.
+    if (r.board === 'ops' && !stageById((await loadOpsStages(accountId)).stages, r.stage)) {
+      res.status(400).json({ success: false, error: `"${r.stage}" is not one of the Operations stages (Settings > Operations Stages).` }); return
+    }
     const row = await prisma.stageRule.upsert({
       where: { accountId_board_stage: { accountId, board: r.board, stage: r.stage } },
       create: { accountId, board: r.board, stage: r.stage, requirements: r.requirements as any, enabled: r.enabled },

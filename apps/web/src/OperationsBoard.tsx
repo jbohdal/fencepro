@@ -19,9 +19,13 @@ import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type UnifiedJob,
-  OPS_STAGES, buildUnifiedList, DetailPanel,
+  buildUnifiedList, DetailPanel,
 } from './OperationsPage'
-import { type Job, type JobStatus, getJobs, updateJob, advanceJob, holdJob, unholdJob } from './jobStore'
+import { type Job, type JobStatus, updateJob, advanceJob, holdJob, unholdJob } from './jobStore'
+import {
+  useOpsStages, OPS_STAGES_UPDATED_EVENT, stageInfo, stagePhase, nextOpsStage, stageFields, getCompleteOpsStage, type OpsStageDef,
+} from './opsStagesStore'
+import { boardStages, sideStages, sortedStages, pickableStages, isDonePhase } from './opsStageModel'
 import { fireOpsStageChange } from './automationTrigger'
 import { onJobCompleted } from './jobCompleteFlow'
 import { getChecklistProgress } from './checklistStore'
@@ -37,27 +41,8 @@ const fmtUSD = (n: number) =>
 
 const TODAY = () => businessDate(new Date())
 
-const stageColorHex: Record<string, string> = {
-  'bg-blue-500': '#3b82f6', 'bg-yellow-500': '#eab308', 'bg-orange-500': '#f97316',
-  'bg-purple-500': '#a855f7', 'bg-green-500': '#10b981', 'bg-teal-500': '#14b8a6',
-  'bg-gray-500': '#6b7280', 'bg-blue-400': '#60a5fa', 'bg-green-400': '#34d399',
-  'bg-red-500': '#ef4444', 'bg-rose-500': '#f43f5e', 'bg-amber-500': '#f59e0b',
-}
-
-const STAGE_TO_STATUS: Record<string, JobStatus> = {
-  'awaiting_locates': 'staging',
-  'need_drawing': 'staging',
-  'materials_ordered': 'staging',
-  'ready_to_pull': 'staging',
-  'scheduled': 'scheduled',
-  'in_progress': 'in_progress',
-  'completed': 'completed',
-  'invoiced': 'invoiced',
-  'paid': 'paid',
-  'on_hold': 'on_hold',
-  'customer_delay': 'on_hold',
-  'backorder': 'on_hold',
-}
+/** Done (completed, invoiced or paid) by the status its stage stands for. */
+const isDoneStage = (id: string) => isDonePhase(stagePhase(id))
 
 function withinNDays(iso: string, n: number): boolean {
   if (!iso) return false
@@ -110,6 +95,8 @@ const UNSCHEDULED_KEY = '__unscheduled__'
 
 export default function OperationsBoard() {
   const [jobs, setJobs] = useState<UnifiedJob[]>(() => buildUnifiedList())
+  // The stages (Settings > Operations Stages): columns, order, names and colors. A change shows at once.
+  const stages = useOpsStages()
   // Opened: read the newest copy (a job sold online, a card moved by the server).
   useEffect(() => { void refreshNow() }, [])
   const [view, setView] = useState<ViewMode>(() => (localStorage.getItem(VIEW_KEY) as ViewMode) || 'board')
@@ -173,7 +160,8 @@ export default function OperationsBoard() {
     const h = () => refresh()
     window.addEventListener('fencepro:jobs:updated', h)
     window.addEventListener('fencepro:quotes:updated', h)
-    return () => { window.removeEventListener('fencepro:jobs:updated', h); window.removeEventListener('fencepro:quotes:updated', h) }
+    window.addEventListener(OPS_STAGES_UPDATED_EVENT, h)
+    return () => { window.removeEventListener('fencepro:jobs:updated', h); window.removeEventListener('fencepro:quotes:updated', h); window.removeEventListener(OPS_STAGES_UPDATED_EVENT, h) }
   }, [])
   useEffect(() => {
     const h = () => refresh()
@@ -193,7 +181,7 @@ export default function OperationsBoard() {
       if (onlyIds && !onlyIds.includes(j.id)) return false
       if (!showCompleted && !fromLink) {
         // archive: hide completed/paid/invoiced jobs older than 48h
-        const arch = (j.opsStage === 'completed' || j.opsStage === 'paid' || j.opsStage === 'invoiced')
+        const arch = isDoneStage(j.opsStage)
           && j.rawJob && daysSince(j.rawJob.completedDate || j.rawJob.updatedAt) > 2
         if (arch) return false
       }
@@ -242,30 +230,26 @@ export default function OperationsBoard() {
 
   function onCardDrop(j: UnifiedJob, stageKey: string) {
     if (j.opsStage === stageKey) return
-    if (stageKey === 'completed') { setConfirmComplete(j); return }
+    if (stageInfo(stageKey)?.isComplete) { setConfirmComplete(j); return }
     moveJobToStage(j, stageKey)
   }
 
   function moveJobToStage(j: UnifiedJob, targetStage: string) {
     if (j.source !== 'job' || !j.rawJob) return
+    const target = stageInfo(targetStage)
+    const updates = stageFields(targetStage, j.rawJob, TODAY()) as Partial<Job> | null
+    if (!target || !updates) return
     // optimistic local update
-    const stageInfo = OPS_STAGES.find(s => s.key === targetStage)
-    setJobs(prev => prev.map(x => x.id === j.id ? { ...x, opsStage: targetStage, opsStageLabel: stageInfo?.label || x.opsStageLabel } : x))
-
-    const newStatus = STAGE_TO_STATUS[targetStage] || 'staging'
-    const updates: Partial<Job> = { status: newStatus }
-    if (targetStage === 'materials_ordered') updates.materialsStatus = 'ordered'
-    if (targetStage === 'ready_to_pull')     updates.materialsStatus = 'received'
-    if (targetStage === 'need_drawing')      updates.drawingComplete = false
-    if (targetStage === 'completed')         updates.completedDate = TODAY()
+    setJobs(prev => prev.map(x => x.id === j.id ? { ...x, opsStage: targetStage, opsStageLabel: target.name } : x))
+    const wasDone = isDoneStage(j.opsStage)
 
     try {
       updateJob(j.id, updates)
-      fireOpsStageChange(j.id, j.rawJob.status, targetStage, {
+      fireOpsStageChange(j.id, j.opsStage, targetStage, {
         jobName: j.customerName, jobAddress: j.address, fenceType: j.fenceType,
         crewAssigned: j.crewAssigned, customerName: j.customerName,
       })
-      if (targetStage === 'completed' || targetStage === 'paid') {
+      if (!wasDone && isDoneStage(targetStage)) {
         onJobCompleted({
           jobId: j.id, customerId: j.rawJob.customerId, customerName: j.customerName,
           customerPhone: j.rawJob.customerPhone, customerEmail: j.rawJob.customerEmail,
@@ -283,15 +267,17 @@ export default function OperationsBoard() {
     if (!confirmComplete) return
     const j = confirmComplete
     setConfirmComplete(null)
-    moveJobToStage(j, 'completed')
-    toast.success('Job marked complete', `${j.customerName} moved to Complete; customer set to Job Complete in pipeline`)
+    const done = getCompleteOpsStage()
+    if (!done) return
+    moveJobToStage(j, done.id)
+    toast.success('Job marked complete', `${j.customerName} moved to ${done.name}; customer set to Job Complete in pipeline`)
   }
 
   function onAdvance(j: UnifiedJob) {
     if (j.source !== 'job' || !j.rawJob) return
     const fromStatus = j.rawJob.status
     const result = advanceJob(j.id)
-    if (result && (result.status === 'completed' || result.status === 'paid')) {
+    if (result && !isDoneStage(j.opsStage) && isDonePhase(result.status)) {
       onJobCompleted({
         jobId: j.id, customerId: j.rawJob.customerId, customerName: j.customerName,
         customerPhone: j.rawJob.customerPhone, customerEmail: j.rawJob.customerEmail,
@@ -319,7 +305,7 @@ export default function OperationsBoard() {
 
   /* ── analytics ── */
   const analytics = useMemo(() => {
-    const active = jobs.filter(j => !['completed', 'invoiced', 'paid', 'on_hold'].includes(j.opsStage))
+    const active = jobs.filter(j => !isDoneStage(j.opsStage) && stagePhase(j.opsStage) !== 'on_hold')
     const scheduledThisWeek = jobs.filter(j => withinNDays(j.scheduledDate, 7)).length
     const unscheduledCount = active.filter(j => !j.scheduledDate).length
     const avgValue = active.length ? active.reduce((s, j) => s + (j.contractValue || 0), 0) / active.length : 0
@@ -334,7 +320,7 @@ export default function OperationsBoard() {
       totalContract: jobs.reduce((s, j) => s + j.contractValue, 0),
       totalCollected: jobs.reduce((s, j) => s + j.amountPaid, 0),
     }
-  }, [jobs])
+  }, [jobs, stages])
 
   /* ── crew/style options ── */
   const crewOptions = useMemo(() => {
@@ -384,18 +370,24 @@ export default function OperationsBoard() {
   }, [jobs, search])
 
   /* ── grouping ── */
-  // Build the lane order: Unscheduled first, then OPS_STAGES.
-  type LaneSpec = { key: string; label: string; color: string; bg: string; text: string; muted?: boolean }
+  // The lane order: Unscheduled first, then the board stages in their Settings order, then the side
+  // lanes. A hidden stage gets a lane only while a job is still in it, so no job drops off the board.
+  type LaneSpec = { key: string; label: string; color: string; muted?: boolean; isComplete?: boolean; hidden?: boolean }
   const laneOrder = useMemo<LaneSpec[]>(() => {
+    const inUse = new Set(jobs.map(j => j.opsStage))
+    const hiddenInUse = sortedStages(stages).filter(s => s.hidden && inUse.has(s.id))
+    const lane = (s: OpsStageDef): LaneSpec => ({ key: s.id, label: s.hidden ? `${s.name} (hidden)` : s.name, color: s.color, isComplete: s.isComplete, hidden: s.hidden, muted: s.hidden })
     return [
-      { key: UNSCHEDULED_KEY, label: 'Unscheduled', color: 'bg-gray-300', bg: 'bg-gray-50', text: 'text-gray-600', muted: true },
-      ...OPS_STAGES.map(s => ({ ...s })),
+      { key: UNSCHEDULED_KEY, label: 'Unscheduled', color: '#d1d5db', muted: true },
+      ...boardStages(stages).map(lane),
+      ...sideStages(stages).map(lane),
+      ...hiddenInUse.map(lane),
     ]
-  }, [])
+  }, [stages, jobs])
 
   function laneJobs(laneKey: string): UnifiedJob[] {
     if (laneKey === UNSCHEDULED_KEY) {
-      return sortJobs(filtered.filter(j => !j.scheduledDate && !['completed','invoiced','paid'].includes(j.opsStage)))
+      return sortJobs(filtered.filter(j => !j.scheduledDate && !isDoneStage(j.opsStage)))
     }
     // exclude unscheduled from the regular lanes (they're shown only in the Unscheduled lane)
     return sortJobs(filtered.filter(j => j.opsStage === laneKey && j.scheduledDate))
@@ -410,8 +402,8 @@ export default function OperationsBoard() {
       label: lane.label,
       items,
       total: unscheduled ? 0 : items.reduce((s, j) => s + (j.contractValue || 0), 0),
-      colorHex: lane.key === 'completed' ? '#22c55e' : unscheduled ? '#d1d5db' : (stageColorHex[lane.color] || '#9ca3af'),
-      icon: lane.key === 'completed' ? '✓' : undefined,
+      colorHex: lane.color,
+      icon: lane.isComplete ? '✓' : undefined,
       muted: lane.muted,
       badge: !unscheduled && crewCount > 0
         ? <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold">{crewCount} crew</span>
@@ -434,6 +426,7 @@ export default function OperationsBoard() {
         crewOptions={crewOptions} crewFilter={crewFilter} onCrewFilterChange={setCrewFilter}
         styleOptions={styleOptions} styleFilter={styleFilter} onStyleFilterChange={setStyleFilter}
         stageFilter={stageFilter} onStageFilterChange={setStageFilter}
+        stageOptions={sortedStages(stages)}
         analyticsOpen={analyticsOpen} onToggleAnalytics={() => setAnalyticsOpen(o => !o)}
         showCompleted={showCompleted} onShowCompletedChange={setShowCompleted}
         highlightToday={highlightToday} onHighlightTodayChange={setHighlightToday}
@@ -495,11 +488,10 @@ export default function OperationsBoard() {
               showStageBadge={!j.scheduledDate}
               faded={matchesSearch !== null && !matchesSearch.has(j.id)}
               onNextStage={() => {
-                const idx = OPS_STAGES.findIndex(s => s.key === j.opsStage)
-                const next = OPS_STAGES[idx + 1]
+                const next = nextOpsStage(j.opsStage)
                 if (next) {
-                  if (next.key === 'completed') setConfirmComplete(j)
-                  else moveJobToStage(j, next.key)
+                  if (next.isComplete) setConfirmComplete(j)
+                  else moveJobToStage(j, next.id)
                 }
               }}
               onComplete={() => setConfirmComplete(j)}
@@ -515,7 +507,7 @@ export default function OperationsBoard() {
       ) : (
         <OpsListView
           jobs={sortJobs(filtered)}
-          stages={OPS_STAGES}
+          stages={pickableStages(stages)}
           onRowClick={setSelected}
           bulkSelected={bulkSelected}
           onBulkChange={setBulkSelected}
@@ -559,7 +551,7 @@ export default function OperationsBoard() {
       {confirmComplete && (
         <ConfirmModal
           title="Mark this job as complete?"
-          body={`This will move ${confirmComplete.customerName} to Complete and update the customer to Job Complete in the Sales Pipeline.`}
+          body={`This will move ${confirmComplete.customerName} to ${getCompleteOpsStage()?.name ?? 'Complete'} and update the customer to Job Complete in the Sales Pipeline.`}
           confirmLabel="Confirm — Mark Complete"
           onCancel={() => setConfirmComplete(null)}
           onConfirm={confirmCompleteJob}
@@ -587,8 +579,8 @@ function OpsCard({
   /** Asks first, like dropping the card on Complete. */
   onComplete: () => void
 }) {
-  const stageInfo = OPS_STAGES.find(s => s.key === job.opsStage)
-  const hex = stageInfo ? (stageColorHex[stageInfo.color] || '#9ca3af') : '#9ca3af'
+  const stage = stageInfo(job.opsStage)
+  const hex = stage?.color ?? '#9ca3af'
   const [progress, setProgress] = useState<{ total: number; complete: number }>({ total: 0, complete: 0 })
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -626,8 +618,8 @@ function OpsCard({
 
       <div className="flex items-center gap-1.5 mt-2 text-[11px]">
         <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold truncate">{job.crewAssigned ? `👷 ${job.crewAssigned}` : 'No crew'}</span>
-        {showStageBadge && stageInfo && (
-          <span className="px-2 py-0.5 rounded-full text-white font-semibold" style={{ backgroundColor: hex }}>{stageInfo.label}</span>
+        {showStageBadge && stage && (
+          <span className="px-2 py-0.5 rounded-full text-white font-semibold" style={{ backgroundColor: hex }} data-ops-stage-pill={stage.id}>{stage.name}</span>
         )}
       </div>
 
@@ -664,8 +656,8 @@ function OpsCard({
           {menuOpen && (
             <div onClick={e => e.stopPropagation()} className="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg text-xs z-20">
               <button onClick={onClick} className="block w-full text-left px-3 py-2 hover:bg-gray-50">View / Edit</button>
-              <button onClick={onNextStage} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to next stage</button>
-              {job.source === 'job' && job.opsStage !== 'completed' && <button onClick={onComplete} className="block w-full text-left px-3 py-2 hover:bg-gray-50 font-semibold text-green-700">Mark complete</button>}
+              {nextOpsStage(job.opsStage) && <button onClick={onNextStage} className="block w-full text-left px-3 py-2 hover:bg-gray-50">Move to {nextOpsStage(job.opsStage)!.name}</button>}
+              {job.source === 'job' && !stage?.isComplete && <button onClick={onComplete} className="block w-full text-left px-3 py-2 hover:bg-gray-50 font-semibold text-green-700">Mark complete</button>}
               <button onClick={onRainDay} className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600">Flag Rain Day</button>
             </div>
           )}
@@ -682,7 +674,7 @@ function ControlsBar({
   sortMode, onSortChange,
   crewOptions, crewFilter, onCrewFilterChange,
   styleOptions, styleFilter, onStyleFilterChange,
-  stageFilter, onStageFilterChange,
+  stageFilter, onStageFilterChange, stageOptions,
   analyticsOpen, onToggleAnalytics,
   showCompleted, onShowCompletedChange,
   highlightToday, onHighlightTodayChange,
@@ -706,6 +698,7 @@ function ControlsBar({
   onStyleFilterChange: (s: string) => void
   stageFilter: string
   onStageFilterChange: (s: string) => void
+  stageOptions: OpsStageDef[]
   analyticsOpen: boolean
   onToggleAnalytics: () => void
   showCompleted: boolean
@@ -736,9 +729,9 @@ function ControlsBar({
         )}
         {openFilter && (
           <div className="absolute left-0 right-0 top-full mt-2 z-30 bg-white border border-gray-200 rounded-lg p-3 space-y-2 shadow-lg">
-            <select value={stageFilter} onChange={e => onStageFilterChange(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+            <select value={stageFilter} onChange={e => onStageFilterChange(e.target.value)} aria-label="Stage filter" data-ops-stage-filter className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="">All stages</option>
-              {OPS_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+              {stageOptions.map(s => <option key={s.id} value={s.id}>{s.name}{s.hidden ? ' (hidden)' : ''}</option>)}
             </select>
             <select value={crewFilter} onChange={e => onCrewFilterChange(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="">All crews</option>
@@ -777,9 +770,9 @@ function ControlsBar({
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         <input value={search} onChange={e => onSearchChange(e.target.value)} placeholder="Search..." aria-label="Search jobs" className="w-64 border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white" />
-        <select value={stageFilter} onChange={e => onStageFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
+        <select value={stageFilter} onChange={e => onStageFilterChange(e.target.value)} aria-label="Stage filter" data-ops-stage-filter className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All stages</option>
-          {OPS_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+          {stageOptions.map(s => <option key={s.id} value={s.id}>{s.name}{s.hidden ? ' (hidden)' : ''}</option>)}
         </select>
         <select value={crewFilter} onChange={e => onCrewFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All crews</option>
@@ -843,7 +836,7 @@ function OpsListView({
   jobs, stages, onRowClick, bulkSelected, onBulkChange, onBulkMove, onExportSelected, onAdvance, highlightToday,
 }: {
   jobs: UnifiedJob[]
-  stages: typeof OPS_STAGES
+  stages: OpsStageDef[]
   onRowClick: (j: UnifiedJob) => void
   bulkSelected: Set<string>
   onBulkChange: (s: Set<string>) => void
@@ -902,8 +895,7 @@ function OpsListView({
           </thead>
           <tbody className="divide-y divide-gray-100">
             {rows.map(j => {
-              const stageInfo = stages.find(s => s.key === j.opsStage)
-              const hex = stageInfo ? (stageColorHex[stageInfo.color] || '#9ca3af') : '#9ca3af'
+              const hex = stageInfo(j.opsStage)?.color ?? '#9ca3af'
               const today = highlightToday && isToday(j.scheduledDate)
               return (
                 <tr key={j.id} onClick={() => onRowClick(j)} className={`hover:bg-gray-50 cursor-pointer ${today ? 'bg-orange-50/40' : ''}`}>
@@ -925,7 +917,7 @@ function OpsListView({
                   <td className="px-3 py-2"><MiniProgress jobId={j.id} colorHex={hex} /></td>
                   <td className="px-3 py-2 text-xs text-gray-500">{daysSince(j.rawJob?.updatedAt || '')}d</td>
                   <td className="px-3 py-2 text-right">
-                    {j.source === 'job' && j.opsStage !== 'paid' && (
+                    {j.source === 'job' && nextOpsStage(j.opsStage) && stagePhase(j.opsStage) !== 'on_hold' && (
                       <button onClick={e => { e.stopPropagation(); onAdvance(j) }}
                         className="text-xs text-orange-600 font-semibold hover:underline">Advance →</button>
                     )}
@@ -942,8 +934,7 @@ function OpsListView({
         {/* Mobile stacked card list */}
         <div className="md:hidden divide-y divide-gray-100">
           {rows.map(j => {
-            const stageInfo = stages.find(s => s.key === j.opsStage)
-            const hex = stageInfo ? (stageColorHex[stageInfo.color] || '#9ca3af') : '#9ca3af'
+            const hex = stageInfo(j.opsStage)?.color ?? '#9ca3af'
             return (
               <button key={j.id} onClick={() => onRowClick(j)} className="w-full text-left px-3 py-3 hover:bg-gray-50">
                 <div className="flex items-center justify-between">
@@ -968,7 +959,7 @@ function OpsListView({
             <select onChange={e => { if (e.target.value) onBulkMove(e.target.value) }}
               className="border border-gray-200 rounded-lg px-2 py-1 text-xs" defaultValue="">
               <option value="">Move to stage…</option>
-              {stages.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+              {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             <button onClick={onExportSelected} className="text-xs px-3 py-1 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Export CSV</button>
           </div>

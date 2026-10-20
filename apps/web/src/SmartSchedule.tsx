@@ -7,6 +7,7 @@ import { lookupPosition } from './appointmentsStore'
 import { clusterByDistance } from './geoUtils'
 import type { LatLng } from './geoUtils'
 import { cloudStorage } from './cloudStorage'
+import { stageOf, stageName } from './opsStagesStore'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -69,7 +70,8 @@ function loadSchedulableJobs(): SchedulableJob[] {
         scheduledDate: j.scheduledDate,
         lat: j.lat,
         lng: j.lng,
-        stagingStatus: j.status,
+        // A job on hold shows the name of its side lane (Settings > Operations Stages).
+        stagingStatus: j.status === 'on_hold' ? stageName(stageOf(j)) : j.status,
       })
     })
 
@@ -118,6 +120,12 @@ function loadSchedulableJobs(): SchedulableJob[] {
 
 /* ───────── Tags ───────── */
 
+/** On hold: a job in a side lane, or an old Staging sheet row in one of its hold statuses. */
+function isHeld(job: SchedulableJob): boolean {
+  if (job.source === 'jobs') return !['staging', 'scheduled'].includes(job.stagingStatus || '')
+  return ['Customer Delay', 'Hold (HOA)', 'Deed Restricted', 'Backorder'].includes(job.stagingStatus || '')
+}
+
 interface Tag { label: string; bg: string; text: string }
 
 function getJobTags(job: SchedulableJob): Tag[] {
@@ -162,8 +170,8 @@ function getJobTags(job: SchedulableJob): Tag[] {
   if (!job.drawingComplete) tags.push({ label: 'Need Drawing', bg: 'bg-yellow-50', text: 'text-yellow-700' })
 
   // Hold statuses
-  if (job.stagingStatus === 'on_hold' || job.stagingStatus === 'Customer Delay' || job.stagingStatus === 'Hold (HOA)' || job.stagingStatus === 'Deed Restricted' || job.stagingStatus === 'Backorder')
-    tags.push({ label: job.stagingStatus === 'on_hold' ? 'On Hold' : job.stagingStatus!, bg: 'bg-gray-200', text: 'text-gray-600' })
+  if (isHeld(job))
+    tags.push({ label: job.stagingStatus!, bg: 'bg-gray-200', text: 'text-gray-600' })
 
   return tags
 }
@@ -329,7 +337,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
         else color = '#f97316'                                         // orange — needs attention
 
         if (job.tearOut) color = '#8b5cf6' // purple for tear-out jobs
-        if (job.stagingStatus === 'on_hold' || job.stagingStatus === 'Customer Delay' || job.stagingStatus === 'Hold (HOA)') color = '#6b7280' // gray for holds
+        if (isHeld(job)) color = '#6b7280' // gray for holds
 
         renderJobMarker(group, job, color, null)
       })

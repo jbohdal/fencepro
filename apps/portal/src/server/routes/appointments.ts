@@ -250,7 +250,7 @@ const chatSchema = z.object({
   phone: z.string().optional(),
   address: z.string().optional(),
   scheduledAt: iso,
-  duration: z.number().default(60),
+  duration: z.number().positive().optional(),
   type: z.string().default('estimate'),
   notes: z.string().optional(),
 })
@@ -276,9 +276,13 @@ async function bookFromChat(req: any, res: any) {
     })
     if (!intake.contactId) { res.status(500).json({ success: false, error: 'Could not record the customer' }); return }
     const type = (APPOINTMENT_TYPES as readonly string[]).includes(d.type) ? d.type : 'estimate'
+    // Its length: what the chat sent, else Settings > Appointments for this type, else an hour.
+    const cfg = await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } })
+    const set = Number((cfg?.config as any)?.appointments?.durations?.[type])
+    const minutes = d.duration ?? (Number.isFinite(set) && set > 0 ? set : 60)
     const data = await withPosition(accountId, {
       accountId, crmContactId: intake.contactId, type, status: 'scheduled', source: 'website_chat', sourceRef: ref,
-      startAt: start, endAt: new Date(start.getTime() + (d.duration || 60) * 60_000),
+      startAt: start, endAt: new Date(start.getTime() + minutes * 60_000),
       address: d.address || '', notes: d.notes || '', createdBy: 'Website chat',
       history: [{ at: new Date().toISOString(), by: 'Website chat', kind: 'booked', to: { startAt: start.toISOString() } }],
     })

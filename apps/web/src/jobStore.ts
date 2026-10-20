@@ -13,6 +13,7 @@ import {
   type SavedJobRecord,
 } from './savedJobsApi'
 import { businessDate } from './businessDate'
+import { getFirstOpsStage, reconcileStage, stageOf, nextOpsStage, stageFields } from './opsStagesStore'
 
 /* ═══════════════════════════════════════════════
    JOB ENTITY — unified lifecycle from quote to paid
@@ -34,6 +35,8 @@ export interface Job {
   quoteId: string
   status: JobStatus
   previousStatus?: JobStatus   // for un-holding
+  /** The Operations stage id (Settings > Operations Stages); '' on a job saved before stages were kept on the job. */
+  opsStage?: string
 
   // Customer (from quote)
   customerName: string
@@ -112,6 +115,7 @@ function fromApi(r: SavedJobRecord): Job {
     quoteId: r.quoteId || '',
     status: r.status,
     previousStatus: r.previousStatus || undefined,
+    opsStage: r.opsStage || '',
     customerName: r.customerName,
     customerPhone: r.customerPhone,
     customerEmail: r.customerEmail,
@@ -163,6 +167,7 @@ function toApiPayload(j: Partial<Job>) {
     crmContactId: j.customerId || null,
     status: j.status,
     previousStatus: j.previousStatus ?? null,
+    opsStage: j.opsStage || '',
     customerName: j.customerName,
     customerPhone: j.customerPhone,
     customerEmail: j.customerEmail,
@@ -258,6 +263,8 @@ export function createJobFromQuote(quote: SavedQuote): Job {
     id: newId(),
     quoteId: quote.id,
     status: 'staging',
+    // New jobs land in the stage marked first in Settings > Operations Stages.
+    opsStage: getFirstOpsStage()?.id || '',
 
     customerName: quote.customerName,
     customerPhone: quote.customerPhone,
@@ -349,7 +356,7 @@ registerKind<Job>('job.update', {
       // A stage rule refused the move: the job goes back to the stage the server has, the rest of the edit goes again, and the screen says what is missing.
       const server = fromApi(r.json.data as SavedJobRecord) as any
       const back: any = { ...op.payload }
-      for (const k of ['status', 'previousStatus', 'materialsStatus', 'drawingComplete', 'locatesDate', 'completedDate']) back[k] = server[k]
+      for (const k of ['status', 'previousStatus', 'opsStage', 'materialsStatus', 'drawingComplete', 'locatesDate', 'completedDate']) back[k] = server[k]
       op.payload = back
       cache = cache.map(j => j.id === back.id ? back : j)
       emit()
@@ -370,6 +377,8 @@ export function updateJob(id: string, updates: Partial<Job>): Job | null {
 
   const prev = cache[idx]
   const next: Job = { ...prev, ...updates, updatedAt: new Date().toISOString() }
+  // The stage follows the same rule as the server (opsStageModel.reconcileOpsStage): moved on purpose, or as a status change moves it.
+  next.opsStage = reconcileStage(prev, next)
   cache = cache.map(j => j.id === id ? next : j)
   emit()
   // Queued behind the job's create and earlier edits. The latest cached copy
@@ -457,25 +466,23 @@ export const MATERIALS_STATUS_CONFIG: Record<MaterialsStatus, { label: string; c
   loaded:      { label: 'Loaded',      color: 'text-green-600' },
 }
 
+/**
+ * Move a job to the next stage on the board (Settings > Operations Stages
+ * order), setting the status that stage stands for.
+ */
 export function advanceJob(id: string): Job | null {
   const job = getJob(id)
-  if (!job || job.status === 'paid' || job.status === 'on_hold') return null
-
-  const currentIdx = STATUS_ORDER.indexOf(job.status)
-  if (currentIdx < 0 || currentIdx >= STATUS_ORDER.length - 1) return null
-
-  const nextStatus = STATUS_ORDER[currentIdx + 1]
-  const updates: Partial<Job> = { status: nextStatus }
-
-  if (nextStatus === 'completed') {
-    updates.completedDate = businessDate(new Date())
-  }
+  if (!job || job.status === 'on_hold') return null
+  const next = nextOpsStage(stageOf(job))
+  if (!next) return null
+  const updates = stageFields(next.id, job, businessDate(new Date())) as Partial<Job> | null
+  if (!updates) return null
 
   const result = updateJob(id, updates)
 
   // Fire automation trigger
   if (result) {
-    fireOpsStageChange(id, job.status, nextStatus, {
+    fireOpsStageChange(id, stageOf(job), next.id, {
       jobName: job.customerName,
       jobAddress: job.customerAddress,
       fenceType: job.fenceStyle,
@@ -487,7 +494,7 @@ export function advanceJob(id: string): Job | null {
       scheduledDate: job.scheduledDate,
       contractValue: job.contractValue,
     })
-    if (nextStatus === 'paid') {
+    if (result.status === 'paid' && job.status !== 'paid') {
       firePaymentReceived(id, { jobName: job.customerName, customerName: job.customerName })
     }
   }

@@ -35,7 +35,6 @@ const AutomationsPage = lazy(() => import('./AutomationsPage'))
 const IntegrationsPage = lazy(() => import('./IntegrationsPage'))
 const TeamManagementPage = lazy(() => import('./TeamManagementPage'))
 const BillingPage = lazy(() => import('./BillingPage'))
-import OperationsPage from './OperationsPage'
 import LoginPage from './LoginPage'
 import ChangePasswordPage from './ChangePasswordPage'
 const PLStatementPage = lazy(() => import('./PLStatementPage'))
@@ -62,6 +61,7 @@ import FinishSetup, { DiskWarning, DuplicateWarning } from './FinishSetup'
 import { initVendors, isVendorsHydrated } from './vendorStore'
 import { initBusinessState, isBusinessStateHydrated } from './businessStateStore'
 import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
+import { initOpsStages, isOpsStagesLoaded } from './opsStagesStore'
 import { startIntakeSync } from './intakeStore'
 import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
@@ -260,6 +260,7 @@ const STORE_LOADERS: Array<{ name: string; load: () => Promise<void>; loaded: ()
   { name: 'Customers', load: initCustomers, loaded: isCustomersHydrated },
   { name: 'Quotes', load: initQuotes, loaded: isQuotesHydrated },
   { name: 'Jobs', load: initJobs, loaded: isJobsHydrated },
+  { name: 'Operations stages', load: initOpsStages, loaded: isOpsStagesLoaded },
   { name: 'Schedule', load: initSchedule, loaded: isScheduleHydrated },
   { name: 'Sales pipeline', load: initPipeline, loaded: isPipelineHydrated },
   { name: 'Appointments', load: initAppointments, loaded: isAppointmentsHydrated },

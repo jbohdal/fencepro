@@ -14,6 +14,8 @@ import { RunCard } from './AutomationRunLog'
 import { pushState, turnOffPush, turnOnPush, type PushState } from './pushSubscribe'
 import { toast } from './toast'
 import { useBackLayer, useNav } from './nav'
+import { useOpsStages } from './opsStagesStore'
+import { pickableStages, stageById } from './opsStageModel'
 import { ArrowDown, ArrowUp, Bell, FlaskConical, Mail, Pencil, Plus, Trash2, X } from 'lucide-react'
 
 const input = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-base sm:text-sm bg-white'
@@ -80,8 +82,12 @@ export default function AutomationsPage() {
     if (g === 'error') toast.error('Gmail was not connected', nav.params.get('detail') ?? '')
   }, [nav.params])
 
-  const opsLabel = useCallback((k: string) => meta?.opsStages.find(s => s.key === k)?.label ?? k, [meta])
+  // Operations stages come from Settings > Operations Stages (kept current on screen); rules keep the stage id.
+  const opsList = useOpsStages()
+  const opsLabel = useCallback((k: string) => stageById(opsList, k)?.name ?? meta?.opsStages.find(s => s.key === k)?.label ?? k, [meta, opsList])
   const admin = !!meta?.isAdmin
+  // The pickers offer the shown stages in their Settings order.
+  const shown = useMemo(() => meta && { ...meta, opsStages: pickableStages(opsList).map(s => ({ key: s.id, label: s.name })) }, [meta, opsList])
 
   async function toggle(rule: Rule, enabled: boolean) {
     setRules(rs => rs?.map(r => r.id === rule.id ? { ...r, enabled } : r) ?? null)
@@ -108,7 +114,7 @@ export default function AutomationsPage() {
   }
 
   if (error && !meta) return <div className="max-w-3xl mx-auto bg-white rounded-2xl border border-red-200 p-6 text-red-700" role="alert">{error} <button className="btn btn-secondary btn-sm ml-2" onClick={load}>Try again</button></div>
-  if (!meta || !rules) return <div className="max-w-3xl mx-auto p-6 text-gray-500">Loading automations…</div>
+  if (!meta || !shown || !rules) return <div className="max-w-3xl mx-auto p-6 text-gray-500">Loading automations…</div>
 
   return (
     <div className="max-w-3xl mx-auto space-y-5 pb-24" data-automations>
@@ -179,15 +185,15 @@ export default function AutomationsPage() {
         ))}
       </section>
 
-      <StageRulesSection meta={meta} rules={stageRules} onChanged={load} admin={admin} opsLabel={opsLabel} />
+      <StageRulesSection meta={shown} rules={stageRules} onChanged={load} admin={admin} opsLabel={opsLabel} />
 
       <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3" data-recent-runs>
         <h2 className="text-sm font-semibold text-gray-900">Recent runs</h2>
         {recent.length === 0 ? <p className="text-sm text-gray-600 mt-1">Nothing has run yet.</p> : <ul className="divide-y divide-gray-100">{recent.map(r => <RunCard key={r.id} run={r} onChanged={load} />)}</ul>}
       </section>
 
-      {editing && <RuleEditor meta={meta} draft={editing} opsLabel={opsLabel} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load() }} onTest={d => setTesting(d)} />}
-      {testing && <TestPanel meta={meta} rule={testing} opsLabel={opsLabel} onClose={() => setTesting(null)} />}
+      {editing && <RuleEditor meta={shown} draft={editing} opsLabel={opsLabel} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load() }} onTest={d => setTesting(d)} />}
+      {testing && <TestPanel meta={shown} rule={testing} opsLabel={opsLabel} onClose={() => setTesting(null)} />}
     </div>
   )
 }
@@ -216,7 +222,10 @@ function RuleEditor({ meta, draft: initial, opsLabel, onClose, onSaved, onTest }
   // sent again after the answer was lost) returns the rule already made.
   const [newRuleId] = useState(() => crypto.randomUUID())
   const saving = useRef(false)
-  const stages = d.board === 'sales' ? meta.salesStages.map(s => ({ key: s, label: s })) : meta.opsStages
+  const offered = d.board === 'sales' ? meta.salesStages.map(s => ({ key: s, label: s })) : meta.opsStages
+  // A rule on a hidden stage still shows that stage, by its name.
+  const inUse = d.board === 'ops' ? [(d.trigger as any).stage, ...d.conditions.filter(c => c.field === 'stage').map(c => c.value), ...d.steps.map(s => (s as any).type === 'move_card' ? (s as any).stage : null)] : []
+  const stages = [...offered, ...[...new Set(inUse.filter((k): k is string => typeof k === 'string' && !!k && !offered.some(o => o.key === k)))].map(k => ({ key: k, label: opsLabel(k) }))]
   const setT = (t: Partial<Trigger>) => setD(x => ({ ...x, trigger: { ...x.trigger, ...t } }))
 
   function setBoard(board: Board) {

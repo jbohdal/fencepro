@@ -25,6 +25,7 @@
 import prisma from '../prisma.js'
 import { onEventRecorded, recordEvent } from '../automationEvents.js'
 import { buildContext, cardForJob, CLOSED_SALES, evalConditions, floridaDay, jobForCard, loadLeads, opsStageOfJob, type EntityContext } from './context.js'
+import { loadOpsStages } from '../opsStages.js'
 import { describeSteps, runStep, type DryStep } from './steps.js'
 import { MAX_ATTEMPTS, RETRY_BACKOFF_MS, SAME_STAGE_WINDOW_MS, STARTER_RULES, STARTER_STAGE_RULES, ruleSchema, stepSchema, triggerSchema, conditionSchema, type Board, type Condition, type Step, type Trigger } from './types.js'
 import { sendPush } from './push.js'
@@ -277,8 +278,9 @@ export async function scanTimeTriggers(now = new Date()): Promise<number> {
         }
       } else {
         const jobs = await prisma.savedJob.findMany({ where: { accountId: rule.accountId, archivedAt: null } })
+        const { stages } = await loadOpsStages(rule.accountId)
         for (const j of jobs) {
-          if (opsStageOfJob(j) !== trigger.stage) continue
+          if (opsStageOfJob(j, stages) !== trigger.stage) continue
           const ev = await prisma.automationEvent.findFirst({ where: { accountId: rule.accountId, type: 'card_entered', board: 'ops', entityId: j.id }, orderBy: { occurredAt: 'desc' } })
           const since = floridaDay(ev?.occurredAt ?? j.updatedAt)
           const due = ymdPlus(since, trigger.days)

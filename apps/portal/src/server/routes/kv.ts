@@ -20,6 +20,7 @@ import { resolveSecret } from '../lib/secrets.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { kvChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
 import { hidesCosts, KV_COST_KEYS } from '../lib/costRedact.js'
+import { OPS_STAGES_KEY } from '../lib/opsStages.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -89,6 +90,8 @@ router.put('/:key', async (req: any, res) => {
     const saved = await prisma.accountKeyValue.findUnique({ where })
     const refused = kvChangeRefusal(roleOf(req), key, saved ? saved.value : null, value ?? null)
     if (refused) { refuse(res, refused, { data: saved ? saved.value : null, version: saved?.version ?? 0 }); return }
+    // Operations stages change only through /api/ops-stages, which makes sure no stage in use disappears.
+    if (key === OPS_STAGES_KEY) { res.status(403).json({ success: false, code: 'USE_OPS_STAGES', error: 'Operations stages are saved from Settings > Operations Stages.' }); return }
     const stale = async () => {
       const current = await prisma.accountKeyValue.findUnique({ where })
       refuseStale(res, current ? current.value : null, current?.version ?? 0)

@@ -8,12 +8,12 @@ import { distanceMiles } from './geoUtils'
 import {
   getJobs,
   updateJob,
-  STATUS_CONFIG,
   MATERIALS_STATUS_CONFIG,
   type Job,
   type JobStatus,
 } from './jobStore'
 import { loadSchedule as storeLoadSchedule } from './scheduleStore'
+import { stageOf, stageInfo, useOpsStages } from './opsStagesStore'
 
 /* ═══════════════════════════════════════════════
    DISPATCH COMMAND CENTER
@@ -687,7 +687,6 @@ function DayTimeline({
                 const left = (block.startHour - 7) * hourWidth
                 const width = block.durationHours * hourWidth
                 const isSelected = block.job.id === selectedJobId
-                const statusCfg = STATUS_CONFIG[block.job.status]
 
                 return (
                   <div key={block.job.id}>
@@ -847,7 +846,8 @@ function JobDetailPanel({
   onClose: () => void
   coords: { lat: number; lng: number } | null
 }) {
-  const statusCfg = STATUS_CONFIG[job.status]
+  useOpsStages()
+  const stage = stageInfo(stageOf(job))
   const matCfg = MATERIALS_STATUS_CONFIG[job.materialsStatus]
 
   return (
@@ -863,9 +863,11 @@ function JobDetailPanel({
 
       {/* Status badges */}
       <div className="flex flex-wrap gap-1.5 mb-3">
-        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${statusCfg.bgColor} ${statusCfg.color}`}>
-          {statusCfg.icon} {statusCfg.label}
-        </span>
+        {stage && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold text-white" style={{ backgroundColor: stage.color }} data-ops-stage-pill={stage.id}>
+            {stage.name}
+          </span>
+        )}
         <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold bg-gray-100 ${matCfg.color}`}>
           Materials: {matCfg.label}
         </span>

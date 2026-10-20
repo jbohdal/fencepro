@@ -5,6 +5,7 @@
  * costing actuals, change orders, operations stage setup, site plans, file
  * lists, suppliers, the customer activity feed, import templates). That data
  * existed on one computer only and was lost with the browser profile.
+ * (Operations stages have their own store now: opsStagesStore, /api/ops-stages.)
  *
  * This keeps the same getItem / setItem shape those modules already use, so
  * moving one over is a one word change, but reads come from a copy loaded at
@@ -29,7 +30,6 @@ const EVT = 'ezbiz:cloud-storage:updated'
 
 /** Every key that lives in cloudStorage. A key not listed here is refused. */
 export const CLOUD_KEYS = [
-  'fencepro_ops_stages',
   'fencepro_jobcosting',
   'fencepro_changeorders',
   'fencepro_quote_shares',
@@ -78,7 +78,6 @@ function flusherFor(key: string): VersionedFlusher<unknown> {
 }
 
 const LABELS: Record<CloudKey, string> = {
-  fencepro_ops_stages: 'Operations stages',
   fencepro_jobcosting: 'Job costing',
   fencepro_changeorders: 'Change orders',
   fencepro_quote_shares: 'Quote share links',

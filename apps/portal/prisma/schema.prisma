@@ -1739,6 +1739,9 @@ model SavedJob {
 
   status         SavedJobStatus  @default(staging)
   previousStatus SavedJobStatus?
+  /// The Operations stage id (Settings > Operations Stages; lib/opsStages.ts). '' on a job saved before
+  /// stages were kept on the job: it shows where the old board put it (opsStageModel.legacyStageOfJob).
+  opsStage       String          @default("")
 
   // Customer snapshot
   customerName    String @default("")

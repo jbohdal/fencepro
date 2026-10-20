@@ -14,7 +14,7 @@ import type { SavedQuote } from './QuotesPage'
 import { getCustomers, getCustomerById, upsertCustomer } from './customerStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
-import { getRailOptimizerConfig } from './configStore'
+import { getRailOptimizerConfig, leadSourceOptions } from './configStore'
 import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
 import { sectionWidthForStyle } from './materialCalculator'
 import { deriveLayout, formatFtIn, postSpacing, type YardLayout } from './yardLayout'
@@ -58,11 +58,7 @@ const styleOptionLabel = (s: { name: string; label?: string; isActive?: boolean;
 // Settings are read when the builder opens (not when the app loads), so a
 // change in Settings → Pricing or Fence Styles applies to the next quote
 // without a page reload.
-const DEFAULT_LEAD_SOURCES = ['Google', 'Facebook', 'Instagram', 'Yard Sign', 'Referral', 'Door Hanger', 'Repeat Customer', 'Nextdoor', 'Other']
-function leadSources(): string[] {
-  const ls = getConfig().leadSources
-  return ls?.length ? ls : DEFAULT_LEAD_SOURCES
-}
+const leadSources = () => leadSourceOptions()
 
 /** '' → undefined, otherwise the number if it is valid and not negative. */
 function numOrUndef(v: string): number | undefined {

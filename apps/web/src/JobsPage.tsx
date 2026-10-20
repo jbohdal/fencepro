@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { styleLabel } from './fenceCatalog'
+import { leadSourceOptions } from './configStore'
 import { fireSalesStageChange } from './automationTrigger'
 import { upsertCustomer, logCustomerActivity } from './customerStore'
 import { getPipeline, savePipeline as storeSavePipeline } from './pipelineStore'
@@ -287,7 +288,7 @@ export function QuickAddModal({
               onChange={e => setLeadSource(e.target.value)}
             >
               <option value="">Select...</option>
-              {['Google','Facebook','Instagram','Yard Sign','Referral','Door Hanger','Repeat Customer','Nextdoor','Other'].map(s => (
+              {leadSourceOptions(leadSource).map(s => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>

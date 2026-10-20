@@ -27,6 +27,9 @@ import { checkJobMove, refuseBlocked } from '../lib/automations/stageRules.js'
 import { recordJobChanges } from '../lib/automations/hooks.js'
 import { roleOf, requireCan } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
+import { loadOpsStages } from '../lib/opsStages.js'
+import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage } from '../lib/opsStageModel.js'
+import { floridaDay } from '../lib/automations/context.js'
 
 const router = Router()
 
@@ -73,6 +76,8 @@ const jobSchema = z.object({
   crmContactId: z.string().optional().nullable(),
   status: z.enum(STATUSES).default('staging'),
   previousStatus: z.enum(STATUSES).optional().nullable(),
+  /** The Operations stage id (Settings > Operations Stages); '' or left out: worked out from the status. */
+  opsStage: z.string().max(64).optional(),
   customerName: z.string().default(''),
   customerPhone: z.string().default(''),
   customerEmail: z.string().default(''),
@@ -176,11 +181,15 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
       else console.warn(`[saved-jobs] contact ${data.crmContactId} not found for this company; saving the job without the link`)
     }
     const { id: _ignored, ...fields } = data
+    // The new job lands in the stage marked first in Settings (or the one its status stands for).
+    const { stages } = await loadOpsStages(req.user.crmAccountId)
+    const opsStage = reconcileOpsStage(stages, null, { ...data, opsStage: data.opsStage && stageById(stages, data.opsStage) ? data.opsStage : '' } as any)
     // The new job enters its first Operations stage: saved for automations in the same step.
     const created = await prisma.$transaction(async tx => {
       const row = await tx.savedJob.create({
         data: {
           ...fields,
+          opsStage,
           ...(decision.kind === 'use' ? { id: decision.id } : {}),
           accountId: req.user.crmAccountId,
           quoteId: data.quoteId || null,
@@ -219,6 +228,17 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
       res.status(404).json({ success: false, error: 'Job not found' })
       return
     }
+    // The stage, by id (Settings > Operations Stages): moved on purpose, or as a status change moves it.
+    const { stages } = await loadOpsStages(req.user.crmAccountId)
+    if (data.opsStage && !stageById(stages, data.opsStage)) {
+      res.status(400).json({ success: false, error: 'That stage is not in Settings > Operations Stages any more. Reload and pick another.' })
+      return
+    }
+    const wasStage = stageOfJob(stages, existing as any)
+    const nextStage = reconcileOpsStage(stages, existing as any, { ...existing, ...data } as any)
+    // Moved on purpose: the status (and the rest) that stage stands for, whatever an older screen sent.
+    if (nextStage !== wasStage && data.opsStage === nextStage) Object.assign(data, fieldsForStage(stages, nextStage, existing as any, floridaDay(new Date())) ?? {})
+    ;(data as any).opsStage = nextStage
     // Stage rules: a job cannot enter a stage whose requirements are not met.
     const blocked = await checkJobMove(req.user.crmAccountId, existing, { ...existing, ...data })
     if (blocked) { refuseBlocked(res, [blocked], { data: existing, version: 0 }); return }
@@ -267,6 +287,7 @@ const syncSchema = z.object({ jobs: z.array(jobSchema) })
 router.post('/sync', requireUser, requireAccount, requireCan('records.import'), async (req: any, res) => {
   try {
     const { jobs } = syncSchema.parse(req.body)
+    const { stages } = await loadOpsStages(req.user.crmAccountId)
     let created = 0, updated = 0, skipped = 0
     for (const j of jobs) {
       if (j.id) {
@@ -275,7 +296,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
           await prisma.$transaction(async tx => {
             const row = await tx.savedJob.update({
               where: { id: existing.id },
-              data: { ...j, id: undefined as any, crmContactId: j.crmContactId || null, quoteId: j.quoteId || null },
+              data: { ...j, id: undefined as any, crmContactId: j.crmContactId || null, quoteId: j.quoteId || null, opsStage: reconcileOpsStage(stages, existing as any, { ...existing, ...j, opsStage: j.opsStage && stageById(stages, j.opsStage) ? j.opsStage : '' } as any) },
             })
             await recordJobChanges(req.user.crmAccountId, existing, row, tx)
           })
@@ -299,6 +320,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
           data: {
             accountId: req.user.crmAccountId,
             ...j,
+            opsStage: reconcileOpsStage(stages, null, { ...j, opsStage: j.opsStage && stageById(stages, j.opsStage) ? j.opsStage : '' } as any),
             id: undefined as any,
             crmContactId: safeContactId,
             quoteId: safeQuoteId,

@@ -1,7 +1,7 @@
 import MediaGallery from './MediaGallery'
 import { styleLabel } from './fenceCatalog'
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { getConfig } from './configStore'
+import { getConfig, leadSourceOptions, customerTagOptions } from './configStore'
 import { Phone, MessageSquare, Navigation, FilePlus2, CalendarPlus, Pencil } from 'lucide-react'
 import { telHref } from './phoneFormat'
 import { smsLink } from './appointmentLogic'
@@ -28,6 +28,7 @@ import { getQuotes } from './quoteStore'
 import RunSpacingTable from './RunSpacingTable'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { getJobs } from './jobStore'
+import { stageOf, stageName, stageColor, OPS_STAGES_UPDATED_EVENT } from './opsStagesStore'
 import { getPipeline } from './pipelineStore'
 import { loadPipeline } from './JobsPage'
 import { changeLeadStage } from './pipelineStageChange'
@@ -109,39 +110,13 @@ interface CustomerFile {
   uploadedAt: string
 }
 
-const LEAD_SOURCES = [
-  'Google', 'Facebook', 'Instagram', 'Yard Sign', 'Referral',
-  'Door Hanger', 'Repeat Customer', 'Nextdoor', 'Other'
-]
-
-const TAG_OPTIONS = [
-  'Residential', 'Commercial', 'HOA', 'Multi-Family',
-  'Agricultural', 'Industrial', 'VIP', 'Warranty'
-]
+// Lead sources and tags: Settings > Lead Sources and Settings > Customer Tags (configStore).
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
   SENT:  'bg-blue-100 text-blue-700',
   SOLD:  'bg-green-100 text-green-700',
   LOST:  'bg-red-100 text-red-700',
-}
-
-const STAGE_COLORS: Record<string, string> = {
-  SOLD:               'bg-blue-100 text-blue-800',
-  MATERIALS_ORDERED:  'bg-yellow-100 text-yellow-800',
-  MATERIALS_RECEIVED: 'bg-orange-100 text-orange-800',
-  SCHEDULED:          'bg-green-100 text-green-800',
-  IN_PROGRESS:        'bg-purple-100 text-purple-800',
-  COMPLETE:           'bg-gray-100 text-gray-600',
-}
-
-const STAGE_LABELS: Record<string, string> = {
-  SOLD:               'Sold',
-  MATERIALS_ORDERED:  'Materials Ordered',
-  MATERIALS_RECEIVED: 'Materials Ready',
-  SCHEDULED:          'Scheduled',
-  IN_PROGRESS:        'In Progress',
-  COMPLETE:           'Complete',
 }
 
 const fmt = (n: number) =>
@@ -297,7 +272,7 @@ function CustomerForm({
         <div>
           <h3 className="text-xs font-semibold text-gray-500 mb-4">Lead Source</h3>
           <div className="flex flex-wrap gap-2">
-            {LEAD_SOURCES.map(src => (
+            {leadSourceOptions(form.leadSource).map(src => (
               <button key={src} onClick={() => setForm(f => ({ ...f, leadSource: f.leadSource === src ? '' : src }))} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${form.leadSource === src ? 'bg-orange-500 border-orange-500 text-white' : 'border-gray-200 text-gray-600 hover:border-orange-300'}`}>{src}</button>
             ))}
           </div>
@@ -306,7 +281,7 @@ function CustomerForm({
         <div>
           <h3 className="text-xs font-semibold text-gray-500 mb-4">Tags</h3>
           <div className="flex flex-wrap gap-2">
-            {TAG_OPTIONS.map(tag => (
+            {customerTagOptions(form.tags).map(tag => (
               <button key={tag} onClick={() => toggle(tag)} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${form.tags.includes(tag) ? 'bg-gray-900 border-gray-900 text-white' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}>{tag}</button>
             ))}
           </div>
@@ -1202,8 +1177,8 @@ function CustomerDetail({
                         <td data-label="Value" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(j.value)}</td>
                         <td data-label="Scheduled" className="px-4 py-3 text-right text-gray-400 text-xs">{j.scheduledDate}</td>
                         <td data-label="Stage" className="px-4 py-3 text-right">
-                          <span className={`text-xs px-2 py-1 rounded-full ${STAGE_COLORS[j.stage] ?? 'bg-gray-100 text-gray-600'}`}>
-                            {STAGE_LABELS[j.stage] ?? j.stage}
+                          <span className="text-xs px-2 py-1 rounded-full text-white font-semibold" style={{ backgroundColor: stageColor(j.stage) }} data-ops-stage-pill={j.stage}>
+                            {stageName(j.stage)}
                           </span>
                         </td>
                       </tr>
@@ -1292,7 +1267,8 @@ export default function CustomersPage({ onNewQuote }: {
       type: j.fenceStyle || '',
       sections: j.sections || 0,
       value: j.contractValue || j.quotePrice || 0,
-      stage: (j.status || 'staging').toUpperCase(),
+      // The Operations stage (Settings > Operations Stages), by id.
+      stage: stageOf(j),
       scheduledDate: j.scheduledDate || '',
     })) as Job[]
   }
@@ -1309,10 +1285,12 @@ export default function CustomersPage({ onNewQuote }: {
     }
     window.addEventListener('fencepro:quotes:updated', reload)
     window.addEventListener('fencepro:jobs:updated', reload)
+    window.addEventListener(OPS_STAGES_UPDATED_EVENT, reload)
     window.addEventListener('fencepro:customers:updated', reloadCustomers)
     return () => {
       window.removeEventListener('fencepro:quotes:updated', reload)
       window.removeEventListener('fencepro:jobs:updated', reload)
+      window.removeEventListener(OPS_STAGES_UPDATED_EVENT, reload)
       window.removeEventListener('fencepro:customers:updated', reloadCustomers)
     }
   }, [])
@@ -1504,7 +1482,7 @@ export default function CustomersPage({ onNewQuote }: {
 
         const custId = uid()
         const rawSource = get(colMap.leadSource)
-        const matchedSource = LEAD_SOURCES.find(s => s.toLowerCase() === rawSource.toLowerCase()) ?? rawSource
+        const matchedSource = leadSourceOptions().find(s => s.toLowerCase() === rawSource.toLowerCase()) ?? rawSource
 
         let address = get(colMap.address)
         const city  = get(colMap.city)

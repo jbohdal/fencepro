@@ -11,6 +11,8 @@ import { isUniqueViolation } from './once.js'
 import { ensureJobChecklist } from './seeds.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
 import { recordCardMoves, recordProposalAccepted } from './automations/hooks.js'
+import { loadOpsStages } from './opsStages.js'
+import { firstStage } from './opsStageModel.js'
 
 const STAGE = 'Signed Contract'
 const CLOSED = new Set(['Lost Sale', 'No Answer', 'Paid & Closed'])
@@ -100,11 +102,13 @@ export async function ensureJobForAcceptedQuote(q: {
   }
   // A fixed id per accepted quote: the same acceptance handled twice at once makes one job.
   const jobId = `accepted-${q.id}`
+  // It lands in the stage marked first in Settings > Operations Stages.
+  const opsStage = firstStage((await loadOpsStages(q.accountId)).stages)?.id ?? ''
   let job: { id: string }
   try {
     job = await prisma.savedJob.create({
     data: {
-      id: jobId, accountId: q.accountId, quoteId: q.id, crmContactId: q.crmContactId, status: 'staging',
+      id: jobId, accountId: q.accountId, quoteId: q.id, crmContactId: q.crmContactId, status: 'staging', opsStage,
       customerName: q.customerName, customerPhone: q.customerPhone, customerEmail: q.customerEmail, customerAddress: q.customerAddress,
       fenceStyle: q.fenceStyle, sections: q.sections, totalFeet: Math.round(runs.reduce((s, n) => s + n, 0)),
       walkGates: q.walkGates, dblGates: q.dblGates, tearOutSections: q.tearOutSections, hasSalesman: q.hasSalesman,

@@ -258,6 +258,13 @@ Status key:
 * Also fixed at 360 px: Sales Orders filters, the Remove button per team member in Settings › Appointments, and a job opens full screen on a phone. **DEV**
 * Browser test e2e/phone-fit.mjs (WebKit, Chromium and the Android emulator, 360 px): fails if any main screen scrolls sideways or any button is off screen, cut off or covered. **DEV**
 
+## 9g. Operations stages: one list in Settings (Oct 20)
+
+* Settings > Operations Stages is the only list: the Operations board columns, order and colors, the stage filters, the job page (stage pill, stage buttons, Advance), Dispatch, the customer screen and automations and stage rules (server too) all read it. Before, the board used its own hard coded 12 stages and the Settings list (8) was read by nothing. **DEV**
+* Rename, recolor, reorder (drag, or arrows on a phone), add, hide, side lanes, and mark the First stage (new jobs land there) and the Complete stage (moving a job there marks it complete). Every stage has a permanent id; jobs, automations and stage rules store the id, so a rename never moves a job or breaks a rule. Changes show on every device without a reload. **DEV**
+* A stage that jobs or automations use can't be deleted until you pick where they go; then they move and the stage is deleted in one step. Hide is always allowed. **DEV**
+* Start list: Awaiting Locates, Permit Pending, Need Drawing, Materials Ordered, Ready to Pull, Scheduled, In Progress, Punch List, Complete, Invoiced, Paid; side lanes On Hold, Customer Delay, Backorder. No job moves: live 654 Paid, 5 Awaiting Locates, 3 Complete, 2 Invoiced before and after (dry run). **DEV**
+* Lead sources and customer tags in every form now come from Settings; website chat bookings use the appointment lengths set in Settings. Pipeline Stages and follow-up steps still use the stage names in code (a bigger job, not done). **DEV**
 
 ## 10. Reliability (top priority)
 
