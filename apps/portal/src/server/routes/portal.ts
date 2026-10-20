@@ -83,7 +83,12 @@ function requirePortalAuth(req: PortalAuthRequest, res: Response, next: Function
   try {
     const payload = verifyAccessToken(token) as any
     if (payload?.role !== 'portal_customer') { res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS' }); return }
-    req.portalAccount = { id: payload.sub, email: payload.email, crmCustomerId: payload.crmCustomerId }
+    // The portal's tokens carry the customer as accountId (activate and login below); crmCustomerId is read too.
+    // Without a customer every query below would lose its filter (Prisma drops an undefined where), so none: refused.
+    const crmCustomerId = typeof payload.crmCustomerId === 'string' && payload.crmCustomerId ? payload.crmCustomerId
+      : typeof payload.accountId === 'string' && payload.accountId ? payload.accountId : null
+    if (!crmCustomerId || typeof payload.sub !== 'string' || !payload.sub) { res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS' }); return }
+    req.portalAccount = { id: payload.sub, email: payload.email, crmCustomerId }
     next()
   } catch {
     res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS' })
