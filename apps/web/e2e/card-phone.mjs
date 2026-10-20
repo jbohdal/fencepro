@@ -142,7 +142,7 @@ async function run(browser, phone) {
     const h = card.getBoundingClientRect().height
     let without = h
     if (ph) { ph.style.display = 'none'; without = card.getBoundingClientRect().height; ph.style.display = '' }
-    const shape = [...body.children].filter(c => !c.matches('[data-card-phone]')).map(c => c.className.split(' ')[0] + c.tagName).join('|')
+    const shape = [...body.children].filter(c => !c.matches('[data-card-phone]')).map(c => c.className.split(' ')[0] + c.tagName + Math.round(c.getBoundingClientRect().height)).join('|')
     return { id: card.dataset.kanbanCard, phone: !!ph, h: Math.round(h * 10) / 10, without: Math.round(without * 10) / 10, shape }
   }))
   let noPhone = shapes.filter(x => !x.phone)
@@ -157,7 +157,7 @@ async function run(browser, phone) {
         const ph = body.querySelector(':scope > [data-card-phone]')
         let without = card.getBoundingClientRect().height
         if (ph) { ph.style.display = 'none'; without = card.getBoundingClientRect().height; ph.style.display = '' }
-        return { id: card.dataset.kanbanCard, phone: !!ph, h: Math.round(card.getBoundingClientRect().height * 10) / 10, without: Math.round(without * 10) / 10, shape: [...body.children].filter(c => !c.matches('[data-card-phone]')).map(c => c.className.split(' ')[0] + c.tagName).join('|') }
+        return { id: card.dataset.kanbanCard, phone: !!ph, h: Math.round(card.getBoundingClientRect().height * 10) / 10, without: Math.round(without * 10) / 10, shape: [...body.children].filter(c => !c.matches('[data-card-phone]')).map(c => c.className.split(' ')[0] + c.tagName + Math.round(c.getBoundingClientRect().height)).join('|') }
       }))
       shapes.push(...more)
       await s.page.locator(`${col(key)} > button`).first().click(); await sleep(300)   // collapse it again
@@ -235,6 +235,9 @@ try {
   check('test run finished', false, String(err?.stack || err).slice(0, 600))
 }
 await browser.close()
+// Tapping a number starts a call the app follows up on ("How'd it go?"): clear
+// it, so the next test signed in as the same person is not asked.
+await api('DELETE', '/api/follow-ups/pending').catch(() => {})
 const failed = results.filter(r => !r.ok)
 console.log(`\n${results.length - failed.length} of ${results.length} checks passed`)
 process.exit(failed.length ? 1 : 0)

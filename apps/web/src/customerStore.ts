@@ -40,6 +40,10 @@ export interface Customer {
   phone: string
   email: string
   serviceAddress: string
+  /** The service address's parts: set by picking a suggestion; read from the address by the server otherwise. */
+  city?: string
+  state?: string
+  zip?: string
   billingAddress: string
   billingDifferent: boolean
   leadSource: string
@@ -63,6 +67,9 @@ function fromApi(r: CrmContactRecord): Customer {
     phone: r.phone || '',
     email: r.email || '',
     serviceAddress: r.serviceAddress || '',
+    city: r.city || '',
+    state: r.state || '',
+    zip: r.zip || '',
     billingAddress: r.billingAddress || '',
     billingDifferent: !!r.billingDifferent,
     leadSource: r.leadSource || '',
@@ -82,6 +89,10 @@ function toApiPayload(c: Partial<Customer>): CrmContactPayload {
     email: c.email || undefined,
     phone: c.phone || undefined,
     serviceAddress: c.serviceAddress || undefined,
+    // Not sent when empty: the server reads them from the address.
+    city: c.city || undefined,
+    state: c.state || undefined,
+    zip: c.zip || undefined,
     billingAddress: c.billingAddress || undefined,
     billingDifferent: !!c.billingDifferent,
     leadSource: c.leadSource || undefined,
@@ -203,6 +214,7 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
       phone:     partial.phone     ?? existing.phone,
       email:     partial.email     ?? existing.email,
       serviceAddress: partial.serviceAddress ?? existing.serviceAddress,
+      ...partsAfter(existing, partial),
       billingAddress: partial.billingAddress ?? existing.billingAddress,
       billingDifferent: partial.billingDifferent ?? existing.billingDifferent,
       leadSource: partial.leadSource || existing.leadSource,
@@ -228,6 +240,9 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
     phone: partial.phone || '',
     email: partial.email || '',
     serviceAddress: partial.serviceAddress || '',
+    city: partial.city || '',
+    state: partial.state || '',
+    zip: partial.zip || '',
     billingAddress: partial.billingAddress || '',
     billingDifferent: !!partial.billingDifferent,
     leadSource: partial.leadSource || '',
@@ -261,6 +276,19 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
   })
 
   return { customer: fresh, created: true }
+}
+
+/**
+ * City, state and ZIP after a change: the ones given; the saved ones while the
+ * address is the same; none for a new address given without them (the server
+ * reads them from the address then).
+ */
+function partsAfter(prev: Customer, next: Partial<Customer>): Pick<Customer, 'city' | 'state' | 'zip'> {
+  if (next.city !== undefined || next.state !== undefined || next.zip !== undefined) {
+    return { city: next.city ?? '', state: next.state ?? '', zip: next.zip ?? '' }
+  }
+  const moved = next.serviceAddress !== undefined && next.serviceAddress.trim() !== (prev.serviceAddress || '').trim()
+  return moved ? { city: '', state: '', zip: '' } : { city: prev.city ?? '', state: prev.state ?? '', zip: prev.zip ?? '' }
 }
 
 const nameOf = (c: Pick<Customer, 'firstName' | 'lastName'>) => `${c.firstName} ${c.lastName}`.trim() || 'Customer'
@@ -324,7 +352,7 @@ export function updateCustomer(id: string, updates: Partial<Customer>): Customer
   const idx = cache.findIndex(c => c.id === id)
   if (idx < 0) return null
   const prev = cache[idx]
-  const next: Customer = { ...prev, ...updates }
+  const next: Customer = { ...prev, ...updates, ...partsAfter(prev, updates) }
   cache = cache.map(c => c.id === id ? next : c)
   emit()
   pushCustomerUpdate(id)

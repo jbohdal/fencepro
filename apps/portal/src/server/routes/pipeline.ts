@@ -16,6 +16,7 @@ import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
 import { checkPipelineMoves, refuseBlocked } from '../lib/automations/stageRules.js'
 import { recordCardMoves } from '../lib/automations/hooks.js'
+import { onCardMoves } from '../lib/followUps.js'
 import { pipelineChangeRefusal, refuse, removedIds, roleOf } from '../lib/permissions.js'
 
 const router = Router()
@@ -93,6 +94,8 @@ router.put('/', async (req: any, res) => {
     const done = await prisma.$transaction(async tx => {
       const d = await tx.pipelineState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
       if (d.count && prev) await recordCardMoves(accountId, (prev.leads as any[]) ?? [], fields.leads, base + 1, tx)
+      // A card in a new stage starts that stage's follow up steps (stops on Signed or Lost).
+      if (d.count && prev) await onCardMoves(tx, accountId, (prev.leads as any[]) ?? [], fields.leads)
       return d
     })
     if (done.count === 0) {
@@ -143,6 +146,7 @@ router.patch('/', async (req: any, res) => {
     const done = await prisma.$transaction(async tx => {
       const d = await tx.pipelineState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
       if (d.count) await recordCardMoves(accountId, (current.leads as any[]) ?? [], next.leads, base + 1, tx)
+      if (d.count) await onCardMoves(tx, accountId, (current.leads as any[]) ?? [], next.leads)
       return d
     })
     if (done.count === 0) {

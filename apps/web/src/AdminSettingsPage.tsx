@@ -23,8 +23,9 @@ import CalendarSyncSettings from './CalendarSyncSettings'
 import FenceStylesSettings from './FenceStylesSettings'
 import MoveRepairSettings from './MoveRepairSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
+import FollowUpSettings from './FollowUpSettings'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'tiers' | 'voice' | 'walkthrough' | 'moves'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -583,6 +584,7 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'tiers',              label: 'Good Better Best' },
   { key: 'voice',              label: 'Voice' },
   { key: 'appointments',       label: 'Appointments' },
+  { key: 'follow_ups',         label: 'Follow ups' },
   { key: 'walkthrough',        label: 'Final Walkthrough' },
   { key: 'calendar',           label: 'Google Calendar' },
 ]
@@ -721,6 +723,7 @@ export default function AdminSettingsPage() {
           {tab === 'voice' && <VoiceSettings config={config} onChange={handleChange} />}
           {tab === 'calendar' && <CalendarSyncSettings />}
           {tab === 'appointments' && <AppointmentSettingsTab />}
+          {tab === 'follow_ups' && <FollowUpSettings />}
           {tab === 'walkthrough' && <WalkthroughSettings config={config} onChange={handleChange} />}
         </div>
       </div>

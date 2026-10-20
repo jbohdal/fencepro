@@ -28,7 +28,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('start-up steps side by side (dev
 
   beforeAll(async () => {
     prisma = (await import('../src/server/lib/prisma.js')).default
-    const src = await prisma.businessState.findFirst({ where: { config: { path: ['fenceStyles'], not: null } }, orderBy: { updatedAt: 'desc' } })
+    // The dev company (the one with the most saved quotes), never "the latest Settings row":
+    // other database tests make throwaway companies while this runs.
+    const top = await prisma.savedQuote.groupBy({ by: ['accountId'], _count: { _all: true }, orderBy: { _count: { accountId: 'desc' } }, take: 1 })
+    const src = await prisma.businessState.findUnique({ where: { accountId: top[0].accountId } })
     const srcInv = await prisma.inventoryState.findUnique({ where: { accountId: src.accountId } })
     const account = await prisma.crmAccount.create({ data: { name: `Test startup-seeds-${Date.now().toString(36)}`, status: 'active' } })
     accountId = account.id

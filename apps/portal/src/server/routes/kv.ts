@@ -25,6 +25,17 @@ const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
 const KEY_PATTERN = /^[a-z0-9_]{1,64}$/
+
+/**
+ * Keys only the server reads or writes: the push signing key, the Gmail sign-in
+ * token, and anything named like a secret. Never sent to a browser, whatever
+ * the role, and never changed from one (until Oct 2026 GET /api/kv returned
+ * them to every signed-in login).
+ */
+const SERVER_ONLY_KEYS = new Set(['push_vapid', 'gmail_token'])
+export function isServerOnlyKey(key: string): boolean {
+  return SERVER_ONLY_KEYS.has(key) || /(token|secret|vapid|password|private)/i.test(key)
+}
 const MAX_VALUE_BYTES = 4_000_000
 
 async function requireUser(req: any, res: any, next: any) {
@@ -55,7 +66,7 @@ router.get('/', async (req: any, res) => {
     const versions: Record<string, number> = {}
     // Job costing (actual costs) and supplier prices are costs: not for a Salesman or Installer (lib/costRedact.ts).
     const hide = hidesCosts(roleOf(req)) ? KV_COST_KEYS : new Set<string>()
-    for (const r of rows) { if (hide.has(r.key)) continue; out[r.key] = r.value; versions[r.key] = r.version }
+    for (const r of rows) { if (hide.has(r.key) || isServerOnlyKey(r.key)) continue; out[r.key] = r.value; versions[r.key] = r.version }
     res.json({ success: true, data: out, versions })
   } catch (err) {
     console.error('[kv] list error:', err)
@@ -66,6 +77,7 @@ router.get('/', async (req: any, res) => {
 router.put('/:key', async (req: any, res) => {
   const key = String(req.params.key || '')
   if (!KEY_PATTERN.test(key)) { res.status(400).json({ success: false, error: 'Invalid key' }); return }
+  if (isServerOnlyKey(key)) { res.status(403).json({ success: false, error: 'This setting is kept on the server.' }); return }
   if (!req.body || !('value' in req.body)) { res.status(400).json({ success: false, error: 'value is required' }); return }
   const value = req.body.value
   const base = baseVersionOf(req.body)

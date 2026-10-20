@@ -51,13 +51,22 @@ export default function WidgetApp() {
   // Addresses suggested as they are typed (the county's property list on the Mac, then the Census lookup).
   const [sugg, setSugg] = useState<Array<{ formatted: string; line1: string; city: string; zip: string }>>([])
   const typedAddress = useRef(false)
+  // Nothing to suggest (none found, or the lookup failed or was too slow): said under the box.
+  const [noSugg, setNoSugg] = useState(false)
   useEffect(() => {
     const q = address.trim()
-    if (!typedAddress.current || q.length < 3 || !/^\d/.test(q)) { setSugg([]); return }
+    if (!typedAddress.current || q.length < 3) { setSugg([]); setNoSugg(false); return }
+    let stale = false
+    const ctl = new AbortController()
     const t = setTimeout(() => {
-      fetch(`${API}/suggest?q=${encodeURIComponent(q)}`).then(r => r.json()).then(j => setSugg(Array.isArray(j?.data) ? j.data : [])).catch(() => {})
+      if (!/^\d/.test(q)) { setSugg([]); setNoSugg(true); return }
+      const late = setTimeout(() => ctl.abort(), 8000)
+      fetch(`${API}/suggest?q=${encodeURIComponent(q)}`, { signal: ctl.signal }).then(r => r.json())
+        .then(j => Array.isArray(j?.data) ? j.data : [], () => [])
+        .then(list => { if (!stale) { setSugg(list); setNoSugg(list.length === 0) } })
+        .finally(() => clearTimeout(late))
     }, 250)
-    return () => clearTimeout(t)
+    return () => { stale = true; clearTimeout(t); ctl.abort() }
   }, [address])
   const [place, setPlace] = useState<{ lat: number; lng: number } | null>(null)
   const [placeMsg, setPlaceMsg] = useState('')
@@ -194,7 +203,7 @@ export default function WidgetApp() {
             <ul className="border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden" data-w-suggestions>
               {sugg.map(s => (
                 <li key={s.formatted}>
-                  <button type="button" className="w-full text-left px-4 min-h-[48px] py-2" onClick={() => { typedAddress.current = false; setAddress(s.formatted); setSugg([]) }} data-w-suggestion>
+                  <button type="button" className="w-full text-left px-4 min-h-[48px] py-2" onClick={() => { typedAddress.current = false; setAddress(s.formatted); setSugg([]); setNoSugg(false) }} data-w-suggestion>
                     <span className="block font-medium text-gray-900">{s.line1}</span>
                     <span className="block text-xs text-gray-500">{s.city}, FL {s.zip}</span>
                   </button>
@@ -202,6 +211,7 @@ export default function WidgetApp() {
               ))}
             </ul>
           )}
+          {noSugg && sugg.length === 0 && !placeMsg && <p className="text-sm text-gray-600" role="status" data-w-address-message>No suggestions, type the full address</p>}
           {placeMsg && <p className="text-sm text-gray-700">{placeMsg}</p>}
           <button type="button" className="btn btn-primary btn-lg w-full" disabled={address.trim().length < 6} onClick={() => (placeMsg && !place ? setStep(1) : findPlace())} data-w-next>
             {placeMsg && !place ? 'Carry on' : 'Next: your yard'}

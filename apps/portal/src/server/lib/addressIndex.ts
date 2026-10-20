@@ -113,6 +113,11 @@ export function suggestCounty(q: string, limit = 6): Suggestion[] {
 
 /** The county point for a full address ("street, city, FL zip"), when the street and ZIP (or city) agree. */
 export function countyPoint(address: string): { lat: number; lng: number } | null {
+  const r = countyRow(address)
+  return r ? { lat: r[4], lng: r[3] } : null
+}
+
+function countyRow(address: string): AddressRow | null {
   load()
   if (!rows.length) return null
   const [street, ...rest] = address.split(',')
@@ -125,9 +130,44 @@ export function countyPoint(address: string): { lat: number; lng: number } | nul
     if (k[0] !== typed[0] || k.length < typed.length - 1) continue
     if (!(k.join(' ') === typed.join(' ') || matches(typed, k))) continue
     if (zip ? rows[i][2] !== zip : !tail.includes(cityText(rows[i][1]).toUpperCase()) && !tail.includes(rows[i][1].toUpperCase())) continue
-    return { lat: rows[i][4], lng: rows[i][3] }
+    return rows[i]
   }
   return null
+}
+
+export interface AddressParts { city: string; state: string; zip: string }
+
+/**
+ * City, state and ZIP from a one line address, for a customer saved with the
+ * address only: the county's own record when the street and ZIP (or city)
+ * match, otherwise read from the text ("street, city, FL 34471",
+ * "street, city FL 34471"). A part that cannot be read is left empty.
+ */
+export function addressParts(address: string): AddressParts {
+  const out: AddressParts = { city: '', state: '', zip: '' }
+  const a = (address || '').trim()
+  if (!a) return out
+  const row = countyRow(a)
+  if (row) return { city: cityText(row[1]), state: 'FL', zip: row[2] }
+  const parts = a.split(',').map(s => s.trim()).filter(Boolean)
+  if (parts.length < 2) return out
+  const last = parts[parts.length - 1]
+  const stZip = last.match(/^(?:(.*?)\s+)?([A-Za-z]{2}|Florida)\.?(?:\s+(\d{5})(?:-\d{4})?)?$/i)
+  const zipOnly = last.match(/^(\d{5})(?:-\d{4})?$/)
+  if (stZip && (!stZip[1] || parts.length === 2)) {
+    out.state = /^florida$/i.test(stZip[2]) ? 'FL' : stZip[2].toUpperCase()
+    out.zip = stZip[3] ?? ''
+    // "street, city FL 34471": the city is before the state; "street, city, FL": the part before.
+    out.city = stZip[1] ? title(stZip[1]) : parts.length >= 3 ? title(parts[parts.length - 2]) : ''
+  } else if (zipOnly && parts.length >= 3) {
+    out.zip = zipOnly[1]
+    const st = parts[parts.length - 2].match(/^(?:(.*?)\s+)?([A-Za-z]{2}|Florida)$/i)
+    if (st) { out.state = /^florida$/i.test(st[2]) ? 'FL' : st[2].toUpperCase(); out.city = st[1] ? title(st[1]) : parts.length >= 4 ? title(parts[parts.length - 3]) : '' }
+  }
+  // A state that is not two letters is not one ("Ocala, Marion"): nothing read.
+  if (out.state && !/^[A-Z]{2}$/.test(out.state)) return { city: '', state: '', zip: '' }
+  if (/^\d/.test(out.city)) out.city = ''
+  return out
 }
 
 /** A complete address the county list lacks: the US Census lookup (free), as one suggestion. */

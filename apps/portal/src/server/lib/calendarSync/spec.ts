@@ -80,9 +80,10 @@ export interface SpecInputs {
   /** A style's plain name by its internal name ("WV-ND 6'x8' Privacy" → "White Vinyl Privacy, ..."). */
   styleLabel?: (name: string) => string
   /**
-   * Titles use the plain style name for events that start on or after this
-   * instant (ISO). Events that started earlier keep the old code they were
-   * sent with, so a past event is never changed by the switch. Unset: codes.
+   * Titles, and the "Fence style" line of descriptions, use the plain style
+   * name for events that start on or after this instant (ISO). Events that
+   * started earlier keep the old code they were sent with, so a past event is
+   * never changed by the switch. Unset: codes.
    */
   plainTitlesFrom?: string | null
 }
@@ -142,7 +143,7 @@ export function startsFrom(e: Pick<CalendarEventSpec, 'startDate' | 'startAt'>, 
 
 export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
   const out: CalendarEventSpec[] = []
-  // The style as the title shows it: the plain name for events from the switch on.
+  // The style as titles and descriptions show it: the plain name for events from the switch on.
   const titleStyle = (style: string, startDate: string) => {
     const from = inp.plainTitlesFrom
     if (!style || !inp.styleLabel || !from || !startsFrom({ startDate }, from)) return style
@@ -181,7 +182,7 @@ export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
         location: job?.customerAddress || first.area || '',
         description: describe([
           ['Phone', job?.customerPhone],
-          ['Fence style', job?.fenceStyle || first.fenceType],
+          ['Fence style', titleStyle(job?.fenceStyle || first.fenceType, first.date)],
           ['Footage', job && job.totalFeet > 0 ? `${job.totalFeet} ft` : null],
           ['Sections', (job?.sections || first.sections) > 0 ? (job?.sections || first.sections) : null],
           ['Gates', job ? gates(job.walkGates, job.dblGates) : null],
@@ -216,7 +217,7 @@ export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
       location: j.customerAddress || '',
       description: describe([
         ['Phone', j.customerPhone],
-        ['Fence style', j.fenceStyle],
+        ['Fence style', titleStyle(j.fenceStyle, j.scheduledDate)],
         ['Footage', j.totalFeet > 0 ? `${j.totalFeet} ft` : null],
         ['Sections', j.sections > 0 ? j.sections : null],
         ['Gates', gates(j.walkGates, j.dblGates)],
@@ -234,7 +235,7 @@ export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
     const name = fullName(l.firstName, l.lastName)
     const common = { location: l.address || '', startDate: l.scheduledDate, endDate: l.scheduledDate }
     const details: Array<[string, string | number | null | undefined | false]> = [
-      ['Phone', l.phone], ['Email', l.email], ['Fence style', l.fenceType],
+      ['Phone', l.phone], ['Email', l.email], ['Fence style', titleStyle(l.fenceType || '', l.scheduledDate)],
       ['Sections', (l.sections || 0) > 0 ? l.sections : null],
       ['Quote price', (l.quotePrice || 0) > 0 ? money(l.quotePrice as number) : null],
     ]

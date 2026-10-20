@@ -19,7 +19,7 @@ const OperationsBoard = lazy(() => import('./OperationsBoard'))
 const AuditLogPage = lazy(() => import('./AuditLogPage'))
 const FeedbackPage = lazy(() => import('./FeedbackPage'))
 import FeedbackButton from './FeedbackButton'
-import { MessageSquarePlus } from 'lucide-react'
+import { MessageSquarePlus, PhoneCall } from 'lucide-react'
 import StagingPage from './StagingPage'
 const SchedulePage = lazy(() => import('./SchedulePage'))
 const ReportsPage = lazy(() => import('./ReportsPage'))
@@ -78,6 +78,9 @@ import { installedRevenueForYear, soldNotInstalled, averageMargin } from './quot
 import { initAppointments, isAppointmentsHydrated } from './appointmentsStore'
 const AppointmentsPage = lazy(() => import('./AppointmentsPage'))
 import TodayScreen from './TodayScreen'
+import FollowUpsPage from './FollowUpsPage'
+import { FollowUpPromptHost } from './FollowUpPrompt'
+import { startFollowUps } from './followUpStore'
 import { BookingHost, openBooking } from './BookingDialog'
 import GlobalSearch from './GlobalSearch'
 import { DashboardAppointments } from './AppointmentWidgets'
@@ -105,6 +108,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Sales Pipeline',  icon: Kanban, roles: ['owner', 'admin', 'salesman'] },
       { name: 'Appointments',    icon: CalendarDays, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
       { name: 'Today',           icon: Sun, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
+      { name: 'Follow ups',      icon: PhoneCall, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
       { name: 'Dashboard',       icon: LayoutDashboard, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
       { name: 'Customers',       icon: Users, roles: ['owner', 'admin', 'salesman'] },
       { name: 'Quotes',          icon: ClipboardList, roles: ['owner', 'admin', 'salesman'] },
@@ -151,7 +155,7 @@ const NAV_GROUPS: NavGroup[] = [
 const ALL_NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items)
 // Every page the app can show, for its address (/customers, /pipeline, ...).
 const PAGE_NAMES = [...new Set([...ALL_NAV_ITEMS.map(i => i.name), 'Jobs', 'Staging'])]
-const PAGES_WITH_HEADER = new Set(['Dashboard', 'Sales Pipeline', 'Operations', 'Jobs', 'Staging', 'Appointments', 'Today', 'Settings', 'Billing', 'Inventory', 'P&L Statement'])
+const PAGES_WITH_HEADER = new Set(['Dashboard', 'Sales Pipeline', 'Follow ups', 'Operations', 'Jobs', 'Staging', 'Appointments', 'Today', 'Settings', 'Billing', 'Inventory', 'P&L Statement'])
 
 const ROLE_LABELS: Record<UserRole, string> = {
   owner: 'Owner',
@@ -293,6 +297,8 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     const failed = await hydrateStores()
     setNotLoaded(failed)
     setLoadingData(false)
+    // Follow up badges, and this phone's answers still waiting for signal back on screen.
+    void startFollowUps()
     // Website quotes and phone calls that came in while nobody was looking.
     startIntakeSync()
     startLiveRefresh()
@@ -1068,6 +1074,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Schedule'  && <SchedulePage />}
           {active === 'Appointments' && <AppointmentsPage />}
           {active === 'Today'     && <TodayScreen />}
+          {active === 'Follow ups' && <FollowUpsPage />}
           {active === 'Dispatch'  && <DispatchPage />}
           {active === 'Reports'   && <ReportsPage quotes={quotes} />}
           {active === 'Site Plans' && <SitePlansPage />}
@@ -1219,10 +1226,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ BOOKING DIALOG (opened from anywhere with openBooking) ═══ */}
       <BookingHost />
+      {/* "How'd it go?" after a Call or Text tap, and Log a call */}
+      <FollowUpPromptHost />
 
       {/* ═══ PHONE TAB BAR ═══ */}
-      <nav data-tabbar aria-label="Main" className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-white border-t border-gray-200 grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
-        {([['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Customers', Users, 'Customers'], ['Schedule', CalendarDays, role !== 'salesman' && ALL_NAV_ITEMS.find(i => i.name === 'Schedule')?.roles.includes(role) ? 'Schedule' : 'Appointments']] as const).map(([label, Icon, page]) => (
+      <nav data-tabbar aria-label="Main" className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-white border-t border-gray-200 grid grid-cols-6 pb-[env(safe-area-inset-bottom)]">
+        {([['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Follow ups', PhoneCall, 'Follow ups'], ['Customers', Users, 'Customers'], ['Schedule', CalendarDays, role !== 'salesman' && ALL_NAV_ITEMS.find(i => i.name === 'Schedule')?.roles.includes(role) ? 'Schedule' : 'Appointments']] as const).map(([label, Icon, page]) => (
           <button key={label} onClick={() => setActive(page)} aria-current={active === page ? 'page' : undefined}
             className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${active === page ? 'text-orange-500' : 'text-gray-500'}`}>
             <span className={`grid place-items-center h-8 w-14 rounded-full ${active === page ? 'bg-orange-100' : ''}`}><Icon size={22} aria-hidden="true" /></span>{label}

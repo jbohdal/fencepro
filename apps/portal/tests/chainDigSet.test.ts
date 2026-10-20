@@ -92,7 +92,8 @@ describe('chain link dig set', () => {
     expect(chain.dims.map(d => d.key)).toEqual(['height', 'finish', 'grade', 'install'])
     expect(chain.nameTemplate).toBe('{finish} Chain Link, {height}, {grade}, {install}')
     expect(plan.styles).toEqual(['chain/4/galv/res/ds', 'chain/5/galv/res/ds', 'chain/6/galv/res/ds', 'chain/4/black/res/ds', 'chain/5/black/res/ds', 'chain/6/black/res/ds'])
-    expect(plan.items.sort()).toEqual(['4', '5', '6'].flatMap(h => ['Galv', 'Blk'].flatMap(f => [`DS, Pipe, ${f}, Line Post, ${h}' Chain Link`, `DS, Pipe, ${f}, Terminal Post, ${h}' Chain Link`])).sort())
+    // 0.055 wall, the diameter of the no dig post it replaces (Oct 2026).
+    expect(plan.items.sort()).toEqual(['4', '5', '6'].flatMap(h => ['Galv', 'Blk'].flatMap(f => [`DS, Pipe, ${f}, Line Post, 1-5/8" 0.055 wall, ${h}' Chain Link`, `DS, Pipe, ${f}, Terminal Post, 2-1/2" 0.055 wall, ${h}' Chain Link`])).sort())
     expect(plan.state.items.filter(i => plan.items.includes(i.name)).every(i => i.unitCost === 0)).toBe(true)
     const alum = builtInKitSet(CONCRETE_FROM)!
     for (const c of plan.concrete) expect(alum.kits[c.kit]?.find(p => p.part === c.part)?.qty).toBe(c.qty)
@@ -134,7 +135,7 @@ describe('chain link dig set', () => {
     const q = calculateQuote(job(cfg.fenceStyles.find(s => s.name === 'chain/4/galv/res/ds'), cfg))
     // 19 line + 2 corner + 2 end posts at half a bag each, rounded up once.
     expect(q.materials.items.find(i => i.item === 'Misc, Concrete')!.qty).toBe(Math.ceil((19 + 4) * 0.5))
-    expect(q.materials.items.find(i => i.item === "DS, Pipe, Galv, Line Post, 4' Chain Link")!.qty).toBe(19)
+    expect(q.materials.items.find(i => i.item === `DS, Pipe, Galv, Line Post, 1-5/8" 0.055 wall, 4' Chain Link`)!.qty).toBe(19)
   })
 
   test('compare options leave the dig set out until it is priced', () => {

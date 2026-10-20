@@ -70,6 +70,7 @@ import { startAutomationWorker } from './lib/automations/queue.js'
 import { ensureStylesOnHoldAll } from './lib/stylesOnHold.js'
 import { ensureWoodAll } from './lib/woodSeed.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
+import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
 import { hidesCosts, staffRoleOf, redactCosts } from './lib/costRedact.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
 import { ensureTwoOptionTiersAll } from './lib/tierSets.js'
@@ -79,6 +80,7 @@ import systemRoutes from './routes/system.js'
 import cronRoutes from './routes/cron.js'
 import portalRoutes from './routes/portal.js'
 import feedbackRoutes from './routes/feedback.js'
+import followUpRoutes from './routes/follow-ups.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
@@ -245,6 +247,7 @@ app.use('/api/admin', adminAuditRoutes)
 app.use('/api/cron', cronRoutes)                // Vercel cron jobs
 app.use('/api/portal', portalRoutes)            // Customer portal accounts + activation
 app.use('/api/feedback', feedbackRoutes)        // "Send feedback" from inside the app
+app.use('/api/follow-ups', followUpRoutes)      // Follow ups: calls, answers, next dates (lib/followUps.ts)
 
 // ── Health check (expanded) ──
 //
@@ -372,6 +375,8 @@ if (!isVercel) {
       await ensureWoodAll().catch(err => console.error('[wood] check failed:', err))
       // Chain link Install choice and the unpriced dig set styles: once per company (lib/chainDigSetSeed.ts).
       await ensureChainDigSetAll().catch(err => console.error('[chain link] dig set check failed:', err))
+      // Chain link dig set post names with 0.055 wall and size, and hook ties per section on saved kits: once per company (lib/chainDigSetPipes.ts).
+      await ensureChainDigSetPipesAll().catch(err => console.error('[chain link] dig set pipe names check failed:', err))
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))

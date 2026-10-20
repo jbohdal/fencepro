@@ -1,8 +1,8 @@
 /**
  * Material kits per style. A style's parts are a set of kits: what one
- * section takes, one line / corner / end post, the blank post at the center
- * of a double gate, one walk gate, one double gate, each foot of fence (chain
- * link fabric, rail, wire, ties) and once per job. A job's parts are each kit
+ * section takes (chain link hook ties too), one line / corner / end post, the
+ * blank post at the center of a double gate, one walk gate, one double gate,
+ * each foot of fence (chain link fabric, rail, wire) and once per job. A job's parts are each kit
  * times how many the job has, added up per part; parts marked "rounded up"
  * (rolls of fabric, sticks of rail, bags of ties) are rounded up once per job.
  *

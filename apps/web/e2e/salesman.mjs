@@ -83,6 +83,10 @@ try {
   const link = await op.locator('[data-invite-url]').inputValue({ timeout: 15000 })
   await shot(op, 'desktop-invite-link')
   check('invite: the link is shown to copy', /\/accept-invite\?token=[0-9a-f]{64}&email=/.test(link))
+  // A phone without Tailscale cannot open the link, so the steps come first.
+  const steps = await op.locator('[data-invite-steps]').innerText()
+  check('invite: Tailscale steps (Play Store and App Store) come before the link', /^Step 1: Install Tailscale/.test(steps.trim()) && steps.includes('play.google.com/store/apps/details?id=com.tailscale.ipn') && steps.includes('apps.apple.com/app/tailscale/id1470499037') && /Step 2: Open this link/.test(steps) && (await op.locator('[data-invite-copy]').textContent()) === 'Copy steps and link', steps.slice(0, 80))
+  if (SHOTS) await op.locator('[data-invite-link]').screenshot({ path: path.join(SHOTS, 'dev-invite-steps.png') })
   const users = (await owner('GET', '/api/crm-auth/users')).json.data ?? []
   const row = users.find(u => u.email === EMAIL)
   made.userId = row?.id ?? null

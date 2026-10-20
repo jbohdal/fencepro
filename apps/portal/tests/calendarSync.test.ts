@@ -299,6 +299,46 @@ describe('plain style names in titles, upcoming events only', () => {
     expect(only(card).summary).toBe('Install: Pat Lee (White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig, 10 sections)')
   })
 
+  test('the description\'s Fence style line takes the plain name from the switch on; earlier events keep the code', () => {
+    const desc = (evs: CalendarEventSpec[], id: string) => evs.find(e => e.recordId === id)!.description
+    const evs = buildDesiredEvents(inputs({ jobs: [past, today, next, imported], styleLabel, plainTitlesFrom: FROM }))
+    expect(desc(evs, 'next')).toContain('Fence style: White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig\n')
+    expect(desc(evs, 'today')).toContain('Fence style: White Vinyl Privacy')
+    expect(desc(evs, 'past')).toContain("Fence style: WV-ND 6'x8' Privacy\n")
+    expect(desc(evs, 'imp')).toContain('Fence style: WVND\n')
+    expect(desc(buildDesiredEvents(inputs({ jobs: [next], styleLabel })), 'next')).toContain("Fence style: WV-ND 6'x8' Privacy")
+    // Schedule board entries, install cards and estimate cards too.
+    const board = buildDesiredEvents(inputs({ gridJobs: [grid({ fenceType: "WV-ND 6'x8' Privacy", date: '2026-10-20' })], styleLabel, plainTitlesFrom: FROM }))
+    expect(only(board).description).toContain('Fence style: White Vinyl Privacy, 6 ft tall')
+    const card = (stage: string, date: string) => only(buildDesiredEvents(inputs({ leads: [{ id: 'l1', firstName: 'Pat', lastName: 'Lee', stage, fenceType: "WV-ND 6'x8' Privacy", sections: 10, scheduledDate: date }], styleLabel, plainTitlesFrom: FROM })))
+    expect(card('Signed Contract', '2026-10-20').description).toContain('Fence style: White Vinyl Privacy, 6 ft tall')
+    expect(card('Estimating', '2026-10-20').description).toContain('Fence style: White Vinyl Privacy, 6 ft tall')
+    expect(card('Estimating', '2026-10-16').description).toContain("Fence style: WV-ND 6'x8' Privacy")
+  })
+
+  test('plainTitleChanges also lists an upcoming event whose only change is the description', async () => {
+    const { plainTitleChanges } = await import('../src/server/lib/calendarSync/index')
+    const lead = { id: 'l1', firstName: 'Pat', lastName: 'Lee', stage: 'Estimating', fenceType: "WV-ND 6'x8' Privacy", sections: 10, scheduledDate: '2026-10-20' }
+    const changes = plainTitleChanges(inputs({ leads: [lead, { ...lead, id: 'l0', scheduledDate: '2026-10-16' }], styleLabel }), [{ source: 'lead', recordId: 'l1', status: 'synced' }], FROM)
+    expect(changes.map(c => [c.key, c.onCalendar])).toEqual([['lead:l1', true]])
+    expect(changes[0].before).toBe(changes[0].after)                           // "Estimate: Pat Lee": no style in the title
+    expect(changes[0].descriptionBefore).toContain("Fence style: WV-ND 6'x8' Privacy")
+    expect(changes[0].descriptionAfter).toContain('Fence style: White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
+  })
+
+  test('a company that recorded its switch before the descriptions changed: upcoming events re-described by the usual sync, past ones not', async () => {
+    const w = world()
+    const lead = (id: string, date: string) => ({ id, firstName: 'Pat', lastName: 'Lee', stage: 'Estimating', fenceType: "WV-ND 6'x8' Privacy", sections: 10, scheduledDate: date })
+    const leads = [lead('l0', '2026-10-16'), lead('l1', '2026-10-22')]
+    // As live was: both sent earlier with the code in the description.
+    expect(await w.run({ leads, styleLabel }, '2026-10-14')).toMatchObject({ created: 2 })
+    w.calls.length = 0
+    expect(await w.run({ leads, styleLabel, plainTitlesFrom: FROM }, '2026-10-19')).toMatchObject({ updated: 1, unchanged: 1 })
+    const descs = [...w.events.values()].map(e => [e.startDate, e.description.split('\n').find(l => l.startsWith('Fence style'))])
+    expect(descs).toEqual([['2026-10-16', "Fence style: WV-ND 6'x8' Privacy"], ['2026-10-22', 'Fence style: White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig']])
+    expect(await w.run({ leads, styleLabel, plainTitlesFrom: FROM }, '2026-10-19')).toMatchObject({ unchanged: 2 })
+  })
+
   test('plainTitleChanges lists only upcoming events whose title changes, and which are on the calendar', async () => {
     const { plainTitleChanges } = await import('../src/server/lib/calendarSync/index')
     const inp = inputs({ jobs: [past, today, next, imported], styleLabel })

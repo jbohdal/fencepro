@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { styleLabel } from './fenceCatalog'
 import type { SavedQuote } from './QuotesPage'
+import FollowUpReport from './FollowUpReport'
 
 /* ───────── helpers ───────── */
 
@@ -220,7 +221,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
   const [year, setYear] = useState(currentYear)
   const [gran, setGran] = useState<Granularity>('monthly')
   const [section, setSection] = useState<'tier1' | 'tier2' | 'tier3' | 'tier4'>('tier1')
-  const [tab, setTab] = useState<'revenue' | 'margin' | 'style' | 'deals' | 'close_rate' | 'lead_source' | 'sales_rep' | 'pipeline' | 'budget_rev' | 'budget_cost' | 'budget_overhead' | 'cust_revenue' | 'cust_repeat' | 'cust_segments'>('revenue')
+  const [tab, setTab] = useState<'revenue' | 'margin' | 'style' | 'deals' | 'close_rate' | 'lead_source' | 'sales_rep' | 'pipeline' | 'follow_ups' | 'budget_rev' | 'budget_cost' | 'budget_overhead' | 'cust_revenue' | 'cust_repeat' | 'cust_segments'>('revenue')
 
   const budget = useMemo(() => loadBudget(), [])
 
@@ -448,6 +449,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
     { key: 'lead_source' as const, label: 'Lead Sources' },
     { key: 'sales_rep' as const, label: 'Sales Reps' },
     { key: 'pipeline' as const, label: 'Pipeline' },
+    { key: 'follow_ups' as const, label: 'Follow ups' },
   ]
 
   // ═══ TIER 3: Budget Variance data ═══
@@ -700,6 +702,7 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
         {(section === 'tier1' ? TABS_TIER1 : section === 'tier2' ? TABS_TIER2 : section === 'tier3' ? TABS_TIER3 : TABS_TIER4).map(t => (
           <button
             key={t.key}
+            data-report-tab={t.key}
             onClick={() => setTab(t.key)}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition-colors ${
               tab === t.key
@@ -1390,6 +1393,8 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
           </div>
         </div>
       )}
+
+      {tab === 'follow_ups' && <FollowUpReport />}
 
       {tab === 'pipeline' && (
         <div className="space-y-6">

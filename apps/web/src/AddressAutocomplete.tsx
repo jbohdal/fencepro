@@ -9,7 +9,10 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { suggestAddresses, type AddressSuggestion } from './appointmentsStore'
+import { lookupAddresses, type AddressSuggestion } from './appointmentsStore'
+
+/** Said under the box when nothing can be suggested, so the box never just does nothing. */
+export const NO_SUGGESTIONS = 'No suggestions, type the full address'
 
 export interface PlaceSelection {
   formatted: string
@@ -45,40 +48,76 @@ export default function AddressAutocomplete({
   const [list, setList] = useState<AddressSuggestion[]>([])
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(-1)
+  // 'none': looked up (or could not be) and nothing to suggest. Typing carries on as normal.
+  const [status, setStatus] = useState<'idle' | 'searching' | 'none'>('idle')
+  const [focused, setFocused] = useState(false)
+  // Above the box when the phone's keyboard leaves too little room below it.
+  const [place, setPlace] = useState<{ up: boolean; max: number }>({ up: false, max: 288 })
   const typed = useRef(false)
   const seq = useRef(0)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!typed.current) return
     const q = value.trim()
-    if (q.length < 3 || !/^\d/.test(q)) { setList([]); return }
+    if (q.length < 3) { setList([]); setStatus('idle'); return }
     const n = ++seq.current
     // A short pause after typing, so a weak signal is not asked on every letter.
     const t = setTimeout(() => {
-      suggestAddresses(q).then(r => { if (n === seq.current) { setList(r); setActive(-1); setOpen(true) } }).catch(() => {})
+      // Suggestions start from the house number; a street typed without one is kept as typed.
+      if (!/^\d/.test(q)) { setList([]); setStatus('none'); return }
+      setStatus('searching')
+      lookupAddresses(q).then(r => {
+        if (n !== seq.current) return
+        const found = r ?? []
+        setList(found); setActive(-1); setOpen(found.length > 0)
+        setStatus(found.length ? 'idle' : 'none')
+      })
     }, 220)
     return () => clearTimeout(t)
   }, [value])
 
+  // Room for the list in what is visible above the keyboard.
+  useEffect(() => {
+    if (!open || !list.length) return
+    const measure = () => {
+      const el = inputRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const vv = window.visualViewport
+      const top = vv ? vv.offsetTop : 0
+      const bottom = vv ? vv.offsetTop + vv.height : window.innerHeight
+      const below = bottom - r.bottom - 8, above = r.top - top - 8
+      const want = Math.min(288, list.length * 56)
+      setPlace(below >= want || below >= above ? { up: false, max: Math.max(120, Math.min(288, below)) } : { up: true, max: Math.max(120, Math.min(288, above)) })
+    }
+    measure()
+    const vv = window.visualViewport
+    vv?.addEventListener('resize', measure); vv?.addEventListener('scroll', measure)
+    return () => { vv?.removeEventListener('resize', measure); vv?.removeEventListener('scroll', measure) }
+  }, [open, list])
+
   function pick(s: AddressSuggestion) {
     typed.current = false
-    setOpen(false); setList([])
+    setOpen(false); setList([]); setStatus('idle')
     onChange(s.formatted)
     onSelect?.({ formatted: s.formatted, line1: s.line1, city: s.city, state: s.state, zip: s.zip, lat: s.lat, lng: s.lng })
   }
 
+  const showList = open && list.length > 0
   return (
     // Above map layers (Leaflet uses z-index up to 1000) while suggestions are open.
-    <div className={`relative ${open && list.length ? 'z-[1100]' : ''} ${wrapClassName}`}>
+    <div className={`relative ${showList ? 'z-[1100]' : ''} ${wrapClassName}`}>
       <input
+        ref={inputRef}
         id={id}
         type="text"
         autoFocus={autoFocus}
         disabled={disabled}
         value={value}
         onChange={e => { typed.current = true; onChange(e.target.value) }}
-        onFocus={() => { if (list.length) setOpen(true) }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onFocus={() => { setFocused(true); if (list.length) setOpen(true) }}
+        onBlur={() => { setFocused(false); setTimeout(() => setOpen(false), 250) }}
         onKeyDown={e => {
           if (!open || !list.length) return
           if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(a + 1, list.length - 1)) }
@@ -92,18 +131,23 @@ export default function AddressAutocomplete({
         data-address-input
         {...inputAttrs}
       />
-      {open && list.length > 0 && (
-        <ul className="absolute z-[1100] left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-y-auto" role="listbox" data-address-suggestions>
+      {showList && (
+        <ul className={`absolute z-[1100] left-0 right-0 ${place.up ? 'bottom-full mb-1' : 'mt-1'} bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto`}
+          style={{ maxHeight: place.max }} role="listbox" data-address-suggestions data-placed={place.up ? 'above' : 'below'}>
           {list.map((s, i) => (
             <li key={s.formatted + i} role="option" aria-selected={i === active}>
+              {/* Pressing a suggestion must not take the focus off the box first (a tap's blur would close the list before the pick lands). */}
               <button type="button" className={`w-full text-left px-3 min-h-[48px] py-2 text-sm ${i === active ? 'bg-orange-50' : 'hover:bg-gray-50'}`}
-                onMouseDown={e => e.preventDefault()} onClick={() => pick(s)} data-address-suggestion>
+                onPointerDown={e => e.preventDefault()} onMouseDown={e => e.preventDefault()} onClick={() => pick(s)} data-address-suggestion>
                 <span className="block font-medium text-gray-900">{s.line1}</span>
                 <span className="block text-xs text-gray-500">{s.city}, {s.state} {s.zip}</span>
               </button>
             </li>
           ))}
         </ul>
+      )}
+      {focused && status === 'none' && !showList && (
+        <p className="mt-1 text-xs text-gray-600" role="status" data-address-message>{NO_SUGGESTIONS}</p>
       )}
     </div>
   )

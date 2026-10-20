@@ -164,6 +164,7 @@ export function QuickAddModal({
       lastName: lastName.trim(),
       phone, email,
       serviceAddress: address,
+      city: city.trim(), state: state.trim(), zip: zip.trim(),
       leadSource, notes,
     }, { stage })
     if (created) {

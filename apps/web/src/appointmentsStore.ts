@@ -199,7 +199,17 @@ export async function pinPosition(address: string, lat: number, lng: number): Pr
 export interface AddressSuggestion { formatted: string; line1: string; city: string; state: string; zip: string; lat: number; lng: number; source: string }
 /** Addresses for what has been typed: Marion County's property list on the Mac, then the Census lookup. */
 export async function suggestAddresses(q: string): Promise<AddressSuggestion[]> {
+  return (await lookupAddresses(q)) ?? []
+}
+
+/**
+ * The same, but null when the lookup itself failed (no answer, refused, or
+ * slower than `waitMs` on a weak signal), so the address box can say so.
+ */
+export async function lookupAddresses(q: string, waitMs = 8000): Promise<AddressSuggestion[] | null> {
   if (q.trim().length < 3) return []
-  const r = await call<AddressSuggestion[]>('GET', `/geo/suggest?q=${encodeURIComponent(q.trim())}`)
-  return r.ok && Array.isArray(r.data) ? r.data : []
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<null>(res => { timer = setTimeout(() => res(null), waitMs) })
+  const r = await Promise.race([call<AddressSuggestion[]>('GET', `/geo/suggest?q=${encodeURIComponent(q.trim())}`), late]).finally(() => clearTimeout(timer))
+  return r && r.ok && Array.isArray(r.data) ? r.data : null
 }

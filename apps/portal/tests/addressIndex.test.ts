@@ -3,7 +3,7 @@
  * address against how Marion County writes it.
  */
 import { describe, test, expect } from 'vitest'
-import { addressWords, matches, cityText } from '../src/server/lib/addressIndex'
+import { addressWords, matches, cityText, addressParts, addressCount } from '../src/server/lib/addressIndex'
 
 const m = (typed: string, county: string) => matches(addressWords(typed), addressWords(county))
 
@@ -37,5 +37,28 @@ describe('typing matches the county street', () => {
     expect(m('17009 SE 60', '17008 SE 60TH ST')).toBe(false)
     expect(m('17008 SE 61', '17008 SE 60TH ST')).toBe(false)
     expect(m('17008 NE 60', '17008 SE 60TH ST')).toBe(false)
+  })
+})
+
+describe('city, state and ZIP from a one line address', () => {
+  test('the forms people type', () => {
+    expect(addressParts('99999 Nowhere Ln, Ocala, FL 34471')).toEqual({ city: 'Ocala', state: 'FL', zip: '34471' })
+    expect(addressParts('99999 Nowhere Ln, Ocala FL 34471')).toEqual({ city: 'Ocala', state: 'FL', zip: '34471' })
+    expect(addressParts('99999 Nowhere Ln, citrus springs, Florida')).toEqual({ city: 'Citrus Springs', state: 'FL', zip: '' })
+    expect(addressParts('99999 Nowhere Ln, Ocala, FL, 34476')).toEqual({ city: 'Ocala', state: 'FL', zip: '34476' })
+    expect(addressParts('99999 Nowhere Ln, Ocala, FL 34471-1234')).toEqual({ city: 'Ocala', state: 'FL', zip: '34471' })
+  })
+  test('a part that cannot be read is left empty', () => {
+    expect(addressParts('99999 Nowhere Circle Ocala, FL 34473')).toEqual({ city: '', state: 'FL', zip: '34473' })
+    expect(addressParts('99999 Nowhere Ln')).toEqual({ city: '', state: '', zip: '' })
+    expect(addressParts('99999 Nowhere Ln, Ocala, Marion')).toEqual({ city: '', state: '', zip: '' })
+    expect(addressParts('')).toEqual({ city: '', state: '', zip: '' })
+  })
+})
+
+describe.skipIf(addressCount() === 0)('city, state and ZIP from the county list', () => {
+  test('a typed address the county knows takes the county city and ZIP', () => {
+    expect(addressParts('1301 SE Silver Springs Pl, Ocala, FL 34471')).toEqual({ city: 'Ocala', state: 'FL', zip: '34471' })
+    expect(addressParts('17008 Southeast 60th Street, Ocklawaha')).toEqual({ city: 'Ocklawaha', state: 'FL', zip: '32179' })
   })
 })

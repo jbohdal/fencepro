@@ -1675,6 +1675,8 @@ model SavedQuote {
   // until then. Drives the "viewed" badge + automation trigger.
   firstViewedAt     DateTime?
   viewCount         Int       @default(0)
+  // The last time the customer opened the link (opens are counted in viewCount).
+  lastViewedAt      DateTime?
   // Customer-side acceptance — recorded by POST /api/saved-quotes/share/:token/accept
   acceptedAt        DateTime?
   acceptedBy        String? // typed name or display name from the accept form
@@ -2465,4 +2467,95 @@ model Feedback {
 
   @@index([accountId, createdAt])
   @@index([accountId, status])
+}
+
+// ── Follow ups (docs: lib/followUps.ts) ──
+
+/// One call, text or other touch with a customer and how it went. The id is
+/// chosen on the phone, so an answer sent again by the save queue is one row.
+model CallLog {
+  id             String   @id
+  accountId      String
+  /// The pipeline card it was about (a card lives in PipelineState.leads)
+  cardId         String?
+  crmContactId   String?
+  /// Who made the call or sent the text
+  userId         String
+  userName       String   @default("")
+  /// call | text | other
+  channel        String   @default("call")
+  /// no_answer | voicemail | deciding | not_now | booked | signed | lost
+  outcome        String
+  /// price | competitor | not_needed | other (outcome lost only)
+  lostReason     String?
+  note           String   @default("")
+  /// The card's stage when it was logged
+  stage          String   @default("")
+  /// When it happened (the phone's clock)
+  at             DateTime @default(now())
+  /// The follow up this answered (YYYY-MM-DD), if one was set: on time or late
+  dueOn          String?
+  /// The next follow up this answer set (YYYY-MM-DD), null when it stopped them
+  nextFollowUpOn String?
+  createdAt      DateTime @default(now())
+
+  @@index([accountId, cardId])
+  @@index([accountId, crmContactId])
+  @@index([accountId, userId, at])
+}
+
+/// Where a pipeline card is in its follow ups: the next one due and the step
+/// of its stage's schedule (Settings > Follow ups). One row per card.
+model CardFollowUp {
+  accountId     String
+  cardId        String
+  /// The stage the steps run for; a card in another stage starts that stage's steps
+  stage         String
+  /// YYYY-MM-DD the steps count from (the day the card entered the stage)
+  stageSince    String
+  /// The next step of the stage's schedule still to do
+  stepIndex     Int       @default(0)
+  /// YYYY-MM-DD of the next follow up; null: none set
+  dueOn         String?
+  /// call | text | decide ("Going cold, keep or close?")
+  dueKind       String    @default("call")
+  /// steps | answer | manual | first
+  setBy         String    @default("steps")
+  /// signed | lost when the steps stopped
+  stoppedReason String?
+  /// Who it belongs to when the card has no salesman on it
+  ownerUserId   String?
+  lastOutcome   String?
+  lastContactAt DateTime?
+  touches       Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@id([accountId, cardId])
+  @@index([accountId, dueOn])
+}
+
+/// Settings > Follow ups: the steps per stage and the text templates.
+model FollowUpSettings {
+  accountId String   @id
+  /// { "<stage>": [{ day, kind }] }
+  steps     Json
+  /// [{ id, name, body }]
+  templates Json
+  version   Int      @default(1)
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+/// A call or text just started from the app (tel: or sms: link): when the
+/// person comes back, "How'd it go?" is asked. Kept on the server so a phone
+/// that reloaded the app while in the call still asks. One per person.
+model PendingTouch {
+  userId       String   @id
+  accountId    String
+  cardId       String
+  crmContactId String?
+  channel      String   @default("call")
+  name         String   @default("")
+  startedAt    DateTime @default(now())
 }

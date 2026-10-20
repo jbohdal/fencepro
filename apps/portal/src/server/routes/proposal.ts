@@ -142,7 +142,7 @@ publicProposal.get('/:token', async (req, res) => {
     return
   }
   if (!p || !Array.isArray(p.options) || p.options.length === 0) { res.status(404).type('html').send(page('Proposal not found', '<main class="wrap"><h1>This proposal is not ready yet</h1><p>Please call us.</p></main>', nonce)); return }
-  await prisma.savedQuote.update({ where: { id: q.id }, data: { firstViewedAt: q.firstViewedAt || new Date(), viewCount: { increment: 1 } } }).catch(() => {})
+  await prisma.savedQuote.update({ where: { id: q.id }, data: { firstViewedAt: q.firstViewedAt || new Date(), lastViewedAt: new Date(), viewCount: { increment: 1 } } }).catch(() => {})
   // A move or repair shows the photos marked Customer on this quote.
   const photos = p.kind ? await customerPhotos(q) : []
   res.type('html').send(renderProposal(q, p, token, nonce, photos))

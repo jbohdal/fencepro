@@ -47,6 +47,9 @@ interface Customer {
   phone: string
   email: string
   serviceAddress: string
+  city?: string
+  state?: string
+  zip?: string
   billingAddress: string
   billingDifferent: boolean
   leadSource: string
@@ -191,6 +194,9 @@ function CustomerForm({
     phone: initial?.phone ?? '',
     email: initial?.email ?? '',
     serviceAddress: initial?.serviceAddress ?? '',
+    city: initial?.city ?? '',
+    state: initial?.state ?? '',
+    zip: initial?.zip ?? '',
     billingAddress: initial?.billingAddress ?? '',
     billingDifferent: initial?.billingDifferent ?? false,
     leadSource: initial?.leadSource ?? '',
@@ -261,9 +267,11 @@ function CustomerForm({
           <div className="space-y-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Service Address — where the fence is being installed</label>
+              {/* A picked suggestion keeps its city, state and ZIP; typed by hand, the server reads them from the address. */}
               <AddressAutocomplete placeholder="1349 SE 32nd St, Ocala, FL 34470"
-                value={form.serviceAddress}
-                onChange={v => setForm(f => ({ ...f, serviceAddress: v }))} />
+                value={form.serviceAddress} inputAttrs={{ 'data-customer-field': 'address' }}
+                onChange={v => setForm(f => ({ ...f, serviceAddress: v, city: '', state: '', zip: '' }))}
+                onSelect={p => setForm(f => ({ ...f, serviceAddress: p.formatted, city: p.city, state: p.state, zip: p.zip }))} />
             </div>
             <div className="flex items-center gap-2">
               <input type="checkbox" id="billingDiff" checked={form.billingDifferent} onChange={e => setForm(f => ({ ...f, billingDifferent: e.target.checked }))} className="accent-orange-500" />

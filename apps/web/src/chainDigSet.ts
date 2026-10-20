@@ -24,7 +24,7 @@
  */
 
 import type { FenceStyle } from './configStore'
-import { normalizeItemName } from './materialCalculator'
+import { normalizeItemName, chainHookTiesPerSection } from './materialCalculator'
 import { kitSetFor, KIT_KINDS, type KitKind, type KitPart, type KitSet } from './materialKits'
 import { CHAIN_INSTALL_DIM, DEFAULT_CATALOG, generatedName, materialOf, styleChoicesOf, type FenceCatalog, type MaterialDef } from './fenceCatalog'
 
@@ -53,11 +53,23 @@ export interface ChainDsPlan {
 
 const isPostPipe = (part: string) => /^pipe,/i.test(part.trim())
 
-/** "Pipe, Galv, 1-5/8" X 8' (SS40)" on a 4 ft line post → "DS, Pipe, Galv, Line Post, 4' Chain Link" (no size: it is not known yet). */
+/**
+ * Dig set posts (Jonathan, Oct 2026): 0.055 wall pipe, the same diameter as
+ * the no dig post it replaces. "Pipe, Galv, 1-5/8" X 8' (SS40)" on a 4 ft line
+ * post → "DS, Pipe, Galv, Line Post, 1-5/8" 0.055 wall, 4' Chain Link". The
+ * diameter is read from the no dig pipe's name; no length (not known yet).
+ */
 export function digSetPostName(part: string, kind: KitKind, height: string): string {
   const finish = /\bblk\b|black/i.test(part) ? 'Blk' : /\bgalv\b/i.test(part) ? 'Galv' : ''
   const role = kind === 'line' ? 'Line Post' : 'Terminal Post'
-  return ['DS', 'Pipe', finish, role, `${height}' Chain Link`].filter(Boolean).join(', ')
+  const dia = pipeDiameter(part)
+  return ['DS', 'Pipe', finish, role, `${dia ? `${dia}" ` : ''}0.055 wall`, `${height}' Chain Link`].filter(Boolean).join(', ')
+}
+
+/** The diameter at the start of a pipe part's name: "Pipe, Galv, 2-1/2" X 8' (SS40)" → "2-1/2". */
+export function pipeDiameter(part: string): string | null {
+  const m = part.match(/^\s*pipe,[^"]*?(\d+(?:-\d+\/\d+)?)"/i)
+  return m ? m[1] : null
 }
 
 /** Add the Install choice to a saved chain link material that does not have it (no dig first, the name ending ", No dig"). */
@@ -147,6 +159,123 @@ export function planChainDigSet(st0: ChainDsState): ChainDsPlan {
       roundUp: [...new Set([...kit.roundUp, ...concreteRoundUp])], updatedAt: new Date().toISOString(), madeFor: CHAIN_DS_TAG,
     })
     out.kits.push(name)
+  }
+  return out
+}
+
+// ── Oct 2026: dig set post names and chain link hook ties ─────────────────────
+
+/** The dig set post parts as first added (no size): "DS, Pipe, Galv, Line Post, 4' Chain Link". */
+const OLD_DS_POST = /^DS, Pipe, (Galv|Blk), (Line Post|Terminal Post), (\d+)' Chain Link$/
+/** Residential chain link hook ties (commercial ties are 8-1/4" and keep their own count). */
+const RES_HOOK_TIE = /hook ties?, 6-1\/2"/i
+
+export interface ChainFixState {
+  fenceStyles: FenceStyle[]
+  items: Array<{ id: string; name: string; unitCost: number; [k: string]: unknown }>
+  kits: KitSet[]
+}
+
+export interface ChainFixPlan {
+  state: ChainFixState
+  /** Inventory parts renamed, old name → new name. */
+  renamed: Array<{ from: string; to: string }>
+  /** Kit lines that now read a new name (kit set name, kit, new part). */
+  kitLines: Array<{ kitSet: string; kit: KitKind; part: string }>
+  /** Saved chain link kit sets whose hook ties moved to the section kit. */
+  ties: string[]
+  /** Left as they were, and why. */
+  skipped: string[]
+}
+
+/** The no dig style a dig set post of this finish and height copies: the dig set twin's madeFrom, else the built in name. */
+function noDigSource(st: ChainFixState, finish: 'Galv' | 'Blk', height: string): string {
+  const fin = finish === 'Blk' ? 'black' : 'galv'
+  const twin = st.fenceStyles.find(s => s.madeFrom && s.choices?.install === 'ds' && s.choices?.grade === 'res' && s.choices?.finish === fin && s.choices?.height === height)
+  return twin?.madeFrom ?? `CL - ${height}' ${finish === 'Blk' ? 'Black' : 'Galv'}`
+}
+
+/** A saved kit set's chain link height when it prices a residential chain link style. */
+function chainHeightOf(st: ChainFixState, set: KitSet): number | null {
+  const style = st.fenceStyles.find(s => s.name === set.styleName)
+  const choices = style?.choices
+  if (choices && style?.material === 'chain') return choices.grade === 'res' && /^\d+$/.test(choices.height ?? '') ? Number(choices.height) : null
+  const m = (set.styleName ?? '').match(/^CL - (\d)' (Galv|Black)$/)
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * Once per company (server step lib/chainDigSetPipes.ts):
+ *   - the 12 dig set post parts get "0.055 wall" and the diameter of the no
+ *     dig post they replace (line post from the no dig line post kit, terminal
+ *     post from the no dig corner post kit); Inventory keeps each part's id,
+ *     price and everything else, and every kit line naming it follows;
+ *   - saved residential chain link kit sets (the dig set kits) still carrying
+ *     the old hook tie count (per foot and per line post) get the per section
+ *     count instead, the same as the built in kits. A kit set whose ties were
+ *     edited is left as it is.
+ * Pure; saved quotes keep their stored pull sheets.
+ */
+export function planChainDigSetPipesAndTies(st0: ChainFixState): ChainFixPlan {
+  const st: ChainFixState = JSON.parse(JSON.stringify(st0))
+  const out: ChainFixPlan = { state: st, renamed: [], kitLines: [], ties: [], skipped: [] }
+
+  // Old name → new name, for every old dig set post name in Inventory or a kit.
+  const names = new Set<string>()
+  for (const i of st.items) if (OLD_DS_POST.test(i.name.trim())) names.add(i.name.trim())
+  for (const set of st.kits) for (const k of KIT_KINDS) for (const p of set.kits[k] ?? []) if (OLD_DS_POST.test(p.part.trim())) names.add(p.part.trim())
+  const rename = new Map<string, string>()
+  for (const old of names) {
+    const [, finish, role, height] = old.match(OLD_DS_POST)!
+    const src = noDigSource(st, finish as 'Galv' | 'Blk', height)
+    const kit = kitSetFor(src, st.kits)
+    if (!kit || kit === 'archived') { out.skipped.push(`${old}: no kit for ${src} to read the pipe size from`); continue }
+    const kinds: KitKind[] = role === 'Line Post' ? ['line'] : ['corner', 'end']
+    const pipe = kinds.map(k => (kit.kits[k] ?? []).find(p => /^\s*pipe,/i.test(p.part) && pipeDiameter(p.part))).find(Boolean)
+    if (!pipe) { out.skipped.push(`${old}: ${src} has no ${role === 'Line Post' ? 'line' : 'corner'} post pipe with a size`); continue }
+    rename.set(normalizeItemName(old), digSetPostName(pipe.part, kinds[0], height))
+  }
+  if (rename.size) {
+    const taken = new Set(st.items.map(i => normalizeItemName(i.name)))
+    for (const i of st.items) {
+      const to = rename.get(normalizeItemName(i.name))
+      if (!to) continue
+      if (taken.has(normalizeItemName(to))) { out.skipped.push(`${i.name}: Inventory already has "${to}", so only the kits were pointed at it`); continue }
+      out.renamed.push({ from: i.name, to })
+      i.name = to
+    }
+    for (const set of st.kits) {
+      for (const k of KIT_KINDS) for (const p of set.kits[k] ?? []) {
+        const to = rename.get(normalizeItemName(p.part))
+        if (to) { p.part = to; out.kitLines.push({ kitSet: set.name, kit: k, part: to }) }
+      }
+      set.roundUp = set.roundUp.map(p => rename.get(normalizeItemName(p)) ?? p)
+    }
+  }
+
+  // Hook ties: per foot + per line post → per section, on saved kits still at the old count.
+  const near = (a: number | undefined, b: number) => typeof a === 'number' && Math.abs(a - b) < 1e-9
+  for (const set of st.kits) {
+    const h = chainHeightOf(st, set)
+    if (h === null) continue
+    const ties = [...new Set(KIT_KINDS.flatMap(k => (set.kits[k] ?? []).filter(p => RES_HOOK_TIE.test(p.part)).map(p => p.part)))]
+    if (!ties.length) continue
+    if (ties.length > 1) { out.skipped.push(`${set.name}: more than one hook tie part, left as it is`); continue }
+    const part = ties[0]
+    const qty = (k: KitKind) => (set.kits[k] ?? []).filter(p => p.part === part).reduce((t, p) => t + p.qty, 0)
+    const where = KIT_KINDS.filter(k => qty(k) !== 0)
+    const perSection = Math.round(chainHookTiesPerSection(h)) / 100
+    if (where.length === 1 && where[0] === 'section' && near(qty('section'), perSection)) continue
+    const old = where.length === 2 && where.includes('perFoot') && where.includes('line') && near(qty('perFoot'), 0.05) && near(qty('line'), (h - 1) / 100)
+    if (!old) { out.skipped.push(`${set.name}: hook ties were edited (${where.map(k => `${k} ${qty(k)}`).join(', ')}), left as they are`); continue }
+    const line = set.kits.perFoot!.find(p => p.part === part)!
+    for (const k of ['perFoot', 'line'] as KitKind[]) {
+      set.kits[k] = set.kits[k]!.filter(p => p.part !== part)
+      if (!set.kits[k]!.length) delete set.kits[k]
+    }
+    set.kits.section = [...(set.kits.section ?? []), { part, qty: perSection, fallbackCost: line.fallbackCost }]
+    if (!set.roundUp.includes(part)) set.roundUp.push(part)
+    out.ties.push(set.name)
   }
   return out
 }

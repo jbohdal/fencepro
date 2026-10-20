@@ -152,6 +152,8 @@ export const isGateHardware = (part: string) => /hinge|latch|\bfork\b/i.test(par
 export const isSectionHardware = (part: string) => /\btie|hog ring|\bhex\b|bolt|screw|bracket|clip/i.test(part)
 /** Chain link damage allowance: fabric and top rail. */
 const isFabricOrRail = (part: string) => /fabric|pipe/i.test(part)
+/** Chain link hook ties (counted per section, in the section kit). */
+const isHookTie = (part: string) => /hook tie/i.test(part)
 
 type Bag = Map<string, number>
 const addTo = (bag: Bag, parts: KitPart[] | undefined, n: number, keep: (p: string) => boolean = () => true) => {
@@ -419,11 +421,17 @@ function pullPosts(acc: Acc, s: MoveRepairSettings, n: number, type: PostType, k
   line(acc, { key: `${keyPrefix}disposal`, label: `Disposal of old posts (${t})`, kind: 'disposal', cents: n * (disp ?? 0), math: `${n} posts × ${usd((disp ?? 0) / 100)}`, ...(disp === null ? { missing: true } : {}) })
 }
 
-/** One section's parts for damage and repairs: the section kit plus its share of per foot parts (no posts). */
-function sectionParts(kit: KitSet, width: number, chain: boolean): Bag {
+/**
+ * One section's parts for damage and repairs: the section kit plus its share
+ * of per foot parts (no posts). Chain link: fabric and top rail, and on a
+ * repaired section its hook ties too (the move's damage allowance leaves the
+ * ties out: every reinstalled section already gets new ties).
+ */
+function sectionParts(kit: KitSet, width: number, chain: boolean, ties = false): Bag {
   const b: Bag = new Map()
-  addTo(b, kit.kits.section, 1, p => !chain || isFabricOrRail(p))
-  addTo(b, kit.kits.perFoot, width, p => !chain || isFabricOrRail(p))
+  const keep = (p: string) => !chain || isFabricOrRail(p) || (ties && isHookTie(p))
+  addTo(b, kit.kits.section, 1, keep)
+  addTo(b, kit.kits.perFoot, width, keep)
   return b
 }
 const scale = (b: Bag, n: number): Bag => new Map([...b].map(([k, v]) => [k, v * n]))
@@ -474,7 +482,8 @@ export function priceMove(c: WorkCommon, m: MoveInputs, nl: NewLine): WorkResult
     materialLine(acc, kit, 'newPosts', 'All new posts on the new line', posts, `${postCount} posts (${nw.linePosts} line, ${nl.corners} corner, ${nl.ends} end and gate${nl.dblGates ? `, ${nl.dblGates} center of double gate` : ''}) from the post kits`)
     materialLine(acc, kit, 'setting', postTypeOf(style) === 'nd' ? 'New setting material (pipe and donuts)' : 'New setting material (concrete)', setting, `post kits' setting parts for ${postCount} posts`)
     if (m.newPostCaps) materialLine(acc, kit, 'caps', 'New post caps', caps, `${postCount} posts`)
-    // Chain link and aluminum: every reinstalled section gets new small hardware.
+    // Chain link and aluminum: every reinstalled section gets new small hardware
+    // (chain link: its hook ties, per section in the section kit, and hog rings).
     if (chain || alum) {
       const hw: Bag = new Map()
       addTo(hw, kit.kits.section, reused, isSectionHardware)
@@ -574,7 +583,7 @@ export function repairPartChoices(style: QuoteStyle): Array<{ part: string; qty:
   const kit = workKit(style.woodBase ?? style)
   if (!kit) return []
   const chain = style.category === 'Chainlink' || style.category === 'Commercial'
-  return [...sectionParts(kit, workWidth(style.woodBase ?? style), chain)].map(([part, qty]) => ({ part, qty: Math.round(qty * 1000) / 1000 }))
+  return [...sectionParts(kit, workWidth(style.woodBase ?? style), chain, true)].map(([part, qty]) => ({ part, qty: Math.round(qty * 1000) / 1000 }))
 }
 
 export function priceRepair(c: WorkCommon, r: RepairInputs): WorkResult {
@@ -605,7 +614,7 @@ export function priceRepair(c: WorkCommon, r: RepairInputs): WorkResult {
   const rs = q('repairSection')
   if (rs) {
     if (kit) {
-      const chosen = r.repairParts && r.repairParts.length ? new Map(r.repairParts.filter(p => p.qty > 0).map(p => [p.part, p.qty] as [string, number])) : sectionParts(kit, width, chain)
+      const chosen = r.repairParts && r.repairParts.length ? new Map(r.repairParts.filter(p => p.qty > 0).map(p => [p.part, p.qty] as [string, number])) : sectionParts(kit, width, chain, true)
       materialLine(acc, kit, 'repairSection:parts', `${REPAIR_LABEL.repairSection}: parts`, scale(chosen, rs), `${rs} × ${[...chosen].map(([p, n]) => `${Math.round(n * 1000) / 1000} ${p.replace(/^\*+/, '')}`).join(', ')}`)
     }
     laborLine(acc, 'repairSection:labor', `${REPAIR_LABEL.repairSection}: labor`, rs, rates.perSection, mult.repairSection, 'sections', rates.sectionText, 'section (install rate)')

@@ -7,8 +7,14 @@
  *   Call · Text · Navigate · Book appointment
  *   The customer's quotes (status, price, date; tap to open)
  *   Next appointment
+ *   Follow up: the next one (one tap to change it), Log a call, text templates
  *   The last few notes, and Add note
+ *   History: calls with answers, texts, emails, quotes sent, proposal opens,
+ *   appointments and notes, newest first
  *   Stage picker to move the card
+ *
+ * Call, Text and the phone number also start "How'd it go?" for when the
+ * salesman comes back to the app (FollowUpPrompt).
  *
  * Its address is ?card=<lead id>, so Back closes it and a reload reopens it.
  */
@@ -27,6 +33,10 @@ import { subscribe, pendingFor } from './outbox'
 import { useBackLayer } from './nav'
 import { SaveStatus, cardChange } from './SaveStatus'
 import AutomationRunLog from './AutomationRunLog'
+import { sendJson } from './syncHttp'
+import { useFollowUpBoard, followUpOf, changeNext, startTouch, openLogCall, pendingCalls, CHANGED_EVENT, badgeOf } from './followUpStore'
+import { OUTCOME_LABEL, LOST_REASON_LABEL } from './followUpRules'
+import { DateChips, TextTemplatesSheet, dayLabel, kindWord } from './FollowUpPrompt'
 
 const fmtUSD = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const STATUS: Record<string, string> = { DRAFT: 'bg-gray-100 text-gray-700', SENT: 'bg-blue-100 text-blue-800', SOLD: 'bg-green-100 text-green-800', LOST: 'bg-red-100 text-red-800' }
@@ -82,6 +92,15 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
   }
   const lastNotes = (notes ?? []).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 3)
 
+  // Follow up: as the server has it, with this phone's answers on top.
+  useFollowUpBoard()
+  const follow = followUpOf(lead.id)
+  const badge = badgeOf(lead)
+  const [texting, setTexting] = useState(false)
+  const touch = { cardId: lead.id, customerId: lead.customerId ?? null, name, firstName: lead.firstName, phone, stage: lead.stage }
+  const startCall = () => { if (phone) startTouch({ ...touch, channel: 'call' }) }
+  const startText = () => { if (phone) startTouch({ ...touch, channel: 'text' }) }
+
   const startQuote = () => onNewQuote({
     id: lead.customerId || '', firstName: lead.firstName, lastName: lead.lastName,
     phone, email: lead.email || customer?.email || '', serviceAddress: address,
@@ -99,7 +118,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
           <div className="min-w-0 flex-1">
             <h2 className="text-xl font-bold text-gray-900 truncate">{name}</h2>
             <p className="text-sm text-gray-600 truncate">{[lead.stage, address].filter(Boolean).join(' · ')}</p>
-            {phone && <a href={telHref(phone)} className="flex w-fit items-center text-sm font-medium text-blue-600 hover:underline" data-card-window-phone>{formatPhone(phone)}</a>}
+            {phone && <a href={telHref(phone)} onClick={startCall} className="flex w-fit items-center text-sm font-medium text-blue-600 hover:underline" data-card-window-phone>{formatPhone(phone)}</a>}
             <SaveStatus keys={lead.customerId ? [`customer:${lead.customerId}`] : []} also={op => cardChange(lead.id)(op) || (!!lead.customerId && noteChangeFor(lead.customerId)(op))} className="mt-1" />
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="btn btn-quiet btn-icon shrink-0"><X size={22} aria-hidden="true" /></button>
@@ -110,11 +129,41 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
             <FilePlus2 size={22} aria-hidden="true" /> New quote
           </button>
           <div className="grid grid-cols-4 gap-2">
-            <a href={phone ? telHref(phone) : undefined} className={`${action} ${phone ? '' : off}`} data-card-call><Phone size={20} aria-hidden="true" />Call</a>
-            <a href={phone ? smsLink(phone, '') : undefined} className={`${action} ${phone ? '' : off}`} data-card-text><MessageSquare size={20} aria-hidden="true" />Text</a>
+            <a href={phone ? telHref(phone) : undefined} onClick={startCall} className={`${action} ${phone ? '' : off}`} data-card-call><Phone size={20} aria-hidden="true" />Call</a>
+            <a href={phone ? smsLink(phone, '') : undefined} onClick={startText} className={`${action} ${phone ? '' : off}`} data-card-text><MessageSquare size={20} aria-hidden="true" />Text</a>
             <a href={address ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}` : undefined} target="_blank" rel="noreferrer" className={`${action} ${address ? '' : off}`} data-card-navigate><Navigation size={20} aria-hidden="true" />Navigate</a>
             <button type="button" onClick={onBook} className={`${action} text-center leading-tight`} data-card-book-appt><CalendarPlus size={20} aria-hidden="true" />Book appointment</button>
           </div>
+
+          <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3 space-y-2" data-card-follow-up-section>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-gray-900">Follow up</h3>
+              {badge && <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${badge.tone === 'red' ? 'bg-red-100 text-red-700' : badge.tone === 'orange' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-700'}`} data-card-window-badge>{badge.text}</span>}
+            </div>
+            {follow?.state?.stoppedReason ? (
+              <p className="text-sm text-gray-700">Stopped: {follow.state.stoppedReason === 'signed' ? 'signed' : 'lost'}.</p>
+            ) : (
+              <>
+                <p className="text-sm text-gray-800" data-card-next-follow-up={follow?.dueOn ?? ''}>
+                  Next: <b>{dayLabel(follow?.dueOn)}</b>{follow?.dueOn ? ` · ${kindWord(follow.dueKind)}` : ''}
+                  {follow?.dueOn && follow.stepCount > 0 && follow.dueKind !== 'decide' && follow.state?.setBy === 'steps' ? <span className="text-gray-500"> (step {Math.min(follow.stepIndex + 1, follow.stepCount)} of {follow.stepCount})</span> : null}
+                </p>
+                {follow?.lastOutcome && <p className="text-xs text-gray-600">Last: {OUTCOME_LABEL[follow.lastOutcome]}{follow.lastContactAt ? `, ${fmtDate(follow.lastContactAt)}` : ''}</p>}
+                {follow?.dueKind === 'decide' && (
+                  <div className="flex gap-2" data-going-cold>
+                    <button type="button" className="btn btn-secondary flex-1" onClick={() => changeNext(lead.id, name, { keep: true })} data-keep>Keep: start the steps again</button>
+                    <button type="button" className="btn btn-quiet flex-1 text-red-700" onClick={() => openLogCall({ ...touch, channel: 'call' })} data-close-lost>Close it</button>
+                  </div>
+                )}
+                <DateChips value={follow?.dueOn ?? null} onPick={d => changeNext(lead.id, name, { dueOn: d })} />
+              </>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" className="btn btn-secondary" onClick={() => openLogCall({ ...touch, channel: 'call' })} data-card-log-call>Log a call</button>
+              <button type="button" className="btn btn-secondary" disabled={!phone} onClick={() => setTexting(true)} data-card-text-templates><MessageSquare size={16} aria-hidden="true" /> Text templates</button>
+            </div>
+          </section>
+          {texting && <TextTemplatesSheet card={{ cardId: lead.id, customerId: lead.customerId ?? null, name, firstName: lead.firstName, phone }} onClose={() => setTexting(false)} />}
 
           <AutomationRunLog entityId={lead.id} />
 
@@ -184,6 +233,8 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
             )}
           </section>
 
+          <CardHistory cardId={lead.id} customerId={lead.customerId ?? null} notesShown={notes?.length ?? 0} />
+
           <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3">
             <label className="block">
               <span className="text-sm font-semibold text-gray-900">Stage</span>
@@ -201,5 +252,57 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
         </div>
       </div>
     </div>
+  )
+}
+
+interface HistoryItem { at: string; kind: string; title: string; detail: string; by: string; saving?: boolean }
+const KIND_DOT: Record<string, string> = { call: 'bg-green-500', text: 'bg-blue-500', email: 'bg-indigo-500', quote: 'bg-purple-500', proposal_opened: 'bg-amber-500', appointment: 'bg-cyan-600', note: 'bg-gray-400' }
+
+/** One history for the customer, newest first: calls with answers, texts, emails, quotes sent, proposal opens, appointments, notes. */
+function CardHistory({ cardId, customerId, notesShown }: { cardId: string; customerId: string | null; notesShown: number }) {
+  const [items, setItems] = useState<HistoryItem[] | null>(null)
+  const [all, setAll] = useState(false)
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    let live = true
+    const q = new URLSearchParams({ cardId, ...(customerId ? { customerId } : {}) })
+    sendJson('GET', `/api/follow-ups/history?${q}`).then(r => { if (live && r.result.ok) setItems(r.json.data ?? []) ; else if (live && items === null) setItems([]) })
+    return () => { live = false }
+  }, [cardId, customerId, n, notesShown])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const h = () => setN(x => x + 1)
+    window.addEventListener(CHANGED_EVENT, h)
+    return () => window.removeEventListener(CHANGED_EVENT, h)
+  }, [])
+  // Answers still on their way (no signal): on top, "Saving…".
+  useFollowUpBoard()
+  const waiting: HistoryItem[] = pendingCalls(cardId, customerId).map(c => ({
+    at: c.at, kind: c.channel === 'text' ? 'text' : 'call', saving: true, by: '',
+    title: `${c.channel === 'text' ? 'Text' : 'Call'}: ${OUTCOME_LABEL[c.outcome]}${c.outcome === 'lost' && c.lostReason ? ` (${LOST_REASON_LABEL[c.lostReason].toLowerCase()})` : ''}`,
+    detail: c.note,
+  }))
+  const list = [...waiting, ...(items ?? [])].sort((a, b) => b.at.localeCompare(a.at))
+  const shown = all ? list : list.slice(0, 8)
+  return (
+    <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3" data-card-history>
+      <h3 className="text-sm font-semibold text-gray-900">History</h3>
+      {items === null && !waiting.length ? <p className="text-sm text-gray-500 mt-1">Loading…</p>
+        : list.length === 0 ? <p className="text-sm text-gray-600 mt-1">Nothing yet.</p>
+        : (
+          <ol className="mt-2 space-y-2">
+            {shown.map((h, i) => (
+              <li key={`${h.at}-${i}`} className="flex gap-2" data-history-item={h.kind}>
+                <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${KIND_DOT[h.kind] ?? 'bg-gray-400'}`} aria-hidden="true" />
+                <span className="min-w-0">
+                  <span className="block text-sm text-gray-900">{h.title}</span>
+                  {h.detail && <span className="block text-sm text-gray-700 whitespace-pre-wrap">{h.detail}</span>}
+                  <span className="block text-xs text-gray-500">{new Date(h.at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{h.by ? ` · ${h.by}` : ''}{h.saving ? ' · Saving…' : ''}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      {list.length > 8 && <button type="button" className="btn btn-quiet btn-sm mt-2" onClick={() => setAll(a => !a)}>{all ? 'Show less' : `Show all ${list.length}`}</button>}
+    </section>
   )
 }

@@ -20,7 +20,7 @@ export { NOT_QUOTABLE_MESSAGE }
 // The server's wood seed (lib/woodSeed.ts) runs this through the bundle.
 export { planWood } from './wood'
 // The server's chain link dig set seed (lib/chainDigSetSeed.ts).
-export { planChainDigSet } from './chainDigSet'
+export { planChainDigSet, planChainDigSetPipesAndTies } from './chainDigSet'
 
 export interface EstimateData {
   /** The saved Settings (business state config), as stored. */

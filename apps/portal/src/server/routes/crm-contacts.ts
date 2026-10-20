@@ -27,6 +27,8 @@ import { plainZod } from '../lib/plainZod.js'
 import { applyPipelineDelta } from '../lib/pipelineDelta.js'
 import { recordCardMoves } from '../lib/automations/hooks.js'
 import { requireCan } from '../lib/permissions.js'
+import { addressParts } from '../lib/addressIndex.js'
+import { onCardMoves } from '../lib/followUps.js'
 
 const router = Router()
 
@@ -99,6 +101,27 @@ const contactSchema = z.object({
 
 const updateSchema = contactSchema.partial()
 
+/**
+ * City, state and ZIP for a saved address. Parts the app sends (a picked
+ * suggestion) are kept; a part not sent is read from the address, so a
+ * customer saved with a typed one line address still has its city, state and
+ * ZIP. On a change of address, a part not sent and not readable is cleared
+ * rather than left from the old address.
+ */
+function partsFor(data: { serviceAddress?: string; city?: string; state?: string; zip?: string }, existing?: { serviceAddress: string | null; city: string | null; state: string | null; zip: string | null }) {
+  const given = { city: data.city, state: data.state, zip: data.zip }
+  if (data.serviceAddress === undefined) return given
+  const changed = !existing || (existing.serviceAddress ?? '').trim() !== data.serviceAddress.trim()
+  const read = addressParts(data.serviceAddress)
+  const pick = (k: 'city' | 'state' | 'zip'): string | null | undefined => {
+    if (given[k] !== undefined) return given[k]
+    if (!changed && existing?.[k]) return undefined // the same address: what is saved stays
+    if (read[k]) return read[k]
+    return changed && existing ? null : undefined
+  }
+  return { city: pick('city'), state: pick('state'), zip: pick('zip') }
+}
+
 // ── List ──
 // Visibility model: any authenticated CrmUser sees every contact in their
 // CrmAccount. ownerId is preserved on the row as an audit trail of the
@@ -157,9 +180,7 @@ router.post('/', requireAccount, async (req: any, res) => {
               serviceAddress: data.serviceAddress,
               billingAddress: data.billingAddress,
               billingDifferent: data.billingDifferent ?? false,
-              city: data.city,
-              state: data.state,
-              zip: data.zip,
+              ...partsFor(data),
               leadSource: data.leadSource,
               salesRep: data.salesRep,
               firstApptDate: data.firstApptDate,
@@ -176,6 +197,7 @@ router.post('/', requireAccount, async (req: any, res) => {
             if (!cur) {
               const made = await tx.pipelineState.create({ data: { accountId, leads: [lead], stages: [] } })
               pipelineVersion = made.version
+              await onCardMoves(tx, accountId, [], [lead])
             } else if (!((cur.leads as any[]) ?? []).some(l => l?.id === lead.id || (!isNew && l?.customerId === contact.id))) {
               // A create sent again (no answer reached the phone) never adds a second card for that customer.
               const next = applyPipelineDelta({ leads: (cur.leads as any[]) ?? [], stages: (cur.stages as any[]) ?? [] }, { upsert: [{ lead, before }], remove: [] })
@@ -185,6 +207,8 @@ router.post('/', requireAccount, async (req: any, res) => {
               pipelineVersion = cur.version + 1
               // The new card enters its stage: saved for automations in the same step.
               await recordCardMoves(accountId, (cur.leads as any[]) ?? [], next.leads, pipelineVersion, tx)
+              // A card made straight into Estimating or Pending Signature starts its follow up steps.
+              await onCardMoves(tx, accountId, (cur.leads as any[]) ?? [], next.leads)
             } else {
               pipelineVersion = cur.version
             }
@@ -235,9 +259,7 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
         serviceAddress: data.serviceAddress,
         billingAddress: data.billingAddress,
         billingDifferent: data.billingDifferent,
-        city: data.city,
-        state: data.state,
-        zip: data.zip,
+        ...partsFor(data, existing),
         leadSource: data.leadSource,
         salesRep: data.salesRep,
         firstApptDate: data.firstApptDate,

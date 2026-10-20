@@ -343,6 +343,22 @@ function clHeight(s: string): 4 | 5 | 6 {
   return 6
 }
 
+/**
+ * Residential chain link hook ties per section (Jonathan, Oct 2026): 3 on the
+ * line post at 4 ft tall plus 1 for every foot of extra height, and 6 on the
+ * top rail between line posts: 9 at 4 ft, 10 at 5 ft, 11 at 6 ft. Sections
+ * are counted per run (10 ft max), so a run has line posts + 1 sections.
+ * Until Oct 2026 ties were counted 5 per foot plus (height - 1) per line post.
+ * Commercial chain link keeps its own count.
+ */
+export function chainHookTiesPerSection(h: number): number {
+  return 3 + (h - 4) + 6
+}
+/** Hook ties come in boxes of 100: the job's ties, rounded up to whole boxes once per job. */
+function chainHookTieBoxes(sections: number, h: number): number {
+  return Math.ceil(sections * chainHookTiesPerSection(h) / 100)
+}
+
 // ── Fabric rolls ──────────────────────────────────────────────────────────────
 // Chainlink fabric: total footage / 50 feet per roll, ceiling
 function fabricRolls(totalFt: number): number {
@@ -694,9 +710,9 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       : "Pipe, Galv, 2-1/2\" X 10' (SS40)"
     add(termPostKey, corners + ends, termPostCost)
 
-    // Hook ties: footage * 5 + line posts * (h - 1), per 100
-    const hookTies = Math.ceil((totalFootage * 5 + linePosts * (h - 1)) / 100)
-    add("Chainlink, Galv, Hardware, Hook Ties, 6-1/2\" x 9ga (100)", hookTies, 11.00)
+    // Hook ties (Jonathan, Oct 2026): counted per section, not by footage.
+    // Boxes of 100, rounded up once per job.
+    add("Chainlink, Galv, Hardware, Hook Ties, 6-1/2\" x 9ga (100)", chainHookTieBoxes(sections, h), 11.00)
 
     // Hog rings: sections * 5
     add("G, Hog Ring, 9GA, Alum", sections * 5, 0.02)
@@ -783,8 +799,8 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       : "Pipe, Blk, 2-1/2\" X 10' (SS40)"
     add(termPostKey, corners + ends, termPostCost)
 
-    const hookTies = Math.ceil((totalFootage * 5 + linePosts * (h - 1)) / 100)
-    add("Chainlink, Black, Hardware, Hook Ties, 6-1/2\" x 9ga, AL (100)", hookTies, 14.00)
+    // Hook ties per section, boxes of 100 (see galvanized).
+    add("Chainlink, Black, Hardware, Hook Ties, 6-1/2\" x 9ga, AL (100)", chainHookTieBoxes(sections, h), 14.00)
 
     add("Black, Hog Ring, 9GA, Alum", sections * 5, 0.02)
     add("Black, Wire, Tension, 9GA", totalFootage + 5, 0.11)

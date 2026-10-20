@@ -41,6 +41,7 @@ import type { SavedQuote } from './QuotesPage'
 import { navigate, useNav, useScreenMemory, takeOpenedParam, BackClose } from './nav'
 import { refreshNow } from './liveRefresh'
 import { businessDate } from './businessDate'
+import { useFollowUpBoard, badgeOf, needsFollowUpNow, startTouch } from './followUpStore'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -146,7 +147,7 @@ function isMobileViewport() {
 }
 
 // What Back gives the board back: its filters and where it was scrolled to.
-interface PipelineMemory { search: string; repFilter: string; styleFilter: string; boardLeft: number; columnTops: Record<string, number> }
+interface PipelineMemory { search: string; repFilter: string; styleFilter: string; followFilter: boolean; boardLeft: number; columnTops: Record<string, number> }
 
 export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   /** A new quote, filled in with this customer. */
@@ -156,7 +157,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
 } = {}) {
   const initial = loadPipeline()
   const restore = useScreenMemory<PipelineMemory>('pipeline', (): PipelineMemory => ({
-    search, repFilter, styleFilter, boardLeft: boardEl()?.scrollLeft ?? 0,
+    search, repFilter, styleFilter, followFilter, boardLeft: boardEl()?.scrollLeft ?? 0,
     columnTops: Object.fromEntries(columnScrollers().map(c => [c.key, c.el?.scrollTop ?? 0])),
   }))
   const [leads, setLeads] = useState<PipelineLead[]>(initial.leads)
@@ -175,6 +176,10 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   const [search, setSearch] = useState(restore?.search ?? '')
   const [repFilter, setRepFilter] = useState(restore?.repFilter ?? '')
   const [styleFilter, setStyleFilter] = useState(restore?.styleFilter ?? '')
+  // "Needs follow up": overdue, due today, or Estimating / Pending Signature with none set.
+  const [followFilter, setFollowFilter] = useState(restore?.followFilter ?? false)
+  // Follow up badges (the server's, kept current while the board is open).
+  const followTick = useFollowUpBoard()
   const [selected, setSelected] = useState<PipelineLead | null>(null)
   // The card window, and a quote opened from it.
   const [cardId, setCardId] = useState<string | null>(null)
@@ -284,6 +289,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     return leads.filter(l => {
       if (repFilter && (l.assignedRep || '') !== repFilter) return false
       if (styleFilter && (l.fenceType || '') !== styleFilter) return false
+      if (followFilter && !needsFollowUpNow(l)) return false
       if (!q) return true
       return (
         `${l.firstName} ${l.lastName}`.toLowerCase().includes(q) ||
@@ -291,7 +297,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
         (l.address || '').toLowerCase().includes(q)
       )
     })
-  }, [leads, search, repFilter, styleFilter])
+  }, [leads, search, repFilter, styleFilter, followFilter, followTick])
 
   const matchesSearch = useMemo(() => {
     if (!search.trim()) return null
@@ -565,6 +571,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
         sortMode={sortMode} onSortChange={setSortMode}
         repOptions={repOptions} repFilter={repFilter} onRepFilterChange={setRepFilter}
         styleOptions={styleOptions} styleFilter={styleFilter} onStyleFilterChange={setStyleFilter}
+        followFilter={followFilter} onFollowFilterChange={setFollowFilter}
         primaryLabel="+ New lead"
         onPrimary={() => setAddingToStage(stages[0])}
         analyticsOpen={analyticsOpen}
@@ -624,6 +631,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
               next={l.customerId ? apptInfo.next.get(l.customerId) ?? null : null}
               needsOutcome={!!l.customerId && apptInfo.overdue.has(l.customerId)}
               onBook={() => bookFor(l)}
+              followBadge={badgeOf(l)}
             />
           )}
         />
@@ -732,7 +740,7 @@ function slug(s: string) { return s.replace(/[^a-z0-9]+/gi, '-').toLowerCase() }
 const INTAKE_SOURCES = new Set(['Website Quote', 'Phone (AI receptionist)', 'Website chat'])
 
 function PipelineCard({
-  lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook,
+  lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook, followBadge,
 }: {
   lead: PipelineLead
   /** From the customer's quotes; see pipelineValue. */
@@ -750,6 +758,8 @@ function PipelineCard({
   /** A past appointment nobody has closed out. */
   needsOutcome: boolean
   onBook: () => void
+  /** Follow up: "Call today", "Overdue 3d", "No follow up set", or null (nothing shown, no extra height). */
+  followBadge: { text: string; tone: 'red' | 'orange' | 'gray' } | null
 }) {
   const days = daysInStage(lead)
   const hex = stageHexFromTailwind(lead.stage)
@@ -783,7 +793,7 @@ function PipelineCard({
         <a
           href={telHref(phone)}
           draggable={false}
-          onClick={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); startTouch({ cardId: lead.id, customerId: lead.customerId ?? null, name: `${lead.firstName} ${lead.lastName}`.trim(), firstName: lead.firstName, phone, stage: lead.stage, channel: 'call' }) }}
           onPointerDown={e => e.stopPropagation()}
           className="flex w-fit items-center py-2 -my-1.5 text-xs font-medium text-blue-600 hover:underline [-webkit-touch-callout:none]"
           style={{ minHeight: 0, minWidth: 0 }}
@@ -812,8 +822,11 @@ function PipelineCard({
         </span>
       </div>
 
-      {(next || overdue || (!next && lead.stage === 'First Contact' && INTAKE_SOURCES.has(lead.leadSource))) && (
+      {(next || overdue || followBadge || (!next && lead.stage === 'First Contact' && INTAKE_SOURCES.has(lead.leadSource))) && (
         <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          {followBadge && (
+            <span data-card-follow-up={followBadge.text} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${followBadge.tone === 'red' ? 'bg-red-100 text-red-700' : followBadge.tone === 'orange' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-700'}`}>{followBadge.text}</span>
+          )}
           {next && (
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700" data-card-next><CalendarDays size={12} className="inline -mt-0.5 mr-1" aria-hidden="true" />{shortWhen(next)}</span>
           )}
@@ -856,6 +869,7 @@ function ControlsBar({
   sortMode, onSortChange,
   repOptions, repFilter, onRepFilterChange,
   styleOptions, styleFilter, onStyleFilterChange,
+  followFilter, onFollowFilterChange,
   primaryLabel, onPrimary,
   analyticsOpen, onToggleAnalytics, isMobile,
 }: {
@@ -875,6 +889,8 @@ function ControlsBar({
   styleOptions: string[]
   styleFilter: string
   onStyleFilterChange: (s: string) => void
+  followFilter: boolean
+  onFollowFilterChange: (v: boolean) => void
   primaryLabel: string
   onPrimary: () => void
   analyticsOpen: boolean
@@ -912,6 +928,10 @@ function ControlsBar({
             <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               {SORT_MODES.map(m => <option key={m} value={m}>{SORT_LABELS[m]}</option>)}
             </select>
+            <label className="flex items-center gap-2 min-h-[44px] text-sm font-semibold text-gray-800">
+              <input type="checkbox" className="w-5 h-5" checked={followFilter} onChange={e => onFollowFilterChange(e.target.checked)} data-filter-needs-follow-up />
+              Needs follow up
+            </label>
             <button onClick={onToggleAnalytics} className="w-full text-left text-xs text-orange-600 hover:underline">{analyticsOpen ? 'Hide analytics' : 'Show analytics'}</button>
           </div>
         )}
@@ -945,6 +965,8 @@ function ControlsBar({
         <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white" aria-label="Sort">
           {SORT_MODES.map(m => <option key={m} value={m}>{SORT_LABELS[m]}</option>)}
         </select>
+        <button type="button" onClick={() => onFollowFilterChange(!followFilter)} aria-pressed={followFilter} data-filter-needs-follow-up
+          className={`h-9 px-3 rounded-lg border text-sm font-semibold ${followFilter ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-300 text-gray-700'}`}>Needs follow up</button>
       </div>
     </div>
   )

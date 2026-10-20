@@ -246,20 +246,23 @@ export function syncCalendarAfterWrite(req: { method: string; user?: { crmAccoun
 // name, and the normal sync updates the ones already on the calendar (a failed
 // update is kept on the event's link and retried like any other). Events that
 // started before it keep the title they were sent with and are never touched.
+// The description's "Fence style" line follows the same switch (same moment,
+// same key, same retries): live recorded its moment before the descriptions
+// changed, and the normal content-hash sync updates its upcoming events.
 
 export const PLAIN_TITLES_KEY = 'migration:calendar-plain-style-titles-2026-10'
 
-export interface TitleChange { key: string; start: string; onCalendar: boolean; before: string; after: string }
+export interface TitleChange { key: string; start: string; onCalendar: boolean; before: string; after: string; descriptionBefore: string; descriptionAfter: string }
 
-/** Upcoming events (starting at or after `fromIso`) whose title changes with the plain style name. Pure. */
+/** Upcoming events (starting at or after `fromIso`) whose title or description changes with the plain style name. Pure. */
 export function plainTitleChanges(inputs: SpecInputs, links: Array<Pick<EventLink, 'source' | 'recordId' | 'status'>>, fromIso: string): TitleChange[] {
   const before = new Map(buildDesiredEvents({ ...inputs, plainTitlesFrom: null }).map(e => [eventKey(e), e]))
   const linked = new Set(links.map(l => eventKey(l)))
   const out: TitleChange[] = []
   for (const e of buildDesiredEvents({ ...inputs, plainTitlesFrom: fromIso })) {
     const old = before.get(eventKey(e))
-    if (!old || old.summary === e.summary || !startsFrom(e, fromIso)) continue
-    out.push({ key: eventKey(e), start: e.startDate || e.startAt || '', onCalendar: linked.has(eventKey(e)), before: old.summary, after: e.summary })
+    if (!old || (old.summary === e.summary && old.description === e.description) || !startsFrom(e, fromIso)) continue
+    out.push({ key: eventKey(e), start: e.startDate || e.startAt || '', onCalendar: linked.has(eventKey(e)), before: old.summary, after: e.summary, descriptionBefore: old.description, descriptionAfter: e.description })
   }
   return out.sort((a, b) => a.start.localeCompare(b.start) || a.key.localeCompare(b.key))
 }
@@ -278,7 +281,7 @@ export async function ensurePlainTitles(accountId: string, inputs: SpecInputs, l
     const from = now.toISOString()
     const changes = plainTitleChanges(inputs, links, from).filter(c => c.onCalendar)
     await tx.accountKeyValue.create({ data: { accountId, key: PLAIN_TITLES_KEY, value: { from, count: changes.length, keys: changes.map(c => c.key) } } })
-    console.log(`[calendar] plain style names in titles from ${from}: ${changes.length} upcoming event(s) on the calendar to re-title; past events left as they are`)
+    console.log(`[calendar] plain style names in titles from ${from}: ${changes.length} upcoming event(s) on the calendar to re-title (titles and the description's Fence style line); past events left as they are`)
     return from
   }, { timeout: 15_000 })
 }
