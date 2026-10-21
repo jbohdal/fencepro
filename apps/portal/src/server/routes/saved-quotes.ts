@@ -20,6 +20,7 @@
  *                              (records the firstViewedAt the first time it is hit)
  */
 
+import { canonicalWord } from '../lib/optionLists.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
@@ -229,6 +230,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
   try {
     const sameId = typeof req.body?.id === 'string' ? await prisma.savedQuote.findFirst({ where: { id: req.body.id, accountId: req.user.crmAccountId } }) : null
     const data = quoteSchema.parse(await costsForLimited(req, sameId))
+    // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
+    if (typeof data.leadSource === 'string') data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? ''
     // Each proposal option's warranty, from Settings → Warranties now (lib/warranties.ts).
     if (data.proposal) data.proposal = await stampQuoteWarranties(req.user.crmAccountId, data.proposal, null, false) as any
     const clientId = clientIdSchema.parse(req.body?.id)
@@ -307,6 +310,8 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
       return
     }
     const data = quoteUpdateSchema.parse(await costsForLimited(req, existing))
+    // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
+    if (typeof data.leadSource === 'string') data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? ''
     // A signed quote keeps its price: a change to it goes on a change order (lib/quoteLock.ts).
     if (await signedNow(existing)) {
       const fields = lockedChanges(existing, data)

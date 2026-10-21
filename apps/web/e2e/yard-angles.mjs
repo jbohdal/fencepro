@@ -392,7 +392,8 @@ try {
     Math.abs(along - 40) < 0.05 && teeAngle?.tee && Math.abs(teeAngle.deg - 90) < 0.01 && ti.tees === 1 && Math.abs(t5.ft - 25) < 0.05 && ti.crossings === 0,
     `${along.toFixed(2)} ft along, ${teeAngle?.deg}°, ${ti.tees} tee post`)
   const teePosts = (await page2.locator('[data-post-counts]').textContent()).replace(/\s+/g, ' ')
-  check('vinyl: the tee counted as an end post, and the side list says so', /1 tee counted as an end post/.test(teePosts) && (await page2.locator('[data-side="Side 5"] [data-side-tee-at]').textContent()).includes('along Side 3') && await page2.locator('[data-side-row="Side 5"] [data-side-tee-badge]').count() === 1, teePosts)
+  // Vinyl tee: one more line post, not an end post (Jonathan, Oct 21, 2026: "Line post, route the third side on site").
+  check('vinyl: the tee counted as a line post (3 corner, 3 end), and the side list says so', /3 corner · 3 end · 1 tee counted as a line post, route the third side on site/.test(teePosts) && (await page2.locator('[data-side="Side 5"] [data-side-tee-at]').textContent()).includes('along Side 3') && await page2.locator('[data-side-row="Side 5"] [data-side-tee-badge]').count() === 1, teePosts)
   await shot(page2, 'dev-yard-tee', '[data-layout-plan-col]')
   if (!CDP) await ctx.close(); else await page2.close()
 

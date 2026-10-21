@@ -60,6 +60,8 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
     fenceStyle: String(b.fenceStyle ?? ''),
     runs,
     corners: num(b.corners), ends: num(b.ends), walkGates: num(b.walkGates), dblGates: num(b.dblGates),
+    // Vinyl tees counted as line posts (yardLayout.ts VINYL_TEE_POST).
+    ...(num(b.extraLinePosts) > 0 ? { extraLinePosts: Math.round(num(b.extraLinePosts)) } : {}),
     tearOutSections: num(b.tearOutSections), tearOutGates: num(b.tearOutGates),
     extraLaborHrs: num(b.extraLaborHrs), hasSalesman: !!b.hasSalesman, priceAdjust: num(b.priceAdjust),
     overrides,

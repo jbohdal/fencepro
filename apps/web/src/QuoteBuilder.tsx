@@ -14,7 +14,8 @@ import type { SavedQuote } from './QuotesPage'
 import { getCustomers, getCustomerById, upsertCustomer } from './customerStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
-import { getRailOptimizerConfig, leadSourceOptions } from './configStore'
+import { getRailOptimizerConfig } from './configStore'
+import { sourcePicker } from './optionListsStore'
 import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
 import { layoutPanelFt } from './gateSlide'
 import { deriveLayout, formatFtIn, postSpacing, teePostFor, type YardLayout } from './yardLayout'
@@ -63,7 +64,6 @@ const styleOptionLabel = (s: { name: string; label?: string; isActive?: boolean;
 // Settings are read when the builder opens (not when the app loads), so a
 // change in Settings → Pricing or Fence Styles applies to the next quote
 // without a page reload.
-const leadSources = () => leadSourceOptions()
 
 /** '' → undefined, otherwise the number if it is valid and not negative. */
 function numOrUndef(v: string): number | undefined {
@@ -145,7 +145,8 @@ function SaveModal({
   const [notes, setNotes]         = useState(initialNotes)
   const [leadTemp, setLeadTemp]   = useState(0)
   const [propertyAddress, setPropertyAddress] = useState(initialAddress || selectedCustomer?.serviceAddress || '')
-  const LEAD_SOURCES = useMemo(() => leadSources(), [])
+  // Settings > Lead Sources (shown ones), and the quote's own word when it is not among them.
+  const LEAD_SOURCES = sourcePicker(leadSource)
 
   const allCustomers: SavedCustomer[] = useMemo(() => {
     return getCustomers() as SavedCustomer[]
@@ -305,7 +306,7 @@ function SaveModal({
                   <label className="text-xs text-gray-500 mb-1 block">Lead Source</label>
                   <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={leadSource} onChange={e => setLeadSource(e.target.value)}>
                     <option value="">Select...</option>
-                    {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                    {LEAD_SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -575,10 +576,13 @@ export default function QuoteBuilder({
   const effEnds = fromLayout ? layoutResult!.ends : ends
   const effWalk = fromLayout ? layoutResult!.walkGates : walkGates
   const effDbl = fromLayout ? layoutResult!.dblGates : dblGates
+  // Vinyl tees counted as line posts (VINYL_TEE_POST): line posts beyond the runs' own.
+  const effTeeLines = fromLayout ? layoutResult!.linePosts : 0
   const calcInput: QuoteCalcInput = {
     style,
     runs: effRuns,
     corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
+    ...(effTeeLines ? { extraLinePosts: effTeeLines } : {}),
     tearOutSections: tearOutSec, tearOutGates,
     extraLaborHrs: parseFloat(adjLaborHrs) || 0,
     hasSalesman,
@@ -603,6 +607,7 @@ export default function QuoteBuilder({
   // What the server prices for a Salesman or Installer (and what their save sends).
   const priceRequest: QuoteJobRequest = {
     fenceStyle: style?.name ?? '', runs: effRuns.map(r => ({ ft: r.ft, rail: r.rail ?? 'auto' })), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
+    ...(effTeeLines ? { extraLinePosts: effTeeLines } : {}),
     tearOutSections: tearOutSec, tearOutGates, extraLaborHrs: parseFloat(adjLaborHrs) || 0, hasSalesman, priceAdjust,
     overrides: pricingOverrides, jobType,
     move: jobType === 'move' ? moveIn : null, repair: jobType === 'repair' ? repairIn : null,
@@ -858,7 +863,7 @@ export default function QuoteBuilder({
         : undefined,
       // The yard as drawn, and each run's sections, so the quote redraws and
       // the crew sees post spacing exactly as priced.
-      layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0) },
+      layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0), ...(effTeeLines ? { teeLinePosts: effTeeLines } : {}) },
       corners: effCorners,
       ends: effEnds,
       walkGates: effWalk,

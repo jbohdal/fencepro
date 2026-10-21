@@ -1,7 +1,7 @@
 /**
- * Signed Contract flow — the atomic "deal closed" transition.
+ * Signed flow — the atomic "deal closed" transition.
  *
- * When a deal moves to Signed Contract OR a quote is explicitly marked SOLD,
+ * When a deal moves to the Signed stage (Settings > Pipeline Stages) OR a quote is explicitly marked SOLD,
  * this module does the full cascade:
  *   1. Quote.status = SOLD
  *   2. Create a Job record (via jobStore.createJobFromQuote)
@@ -14,6 +14,8 @@
  * Throws on failure so the caller can roll back the UI transition.
  */
 
+import { stageHasRole, stageName } from './pipelineStagesStore'
+import { getPipeline, savePipeline } from './pipelineStore'
 import type { SavedQuote } from './QuotesPage'
 import { getCustomerById, logCustomerActivity, getCustomers, upsertCustomer, type Customer } from './customerStore'
 import { createJobFromQuote, getJobByQuoteId, type Job } from './jobStore'
@@ -140,14 +142,11 @@ export function markQuoteSold(quoteId: string, opts?: { actor?: string }): Signe
 }
 
 /**
- * Called when a lead card is dropped on the Signed Contract stage on the
+ * Called when a lead card is dropped on the Signed stage on the
  * pipeline. Finds the most recent active quote for the customer and runs the
  * full cascade. If no quote exists a helpful error is thrown.
  */
 export function applySignedContractTransition(lead: { id: string; customerId?: string; firstName: string; lastName: string; phone?: string; email?: string; address?: string; stage: string; fromStage?: string }): SignedContractResult | null {
-  // Normalize stage comparison — trim whitespace, case-insensitive.
-  const normalized = (lead.stage || '').trim().toLowerCase()
-  const fromNormalized = (lead.fromStage || '').trim().toLowerCase()
 
   // Fire automation trigger regardless (engine can match conditions)
   try {
@@ -157,8 +156,9 @@ export function applySignedContractTransition(lead: { id: string; customerId?: s
     })
   } catch {}
 
-  if (normalized !== 'signed contract') return null
-  if (fromNormalized === 'signed contract') return null // same-to-same no-op
+  // Only the Signed stage (Settings > Pipeline Stages, by role) runs the cascade.
+  if (!stageHasRole(lead.stage, 'signed')) return null
+  if (stageHasRole(lead.fromStage, 'signed')) return null // same-to-same no-op
 
   // Step 1: resolve (or create) the customer.
   let customer: Customer | null = lead.customerId ? getCustomerById(lead.customerId) : null
@@ -199,13 +199,24 @@ export function applySignedContractTransition(lead: { id: string; customerId?: s
   // Step 2: find a quote. customer-object version (fallback by name/phone/email).
   const quote = findActiveQuoteForCustomer(customer)
   if (!quote) {
-    logCustomerActivity(customer.id, 'Moved to Signed Contract — no quote on file to mark sold automatically', { kind: 'stage_change' })
+    logCustomerActivity(customer.id, `Moved to ${stageName(lead.stage)} — no quote on file to mark sold automatically`, { kind: 'stage_change' })
     return null
   }
 
   // Step 3: run the cascade. markQuoteSold is per-quote idempotent, so
-  // dropping multiple customers/quotes on Signed Contract each gets its own job.
-  return markQuoteSold(quote.id, { actor: 'pipeline' })
+  // dropping multiple customers/quotes on the Signed stage each gets its own job.
+  const result = markQuoteSold(quote.id, { actor: 'pipeline' })
+  // The card keeps the quote (and job) it was signed for: completing that job later moves exactly this card.
+  stampCard(lead.id, result.quote.id, result.job?.id ?? null)
+  return result
+}
+
+/** Put the quote id and job id on a pipeline card (it was signed for them). */
+function stampCard(cardId: string, quoteId: string, jobId: string | null) {
+  const leads = getPipeline().leads || []
+  const card = leads.find((l: any) => l?.id === cardId)
+  if (!card || (card.quoteId === quoteId && (!jobId || card.jobId === jobId))) return
+  savePipeline(leads.map((l: any) => (l.id === cardId ? { ...l, quoteId, ...(jobId ? { jobId } : {}) } : l)))
 }
 
 /** Mark as Lost — keeps the quote in the list but stamps the status. */

@@ -25,6 +25,8 @@ import prisma from './prisma.js'
 import { isUniqueViolation } from './once.js'
 import { pricingWithData } from './estimates.js'
 import { findOrCreateContact, resolveIntakeAccountId } from './intake.js'
+import { loadPipelineStages } from './pipelineStages.js'
+import { roleStageId } from './pipelineStageModel.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
 import { recordCardMoves } from './automations/hooks.js'
 
@@ -33,7 +35,6 @@ type Json = any
 export const SOURCE_TEXT = 'Website, drawn by customer'
 export const LEAD_SOURCE = 'Website Quote'
 export const DRAFT_DAYS = 30
-const DEFAULT_FIRST_STAGE = 'First Contact'
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
 
 const day = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
@@ -241,6 +242,8 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
         const cur = await tx.pipelineState.findUnique({ where: { accountId } })
         const leads = ((cur?.leads as Json[]) ?? [])
         const stages = ((cur?.stages as Json[]) ?? [])
+        // A new card lands in the "new cards land here" stage of Settings > Pipeline Stages.
+        const firstStageId = roleStageId((await loadPipelineStages(accountId, tx)).stages, 'first') ?? ''
         const existing = leads.find(l => l?.customerId === contact.id)
         const [first, ...rest] = (contact.created ? input.name : (contact.name || input.name)).trim().split(/\s+/)
         const card = existing
@@ -249,7 +252,7 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
               id: crypto.randomUUID(), customerId: contact.id, firstName: first || 'Unknown', lastName: rest.join(' '),
               phone: input.phone, email: input.email ?? '', address: input.address, leadSource: LEAD_SOURCE, leadTemp: 0,
               fenceType: choice, sections: q.job.calc.sections, quotePrice: price, crew: '', scheduledDate: '', jobValue: 0,
-              paymentStatus: '', balanceDue: 0, notes: header, stage: (stages[0] as string) || DEFAULT_FIRST_STAGE,
+              paymentStatus: '', balanceDue: 0, notes: header, stage: firstStageId,
               createdAt: today, lastMoved: today, assignedRep: '',
             }
         if (!cur) {

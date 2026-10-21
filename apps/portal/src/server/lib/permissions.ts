@@ -26,8 +26,13 @@ import { verifyStaffBearer } from './secrets.js'
 export type StaffRole = 'super_admin' | 'admin' | 'manager' | 'office_staff' | 'sales_rep' | 'field_crew'
 
 export type Action =
-  /** Settings: BusinessState config and templates, pipeline stages, schedule working days, ops stages, style photos. */
+  /** Settings: BusinessState config and templates, schedule working days, ops stages, style photos. */
   | 'settings.change'
+  /**
+   * The company's lists everything is filed by: Pipeline Stages, Lead Sources
+   * and Customer Tags (Settings). Owner and admin only (Jonathan, Oct 20, 2026).
+   */
+  | 'lists.change'
   /** Prices: inventory items and costs, material kits, Fill in, Good Better Best tier sets, pricing rules. */
   | 'prices.change'
   /** Invite, resend invites, change roles or status, delete users, sign sessions out. */
@@ -82,8 +87,8 @@ const FULL: Action[] = [
 ]
 
 const ALLOWED: Record<StaffRole, ReadonlySet<Action>> = {
-  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system']),
-  admin: new Set([...FULL, 'records.delete', 'users.manage', 'system']),
+  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change']),
+  admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change']),
   manager: new Set(FULL),
   office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage']),
   sales_rep: new Set(['quotes.change', 'records.archive']),
@@ -102,6 +107,7 @@ export function isFullRole(role: string | null | undefined): boolean {
 
 export const REFUSAL: Record<Action, string> = {
   'settings.change': 'Your role cannot change settings. Ask Jonathan.',
+  'lists.change': 'Only the owner or an admin can change the pipeline stages, lead sources and tags.',
   'prices.change': 'Your role cannot change prices. Ask Jonathan.',
   'users.manage': 'Only the owner or an admin can manage users.',
   'system': 'Only the owner or an admin can use this.',
@@ -266,13 +272,13 @@ export function businessPatchRefusal(role: string | null, userId: string | null,
 
 /**
  * Adding cards and moving them is for everyone. Removing a card is deleting a
- * record; renaming, adding, removing or reordering stages is a setting.
+ * record. (The stage list is no longer saved with the board: it is Settings >
+ * Pipeline Stages, /api/pipeline-stages; a list an old app still sends here is
+ * ignored, not refused.)
  */
-export function pipelineChangeRefusal(role: string | null, current: { leads: unknown; stages: unknown } | null, next: { removed: string[]; stages?: unknown }): Action | null {
+export function pipelineChangeRefusal(role: string | null, next: { removed: string[] }): Action | null {
   // Removing a card is a delete: owner and admin only, manager included (they archive instead).
   if (next.removed.length && !can(role, 'records.delete')) return 'records.delete'
-  if (isFullRole(role)) return null
-  if (next.stages !== undefined && !sameJson(current?.stages ?? [], next.stages)) return 'settings.change'
   return null
 }
 
@@ -322,6 +328,8 @@ export function inventoryChangeRefusal(role: string | null, current: any, next: 
 // ── Account key value documents (/api/kv) ────────────────────────────────────
 
 const KV_SETTINGS = new Set(['fencepro_ops_stages', 'fencepro_import_templates'])
+/** Lists only their own routes save (/api/pipeline-stages, /api/option-lists); /api/kv refuses them for everyone. */
+const KV_LISTS = new Set(['fencepro_pipeline_stages', 'fencepro_lead_sources', 'fencepro_customer_tags'])
 const KV_PRICES = new Set(['fencepro_inv_suppliers'])
 /** Lists whose entries are records (files, site plans, change orders): removing one is deleting it. */
 const KV_RECORD_LISTS = new Set(['fencepro_files', 'fencepro_siteplans', 'fencepro_changeorders'])
@@ -329,6 +337,7 @@ const KV_RECORD_LISTS = new Set(['fencepro_files', 'fencepro_siteplans', 'fencep
 export function kvChangeRefusal(role: string | null, key: string, current: unknown, next: unknown): Action | null {
   if (sameJson(current ?? null, next ?? null)) return null
   if ((next === null || next === undefined) && !can(role, 'records.delete')) return 'records.delete'
+  if (KV_LISTS.has(key) && !can(role, 'lists.change')) return 'lists.change'
   if (isFullRole(role)) return null
   if (KV_SETTINGS.has(key)) return 'settings.change'
   if (KV_PRICES.has(key)) return 'prices.change'

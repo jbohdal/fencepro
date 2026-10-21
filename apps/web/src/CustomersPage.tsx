@@ -1,7 +1,10 @@
 import MediaGallery from './MediaGallery'
+import { usePipelineStages, stageName as pipelineStageName, roleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { getConfig, leadSourceOptions, customerTagOptions } from './configStore'
+import { getConfig } from './configStore'
+import { sourcePicker, tagPicker, sourceLabel, tagLabel, getOptions, useOptions } from './optionListsStore'
+import { wordToSave } from './optionListModel'
 import { Phone, MessageSquare, Navigation, FilePlus2, CalendarPlus, Pencil } from 'lucide-react'
 import { telHref } from './phoneFormat'
 import { smsLink } from './appointmentLogic'
@@ -275,8 +278,8 @@ function CustomerForm({
         <div>
           <h3 className="text-xs font-semibold text-gray-500 mb-4">Lead Source</h3>
           <div className="flex flex-wrap gap-2">
-            {leadSourceOptions(form.leadSource).map(src => (
-              <button key={src} onClick={() => setForm(f => ({ ...f, leadSource: f.leadSource === src ? '' : src }))} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${form.leadSource === src ? 'bg-orange-500 border-orange-500 text-white' : 'border-gray-200 text-gray-600 hover:border-orange-300'}`}>{src}</button>
+            {sourcePicker(form.leadSource).map(({ value: src, label }) => (
+              <button key={src} data-lead-source-choice={src} onClick={() => setForm(f => ({ ...f, leadSource: f.leadSource === src ? '' : src }))} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${form.leadSource === src ? 'bg-orange-500 border-orange-500 text-white' : 'border-gray-200 text-gray-600 hover:border-orange-300'}`}>{label}</button>
             ))}
           </div>
         </div>
@@ -284,8 +287,8 @@ function CustomerForm({
         <div>
           <h3 className="text-xs font-semibold text-gray-500 mb-4">Tags</h3>
           <div className="flex flex-wrap gap-2">
-            {customerTagOptions(form.tags).map(tag => (
-              <button key={tag} onClick={() => toggle(tag)} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${form.tags.includes(tag) ? 'bg-gray-900 border-gray-900 text-white' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}>{tag}</button>
+            {tagPicker(form.tags).map(({ value: tag, label }) => (
+              <button key={tag} data-tag-choice={tag} onClick={() => toggle(tag)} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${form.tags.includes(tag) ? 'bg-gray-900 border-gray-900 text-white' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}>{label}</button>
             ))}
           </div>
         </div>
@@ -835,6 +838,7 @@ function PipelineStageSelect({ customerId }: { customerId: string }) {
     window.addEventListener('fencepro:pipeline:updated', bump)
     return () => window.removeEventListener('fencepro:pipeline:updated', bump)
   }, [])
+  usePipelineStages()   // a rename in Settings shows here at once
   const lead = (getPipeline().leads || []).find((l: any) => l.customerId === customerId)
   if (!lead) return null
   const stages = loadPipeline().stages
@@ -847,7 +851,7 @@ function PipelineStageSelect({ customerId }: { customerId: string }) {
         value={lead.stage}
         onChange={e => { changeLeadStage(lead.id, e.target.value); setTick(t => t + 1) }}
       >
-        {options.map(s => <option key={s} value={s}>{s}</option>)}
+        {options.map(s => <option key={s} value={s}>{pipelineStageName(s)}</option>)}
       </select>
     </label>
   )
@@ -975,6 +979,8 @@ function CustomerDetail({
   initialTab?: string | null
   onTabConsumed?: () => void
 }) {
+  // Lead source and tag names from Settings (a rename shows at once).
+  useOptions('leadSources'); useOptions('customerTags')
   type Tab = 'overview' | 'appointments' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files' | 'photos' | 'messages'
   // Back to this customer comes back to the tab that was open.
   const rememberedTab = useScreenMemory<{ id: string; tab: Tab }>('customer-tab', (): { id: string; tab: Tab } => ({ id: customer.id, tab: activeTab }))
@@ -1026,10 +1032,10 @@ function CustomerDetail({
               </div>}
               <div className="flex gap-1.5 mt-2 flex-wrap">
                 {customer.tags.map(tag => (
-                  <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{tag}</span>
+                  <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full" data-customer-tag={tag}>{tagLabel(tag)}</span>
                 ))}
                 {customer.leadSource && (
-                  <span className="text-xs bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded-full">via {customer.leadSource}</span>
+                  <span className="text-xs bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded-full" data-customer-source={customer.leadSource}>via {sourceLabel(customer.leadSource)}</span>
                 )}
               </div>
             </div>
@@ -1103,7 +1109,7 @@ function CustomerDetail({
                 customer.billingDifferent ? { label: 'Billing Address', value: customer.billingAddress } : null,
                 { label: 'Phone',       value: customer.phone },
                 { label: 'Email',       value: customer.email },
-                { label: 'Lead Source', value: customer.leadSource },
+                { label: 'Lead Source', value: sourceLabel(customer.leadSource) },
                 { label: 'Sales Rep',   value: customer.salesRep },
                 { label: 'First Appt',  value: customer.firstApptDate },
                 { label: 'Job Status',  value: customer.jobStatus },
@@ -1215,7 +1221,7 @@ function CustomerDetail({
               <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
                 <p className="text-4xl mb-2">🏗</p>
                 <p className="text-gray-700 font-medium">No jobs yet</p>
-                <p className="text-gray-400 text-xs mt-1 max-w-sm mx-auto">Jobs are created automatically when a quote is marked as Sold — either by dragging a pipeline card to Signed Contract or clicking Mark as Sold on a quote.</p>
+                <p className="text-gray-400 text-xs mt-1 max-w-sm mx-auto">Jobs are created automatically when a quote is marked as Sold — either by dragging a pipeline card to {pipelineStageName(roleId('signed'))} or clicking Mark as Sold on a quote.</p>
               </div>
             ) : (
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -1299,6 +1305,8 @@ function CustomerDetail({
 export default function CustomersPage({ onNewQuote }: {
   onNewQuote?: (customer?: Customer) => void
 }) {
+  // Lead source and tag names from Settings (a rename shows at once).
+  useOptions('leadSources'); useOptions('customerTags')
   const [importedQuotes, setImportedQuotes] = useState<ImportedQuote[]>(() => {
     try {
       const raw = cloudStorage.getItem('fencepro_imported_quotes')
@@ -1441,7 +1449,7 @@ export default function CustomersPage({ onNewQuote }: {
       if (isNew && bookEstimate) openBooking({ customerId: customer.id, type: 'estimate' })
 
       // Not "saved" yet: the status by their name says Saved once the server has it.
-      if (isNew) toast.info('Customer added', 'They are on the pipeline under First Contact. The status by their name says Saved once the office has it.')
+      if (isNew) toast.info('Customer added', `They are on the pipeline under ${pipelineStageName(roleId('first'))}. The status by their name says Saved once the office has it.`)
     } catch (err: any) {
       toast.error('Could not save customer', err?.message || 'Unknown error.')
     }
@@ -1560,7 +1568,8 @@ export default function CustomersPage({ onNewQuote }: {
 
         const custId = uid()
         const rawSource = get(colMap.leadSource)
-        const matchedSource = leadSourceOptions().find(s => s.toLowerCase() === rawSource.toLowerCase()) ?? rawSource
+        // An option's id or linked word as it is; an option's name in any capital letters becomes its id; anything else as typed.
+        const matchedSource = wordToSave(getOptions('leadSources'), rawSource)
 
         let address = get(colMap.address)
         const city  = get(colMap.city)
@@ -1693,7 +1702,7 @@ export default function CustomersPage({ onNewQuote }: {
                 {c.tags && c.tags.length > 0 && (
                   <div className="flex gap-1 mt-1.5 ml-12">
                     {c.tags.slice(0, 2).map(tag => (
-                      <span key={tag} className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{tag}</span>
+                      <span key={tag} className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{tagLabel(tag)}</span>
                     ))}
                     {c.tags.length > 2 && <span className="text-xs text-gray-400">+{c.tags.length - 2}</span>}
                   </div>

@@ -9,7 +9,6 @@ import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { findOrCreate, isUniqueViolation, oneById } from '../lib/once.js'
 import { audit } from '../lib/auditLog.js'
-import { auditSettingChange } from '../lib/settingsAudit.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { applyPipelineDelta } from '../lib/pipelineDelta.js'
@@ -20,6 +19,8 @@ import { recordCardMoves } from '../lib/automations/hooks.js'
 import { onCardMoves } from '../lib/followUps.js'
 import { pipelineChangeRefusal, refuse, removedIds, roleOf, requireCan } from '../lib/permissions.js'
 import { DeleteError, deleteRecord, logRemovedCards, removedIdsAmong, setArchived } from '../lib/deletion.js'
+import { loadPipelineStages } from '../lib/pipelineStages.js'
+import { stageById } from '../lib/pipelineStageModel.js'
 
 const router = Router()
 
@@ -51,10 +52,31 @@ function requireAccount(req: any, res: any, next: any) {
 
 router.use(requireUser, requireAccount)
 
+// `stages`: an old app still sends the board's stage list; it is ignored (Settings > Pipeline Stages is the one list).
 const pipelineSchema = z.object({
   leads: z.array(z.any()).default([]),
-  stages: z.array(z.any()).default([]),
+  stages: z.array(z.any()).optional(),
 })
+
+/**
+ * Cards a save would put into a stage that is not in Settings > Pipeline
+ * Stages: new cards, and cards whose stage changed. (A card already in an
+ * unknown word and not moved is left alone, so it never vanishes.)
+ */
+async function unknownStageMoves(accountId: string, before: any[], after: any[]): Promise<Array<{ id: string; stage: string; from: string | null }>> {
+  const was = new Map(before.filter(l => l?.id).map(l => [l.id, l.stage]))
+  const moved = after.filter(l => l?.id && (!was.has(l.id) || was.get(l.id) !== l.stage))
+  if (!moved.length) return []
+  const { stages } = await loadPipelineStages(accountId)
+  return moved.filter(l => !stageById(stages, l.stage)).map(l => ({ id: String(l.id), stage: String(l.stage ?? ''), from: was.get(l.id) ?? null }))
+}
+
+/** 409 UNKNOWN_STAGE with the server's board (the app puts the cards back); logged, so a device still sending old stage names shows up. */
+async function refuseUnknownStage(req: any, res: any, bad: Array<{ id: string; stage: string; from: string | null }>, current: any, route: string) {
+  console.warn(`[pipeline] refused a save (${route}) by ${req.user?.email ?? req.user?.id}: stage not in Settings > Pipeline Stages: ${bad.map(b => `card ${b.id} -> "${b.stage}"`).join(', ')}`)
+  await audit(req, 'update', 'PipelineState', current?.id ?? req.user.crmAccountId, { newValues: { refusedUnknownStage: bad, route } })
+  res.status(409).json({ success: false, code: 'UNKNOWN_STAGE', error: `"${bad[0].stage}" is not one of the pipeline stages (Settings > Pipeline Stages). The card stays where it was.`, unknown: bad, data: current, version: current?.version ?? 0 })
+}
 
 /**
  * Cards a save may not bring back: a card deleted (in Settings > Deleted
@@ -99,14 +121,16 @@ router.put('/', async (req: any, res) => {
     if (base === null) { refuseUnversioned(res); return }
     const accountId = req.user.crmAccountId
     // One card per id: a card sent twice in the list is kept once.
-    const fields = { leads: oneById(JSON.parse(JSON.stringify(data.leads)) as any[]), stages: JSON.parse(JSON.stringify(data.stages)) }
+    const fields = { leads: oneById(JSON.parse(JSON.stringify(data.leads)) as any[]) }
     // Stage rules: a card cannot enter a stage whose requirements are not met (the app puts it back and says what is missing).
     const prev = await prisma.pipelineState.findUnique({ where: { accountId } })
     const unwelcome = await cardsNotWelcome(accountId, prev, fields.leads)
     if (unwelcome.size) fields.leads = fields.leads.filter(l => !unwelcome.has(l?.id))
-    // A whole board saved by a limited role may add and move cards, never drop one or change the stages.
-    const refusedPut = prev ? pipelineChangeRefusal(roleOf(req), prev as any, { removed: removedIds(prev.leads, fields.leads), stages: fields.stages }) : null
+    // A whole board saved by a limited role may add and move cards, never drop one.
+    const refusedPut = prev ? pipelineChangeRefusal(roleOf(req), { removed: removedIds(prev.leads, fields.leads) }) : null
     if (refusedPut) { refuse(res, refusedPut, { data: prev, version: prev?.version ?? 0 }); return }
+    const badPut = await unknownStageMoves(accountId, (prev?.leads as any[]) ?? [], fields.leads)
+    if (badPut.length) { await refuseUnknownStage(req, res, badPut, prev, 'PUT'); return }
     if (prev && prev.version === base) {
       const blocked = await checkPipelineMoves(accountId, (prev.leads as any[]) ?? [], fields.leads)
       if (blocked.length) { refuseBlocked(res, blocked, { data: prev, version: prev.version }); return }
@@ -125,16 +149,14 @@ router.put('/', async (req: any, res) => {
     if (done.count === 0) {
       const current = await prisma.pipelineState.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
-      try { await prisma.pipelineState.create({ data: { accountId, ...fields } }) } catch (e) {
+      try { await prisma.pipelineState.create({ data: { accountId, ...fields, stages: [] } }) } catch (e) {
         if (!isUniqueViolation(e)) throw e
         const now = await prisma.pipelineState.findUnique({ where: { accountId } })
         refuseStale(res, now, now?.version ?? 0); return
       }
     }
     const p = (await prisma.pipelineState.findUnique({ where: { accountId } }))!
-    await audit(req, 'update', 'PipelineState', p.id, { newValues: { leadsCount: data.leads.length, stagesCount: data.stages.length } })
-    // A change to the stage list itself goes to the change log (Settings > Change log).
-    await auditSettingChange(req, 'pipeline/stages', prev?.stages ?? null, fields.stages)
+    await audit(req, 'update', 'PipelineState', p.id, { newValues: { leadsCount: data.leads.length, ...(data.stages ? { stagesIgnored: true } : {}) } })
     res.json({ success: true, data: p })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -164,11 +186,16 @@ router.patch('/', async (req: any, res) => {
     if (!current || current.version !== base) { refuseStale(res, current, current?.version ?? 0); return }
     const unwelcome = await cardsNotWelcome(accountId, current, delta.upsert.map(u => u.lead))
     if (unwelcome.size) delta.upsert = delta.upsert.filter(u => !unwelcome.has(u.lead.id))
-    // Adding and moving cards is for everyone; removing a card or changing the stages is not.
-    const refusedDelta = pipelineChangeRefusal(roleOf(req), current as any, { removed: delta.remove.filter(id => ((current.leads as any[]) ?? []).some(l => l?.id === id)), stages: delta.stages })
+    // Adding and moving cards is for everyone; removing a card is not.
+    const refusedDelta = pipelineChangeRefusal(roleOf(req), { removed: delta.remove.filter(id => ((current.leads as any[]) ?? []).some(l => l?.id === id)) })
     if (refusedDelta) { refuse(res, refusedDelta, { data: current, version: current.version }); return }
+    // A stage list an old app still sends is ignored, not refused.
+    const sentStages = !!delta.stages
+    delete delta.stages
     const next = applyPipelineDelta({ leads: (current.leads as any[]) ?? [], stages: (current.stages as any[]) ?? [] }, delta)
-    const fields = { leads: JSON.parse(JSON.stringify(next.leads)), stages: JSON.parse(JSON.stringify(next.stages)) }
+    const badDelta = await unknownStageMoves(accountId, (current.leads as any[]) ?? [], next.leads)
+    if (badDelta.length) { await refuseUnknownStage(req, res, badDelta, current, 'PATCH'); return }
+    const fields = { leads: JSON.parse(JSON.stringify(next.leads)) }
     const blocked = await checkPipelineMoves(accountId, (current.leads as any[]) ?? [], next.leads)
     if (blocked.length) { refuseBlocked(res, blocked, { data: current, version: current.version }); return }
     const done = await prisma.$transaction(async tx => {
@@ -182,8 +209,7 @@ router.patch('/', async (req: any, res) => {
       const now = await prisma.pipelineState.findUnique({ where: { accountId } })
       refuseStale(res, now, now?.version ?? 0); return
     }
-    await audit(req, 'update', 'PipelineState', current.id, { newValues: { cardsSaved: delta.upsert.length, cardsRemoved: delta.remove.length, leadsCount: next.leads.length } })
-    if (delta.stages) await auditSettingChange(req, 'pipeline/stages', current.stages, fields.stages)
+    await audit(req, 'update', 'PipelineState', current.id, { newValues: { cardsSaved: delta.upsert.length, cardsRemoved: delta.remove.length, leadsCount: next.leads.length, ...(sentStages ? { stagesIgnored: true } : {}) } })
     // Only the new version goes back: the browser already holds the cards.
     res.json({ success: true, version: base + 1 })
   } catch (err) {

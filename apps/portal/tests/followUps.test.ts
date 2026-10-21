@@ -11,11 +11,15 @@ import {
   reconcile, setNext, startState, stopsSteps, floridaDay, floridaHour,
 } from '../src/server/lib/followUpRules.js'
 import { morningKey, morningMessages, pushDeliveryAllowed, seesEveryone, type CardRow } from '../src/server/lib/followUps.js'
+import { START_PIPELINE_STAGES, followUpStagesOf, type PipelineStageDef } from '../src/server/lib/pipelineStageModel.js'
 
-const cfg = defaultConfig()
+// Settings > Pipeline Stages as it starts: which stages stop the steps, need one, take Signed and Lost.
+const st = followUpStagesOf(START_PIPELINE_STAGES)
+
+const cfg = defaultConfig(st)
 const T = '2026-10-19'
 const at = `${T}T15:00:00.000Z`
-const ps = (since = T) => startState('Pending Signature', since, cfg)
+const ps = (since = T) => startState('Pending Signature', since, cfg, st)
 const card = (stage = 'Pending Signature', lastMoved = T) => ({ stage, lastMoved })
 
 describe('the app and the server hold the same rules', () => {
@@ -37,17 +41,17 @@ describe('next date from an answer', () => {
   })
   test('a step due sooner comes first; Not now always wins', () => {
     // Entered Pending Signature today: day 2 call is before "still deciding" (3 days).
-    const s = applyAnswer(ps(), card(), cfg, { outcome: 'deciding', today: T, at })
+    const s = applyAnswer(ps(), card(), cfg, { outcome: 'deciding', today: T, at }, st)
     expect(s.dueOn).toBe('2026-10-21'); expect(s.dueKind).toBe('call')
-    const n = applyAnswer(ps(), card(), cfg, { outcome: 'not_now', pickedOn: '2027-01-15', today: T, at })
+    const n = applyAnswer(ps(), card(), cfg, { outcome: 'not_now', pickedOn: '2027-01-15', today: T, at }, st)
     expect(n.dueOn).toBe('2027-01-15')
-    const na = applyAnswer(ps(), card(), cfg, { outcome: 'no_answer', today: T, at })
+    const na = applyAnswer(ps(), card(), cfg, { outcome: 'no_answer', today: T, at }, st)
     expect(na.dueOn).toBe('2026-10-20'); expect(na.touches).toBe(1); expect(na.lastOutcome).toBe('no_answer')
   })
   test('one tap change and keep', () => {
-    expect(setNext(ps(), card(), cfg, '2026-11-02', T).dueOn).toBe('2026-11-02')
-    expect(setNext(ps(), card(), cfg, null, T).dueOn).toBeNull()
-    expect(keepGoing(ps('2026-09-01'), card(), cfg, T).dueOn).toBe('2026-10-21')
+    expect(setNext(ps(), card(), cfg, '2026-11-02', T, st).dueOn).toBe('2026-11-02')
+    expect(setNext(ps(), card(), cfg, null, T, st).dueOn).toBeNull()
+    expect(keepGoing(ps('2026-09-01'), card(), cfg, T, st).dueOn).toBe('2026-10-21')
   })
 })
 
@@ -61,42 +65,64 @@ describe('step schedules', () => {
   test('answers walk the steps; the text step comes up as a text', () => {
     const since = '2026-10-01'
     // Day 3: the day 2 call is done; next is the day 5 text (before still deciding's 3 days).
-    const s = applyAnswer(ps(since), card('Pending Signature', since), cfg, { outcome: 'deciding', today: '2026-10-04', at })
+    const s = applyAnswer(ps(since), card('Pending Signature', since), cfg, { outcome: 'deciding', today: '2026-10-04', at }, st)
     expect(s.stepIndex).toBe(1); expect(s.dueOn).toBe('2026-10-06'); expect(s.dueKind).toBe('text')
   })
   test('after the last step: "Going cold, keep or close?"', () => {
     const since = '2026-09-01'
-    const s = applyAnswer(ps(since), card('Pending Signature', since), cfg, { outcome: 'voicemail', today: '2026-09-25', at })
+    const s = applyAnswer(ps(since), card('Pending Signature', since), cfg, { outcome: 'voicemail', today: '2026-09-25', at }, st)
     expect(s.stepIndex).toBe(4); expect(s.dueKind).toBe('decide'); expect(s.dueOn).toBe('2026-09-27')
   })
   test('stop on Signed and Lost', () => {
-    const sg = applyAnswer(ps(), card(), cfg, { outcome: 'signed', today: T, at })
+    const sg = applyAnswer(ps(), card(), cfg, { outcome: 'signed', today: T, at }, st)
     expect(sg.stoppedReason).toBe('signed'); expect(sg.dueOn).toBeNull()
-    const lo = applyAnswer(ps(), card(), cfg, { outcome: 'lost', today: T, at })
+    const lo = applyAnswer(ps(), card(), cfg, { outcome: 'lost', today: T, at }, st)
     expect(lo.stoppedReason).toBe('lost'); expect(lo.dueOn).toBeNull()
-    expect(startState('Job Prep', T, cfg).stoppedReason).toBe('signed')
-    expect(startState('Lost Sale', T, cfg).stoppedReason).toBe('lost')
-    expect(stopsSteps('Estimating')).toBeNull()
-    expect(badgeFor(sg, 'Signed Contract', T)).toBeNull()
+    expect(startState('Job Prep', T, cfg, st).stoppedReason).toBe('signed')
+    expect(startState('Lost Sale', T, cfg, st).stoppedReason).toBe('lost')
+    expect(stopsSteps('Estimating', st)).toBeNull()
+    expect(badgeFor(sg, 'Signed Contract', T, st)).toBeNull()
   })
   test('a stage change starts the new stage\'s steps (from the day it moved)', () => {
-    const s = applyAnswer(ps('2026-09-01'), card('Pending Signature', '2026-09-01'), cfg, { outcome: 'no_answer', today: '2026-10-01', at })
-    const moved = reconcile(s, card('Estimating', '2026-10-10'), cfg, T)!
+    const s = applyAnswer(ps('2026-09-01'), card('Pending Signature', '2026-09-01'), cfg, { outcome: 'no_answer', today: '2026-10-01', at }, st)
+    const moved = reconcile(s, card('Estimating', '2026-10-10'), cfg, T, st)!
     expect(moved.stage).toBe('Estimating'); expect(moved.stepIndex).toBe(0); expect(moved.dueOn).toBe('2026-10-12')
     expect(moved.touches).toBe(1)
     // A lost card brought back to Pending Signature starts again.
-    const lost = applyAnswer(ps(), card(), cfg, { outcome: 'lost', today: T, at })
-    expect(reconcile(lost, card('Pending Signature', '2026-10-20'), cfg, '2026-10-20')!.stoppedReason).toBeNull()
+    const lost = applyAnswer(ps(), card(), cfg, { outcome: 'lost', today: T, at }, st)
+    expect(reconcile(lost, card('Pending Signature', '2026-10-20'), cfg, '2026-10-20', st)!.stoppedReason).toBeNull()
     // Never followed up: nothing.
-    expect(reconcile(null, card(), cfg, T)).toBeNull()
+    expect(reconcile(null, card(), cfg, T, st)).toBeNull()
   })
   test('badges', () => {
-    expect(badgeFor({ ...ps(), dueOn: '2026-10-16' }, 'Pending Signature', T)).toEqual({ text: 'Overdue 3d', tone: 'red' })
-    expect(badgeFor({ ...ps(), dueOn: T }, 'Pending Signature', T)?.text).toBe('Call today')
-    expect(badgeFor(null, 'Estimating', T)?.text).toBe('No follow up set')
-    expect(badgeFor(null, 'First Contact', T)).toBeNull()
-    expect(badgeFor({ ...ps(), dueOn: '2026-10-25' }, 'Pending Signature', T)).toBeNull()
+    expect(badgeFor({ ...ps(), dueOn: '2026-10-16' }, 'Pending Signature', T, st)).toEqual({ text: 'Overdue 3d', tone: 'red' })
+    expect(badgeFor({ ...ps(), dueOn: T }, 'Pending Signature', T, st)?.text).toBe('Call today')
+    expect(badgeFor(null, 'Estimating', T, st)?.text).toBe('No follow up set')
+    expect(badgeFor(null, 'First Contact', T, st)).toBeNull()
+    expect(badgeFor({ ...ps(), dueOn: '2026-10-25' }, 'Pending Signature', T, st)).toBeNull()
     expect(dueStatus({ ...ps(), dueOn: '2026-10-25' }, T)).toEqual({ status: 'upcoming', days: 6 })
+  })
+  test('renamed stages and moved roles: the steps follow the roles, never the names', () => {
+    const list: PipelineStageDef[] = START_PIPELINE_STAGES.map(x => ({ ...x, name: `Renamed ${x.name}`, roles: [...x.roles] }))
+    const sold = list.find(x => x.id === 'Signed Contract')!; sold.name = 'Sold'
+    const k = followUpStagesOf(list)
+    expect(k.signed).toBe('Signed Contract'); expect(k.lost).toBe('Lost Sale')
+    expect(startState('Job Prep', T, cfg, k).stoppedReason).toBe('signed')
+    expect(applyAnswer(ps(), card(), cfg, { outcome: 'signed', today: T, at }, k).stage).toBe('Signed Contract')
+    // No Answer does not stop the steps (Jonathan, Oct 20 2026): only the Lost stage and the Sold stages do.
+    expect(stopsSteps('No Answer', k)).toBeNull()
+    // Lost moved to No Answer: Lost Sale no longer stops them, No Answer does.
+    const moved = followUpStagesOf(list.map(x => ({ ...x, roles: x.id === 'Lost Sale' ? [] : x.id === 'No Answer' ? ['lost' as const] : x.roles })))
+    expect(stopsSteps('No Answer', moved)).toBe('lost'); expect(stopsSteps('Lost Sale', moved)).toBeNull()
+    // "Needs a follow up" is a flag on the stage.
+    expect(badgeFor(null, 'First Contact', T, followUpStagesOf(list.map(x => ({ ...x, needsFollowUp: x.id === 'First Contact' }))))?.text).toBe('No follow up set')
+    // The standard steps start on every Selling stage after the first.
+    expect(Object.keys(defaultConfig(k).steps)).toEqual(['Appointment', 'Estimating', 'Pending Signature'])
+  })
+  test('steps only for stages in the list', () => {
+    const ids = Object.fromEntries(START_PIPELINE_STAGES.map(x => [x.id, x.name]))
+    expect(Object.keys(cleanConfig({ steps: { Estimating: [{ day: 1, kind: 'call' }] } }, ids).steps)).toEqual(['Estimating'])
+    expect(() => cleanConfig({ steps: { Nope: [{ day: 1, kind: 'call' }] } }, ids)).toThrow(/not one of the pipeline stages/)
   })
   test('settings are checked and sorted', () => {
     const c = cleanConfig({ steps: { Estimating: [{ day: 9, kind: 'call' }, { day: 1, kind: 'text' }] }, templates: [{ name: 'A', body: 'Hi {first name}' }] })
@@ -125,6 +151,7 @@ describe('the 7 am push', () => {
   const row = (ownerId: string, status: string, name: string, stage = 'Pending Signature'): CardRow => ({
     cardId: name, customerId: null, name, firstName: name, stage, phone: '', address: '', valueCents: 0, ownerId, ownerName: '', dueOn: T,
     dueKind: 'call', status, days: 0, stepIndex: 0, stepCount: 4, lastOutcome: null, lastContactAt: null, daysSinceContact: null, touches: 0, badge: null, state: null,
+    opened: null, stopped: stopsSteps(stage, st), mustHave: st.mustHave.includes(stage),
   })
   const people = [{ id: 'a', name: 'Christa F', email: 'a@x', role: 'sales_rep' }, { id: 'b', name: 'Jonathan B', email: 'b@x', role: 'super_admin' }, { id: 'c', name: 'C', email: 'c@x', role: 'sales_rep' }]
   test('each person gets only their own calls for the day (and overdue)', () => {

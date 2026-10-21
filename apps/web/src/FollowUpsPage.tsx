@@ -1,12 +1,13 @@
 /**
  * Follow ups: who to call. Overdue (red), Due today, Coming up, and the
- * Estimating and Pending Signature cards with no follow up set. Each row:
+ * cards with no follow up set in stages that need one (Settings > Pipeline Stages). Each row:
  * name, stage, price, last answer, days since the last contact, and one tap
  * Call or Text (Text offers the templates). A salesman sees only their own
  * cards (the server decides); the owner and office see everyone and can pick
  * a rep.
  */
 
+import { getPipelineStages } from './pipelineStagesStore'
 import { useState } from 'react'
 import { Phone, MessageSquare, ClipboardPen, RefreshCw } from 'lucide-react'
 import { formatPhone, telHref } from './phoneFormat'
@@ -56,7 +57,7 @@ export default function FollowUpsPage() {
       {list && <Section title="Overdue" tone="red" rows={list.overdue} id="overdue" onText={setTexting} />}
       {list && <Section title="Due today" tone="orange" rows={list.dueToday} id="today" onText={setTexting} />}
       {list && <Section title="Coming up" tone="gray" rows={list.upcoming} id="upcoming" onText={setTexting} />}
-      {list && <Section title="No follow up set" tone="gray" rows={list.notSet} id="not-set" onText={setTexting} note="Estimating and Pending Signature cards with nothing planned." />}
+      {list && <Section title="No follow up set" tone="gray" rows={list.notSet} id="not-set" onText={setTexting} note={`${getPipelineStages().filter(x => x.needsFollowUp).map(x => x.name).join(' and ') || 'Cards'} with nothing planned.`} />}
 
       {texting && <TextTemplatesSheet card={{ cardId: texting.cardId, customerId: texting.customerId, name: texting.name, firstName: texting.firstName, phone: texting.phone }} onClose={() => setTexting(null)} />}
     </div>

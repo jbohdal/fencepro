@@ -8,6 +8,8 @@
  * a durable queue, not in this browser. Phone first; comfortable on desktop.
  */
 
+import { usePipelineStages, stageName } from './pipelineStagesStore'
+import { pickableStages as pickablePipelineStages } from './pipelineStageModel'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, EVENT_LABEL, FIELD_LABEL, minutesText, STEP_LABEL, triggerText, type Board, type Condition, type DryRun, type Meta, type Rule, type Run, type StageRule, type Step, type Trigger } from './automationsApi'
 import { RunCard } from './AutomationRunLog'
@@ -87,7 +89,8 @@ export default function AutomationsPage() {
   const opsLabel = useCallback((k: string) => stageById(opsList, k)?.name ?? meta?.opsStages.find(s => s.key === k)?.label ?? k, [meta, opsList])
   const admin = !!meta?.isAdmin
   // The pickers offer the shown stages in their Settings order.
-  const shown = useMemo(() => meta && { ...meta, opsStages: pickableStages(opsList).map(s => ({ key: s.id, label: s.name })) }, [meta, opsList])
+  const salesList = usePipelineStages()
+  const shown = useMemo(() => meta && { ...meta, opsStages: pickableStages(opsList).map(s => ({ key: s.id, label: s.name })), salesStages: pickablePipelineStages(salesList).map(s => ({ key: s.id, label: s.name })) }, [meta, opsList, salesList])
 
   async function toggle(rule: Rule, enabled: boolean) {
     setRules(rs => rs?.map(r => r.id === rule.id ? { ...r, enabled } : r) ?? null)
@@ -123,7 +126,7 @@ export default function AutomationsPage() {
           <h1 className="text-xl font-bold text-gray-900">Automations</h1>
           <p className="text-sm text-gray-600">When something happens, do the next steps for you. Texts to customers are never sent by themselves: you get them ready to tap.</p>
         </div>
-        {admin && <button type="button" className="btn btn-primary shrink-0" onClick={() => setEditing({ name: '', board: 'sales', enabled: false, trigger: { type: 'card_entered', stage: meta.salesStages[0], settleMinutes: 2, onlyWhileInStage: true }, conditions: [], steps: [NEW_STEP.create_task()] })} data-new-rule><Plus size={18} aria-hidden="true" />New rule</button>}
+        {admin && <button type="button" className="btn btn-primary shrink-0" onClick={() => setEditing({ name: '', board: 'sales', enabled: false, trigger: { type: 'card_entered', stage: meta.salesStages[0]?.key ?? '', settleMinutes: 2, onlyWhileInStage: true }, conditions: [], steps: [NEW_STEP.create_task()] })} data-new-rule><Plus size={18} aria-hidden="true" />New rule</button>}
       </div>
 
       {focusRun && (
@@ -206,7 +209,7 @@ function conditionText(c: Condition, board: Board, opsLabel: (k: string) => stri
     return v.minCents != null && v.maxCents != null ? `price ${d(v.minCents)} to ${d(v.maxCents)}` : v.minCents != null ? `price at least ${d(v.minCents)}` : `price at most ${d(v.maxCents)}`
   }
   if (c.field === 'permit_required') return c.value === true || c.value === 'true' ? 'a permit is required' : 'no permit is required'
-  const val = c.field === 'stage' && board === 'ops' ? opsLabel(String(c.value)) : String(c.value)
+  const val = c.field === 'stage' ? (board === 'ops' ? opsLabel(String(c.value)) : stageName(String(c.value))) : String(c.value)
   const op = c.op === 'is_not' ? 'is not' : c.op === 'has' ? 'has' : c.op === 'has_not' ? 'does not have' : c.op === 'contains' ? 'contains' : 'is'
   return `${f.toLowerCase()} ${op} ${val}`
 }
@@ -222,14 +225,15 @@ function RuleEditor({ meta, draft: initial, opsLabel, onClose, onSaved, onTest }
   // sent again after the answer was lost) returns the rule already made.
   const [newRuleId] = useState(() => crypto.randomUUID())
   const saving = useRef(false)
-  const offered = d.board === 'sales' ? meta.salesStages.map(s => ({ key: s, label: s })) : meta.opsStages
+  const offered = d.board === 'sales' ? meta.salesStages : meta.opsStages
   // A rule on a hidden stage still shows that stage, by its name.
-  const inUse = d.board === 'ops' ? [(d.trigger as any).stage, ...d.conditions.filter(c => c.field === 'stage').map(c => c.value), ...d.steps.map(s => (s as any).type === 'move_card' ? (s as any).stage : null)] : []
-  const stages = [...offered, ...[...new Set(inUse.filter((k): k is string => typeof k === 'string' && !!k && !offered.some(o => o.key === k)))].map(k => ({ key: k, label: opsLabel(k) }))]
+  // Stages the rule already names that the pickers no longer offer (hidden): kept, with their names.
+  const inUse = [(d.trigger as any).stage, ...d.conditions.filter(c => c.field === 'stage').map(c => c.value), ...d.steps.map(s => (s as any).type === 'move_card' ? (s as any).stage : null)]
+  const stages = [...offered, ...[...new Set(inUse.filter((k): k is string => typeof k === 'string' && !!k && !offered.some(o => o.key === k)))].map(k => ({ key: k, label: d.board === 'ops' ? opsLabel(k) : stageName(k) }))]
   const setT = (t: Partial<Trigger>) => setD(x => ({ ...x, trigger: { ...x.trigger, ...t } }))
 
   function setBoard(board: Board) {
-    const first = board === 'sales' ? meta.salesStages[0] : meta.opsStages[0].key
+    const first = board === 'sales' ? meta.salesStages[0]?.key ?? '' : meta.opsStages[0].key
     setD(x => ({ ...x, board, trigger: 'stage' in x.trigger && x.trigger.type !== 'event' && x.trigger.type !== 'date_offset' ? { ...x.trigger, stage: first } : x.trigger, steps: x.steps.map(s => s.type === 'move_card' ? { ...s, stage: '' } : s) }))
   }
   function setTriggerType(type: Trigger['type']) {
@@ -265,7 +269,7 @@ function RuleEditor({ meta, draft: initial, opsLabel, onClose, onSaved, onTest }
         </div>
         <div className="overflow-y-auto px-4 py-4 space-y-5">
           <div className="space-y-3">
-            <div><label className={label} htmlFor="rule-name">Name</label><input id="rule-name" className={input} value={d.name} onChange={e => setD(x => ({ ...x, name: e.target.value }))} placeholder="Signed Contract: order materials" data-rule-name /></div>
+            <div><label className={label} htmlFor="rule-name">Name</label><input id="rule-name" className={input} value={d.name} onChange={e => setD(x => ({ ...x, name: e.target.value }))} placeholder="Sold: order materials" data-rule-name /></div>
             <div className="grid grid-cols-2 gap-2">
               <div><label className={label}>Board</label>
                 <select className={input} value={d.board} onChange={e => setBoard(e.target.value as Board)} data-rule-board><option value="sales">Sales pipeline (cards)</option><option value="ops">Operations (jobs)</option></select></div>
@@ -488,7 +492,7 @@ function TestPanel({ meta, rule, opsLabel, onClose }: { meta: Meta; rule: Draft;
           {error && <p className="text-sm text-red-700" role="alert">{error}</p>}
           {result && (
             <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3" data-dry-run-result>
-              <p className="text-sm text-gray-700"><span className="font-semibold">{result.entity.name}</span> ({rule.board === 'ops' ? opsLabel(result.entity.stage) : result.entity.stage}). Runs {result.trigger}.</p>
+              <p className="text-sm text-gray-700"><span className="font-semibold">{result.entity.name}</span> ({rule.board === 'ops' ? opsLabel(result.entity.stage) : stageName(result.entity.stage)}). Runs {result.trigger}.</p>
               {result.conditions.length > 0 && (
                 <ul className="space-y-1">{result.conditions.map((c, i) => <li key={i} className={`text-sm ${c.ok ? 'text-green-800' : 'text-red-700'}`}>{c.ok ? '✓' : '✗'} {FIELD_LABEL[c.field] ?? c.field}: {c.actual}</li>)}</ul>
               )}
@@ -528,7 +532,7 @@ function StageRulesSection({ meta, rules, onChanged, admin, opsLabel }: { meta: 
           <article key={r.id} className="bg-white rounded-2xl border border-gray-200 p-4" data-stage-rule={`${r.board}:${r.stage}`}>
             <div className="flex items-start gap-3">
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900"><span className="chip chip-brand mr-1">{r.board === 'sales' ? 'Sales' : 'Operations'}</span>Into {r.board === 'ops' ? opsLabel(r.stage) : r.stage}</p>
+                <p className="font-semibold text-gray-900"><span className="chip chip-brand mr-1">{r.board === 'sales' ? 'Sales' : 'Operations'}</span>Into {r.board === 'ops' ? opsLabel(r.stage) : stageName(r.stage)}</p>
                 <div className="mt-2 grid sm:grid-cols-2 gap-1">
                   {meta.requirements.map(q => (
                     <label key={q.type} className="flex items-center gap-2 text-sm text-gray-700 min-h-[36px]">
@@ -552,7 +556,7 @@ function StageRulesSection({ meta, rules, onChanged, admin, opsLabel }: { meta: 
           <select className={input} value={adding.board} onChange={e => setAdding({ board: e.target.value as Board, stage: '' })}><option value="sales">Sales pipeline</option><option value="ops">Operations</option></select>
           <select className={input} value={adding.stage} onChange={e => setAdding({ ...adding, stage: e.target.value })}>
             <option value="">Stage…</option>
-            {(adding.board === 'sales' ? meta.salesStages.map(s => ({ key: s, label: s })) : meta.opsStages).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+            {(adding.board === 'sales' ? meta.salesStages : meta.opsStages).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
           </select>
           <button type="button" className="btn btn-primary btn-sm" disabled={!adding.stage} onClick={() => { void save({ ...adding, requirements: [{ type: 'permit_approved' }], enabled: false }); setAdding(null) }}>Add</button>
           <button type="button" className="btn btn-quiet btn-sm" onClick={() => setAdding(null)}>Cancel</button>

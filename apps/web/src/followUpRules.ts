@@ -7,13 +7,17 @@
  *
  *   - An answer sets the next follow up: No answer tomorrow, Left voicemail in
  *     2 days, Talked still deciding in 3 days, Talked not now the date picked.
- *   - Each stage has its steps (Settings > Follow ups), counted in days from
- *     the day the card entered the stage: Pending Signature calls on day 2,
- *     texts on day 5, calls on days 10 and 21, then asks "Going cold, keep or
- *     close?". A step comes up sooner than an answer's date when it is due
- *     first; "Not now" with a date always wins.
- *   - The steps stop on Signed (Signed Contract and every stage after it) and
- *     Lost, and start again when the card moves to another stage.
+ *   - Each stage has its steps (Settings > Follow ups), kept under the
+ *     stage's permanent id, counted in days from the day the card entered the
+ *     stage: the standard steps call on day 2, text on day 5, call on days 10
+ *     and 21, then ask "Going cold, keep or close?". A step comes up sooner
+ *     than an answer's date when it is due first; "Not now" with a date always
+ *     wins.
+ *   - The steps stop on any Sold stage (the Signed stage and every stage
+ *     after it) and on the Lost stage, and start again when the card moves to
+ *     another stage. Which stages those are comes from Settings > Pipeline
+ *     Stages (FollowUpStages, made by pipelineStageModel.followUpStagesOf);
+ *     this file never names a stage.
  *
  * Dates are plain days (YYYY-MM-DD) in Florida.
  */
@@ -25,9 +29,23 @@ export type DueKind = StepKind | 'decide'
 export type LostReason = 'price' | 'competitor' | 'not_needed' | 'other'
 
 export interface Step { day: number; kind: StepKind }
+
+/** What the rules need to know of the stage list (pipelineStageModel.followUpStagesOf). */
+export interface FollowUpStages {
+  /** Where a Signed answer moves the card. */
+  signed: string
+  /** Where a Lost answer moves the card. */
+  lost: string
+  /** Every Sold stage: steps stop there (signed). */
+  sold: string[]
+  /** Stages that show "No follow up set". */
+  mustHave: string[]
+  /** Stages that start with the standard steps when nothing is saved yet. */
+  withSteps: string[]
+}
 export interface Template { id: string; name: string; body: string }
 export interface FollowUpConfig {
-  /** Steps per stage name. A stage not listed has none. */
+  /** Steps per stage id. A stage not listed has none. */
   steps: Record<string, Step[]>
   templates: Template[]
 }
@@ -54,24 +72,17 @@ export const LOST_REASON_LABEL: Record<LostReason, string> = Object.fromEntries(
 /** Days an answer puts the next follow up out. */
 export const OUTCOME_DAYS: Partial<Record<Outcome, number>> = { no_answer: 1, voicemail: 2, deciding: 3 }
 
-/** Stages that show "No follow up set" when a card in them has none. */
-export const MUST_HAVE_FOLLOW_UP = ['Estimating', 'Pending Signature']
-
-/** The stage a Signed answer moves the card to, and Lost. */
-export const SIGNED_STAGE = 'Signed Contract'
-export const LOST_STAGE = 'Lost Sale'
-
-/** Signed Contract and every stage after it (the board's own list). */
-const SOLD_STAGES = new Set(['Signed Contract', 'Job Prep', 'Pending Start', 'Jobs In Progress', 'Job Complete', 'Pending Payment', 'Paid & Closed'])
-
 /** Steps stop here: sold, or lost. */
-export function stopsSteps(stage: string): 'signed' | 'lost' | null {
-  if (SOLD_STAGES.has(stage)) return 'signed'
-  if (stage === LOST_STAGE) return 'lost'
+export function stopsSteps(stage: string, st: FollowUpStages): 'signed' | 'lost' | null {
+  if (st.sold.includes(stage)) return 'signed'
+  if (stage === st.lost) return 'lost'
   return null
 }
 
-const PENDING_SIGNATURE_STEPS: Step[] = [
+/** Shows "No follow up set" when a card in it has none. */
+export const mustHaveFollowUp = (stage: string, st: FollowUpStages) => st.mustHave.includes(stage)
+
+const STANDARD_STEPS: Step[] = [
   { day: 2, kind: 'call' }, { day: 5, kind: 'text' }, { day: 10, kind: 'call' }, { day: 21, kind: 'call' },
 ]
 
@@ -82,14 +93,10 @@ export const DEFAULT_TEMPLATES: Template[] = [
   { id: 'going-cold', name: 'Still interested?', body: 'Hi {first name}, {my name} with {company}. Are you still thinking about the fence? If the timing is not right, just let me know and I will check back later.' },
 ]
 
-/** Pending Signature: call day 2, text day 5, call day 10, call day 21. Estimating and Appointment start the same. */
-export function defaultConfig(): FollowUpConfig {
+/** Before anything is saved: call day 2, text day 5, call day 10, call day 21 on every Selling stage after the first. */
+export function defaultConfig(st: FollowUpStages): FollowUpConfig {
   return {
-    steps: {
-      'Appointment': PENDING_SIGNATURE_STEPS.map(s => ({ ...s })),
-      'Estimating': PENDING_SIGNATURE_STEPS.map(s => ({ ...s })),
-      'Pending Signature': PENDING_SIGNATURE_STEPS.map(s => ({ ...s })),
-    },
+    steps: Object.fromEntries(st.withSteps.map(id => [id, STANDARD_STEPS.map(s => ({ ...s }))])),
     templates: DEFAULT_TEMPLATES.map(t => ({ ...t })),
   }
 }
@@ -145,8 +152,8 @@ export function stageSinceOf(card: CardLike, today: string): string {
 const stepsFor = (cfg: FollowUpConfig, stage: string): Step[] => (Array.isArray(cfg.steps?.[stage]) ? cfg.steps[stage] : [])
 
 /** A card that just entered `stage` on `since`: the stage's first step, or nothing when it has none; stopped on Signed or Lost. */
-export function startState(stage: string, since: string, cfg: FollowUpConfig, keep?: Partial<FollowUpState>): FollowUpState {
-  const stop = stopsSteps(stage)
+export function startState(stage: string, since: string, cfg: FollowUpConfig, st: FollowUpStages, keep?: Partial<FollowUpState>): FollowUpState {
+  const stop = stopsSteps(stage, st)
   const steps = stepsFor(cfg, stage)
   const first = !stop && steps.length ? steps[0] : null
   return {
@@ -166,10 +173,10 @@ export function startState(stage: string, since: string, cfg: FollowUpConfig, ke
  * since it was saved starts that stage's steps (from the day it moved). A card
  * never followed up (no state) has none.
  */
-export function reconcile(state: FollowUpState | null, card: CardLike, cfg: FollowUpConfig, today: string): FollowUpState | null {
+export function reconcile(state: FollowUpState | null, card: CardLike, cfg: FollowUpConfig, today: string, st: FollowUpStages): FollowUpState | null {
   if (!state) return null
   if (state.stage === card.stage) return state
-  return startState(card.stage, stageSinceOf(card, today), cfg, state)
+  return startState(card.stage, stageSinceOf(card, today), cfg, st, state)
 }
 
 export interface Answer {
@@ -190,11 +197,11 @@ export function nextDateForOutcome(outcome: Outcome, today: string, pickedOn?: s
 }
 
 /** What an answer does to a card's follow ups. */
-export function applyAnswer(state: FollowUpState | null, card: CardLike, cfg: FollowUpConfig, a: Answer): FollowUpState {
-  const base = reconcile(state, card, cfg, a.today) ?? startState(card.stage, stageSinceOf(card, a.today), cfg)
+export function applyAnswer(state: FollowUpState | null, card: CardLike, cfg: FollowUpConfig, a: Answer, st: FollowUpStages): FollowUpState {
+  const base = reconcile(state, card, cfg, a.today, st) ?? startState(card.stage, stageSinceOf(card, a.today), cfg, st)
   const touched = { lastOutcome: a.outcome, lastContactAt: a.at, touches: base.touches + 1 }
-  if (a.outcome === 'signed') return { ...base, ...touched, stage: SIGNED_STAGE, dueOn: null, dueKind: 'call', setBy: 'answer', stoppedReason: 'signed' }
-  if (a.outcome === 'lost') return { ...base, ...touched, stage: LOST_STAGE, dueOn: null, dueKind: 'call', setBy: 'answer', stoppedReason: 'lost' }
+  if (a.outcome === 'signed') return { ...base, ...touched, stage: st.signed, dueOn: null, dueKind: 'call', setBy: 'answer', stoppedReason: 'signed' }
+  if (a.outcome === 'lost') return { ...base, ...touched, stage: st.lost, dueOn: null, dueKind: 'call', setBy: 'answer', stoppedReason: 'lost' }
   if (base.stoppedReason) return { ...base, ...touched }
   const steps = stepsFor(cfg, base.stage)
   // Every step due by today is done (this touch covered it).
@@ -215,15 +222,15 @@ export function applyAnswer(state: FollowUpState | null, card: CardLike, cfg: Fo
 }
 
 /** One tap to change the date (or clear it). */
-export function setNext(state: FollowUpState | null, card: CardLike, cfg: FollowUpConfig, dueOn: string | null, today: string): FollowUpState {
-  const base = reconcile(state, card, cfg, today) ?? startState(card.stage, stageSinceOf(card, today), cfg)
+export function setNext(state: FollowUpState | null, card: CardLike, cfg: FollowUpConfig, dueOn: string | null, today: string, st: FollowUpStages): FollowUpState {
+  const base = reconcile(state, card, cfg, today, st) ?? startState(card.stage, stageSinceOf(card, today), cfg, st)
   const kind: DueKind = base.dueKind === 'decide' ? 'call' : base.dueKind
   return { ...base, dueOn: isDay(dueOn) ? dueOn : null, dueKind: kind, setBy: 'manual', stoppedReason: base.stoppedReason }
 }
 
 /** "Going cold, keep": the stage's steps start again from today. */
-export function keepGoing(state: FollowUpState | null, card: CardLike, cfg: FollowUpConfig, today: string): FollowUpState {
-  return startState(card.stage, today, cfg, state ?? undefined)
+export function keepGoing(state: FollowUpState | null, card: CardLike, cfg: FollowUpConfig, today: string, st: FollowUpStages): FollowUpState {
+  return startState(card.stage, today, cfg, st, state ?? undefined)
 }
 
 // ── What the screens show ────────────────────────────────────────────────────
@@ -240,18 +247,18 @@ export function dueStatus(state: FollowUpState | null, today: string): { status:
 }
 
 /** The badge on a pipeline card, or null for a card with nothing to show. */
-export function badgeFor(state: FollowUpState | null, stage: string, today: string): { text: string; tone: 'red' | 'orange' | 'gray' } | null {
-  if (stopsSteps(stage)) return null
+export function badgeFor(state: FollowUpState | null, stage: string, today: string, st: FollowUpStages): { text: string; tone: 'red' | 'orange' | 'gray' } | null {
+  if (stopsSteps(stage, st)) return null
   const s = dueStatus(state, today)
   if (s.status === 'overdue') return { text: `Overdue ${s.days}d`, tone: 'red' }
   if (s.status === 'today') return { text: state?.dueKind === 'text' ? 'Text today' : state?.dueKind === 'decide' ? 'Keep or close?' : 'Call today', tone: 'orange' }
-  if (s.status === 'none' && MUST_HAVE_FOLLOW_UP.includes(stage)) return { text: 'No follow up set', tone: 'gray' }
+  if (s.status === 'none' && mustHaveFollowUp(stage, st)) return { text: 'No follow up set', tone: 'gray' }
   return null
 }
 
-/** Needs a follow up now: overdue, due today, or an Estimating or Pending Signature card with none set. */
-export function needsFollowUp(state: FollowUpState | null, stage: string, today: string): boolean {
-  const b = badgeFor(state, stage, today)
+/** Needs a follow up now: overdue, due today, or a card in a stage that needs one with none set. */
+export function needsFollowUp(state: FollowUpState | null, stage: string, today: string, st: FollowUpStages): boolean {
+  const b = badgeFor(state, stage, today, st)
   return !!b
 }
 
@@ -267,20 +274,26 @@ export function fillTemplate(body: string, v: { firstName?: string; myName?: str
 
 // ── Settings, checked ────────────────────────────────────────────────────────
 
-/** Settings as sent: steps sorted by day, whole days 0 to 365, at most 12 a stage; templates at most 20. Throws a plain sentence. */
-export function cleanConfig(input: unknown): FollowUpConfig {
+/**
+ * Settings as sent: steps sorted by day, whole days 0 to 365, at most 12 a
+ * stage, keyed by stage ids from the list (`stageIds`, with their names for
+ * the message); templates at most 20. Throws a plain sentence.
+ */
+export function cleanConfig(input: unknown, stageIds?: Record<string, string>): FollowUpConfig {
   const v = (input ?? {}) as any
   const steps: Record<string, Step[]> = {}
   if (v.steps && typeof v.steps === 'object' && !Array.isArray(v.steps)) {
     for (const [stage, list] of Object.entries(v.steps as Record<string, unknown>)) {
       if (!stage.trim() || stage.length > 60) throw new Error('A stage name is not valid.')
+      if (stageIds && !(stage in stageIds)) throw new Error(`"${stage}" is not one of the pipeline stages (Settings > Pipeline Stages). Reload the page and try again.`)
       if (!Array.isArray(list)) throw new Error(`The steps for ${stage} are not a list.`)
-      if (list.length > 12) throw new Error(`${stage} has more than 12 steps.`)
+      const named = stageIds?.[stage] ?? stage
+      if (list.length > 12) throw new Error(`${named} has more than 12 steps.`)
       const out: Step[] = []
       for (const s of list as any[]) {
         const day = Number(s?.day)
-        if (!Number.isInteger(day) || day < 0 || day > 365) throw new Error(`${stage}: a step's day must be a whole number from 0 to 365.`)
-        if (s?.kind !== 'call' && s?.kind !== 'text') throw new Error(`${stage}: a step is a call or a text.`)
+        if (!Number.isInteger(day) || day < 0 || day > 365) throw new Error(`${named}: a step's day must be a whole number from 0 to 365.`)
+        if (s?.kind !== 'call' && s?.kind !== 'text') throw new Error(`${named}: a step is a call or a text.`)
         out.push({ day, kind: s.kind })
       }
       out.sort((a, b) => a.day - b.day)

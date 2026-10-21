@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { sourceLabel } from './optionListsStore'
 import { styleLabel } from './fenceCatalog'
 import type { SavedQuote } from './QuotesPage'
 import FollowUpReport from './FollowUpReport'
@@ -365,7 +366,8 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
   const leadSourceBreakdown = useMemo(() => {
     const map: Record<string, { total: number; sold: number; revenue: number; avgMargin: number; marginSum: number }> = {}
     yearQuotes.forEach(q => {
-      const src = q.leadSource || 'Unknown'
+      // By option (Settings > Lead Sources): merged words and capital letter twins add up, under the option's name.
+      const src = q.leadSource ? sourceLabel(q.leadSource) : 'Unknown'
       if (!map[src]) map[src] = { total: 0, sold: 0, revenue: 0, avgMargin: 0, marginSum: 0 }
       map[src].total += 1
       if (q.status === 'SOLD') {
@@ -2091,7 +2093,8 @@ export default function ReportsPage({ quotes }: ReportsPageProps) {
             {(() => {
               const srcMap: Record<string, Set<string>> = {}
               allSoldQuotes.forEach(q => {
-                const src = q.leadSource || 'Unknown'
+                // By option (Settings > Lead Sources): merged words and capital letter twins add up, under the option's name.
+      const src = q.leadSource ? sourceLabel(q.leadSource) : 'Unknown'
                 if (!srcMap[src]) srcMap[src] = new Set()
                 srcMap[src].add(q.customerId || q.customerName)
               })

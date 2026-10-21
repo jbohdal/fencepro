@@ -53,7 +53,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !file)('every saved quote price
       const sets = await tx.proposalTierSet.findMany({ where: { accountId }, orderBy: { sortOrder: 'asc' } }) as TierSet[]
       const quotes = await tx.savedQuote.findMany({
         where: { accountId }, orderBy: { id: 'asc' },
-        select: { id: true, fenceStyle: true, runs: true, runRails: true, corners: true, ends: true, walkGates: true, dblGates: true, tearOutSections: true, tearOutGates: true, adjLaborHrs: true, hasSalesman: true, priceAdjust: true, pricing: true },
+        select: { id: true, fenceStyle: true, runs: true, runRails: true, corners: true, ends: true, walkGates: true, dblGates: true, tearOutSections: true, tearOutGates: true, adjLaborHrs: true, hasSalesman: true, priceAdjust: true, pricing: true, layout: true },
       })
       return { business, inv, sets, quotes }
     }, { isolationLevel: 'RepeatableRead', timeout: 60_000 })
@@ -89,6 +89,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !file)('every saved quote price
         style: cfg.fenceStyles.find(s => s.name === name),
         runs: runs.map((ft, i) => ({ ft, rail: rails[i] ?? 'auto' })),
         corners: q.corners || 0, ends: q.ends || 0, walkGates: q.walkGates || 0, dblGates: q.dblGates || 0,
+        // Vinyl tees counted as line posts, saved with the layout (yardLayout.ts QuoteLayoutRecord.teeLinePosts).
+        ...(Number(q.layout?.teeLinePosts) > 0 ? { extraLinePosts: Number(q.layout.teeLinePosts) } : {}),
         tearOutSections: q.tearOutSections || 0, tearOutGates: q.tearOutGates || 0,
         extraLaborHrs: q.adjLaborHrs || 0, hasSalesman: !!q.hasSalesman, priceAdjust: q.priceAdjust || 0,
         pricing: cfg.pricing, overrides: q.pricing ?? undefined, optimizer: cfg.railOptimizer!,

@@ -41,6 +41,12 @@ const EXPECT = {
     return [v === 'unconfirmed', `Inventory, Catalog, price filter "${v}"`]
   },
   'fill-in': async () => { await p.waitForSelector('[data-fill-in]', { timeout: 20000 }); return [true, 'Inventory, Fill in tab'] },
+  'bell-cost': async () => {
+    await p.waitForSelector('[data-material-kits]', { timeout: 20000 })
+    const style = await p.locator('[data-kit-style]').inputValue()
+    const note = await p.locator(`[data-kit-cost-review="WV-ND Bell 4'x6'"]`).count()
+    return [style === "WV-ND Bell 4'x6'" && note === 1, `Inventory, Material Kits on "${style}", cost reminder ${note ? 'shown' : 'missing'}`]
+  },
   'close-out': async item => {
     await p.waitForSelector('[data-ops-link-filter]', { timeout: 20000 }); await sleep(800)
     const n = Number(await p.locator('[data-ops-link-count]').getAttribute('data-ops-link-count'))

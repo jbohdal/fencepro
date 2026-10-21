@@ -283,7 +283,7 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
   cache = [fresh, ...cache]
   emit()
 
-  // The customer and their First Contact card are one save: both or neither.
+  // The customer and their first-stage card are one save: both or neither.
   const lead = leadForNewCustomer({
     id: fresh.id,
     firstName: fresh.firstName, lastName: fresh.lastName,

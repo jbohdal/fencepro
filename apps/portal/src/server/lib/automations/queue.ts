@@ -24,7 +24,8 @@
 
 import prisma from '../prisma.js'
 import { onEventRecorded, recordEvent } from '../automationEvents.js'
-import { buildContext, cardForJob, CLOSED_SALES, evalConditions, floridaDay, jobForCard, loadLeads, opsStageOfJob, type EntityContext } from './context.js'
+import { loadPipelineStages } from '../pipelineStages.js'
+import { buildContext, cardForJob, evalConditions, floridaDay, jobForCard, loadLeads, opsStageOfJob, type EntityContext } from './context.js'
 import { loadOpsStages } from '../opsStages.js'
 import { describeSteps, runStep, type DryStep } from './steps.js'
 import { MAX_ATTEMPTS, RETRY_BACKOFF_MS, SAME_STAGE_WINDOW_MS, STARTER_RULES, STARTER_STAGE_RULES, ruleSchema, stepSchema, triggerSchema, conditionSchema, type Board, type Condition, type Step, type Trigger } from './types.js'
@@ -80,7 +81,7 @@ async function entityFor(rule: AutomationRule, ev: AutomationEvent): Promise<str
   let customerId = data.customerId ?? (ev.entityKind === 'customer' ? ev.entityId : null)
   if (!customerId && ev.entityKind === 'job') customerId = (await prisma.savedJob.findUnique({ where: { id: ev.entityId }, select: { crmContactId: true } }))?.crmContactId ?? null
   if (!customerId) return null
-  return cardForJob(leads, { crmContactId: customerId })?.id ?? null
+  return cardForJob(leads, { crmContactId: customerId }, (await loadPipelineStages(rule.accountId)).stages)?.id ?? null
 }
 
 const entry = (step: number | null, result: string, detail: string, extra: Partial<LogEntry> = {}): LogEntry => ({ at: new Date().toISOString(), step, result, detail, ...extra })
@@ -313,7 +314,7 @@ async function datesFor(accountId: string, board: Board, field: 'install' | 'app
       if (!customerId) return null
       return (await prisma.savedJob.findFirst({ where: { accountId, crmContactId: customerId, deletedAt: null, archivedAt: null }, orderBy: { createdAt: 'desc' } }))?.id ?? null
     }
-    return cardForJob(leads, { crmContactId: customerId ?? job?.crmContactId })?.id ?? null
+    return cardForJob(leads, { crmContactId: customerId ?? job?.crmContactId }, (await loadPipelineStages(accountId)).stages)?.id ?? null
   }
   if (field === 'install') {
     const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null, scheduledDate: { gte: ymdPlus(today, -60) } } })

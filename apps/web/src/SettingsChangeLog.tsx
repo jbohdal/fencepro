@@ -42,7 +42,10 @@ export function settingName(id: string | null): string {
   if (!id) return 'Setting'
   const fixed: Record<string, string> = {
     'ops-stages': 'Operations stages',
-    'pipeline/stages': 'Pipeline stages',
+    'pipeline/stages': 'Pipeline stages (old list)',
+    'pipeline-stages': 'Pipeline stages',
+    'option-lists/leadSources': 'Lead sources',
+    'option-lists/customerTags': 'Customer tags',
     'follow-ups/settings': 'Follow up settings',
     'business-state/config': 'Settings (pricing, styles, appointments and the rest)',
     'business-state/settings': 'Settings (other)',

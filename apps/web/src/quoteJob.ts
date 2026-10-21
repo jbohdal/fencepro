@@ -26,6 +26,8 @@ export interface QuoteJobRequest {
   runs: Array<{ ft: number; rail: 'auto' | '6ft' | '8ft' }>
   corners: number
   ends: number
+  /** Line posts beyond the runs' own: vinyl tees (deriveLayout `linePosts`). */
+  extraLinePosts?: number
   walkGates: number
   dblGates: number
   tearOutSections: number
@@ -85,6 +87,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
   const style = styles.find(s => s.name === req.fenceStyle)
   const calcInput: QuoteCalcInput = {
     style, runs: req.runs, corners: req.corners, ends: req.ends, walkGates: req.walkGates, dblGates: req.dblGates,
+    ...(req.extraLinePosts ? { extraLinePosts: req.extraLinePosts } : {}),
     tearOutSections: req.tearOutSections, tearOutGates: req.tearOutGates, extraLaborHrs: req.extraLaborHrs,
     hasSalesman: req.hasSalesman, priceAdjust: req.priceAdjust, pricing: cfg.pricing, overrides: req.overrides,
     optimizer: cfg.railOptimizer!,

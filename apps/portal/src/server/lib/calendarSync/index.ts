@@ -13,6 +13,7 @@ import path from 'path'
 import prisma from '../prisma.js'
 import { reconcile, type EventLink, type ReconcileResult } from './engine.js'
 import { exchangeCode, forgetTokens, googleApiFor, googleConfigured } from './google.js'
+import { loadPipelineStages } from '../pipelineStages.js'
 import { buildDesiredEvents, eventKey, startsFrom, type LeadRow, type SpecInputs } from './spec.js'
 import { pricingModule } from '../estimates.js'
 
@@ -67,6 +68,7 @@ async function loadInputs(accountId: string): Promise<SpecInputs> {
     workDays: Array.isArray(settings?.workDays) ? (settings!.workDays as number[]) : [1, 2, 3, 4],
     crews: Array.isArray(settings?.crews) ? (settings!.crews as Array<{ id: string; name: string }>) : [],
     jobs, gridJobs, contacts, appointments, defaultPerson,
+    pipelineStages: (await loadPipelineStages(accountId)).stages,
     leads: leads.filter(l => l && typeof l === 'object' && l.scheduledDate),
   }
 }

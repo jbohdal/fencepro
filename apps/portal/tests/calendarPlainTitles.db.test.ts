@@ -4,6 +4,7 @@
  * twice, then three times at once, there is one record and every caller gets
  * the same moment. Runs on a company made for the test and removed after it.
  */
+import { START_PIPELINE_STAGES } from '../src/server/lib/pipelineStageModel.js'
 import 'dotenv/config'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 
@@ -24,7 +25,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('calendar plain titles switch (de
   test('recorded once; every later call gets the first moment', async () => {
     const { ensurePlainTitles, PLAIN_TITLES_KEY } = await import('../src/server/lib/calendarSync/index')
     const inputs = { baseUrl: '', workDays: [1, 2, 3, 4], crews: [], gridJobs: [], leads: [], contacts: [], appointments: [], styleLabel: (n: string) => n,
-      jobs: [] }
+      jobs: [], pipelineStages: START_PIPELINE_STAGES }
     const first = await ensurePlainTitles(accountId, inputs, [], new Date('2026-10-19T14:00:00Z'))
     expect(first).toBe('2026-10-19T14:00:00.000Z')
     expect(await ensurePlainTitles(accountId, inputs, [], new Date('2026-10-25T00:00:00Z'))).toBe(first)

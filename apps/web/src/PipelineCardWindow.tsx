@@ -19,6 +19,7 @@
  * Its address is ?card=<lead id>, so Back closes it and a reload reopens it.
  */
 
+import { stageName } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
 import { formatPhone, telHref } from './phoneFormat'
 import { useCallback, useEffect, useState } from 'react'
@@ -119,7 +120,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
         <div className="bg-white border-b border-gray-200 px-4 pt-[calc(12px+env(safe-area-inset-top))] md:pt-4 pb-3 flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-xl font-bold text-gray-900 truncate">{name}</h2>
-            <p className="text-sm text-gray-600 truncate">{[lead.stage, address].filter(Boolean).join(' · ')}</p>
+            <p className="text-sm text-gray-600 truncate">{[stageName(lead.stage), address].filter(Boolean).join(' · ')}</p>
             {phone && <a href={telHref(phone)} onClick={startCall} className="flex w-fit items-center text-sm font-medium text-blue-600 hover:underline" data-card-window-phone>{formatPhone(phone)}</a>}
             <SaveStatus keys={lead.customerId ? [`customer:${lead.customerId}`] : []} also={op => cardChange(lead.id)(op) || (!!lead.customerId && noteChangeFor(lead.customerId)(op))} className="mt-1" />
           </div>
@@ -245,7 +246,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
               <span className="text-sm font-semibold text-gray-900">Stage</span>
               <select value={lead.stage} onChange={e => onMoveStage(e.target.value)} data-card-stage
                 className="mt-1 w-full border border-gray-300 rounded-lg px-3 h-12 text-base bg-white focus:outline-none focus:ring-2 focus:ring-orange-400">
-                {stages.map(s => <option key={s} value={s}>{s}</option>)}
+                {(stages.includes(lead.stage) ? stages : [lead.stage, ...stages]).map(s => <option key={s} value={s}>{stageName(s)}</option>)}
               </select>
             </label>
           </section>

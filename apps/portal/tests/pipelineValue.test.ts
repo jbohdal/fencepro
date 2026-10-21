@@ -3,6 +3,7 @@
  */
 import { describe, test, expect } from 'vitest'
 import { leadValue, relevantQuote, pipelineMetrics } from '../../web/src/pipelineValue'
+import { START_PIPELINE_STAGES as S } from '../../web/src/pipelineStageModel'
 
 const lead = (over: Partial<{ id: string; customerId: string; stage: string; quotePrice: number; jobValue: number; createdAt: string }> = {}) =>
   ({ id: 'l1', customerId: 'c1', stage: 'Pending Signature', quotePrice: 0, jobValue: 0, createdAt: '2026-09-01', ...over })
@@ -11,8 +12,8 @@ const quote = (over: Partial<{ id: string; customerId: string; status: string; d
 
 describe('leadValue', () => {
   test('before Signed Contract the open quote sets the value, even when the card says $0', () => {
-    expect(leadValue(lead(), [quote()])).toBe(5000)
-    expect(leadValue(lead({ stage: 'First Contact' }), [quote({ status: 'DRAFT', finalPrice: 4385.55 })])).toBe(4385.55)
+    expect(leadValue(lead(), [quote()], [], S)).toBe(5000)
+    expect(leadValue(lead({ stage: 'First Contact' }), [quote({ status: 'DRAFT', finalPrice: 4385.55 })], [], S)).toBe(4385.55)
   })
 
   test('the newest open quote wins; sold and lost quotes are ignored before the sale', () => {
@@ -22,18 +23,18 @@ describe('leadValue', () => {
       quote({ id: 'c', status: 'SOLD', date: '2026-09-20', finalPrice: 9999 }),
       quote({ id: 'd', status: 'LOST', date: '2026-09-25', finalPrice: 8888 }),
     ]
-    expect(leadValue(lead(), quotes)).toBe(7000)
+    expect(leadValue(lead(), quotes, [], S)).toBe(7000)
   })
 
   test('on the same day a sent quote beats a draft', () => {
     const quotes = [quote({ id: 'a', status: 'DRAFT', finalPrice: 1 }), quote({ id: 'b', status: 'SENT', finalPrice: 2 })]
-    expect(leadValue(lead(), quotes)).toBe(2)
+    expect(leadValue(lead(), quotes, [], S)).toBe(2)
   })
 
   test('from Signed Contract onward the sold quote sets the value', () => {
     const quotes = [quote({ id: 'a', finalPrice: 24810.73 }), quote({ id: 'b', status: 'SOLD', finalPrice: 7109.03 })]
     for (const stage of ['Signed Contract', 'Job Prep', 'Jobs In Progress', 'Job Complete', 'Paid & Closed']) {
-      expect(leadValue(lead({ stage }), quotes)).toBe(7109.03)
+      expect(leadValue(lead({ stage }), quotes, [], S)).toBe(7109.03)
     }
   })
 
@@ -44,20 +45,20 @@ describe('leadValue', () => {
       quote({ id: 'newer-but-done', status: 'SOLD', date: '2026-06-01', finalPrice: 100 }),
     ]
     const jobs = [{ quoteId: 'old', completedDate: '2025-07-24' }, { quoteId: 'new', completedDate: null }, { quoteId: 'newer-but-done', completedDate: '2026-06-05' }]
-    expect(leadValue(lead({ stage: 'Signed Contract' }), quotes, jobs)).toBe(724.39)
+    expect(leadValue(lead({ stage: 'Signed Contract' }), quotes, jobs, S)).toBe(724.39)
     // Once everything is installed, the newest sold quote.
-    expect(leadValue(lead({ stage: 'Paid & Closed' }), quotes, jobs)).toBe(100)
+    expect(leadValue(lead({ stage: 'Paid & Closed' }), quotes, jobs, S)).toBe(100)
   })
 
   test('other customers\' quotes never count, and a card with no customer keeps its own figure', () => {
-    expect(leadValue(lead({ quotePrice: 1200 }), [quote({ customerId: 'someone-else' })])).toBe(1200)
-    expect(leadValue(lead({ customerId: undefined, jobValue: 900 }), [quote({ customerId: undefined })])).toBe(900)
-    expect(relevantQuote(lead({ customerId: undefined }), [quote({ customerId: undefined })])).toBeUndefined()
+    expect(leadValue(lead({ quotePrice: 1200 }), [quote({ customerId: 'someone-else' })], [], S)).toBe(1200)
+    expect(leadValue(lead({ customerId: undefined, jobValue: 900 }), [quote({ customerId: undefined })], [], S)).toBe(900)
+    expect(relevantQuote(lead({ customerId: undefined }), [quote({ customerId: undefined })], [], S)).toBeUndefined()
   })
 
   test('no fitting quote falls back to the card, then to zero', () => {
-    expect(leadValue(lead({ quotePrice: 800 }), [quote({ status: 'LOST' })])).toBe(800)
-    expect(leadValue(lead(), [])).toBe(0)
+    expect(leadValue(lead({ quotePrice: 800 }), [quote({ status: 'LOST' })], [], S)).toBe(800)
+    expect(leadValue(lead(), [], [], S)).toBe(0)
   })
 })
 
@@ -77,7 +78,7 @@ describe('pipelineMetrics', () => {
     quote({ id: 'qe', customerId: 'e', status: 'SOLD', date: '2026-05-22', finalPrice: 4000 }),
     quote({ id: 'qf', customerId: 'f', status: 'SENT', finalPrice: 50000 }),
   ]
-  const m = pipelineMetrics(leads, quotes, [], '2026-07-11')   // the last 90 days as of Oct 9, 2026
+  const m = pipelineMetrics(leads, quotes, [], S, '2026-07-11')   // the last 90 days as of Oct 9, 2026
 
   test('pipeline value is the open cards only', () => {
     expect(m.pipelineValue).toBe(12000)
@@ -101,10 +102,10 @@ describe('pipelineMetrics', () => {
     expect(m.soldThisYear).toBe(10000)
     const old = [...leads, lead({ id: '7', customerId: 'g', stage: 'Paid & Closed', createdAt: '2023-04-26' }), lead({ id: '8', customerId: 'h', stage: 'Signed Contract', quotePrice: 900 })]
     const withOld = [...quotes, quote({ id: 'qg', customerId: 'g', status: 'SOLD', date: '2023-04-26', finalPrice: 30000 })]
-    const y = pipelineMetrics(old, withOld, [], '2026-07-11', '2026')
+    const y = pipelineMetrics(old, withOld, [], S, '2026-07-11', '2026')
     expect(y.sold).toBe(40900)             // every sold card, any year, quote or not
     expect(y.soldThisYear).toBe(10000)     // the 2023 job and the card with no sold quote stay out
-    expect(pipelineMetrics(old, withOld, [], '2026-07-11', '2023').soldThisYear).toBe(30000)
+    expect(pipelineMetrics(old, withOld, [], S, '2026-07-11', '2023').soldThisYear).toBe(30000)
   })
 
   test('close rate is cards sold in the period over cards created in the period', () => {
@@ -114,6 +115,6 @@ describe('pipelineMetrics', () => {
   })
 
   test('an empty pipeline reads zero everywhere', () => {
-    expect(pipelineMetrics([], [], [], '2026-07-11')).toMatchObject({ pipelineValue: 0, weighted: 0, avgDeal: 0, sold: 0, closeRate: 0 })
+    expect(pipelineMetrics([], [], [], S, '2026-07-11')).toMatchObject({ pipelineValue: 0, weighted: 0, avgDeal: 0, sold: 0, closeRate: 0 })
   })
 })

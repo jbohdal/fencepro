@@ -7,6 +7,8 @@
  * settings can save.
  */
 
+import { usePipelineStages, followUpStages, stageName, getPipelineStages } from './pipelineStagesStore'
+
 import { useEffect, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { useCan } from './permissions'
@@ -18,6 +20,9 @@ import { fillTemplate, stopsSteps, type FollowUpConfig, type Step, type Template
 import { dayLabel } from './FollowUpPrompt'
 import { getConfig as getAppConfig } from './configStore'
 
+/** "A", "A and B", "A, B and C". */
+const stageList = (names: string[]) => names.length <= 1 ? (names[0] ?? 'stages that need a follow up') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+
 export default function FollowUpSettings() {
   const allowed = useCan('settings.change')
   const [cfg, setCfg] = useState<FollowUpConfig | null>(null)
@@ -26,8 +31,9 @@ export default function FollowUpSettings() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => { loadConfig().then(r => { if (r) { setCfg(r.config); setVersion(r.version) } else setError('Could not load the follow up settings. Check the connection.') }) }, [])
-  // Open stages only: steps stop on Signed Contract and Lost.
-  const stages = loadPipeline().stages.filter(s => !stopsSteps(s))
+  // Open stages only (Settings > Pipeline Stages): steps stop on the Sold stages and Lost.
+  usePipelineStages()
+  const stages = loadPipeline().stages.filter(s => !stopsSteps(s, followUpStages()))
 
   const edit = (f: (c: FollowUpConfig) => FollowUpConfig) => { setCfg(c => (c ? f(c) : c)); setDirty(true) }
   const setSteps = (stage: string, steps: Step[]) => edit(c => ({ ...c, steps: { ...c.steps, [stage]: steps } }))
@@ -56,7 +62,7 @@ export default function FollowUpSettings() {
         return (
           <section key={stage} className="bg-white rounded-2xl border border-gray-200 p-4" data-steps-stage={stage}>
             <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold text-gray-900">{stage}</h3>
+              <h3 className="font-semibold text-gray-900">{stageName(stage)}</h3>
               <span className="text-xs text-gray-500">{steps.length ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : 'No steps'}</span>
             </div>
             <ol className="mt-2 space-y-2">
@@ -119,7 +125,7 @@ export default function FollowUpSettings() {
   )
 }
 
-/** Item j: a first follow up, due tomorrow, on every open Estimating and Pending Signature card with none. Shows the count and asks first. */
+/** Item j: a first follow up, due tomorrow, on every open card in a stage that needs one and has none. Shows the count and asks first. */
 function FirstFollowUp({ allowed }: { allowed: boolean }) {
   const [p, setP] = useState<{ count: number; dueOn: string; byOwner: Array<{ name: string; count: number }> } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -139,7 +145,7 @@ function FirstFollowUp({ allowed }: { allowed: boolean }) {
   return (
     <section className="bg-white rounded-2xl border border-gray-200 p-4 space-y-2" data-first-follow-up>
       <h2 className="text-lg font-bold text-gray-900">First follow up for open cards</h2>
-      <p className="text-sm text-gray-700"><b data-first-count>{p.count}</b> open card{p.count === 1 ? '' : 's'} in Estimating and Pending Signature {p.count === 1 ? 'has' : 'have'} no follow up set{p.byOwner.length ? ` (${p.byOwner.map(o => `${o.name}: ${o.count}`).join(', ')})` : ''}.</p>
+      <p className="text-sm text-gray-700"><b data-first-count>{p.count}</b> open card{p.count === 1 ? '' : 's'} in {stageList(getPipelineStages().filter(x => x.needsFollowUp).map(x => x.name))} {p.count === 1 ? 'has' : 'have'} no follow up set{p.byOwner.length ? ` (${p.byOwner.map(o => `${o.name}: ${o.count}`).join(', ')})` : ''}.</p>
       {allowed && p.count > 0 && (
         <button type="button" className="btn btn-primary" disabled={busy} onClick={run} data-first-run>Set a first follow up on {p.count} open card{p.count === 1 ? '' : 's'}</button>
       )}

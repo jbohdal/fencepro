@@ -13,6 +13,7 @@
  *   POST   /sync      — bulk push from a localStorage payload
  */
 
+import { canonicalWord } from '../lib/optionLists.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
@@ -166,6 +167,8 @@ router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
 router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   try {
     const data = jobSchema.parse(req.body)
+    // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
+    if (typeof data.leadSource === 'string') data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? ''
     // A Salesman's phone has no margin: the job takes its quote's, as saved (lib/costRedact.ts).
     if (hidesCosts(roleOf(req))) {
       const q = data.quoteId ? await prisma.savedQuote.findFirst({ where: { id: data.quoteId, accountId: req.user.crmAccountId }, select: { gmPct: true } }) : null
@@ -227,6 +230,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
 router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
   try {
     const data = jobUpdateSchema.parse(req.body)
+    // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
+    if (typeof data.leadSource === 'string') data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? ''
     // A Salesman or Installer never had the margin: it stays as saved.
     if (hidesCosts(roleOf(req))) delete (data as any).gmPct
     const existing = await prisma.savedJob.findUnique({ where: { id: req.params.id } })

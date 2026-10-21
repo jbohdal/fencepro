@@ -1,7 +1,9 @@
 /**
  * Stage rules: a card or job cannot be moved into a stage until its
- * requirements are met (Pending Start needs the permit approved; Job Complete
- * needs the final walkthrough signed). The server checks every pipeline and
+ * requirements are met (the starter rules: the permit approved before work
+ * starts; the final walkthrough signed before the job counts as complete).
+ * Sales stages are named by id (Settings > Pipeline Stages); the refusal shows
+ * their names. The server checks every pipeline and
  * job save; a refused move is answered 409 STAGE_BLOCKED with what is missing
  * for each card, so the app can put the card back and say why.
  */
@@ -11,6 +13,8 @@ import prisma from '../prisma.js'
 import { REQUIREMENT_LABEL, type Board, type Requirement } from './types.js'
 import { jobForCard, opsStageName } from './context.js'
 import { loadOpsStages } from '../opsStages.js'
+import { loadPipelineStages } from '../pipelineStages.js'
+import { stageNameOf } from '../pipelineStageModel.js'
 import { stageOfJob, reconcileOpsStage } from '../opsStageModel.js'
 import { walkthroughApi, WALKTHROUGH_MISSING } from './walkthroughAdapter.js'
 
@@ -79,12 +83,13 @@ export async function checkPipelineMoves(accountId: string, before: any[], after
   const rules = await enabledRules(accountId, 'sales')
   if (!rules.size) return []
   const blocked: Blocked[] = []
+  const { stages } = await loadPipelineStages(accountId)
   for (const l of moved) {
     const reqs = rules.get(l.stage)
     if (!reqs?.length) continue
     const job = await jobForCard(accountId, l)
     const missing = await missingFor(accountId, reqs, job, l)
-    if (missing.length) blocked.push({ id: l.id, name: cardName(l), board: 'sales', from: String(was.get(l.id) ?? ''), to: l.stage, missing })
+    if (missing.length) blocked.push({ id: l.id, name: cardName(l), board: 'sales', from: stageNameOf(stages, String(was.get(l.id) ?? '')), to: stageNameOf(stages, l.stage), missing })
   }
   return blocked
 }

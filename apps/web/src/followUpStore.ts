@@ -18,9 +18,10 @@ import { getAccessToken } from './crmAuth'
 import { registerKind, enqueue, allOps, reapply, subscribe as onOutbox } from './outbox'
 import { newId } from './recordSync'
 import { getPipeline, PIPELINE_UPDATED_EVENT } from './pipelineStore'
+import { followUpStages } from './pipelineStagesStore'
 import type { Opened } from './proposalOpened'
 import {
-  applyAnswer, badgeFor, defaultConfig, dueStatus, floridaDay, keepGoing, setNext, reconcile, OUTCOME_LABEL, stopsSteps, MUST_HAVE_FOLLOW_UP,
+  applyAnswer, badgeFor, defaultConfig, dueStatus, floridaDay, keepGoing, setNext, reconcile, OUTCOME_LABEL, stopsSteps, mustHaveFollowUp,
   type Channel, type DueKind, type FollowUpConfig, type FollowUpState, type LostReason, type Outcome, type DueStatus,
 } from './followUpRules'
 
@@ -78,7 +79,7 @@ export interface FollowUpList {
 
 // ── State ────────────────────────────────────────────────────────────────────
 
-let config: FollowUpConfig = defaultConfig()
+let config: FollowUpConfig = defaultConfig(followUpStages())
 let configVersion = 0
 let configLoaded = false
 let board: { today: string; cards: Record<string, BoardCard> } | null = null
@@ -109,7 +110,7 @@ function shown(cardId: string, base: BoardCard | undefined): BoardCard | null {
   const s = dueStatus(o, t)
   const steps = config.steps[stage] ?? []
   return {
-    dueOn: o.dueOn, dueKind: o.dueKind, status: s.status, days: s.days, badge: badgeFor(o, stage, t),
+    dueOn: o.dueOn, dueKind: o.dueKind, status: s.status, days: s.days, badge: badgeFor(o, stage, t, followUpStages()),
     stepIndex: o.stepIndex, stepCount: steps.length, lastOutcome: o.lastOutcome, lastContactAt: o.lastContactAt,
     ownerName: base?.ownerName ?? '', state: o,
   }
@@ -130,10 +131,11 @@ export function badgeOf(card: { id: string; stage: string; lastMoved?: string; c
   if (!board && !overrides.has(card.id)) return null
   const t = today()
   const s = overrides.get(card.id) ?? board?.cards[card.id]?.state ?? null
-  return badgeFor(reconcile(s, card, config, t), card.stage, t)
+  const st = followUpStages()
+  return badgeFor(reconcile(s, card, config, t, st), card.stage, t, st)
 }
 
-/** Needs a follow up now (the pipeline filter): overdue, due today, or Estimating or Pending Signature with none. */
+/** Needs a follow up now (the pipeline filter): overdue, due today, or none set in a stage that needs one. */
 export function needsFollowUpNow(card: { id: string; stage: string; lastMoved?: string; createdAt?: string }): boolean {
   return !!badgeOf(card)
 }
@@ -229,14 +231,15 @@ function withOverrides(l: FollowUpList): FollowUpList {
     const f = overrides.has(r.cardId) ? shown(r.cardId, r) : null
     return f ? { ...r, ...f, stage: cardOf(r.cardId)?.stage ?? r.stage } : r
   })
-  const open = all.filter(r => !stopsSteps(r.stage))
+  const st = followUpStages()
+  const open = all.filter(r => !stopsSteps(r.stage, st))
   const by = (a: ListRow, b: ListRow) => (a.dueOn || '').localeCompare(b.dueOn || '')
   return {
     ...l,
     overdue: open.filter(r => r.status === 'overdue').sort(by),
     dueToday: open.filter(r => r.status === 'today').sort(by),
     upcoming: open.filter(r => r.status === 'upcoming').sort(by),
-    notSet: open.filter(r => r.status === 'none' && MUST_HAVE_FOLLOW_UP.includes(r.stage)),
+    notSet: open.filter(r => r.status === 'none' && mustHaveFollowUp(r.stage, st)),
   }
 }
 
@@ -263,13 +266,14 @@ function current(cardId: string): FollowUpState | null {
 function predictCall(p: CallOp) {
   const card = cardOf(p.cardId)
   if (!card) return
-  overrides.set(p.cardId, applyAnswer(current(p.cardId), card, config, { outcome: p.outcome, pickedOn: p.pickedOn, today: floridaDay(p.at), at: p.at }))
+  overrides.set(p.cardId, applyAnswer(current(p.cardId), card, config, { outcome: p.outcome, pickedOn: p.pickedOn, today: floridaDay(p.at), at: p.at }, followUpStages()))
 }
 function predictNext(p: NextOp) {
   const card = cardOf(p.cardId)
   if (!card) return
   const t = floridaDay(p.at)
-  overrides.set(p.cardId, p.keep ? keepGoing(current(p.cardId), card, config, t) : setNext(current(p.cardId), card, config, p.dueOn, t))
+  const st = followUpStages()
+  overrides.set(p.cardId, p.keep ? keepGoing(current(p.cardId), card, config, t, st) : setNext(current(p.cardId), card, config, p.dueOn, t, st))
 }
 
 /** Save an answer: on screen now, on the server as soon as there is signal. Returns the next follow up it sets. */

@@ -18,6 +18,7 @@ import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { inventoryChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
 import { hidesCosts, restoreCosts } from '../lib/costRedact.js'
+import { clearCostReviewOnKitSave } from '../lib/costReview.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -108,6 +109,8 @@ router.put('/', async (req: any, res) => {
         refuseStale(res, now, now?.version ?? 0); return
       }
     }
+    // A style flagged "needs cost review" (the Bell) whose kit set was just saved: the reminder is done (lib/costReview.ts).
+    if (fields.kits) await clearCostReviewOnKitSave(accountId, (saved as any)?.kits, fields.kits).catch(err => console.error('[cost review] clear failed:', err))
     const inv = (await prisma.inventoryState.findUnique({ where: { accountId } }))!
     await audit(req, 'update', 'InventoryState', inv.id, {
       newValues: {

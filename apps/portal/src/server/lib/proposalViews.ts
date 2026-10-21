@@ -48,6 +48,7 @@ import {
 } from './proposalViewRules.js'
 import { peopleOf, pushDeliveryAllowed, type Person } from './followUps.js'
 import { stopsSteps } from './followUpRules.js'
+import { followUpStagesFor } from './followUps.js'
 
 const secret = () => resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 const PREVIEW_PURPOSE = 'proposal-preview'
@@ -106,7 +107,8 @@ export async function cardForContact(accountId: string, contactId: string | null
   const cards = (((pipe?.leads as any[]) ?? []).filter(l => l?.id && l.customerId === contactId))
   if (!cards.length) return null
   const when = (l: any) => String(l.lastMoved || l.createdAt || '')
-  return cards.sort((a, b) => Number(!!stopsSteps(a.stage)) - Number(!!stopsSteps(b.stage)) || when(b).localeCompare(when(a)))[0]
+  const st = await followUpStagesFor(accountId, db)
+  return cards.sort((a, b) => Number(!!stopsSteps(a.stage, st)) - Number(!!stopsSteps(b.stage, st)) || when(b).localeCompare(when(a)))[0]
 }
 
 /** Who gets the push: the card's owner as Follow ups has it (salesman on the card, else who followed it up), else whoever made the quote, else the owner of the company. */

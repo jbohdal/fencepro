@@ -9,7 +9,7 @@
  *   phone      the same customer phone (10 digits) on two active customers
  *   card       one customer with two cards in the same stage
  *   rule       two automation rules with the same name or starter key
- *   seeded     a seeded thing twice (stage rules, active kit set per style, pipeline stage names)
+ *   seeded     a seeded thing twice (stage rules, active kit set per style, two pipeline stages with one name)
  *   quote      the same quote (customer, style, price) created twice within a minute
  *   job        two active jobs for one quote
  *   appointment the same customer, type and start twice
@@ -47,7 +47,8 @@ export async function findDuplicates(accountId: string): Promise<Finding[]> {
     for (const r of await rows(tx, `select k->>'styleName' s, count(*)::int n from "InventoryState", jsonb_array_elements(coalesce(kits::jsonb,'[]')) k
       where "accountId"='${a}' and coalesce((k->>'archived')::boolean,false) = false and k->>'styleName' is not null group by 1 having count(*) > 1`))
       out.push({ key: `seeded:kit:${r.s}:${r.n}`, check: 'seeded', title: `${r.n} material kits in use for one style`, detail: r.s })
-    for (const r of await rows(tx, `select v, count(*)::int n from "PipelineState", jsonb_array_elements_text(coalesce(stages::jsonb,'[]')) s(v) where "accountId"='${a}' group by 1 having count(*) > 1`))
+    // Settings > Pipeline Stages: two stages with the same name (any capital letters).
+    for (const r of await rows(tx, `select lower(trim(s->>'name')) v, count(*)::int n from "AccountKeyValue", jsonb_array_elements(case when jsonb_typeof(value::jsonb)='array' then value::jsonb else '[]'::jsonb end) s where "accountId"='${a}' and key='fencepro_pipeline_stages' group by 1 having count(*) > 1`))
       out.push({ key: `seeded:stage-name:${r.v}:${r.n}`, check: 'seeded', title: `Pipeline stage listed ${r.n} times`, detail: r.v })
     for (const r of await rows(tx, `select a.id ia, b.id ib, a."customerName" name, a."fenceStyle" style, a."finalPrice"::text price, to_char(a."createdAt", 'YYYY-MM-DD') d from "SavedQuote" a join "SavedQuote" b
       on a.id < b.id and a."accountId"='${a}' and b."accountId"='${a}' and coalesce(a."crmContactId",a."customerName") = coalesce(b."crmContactId",b."customerName")

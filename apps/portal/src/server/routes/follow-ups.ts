@@ -13,7 +13,7 @@
  *   GET  /report?from=&to=    done vs missed per rep, touches to close, dollars with no follow up
  *   GET  /pending             a call started from the app and not answered yet (this person)
  *   PUT  /pending             one was just started; DELETE /pending: skipped
- *   GET  /first-follow-up     how many open Estimating and Pending Signature cards have none, by owner
+ *   GET  /first-follow-up     how many open cards in stages that need a follow up have none, by owner
  *   POST /first-follow-up     set one on each, due tomorrow (settings.change, with the count shown)
  */
 

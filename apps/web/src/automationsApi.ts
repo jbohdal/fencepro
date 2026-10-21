@@ -4,6 +4,7 @@
  * browser.
  */
 
+import { stageName } from './pipelineStagesStore'
 import { sendJson, API_ORIGIN } from './syncHttp'
 import { fetchWithAuth } from './crmAuth'
 import { plainText } from './plainError'
@@ -18,7 +19,7 @@ export interface StageRule { id: string; board: Board; stage: string; requiremen
 export interface LogEntry { at: string; step: number | null; result: string; detail: string; link?: string; until?: string }
 export interface Run { id: string; ruleId: string; ruleName: string; board: Board | null; entityKind: string; entityId: string; status: string; stepIndex: number; nextRunAt: string; attempts: number; lastError: string | null; log: LogEntry[]; createdAt: string; updatedAt: string }
 export interface Meta {
-  salesStages: string[]; opsStages: Array<{ key: string; label: string }>; people: Array<{ id: string; name: string; email: string; role: string }>
+  salesStages: Array<{ key: string; label: string }>; opsStages: Array<{ key: string; label: string }>; people: Array<{ id: string; name: string; email: string; role: string }>
   templateFields: string[]; events: string[]; requirements: Array<{ type: string; label: string }>
   gmail: { configured: boolean; connected: boolean; email: string | null }; push: { mySubscriptions: number }
   walkthroughInstalled: boolean; isAdmin: boolean; permitPortals: Record<string, { name: string; url: string; info: string; note: string }>
@@ -75,7 +76,7 @@ export function minutesText(m: number): string {
 }
 
 export function triggerText(t: Trigger, board: Board, opsLabel: (k: string) => string): string {
-  const st = (s?: string) => board === 'ops' ? opsLabel(s || '') : (s || '')
+  const st = (s?: string) => board === 'ops' ? opsLabel(s || '') : stageName(s || '')
   switch (t.type) {
     case 'card_entered': return `Moved into ${st(t.stage)}`
     case 'card_left': return `Moved out of ${st(t.stage)}`

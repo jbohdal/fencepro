@@ -1,4 +1,6 @@
 import PercentField from './PercentField'
+import OptionListSettings from './OptionListSettings'
+import PipelineStagesSettings from './PipelineStagesSettings'
 import { liveOverhead, overheadMoved } from './liveOverhead'
 import { businessDate } from './businessDate'
 import { DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
@@ -402,99 +404,6 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
   )
 }
 
-// ── Editable List (Lead Sources, Tags, Pipeline) ─────────────────────────────
-
-function EditableListTab({
-  title, description, items, onChange, placeholder,
-}: {
-  title: string
-  description: string
-  items: string[]
-  onChange: (items: string[]) => void
-  placeholder: string
-}) {
-  const [newItem, setNewItem] = useState('')
-  const [editingIdx, setEditingIdx] = useState<number | null>(null)
-
-  function add() {
-    const trimmed = newItem.trim()
-    if (!trimmed || items.includes(trimmed)) return
-    onChange([...items, trimmed])
-    setNewItem('')
-  }
-
-  function remove(idx: number) {
-    onChange(items.filter((_, i) => i !== idx))
-  }
-
-  function rename(idx: number, value: string) {
-    onChange(items.map((item, i) => i === idx ? value : item))
-  }
-
-  function moveUp(idx: number) {
-    if (idx === 0) return
-    const next = [...items]
-    ;[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]
-    onChange(next)
-  }
-
-  function moveDown(idx: number) {
-    if (idx === items.length - 1) return
-    const next = [...items]
-    ;[next[idx], next[idx + 1]] = [next[idx + 1], next[idx]]
-    onChange(next)
-  }
-
-  return (
-    <div className="max-w-xl">
-      <div className="mb-6">
-        <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-        <p className="text-sm text-gray-400 mt-0.5">{description}</p>
-      </div>
-
-      <div className="flex gap-2 mb-4">
-        <input
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-          placeholder={placeholder}
-          value={newItem}
-          onChange={e => setNewItem(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && add()}
-        />
-        <button onClick={add} disabled={!newItem.trim()} className="btn btn-primary">Add</button>
-      </div>
-
-      <div className="border border-gray-200 rounded-xl overflow-hidden">
-        {items.map((item, idx) => (
-          <div key={idx} className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 last:border-b-0 group hover:bg-gray-50">
-            <div className="flex flex-col gap-0.5 mr-1">
-              <button onClick={() => moveUp(idx)} disabled={idx === 0} className="text-gray-300 hover:text-gray-500 disabled:opacity-30 text-xs leading-none">&uarr;</button>
-              <button onClick={() => moveDown(idx)} disabled={idx === items.length - 1} className="text-gray-300 hover:text-gray-500 disabled:opacity-30 text-xs leading-none">&darr;</button>
-            </div>
-            <span className="text-xs text-gray-300 font-mono w-6">{idx + 1}</span>
-            {editingIdx === idx ? (
-              <input
-                autoFocus
-                className="flex-1 border border-orange-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                value={item}
-                onChange={e => rename(idx, e.target.value)}
-                onBlur={() => setEditingIdx(null)}
-                onKeyDown={e => e.key === 'Enter' && setEditingIdx(null)}
-              />
-            ) : (
-              <span className="flex-1 text-sm text-gray-800 cursor-pointer hover:text-orange-600" onClick={() => setEditingIdx(idx)}>{item}</span>
-            )}
-            <button onClick={() => remove(idx)} className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-lg leading-none">&times;</button>
-          </div>
-        ))}
-        {items.length === 0 && (
-          <div className="text-center py-8 text-gray-400 text-sm">No items yet</div>
-        )}
-      </div>
-      <p className="text-xs text-gray-400 mt-2">{items.length} items</p>
-    </div>
-  )
-}
-
 // ── Quote Optimizer Tab ──────────────────────────────────────────────────────
 
 const DEFAULT_OPTIMIZER: RailOptimizerConfig = {
@@ -583,7 +492,7 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'moves',           label: 'Moves and Repairs' },
   { key: 'optimizer',       label: 'Quote Optimizer' },
   { key: 'leads',           label: 'Lead Sources' },
-  { key: 'tags',            label: 'Tags' },
+  { key: 'tags',            label: 'Customer Tags' },
   { key: 'pipeline',        label: 'Pipeline Stages' },
   { key: 'ops_stages',         label: 'Operations Stages' },
   { key: 'email_templates',    label: 'Email Templates' },
@@ -697,33 +606,9 @@ export default function AdminSettingsPage() {
           {tab === 'company' && <CompanyTab config={config} onChange={handleChange} />}
           {tab === 'pricing' && <PricingTab config={config} onChange={handleChange} />}
           {tab === 'styles' && <FenceStylesSettings config={config} onChange={handleChange} onCommit={next => handleSave(next)} />}
-          {tab === 'leads' && (
-            <EditableListTab
-              title="Lead Sources"
-              description="Where customers hear about you. Used in customer forms and quote builder."
-              items={config.leadSources}
-              onChange={items => handleChange({ ...config, leadSources: items })}
-              placeholder="e.g. Billboard, Trade Show..."
-            />
-          )}
-          {tab === 'tags' && (
-            <EditableListTab
-              title="Customer Tags"
-              description="Categorize customers. Used on customer profiles for filtering and segmentation."
-              items={config.customerTags}
-              onChange={items => handleChange({ ...config, customerTags: items })}
-              placeholder="e.g. Priority, Government..."
-            />
-          )}
-          {tab === 'pipeline' && (
-            <EditableListTab
-              title="Pipeline Stages"
-              description="Sales pipeline stages from first contact through close. Order matters — drag to reorder."
-              items={config.pipelineStages}
-              onChange={items => handleChange({ ...config, pipelineStages: items })}
-              placeholder="e.g. Follow-up Call..."
-            />
-          )}
+          {tab === 'leads' && <OptionListSettings kind="leadSources" />}
+          {tab === 'tags' && <OptionListSettings kind="customerTags" />}
+          {tab === 'pipeline' && <PipelineStagesSettings />}
           {tab === 'moves' && <MoveRepairSettings config={config} onChange={handleChange} />}
           {tab === 'optimizer' && <OptimizerTab config={config} onChange={handleChange} />}
           {tab === 'ops_stages' && <OperationsStagesSettings />}

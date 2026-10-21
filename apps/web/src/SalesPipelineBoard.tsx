@@ -13,13 +13,17 @@
  * unchanged. The original JobsPage.tsx remains importable as a fallback.
  */
 
+import { AUTOMATIC_SOURCES, sourceFor } from './optionListsStore'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   type PipelineLead,
   loadPipeline, savePipeline, LeadDrawer, QuickAddModal,
-  STAGE_COLORS, PRE_SALE_STAGES, PRODUCTION_STAGES, CLOSING_STAGES, DEAD_STAGES,
 } from './JobsPage'
+import {
+  usePipelineStages, getPipelineStages, stageName, stageColor, roleId, stageHasRole, isDead, isFinished,
+} from './pipelineStagesStore'
+import { boardColumns, nextStageOf as nextStageIn } from './pipelineStageModel'
 import { fireSalesStageChange } from './automationTrigger'
 import { applySignedContractTransition } from './signedContractFlow'
 import { toast } from './toast'
@@ -82,25 +86,6 @@ function ageBadgeClass(d: number): string {
   return 'bg-gray-100 text-gray-600'
 }
 
-function stageHexFromTailwind(stage: string): string {
-  const cls = STAGE_COLORS[stage] || 'bg-gray-400'
-  const map: Record<string, string> = {
-    'bg-gray-500':   '#6b7280',
-    'bg-gray-400':   '#9ca3af',
-    'bg-blue-500':   '#3b82f6',
-    'bg-indigo-500': '#6366f1',
-    'bg-purple-500': '#a855f7',
-    'bg-green-500':  '#22c55e',
-    'bg-green-700':  '#15803d',
-    'bg-teal-500':   '#14b8a6',
-    'bg-cyan-500':   '#06b6d4',
-    'bg-orange-500': '#f97316',
-    'bg-emerald-500':'#10b981',
-    'bg-yellow-500': '#eab308',
-    'bg-red-500':    '#ef4444',
-  }
-  return map[cls] || '#9ca3af'
-}
 
 // Per device view preferences (not business data).
 const COLLAPSE_KEY = 'fencepro_pipeline_collapsed_columns'
@@ -117,14 +102,14 @@ const SORT_LABELS: Record<SortMode, string> = {
 }
 const SORT_MODES = Object.keys(SORT_LABELS) as SortMode[]
 
-// Finished and dead stages start as narrow strips until this device says otherwise.
-const COLLAPSED_BY_DEFAULT: Record<string, boolean> = { 'Paid & Closed': true, 'Lost Sale': true, 'No Answer': true }
+// Finished stages (Settings > Pipeline Stages) start as narrow strips until this device says otherwise.
+const collapsedByDefault = (): Record<string, boolean> => Object.fromEntries(getPipelineStages().filter(s => s.finished).map(s => [s.id, true]))
 
 function readCollapsed(): Record<string, boolean> {
   try {
     const raw = localStorage.getItem(COLLAPSE_KEY)
-    return raw ? JSON.parse(raw) : { ...COLLAPSED_BY_DEFAULT }
-  } catch { return { ...COLLAPSED_BY_DEFAULT } }
+    return raw ? JSON.parse(raw) : collapsedByDefault()
+  } catch { return collapsedByDefault() }
 }
 
 /** A card's hand placed position, which only counts in the stage it was placed in. */
@@ -165,7 +150,9 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   const [leads, setLeads] = useState<PipelineLead[]>(initial.leads)
   // Opened: read the newest copy (a job sold online, a card moved by the server).
   useEffect(() => { void refreshNow() }, [])
-  const [stages, setStages] = useState<string[]>(initial.stages)
+  // Settings > Pipeline Stages (kept current: a rename shows without a reload).
+  const stageList = usePipelineStages()
+  const stages = useMemo(() => initial.stages, [stageList])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const [view, setView] = useState<ViewMode>(() => (localStorage.getItem(VIEW_KEY) as ViewMode) || 'board')
   const [sortMode, setSortMode] = useState<SortMode>(() => {
@@ -222,8 +209,8 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   }, [])
   const values = useMemo(() => {
     const quotes = getQuotes(), jobs = getJobs()
-    return new Map(leads.map(l => [l.id, leadValue(l, quotes, jobs)]))
-  }, [leads, dataTick])
+    return new Map(leads.map(l => [l.id, leadValue(l, quotes, jobs, stageList)]))
+  }, [leads, dataTick, stageList])
   const valueOf = (l: PipelineLead) => values.get(l.id) ?? 0
 
   /** A card opens its window: quote, call, text, navigate, book, notes and stage in one place. */
@@ -238,10 +225,10 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   const cardQuotes = useMemo(() => (cardLead?.customerId
     ? (getQuotes() as SavedQuote[]).filter(q => q.customerId === cardLead.customerId).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
     : []), [cardLead?.customerId, dataTick])  // eslint-disable-line react-hooks/exhaustive-deps
-  /** The window's stage picker: Signed Contract asks first, as a drop there does. */
+  /** The window's stage picker: the Signed stage asks first, as a drop there does. */
   function pickStage(lead: PipelineLead, stage: string) {
     if (stage === lead.stage) return
-    if (stage === 'Signed Contract') setConfirmSold({ lead, fromStage: lead.stage })
+    if (stageHasRole(stage, 'signed')) setConfirmSold({ lead, fromStage: lead.stage })
     else moveLead(lead, stage)
   }
 
@@ -261,11 +248,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
 
   /* ── live reload from settings/pipeline events ── */
   useEffect(() => {
-    const reload = () => {
-      const next = loadPipeline()
-      setLeads(next.leads)
-      setStages(next.stages)
-    }
+    const reload = () => setLeads(loadPipeline().leads)
     window.addEventListener('fencepro:settings:updated', reload)
     window.addEventListener('fencepro:pipeline:updated', reload)
     return () => {
@@ -279,10 +262,15 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   useMergedRefresh('Sales pipeline', () => {})
 
   /* ── persist helper ── */
-  function persist(nextLeads: PipelineLead[], nextStages: string[] = stages) {
-    savePipeline(nextLeads, nextStages)
+  function persist(nextLeads: PipelineLead[]) {
+    savePipeline(nextLeads)
     setLeads(nextLeads)
-    setStages(nextStages)
+  }
+
+  /** A stage's place on the board (for sorting the list view by stage). */
+  function columnOrder(stage: string): number {
+    const i = boardColumns(stageList, leads.map(l => l.stage)).findIndex(c => c.id === stage)
+    return i < 0 ? 999 : i
   }
 
   /* ── filters / search ── */
@@ -313,7 +301,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     const out = [...arr]
     switch (sortMode) {
       // Stage first, so the list view groups by stage; inside one column it is the hand placed order.
-      case 'manual':       out.sort((a, b) => (stages.indexOf(a.stage) - stages.indexOf(b.stage)) || byManualOrder(a, b)); break
+      case 'manual':       out.sort((a, b) => (columnOrder(a.stage) - columnOrder(b.stage)) || byManualOrder(a, b)); break
       case 'oldest':       out.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')); break
       case 'value_desc':   out.sort((a, b) => valueOf(b) - valueOf(a)); break
       case 'value_asc':    out.sort((a, b) => valueOf(a) - valueOf(b)); break
@@ -344,18 +332,17 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   }
 
   /* ── board columns ── */
-  // Stage order as configured, with the dead stages (Lost Sale, No Answer) last.
-  const columnStages = useMemo(
-    () => [...stages.filter(s => !DEAD_STAGES.has(s)), ...stages.filter(s => DEAD_STAGES.has(s))],
-    [stages],
-  )
-  const columns: KanbanColumn<PipelineLead>[] = columnStages.map(stage => ({
-    key: stage,
-    label: stage,
-    items: sortLeads(filteredLeads.filter(l => l.stage === stage)),
-    total: leads.reduce((sum, l) => l.stage === stage ? sum + valueOf(l) : sum, 0),
-    colorHex: stage === 'Signed Contract' ? '#22c55e' : stageHexFromTailwind(stage),
-    icon: stage === 'Signed Contract' ? '🏆' : DEAD_STAGES.has(stage) ? '✕' : undefined,
+  // Settings > Pipeline Stages in board order (Selling, Sold, Lost or dead last); a hidden
+  // stage only while cards are in it, and a column for any card whose stage is not in the list.
+  const boardCols = useMemo(() => boardColumns(stageList, leads.map(l => l.stage)), [stageList, leads])
+  const columnStages = boardCols.map(c => c.id)
+  const columns: KanbanColumn<PipelineLead>[] = boardCols.map(col => ({
+    key: col.id,
+    label: col.name,
+    items: sortLeads(filteredLeads.filter(l => l.stage === col.id)),
+    total: leads.reduce((sum, l) => l.stage === col.id ? sum + valueOf(l) : sum, 0),
+    colorHex: col.color,
+    icon: stageHasRole(col.id, 'signed') ? '🏆' : col.group === 'dead' ? '✕' : undefined,
     emptyLabel: 'No deals in this stage',
   }))
   /** The cards shown in a stage's column, without the one being dragged. */
@@ -377,12 +364,12 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
 
   function onCardDrop(lead: PipelineLead, stage: string, pointerIndex: number) {
     const sameStage = stage === lead.stage
-    // Dropping into Appointment books the appointment; the card moves once it is booked.
-    if (!sameStage && stage === 'Appointment' && lead.customerId) {
-      bookFor(lead, () => moveCard(lead.customerId!, 'Appointment'))
+    // Dropping into the Appointment stage books the appointment; the card moves once it is booked.
+    if (!sameStage && stageHasRole(stage, 'appointment') && lead.customerId) {
+      bookFor(lead, () => moveCard(lead.customerId!, stage))
       return
     }
-    if (!sameStage && stage === 'Signed Contract') {
+    if (!sameStage && stageHasRole(stage, 'signed')) {
       setConfirmSold({ lead, fromStage: lead.stage })
       return
     }
@@ -438,7 +425,8 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   function confirmMoveToSold() {
     if (!confirmSold) return
     const { lead, fromStage } = confirmSold
-    const optimistic = leads.map(l => l.id === lead.id ? { ...l, stage: 'Signed Contract', lastMoved: TODAY() } : l)
+    const signed = roleId('signed')
+    const optimistic = leads.map(l => l.id === lead.id ? { ...l, stage: signed, lastMoved: TODAY() } : l)
     persist(optimistic)
     setConfirmSold(null)
     try {
@@ -446,14 +434,14 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
         id: lead.id, customerId: lead.customerId,
         firstName: lead.firstName, lastName: lead.lastName,
         phone: lead.phone, email: lead.email, address: lead.address,
-        stage: 'Signed Contract', fromStage,
+        stage: signed, fromStage,
       })
       if (result) {
         toast.success('Deal closed — job created', `${result.job.customerName} · quote marked SOLD · job on Operations board`)
       } else {
-        toast.info('Moved to Signed Contract', 'No quote linked yet — create a quote and drop again to auto-generate a job.')
+        toast.info(`Moved to ${stageName(signed)}`, 'No quote linked yet — create a quote and drop again to auto-generate a job.')
       }
-      fireSalesStageChange(lead.id, fromStage, 'Signed Contract', {
+      fireSalesStageChange(lead.id, fromStage, signed, {
         jobName: `${lead.firstName} ${lead.lastName}`.trim(),
         jobAddress: lead.address,
         customerName: `${lead.firstName} ${lead.lastName}`.trim(),
@@ -484,7 +472,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
           customerEmail: updated.email, customerPhone: updated.phone,
           fenceType: updated.fenceType, quotePrice: updated.quotePrice,
         })
-        if ((updated.stage || '').toLowerCase() === 'signed contract') {
+        if (stageHasRole(updated.stage, 'signed')) {
           const r = applySignedContractTransition({
             id: updated.id, customerId: updated.customerId,
             firstName: updated.firstName, lastName: updated.lastName,
@@ -507,23 +495,21 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   }
 
   function nextStageOf(s: string): string | null {
-    const i = stages.indexOf(s)
-    if (i < 0 || i >= stages.length - 1) return null
-    return stages[i + 1]
+    return nextStageIn(stageList, s)?.id ?? null
   }
 
   /* ── analytics ── */
   // The same calendar year the dashboard's Revenue YTD tile uses.
   const thisYear = String(new Date().getFullYear())
   const analytics = useMemo(() => {
-    const active = leads.filter(l => !DEAD_STAGES.has(l.stage) && l.stage !== 'Paid & Closed')
+    const active = leads.filter(l => !isDead(l.stage) && !isFinished(l.stage))
     // Money figures use the same per card values the cards show (see pipelineValue).
     const since = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
-    const m = pipelineMetrics(leads, getQuotes(), getJobs(), since, thisYear)
+    const m = pipelineMetrics(leads, getQuotes(), getJobs(), stageList, since, thisYear)
     const avgDays = active.length ? Math.round(active.reduce((s, l) => s + daysInStage(l), 0) / active.length) : 0
     const atRisk = active.filter(l => daysInStage(l) > 14).length
     return { totalValue: m.pipelineValue, weighted: m.weighted, avgDeal: m.avgDeal, avgDays, closeRate: m.closeRate, atRisk, soldThisYear: m.soldThisYear }
-  }, [leads, dataTick])
+  }, [leads, dataTick, stageList])
 
   /* ── unique reps / fence styles for filter dropdowns ── */
   const repOptions = useMemo(() => {
@@ -543,7 +529,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     const lines = [headers.join(',')]
     rows.forEach(l => {
       const cells = [
-        l.firstName, l.lastName, l.phone, l.email, l.address, l.stage, l.fenceType,
+        l.firstName, l.lastName, l.phone, l.email, l.address, stageName(l.stage), l.fenceType,
         l.quotePrice, l.jobValue, l.assignedRep || '', daysInStage(l), l.createdAt,
       ].map(v => {
         const s = String(v ?? '')
@@ -575,7 +561,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
         styleOptions={styleOptions} styleFilter={styleFilter} onStyleFilterChange={setStyleFilter}
         followFilter={followFilter} onFollowFilterChange={setFollowFilter}
         primaryLabel="+ New lead"
-        onPrimary={() => setAddingToStage(stages[0])}
+        onPrimary={() => setAddingToStage(roleId('first'))}
         analyticsOpen={analyticsOpen}
         onToggleAnalytics={() => setAnalyticsOpen(o => !o)}
         isMobile={isMobile}
@@ -594,7 +580,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
 
       {/* mobile stage pills */}
       {isMobile && view === 'board' && (
-        <StagePills stages={columnStages} onJump={s => {
+        <StagePills stages={boardCols} onJump={s => {
           setCollapsed(prev => ({ ...prev, [s]: false }))
           // After the column has opened to full width.
           requestAnimationFrame(() => document.getElementById(`stage-${slug(s)}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' }))
@@ -621,13 +607,14 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
               onNextStage={() => {
                 const next = nextStageOf(l.stage)
                 if (next) {
-                  if (next === 'Signed Contract') setConfirmSold({ lead: l, fromStage: l.stage })
+                  if (stageHasRole(next, 'signed')) setConfirmSold({ lead: l, fromStage: l.stage })
                   else moveLead(l, next)
                 }
               }}
               onMarkLost={() => {
-                if (window.confirm(`Mark ${l.firstName} ${l.lastName} as Lost Sale?`)) {
-                  moveLead(l, 'Lost Sale')
+                const lost = roleId('lost')
+                if (window.confirm(`Mark ${l.firstName} ${l.lastName} as ${stageName(lost)}?`)) {
+                  moveLead(l, lost)
                 }
               }}
               next={l.customerId ? apptInfo.next.get(l.customerId) ?? null : null}
@@ -662,7 +649,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
       {/* Mobile FAB */}
       {isMobile && (
         <button
-          onClick={() => setAddingToStage(stages[0])}
+          onClick={() => setAddingToStage(roleId('first'))}
           className="fixed bottom-6 right-6 max-md:bottom-[calc(84px+env(safe-area-inset-bottom))] max-md:right-4 z-30 w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-3xl font-light shadow-2xl flex items-center justify-center"
           aria-label="New Lead"
         >+</button>
@@ -725,7 +712,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
       {confirmSold && (
         <ConfirmModal
           title="Mark this deal as sold?"
-          body={`This moves ${confirmSold.lead.firstName} ${confirmSold.lead.lastName} to Signed Contract and creates a job on the Operations board.`}
+          body={`This moves ${confirmSold.lead.firstName} ${confirmSold.lead.lastName} to ${stageName(roleId('signed'))} and creates a job on the Operations board.`}
           confirmLabel="Confirm — Create Job"
           onConfirm={confirmMoveToSold}
           onCancel={() => setConfirmSold(null)}
@@ -739,8 +726,8 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
 
 function slug(s: string) { return s.replace(/[^a-z0-9]+/gi, '-').toLowerCase() }
 
-// New leads from the website and the phone agent get a one tap "Book estimate".
-const INTAKE_SOURCES = new Set(['Website Quote', 'Phone (AI receptionist)', 'Website chat'])
+// New leads from the website, the phone agent and the chat (the built-in lead sources) get a one tap "Book estimate".
+const fromIntake = (word: string | undefined) => AUTOMATIC_SOURCES.has(sourceFor(word)?.id ?? word ?? '')
 
 function PipelineCard({
   lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook, followBadge, opened,
@@ -767,7 +754,7 @@ function PipelineCard({
   opened: string | null
 }) {
   const days = daysInStage(lead)
-  const hex = stageHexFromTailwind(lead.stage)
+  const hex = stageColor(lead.stage)
   const initials = `${(lead.firstName?.[0] || '').toUpperCase()}${(lead.lastName?.[0] || '').toUpperCase()}`
   const city = (lead.address || '').split(',').slice(-2)[0]?.trim() || lead.address || ''
   // The card's own phone, else the linked customer's (already loaded; no request per card).
@@ -826,7 +813,7 @@ function PipelineCard({
         </span>
       </div>
 
-      {(next || overdue || followBadge || opened || (!next && lead.stage === 'First Contact' && INTAKE_SOURCES.has(lead.leadSource))) && (
+      {(next || overdue || followBadge || opened || (!next && stageHasRole(lead.stage, 'first') && fromIntake(lead.leadSource))) && (
         <div className="flex flex-wrap items-center gap-1.5 mt-2">
           {opened && (
             <span data-card-opened={opened} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${opened === 'Not opened yet' ? 'bg-gray-100 text-gray-600' : 'bg-purple-100 text-purple-800'}`}>{opened}</span>
@@ -838,7 +825,7 @@ function PipelineCard({
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700" data-card-next><CalendarDays size={12} className="inline -mt-0.5 mr-1" aria-hidden="true" />{shortWhen(next)}</span>
           )}
           {overdue && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700" data-card-needs-outcome>Needs outcome</span>}
-          {!next && lead.stage === 'First Contact' && INTAKE_SOURCES.has(lead.leadSource) && (
+          {!next && stageHasRole(lead.stage, 'first') && fromIntake(lead.leadSource) && (
             <button onClick={e => { e.stopPropagation(); onBook() }} className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-orange-500 text-white" data-card-book-estimate>Book estimate</button>
           )}
         </div>
@@ -1000,13 +987,13 @@ function AnalyticsStrip({ metrics }: { metrics: Array<{ label: string; value: st
   )
 }
 
-function StagePills({ stages, onJump }: { stages: string[]; onJump: (s: string) => void }) {
+function StagePills({ stages, onJump }: { stages: Array<{ id: string; name: string }>; onJump: (s: string) => void }) {
   return (
     <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2 -mx-1 px-1">
       {stages.map(s => (
-        <button key={s} onClick={() => onJump(s)}
+        <button key={s.id} onClick={() => onJump(s.id)}
           className="shrink-0 px-3 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-orange-700 transition">
-          {s}
+          {s.name}
         </button>
       ))}
     </div>
@@ -1038,7 +1025,7 @@ function PipelineListView({
       let av: string | number = '', bv: string | number = ''
       switch (sortCol) {
         case 'name':       av = `${a.firstName} ${a.lastName}`.toLowerCase(); bv = `${b.firstName} ${b.lastName}`.toLowerCase(); break
-        case 'stage':      av = a.stage; bv = b.stage; break
+        case 'stage':      av = stageName(a.stage); bv = stageName(b.stage); break
         case 'value':      av = valueOf(a); bv = valueOf(b); break
         case 'days':       av = daysInStage(a); bv = daysInStage(b); break
         case 'lastMoved':  av = a.lastMoved || ''; bv = b.lastMoved || ''; break
@@ -1094,7 +1081,7 @@ function PipelineListView({
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-600">{styleLabel(l.fenceType) || '—'}</td>
                   <td className="px-3 py-2">
-                    <span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: stageHexFromTailwind(l.stage) }}>{l.stage}</span>
+                    <span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: stageColor(l.stage) }}>{stageName(l.stage)}</span>
                   </td>
                   <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{fmtUSD(valueOf(l))}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{l.assignedRep || '—'}</td>
@@ -1118,7 +1105,7 @@ function PipelineListView({
                 <p className="text-sm font-bold text-emerald-600">{fmtUSD(valueOf(l))}</p>
               </div>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: stageHexFromTailwind(l.stage) }}>{l.stage}</span>
+                <span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: stageColor(l.stage) }}>{stageName(l.stage)}</span>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${ageBadgeClass(daysInStage(l))}`}>{daysInStage(l)}d</span>
               </div>
             </button>
@@ -1134,7 +1121,7 @@ function PipelineListView({
             <select onChange={e => { if (e.target.value) onBulkMove(e.target.value) }}
               className="border border-gray-200 rounded-lg px-2 py-1 text-xs" defaultValue="">
               <option value="">Move to stage…</option>
-              {stages.map(s => <option key={s} value={s}>{s}</option>)}
+              {stages.map(s => <option key={s} value={s}>{stageName(s)}</option>)}
             </select>
             <button onClick={onExportSelected} className="text-xs px-3 py-1 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Export CSV</button>
           </div>

@@ -11,6 +11,8 @@
  */
 
 import { describe, test, expect } from 'vitest'
+import { calculateMaterialsDetailed, calculateMixedMaterialsDetailed } from '../../web/src/materialCalculator'
+import { withKitSets } from '../../web/src/materialKits'
 import { deriveLayout, layoutForShape, teePostFor, VINYL_TEE_POST, type YardLayout, type YardSide } from '../../web/src/yardLayout'
 import { buildPlan, autoVertices, planVertices, yardDrawing, setHouseMeets } from '../../web/src/sitePlanGeometry'
 import { dist, onHouseWall, sideCrossings, segmentsMeet, angleOf, houseCorners } from '../../web/src/yardChain'
@@ -395,13 +397,14 @@ describe('posting a tee by material', () => {
     expect(teePostFor({ name: "CL - Com 6'", category: 'Commercial' })).toBe('corner')
     expect(teePostFor({ name: 'Alum - ND - Emily - 48', category: 'Aluminum' })).toBe('corner')
     expect(teePostFor({ name: "Wood - 6' - ND - BoB", category: 'Other' })).toBe('corner')
-    // Vinyl: no 3 way post exists; counted as an end post until Jonathan names the post.
-    expect(VINYL_TEE_POST).toBe('end')
-    expect(teePostFor({ name: "WV-ND 6'x8' Privacy", category: 'Vinyl' })).toBe('end')
-    expect(teePostFor({ name: "TV-DS 6'x6' Privacy", category: 'Vinyl' })).toBe('end')
+    // Vinyl: no 3 way post exists. Jonathan, Oct 21, 2026: "Line post, route the third side on site."
+    expect(VINYL_TEE_POST).toBe('line')
+    expect(teePostFor({ name: "WV-ND 6'x8' Privacy", category: 'Vinyl' })).toBe('line')
+    expect(teePostFor({ name: "TV-DS 6'x6' Privacy", category: 'Vinyl' })).toBe('line')
+    expect(teePostFor({ name: 'WV-Auto ND Privacy', category: 'Vinyl' })).toBe('line')
     expect(teePostFor(null)).toBe('end')
   })
-  test('the counts: chain link, aluminum and wood one more corner and one fewer end than vinyl; footage the same', () => {
+  test('the counts: chain link, aluminum and wood one more corner and one fewer end; vinyl one more line post and one fewer end; footage the same', () => {
     const t = teeYard()
     const asEnd = deriveLayout(t, 96, { teeAs: 'end' }), asCorner = deriveLayout(t, 96, { teeAs: 'corner' })
     expect(asEnd.tees).toBe(1)
@@ -412,11 +415,38 @@ describe('posting a tee by material', () => {
       const r = deriveLayout(t, 96, { teeAs: teePostFor(st) })
       expect([r.corners, r.ends]).toEqual([asCorner.corners, asCorner.ends])
     }
+    expect(asEnd.linePosts).toBe(0)
+    expect(asCorner.linePosts).toBe(0)
+    // Vinyl: the tee is one more line post instead of an end post.
     const v = deriveLayout(t, 96, { teeAs: teePostFor({ name: "WV-ND 6'x8' Privacy", category: 'Vinyl' }) })
-    expect([v.corners, v.ends]).toEqual([asEnd.corners, asEnd.ends])
+    expect([v.corners, v.ends, v.linePosts, v.tees]).toEqual([asEnd.corners, asEnd.ends - 1, 1, 1])
+    expect(v.runs).toEqual(asEnd.runs)
     // A yard with no tee counts the same whatever the material.
     const l = locust()
     expect(deriveLayout(l, 96, { teeAs: 'corner' }).corners).toBe(deriveLayout(l).corners)
+  })
+  test('a vinyl tee prices as one more line post (and its hardware) instead of an end post', () => {
+    const t = teeYard()
+    for (const fenceStyle of ["WV-ND 6'x6' Privacy", "TV-DS 6'x8' Privacy", "WV-ND Bell 4'x6'"]) {
+      const v = deriveLayout(t, 96, { teeAs: 'line' }), e = deriveLayout(t, 96, { teeAs: 'end' })
+      const job = (r: typeof v, extra: number) => withKitSets([], () => calculateMaterialsDetailed({
+        fenceStyle, runs: r.runs.map(x => x.ft), corners: r.corners, ends: r.ends, walkGates: r.walkGates, dblGates: r.dblGates,
+        tearOutSections: 0, tearOutGates: 0, extraLinePosts: extra,
+      })).items
+      const qty = (items: Array<{ item: string; qty: number }>, rx: RegExp) => items.filter(i => rx.test(i.item)).reduce((n, i) => n + i.qty, 0)
+      const asLine = job(v, v.linePosts), asEnd = job(e, 0)
+      expect(qty(asLine, /Post, Line/), fenceStyle).toBe(qty(asEnd, /Post, Line/) + 1)
+      expect(qty(asLine, /Post, End/), fenceStyle).toBe(qty(asEnd, /Post, End/) - 1)
+      // Per post parts (caps, ties, pins, donuts or concrete) are the same: one post either way.
+      expect(qty(asLine, /Cap, 5"x5"/), fenceStyle).toBe(qty(asEnd, /Cap, 5"x5"/))
+    }
+    // The auto mix (6 or 8 ft per run) counts it too.
+    const mixed = (extra: number) => withKitSets([], () => calculateMixedMaterialsDetailed({
+      installMethod: 'no-dig', colorFamily: 'white', runs: [{ ft: 40, rail: '6ft' }, { ft: 30, rail: '8ft' }], corners: 1, ends: 2, walkGates: 0, dblGates: 0,
+      tearOutSections: 0, tearOutGates: 0, extraLinePosts: extra,
+    })).items
+    const lines = (items: Array<{ item: string; qty: number }>) => items.filter(i => /Post, Line/.test(i.item)).reduce((n, i) => n + i.qty, 0)
+    expect(lines(mixed(1))).toBe(lines(mixed(0)) + 1)
   })
 })
 

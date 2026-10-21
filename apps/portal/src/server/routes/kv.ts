@@ -21,6 +21,8 @@ import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.
 import { kvChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
 import { hidesCosts, KV_COST_KEYS } from '../lib/costRedact.js'
 import { OPS_STAGES_KEY } from '../lib/opsStages.js'
+import { PIPELINE_STAGES_KEY } from '../lib/pipelineStages.js'
+import { OPTION_LIST_KEY } from '../lib/optionLists.js'
 import { auditSettingChange } from '../lib/settingsAudit.js'
 
 const router = Router()
@@ -93,6 +95,9 @@ router.put('/:key', async (req: any, res) => {
     if (refused) { refuse(res, refused, { data: saved ? saved.value : null, version: saved?.version ?? 0 }); return }
     // Operations stages change only through /api/ops-stages, which makes sure no stage in use disappears.
     if (key === OPS_STAGES_KEY) { res.status(403).json({ success: false, code: 'USE_OPS_STAGES', error: 'Operations stages are saved from Settings > Operations Stages.' }); return }
+    // Pipeline stages, lead sources and tags too: only their own routes save them, with their checks.
+    if (key === PIPELINE_STAGES_KEY) { res.status(403).json({ success: false, code: 'USE_PIPELINE_STAGES', error: 'Pipeline stages are saved from Settings > Pipeline Stages.' }); return }
+    if (key === OPTION_LIST_KEY.leadSources || key === OPTION_LIST_KEY.customerTags) { res.status(403).json({ success: false, code: 'USE_OPTION_LISTS', error: 'Lead sources and tags are saved from Settings > Lead Sources and Settings > Customer Tags.' }); return }
     const stale = async () => {
       const current = await prisma.accountKeyValue.findUnique({ where })
       refuseStale(res, current ? current.value : null, current?.version ?? 0)

@@ -1,12 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { styleLabel } from './fenceCatalog'
-import { leadSourceOptions } from './configStore'
-import { fireSalesStageChange } from './automationTrigger'
+import { sourcePicker, sourceLabel } from './optionListsStore'
 import { upsertCustomer, logCustomerActivity } from './customerStore'
 import { getPipeline, savePipeline as storeSavePipeline } from './pipelineStore'
 import { toast } from './toast'
-import { applySignedContractTransition } from './signedContractFlow'
-import { PRE_SALE_STAGES, PRODUCTION_STAGES, CLOSING_STAGES, DEAD_STAGES } from './pipelineValue'
+import { pickableIds, stageName, stageColor } from './pipelineStagesStore'
 import { useBackLayer } from './nav'
 import { newId } from './recordSync'
 import { businessDate } from './businessDate'
@@ -43,82 +41,23 @@ export interface PipelineLead {
   boardOrder?: { stage: string; rank: number }
 }
 
-export const DEFAULT_STAGES = [
-  'First Contact',
-  'Appointment',
-  'Estimating',
-  'Pending Signature',
-  'Signed Contract',
-  'Job Prep',
-  'Pending Start',
-  'Jobs In Progress',
-  'Job Complete',
-  'Pending Payment',
-  'Paid & Closed',
-  'Lost Sale',
-  'No Answer',
-]
 
-export { PRE_SALE_STAGES, PRODUCTION_STAGES, CLOSING_STAGES, DEAD_STAGES }
 
-export const STAGE_COLORS: Record<string, string> = {
-  'First Contact':     'bg-gray-500',
-  'Appointment':       'bg-blue-500',
-  'Estimating':        'bg-indigo-500',
-  'Pending Signature': 'bg-purple-500',
-  'Signed Contract':   'bg-green-500',
-  'Job Prep':          'bg-teal-500',
-  'Pending Start':     'bg-cyan-500',
-  'Jobs In Progress':  'bg-orange-500',
-  'Job Complete':      'bg-emerald-500',
-  'Pending Payment':   'bg-yellow-500',
-  'Paid & Closed':     'bg-green-700',
-  'Lost Sale':         'bg-red-500',
-  'No Answer':         'bg-gray-400',
+/**
+ * The board's cards, and the ids of the stages pickers offer (Settings >
+ * Pipeline Stages, shown ones in board order). Cards are never made here;
+ * each customer's card is made once, on the server, when the customer is
+ * (see routes/crm-contacts).
+ */
+export function loadPipeline(): { leads: PipelineLead[], stages: string[] } {
+  return { leads: (getPipeline().leads as PipelineLead[]) || [], stages: pickableIds() }
 }
 
+export function savePipeline(leads: PipelineLead[]) {
+  storeSavePipeline(leads)
+}
 
 const FLAME_COLORS = ['text-blue-400','text-cyan-400','text-yellow-400','text-orange-500','text-red-500']
-
-function FlameDisplay({ value }: { value: number }) {
-  if (!value) return null
-  return (
-    <span className={`text-sm ${FLAME_COLORS[value - 1]}`}>
-      {'🔥'.repeat(value)}
-    </span>
-  )
-}
-
-function loadConfiguredStages(): string[] | null {
-  try {
-    const raw = localStorage.getItem('fencepro_config')
-    if (!raw) return null
-    const cfg = JSON.parse(raw)
-    if (Array.isArray(cfg.pipelineStages) && cfg.pipelineStages.length > 0) return cfg.pipelineStages
-  } catch {}
-  return null
-}
-
-export function loadPipeline(): { leads: PipelineLead[], stages: string[] } {
-  const configured = loadConfiguredStages()
-  const cached = getPipeline()
-  if (cached.leads?.length || cached.stages?.length) {
-    const stages = configured && configured.length > 0
-      ? configured
-      : (Array.isArray(cached.stages) && cached.stages.length > 0 ? cached.stages : DEFAULT_STAGES)
-    return { leads: (cached.leads as PipelineLead[]) || [], stages }
-  }
-  // Nothing saved yet (or the board has not loaded): an empty board. Cards are
-  // never made here; each customer's card is made once, on the server, when
-  // the customer is (see routes/crm-contacts). Making cards for every
-  // customer from this browser, with new ids each time, is what doubled them.
-  const stages = configured && configured.length > 0 ? configured : DEFAULT_STAGES
-  return { leads: [], stages }
-}
-
-export function savePipeline(leads: PipelineLead[], stages: string[]) {
-  storeSavePipeline(leads, stages)
-}
 
 // ── Quick Add Modal ───────────────────────────────────────────────────────────
 
@@ -170,7 +109,7 @@ export function QuickAddModal({
       leadSource, notes,
     }, { stage })
     if (created) {
-      logCustomerActivity(customer.id, `Lead added to pipeline at ${stage}`, { kind: 'stage_change' })
+      logCustomerActivity(customer.id, `Lead added to pipeline at ${stageName(stage)}`, { kind: 'stage_change' })
       onAdd(null)
       toast.info('Lead added', 'With a customer record. Its status shows Saved once the office has it.')
       return
@@ -289,8 +228,8 @@ export function QuickAddModal({
               onChange={e => setLeadSource(e.target.value)}
             >
               <option value="">Select...</option>
-              {leadSourceOptions(leadSource).map(s => (
-                <option key={s} value={s}>{s}</option>
+              {sourcePicker(leadSource).map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
           </div>
@@ -356,8 +295,8 @@ export function LeadDrawer({
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900 text-lg">{lead.firstName} {lead.lastName}</h2>
-            <span className={`text-xs text-white px-2 py-0.5 rounded-full ${STAGE_COLORS[lead.stage] ?? 'bg-gray-400'}`}>
-              {lead.stage}
+            <span className="text-xs text-white px-2 py-0.5 rounded-full" style={{ backgroundColor: stageColor(lead.stage) }}>
+              {stageName(lead.stage)}
             </span>
           </div>
           <div className="flex gap-2">
@@ -385,11 +324,12 @@ export function LeadDrawer({
                   onClick={() => onUpdate({ ...lead, stage: s, lastMoved: businessDate(new Date()) })}
                   className={`text-xs px-2.5 py-1.5 rounded-lg font-medium border transition-colors ${
                     lead.stage === s
-                      ? `${STAGE_COLORS[s] ?? 'bg-gray-500'} text-white border-transparent`
+                      ? 'text-white border-transparent'
                       : 'border-gray-200 text-gray-500 hover:border-gray-400'
                   }`}
+                  style={lead.stage === s ? { backgroundColor: stageColor(s) } : undefined}
                 >
-                  {s}
+                  {stageName(s)}
                 </button>
               ))}
             </div>
@@ -430,7 +370,7 @@ export function LeadDrawer({
                   { label: 'Phone',   value: lead.phone },
                   { label: 'Email',   value: lead.email },
                   { label: 'Address', value: lead.address },
-                  { label: 'Source',  value: lead.leadSource },
+                  { label: 'Source',  value: sourceLabel(lead.leadSource) },
                 ].filter(r => r.value).map(r => (
                   <div key={r.label} className="flex gap-3">
                     <span className="text-xs text-gray-400 w-16 shrink-0">{r.label}</span>
@@ -520,467 +460,6 @@ export function LeadDrawer({
           </div>}
         </div>
       </div>
-    </div>
-  )
-}
-// ── Pipeline Card ─────────────────────────────────────────────────────────────
-
-function PipelineCard({
-  lead,
-  stages,
-  onUpdate,
-  onClick,
-  onDragStart,
-}: {
-  lead: PipelineLead
-  stages: string[]
-  onUpdate: (lead: PipelineLead) => void
-  onClick: () => void
-  onDragStart: (e: React.DragEvent, id: string) => void
-}) {
-  const isPreSale    = PRE_SALE_STAGES.has(lead.stage)
-  const isProduction = PRODUCTION_STAGES.has(lead.stage)
-  const isClosing    = CLOSING_STAGES.has(lead.stage)
-  const isDead       = DEAD_STAGES.has(lead.stage)
-
-  const fmt = (n: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n)
-
-  return (
-    <div
-      draggable
-      onDragStart={e => onDragStart(e, lead.id)}
-      onClick={onClick}
-      className="bg-white rounded-xl border border-gray-200 p-3.5 cursor-pointer hover:shadow-md hover:border-orange-300 transition-all select-none"
-    >
-      {/* Name + flame */}
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-gray-900 text-sm leading-tight">
-            {lead.firstName} {lead.lastName}
-          </p>
-          {(lead.stage === 'Job Complete' || (lead as any).isCompleted) && (
-            <span className="inline-block mt-1 text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
-              ✓ Completed
-            </span>
-          )}
-        </div>
-        {lead.leadTemp > 0 && <FlameDisplay value={lead.leadTemp} />}
-      </div>
-
-      {/* Pre-sale info */}
-      {isPreSale && (
-        <div className="space-y-1">
-          {lead.phone && <p className="text-xs text-gray-500">📞 {lead.phone}</p>}
-          {lead.address && <p className="text-xs text-gray-400 truncate">📍 {lead.address}</p>}
-          {lead.leadSource && <p className="text-xs text-orange-500">via {lead.leadSource}</p>}
-          {lead.quotePrice > 0 && (
-            <p className="text-xs font-semibold text-green-600 mt-1">{fmt(lead.quotePrice)}</p>
-          )}
-        </div>
-      )}
-
-      {/* Production info */}
-      {isProduction && (
-        <div className="space-y-1">
-          {lead.address && <p className="text-xs text-gray-400 truncate">📍 {lead.address}</p>}
-          {lead.fenceType && <p className="text-xs text-gray-600">🏗 {styleLabel(lead.fenceType)}{lead.sections > 0 ? ` · ${lead.sections} sec` : ''}</p>}
-          {lead.crew && <p className="text-xs text-blue-600">👷 {lead.crew}</p>}
-          {lead.scheduledDate && <p className="text-xs text-purple-600">📅 {lead.scheduledDate}</p>}
-          {lead.quotePrice > 0 && <p className="text-xs font-semibold text-green-600">{fmt(lead.quotePrice)}</p>}
-        </div>
-      )}
-
-      {/* Closing info */}
-      {isClosing && (
-        <div className="space-y-1">
-          {lead.fenceType && <p className="text-xs text-gray-600">{styleLabel(lead.fenceType)}</p>}
-          {lead.jobValue > 0 && <p className="text-xs font-bold text-gray-900">{fmt(lead.jobValue)}</p>}
-          {lead.balanceDue > 0 && (
-            <p className="text-xs font-semibold text-red-500">Balance: {fmt(lead.balanceDue)}</p>
-          )}
-          {lead.balanceDue === 0 && lead.jobValue > 0 && (
-            <p className="text-xs font-semibold text-green-600">✓ Paid in full</p>
-          )}
-        </div>
-      )}
-
-      {/* Dead info */}
-      {isDead && (
-        <div className="space-y-1">
-          {lead.phone && <p className="text-xs text-gray-400">📞 {lead.phone}</p>}
-          {lead.lastMoved && <p className="text-xs text-gray-400">Last: {lead.lastMoved}</p>}
-          {lead.notes && <p className="text-xs text-gray-400 truncate italic">{lead.notes}</p>}
-        </div>
-      )}
-
-      {/* Fallback for custom stages */}
-      {!isPreSale && !isProduction && !isClosing && !isDead && (
-        <div className="space-y-1">
-          {lead.phone && <p className="text-xs text-gray-500">📞 {lead.phone}</p>}
-          {lead.address && <p className="text-xs text-gray-400 truncate">📍 {lead.address}</p>}
-        </div>
-      )}
-
-      <p className="text-xs text-gray-300 mt-2">{lead.createdAt}</p>
-    </div>
-  )
-}
-
-// ── Pipeline Column ───────────────────────────────────────────────────────────
-
-function PipelineColumn({
-  stage,
-  leads,
-  stages,
-  onAddLead,
-  onUpdate,
-  onLeadClick,
-  onDragStart,
-  onDrop,
-  onRename,
-  onDelete,
-}: {
-  stage: string
-  leads: PipelineLead[]
-  stages: string[]
-  onAddLead: (stage: string) => void
-  onUpdate: (lead: PipelineLead) => void
-  onLeadClick: (lead: PipelineLead) => void
-  onDragStart: (e: React.DragEvent, id: string) => void
-  onDrop: (e: React.DragEvent, stage: string) => void
-  onRename: (old: string, next: string) => void
-  onDelete: (stage: string) => void
-}) {
-  const [dragOver, setDragOver] = useState(false)
-  const [editing, setEditing]   = useState(false)
-  const [name, setName]         = useState(stage)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  function commitRename() {
-    const trimmed = name.trim()
-    if (trimmed && trimmed !== stage) onRename(stage, trimmed)
-    else setName(stage)
-    setEditing(false)
-  }
-
-  const color = STAGE_COLORS[stage] ?? 'bg-gray-500'
-  const totalValue = leads.reduce((s, l) => s + (l.quotePrice || l.jobValue || 0), 0)
-
-  return (
-    <div
-      className={`flex flex-col w-64 shrink-0 rounded-2xl border transition-colors ${dragOver ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-gray-50'}`}
-      onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={e => { setDragOver(false); onDrop(e, stage) }}
-    >
-      {/* Column header */}
-      <div className="px-3 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
-          {editing ? (
-            <input
-              ref={inputRef}
-              autoFocus
-              className="flex-1 text-sm font-bold text-gray-900 bg-transparent border-b border-orange-400 outline-none"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              onBlur={commitRename}
-              onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { setName(stage); setEditing(false) } }}
-            />
-          ) : (
-            <span
-              className="text-sm font-bold text-gray-900 truncate cursor-pointer hover:text-orange-500"
-              onClick={() => setEditing(true)}
-              title="Click to rename"
-            >
-              {stage}
-            </span>
-          )}
-          <span className="text-xs text-gray-400 bg-gray-200 rounded-full px-1.5 py-0.5 shrink-0">{leads.length}</span>
-        </div>
-        <button
-          onClick={() => { if (confirm(`Delete "${stage}" stage? Leads will be moved to First Contact.`)) onDelete(stage) }}
-          className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-sm leading-none ml-1 shrink-0"
-          title="Delete stage"
-        >×</button>
-      </div>
-
-      {/* Total value */}
-      {totalValue > 0 && (
-        <div className="px-3 pb-2">
-          <p className="text-xs text-gray-400 font-mono">
-            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalValue)}
-          </p>
-        </div>
-      )}
-
-      {/* Cards */}
-      <div className="flex-1 px-3 pb-3 space-y-2 overflow-y-auto max-h-[calc(100vh-260px)]">
-        {leads.map(lead => (
-          <PipelineCard
-            key={lead.id}
-            lead={lead}
-            stages={stages}
-            onUpdate={onUpdate}
-            onClick={() => onLeadClick(lead)}
-            onDragStart={onDragStart}
-          />
-        ))}
-        {leads.length === 0 && (
-          <div className="text-center py-8 text-gray-300 text-xs">Drop leads here</div>
-        )}
-      </div>
-
-      {/* Add button */}
-      <div className="px-3 pb-3">
-        <button
-          onClick={() => onAddLead(stage)}
-          className="w-full text-xs text-gray-400 hover:text-orange-500 border border-dashed border-gray-200 hover:border-orange-300 rounded-lg py-2 transition-colors"
-        >
-          + Add Lead
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── Main JobsPage ─────────────────────────────────────────────────────────────
-
-export default function JobsPage() {
-  const saved = loadPipeline()
-  const [leads, setLeads]   = useState<PipelineLead[]>(saved.leads)
-  const [stages, setStages] = useState<string[]>(saved.stages)
-  const [addingToStage, setAddingToStage] = useState<string | null>(null)
-  const [selectedLead, setSelectedLead]   = useState<PipelineLead | null>(null)
-  const [search, setSearch] = useState('')
-  const [showCompleted, setShowCompleted] = useState(true)
-  const dragId = useRef<string | null>(null)
-
-  // Re-read when settings update
-  useEffect(() => {
-    const reload = () => {
-      const next = loadPipeline()
-      setLeads(next.leads)
-      setStages(next.stages)
-    }
-    window.addEventListener('fencepro:settings:updated', reload)
-    window.addEventListener('fencepro:pipeline:updated', reload)
-    return () => {
-      window.removeEventListener('fencepro:settings:updated', reload)
-      window.removeEventListener('fencepro:pipeline:updated', reload)
-    }
-  }, [])
-
-  function persist(nextLeads: PipelineLead[], nextStages: string[]) {
-    savePipeline(nextLeads, nextStages)
-    setLeads(nextLeads)
-    setStages(nextStages)
-  }
-
-  function handleAddLead(lead: PipelineLead | null) {
-    if (lead) persist([lead, ...leads], stages)
-    setAddingToStage(null)
-  }
-
-  function handleUpdate(updated: PipelineLead) {
-    const prev = leads.find(l => l.id === updated.id)
-    const next = leads.map(l => l.id === updated.id ? updated : l)
-    persist(next, stages)
-    if (selectedLead?.id === updated.id) setSelectedLead(updated)
-
-    // Fire sales_stage_change on stage transitions
-    if (prev && prev.stage !== updated.stage) {
-      fireSalesStageChange(updated.id, prev.stage, updated.stage, {
-        jobName: `${updated.firstName} ${updated.lastName}`.trim(),
-        jobAddress: updated.address,
-        customerName: `${updated.firstName} ${updated.lastName}`.trim(),
-        customerEmail: updated.email,
-        customerPhone: updated.phone,
-        fenceType: updated.fenceType,
-        quotePrice: updated.quotePrice,
-      })
-      handleSignedContractIfNeeded(updated, prev.stage)
-    }
-  }
-
-  function handleSignedContractIfNeeded(lead: PipelineLead, fromStage: string) {
-    if ((lead.stage || '').trim().toLowerCase() !== 'signed contract') return
-    try {
-      const result = applySignedContractTransition({
-        id: lead.id, customerId: lead.customerId,
-        firstName: lead.firstName, lastName: lead.lastName,
-        phone: lead.phone, email: lead.email, address: lead.address,
-        stage: lead.stage, fromStage,
-      })
-      if (result) {
-        toast.success('Deal closed — job created', `${result.job.customerName} · quote marked SOLD · job on Operations board`)
-      } else {
-        toast.info('Moved to Signed Contract', 'No quote linked yet — create a quote for this customer and drop again to auto-generate a job.')
-      }
-    } catch (err: any) {
-      toast.error('Could not complete signed-contract cascade', err?.message || 'Unknown error.')
-    }
-  }
-
-  function handleDelete(id: string) {
-    persist(leads.filter(l => l.id !== id), stages)
-  }
-
-  function handleDragStart(e: React.DragEvent, id: string) {
-    dragId.current = id
-    e.dataTransfer.effectAllowed = 'move'
-  }
-
-  function handleDrop(e: React.DragEvent, stage: string) {
-    e.preventDefault()
-    if (!dragId.current) return
-    const draggedId = dragId.current
-    const prev = leads.find(l => l.id === draggedId)
-    const next = leads.map(l =>
-      l.id === draggedId
-        ? { ...l, stage, lastMoved: businessDate(new Date()) }
-        : l
-    )
-    persist(next, stages)
-    dragId.current = null
-
-    if (prev && prev.stage !== stage) {
-      fireSalesStageChange(draggedId, prev.stage, stage, {
-        jobName: `${prev.firstName} ${prev.lastName}`.trim(),
-        jobAddress: prev.address,
-        customerName: `${prev.firstName} ${prev.lastName}`.trim(),
-        customerEmail: prev.email,
-        customerPhone: prev.phone,
-        fenceType: prev.fenceType,
-        quotePrice: prev.quotePrice,
-      })
-      handleSignedContractIfNeeded({ ...prev, stage }, prev.stage)
-    }
-  }
-
-  function handleRename(oldName: string, newName: string) {
-    const nextStages = stages.map(s => s === oldName ? newName : s)
-    const nextLeads  = leads.map(l => l.stage === oldName ? { ...l, stage: newName } : l)
-    persist(nextLeads, nextStages)
-  }
-
-  function handleDeleteStage(stage: string) {
-    const nextStages = stages.filter(s => s !== stage)
-    const fallback   = nextStages[0] ?? 'First Contact'
-    const nextLeads  = leads.map(l => l.stage === stage ? { ...l, stage: fallback } : l)
-    persist(nextLeads, nextStages)
-  }
-
-  function handleAddStage() {
-    const name = prompt('New stage name:')
-    if (!name?.trim()) return
-    persist(leads, [...stages, name.trim()])
-  }
-
-  const filtered = leads.filter(l => {
-    if (!showCompleted) {
-      if (l.stage === 'Job Complete' || (l as any).isCompleted) return false
-    }
-    const q = search.toLowerCase()
-    return !q ||
-      `${l.firstName} ${l.lastName}`.toLowerCase().includes(q) ||
-      l.phone.includes(q) ||
-      l.address.toLowerCase().includes(q)
-  })
-
-  const totalPipeline = leads
-    .filter(l => !DEAD_STAGES.has(l.stage) && l.stage !== 'Paid & Closed')
-    .reduce((s, l) => s + (l.quotePrice || l.jobValue || 0), 0)
-
-  const totalSold = leads
-    .filter(l => CLOSING_STAGES.has(l.stage) || l.stage === 'Paid & Closed')
-    .reduce((s, l) => s + (l.jobValue || l.quotePrice || 0), 0)
-
-  return (
-    <div className="flex flex-col h-full">
-
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
-        <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-4">
-          <input
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 w-full lg:w-64"
-            placeholder="Search leads..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          <div className="flex flex-wrap items-center gap-3 lg:gap-4 text-sm">
-            <span className="text-gray-500">
-              Pipeline: <span className="font-bold text-gray-900">
-                {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalPipeline)}
-              </span>
-            </span>
-            <span className="text-gray-500">
-              Sold: <span className="font-bold text-green-600">
-                {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalSold)}
-              </span>
-            </span>
-            <span className="text-gray-400 text-xs">{leads.length} total leads</span>
-            <label className="flex items-center gap-1.5 text-xs text-gray-500 ml-3">
-              <input type="checkbox" checked={showCompleted} onChange={e => setShowCompleted(e.target.checked)} className="accent-orange-500" />
-              <span>Show completed</span>
-            </label>
-          </div>
-        </div>
-        <button
-          onClick={() => setAddingToStage(stages[0])}
-          className="btn btn-primary self-start lg:self-auto"
-        >
-          + New Lead
-        </button>
-      </div>
-
-      {/* Board */}
-      <div className="flex gap-4 overflow-x-auto pb-4 flex-1">
-        {stages.map(stage => (
-          <PipelineColumn
-            key={stage}
-            stage={stage}
-            leads={filtered.filter(l => l.stage === stage)}
-            stages={stages}
-            onAddLead={setAddingToStage}
-            onUpdate={handleUpdate}
-            onLeadClick={setSelectedLead}
-            onDragStart={handleDragStart}
-            onDrop={handleDrop}
-            onRename={handleRename}
-            onDelete={handleDeleteStage}
-          />
-        ))}
-
-        {/* Add stage */}
-        <div className="w-64 shrink-0">
-          <button
-            onClick={handleAddStage}
-            className="w-full h-16 border-2 border-dashed border-gray-200 hover:border-orange-400 text-gray-400 hover:text-orange-500 rounded-2xl text-sm font-medium transition-colors"
-          >
-            + Add Stage
-          </button>
-        </div>
-      </div>
-
-      {addingToStage && (
-        <QuickAddModal
-          stage={addingToStage}
-          onAdd={handleAddLead}
-          onClose={() => setAddingToStage(null)}
-        />
-      )}
-
-      {selectedLead && (
-        <LeadDrawer
-          lead={selectedLead}
-          stages={stages}
-          onClose={() => setSelectedLead(null)}
-          onUpdate={handleUpdate}
-          onDelete={handleDelete}
-        />
-      )}
     </div>
   )
 }

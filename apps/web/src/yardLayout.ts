@@ -145,6 +145,8 @@ export interface QuoteLayoutRecord {
   yard: YardLayout | null
   /** Sections in each saved run, same order, as priced. */
   runSections: number[]
+  /** Line posts priced beyond the runs' own: vinyl tees (deriveLayout `linePosts`). Absent: 0. */
+  teeLinePosts?: number
   /** A quote from the website quote: the customer's drawing as they drew it (never changed by the builder). */
   widgetDrawing?: WidgetDrawingRecord | null
 }
@@ -315,8 +317,10 @@ export interface LayoutResult {
   runs: LayoutRun[]
   /** Posts counted from the finishes. */
   counted: { corners: number; endPosts: number; gatePosts: number }
-  /** Sides that start along another side (tees); each is in `counted` as the style's tee post. */
+  /** Sides that start along another side (tees); each is in `counted` (corner or end) or in `linePosts` as the style's tee post. */
   tees: number
+  /** Line posts beyond the runs' own (sections − 1 per run): vinyl tees, counted as a line post each. */
+  linePosts: number
   /** What goes to the calculator: counted, or the typed override. */
   corners: number
   ends: number
@@ -336,16 +340,15 @@ const ftOf = (inches: number) => Math.round((inches / 12) * 1e6) / 1e6
 // ── Tees ──────────────────────────────────────────────────────────────────────
 
 /** What a tee's post is counted as. */
-export type TeePost = 'corner' | 'end'
+export type TeePost = 'corner' | 'end' | 'line'
 
 /**
  * Vinyl tee post. Jonathan (Oct 20): "a 3 way post" for vinyl, but there is no
  * 3 way post in Inventory or TAKEOFF_RULES (only corner, end, line and blank
- * posts, white and tan), and no new material may be added. Until he says
- * which existing post a vinyl tee uses, it is counted as an end post, as it
- * always was. Change this one value when he answers.
+ * posts, white and tan). Jonathan, Oct 21, 2026: "Line post, route the third
+ * side on site." A vinyl tee is one more line post (no longer an end post).
  */
-export const VINYL_TEE_POST: TeePost = 'end'
+export const VINYL_TEE_POST: TeePost = 'line'
 
 /**
  * How a style posts a tee (the side's start along another side). Chain link,
@@ -375,7 +378,7 @@ export function deriveLayout(layout: YardLayout, nearIn = 96, opts: { teeAs?: Te
   const runs = sides.flatMap(r => r.runs)
   const teeAs = opts.teeAs ?? 'end'
 
-  let corners = 0, endPosts = 0, gatePosts = 0, tees = 0
+  let corners = 0, endPosts = 0, gatePosts = 0, tees = 0, teeLines = 0
   sides.forEach((r, i) => {
     if (!r.on) return
     const measured = r.lengthIn > 0
@@ -383,7 +386,7 @@ export function deriveLayout(layout: YardLayout, nearIn = 96, opts: { teeAs?: Te
     // reaches it from either side (the other side may not be measured yet).
     if (measured && r.finishes.start !== 'corner' && r.touchesStart) {
       // A tee (the side starts along an earlier side): posted as the style's tee post (teePostFor).
-      if (isTee(layout, i)) { tees += 1; if (teeAs === 'corner') corners += 1; else endPosts += 1 }
+      if (isTee(layout, i)) { tees += 1; if (teeAs === 'corner') corners += 1; else if (teeAs === 'line') teeLines += 1; else endPosts += 1 }
       else endPosts += 1
     }
     if (r.finishes.end === 'corner') {
@@ -405,6 +408,7 @@ export function deriveLayout(layout: YardLayout, nearIn = 96, opts: { teeAs?: Te
     runs,
     counted: { corners, endPosts, gatePosts },
     tees,
+    linePosts: teeLines,
     corners: ov(layout.cornersOverride) ?? corners,
     ends: ov(layout.endsOverride) ?? endPosts + gatePosts,
     walkGates,

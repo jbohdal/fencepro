@@ -1,4 +1,5 @@
 import { SyncBadge } from './SaveStatus'
+import { initOptionLists, isOptionListsLoaded } from './optionListsStore'
 import { startColorReadyWatch } from './colorReady'
 import { styleLabel } from './fenceCatalog'
 import { startOutbox, resumeAfterSignIn } from './outbox'
@@ -12,7 +13,6 @@ const AdminSettingsPage = lazy(() => import('./AdminSettingsPage'))
 const BudgetPage = lazy(() => import('./BudgetPage'))
 import CustomersPage from './CustomersPage'
 import QuotesPage, { type SavedQuote } from './QuotesPage'
-import JobsPage from './JobsPage'
 import SalesPipelineBoard from './SalesPipelineBoard'
 import { startNav, navigate, useNav, pagePath, pageForPath, takeOpenedParam, savedScroll, BackClose } from './nav'
 const OperationsBoard = lazy(() => import('./OperationsBoard'))
@@ -59,6 +59,7 @@ import { initVendors, isVendorsHydrated } from './vendorStore'
 import { initBusinessState, isBusinessStateHydrated } from './businessStateStore'
 import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
 import { initOpsStages, isOpsStagesLoaded } from './opsStagesStore'
+import { initPipelineStages, isPipelineStagesLoaded, isFinished } from './pipelineStagesStore'
 import { startIntakeSync } from './intakeStore'
 import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
@@ -193,9 +194,9 @@ function loadBudget() {
   } catch { return null }
 }
 
+/** Cards still in play: not in a finished stage (Settings > Pipeline Stages). */
 function loadPipelineCount(): number {
-  const dead = new Set(['Lost Sale', 'No Answer', 'Paid & Closed'])
-  return (getPipeline().leads || []).filter((l: any) => !dead.has(l.stage)).length
+  return (getPipeline().leads || []).filter((l: any) => !isFinished(l.stage)).length
 }
 
 function loadCompanyName(): string {
@@ -258,6 +259,8 @@ const STORE_LOADERS: Array<{ name: string; load: () => Promise<void>; loaded: ()
   { name: 'Quotes', load: initQuotes, loaded: isQuotesHydrated },
   { name: 'Jobs', load: initJobs, loaded: isJobsHydrated },
   { name: 'Operations stages', load: initOpsStages, loaded: isOpsStagesLoaded },
+  { name: 'Pipeline stages', load: initPipelineStages, loaded: isPipelineStagesLoaded },
+  { name: 'Lead sources and tags', load: initOptionLists, loaded: isOptionListsLoaded },
   { name: 'Schedule', load: initSchedule, loaded: isScheduleHydrated },
   { name: 'Sales pipeline', load: initPipeline, loaded: isPipelineHydrated },
   { name: 'Appointments', load: initAppointments, loaded: isAppointmentsHydrated },

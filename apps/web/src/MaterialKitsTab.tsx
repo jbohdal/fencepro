@@ -41,6 +41,7 @@ function priceQuote(q: SavedQuote, cfg: AppConfig, sets: KitSet[]) {
     const r = calculateQuote({
       style, runs: q.runs.map((ft, i) => ({ ft, rail: q.runRails?.[i] ?? 'auto' })),
       corners: q.corners || 0, ends: q.ends || 0, walkGates: q.walkGates || 0, dblGates: q.dblGates || 0,
+      ...(q.layout?.teeLinePosts ? { extraLinePosts: q.layout.teeLinePosts } : {}),
       tearOutSections: q.tearOutSections || 0, tearOutGates: q.tearOutGates || 0,
       extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
       pricing: cfg.pricing, overrides: q.pricing, optimizer: getRailOptimizerConfig(cfg),
@@ -75,7 +76,11 @@ export default function MaterialKitsTab() {
   const [saved, setSaved] = useState<KitSet[]>(() => getKitSets())
   const [draft, setDraft] = useState<KitSet[]>(() => clone(getKitSets()))
   // The style being looked at, and (when there is more than one) which of its sets or copies.
-  const [style, setStyle] = useState<string>(() => styleNames.find(n => kitSetFor(n) && kitSetFor(n) !== 'archived') ?? styleNames[0] ?? '')
+  // ?style= (the Finish setup card's link for the Bell's real cost) opens on that style.
+  const [style, setStyle] = useState<string>(() => {
+    const asked = new URLSearchParams(window.location.search).get('style')
+    return (asked && styleNames.includes(asked) ? asked : null) ?? styleNames.find(n => kitSetFor(n) && kitSetFor(n) !== 'archived') ?? styleNames[0] ?? ''
+  })
   const [selected, setSelected] = useState<string | null>(null)
   const [addTo, setAddTo] = useState<KitKind | null>(null)
   const [search, setSearch] = useState('')
@@ -169,6 +174,12 @@ export default function MaterialKitsTab() {
           </select>
         )}
       </div>
+
+      {cfg.fenceStyles.find(s => s.name === style)?.needsCostReview && (
+        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3" data-kit-cost-review={style}>
+          Cost to review: this fence is priced with 6'x6' vinyl privacy section parts for now. Put its real section part in the Section kit and in each gate's section parts (the part's cost is set in the Catalog), then Save kits. Saving this style's kits clears the reminder.
+        </p>
+      )}
 
       {!current ? (
         <p className="text-sm text-gray-500 bg-white border border-gray-200 rounded-xl p-6">This style has no parts list, so quotes set its price by hand or per foot.</p>

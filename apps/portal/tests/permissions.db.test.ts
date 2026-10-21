@@ -61,6 +61,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('roles and permissions (dev datab
     app.use(express.json({ limit: '10mb' }))
     app.use('/api/crm-contacts', (await import('../src/server/routes/crm-contacts.js')).default)
     app.use('/api/pipeline', (await import('../src/server/routes/pipeline.js')).default)
+    app.use('/api/pipeline-stages', (await import('../src/server/routes/pipeline-stages.js')).default)
     app.use('/api/saved-quotes', (await import('../src/server/routes/saved-quotes.js')).default)
     app.use('/api/saved-jobs', (await import('../src/server/routes/saved-jobs.js')).default)
     app.use('/api/appointments', (await import('../src/server/routes/appointments.js')).default)
@@ -106,16 +107,18 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('roles and permissions (dev datab
   const quoteId = crypto.randomUUID()
 
   test('salesman: adds a customer with a card, moves it, adds a note, books an appointment', async () => {
-    const made = await call('sales', 'POST', '/api/crm-contacts', { id: contactId, firstName: 'Perm', lastName: 'Test', phone: '3525550100', lead: { id: cardId, firstName: 'Perm', lastName: 'Test', stage: 'New Lead', customerId: contactId } })
+    const made = await call('sales', 'POST', '/api/crm-contacts', { id: contactId, firstName: 'Perm', lastName: 'Test', phone: '3525550100', lead: { id: cardId, firstName: 'Perm', lastName: 'Test', stage: 'New Lead', customerId: contactId } })   // an old app's stage word
     expect([200, 201]).toContain(made.status)
     const board = await call('sales', 'GET', '/api/pipeline')
     expect(board.status).toBe(200)
     const card = board.json.data.leads.find((l: any) => l.id === cardId)
     expect(card).toBeTruthy()
-    const moved = await call('sales', 'PATCH', '/api/pipeline', { upsert: [{ lead: { ...card, stage: 'Contacted' } }], remove: [], baseVersion: board.json.data.version })
+    // A stage not in Settings > Pipeline Stages: the new card lands in the first stage.
+    expect(card.stage).toBe('First Contact')
+    const moved = await call('sales', 'PATCH', '/api/pipeline', { upsert: [{ lead: { ...card, stage: 'Appointment' } }], remove: [], baseVersion: board.json.data.version })
     expect(moved.status).toBe(200)
-    // The same stage list sent along (a reorder) is not a stage change.
-    const again = await call('sales', 'PATCH', '/api/pipeline', { upsert: [{ lead: { ...card, stage: 'Quoted' } }], remove: [], stages: board.json.data.stages, baseVersion: moved.json.version })
+    // A stage list sent along (an old app) is ignored.
+    const again = await call('sales', 'PATCH', '/api/pipeline', { upsert: [{ lead: { ...card, stage: 'Estimating' } }], remove: [], stages: board.json.data.stages, baseVersion: moved.json.version })
     expect(again.status).toBe(200)
     const note = await call('sales', 'POST', `/api/crm-contacts/${contactId}/notes`, { id: crypto.randomUUID(), body: 'Called, wants a quote' })
     expect([200, 201]).toContain(note.status)
@@ -126,12 +129,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('roles and permissions (dev datab
   test('salesman: cannot remove a card, change the stages, or drop a card with a whole board save', async () => {
     const board = (await call('sales', 'GET', '/api/pipeline')).json.data
     refused(await call('sales', 'PATCH', '/api/pipeline', { upsert: [], remove: [cardId], baseVersion: board.version }), /owner or an admin can delete/)
-    refused(await call('sales', 'PATCH', '/api/pipeline', { upsert: [], remove: [], stages: [{ id: 'x', name: 'Renamed' }], baseVersion: board.version }), /cannot change settings/)
-    const dropped = await call('sales', 'PUT', '/api/pipeline', { leads: board.leads.filter((l: any) => l.id !== cardId), stages: board.stages, baseVersion: board.version })
+    // The stages are Settings > Pipeline Stages (owner and admin only); a stage list sent with the board is ignored, never saved.
+    const ignored = await call('sales', 'PATCH', '/api/pipeline', { upsert: [], remove: [], stages: [{ id: 'x', name: 'Renamed' }], baseVersion: board.version })
+    expect(ignored.status).toBe(200)
+    expect((await call('sales', 'GET', '/api/pipeline')).json.data.stages).toEqual(board.stages)
+    refused(await call('sales', 'PUT', '/api/pipeline-stages', { stages: [], baseVersion: 0 }), /owner or an admin can change the pipeline stages/)
+    const fresh = (await call('sales', 'GET', '/api/pipeline')).json.data
+    const dropped = await call('sales', 'PUT', '/api/pipeline', { leads: fresh.leads.filter((l: any) => l.id !== cardId), stages: fresh.stages, baseVersion: fresh.version })
     refused(dropped, /owner or an admin can delete/)
     expect(dropped.json.data.leads.some((l: any) => l.id === cardId)).toBe(true)
     // Adding a card with a whole board save is fine.
-    const added = await call('sales', 'PUT', '/api/pipeline', { leads: [...board.leads, { id: `${cardId}-2`, firstName: 'Second', stage: 'New Lead' }], stages: board.stages, baseVersion: board.version })
+    const added = await call('sales', 'PUT', '/api/pipeline', { leads: [...fresh.leads, { id: `${cardId}-2`, firstName: 'Second', stage: 'First Contact' }], stages: fresh.stages, baseVersion: fresh.version })
     expect(added.status).toBe(200)
   })
 

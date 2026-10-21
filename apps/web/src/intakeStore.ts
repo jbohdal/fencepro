@@ -10,6 +10,7 @@
  * Runs after login, once a minute, and when the tab gets focus again.
  */
 
+import { roleId } from './pipelineStagesStore'
 import { fetchWithAuth } from './crmAuth'
 import { refreshCustomers, getCustomerById } from './customerStore'
 import { getPipeline, savePipeline, isPipelineHydrated } from './pipelineStore'
@@ -35,12 +36,6 @@ export interface IntakeLead {
   createdAt: string
 }
 
-const DEFAULT_STAGES = [
-  'First Contact', 'Appointment', 'Estimating', 'Pending Signature',
-  'Signed Contract', 'Job Prep', 'Pending Start', 'Jobs In Progress',
-  'Job Complete', 'Pending Payment', 'Paid & Closed', 'Lost Sale', 'No Answer',
-]
-
 const SOURCE_LABEL: Record<string, string> = { ez_quote: 'Website Quote', retell: 'Phone (AI receptionist)' }
 
 let running = false
@@ -59,7 +54,6 @@ async function api<T>(method: string, path: string): Promise<T | null> {
 function upsertPipelineCard(lead: IntakeLead): void {
   const cached = getPipeline()
   const leads = [...(cached.leads || [])]
-  const stages = cached.stages && cached.stages.length > 0 ? cached.stages : DEFAULT_STAGES
   const today = businessDate(new Date())
   const customer = lead.crmContactId ? getCustomerById(lead.crmContactId) : null
   const header = lead.source === 'retell'
@@ -98,13 +92,14 @@ function upsertPipelineCard(lead: IntakeLead): void {
       paymentStatus: '',
       balanceDue: 0,
       notes: header,
-      stage: stages[0] || 'First Contact',
+      // The "new cards land here" stage of Settings > Pipeline Stages.
+      stage: roleId('first'),
       createdAt: today,
       lastMoved: today,
       assignedRep: '',
     })
   }
-  savePipeline(leads, stages)
+  savePipeline(leads)
 }
 
 /** Pull new intake leads into the pipeline. Safe to call any time; returns how many were added. */

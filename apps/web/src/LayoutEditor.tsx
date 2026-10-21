@@ -79,7 +79,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   /** A signed quote: its gates cannot be moved here (a change order does that). */
   locked?: boolean
   /** How the quote's style posts a tee (yardLayout.ts teePostFor), for the side's note. */
-  teeAs?: 'corner' | 'end'
+  teeAs?: 'corner' | 'end' | 'line'
 }) {
   const [pad, setPad] = useState<PadTarget | null>(null)
   const [openLocal, setOpenLocal] = useState<string | null>(null)
@@ -658,7 +658,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                               <button type="button" onClick={() => setPad({ sideId: s.id, field: 'teeAt' })} className="w-full h-11 rounded-lg border border-gray-300 px-3 text-left text-sm" data-side-tee-at>
                                 <span className="text-gray-600">Starts </span><span className="font-semibold text-gray-900">{ftText(s.tee.atIn)}</span><span className="text-gray-600"> along {anchor.name}</span>
                               </button>
-                              <p className="text-xs text-gray-600" data-side-tee-note>Drawn as a tee on {anchor.name}, counted as {teeAs === 'corner' ? 'a corner post' : 'an end post'} where it starts (the style's tee post). Drag its start on the drawing to slide it.</p>
+                              <p className="text-xs text-gray-600" data-side-tee-note>Drawn as a tee on {anchor.name}, counted as {teeAs === 'corner' ? 'a corner post' : teeAs === 'line' ? 'a line post (route the third side on site)' : 'an end post'} where it starts (the style's tee post). Drag its start on the drawing to slide it.</p>
                             </>
                           )}
                         </div>
@@ -820,7 +820,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
             <button type="button" className="btn btn-quiet btn-sm" onClick={() => setEditCounts(e => !e)}>{editCounts ? 'Done' : 'Change'}</button>
           </div>
           <p className="text-sm text-gray-700 mt-1 tabular-nums">
-            {result!.corners} corner · {result!.ends} end{counted.gatePosts > 0 && layout.endsOverride == null ? ` (${counted.gatePosts} at gates)` : ''}{result!.tees > 0 ? ` · ${result!.tees} tee${result!.tees === 1 ? '' : 's'} counted as ${result!.tees === 1 ? (teeAs === 'end' ? 'an ' : 'a ') : ''}${teeAs} post${result!.tees === 1 ? '' : 's'}` : ''}
+            {result!.corners} corner · {result!.ends} end{counted.gatePosts > 0 && layout.endsOverride == null ? ` (${counted.gatePosts} at gates)` : ''}{result!.tees > 0 ? ` · ${result!.tees} tee${result!.tees === 1 ? '' : 's'} counted as ${result!.tees === 1 ? (teeAs === 'end' ? 'an ' : 'a ') : ''}${teeAs} post${result!.tees === 1 ? '' : 's'}${teeAs === 'line' ? ', route the third side on site' : ''}` : ''}
             {(layout.cornersOverride != null || layout.endsOverride != null) && <span className="text-amber-700"> · changed by hand</span>}
           </p>
           {editCounts && (

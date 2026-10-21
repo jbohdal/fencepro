@@ -5,6 +5,8 @@
  * ({first name}, {install date}, {proposal link}) are filled from it.
  */
 
+import { loadOptionList } from '../optionLists.js'
+import { groupKeyFor } from '../optionListModel.js'
 import prisma from '../prisma.js'
 import { countyPoint, suggestCounty } from '../addressIndex.js'
 import { getFrontendBase } from '../urls.js'
@@ -12,8 +14,8 @@ import { plainStyleName } from '../estimates.js'
 import type { Board, Condition } from './types.js'
 import { stageOfJob, stageById, START_OPS_STAGES, type OpsStageDef, type OpsJobLike } from '../opsStageModel.js'
 import { loadOpsStages } from '../opsStages.js'
-
-export const CLOSED_SALES = new Set(['Lost Sale', 'No Answer', 'Paid & Closed'])
+import { loadPipelineStages } from '../pipelineStages.js'
+import { isFinishedStage, stageNameOf, type PipelineStageDef } from '../pipelineStageModel.js'
 
 /**
  * The Operations stage a job is in (its id), by the company's list from
@@ -53,6 +55,8 @@ export interface EntityContext {
   priceCents: number
   salesman: string
   tags: string[]
+  /** A tag's option (Settings > Customer Tags): a tag condition matches merged and capital letter twin tags too. */
+  tagKeyOf?: (word: string) => string
   permit: any | null
   permitRequired: boolean
   installDate: string
@@ -82,11 +86,11 @@ export async function jobForCard(accountId: string, card: any): Promise<any | nu
   return prisma.savedJob.findFirst({ where: { accountId, crmContactId: String(card.customerId), deletedAt: null, archivedAt: null }, orderBy: { createdAt: 'desc' } })
 }
 
-/** The pipeline card that goes with a job: the customer's open card, else their newest. */
-export function cardForJob(leads: any[], job: any): any | null {
+/** The pipeline card that goes with a job: the customer's open card (not in a finished stage), else their newest. */
+export function cardForJob(leads: any[], job: any, stages: PipelineStageDef[]): any | null {
   if (!job?.crmContactId) return null
   const mine = leads.filter(l => l?.customerId === job.crmContactId)
-  return mine.find(l => !CLOSED_SALES.has(l.stage)) ?? mine[0] ?? null
+  return mine.find(l => !isFinishedStage(stages, l.stage)) ?? mine[0] ?? null
 }
 
 export function cityOf(address: string): string {
@@ -117,6 +121,8 @@ const dollarsToCents = (n: unknown) => { const v = Number(n); return Number.isFi
 /** Build the context for a card or job. Null when it no longer exists. */
 export async function buildContext(accountId: string, board: Board, entityId: string, preloaded?: { leads?: any[] }): Promise<EntityContext | null> {
   const leads = preloaded?.leads ?? (await loadLeads(accountId)).leads
+  const pipelineStages = (await loadPipelineStages(accountId)).stages
+  const tagOptions = (await loadOptionList(accountId, 'customerTags')).options
   let card: any | null = null
   let job: any | null = null
   if (board === 'sales') {
@@ -126,7 +132,7 @@ export async function buildContext(accountId: string, board: Board, entityId: st
   } else {
     job = await prisma.savedJob.findFirst({ where: { id: entityId, accountId, deletedAt: null, archivedAt: null } })
     if (!job) return null
-    card = cardForJob(leads, job)
+    card = cardForJob(leads, job, pipelineStages)
   }
   const customerId: string | null = card?.customerId ?? job?.crmContactId ?? null
   const contact = customerId ? await prisma.crmContact.findFirst({ where: { id: customerId, accountId } }) : null
@@ -152,7 +158,7 @@ export async function buildContext(accountId: string, board: Board, entityId: st
   const stage = board === 'sales' ? String(card?.stage ?? '') : opsStageOfJob(job, opsStages)
   return {
     board, entityKind: board === 'sales' ? 'card' : 'job', entityId,
-    card, job, stage, stageLabel: board === 'sales' ? stage : opsStageName(opsStages, stage),
+    card, job, stage, stageLabel: board === 'sales' ? stageNameOf(pipelineStages, stage) : opsStageName(opsStages, stage),
     customerId,
     firstName, lastName, name: `${firstName} ${lastName}`.trim() || String(job?.customerName || 'the customer'),
     email: String(contact?.email || card?.email || job?.customerEmail || '').trim(),
@@ -165,6 +171,7 @@ export async function buildContext(accountId: string, board: Board, entityId: st
     priceCents: job?.contractValue ? dollarsToCents(job.contractValue) : dollarsToCents(card?.jobValue || card?.quotePrice || quote?.finalPrice || 0),
     salesman: String(card?.assignedRep || job?.salesRep || quote?.salesRep || ''),
     tags,
+    tagKeyOf: (w: string) => groupKeyFor(tagOptions, w),
     permit,
     permitRequired: !!permit && permit.status !== 'not_needed',
     installDate: String(job?.scheduledDate || card?.installDate || ''),
@@ -225,7 +232,7 @@ export function evalCondition(c: Condition, ctx: EntityContext): ConditionResult
     case 'county': return r(c.op === 'is_not' ? norm(ctx.county) !== norm(text) : norm(ctx.county) === norm(text), ctx.county || '(unknown)')
     case 'salesman': return r(c.op === 'is_not' ? norm(ctx.salesman) !== norm(text) : norm(ctx.salesman) === norm(text), ctx.salesman || '(none)')
     case 'tag': {
-      const has = ctx.tags.some(t => norm(t) === norm(text))
+      const has = ctx.tags.some(t => norm(t) === norm(text) || (!!ctx.tagKeyOf && ctx.tagKeyOf(t) === ctx.tagKeyOf(text)))
       return r(c.op === 'has_not' || c.op === 'is_not' ? !has : has, ctx.tags.join(', ') || '(no tags)')
     }
     case 'permit_required': {

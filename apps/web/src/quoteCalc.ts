@@ -63,6 +63,8 @@ export interface QuoteCalcInput {
   runs: QuoteRun[]
   corners: number
   ends: number
+  /** Line posts beyond the runs' own: vinyl tees from the yard layout (deriveLayout `linePosts`). */
+  extraLinePosts?: number
   walkGates: number
   dblGates: number
   tearOutSections: number
@@ -174,6 +176,7 @@ export function calculateQuote(input: QuoteCalcInput): QuoteCalc {
     const jobParts = {
       corners: input.corners, ends: input.ends, walkGates: input.walkGates, dblGates: input.dblGates,
       tearOutSections: input.tearOutSections, tearOutGates: input.tearOutGates,
+      ...(input.extraLinePosts ? { extraLinePosts: input.extraLinePosts } : {}),
     }
     materials = isAuto
       ? calculateMixedMaterialsDetailed({

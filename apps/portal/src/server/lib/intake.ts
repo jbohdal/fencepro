@@ -10,6 +10,8 @@
 
 import prisma from './prisma.js'
 import { withLock } from './once.js'
+import { loadPipelineStages } from './pipelineStages.js'
+import { roleStageId } from './pipelineStageModel.js'
 
 export type IntakeSource = 'ez_quote' | 'retell' | 'website_chat'
 
@@ -77,6 +79,8 @@ export async function findOrCreateContact(accountId: string, input: Pick<IntakeI
   }
 
   const { firstName, lastName } = splitName(input.name)
+  // The stage a new customer starts in: Settings > Pipeline Stages' "new cards land here" stage.
+  const firstStageId = roleStageId((await loadPipelineStages(accountId)).stages, 'first') ?? ''
   const created = await db.crmContact.create({
     data: {
       accountId,
@@ -86,7 +90,7 @@ export async function findOrCreateContact(accountId: string, input: Pick<IntakeI
       phone: input.phone || null,
       serviceAddress: input.address || null,
       leadSource: input.leadSource,
-      jobStatus: 'First Contact',
+      jobStatus: firstStageId,
     },
     select: { id: true },
   })

@@ -1,7 +1,8 @@
 /**
  * When a customer accepts a proposal: a notification in the app, and the
- * customer's pipeline card moved to Signed Contract (a new card when they
- * have none). The pipeline is saved card by card with a version check, so
+ * customer's pipeline card moved to the Signed stage (Settings > Pipeline
+ * Stages; a new card when they have none), with the quote's id on it so the
+ * job's completion later moves exactly this card. The pipeline is saved card by card with a version check, so
  * this is a normal versioned change; an open browser merges it on its next
  * save.
  */
@@ -13,16 +14,17 @@ import { applyPipelineDelta } from './pipelineDelta.js'
 import { recordCardMoves, recordProposalAccepted } from './automations/hooks.js'
 import { loadOpsStages } from './opsStages.js'
 import { firstStage } from './opsStageModel.js'
-
-const STAGE = 'Signed Contract'
-const CLOSED = new Set(['Lost Sale', 'No Answer', 'Paid & Closed'])
+import { loadPipelineStages } from './pipelineStages.js'
+import { roleStageId, stageNameOf, isFinishedStage } from './pipelineStageModel.js'
 
 export async function onProposalAccepted(q: { id: string; accountId: string; crmContactId: string | null; customerName: string; customerPhone: string; customerEmail: string; customerAddress: string; leadSource: string; salesRep: string }, chosen: { label: string; fenceStyle: string; finalPrice: number; sections: number }, acceptedBy: string): Promise<void> {
   const price = '$' + Math.round(chosen.finalPrice).toLocaleString('en-US')
+  const { stages } = await loadPipelineStages(q.accountId)
+  const STAGE = roleStageId(stages, 'signed') ?? ''
   await prisma.notification.create({
     data: {
       title: `Proposal accepted: ${q.customerName || acceptedBy}`,
-      body: `${acceptedBy} accepted ${chosen.label} at ${price}. The pipeline card is in ${STAGE}.`,
+      body: `${acceptedBy} accepted ${chosen.label} at ${price}. The pipeline card is in ${stageNameOf(stages, STAGE)}.`,
       type: 'success',
       link: q.crmContactId ? `/?customer=${q.crmContactId}` : null,
     },
@@ -35,15 +37,15 @@ export async function onProposalAccepted(q: { id: string; accountId: string; crm
     const leads = (state.leads as any[]) ?? []
     const today = new Date().toISOString().slice(0, 10)
     const mine = leads.filter(l => q.crmContactId && l?.customerId === q.crmContactId)
-    const card = mine.find(l => !CLOSED.has(l.stage)) ?? mine[0]
+    const card = mine.find(l => !isFinishedStage(stages, l.stage)) ?? mine[0]
     let lead: any
     if (card) {
-      lead = { ...card, stage: STAGE, lastMoved: today, jobValue: chosen.finalPrice, quotePrice: chosen.finalPrice, fenceType: chosen.fenceStyle, sections: chosen.sections }
+      lead = { ...card, stage: STAGE, quoteId: q.id, lastMoved: today, jobValue: chosen.finalPrice, quotePrice: chosen.finalPrice, fenceType: chosen.fenceStyle, sections: chosen.sections }
     } else {
       const [firstName, ...rest] = (q.customerName || acceptedBy).trim().split(/\s+/)
       lead = {
         id: `lead-${q.id}`, firstName: firstName || '', lastName: rest.join(' '), phone: q.customerPhone, email: q.customerEmail,
-        address: q.customerAddress, customerId: q.crmContactId ?? undefined, stage: STAGE, leadSource: q.leadSource || '',
+        address: q.customerAddress, customerId: q.crmContactId ?? undefined, stage: STAGE, quoteId: q.id, leadSource: q.leadSource || '',
         assignedRep: q.salesRep || '', jobValue: chosen.finalPrice, quotePrice: chosen.finalPrice, fenceType: chosen.fenceStyle,
         sections: chosen.sections, leadTemp: 0, notes: 'Accepted the proposal online.', createdAt: today, lastMoved: today,
       }

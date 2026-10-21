@@ -6,6 +6,7 @@
  * an outcome.
  */
 
+import { stageHasRole } from './pipelineStagesStore'
 import { useMemo, useState } from 'react'
 import { updateAppointment } from './appointmentsStore'
 import { getAppointmentSettings } from './configStore'
@@ -36,10 +37,10 @@ export default function AppointmentsPage() {
   const shown = useMemo(() => list.filter(a => a.status !== 'cancelled' && (!person || a.assignedTo === person) && (!type || a.type === type)), [list, person, type])
   const dated = shown.filter(a => a.startAt)
 
-  // Needs a date: call backs with no time, and cards in Appointment with nothing booked.
+  // Needs a date: call backs with no time, and cards in the Appointment stage with nothing booked.
   const undated = list.filter(a => !a.startAt && isOpen(a))
   const booked = new Set(list.filter(a => isOpen(a) && a.startAt).map(a => a.crmContactId))
-  const waitingCards = (getPipeline().leads || []).filter((l: any) => l?.stage === 'Appointment' && !(l.customerId && booked.has(l.customerId)))
+  const waitingCards = (getPipeline().leads || []).filter((l: any) => stageHasRole(l?.stage, 'appointment') && !(l.customerId && booked.has(l.customerId)))
   const overdue = list.filter(a => needsOutcome(a)).sort((x, y) => y.startAt!.localeCompare(x.startAt!))
 
   const step = view === 'day' || view === 'map' ? 1 : view === 'week' ? 7 : view === 'month' ? 30 : 14

@@ -35,7 +35,9 @@ import { getFilePath } from '../lib/storage/index.js'
 import { recordEvent } from '../lib/automationEvents.js'
 import { ruleSchema, stageRuleSchema, REQUIREMENT_LABEL, REQUIREMENTS, STEP_TYPES, CONDITION_FIELDS, EVENT_TRIGGERS, type Board } from '../lib/automations/types.js'
 import { dryRun, ensureStarters, runAgain, type LogEntry } from '../lib/automations/queue.js'
-import { buildContext, loadLeads, opsStageOfJob, opsStageName, TEMPLATE_FIELDS, CLOSED_SALES } from '../lib/automations/context.js'
+import { buildContext, loadLeads, opsStageOfJob, opsStageName, TEMPLATE_FIELDS } from '../lib/automations/context.js'
+import { loadPipelineStages } from '../lib/pipelineStages.js'
+import * as pipelineModel from '../lib/pipelineStageModel.js'
 import { loadOpsStages } from '../lib/opsStages.js'
 import { pickableStages, stageById, stageIdsInRule } from '../lib/opsStageModel.js'
 import { missingFor } from '../lib/automations/stageRules.js'
@@ -84,12 +86,22 @@ const fail = (res: any, err: unknown, what: string) => {
   res.status(500).json({ success: false, error: `Could not ${what}. Try again; if it keeps happening, tell Jonathan.` })
 }
 
-const SALES_STAGES = ['First Contact', 'Appointment', 'Estimating', 'Pending Signature', 'Signed Contract', 'Job Prep', 'Pending Start', 'Jobs In Progress', 'Job Complete', 'Pending Payment', 'Paid & Closed', 'Lost Sale', 'No Answer']
+/** Settings > Pipeline Stages, shown ones in order; rules keep the id. */
+async function salesStages(accountId: string): Promise<Array<{ key: string; label: string }>> {
+  return pipelineModel.pickableStages((await loadPipelineStages(accountId)).stages).map(s => ({ key: s.id, label: s.name }))
+}
 
-async function salesStages(accountId: string): Promise<string[]> {
-  const p = await prisma.pipelineState.findUnique({ where: { accountId }, select: { stages: true } })
-  const custom = ((p?.stages as any[]) ?? []).map(s => typeof s === 'string' ? s : s?.name).filter(Boolean)
-  return custom.length ? custom : SALES_STAGES
+/**
+ * A sales rule names stages by id; its trigger and move steps must be in
+ * Settings > Pipeline Stages. A stage condition may also be a stage's name.
+ */
+async function unknownSalesStage(accountId: string, r: { board: string; trigger: any; conditions: any; steps: any }): Promise<string | null> {
+  if (r.board !== 'sales') return null
+  const { stages } = await loadPipelineStages(accountId)
+  const named = (v: string) => !!pipelineModel.stageById(stages, v) || stages.some(s => s.name.trim().toLowerCase() === v.trim().toLowerCase())
+  const strict = [r.trigger?.stage, ...(Array.isArray(r.steps) ? r.steps : []).filter((x: any) => x?.type === 'move_card').map((x: any) => x.stage)].filter((x): x is string => typeof x === 'string' && !!x)
+  const bad = strict.find(id => !pipelineModel.stageById(stages, id)) ?? (Array.isArray(r.conditions) ? r.conditions : []).filter((c: any) => c?.field === 'stage' && typeof c.value === 'string' && c.value).map((c: any) => c.value as string).find((v: string) => !named(v))
+  return bad ? `"${bad}" is not one of the pipeline stages (Settings > Pipeline Stages). Pick a stage from the list.` : null
 }
 
 /** An Operations rule names stages by id; every one must be in Settings > Operations Stages. */
@@ -150,7 +162,7 @@ router.post('/rules', requireAdmin, async (req: any, res) => {
   try {
     const r = ruleSchema.parse(req.body)
     const accountId = req.user.crmAccountId
-    const badStage = await unknownOpsStage(accountId, r)
+    const badStage = await unknownOpsStage(accountId, r) ?? await unknownSalesStage(accountId, r)
     if (badStage) { res.status(400).json({ success: false, error: badStage }); return }
     // The id the screen chose when the editor opened: the same Save sent again returns the rule already made.
     const decision = await decideClientId(clientIdSchema.parse(req.body?.id), accountId, id => prisma.automationRule.findUnique({ where: { id } }))
@@ -176,7 +188,7 @@ router.put('/rules/:id', requireAdmin, async (req: any, res) => {
     const r = ruleSchema.parse(req.body)
     const cur = await prisma.automationRule.findFirst({ where: { id: req.params.id, accountId: req.user.crmAccountId } })
     if (!cur) { res.status(404).json({ success: false, error: 'This rule was deleted on another device.' }); return }
-    const badStage = await unknownOpsStage(req.user.crmAccountId, r)
+    const badStage = await unknownOpsStage(req.user.crmAccountId, r) ?? await unknownSalesStage(req.user.crmAccountId, r)
     if (badStage) { res.status(400).json({ success: false, error: badStage }); return }
     const row = await prisma.automationRule.update({
       where: { id: cur.id },
@@ -222,11 +234,12 @@ router.get('/samples', async (req: any, res) => {
     const q = String(req.query.q || '').trim().toLowerCase()
     if (board === 'sales') {
       const { leads } = await loadLeads(accountId)
+      const { stages: ps } = await loadPipelineStages(accountId)
       const list = leads
         .filter(l => l?.id && (!q || `${l.firstName} ${l.lastName} ${l.address ?? ''}`.toLowerCase().includes(q)))
-        .sort((a, b) => Number(CLOSED_SALES.has(a.stage)) - Number(CLOSED_SALES.has(b.stage)))
+        .sort((a, b) => Number(pipelineModel.isFinishedStage(ps, a.stage)) - Number(pipelineModel.isFinishedStage(ps, b.stage)))
         .slice(0, 40)
-        .map(l => ({ id: l.id, name: `${l.firstName ?? ''} ${l.lastName ?? ''}`.trim() || '(no name)', stage: l.stage, address: l.address ?? '' }))
+        .map(l => ({ id: l.id, name: `${l.firstName ?? ''} ${l.lastName ?? ''}`.trim() || '(no name)', stage: pipelineModel.stageNameOf(ps, l.stage), address: l.address ?? '' }))
       res.json({ success: true, data: list }); return
     }
     const jobs = await prisma.savedJob.findMany({
@@ -255,6 +268,10 @@ router.put('/stage-rules', requireAdmin, async (req: any, res) => {
     // An Operations stage rule keeps the stage id from Settings > Operations Stages.
     if (r.board === 'ops' && !stageById((await loadOpsStages(accountId)).stages, r.stage)) {
       res.status(400).json({ success: false, error: `"${r.stage}" is not one of the Operations stages (Settings > Operations Stages).` }); return
+    }
+    // A sales stage rule keeps the stage id from Settings > Pipeline Stages.
+    if (r.board === 'sales' && !pipelineModel.stageById((await loadPipelineStages(accountId)).stages, r.stage)) {
+      res.status(400).json({ success: false, error: `"${r.stage}" is not one of the pipeline stages (Settings > Pipeline Stages).` }); return
     }
     const row = await prisma.stageRule.upsert({
       where: { accountId_board_stage: { accountId, board: r.board, stage: r.stage } },

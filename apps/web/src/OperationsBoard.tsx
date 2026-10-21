@@ -15,6 +15,7 @@
  * unchanged.
  */
 
+import { stageName as pipelineStageName, roleId as pipelineRoleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -271,7 +272,7 @@ export default function OperationsBoard() {
     const done = getCompleteOpsStage()
     if (!done) return
     moveJobToStage(j, done.id)
-    toast.success('Job marked complete', `${j.customerName} moved to ${done.name}; customer set to Job Complete in pipeline`)
+    toast.success('Job marked complete', `${j.customerName} moved to ${done.name}; their pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}`)
   }
 
   function onAdvance(j: UnifiedJob) {
@@ -552,7 +553,7 @@ export default function OperationsBoard() {
       {confirmComplete && (
         <ConfirmModal
           title="Mark this job as complete?"
-          body={`This will move ${confirmComplete.customerName} to ${getCompleteOpsStage()?.name ?? 'Complete'} and update the customer to Job Complete in the Sales Pipeline.`}
+          body={`This will move ${confirmComplete.customerName} to ${getCompleteOpsStage()?.name ?? 'Complete'} and move their card to ${pipelineStageName(pipelineRoleId('complete'))} in the Sales Pipeline.`}
           confirmLabel="Confirm — Mark Complete"
           onCancel={() => setConfirmComplete(null)}
           onConfirm={confirmCompleteJob}

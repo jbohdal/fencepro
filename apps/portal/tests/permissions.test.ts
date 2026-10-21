@@ -26,9 +26,9 @@ describe('the role table', () => {
     for (const a of ACTIONS) expect(WEB_REFUSAL[a as WebAction]).toBe(REFUSAL[a])
   })
 
-  test('owner and admin: everything; manager: all but users, system and deleting (Archive instead)', () => {
+  test('owner and admin: everything; manager: all but users, system, deleting (Archive instead) and the lists (pipeline stages, lead sources, tags)', () => {
     for (const a of ACTIONS) { expect(can('super_admin', a)).toBe(true); expect(can('admin', a)).toBe(true) }
-    for (const a of ACTIONS) expect(can('manager', a)).toBe(!['users.manage', 'system', 'records.delete'].includes(a))
+    for (const a of ACTIONS) expect(can('manager', a)).toBe(!['users.manage', 'system', 'records.delete', 'lists.change'].includes(a))
   })
 
   test('salesman: quotes only among the guarded actions, no costs; crew: none; office: operations and costs', () => {
@@ -36,7 +36,7 @@ describe('the role table', () => {
     expect(ACTIONS.filter(a => can('field_crew', a))).toEqual([])
     expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'costs.view', 'inventory.stock', 'invoices.manage', 'ops.delete', 'packets.change', 'permits.change', 'quotes.change', 'records.archive', 'schedule.change'])
     for (const r of ['sales_rep', 'field_crew', 'office_staff']) {
-      for (const a of ['settings.change', 'prices.change', 'users.manage', 'records.delete', 'automations.change', 'system'] as Action[]) expect(can(r, a)).toBe(false)
+      for (const a of ['settings.change', 'lists.change', 'prices.change', 'users.manage', 'records.delete', 'automations.change', 'system'] as Action[]) expect(can(r, a)).toBe(false)
     }
     expect(can(undefined, 'quotes.change')).toBe(false)
     expect(isFullRole('manager')).toBe(true)
@@ -72,14 +72,19 @@ describe('business state keys', () => {
 })
 
 describe('pipeline board', () => {
-  const board = { leads: [{ id: 'a' }], stages: [{ id: 's1', name: 'New' }] }
-  test('adding and moving are fine; removing a card or changing stages is not', () => {
-    expect(pipelineChangeRefusal('sales_rep', board, { removed: [] })).toBeNull()
-    expect(pipelineChangeRefusal('sales_rep', board, { removed: [], stages: [{ name: 'New', id: 's1' }] })).toBeNull()
-    expect(pipelineChangeRefusal('sales_rep', board, { removed: ['a'] })).toBe('records.delete')
-    expect(pipelineChangeRefusal('office_staff', board, { removed: [], stages: [{ id: 's1', name: 'Renamed' }] })).toBe('settings.change')
-    expect(pipelineChangeRefusal('sales_rep', board, { removed: [], stages: [...board.stages, { id: 's2', name: 'Extra' }] })).toBe('settings.change')
-    expect(pipelineChangeRefusal('admin', board, { removed: ['a'], stages: [] })).toBeNull()
+  test('adding and moving are fine; removing a card is not (the stages are Settings > Pipeline Stages, not the board)', () => {
+    expect(pipelineChangeRefusal('sales_rep', { removed: [] })).toBeNull()
+    expect(pipelineChangeRefusal('sales_rep', { removed: ['a'] })).toBe('records.delete')
+    expect(pipelineChangeRefusal('manager', { removed: ['a'] })).toBe('records.delete')
+    expect(pipelineChangeRefusal('admin', { removed: ['a'] })).toBeNull()
+  })
+  test('the lists (pipeline stages, lead sources, tags) are owner and admin only, and /api/kv never writes them', () => {
+    for (const r of ['manager', 'office_staff', 'sales_rep', 'field_crew']) expect(can(r, 'lists.change')).toBe(false)
+    expect(can('super_admin', 'lists.change') && can('admin', 'lists.change')).toBe(true)
+    for (const key of ['fencepro_pipeline_stages', 'fencepro_lead_sources', 'fencepro_customer_tags']) {
+      expect(kvChangeRefusal('manager', key, [], [{ id: 'x' }])).toBe('lists.change')
+      expect(kvChangeRefusal('sales_rep', key, [], [{ id: 'x' }])).toBe('lists.change')
+    }
   })
 })
 

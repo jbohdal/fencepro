@@ -88,12 +88,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     'Residential', 'Commercial', 'HOA', 'Multi-Family',
     'Agricultural', 'Industrial', 'VIP', 'Warranty',
   ],
-  pipelineStages: [
-    'First Contact', 'Appointment', 'Estimating', 'Pending Signature',
-    'Signed Contract', 'Job Prep', 'Pending Start', 'Jobs In Progress',
-    'Job Complete', 'Pending Payment', 'Paid & Closed',
-    'Lost Sale', 'No Answer',
-  ],
   railOptimizer: {
     enabled: true,
     shortRunCutoffFt: 6,

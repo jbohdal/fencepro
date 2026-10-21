@@ -75,6 +75,8 @@ export interface SpecInputs {
   leads: LeadRow[]
   contacts: ContactRow[]
   appointments: AppointmentRow[]
+  /** Settings > Pipeline Stages: a card's group says whether its date is an estimate (Selling) or an install (Sold, work ahead). */
+  pipelineStages: Array<{ id: string; group: string }>
   /** The usual person on appointments; others get their name in the title. */
   defaultPerson?: string
   /** A style's plain name by its internal name ("WV-ND 6'x8' Privacy" → "White Vinyl Privacy, ..."). */
@@ -88,9 +90,6 @@ export interface SpecInputs {
   plainTitlesFrom?: string | null
 }
 
-// Same stage groups as the web app's pipelineValue.ts.
-const PRE_SALE = new Set(['First Contact', 'Appointment', 'Estimating', 'Pending Signature'])
-const PRODUCTION = new Set(['Signed Contract', 'Job Prep', 'Pending Start', 'Jobs In Progress'])
 
 const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + 'T00:00:00Z'))
 const money = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -230,6 +229,7 @@ export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
 
   // ── Pipeline cards ──
   const estimateByCustomer = new Map<string, Set<string>>()
+  const groupOf = new Map(inp.pipelineStages.map(s => [s.id, s.group]))
   for (const l of inp.leads) {
     if (!isDate(l.scheduledDate)) continue
     const name = fullName(l.firstName, l.lastName)
@@ -239,10 +239,10 @@ export function buildDesiredEvents(inp: SpecInputs): CalendarEventSpec[] {
       ['Sections', (l.sections || 0) > 0 ? l.sections : null],
       ['Quote price', (l.quotePrice || 0) > 0 ? money(l.quotePrice as number) : null],
     ]
-    if (PRE_SALE.has(l.stage)) {
+    if (groupOf.get(l.stage) === 'selling') {
       out.push({ source: 'lead', recordId: l.id, summary: `Estimate: ${name || 'Unknown'}`, description: describe(details, l.notes, link(l.customerId)), ...common })
       if (l.customerId) (estimateByCustomer.get(l.customerId) ?? estimateByCustomer.set(l.customerId, new Set()).get(l.customerId)!).add(l.scheduledDate)
-    } else if (PRODUCTION.has(l.stage) && !(l.customerId && customersWithInstall.has(l.customerId))) {
+    } else if (groupOf.get(l.stage) === 'sold_ahead' && !(l.customerId && customersWithInstall.has(l.customerId))) {
       out.push({ source: 'lead', recordId: l.id, summary: installTitle(name, titleStyle(l.fenceType || '', l.scheduledDate), l.sections || 0), description: describe(details, l.notes, link(l.customerId)), ...common })
     }
   }

@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod'
+import { START_IDS } from '../pipelineStageModel.js'
 
 export type Board = 'sales' | 'ops'
 
@@ -89,11 +90,11 @@ export class PermanentStepError extends Error {
   permanent = true
 }
 
-/** Jonathan's starter rules; all switched off until he turns them on. */
+/** Jonathan's starter rules; all switched off until he turns them on. Sales stages by their permanent ids (the start stages' old names). */
 export const STARTER_RULES: Array<RuleInput & { starter: string }> = [
   {
-    starter: 'signed_contract_tasks', name: 'Signed Contract: order materials, permit packet, schedule install', board: 'sales', enabled: false,
-    trigger: { type: 'card_entered', stage: 'Signed Contract', settleMinutes: 2, onlyWhileInStage: false }, conditions: [],
+    starter: 'signed_contract_tasks', name: `${START_IDS.signedContract}: order materials, permit packet, schedule install`, board: 'sales', enabled: false,
+    trigger: { type: 'card_entered', stage: START_IDS.signedContract, settleMinutes: 2, onlyWhileInStage: false }, conditions: [],
     steps: [
       { type: 'create_task', title: 'Order materials for {name}', description: '{style}, {address}', assignTo: '', dueInDays: 1 },
       { type: 'permit_packet', assignTo: '' },
@@ -109,8 +110,8 @@ export const STARTER_RULES: Array<RuleInput & { starter: string }> = [
     }],
   },
   {
-    starter: 'job_complete_walkthrough', name: 'Job Complete: start the final walkthrough', board: 'sales', enabled: false,
-    trigger: { type: 'card_entered', stage: 'Job Complete', settleMinutes: 2, onlyWhileInStage: true }, conditions: [],
+    starter: 'job_complete_walkthrough', name: `${START_IDS.jobComplete}: start the final walkthrough`, board: 'sales', enabled: false,
+    trigger: { type: 'card_entered', stage: START_IDS.jobComplete, settleMinutes: 2, onlyWhileInStage: true }, conditions: [],
     steps: [{ type: 'start_walkthrough' }],
   },
   {
@@ -126,8 +127,8 @@ export const STARTER_RULES: Array<RuleInput & { starter: string }> = [
     ],
   },
   {
-    starter: 'no_answer_follow_up', name: 'No Answer: follow up at 2, 5 and 10 days', board: 'sales', enabled: false,
-    trigger: { type: 'card_entered', stage: 'No Answer', settleMinutes: 2, onlyWhileInStage: true }, conditions: [],
+    starter: 'no_answer_follow_up', name: `${START_IDS.noAnswer}: follow up at 2, 5 and 10 days`, board: 'sales', enabled: false,
+    trigger: { type: 'card_entered', stage: START_IDS.noAnswer, settleMinutes: 2, onlyWhileInStage: true }, conditions: [],
     steps: [
       { type: 'wait', minutes: 2 * 24 * 60 },
       { type: 'create_task', title: 'Follow up with {name} (2 days, no answer)', description: 'Call or text {phone}', assignTo: '{salesman}', dueInDays: 0 },
@@ -140,7 +141,7 @@ export const STARTER_RULES: Array<RuleInput & { starter: string }> = [
 ]
 
 export const STARTER_STAGE_RULES: Array<z.infer<typeof stageRuleSchema> & { starter: string }> = [
-  { starter: 'pending_start_permit', board: 'sales', stage: 'Pending Start', requirements: [{ type: 'permit_approved' }], enabled: false },
-  { starter: 'job_complete_walkthrough', board: 'sales', stage: 'Job Complete', requirements: [{ type: 'walkthrough_signed' }], enabled: false },
+  { starter: 'pending_start_permit', board: 'sales', stage: START_IDS.pendingStart, requirements: [{ type: 'permit_approved' }], enabled: false },
+  { starter: 'job_complete_walkthrough', board: 'sales', stage: START_IDS.jobComplete, requirements: [{ type: 'walkthrough_signed' }], enabled: false },
   { starter: 'ops_complete_walkthrough', board: 'ops', stage: 'completed', requirements: [{ type: 'walkthrough_signed' }], enabled: false },
 ]

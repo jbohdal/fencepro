@@ -53,6 +53,10 @@ export interface FenceStyle {
   kitKey?: string
   /** Wood: the White Vinyl 6 ft privacy style it is priced from (material and labor × the Wood factor, wood.ts). */
   woodOf?: string
+  /** Priced with stand-in parts until Jonathan enters the real supplier cost (WV-ND Bell 4'x6', Oct 2026):
+   *  shown on Finish setup and as a badge here; cleared by the server when the style's kit set is
+   *  saved in Inventory > Material Kits (portal lib/costReview.ts). */
+  needsCostReview?: boolean
   // ── Worked out on every read (fenceCatalog.resolveFenceStyles); not saved ──
   /** The plain name: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig". */
   label?: string
@@ -152,9 +156,11 @@ export interface AppConfig {
   fenceStyles: FenceStyle[]
   /** The choices each material's fences are built from (Settings → Fence styles). Missing: the default tree. */
   fenceCatalog?: FenceCatalog
-  leadSources: string[]
-  customerTags: string[]
-  pipelineStages: string[]
+  /** No longer read: Settings > Lead Sources and Customer Tags are their own lists (optionListsStore, /api/option-lists). Old saved settings still hold the plain lists, which the one-time step read. */
+  leadSources?: string[]
+  customerTags?: string[]
+  /** No longer read: the stages are Settings > Pipeline Stages (pipelineStagesStore, /api/pipeline-stages). Old saved settings may still hold the plain list. */
+  pipelineStages?: string[]
   railOptimizer?: RailOptimizerConfig
   /** Voice entry: read back, speaking speed, and who has the Voice switch on. See VoicePanel. */
   voice?: { readBack?: boolean; rate?: number; onFor?: string[] }
@@ -233,19 +239,6 @@ export function getConfig(): AppConfig {
   return out
 }
 
-/**
- * The lead sources and customer tags from Settings (the lists every form
- * offers). A record keeps the words it was saved with, so a value no longer in
- * the list (renamed or removed in Settings) is still offered for that record.
- */
-export function leadSourceOptions(current?: string | null): string[] {
-  const list = getConfig().leadSources?.length ? getConfig().leadSources : DEFAULT_CONFIG.leadSources
-  return current && !list.includes(current) ? [...list, current] : list
-}
-export function customerTagOptions(current: string[] = []): string[] {
-  const list = getConfig().customerTags?.length ? getConfig().customerTags : DEFAULT_CONFIG.customerTags
-  return [...list, ...current.filter(t => t && !list.includes(t))]
-}
 
 export function saveConfig(config: AppConfig): void {
   // What is worked out on every read (plain names, holds, job lot prices) is not saved.

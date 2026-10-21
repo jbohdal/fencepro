@@ -59,9 +59,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('start-up steps side by side (dev
     const { ensureWood } = await import('../src/server/lib/woodSeed.js')
     const { ensureChainDigSet } = await import('../src/server/lib/chainDigSetSeed.js')
     const { ensureStylesOnHold } = await import('../src/server/lib/stylesOnHold.js')
+    const { ensureCostReview } = await import('../src/server/lib/costReview.js')
     const before = await state()
     expect(before.styles.some(added)).toBe(false)
-    await Promise.all([ensureChainDigSet(accountId), ensureWood(accountId), ensureStylesOnHold(accountId), ensureChainDigSet(accountId), ensureWood(accountId)])
+    await Promise.all([ensureChainDigSet(accountId), ensureWood(accountId), ensureStylesOnHold(accountId), ensureCostReview(accountId), ensureChainDigSet(accountId), ensureWood(accountId)])
     const after = await state()
     expect(after.styles.filter(n => /^wood\//.test(n))).toHaveLength(4)
     expect(after.styles.filter(n => /^chain\/.*\/ds$/.test(n))).toHaveLength(6)
@@ -69,6 +70,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('start-up steps side by side (dev
     expect(after.items.filter(n => /^DS, Pipe, /.test(n))).toHaveLength(12)
     expect(after.kits.filter(n => /^wood\//.test(n))).toHaveLength(4)
     expect(after.kits.filter(n => /^chain\/.*\/ds$/.test(n))).toHaveLength(6)
+    // The Bell flagged "needs cost review" alongside (lib/costReview.ts).
+    const bell = ((await prisma.businessState.findUnique({ where: { accountId } })).config.fenceStyles as any[]).find(s => s.name === "WV-ND Bell 4'x6'")
+    expect(bell?.needsCostReview).toBe(true)
     // Nothing that was there before is lost or doubled.
     for (const n of before.styles) expect(after.styles.filter(s => s === n)).toHaveLength(1)
     expect(after.items.length).toBe(before.items.length + 27)

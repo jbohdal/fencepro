@@ -31,6 +31,7 @@ import crypto from 'crypto'
 import { PrismaClient } from '@prisma/client'
 import { liveDatabaseMisuse, LIVE_DATABASE_NAME } from '../src/server/lib/liveGuard.js'
 import { assertLiveWriteAllowed } from '../src/server/lib/liveWriteGuard.js'
+import { START_IDS } from '../src/server/lib/pipelineStageModel.js'
 
 const BATCH = 200
 const NOTE_AUTHOR = 'JobNimbus import'
@@ -45,10 +46,10 @@ const LEAD_SOURCE: Record<string, string> = {
 // A misspelling on existing customers, put right on every customer as part of this import.
 const SPELLING_FIX = { from: 'refferal', to: 'Referral' }
 const FROM_SCHEDULE_TAG = 'From schedule'
-// JobNimbus status -> pipeline column. All closed out, none active.
+// JobNimbus status (its own words, left) -> pipeline stage id (Settings > Pipeline Stages, right). All closed out, none active.
 const STAGE: Record<string, string> = {
-  'Paid & Closed': 'Paid & Closed', 'Lost': 'Lost Sale', 'No Answer': 'No Answer',
-  'Pending Customer Signature': 'Lost Sale', '': 'Lost Sale',
+  'Paid & Closed': START_IDS.paidClosed, 'Lost': START_IDS.lostSale, 'No Answer': START_IDS.noAnswer,
+  'Pending Customer Signature': START_IDS.lostSale, '': START_IDS.lostSale,
 }
 
 /* ── arguments ── */
@@ -288,7 +289,7 @@ async function main() {
       ].filter(Boolean)
       notes.push({ id: uuid5('note:' + r.sig), crmContactId: g.contactId, accountId, body: parts.join(' '), createdBy: NOTE_AUTHOR, createdById: ownerId, createdAt: r.at })
       if (r.status !== 'Paid & Closed' && r.invoices > 0) flagged.push(`${who(r)}: status ${r.status || 'blank'} but ${money(r.invoices)} in approved invoices; no job created (rule 6)`)
-      if (!r.status) flagged.push(`${who(r)}: status blank or unreadable; card goes to Lost Sale, marked`)
+      if (!r.status) flagged.push(`${who(r)}: status blank or unreadable; card goes to the Lost stage, marked`)
       const extra = decisions.extraNotes?.[String(r.n)]
       if (extra) notes.push({ id: uuid5('extra-note:' + r.sig), crmContactId: g.contactId, accountId, body: extra, createdBy: NOTE_AUTHOR, createdById: ownerId, createdAt: new Date(r.at.getTime() + 1000) })
     }
@@ -338,7 +339,7 @@ async function main() {
     const paid = installed ?? g.rows.find(r => r.status === 'Paid & Closed')
     const statuses = new Set(g.rows.map(r => r.status))
     const cardRow = paid ?? g.rows[0]
-    const stage = paid ? 'Paid & Closed' : statuses.size === 1 ? STAGE[cardRow.status] ?? 'Lost Sale' : 'Lost Sale'
+    const stage = paid ? START_IDS.paidClosed : statuses.size === 1 ? STAGE[cardRow.status] ?? START_IDS.lostSale : START_IDS.lostSale
     if (g.existing && !installed) { if (!hasCard.has(g.contactId)) noCard++ }
     else if (hasCard.has(g.contactId)) keptCard.push(`${name}: keeps the current card (${[...leads, ...cards].find(l => l.customerId === g.contactId)?.stage})`)
     else {

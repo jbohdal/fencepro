@@ -1,8 +1,9 @@
 /**
- * Pipeline seeder — the card a new customer gets on the sales pipeline,
- * under First Contact.
+ * Pipeline seeder — the card a new customer gets on the sales pipeline, in
+ * the "new cards land here" stage (Settings > Pipeline Stages).
  */
 
+import { roleId } from './pipelineStagesStore'
 import { getPipeline } from './pipelineStore'
 import { newId } from './recordSync'
 import { businessDate } from './businessDate'
@@ -18,12 +19,12 @@ export interface NewCustomerForPipeline {
   notes?: string
   salesRep?: string
   createdAt?: string
-  /** The column it goes in; First Contact unless added to another one. */
+  /** The column it goes in (a stage id); the first stage unless added to another one. */
   stage?: string
 }
 
 /**
- * The First Contact card for a new customer, or null when one is already on
+ * The card for a new customer, or null when one is already on
  * the board. It is not saved here: it goes to the server in the same save as
  * the customer (customerStore), so both are saved or neither is.
  */
@@ -59,7 +60,7 @@ export function leadForNewCustomer(customer: NewCustomerForPipeline): Record<str
       paymentStatus: '',
       balanceDue: 0,
       notes: customer.notes || '',
-      stage: customer.stage || 'First Contact',
+      stage: customer.stage || roleId('first'),
       createdAt: customer.createdAt || businessDate(new Date()),
       lastMoved: businessDate(new Date()),
       assignedRep: customer.salesRep || '',

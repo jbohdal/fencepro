@@ -2,6 +2,7 @@
  * Calendar sync: what each dated CRM record becomes, and how the calendar is
  * kept in step without duplicates.
  */
+import { START_PIPELINE_STAGES } from '../src/server/lib/pipelineStageModel.js'
 import { describe, test, expect } from 'vitest'
 import { buildDesiredEvents, lastWorkday, nextWorkday, specHash, googleEventId, eventKey, type SpecInputs, type JobRow, type GridRow, type CalendarEventSpec } from '../src/server/lib/calendarSync/spec'
 import { reconcile, type CalendarApi, type EventLink, type LinkStore } from '../src/server/lib/calendarSync/engine'
@@ -18,7 +19,7 @@ const grid = (over: Partial<GridRow> = {}): GridRow => ({
 })
 const inputs = (over: Partial<SpecInputs> = {}): SpecInputs => ({
   baseUrl: 'https://jonathans-mac-mini.example.ts.net', workDays: [1, 2, 3, 4], crews: [{ id: 'crew1', name: 'Crew 1' }],
-  jobs: [], gridJobs: [], leads: [], contacts: [], appointments: [], ...over,
+  jobs: [], gridJobs: [], leads: [], contacts: [], appointments: [], pipelineStages: START_PIPELINE_STAGES, ...over,
 })
 const appt = (over: Record<string, unknown> = {}) => ({
   id: 'a1', crmContactId: 'c5', type: 'estimate', status: 'scheduled',

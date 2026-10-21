@@ -232,6 +232,51 @@ describe('material kits reproduce the old parts lists', () => {
     }
   })
 
+  // Bell 4'x6' gates. Jonathan, Oct 21, 2026: "A Bell gate is built from a gate kit (hardware and
+  // uprights) plus one fence section, so each gate adds one section and one gate kit. TAKEOFF_RULES
+  // is correct, do not change it." TAKEOFF_RULES rows listing "WV-ND Bell 4'x6'":
+  //   Misc, 6' Section              gateCount + totalSections (priced as 6'x6' privacy parts for now)
+  //   Misc, Gate Kit, No Hardware   gateCount*2 (a double gate counts 2, so 4)
+  //   *Vinyl, Gate, Handle          gateCount*2
+  //   *Vinyl, Gate, Brace / Hinge / Latch   1 per walk gate, 2 per double gate
+  //   *Vinyl, White, Upright        2 per walk gate, 4 per double gate
+  //   *Vinyl, Gate, H-Beam, 6'      2 per walk gate, 2 per double gate
+  //   *Vinyl, White, Rivet, 1"      50*gateCount
+  // and not in: *Vinyl, Gate, P-Channel, *Vinyl, White, Cap, Gate, *Vinyl, Hex, 1/4 x 3/4" (H-Beam), H-Beam 8'.
+  test("Bell 4'x6' gates follow TAKEOFF_RULES (Jonathan, Oct 21, 2026)", () => {
+    const base = { runs: [60, 42], corners: 1, ends: 2, tearOutSections: 0, tearOutGates: 0 }
+    const price = (s: string, walkGates: number, dblGates: number) =>
+      byPart(withKitSets([], () => calculateMaterialsDetailed({ fenceStyle: s, ...base, walkGates, dblGates })).items)
+    const delta = (s: string, w: number, d: number) => {
+      const a = price(s, 0, 0), b = price(s, w, d), out: Record<string, number> = {}
+      for (const p of new Set([...a.keys(), ...b.keys()])) {
+        const q = Math.round(((b.get(p)?.qty ?? 0) - (a.get(p)?.qty ?? 0)) * 100) / 100
+        if (q) out[p] = q
+      }
+      return out
+    }
+    const BELL = "WV-ND Bell 4'x6'"
+    const section = { '*Vinyl, White, Picket, 62-1/4"': 11, "*Vinyl, White, Rail, 6'": 2, '*Vinyl, White, U-Trim, 59-1/4"': 2, '*Vinyl, Truss, 8 x 3/4" (U-Trim)': 6 }
+    expect(delta(BELL, 1, 0)).toEqual({
+      ...section, 'Misc, Gate Kit, No Hardware': 2, '*Vinyl, Gate, Handle': 2, "*Vinyl, Gate, H-Beam, 6'": 2,
+      '*Vinyl, Gate, Brace': 1, '*Vinyl, Gate, Hinge': 1, '*Vinyl, Gate, Latch': 1, '*Vinyl, White, Upright': 2, '*Vinyl, White, Rivet, 1"': 50,
+    })
+    // A double gate: two leaves, plus its blank post (102") and what a post takes (cap, ties, pins, its concrete).
+    const dbl = delta(BELL, 0, 1)
+    expect(dbl['Misc, Gate Kit, No Hardware']).toBe(4)
+    expect(dbl['*Vinyl, White, Picket, 62-1/4"']).toBe(22)
+    expect(dbl["*Vinyl, Gate, H-Beam, 6'"]).toBe(2)
+    expect(dbl['*Vinyl, White, Upright']).toBe(4)
+    for (const p of ["*Vinyl, Gate, P-Channel, 6'", '*Vinyl, White, Cap, Gate', '*Vinyl, Hex, 1/4 x 3/4" (H-Beam)', "*Vinyl, Gate, H-Beam, 8'"]) {
+      expect(dbl[p], p).toBeUndefined()
+    }
+    // Sections and posts are the 6'x6' privacy parts (Jonathan, Oct 21, 2026), so with no gate the two are the same.
+    expect([...price(BELL, 0, 0)].map(([p, v]) => [p, v.qty])).toEqual([...price("WV-ND 6'x6' Privacy", 0, 0)].map(([p, v]) => [p, v.qty]))
+    // 6'x6' privacy gates keep their own parts.
+    expect(delta("WV-ND 6'x6' Privacy", 1, 0)["*Vinyl, Gate, P-Channel, 6'"]).toBe(1)
+    expect(delta("WV-ND 6'x6' Privacy", 1, 0)['Misc, Gate Kit, No Hardware']).toBeUndefined()
+  })
+
   test('chain link per foot parts are rounded up once per job', () => {
     const set = builtInKitSet("CL - 4' Galv")!
     const foot = new Map(set.kits.perFoot!.map(p => [p.part, p.qty]))

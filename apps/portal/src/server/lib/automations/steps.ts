@@ -10,6 +10,8 @@
  * is not sent again by itself (Jonathan checks and presses Run again).
  */
 
+import { loadPipelineStages } from '../pipelineStages.js'
+import { stageById as pipelineStageById, stageNameOf } from '../pipelineStageModel.js'
 import prisma from '../prisma.js'
 import { storeFile } from '../storage/index.js'
 import { applyPipelineDelta } from '../pipelineDelta.js'
@@ -237,23 +239,27 @@ export async function runStep(r: StepRun): Promise<StepOutcome> {
 async function moveCard(r: StepRun, stage: string): Promise<StepOutcome> {
   const e = r.entity
   if (e.board === 'sales') {
+    // By stage id, in the company's list (Settings > Pipeline Stages).
+    const { stages: ps } = await loadPipelineStages(r.accountId)
+    if (!pipelineStageById(ps, stage)) throw new PermanentStepError(`"${stage}" is not one of the pipeline stages (Settings > Pipeline Stages).`)
+    const nameOf = (id: string) => stageNameOf(ps, id)
     for (let attempt = 0; attempt < 5; attempt++) {
       const state = await prisma.pipelineState.findUnique({ where: { accountId: r.accountId } })
       const leads = ((state?.leads as any[]) ?? [])
       const card = leads.find(l => l?.id === e.entityId)
       if (!state || !card) throw new PermanentStepError('The card is not on the pipeline any more.')
-      if (card.stage === stage) return { detail: `the card is in ${stage}` }
+      if (card.stage === stage) return { detail: `the card is in ${nameOf(stage)}` }
       const lead = { ...card, stage, lastMoved: floridaDay(r.now) }
       const next = applyPipelineDelta({ leads, stages: (state.stages as any[]) ?? [] }, { upsert: [{ lead }], remove: [] })
       const blocked = await checkPipelineMoves(r.accountId, leads, next.leads)
-      if (blocked.length) throw new PermanentStepError(`Cannot move to ${stage}: ${blocked[0].missing.map(m => m.detail).join(' ')}`)
+      if (blocked.length) throw new PermanentStepError(`Cannot move to ${nameOf(stage)}: ${blocked[0].missing.map(m => m.detail).join(' ')}`)
       const ok = await prisma.$transaction(async tx => {
         const done = await tx.pipelineState.updateMany({ where: { accountId: r.accountId, version: state.version }, data: { leads: JSON.parse(JSON.stringify(next.leads)), version: { increment: 1 } } })
         if (done.count === 0) return false
         await recordCardMoves(r.accountId, leads, next.leads, state.version + 1, tx)
         return true
       })
-      if (ok) return { detail: `moved the card from ${card.stage} to ${stage}` }
+      if (ok) return { detail: `moved the card from ${nameOf(card.stage)} to ${nameOf(stage)}` }
     }
     throw new Error('The pipeline kept changing while the card was being moved; it will try again.')
   }

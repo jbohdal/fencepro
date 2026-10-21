@@ -75,6 +75,7 @@ import { startAddressRefresh } from './lib/addressIndex.js'
 import { startDuplicateCheck } from './lib/duplicateCheck.js'
 import { startAutomationWorker } from './lib/automations/queue.js'
 import { ensureStylesOnHoldAll } from './lib/stylesOnHold.js'
+import { ensureCostReviewAll } from './lib/costReview.js'
 import { ensureWoodAll } from './lib/woodSeed.js'
 import vendorInvoiceRoutes from './routes/vendor-invoices.js'
 import { resumeInvoiceReading } from './lib/vendorInvoices.js'
@@ -94,6 +95,10 @@ import portalRoutes from './routes/portal.js'
 import feedbackRoutes from './routes/feedback.js'
 import followUpRoutes from './routes/follow-ups.js'
 import opsStagesRoutes from './routes/ops-stages.js'
+import pipelineStagesRoutes from './routes/pipeline-stages.js'
+import optionListsRoutes from './routes/option-lists.js'
+import { ensureOptionListsAll } from './lib/optionLists.js'
+import { ensurePipelineStageListAll } from './lib/pipelineStages.js'
 import { ensureOpsStageListAll } from './lib/opsStages.js'
 import { ensureStagingSheetRemovedAll } from './lib/stagingSheetCleanup.js'
 import { ensureNoOrphanPendingCallsAll } from './lib/loginDelete.js'
@@ -257,6 +262,8 @@ app.use('/api/vendor-invoices', vendorInvoiceRoutes) // Vendor invoices update I
 app.use('/api/business-state', businessStateRoutes)
 app.use('/api/kv', kvRoutes)
 app.use('/api/ops-stages', opsStagesRoutes)
+app.use('/api/pipeline-stages', pipelineStagesRoutes)
+app.use('/api/option-lists', optionListsRoutes)
 app.use('/api/intake', intakeRoutes)
 app.use('/api/scheduled-deletions', scheduledDeletionRoutes)
 app.use('/api/deleted-records', deletedRecordRoutes)
@@ -408,6 +415,10 @@ if (!isVercel) {
       await ensureTanAutoDsAll().catch(err => console.error('[tan dig set] 6/8 ft mix check failed:', err))
       // The one Operations stage list from the old Settings one; no job changes: once per company (lib/opsStages.ts).
       await ensureOpsStageListAll().catch(err => console.error('[ops stages] one list check failed:', err))
+      // The one Sales Pipeline stage list; ids are the old names, so no card changes: once per company (lib/pipelineStages.ts).
+      await ensurePipelineStageListAll().catch(err => console.error('[pipeline stages] one list check failed:', err))
+      // Lead sources and tags as option lists from the words already saved; no record changes: once per company (lib/optionLists.ts).
+      await ensureOptionListsAll().catch(err => console.error('[option lists] one-time lists check failed:', err))
       // The old Staging sheet, removed when empty, kept with a warning when not: once per company (lib/stagingSheetCleanup.ts).
       await ensureStagingSheetRemovedAll().catch(err => console.error('[staging] old sheet check failed:', err))
       // Pending calls of logins deleted before Oct 2026: once per company (lib/loginDelete.ts).
@@ -416,6 +427,8 @@ if (!isVercel) {
       await backfillEverSoldAll().catch(err => console.error('[ever sold] check failed:', err))
       // Settings → Warranties: Lifetime for vinyl no dig, 1 Year for the rest: once per company (lib/warranties.ts).
       await ensureWarrantiesAll().catch(err => console.error('[warranties] check failed:', err))
+      // WV-ND Bell 4'x6' flagged "needs cost review" (real supplier cost to enter): once per company (lib/costReview.ts).
+      await ensureCostReviewAll().catch(err => console.error('[cost review] check failed:', err))
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))

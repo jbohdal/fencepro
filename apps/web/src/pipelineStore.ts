@@ -11,6 +11,10 @@
  * A new customer's card is not sent here: it travels with the customer in one
  * save (customerStore), so the two are saved together or not at all.
  *
+ * The stage list is not part of the board: it is Settings > Pipeline Stages
+ * (pipelineStagesStore). The stages the server still keeps on the old board
+ * document are never read or sent.
+ *
  * UI prefs like collapsed stages, view mode, sort and analytics-open stay in
  * localStorage in SalesPipelineBoard: per browser preferences, not company data.
  */
@@ -20,6 +24,7 @@ import { applyPipelineDelta, diffPipeline, type PipelineDelta } from './pipeline
 import { registerKind, enqueue, pendingFor, allOps, type Op } from './outbox'
 import { sendJson } from './syncHttp'
 import { notifyStageBlocked, type BlockedMove } from './stageBlocked'
+import { toast } from './toast'
 
 const EVT = 'fencepro:pipeline:updated'
 
@@ -75,13 +80,13 @@ export function initPipeline(): Promise<void> {
 /** True once the pipeline has loaded from the server. */
 export function isPipelineHydrated(): boolean { return hydrated }
 
-export function getPipeline(): { leads: any[]; stages: any[] } {
+export function getPipeline(): { leads: any[] } {
   return cache
 }
 
 /** Show a change on screen now and hand it to the outbox. */
-export function savePipeline(leads: any[], stages: any[]): void {
-  cache = { leads, stages }
+export function savePipeline(leads: any[]): void {
+  cache = { ...cache, leads }
   emit()
   if (timer) clearTimeout(timer)
   timer = setTimeout(queueChanges, 120)
@@ -93,7 +98,7 @@ function describe(d: PipelineDelta): string {
     const was = base.leads.find(l => l?.id === u.lead.id)
     return was && was.stage !== u.lead.stage ? `${name(u.lead)} moved to ${u.lead.stage}` : was ? `${name(u.lead)} changed` : `${name(u.lead)} added`
   })
-  const parts = [...moved, ...(d.remove.length ? [`${d.remove.length} card${d.remove.length === 1 ? '' : 's'} removed`] : []), ...(d.stages ? ['stages changed'] : [])]
+  const parts = [...moved, ...(d.remove.length ? [`${d.remove.length} card${d.remove.length === 1 ? '' : 's'} removed`] : [])]
   return `Pipeline: ${parts.slice(0, 3).join(', ')}${parts.length > 3 ? ` and ${parts.length - 3} more` : ''}`
 }
 
@@ -101,9 +106,10 @@ function queueChanges() {
   timer = null
   if (!hydrated) { timer = setTimeout(queueChanges, 500); return }
   let delta = diffPipeline(base, cache)
-  // Only reordered, or cards without ids: say it as every card plus the stage list.
-  if (!delta) delta = { upsert: cache.leads.filter(l => l?.id).map(lead => ({ lead })), remove: base.leads.filter(l => l?.id && !cache.leads.some(c => c?.id === l.id)).map(l => l.id), stages: cache.stages }
-  if (!delta.upsert.length && !delta.remove.length && !delta.stages) return
+  // Only reordered, or cards without ids: say it as every card.
+  if (!delta) delta = { upsert: cache.leads.filter(l => l?.id).map(lead => ({ lead })), remove: base.leads.filter(l => l?.id && !cache.leads.some(c => c?.id === l.id)).map(l => l.id) }
+  delete delta.stages
+  if (!delta.upsert.length && !delta.remove.length) return
   // A card for a customer that is still on its way waits for that customer.
   const waitFor = new Set<string>()
   for (const u of delta.upsert) {
@@ -160,6 +166,23 @@ registerKind<PipelineDelta>('pipeline.delta', {
       base = clone(cache)
       emit()
       notifyStageBlocked(blocked)
+      return { ok: false, status: 409, retryNow: true }
+    }
+    if (r.status === 409 && r.json?.code === 'UNKNOWN_STAGE' && r.json?.data) {
+      // A stage that is not in Settings > Pipeline Stages any more (deleted on another device): the card stays where the server has it.
+      const bad = (r.json.unknown ?? []) as Array<{ id: string; stage: string }>
+      const server = pick(r.json.data)
+      const ids = new Set(bad.map(b => b.id))
+      op.payload.upsert = op.payload.upsert.flatMap(u => {
+        if (!ids.has(u.lead?.id)) return [u]
+        const was = server.leads.find(l => l?.id === u.lead.id)
+        return was ? [{ ...u, lead: { ...u.lead, stage: was.stage, lastMoved: was.lastMoved } }] : []
+      })
+      version = typeof r.json.version === 'number' ? r.json.version : version
+      cache = withPending(server)
+      base = clone(cache)
+      emit()
+      toast.warning('That stage is not in the list any more', r.json.error || 'The card stays where it was.')
       return { ok: false, status: 409, retryNow: true }
     }
     if (r.status === 409 && r.json?.code === 'STALE_VERSION') {

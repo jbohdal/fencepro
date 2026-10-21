@@ -15,6 +15,7 @@ import prisma from '../lib/prisma.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { plainZod } from '../lib/plainZod.js'
 import { openFindings, dismissFinding } from '../lib/duplicateCheck.js'
+import { COST_REVIEW_KEY } from '../lib/costReview.js'
 
 const router = Router()
 router.use(requireAuth, requireRole('admin'))
@@ -79,7 +80,7 @@ export function closedOut(j: { status: string; paymentStatus?: string | null; ar
  * Customers ?filter=.
  */
 export async function setupList(accountId: string): Promise<SetupItem[]> {
-  const [biz, inv, jobs, closeJobs, scheduleContacts, cal, voice, offsite, kv, a] = await Promise.all([
+  const [biz, inv, jobs, closeJobs, scheduleContacts, cal, voice, offsite, kv, a, costReview] = await Promise.all([
     prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
     prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } }),
     prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null, notes: { contains: 'Tag: not on GD Schedule' } }, select: { id: true } }),
@@ -93,6 +94,7 @@ export async function setupList(accountId: string): Promise<SetupItem[]> {
     prisma.backupLog.findFirst({ where: { backupType: 'offsite', status: 'success', completedAt: { gte: new Date(Date.now() - 2 * DAY) } }, orderBy: { completedAt: 'desc' } }),
     prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: 'uptimeRobotSeenAt' } } }),
     answers(accountId),
+    prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: COST_REVIEW_KEY } } }),
   ])
   const cfg = (biz?.config ?? {}) as any
   const styles = (Array.isArray(cfg.fenceStyles) ? cfg.fenceStyles : []) as any[]
@@ -117,6 +119,11 @@ export async function setupList(accountId: string): Promise<SetupItem[]> {
   const zeroPrices = activeItems.filter(i => !(Number(i?.unitCost) > 0)).length
   const gatesLeft = GATE_STYLES.filter(styleQuotable).filter(s => !filledIn(s))
   const fillLeft = [zeroPrices && `${zeroPrices} prices at $0`, gatesLeft.length && `gate parts for ${gatesLeft.join(', ')}`, styleQuotable(DURAFENCE) && !filledIn(DURAFENCE) && 'a Durafence parts list'].filter(Boolean) as string[]
+  // Styles priced with stand-in parts until the real supplier cost is entered (lib/costReview.ts): the Bell.
+  // Listed once the one-time step flagged it; ticked off when the flag is cleared (its kits saved).
+  const flaggedOnce = (((costReview?.value as any)?.changed ?? []) as unknown[]).filter((n): n is string => typeof n === 'string')
+  const reviewStyles = styles.filter((s: any) => s?.needsCostReview === true || flaggedOnce.includes(s?.name))
+  const toReview = reviewStyles.filter((s: any) => s.needsCostReview === true)
   const quoteIds = closeJobs.map(j => j.quoteId).filter((x): x is string => !!x)
   // all rows: the status of the quotes of jobs already listed.
   const quoteStatus = new Map((quoteIds.length ? await prisma.savedQuote.findMany({ where: { accountId, id: { in: quoteIds } }, select: { id: true, status: true } }) : []).map(q => [q.id, q.status]))
@@ -135,6 +142,11 @@ export async function setupList(accountId: string): Promise<SetupItem[]> {
     { key: 'fill-in', label: 'Fill in Inventory: prices and missing parts', done: fillLeft.length === 0,
       detail: (fillLeft.length ? `Still to fill in: ${fillLeft.join('; ')}.` : 'All filled in.') + (GATE_STYLES.concat(DURAFENCE).some(s => !styleQuotable(s)) ? ' Commercial and industrial parts wait until those styles are available for quoting.' : ''),
       link: '/inventory?tab=fillin' },
+    ...(reviewStyles.length ? [{ key: 'bell-cost', label: "Enter the real supplier cost for the Bell 4'x6' section", done: toReview.length === 0,
+      detail: toReview.length
+        ? "Priced as a 6'x6' vinyl privacy section for now. In Material Kits, put the Bell's real section part in its Section kit and in each gate's section parts (its cost in the Catalog), then Save kits."
+        : 'Entered.',
+      link: `/inventory?tab=kits&style=${encodeURIComponent("WV-ND Bell 4'x6'")}` }] : []),
     { key: 'close-out', label: 'Close out Diane Pahl, Brenda Madsen and Bill Tieman', done: closeOpen.length === 0,
       detail: closeOpen.length ? closeOpen.map(j => `${j.customerName}: ${statusLabel(j)}`).join('; ') + '. Done when each is Complete and paid, archived, or its quote is Lost.' : 'All closed out.',
       link: closeOpen.length ? `/operations?ids=${closeOpen.map(j => j.id).join(',')}` : '/operations' },

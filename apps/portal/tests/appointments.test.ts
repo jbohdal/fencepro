@@ -3,6 +3,7 @@
  * outcomes do to the pipeline card, reading a call back time said on the
  * phone, and the confirmation Jonathan sends himself.
  */
+import { START_PIPELINE_STAGES } from '../../web/src/pipelineStageModel'
 import { describe, test, expect } from 'vitest'
 import {
   overlapWarnings, stageAfterBooking, stageAfterOutcome, statusForOutcome, needsOutcome, nextFor, isOpen,
@@ -12,7 +13,8 @@ import {
 } from '../../web/src/appointmentLogic'
 import { parseCallbackTime, APPOINTMENT_TYPES, APPOINTMENT_STATUSES, APPOINTMENT_OUTCOMES, addressKey } from '../src/server/lib/appointments'
 
-const STAGES = ['First Contact', 'Appointment', 'Estimating', 'Pending Signature', 'Signed Contract', 'Paid & Closed', 'Lost Sale', 'No Answer']
+// Settings > Pipeline Stages as it starts (ids are the old names); the moves go by role, not name.
+const STAGES = START_PIPELINE_STAGES
 const BELLEVIEW = { lat: 29.0553, lng: -82.0623 }
 
 function appt(over: Partial<Appointment> = {}): Appointment {
@@ -71,6 +73,20 @@ describe('status changes and the pipeline', () => {
     expect(stageAfterOutcome('Pending Signature', 'ready_to_quote', STAGES)).toEqual({})
     expect(stageAfterOutcome('Appointment', 'not_interested', STAGES)).toEqual({ offer: 'Lost Sale' })
     expect(stageAfterOutcome('Appointment', 'needs_follow_up', STAGES)).toEqual({})
+  })
+  test('by role, not name: every stage renamed and the roles moved, the moves follow the roles', () => {
+    const renamed = STAGES.map(s => ({ ...s, name: `X ${s.name}`, roles: [...s.roles] }))
+    // Ready to quote moved from Estimating to Pending Signature; Appointment role off its stage.
+    for (const s of renamed) s.roles = s.roles.filter(r => r !== 'ready_to_quote' && r !== 'appointment')
+    renamed.find(s => s.id === 'Pending Signature')!.roles.push('ready_to_quote')
+    renamed.find(s => s.id === 'Estimating')!.roles.push('appointment')
+    expect(stageAfterBooking('First Contact', 'estimate', renamed)).toBe('Estimating')
+    expect(stageAfterBooking('Appointment', 'estimate', renamed)).toBe('Estimating')
+    expect(stageAfterOutcome('Estimating', 'ready_to_quote', renamed)).toEqual({ move: 'Pending Signature' })
+    const lostMoved = renamed.map(s => ({ ...s, roles: s.id === 'Lost Sale' ? [] : s.id === 'No Answer' ? ['lost' as const] : s.roles }))
+    expect(stageAfterOutcome('Appointment', 'not_interested', lostMoved)).toEqual({ offer: 'No Answer' })
+    // No Appointment stage at all: booking leaves the card.
+    expect(stageAfterBooking('First Contact', 'estimate', STAGES.map(s => ({ ...s, roles: s.roles.filter(r => r !== 'appointment') })))).toBeNull()
   })
   test('an outcome closes the appointment: No show as No show, the rest as Completed', () => {
     expect(statusForOutcome('no_show')).toBe('no_show')

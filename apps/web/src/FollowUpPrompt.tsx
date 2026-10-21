@@ -5,7 +5,7 @@
  *
  *   No answer · Left voicemail · Talked, still deciding · Talked, not now (pick
  *   a date) · Booked appointment (opens Book appointment) · Signed (moves the
- *   card to Signed Contract) · Lost (pick why)
+ *   card to the Signed stage) · Lost (pick why)
  *
  * with an optional short note, typed or spoken. The answer is a call log entry
  * (not a note) and sets the next follow up, shown at once with one tap to
@@ -14,6 +14,8 @@
  * app with the message ready; nothing is ever sent by the app).
  */
 
+import { stageHasRole, stageName, roleId, getPipelineStages } from './pipelineStagesStore'
+import { bookingTypeFor } from './pipelineStageModel'
 import { useEffect, useRef, useState } from 'react'
 import { X, Mic, MessageSquare } from 'lucide-react'
 import { useBackLayer } from './nav'
@@ -30,7 +32,7 @@ import {
   type Touch,
 } from './followUpStore'
 import {
-  OUTCOMES, LOST_REASONS, addDays, fillTemplate, SIGNED_STAGE, LOST_STAGE,
+  OUTCOMES, LOST_REASONS, addDays, fillTemplate,
   type Outcome, type LostReason, type FollowUpState, type Template,
 } from './followUpRules'
 
@@ -45,19 +47,19 @@ export function dayLabel(day: string | null | undefined, today = todayFL()): str
 const KIND_WORD: Record<string, string> = { call: 'Call', text: 'Text', decide: 'Going cold: keep or close?' }
 export const kindWord = (k: string) => KIND_WORD[k] ?? 'Call'
 
-/** Move a card (and, for Signed Contract, make its job), the same way a drop on the board does. */
+/** Move a card (and, for the Signed stage, make its job), the same way a drop on the board does. */
 export function moveCardTo(cardId: string, stage: string, extra: Record<string, unknown> = {}): boolean {
-  const { leads, stages } = getPipeline()
+  const { leads } = getPipeline()
   const card = (leads || []).find((l: any) => l?.id === cardId)
   if (!card) return false
   if (card.stage === stage && !Object.keys(extra).length) return false
   const from = card.stage
-  savePipeline(leads.map((l: any) => (l === card ? { ...l, ...extra, stage, lastMoved: stage === from ? l.lastMoved : businessDate(new Date()) } : l)), stages)
-  if (stage === SIGNED_STAGE && from !== SIGNED_STAGE) {
+  savePipeline(leads.map((l: any) => (l === card ? { ...l, ...extra, stage, lastMoved: stage === from ? l.lastMoved : businessDate(new Date()) } : l)))
+  if (stageHasRole(stage, 'signed') && !stageHasRole(from, 'signed')) {
     try {
       const r = applySignedContractTransition({ id: card.id, customerId: card.customerId, firstName: card.firstName, lastName: card.lastName, phone: card.phone, email: card.email, address: card.address, stage, fromStage: from })
       if (r) toast.success('Deal closed — job created', `${r.job.customerName} · job on Operations board`)
-      else toast.info('Moved to Signed Contract', 'No quote linked yet: make a quote to make the job.')
+      else toast.info(`Moved to ${stageName(stage)}`, 'No quote linked yet: make a quote to make the job.')
     } catch { /* the card moved; the job can be made from the quote */ }
   }
   return true
@@ -112,12 +114,12 @@ function AnswerDialog({ touch }: { touch: Touch }) {
     answered.current = true
     setBusy(false)
     setAnswer(outcome)
-    if (outcome === 'signed') { moveCardTo(touch.cardId, SIGNED_STAGE); close(); return }
-    if (outcome === 'lost') { moveCardTo(touch.cardId, LOST_STAGE, { lostReason: extra.lostReason ?? 'other' }); toast.info('Moved to Lost Sale', touch.name); close(); return }
+    if (outcome === 'signed') { moveCardTo(touch.cardId, roleId('signed')); close(); return }
+    if (outcome === 'lost') { moveCardTo(touch.cardId, roleId('lost'), { lostReason: extra.lostReason ?? 'other' }); toast.info(`Moved to ${stageName(roleId('lost'))}`, touch.name); close(); return }
     if (outcome === 'booked') {
       close()
       const card = (getPipeline().leads || []).find((l: any) => l?.id === touch.cardId)
-      if (touch.customerId) openBooking({ customerId: touch.customerId, type: !card || ['First Contact', 'Appointment'].includes(card.stage) ? 'estimate' : 'follow_up' })
+      if (touch.customerId) openBooking({ customerId: touch.customerId, type: bookingTypeFor(getPipelineStages(), card?.stage) })
       else toast.info('Answer saved', 'This card has no customer record, so book from the customer page.')
       return
     }
@@ -184,7 +186,7 @@ function AnswerDialog({ touch }: { touch: Touch }) {
 
         {step === 'lost' && (
           <div className="px-4 pt-3 space-y-2" data-lost>
-            <p className="text-sm font-semibold text-gray-900">Why was it lost? The card moves to Lost Sale.</p>
+            <p className="text-sm font-semibold text-gray-900">Why was it lost? The card moves to {stageName(roleId('lost'))}.</p>
             {LOST_REASONS.map(r => (
               <button key={r.key} type="button" disabled={busy} className={big} data-lost-reason={r.key} onClick={() => save('lost', { lostReason: r.key })}>{r.label}</button>
             ))}
@@ -194,7 +196,7 @@ function AnswerDialog({ touch }: { touch: Touch }) {
 
         {step === 'signed' && (
           <div className="px-4 pt-3 space-y-3" data-signed>
-            <p className="text-sm text-gray-800">This moves {touch.name} to Signed Contract and makes the job on the Operations board. The follow ups stop.</p>
+            <p className="text-sm text-gray-800">This moves {touch.name} to {stageName(roleId('signed'))} and makes the job on the Operations board. The follow ups stop.</p>
             <div className="flex gap-2">
               <button type="button" className="btn btn-quiet flex-1" onClick={() => setStep('pick')}>Back</button>
               <button type="button" className="btn btn-primary flex-1" disabled={busy} onClick={() => save('signed')} data-save-signed>Signed</button>

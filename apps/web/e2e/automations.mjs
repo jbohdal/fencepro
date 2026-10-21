@@ -56,7 +56,11 @@ try {
   await p.waitForSelector('[data-automations]', { timeout: 60000 }); await sleep(800)
   const starters = await p.locator('[data-rule]').count()
   check('the screen shows the starter rules', starters >= 5, `${starters} rules`)
-  check('starter rules are switched off', (await p.locator('[data-rule] [role="switch"][aria-checked="true"]').count()) === 0)
+  // Starter rules come switched off; the owner may have switched some on since (live has two on, and
+  // dev is a copy of live), so the screen must show exactly what is saved on the server.
+  const savedOn = ((await call('/api/automations/rules')).json?.data ?? []).filter(r => r.enabled).length
+  const shownOn = await p.locator('[data-rule] [role="switch"][aria-checked="true"]').count()
+  check('the rule switches show what is saved (on or off)', shownOn === savedOn, `${shownOn} shown on, ${savedOn} saved on`)
   await shot(p, 'screen')
 
   // Build a rule: card moved into Estimating, make a task.

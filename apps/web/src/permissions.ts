@@ -10,7 +10,10 @@ import { useSyncExternalStore } from 'react'
 export type CrmRole = 'super_admin' | 'admin' | 'manager' | 'office_staff' | 'sales_rep' | 'field_crew'
 
 export type Action =
-  | 'settings.change' | 'prices.change' | 'users.manage' | 'system' | 'automations.change'
+  | 'settings.change'
+  /** Pipeline Stages, Lead Sources and Customer Tags: owner and admin only. */
+  | 'lists.change'
+  | 'prices.change' | 'users.manage' | 'system' | 'automations.change'
   | 'records.delete' | 'records.archive' | 'ops.delete' | 'schedule.change' | 'billing.change' | 'finance.change'
   | 'quotes.change' | 'permits.change' | 'packets.change' | 'inventory.stock' | 'records.import'
   /** See costs, margins, sub rates and profit; Salesman and Installer see prices only (the server never sends them costs). */
@@ -25,8 +28,8 @@ const FULL: Action[] = [
 ]
 
 export const ALLOWED: Record<CrmRole, ReadonlySet<Action>> = {
-  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system']),
-  admin: new Set([...FULL, 'records.delete', 'users.manage', 'system']),
+  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change']),
+  admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change']),
   manager: new Set(FULL),
   office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage']),
   sales_rep: new Set(['quotes.change', 'records.archive']),
@@ -36,6 +39,7 @@ export const ALLOWED: Record<CrmRole, ReadonlySet<Action>> = {
 /** The same sentences the server answers with. */
 export const REFUSAL: Record<Action, string> = {
   'settings.change': 'Your role cannot change settings. Ask Jonathan.',
+  'lists.change': 'Only the owner or an admin can change the pipeline stages, lead sources and tags.',
   'prices.change': 'Your role cannot change prices. Ask Jonathan.',
   'users.manage': 'Only the owner or an admin can manage users.',
   'system': 'Only the owner or an admin can use this.',

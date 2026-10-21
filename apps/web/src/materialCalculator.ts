@@ -221,6 +221,8 @@ export interface JobInputs {
   jobLot?: StyleJobLot
   /** Styles made in Settings (generated names, no parts list by name): the section width their kits are counted at. */
   sectionWidth?: number
+  /** Line posts beyond the runs' own (sections − 1 per run): vinyl tees from the yard layout (yardLayout.ts VINYL_TEE_POST). */
+  extraLinePosts?: number
 }
 
 export interface LineItem {
@@ -380,7 +382,7 @@ export function calculateMaterialsDetailed(inputs: JobInputs): MaterialResult {
   const perRun = w ? runs.map(ft => sectionsForRun(ft, w)) : null
   const counts: KitCounts = {
     section: perRun ? perRun.reduce((t, n) => t + n, 0) : totalSections(runs, s), section8: 0,
-    line: perRun ? calculateLinePostsPerRun(perRun).reduce((t, n) => t + n, 0) : totalLinePosts(runs, s), corner: corners, end: ends,
+    line: (perRun ? calculateLinePostsPerRun(perRun).reduce((t, n) => t + n, 0) : totalLinePosts(runs, s)) + extraLines(inputs.extraLinePosts), corner: corners, end: ends,
     blank: dblGates, walkGate: walkGates, dblGate: dblGates, perFoot: totalFt(runs), perJob: 1,
   }
   return fromKits(s, counts, inputs.tearOutSections, inputs.tearOutGates, () => legacyNotes(() => legacyCalculateMaterialsDetailed(inputs)), inputs.jobLot)
@@ -393,7 +395,7 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
           tearOutSections, tearOutGates } = inputs
 
   const sections = totalSections(runs, s)
-  const linePosts = totalLinePosts(runs, s)
+  const linePosts = totalLinePosts(runs, s) + extraLines(inputs.extraLinePosts)
   const totalFootage = totalFt(runs)
   const totalPostCount = corners + ends + linePosts
   // blank posts = double gate count (posts between double gate panels)
@@ -458,29 +460,37 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     if (gateOpenings > 0) {
       add("*Vinyl, Gate, Handle", gateOpenings * 2, 5.98)
     }
+    // Bell 4'x6' gates (TAKEOFF_RULES rows that list "WV-ND Bell 4'x6'"; Jonathan, Oct 21, 2026:
+    // "A Bell gate is built from a gate kit (hardware and uprights) plus one fence section"):
+    // each leaf takes one section of the parts above (panelCount, the "Misc, 6' Section" row
+    // gateCount + totalSections, priced as 6'x6' privacy for now), "Misc, Gate Kit, No Hardware"
+    // gateCount*2, and the shared vinyl gate rows: handle, H-beam 6', brace, hinge, latch,
+    // upright, rivet. The Bell is not in the P-channel, gate cap, H-beam hex or H-beam 8' rows.
+    const bell = s === "WV-ND Bell 4'x6'"
+    if (bell && gateOpenings > 0) add("Misc, Gate Kit, No Hardware", gateOpenings * 2, 57.00)
     // Walk gate hardware
     if (walkGates > 0) {
       add("*Vinyl, Gate, H-Beam, 6'", walkGates * 2, 22.80)
       add("*Vinyl, Gate, Brace", walkGates, 36.37)
       add("*Vinyl, Gate, Hinge", walkGates, 29.03)
       add("*Vinyl, Gate, Latch", walkGates, 20.46)
-      add("*Vinyl, White, Cap, Gate", walkGates * 2, 1.00)
+      if (!bell) add("*Vinyl, White, Cap, Gate", walkGates * 2, 1.00)
       add("*Vinyl, White, Upright", walkGates * 2, 8.75)
-      add("*Vinyl, Gate, P-Channel, 6'", walkGates, 12.30)
-      add("*Vinyl, Hex, 1/4 x 3/4\" (H-Beam)", walkGates * 6, 0.05)
+      if (!bell) add("*Vinyl, Gate, P-Channel, 6'", walkGates, 12.30)
+      if (!bell) add("*Vinyl, Hex, 1/4 x 3/4\" (H-Beam)", walkGates * 6, 0.05)
       add("*Vinyl, White, Rivet, 1\"", walkGates * 50, 0.12)
     }
     // Double gate hardware — each dbl gate = 2 panels
     if (dblGates > 0) {
       add("*Vinyl, Gate, H-Beam, 6'", dblGates * 2, 22.80)
-      add("*Vinyl, Gate, H-Beam, 8'", dblGates, 29.60)
+      if (!bell) add("*Vinyl, Gate, H-Beam, 8'", dblGates, 29.60)
       add("*Vinyl, Gate, Brace", dblGates * 2, 36.37)
       add("*Vinyl, Gate, Hinge", dblGates * 2, 29.03)
       add("*Vinyl, Gate, Latch", dblGates * 2, 20.46)
-      add("*Vinyl, White, Cap, Gate", dblGates * 4, 1.00)
+      if (!bell) add("*Vinyl, White, Cap, Gate", dblGates * 4, 1.00)
       add("*Vinyl, White, Upright", dblGates * 4, 8.75)
-      add("*Vinyl, Gate, P-Channel, 6'", dblGates * 2, 12.30)
-      add("*Vinyl, Hex, 1/4 x 3/4\" (H-Beam)", dblGates * 12, 0.05)
+      if (!bell) add("*Vinyl, Gate, P-Channel, 6'", dblGates * 2, 12.30)
+      if (!bell) add("*Vinyl, Hex, 1/4 x 3/4\" (H-Beam)", dblGates * 12, 0.05)
       add("*Vinyl, White, Rivet, 1\"", dblGates * 100, 0.12)
     }
   }
@@ -1006,6 +1016,13 @@ export interface MixedJobInputs {
   kitKey?: string
   /** A color priced by the piece (job lot). */
   jobLot?: StyleJobLot
+  /** Line posts beyond the runs' own (sections − 1 per run): vinyl tees from the yard layout (yardLayout.ts VINYL_TEE_POST). */
+  extraLinePosts?: number
+}
+
+/** Whole line posts to add (a missing or bad count adds none). */
+function extraLines(n: number | undefined): number {
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.round(n) : 0
 }
 
 /** Section count for a single run at the chosen rail width. */
@@ -1033,6 +1050,7 @@ export function calculateMixedMaterialsDetailed(input: MixedJobInputs): Material
     else section += sec
     if (sec > 1) line += sec - 1
   }
+  line += extraLines(input.extraLinePosts)
   const counts: KitCounts = {
     section, section8, line, corner: input.corners, end: input.ends, blank: input.dblGates,
     walkGate: input.walkGates, dblGate: input.dblGates, perFoot: input.runs.reduce((t, r) => t + r.ft, 0), perJob: 1,
@@ -1066,6 +1084,7 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
     else sections6 += sec
     if (sec > 1) linePosts += sec - 1
   }
+  linePosts += extraLines(input.extraLinePosts)
   // Gate leaves take panel goods like a section, as on the locked styles (a
   // double gate is two leaves). They use the 8 ft kit only when every run is
   // 8 ft, so an all 6 or all 8 job matches the 6'x6' or 6'x8' style exactly.

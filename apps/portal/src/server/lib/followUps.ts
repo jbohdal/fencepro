@@ -24,24 +24,33 @@ import prisma from './prisma.js'
 import { isFullRole } from './permissions.js'
 import {
   applyAnswer, badgeFor, cleanConfig, defaultConfig, dueStatus, floridaDay, floridaHour, isDay, keepGoing,
-  MUST_HAVE_FOLLOW_UP, setNext, stageSinceOf, startState, stopsSteps, reconcile, addDays, daysBetween,
-  type Answer, type Channel, type FollowUpConfig, type FollowUpState, type LostReason, type Outcome,
+  mustHaveFollowUp, setNext, stageSinceOf, startState, stopsSteps, reconcile, addDays, daysBetween,
+  type Answer, type Channel, type FollowUpConfig, type FollowUpState, type FollowUpStages, type LostReason, type Outcome,
 } from './followUpRules.js'
+import { loadPipelineStages } from './pipelineStages.js'
+import { followUpStagesOf } from './pipelineStageModel.js'
 import { openedForCard, longestOption, optionWords, viewHistoryItem, type Opened } from './proposalViewRules.js'
 
 type Tx = any
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
-export async function loadConfig(accountId: string, db: Tx = prisma): Promise<{ config: FollowUpConfig; version: number }> {
-  const row = await db.followUpSettings.findUnique({ where: { accountId } })
-  if (!row) return { config: defaultConfig(), version: 0 }
-  try { return { config: cleanConfig({ steps: row.steps, templates: row.templates }), version: row.version } } catch { return { config: defaultConfig(), version: row.version } }
+/** What the rules need to know of Settings > Pipeline Stages (which stages stop the steps, need one, take Signed and Lost). */
+export async function followUpStagesFor(accountId: string, db: Tx = prisma): Promise<FollowUpStages> {
+  return followUpStagesOf((await loadPipelineStages(accountId, db)).stages)
 }
 
-/** Save Settings > Follow ups on the version it was built on. Returns null when someone saved in between. */
+export async function loadConfig(accountId: string, db: Tx = prisma): Promise<{ config: FollowUpConfig; version: number; st: FollowUpStages }> {
+  const st = await followUpStagesFor(accountId, db)
+  const row = await db.followUpSettings.findUnique({ where: { accountId } })
+  if (!row) return { config: defaultConfig(st), version: 0, st }
+  try { return { config: cleanConfig({ steps: row.steps, templates: row.templates }), version: row.version, st } } catch { return { config: defaultConfig(st), version: row.version, st } }
+}
+
+/** Save Settings > Follow ups on the version it was built on. Returns null when someone saved in between. Steps only for stages in the list. */
 export async function saveConfig(accountId: string, input: unknown, baseVersion: number, userId: string): Promise<{ config: FollowUpConfig; version: number } | null> {
-  const config = cleanConfig(input)
+  const { stages } = await loadPipelineStages(accountId)
+  const config = cleanConfig(input, Object.fromEntries(stages.map(x => [x.id, x.name])))
   if (baseVersion === 0) {
     try {
       const made = await prisma.followUpSettings.create({ data: { accountId, steps: config.steps as any, templates: config.templates as any, updatedBy: userId } })
@@ -92,7 +101,7 @@ export async function onCardMoves(db: Tx, accountId: string, before: any[], afte
   if (gone.length) await db.cardFollowUp.deleteMany({ where: { accountId, cardId: { in: gone } } })
   const moved = after.filter(l => l?.id && l.stage && was.get(l.id)?.stage !== l.stage)
   if (!moved.length) return gone.length
-  const { config } = await loadConfig(accountId, db)
+  const { config, st } = await loadConfig(accountId, db)
   const rows = await db.cardFollowUp.findMany({ where: { accountId, cardId: { in: moved.map(l => l.id) } } })
   const have = new Map<string, any>(rows.map((r: any) => [r.cardId, r]))
   let n = 0
@@ -100,7 +109,7 @@ export async function onCardMoves(db: Tx, accountId: string, before: any[], afte
     const row = have.get(card.id)
     const prev = row ? toState(row) : null
     // A card that was never followed up and enters a stage without steps gets no row.
-    const next = startState(card.stage, today, config, prev ?? undefined)
+    const next = startState(card.stage, today, config, st, prev ?? undefined)
     if (!row && !next.dueOn && !next.stoppedReason) continue
     if (!row && next.stoppedReason) continue
     await saveState(db, accountId, card.id, next)
@@ -170,14 +179,18 @@ export interface CardRow {
   state: FollowUpState | null
   /** Customer opens of the proposal sent (null: none sent, nothing shown). */
   opened: Opened | null
+  /** The card's stage stops the steps (a Sold stage: signed; the Lost stage: lost), by Settings > Pipeline Stages. */
+  stopped: 'signed' | 'lost' | null
+  /** The card's stage needs a follow up ("No follow up set" when it has none). */
+  mustHave: boolean
 }
 
 /** A card's value: the customer's newest open quote (sent beats draft on the same day), else what the card says. Whole dollars to cents. */
-function valueOf(card: any, quotes: Array<{ crmContactId: string | null; status: string; date: string; finalPrice: number }>): number {
+function valueOf(card: any, quotes: Array<{ crmContactId: string | null; status: string; date: string; finalPrice: number }>, st: FollowUpStages): number {
   const mine = card.customerId ? quotes.filter(q => q.crmContactId === card.customerId) : []
   const latest = (list: typeof mine) => list.reduce<(typeof mine)[number] | undefined>((b, q) => (!b || (q.date || '') > (b.date || '') ? q : b), undefined)
   let q: (typeof mine)[number] | undefined
-  if (stopsSteps(card.stage) === 'signed') q = latest(mine.filter(x => x.status === 'SOLD'))
+  if (stopsSteps(card.stage, st) === 'signed') q = latest(mine.filter(x => x.status === 'SOLD'))
   else {
     const sent = latest(mine.filter(x => x.status === 'SENT')), draft = latest(mine.filter(x => x.status === 'DRAFT'))
     q = sent && draft ? ((draft.date || '') > (sent.date || '') ? draft : sent) : sent || draft
@@ -187,9 +200,9 @@ function valueOf(card: any, quotes: Array<{ crmContactId: string | null; status:
 }
 
 /** Every card of the company with its follow up as it stands today. */
-export async function cardRows(accountId: string, now = new Date()): Promise<{ rows: CardRow[]; config: FollowUpConfig; people: Person[]; today: string }> {
+export async function cardRows(accountId: string, now = new Date()): Promise<{ rows: CardRow[]; config: FollowUpConfig; st: FollowUpStages; people: Person[]; today: string }> {
   const today = floridaDay(now)
-  const [pipe, { config }, states, quotes, who] = await Promise.all([
+  const [pipe, { config, st }, states, quotes, who] = await Promise.all([
     prisma.pipelineState.findUnique({ where: { accountId }, select: { leads: true } }),
     loadConfig(accountId),
     prisma.cardFollowUp.findMany({ where: { accountId } }),
@@ -205,7 +218,7 @@ export async function cardRows(accountId: string, now = new Date()): Promise<{ r
   const opens = quotes.map(x => ({ crmContactId: x.crmContactId, status: String(x.status), shareToken: x.shareToken, viewCount: x.viewCount, lastViewedAt: x.lastViewedAt, acceptedAt: x.acceptedAt }))
   const rows: CardRow[] = leads.map(card => {
     const row = byCard.get(card.id)
-    const state = reconcile(row ? toState(row) : null, card, config, today)
+    const state = reconcile(row ? toState(row) : null, card, config, today, st)
     const owner = who.byName(card.assignedRep) ?? who.people.find(p => p.id === row?.ownerUserId) ?? who.owner
     const s = dueStatus(state, today)
     const steps = config.steps[card.stage] ?? []
@@ -214,18 +227,20 @@ export async function cardRows(accountId: string, now = new Date()): Promise<{ r
       cardId: card.id, customerId: card.customerId ?? null,
       name: `${card.firstName ?? ''} ${card.lastName ?? ''}`.trim() || 'Customer', firstName: String(card.firstName ?? ''),
       stage: card.stage, phone: String(card.phone || phoneOf.get(card.customerId) || ''), address: String(card.address || ''),
-      valueCents: valueOf(card, q),
+      valueCents: valueOf(card, q, st),
       ownerId: owner?.id ?? null, ownerName: owner?.name ?? '',
       dueOn: state?.dueOn ?? null, dueKind: state?.dueKind ?? 'call', status: s.status, days: s.days,
       stepIndex: state && state.stage === card.stage ? state.stepIndex : 0, stepCount: steps.length,
       lastOutcome: state?.lastOutcome ?? null, lastContactAt: state?.lastContactAt ?? null,
       daysSinceContact: last ? daysBetween(last, today) : null, touches: state?.touches ?? 0,
-      badge: badgeFor(state, card.stage, today),
+      badge: badgeFor(state, card.stage, today, st),
       state,
       opened: openedForCard(card, opens),
+      stopped: stopsSteps(card.stage, st),
+      mustHave: mustHaveFollowUp(card.stage, st),
     }
   })
-  return { rows, config, people: who.people, today }
+  return { rows, config, st, people: who.people, today }
 }
 
 export interface OpenedRow extends CardRow { openedAt: string; openedDevice: string; openedLongest: string; openedTimes: number }
@@ -256,7 +271,7 @@ export async function openedLastDay(accountId: string, rows: CardRow[], now = ne
   const out: OpenedRow[] = []
   for (const r of rows) {
     const hit = byCard.get(r.cardId)
-    if (!hit || stopsSteps(r.stage)) continue
+    if (!hit || r.stopped) continue
     const options = optionsOf.get(hit.v.quoteId) ?? []
     const top = longestOption(hit.v.optionMs as Record<string, number>)
     out.push({ ...r, openedAt: hit.v.startedAt.toISOString(), openedDevice: hit.v.device, openedLongest: top && options.length > 1 ? optionWords(options[top.index]) : '', openedTimes: hit.times })
@@ -269,7 +284,7 @@ export async function followUpList(accountId: string, viewer: { id: string; role
   const { rows, people, today } = await cardRows(accountId)
   const all = seesEveryone(viewer.role)
   const who = all ? (rep || null) : viewer.id
-  const open = rows.filter(r => !stopsSteps(r.stage) && (r.status === 'overdue' || r.status === 'today' || r.status === 'upcoming' || (r.status === 'none' && MUST_HAVE_FOLLOW_UP.includes(r.stage))))
+  const open = rows.filter(r => !r.stopped && (r.status === 'overdue' || r.status === 'today' || r.status === 'upcoming' || (r.status === 'none' && r.mustHave)))
   const mine = who ? open.filter(r => r.ownerId === who) : open
   const by = (a: CardRow, b: CardRow) => (a.dueOn || '').localeCompare(b.dueOn || '') || b.valueCents - a.valueCents
   // The rep picker: everyone who owns a card with a follow up (the owner and office only).
@@ -309,16 +324,16 @@ export async function logCall(accountId: string, user: { id: string; name: strin
     const had = await tx.callLog.findUnique({ where: { id: input.id } })
     const pipe = await tx.pipelineState.findUnique({ where: { accountId }, select: { leads: true } })
     const card = ((pipe?.leads as any[]) ?? []).find(l => l?.id === input.cardId)
-    const { config } = await loadConfig(accountId, tx)
+    const { config, st } = await loadConfig(accountId, tx)
     const row = await tx.cardFollowUp.findUnique({ where: { accountId_cardId: { accountId, cardId: input.cardId } } })
     if (had) {
       if (had.accountId !== accountId) throw Object.assign(new Error('That id is taken.'), { status: 409 })
-      return { state: row ? toState(row) : startState(card?.stage ?? had.stage, today, config), already: true, log: had }
+      return { state: row ? toState(row) : startState(card?.stage ?? had.stage, today, config, st), already: true, log: had }
     }
     if (!card) throw Object.assign(new Error('That card is not on the pipeline any more.'), { status: 404 })
-    const before = reconcile(row ? toState(row) : null, card, config, today)
+    const before = reconcile(row ? toState(row) : null, card, config, today, st)
     const answer: Answer = { outcome: input.outcome, pickedOn: input.pickedOn ?? null, today, at: at.toISOString() }
-    const next = applyAnswer(row ? toState(row) : null, card, config, answer)
+    const next = applyAnswer(row ? toState(row) : null, card, config, answer, st)
     const log = await tx.callLog.create({
       data: {
         id: input.id, accountId, cardId: input.cardId, crmContactId: card.customerId ?? null, userId: user.id, userName: user.name,
@@ -342,10 +357,10 @@ export async function changeNext(accountId: string, userId: string, cardId: stri
     const pipe = await tx.pipelineState.findUnique({ where: { accountId }, select: { leads: true } })
     const card = ((pipe?.leads as any[]) ?? []).find(l => l?.id === cardId)
     if (!card) throw Object.assign(new Error('That card is not on the pipeline any more.'), { status: 404 })
-    const { config } = await loadConfig(accountId, tx)
+    const { config, st } = await loadConfig(accountId, tx)
     const row = await tx.cardFollowUp.findUnique({ where: { accountId_cardId: { accountId, cardId } } })
     const prev = row ? toState(row) : null
-    const next = change.keep ? keepGoing(reconcile(prev, card, config, today), card, config, today) : setNext(prev, card, config, change.dueOn ?? null, today)
+    const next = change.keep ? keepGoing(reconcile(prev, card, config, today, st), card, config, today, st) : setNext(prev, card, config, change.dueOn ?? null, today, st)
     await saveState(tx, accountId, cardId, next, row?.ownerUserId ? null : userId)
     return next
   }, { timeout: 15_000 })
@@ -353,10 +368,10 @@ export async function changeNext(accountId: string, userId: string, cardId: stri
 
 // ── Item j: a first follow up on the open cards that have none ──────────────
 
-/** Open cards in Estimating and Pending Signature with no follow up set, by owner. Reads only. */
+/** Open cards in stages that need a follow up with none set, by owner. Reads only. */
 export async function firstFollowUpPreview(accountId: string) {
   const { rows, today } = await cardRows(accountId)
-  const cards = rows.filter(r => MUST_HAVE_FOLLOW_UP.includes(r.stage) && r.status === 'none')
+  const cards = rows.filter(r => r.mustHave && r.status === 'none')
   const byOwner = new Map<string, { ownerId: string | null; name: string; count: number }>()
   for (const r of cards) {
     const k = r.ownerId ?? ''
@@ -369,7 +384,7 @@ export async function firstFollowUpPreview(accountId: string) {
 
 /**
  * Set a first follow up, due tomorrow, for the card's owner, on every open
- * Estimating and Pending Signature card that has none. Only when the owner
+ * card in a stage that needs one and has none. Only when the owner
  * presses the button (never at start-up). One at a time per company (a lock),
  * in one transaction; a card that got a follow up meanwhile is left alone.
  */
@@ -383,15 +398,15 @@ export async function runFirstFollowUp(accountId: string): Promise<{ set: number
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'followup-first:' + accountId}))`
     const pipe = await tx.pipelineState.findUnique({ where: { accountId }, select: { leads: true } })
     const leads = new Map((((pipe?.leads as any[]) ?? []).filter(l => l?.id)).map(l => [l.id, l]))
-    const { config } = await loadConfig(accountId, tx)
+    const { config, st } = await loadConfig(accountId, tx)
     let set = 0
     for (const cardId of preview.cardIds) {
       const card = leads.get(cardId)
-      if (!card || !MUST_HAVE_FOLLOW_UP.includes(card.stage)) continue
+      if (!card || !mustHaveFollowUp(card.stage, st)) continue
       const row = await tx.cardFollowUp.findUnique({ where: { accountId_cardId: { accountId, cardId } } })
-      const now = reconcile(row ? toState(row) : null, card, config, today)
+      const now = reconcile(row ? toState(row) : null, card, config, today, st)
       if (now?.dueOn && !now.stoppedReason) continue
-      const base = now ?? startState(card.stage, stageSinceOf(card, today), config)
+      const base = now ?? startState(card.stage, stageSinceOf(card, today), config, st)
       const next: FollowUpState = { ...base, stage: card.stage, dueOn: dueOn, dueKind: 'call', setBy: 'first', stoppedReason: null }
       await saveState(tx, accountId, cardId, next, owners.get(cardId) ?? null)
       set++
@@ -421,7 +436,7 @@ export interface MorningMessage { userId: string; email: string; name: string; t
 export function morningMessages(rows: CardRow[], people: Person[]): MorningMessage[] {
   const out: MorningMessage[] = []
   for (const p of people) {
-    const mine = rows.filter(r => r.ownerId === p.id && !stopsSteps(r.stage) && (r.status === 'today' || r.status === 'overdue'))
+    const mine = rows.filter(r => r.ownerId === p.id && !r.stopped && (r.status === 'today' || r.status === 'overdue'))
     if (!mine.length) continue
     const overdue = mine.filter(r => r.status === 'overdue').length
     const names = mine.slice().sort((a, b) => (a.dueOn || '').localeCompare(b.dueOn || '')).slice(0, 4).map(r => r.name)
@@ -591,21 +606,21 @@ export interface RepReport {
 
 /**
  * Follow ups done and missed per rep, average touches to close, and the
- * dollars in Estimating and Pending Signature cards with no follow up set.
+ * dollars in cards with no follow up set in stages that need one.
  *   done     an answer logged on or before the day its follow up was due
  *   missed   an answer logged after that day, and follow ups overdue now
  *   touches  calls and texts logged on a card before it was signed
  */
 export async function followUpReport(accountId: string, viewer: { id: string; role: string | null }, from: string, to: string) {
-  const { rows, people, today } = await cardRows(accountId)
+  const { rows, people, today, st } = await cardRows(accountId)
   // A day either side, then exactly the Florida days from `from` to `to`.
   const start = new Date(`${addDays(from, -1)}T00:00:00Z`), end = new Date(`${addDays(to, 2)}T00:00:00Z`)
   const inRange = (d: Date) => { const day = floridaDay(d); return day >= from && day <= to }
   const calls = (await prisma.callLog.findMany({ where: { accountId, at: { gte: start, lt: end } }, select: { userId: true, userName: true, cardId: true, outcome: true, at: true, dueOn: true } })).filter(c => inRange(c.at))
-  // Cards signed in the period: an answer "Signed", or the card moved into Signed Contract.
+  // Cards signed in the period: an answer "Signed", or the card moved into the Signed stage.
   const moved = (await prisma.automationEvent.findMany({ where: { accountId, type: 'card_entered', board: 'sales', occurredAt: { gte: start, lt: end } }, select: { entityId: true, data: true, occurredAt: true } })).filter(e => inRange(e.occurredAt))
   const signedAt = new Map<string, Date>()
-  for (const e of moved) if ((e.data as any)?.stage === 'Signed Contract') { const was = signedAt.get(e.entityId); if (!was || e.occurredAt < was) signedAt.set(e.entityId, e.occurredAt) }
+  for (const e of moved) if ((e.data as any)?.stage === st.signed) { const was = signedAt.get(e.entityId); if (!was || e.occurredAt < was) signedAt.set(e.entityId, e.occurredAt) }
   for (const c of calls) if (c.outcome === 'signed' && c.cardId) { const was = signedAt.get(c.cardId); if (!was || c.at < was) signedAt.set(c.cardId, c.at) }
   const signedCards = [...signedAt.keys()]
   const touchRows = signedCards.length ? await prisma.callLog.findMany({ where: { accountId, cardId: { in: signedCards } }, select: { cardId: true, at: true, outcome: true } }) : []
@@ -629,9 +644,9 @@ export async function followUpReport(accountId: string, viewer: { id: string; ro
     if (floridaDay(c.at) <= c.dueOn) r.onTime++; else r.late++
   }
   for (const row of rows) {
-    if (stopsSteps(row.stage)) continue
+    if (row.stopped) continue
     if (row.status === 'overdue') repFor(row.ownerId).overdueNow++
-    if (row.status === 'none' && MUST_HAVE_FOLLOW_UP.includes(row.stage)) { const r = repFor(row.ownerId); r.noFollowUpCents += row.valueCents; r.noFollowUpCards++ }
+    if (row.status === 'none' && row.mustHave) { const r = repFor(row.ownerId); r.noFollowUpCents += row.valueCents; r.noFollowUpCards++ }
   }
   const touchSum = new Map<string, { cards: number; touches: number }>()
   for (const cardId of signedCards) {

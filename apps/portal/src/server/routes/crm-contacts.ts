@@ -15,6 +15,9 @@
  *   POST   /sync        — bulk upsert from a localStorage payload (best-effort migration)
  */
 
+import { canonicalWord, canonicalTags } from '../lib/optionLists.js'
+import { loadPipelineStages } from '../lib/pipelineStages.js'
+import { stageById, roleStageId } from '../lib/pipelineStageModel.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
@@ -162,12 +165,27 @@ class PipelineBusy extends Error {}
 router.post('/', requireAccount, async (req: any, res) => {
   try {
     const data = contactSchema.parse(req.body)
+    // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
+    data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? undefined
+    if (data.tags) data.tags = (await canonicalTags(req.user.crmAccountId, data.tags)) as string[]
     // An id the server cannot use (an older app made short ones) is replaced, not refused.
     const parsedId = clientIdSchema.safeParse(req.body?.id)
     const clientId = parsedId.success ? parsedId.data : undefined
     const card = req.body?.lead ? newCardSchema.parse(req.body.lead) : null
     const before = typeof req.body?.leadBefore === 'string' ? req.body.leadBefore : null
     const accountId = req.user.crmAccountId
+    // A new customer's card in a stage that is not in Settings > Pipeline Stages (an old app, a stage
+    // deleted meanwhile) lands in the "new cards land here" stage instead; logged so it shows up.
+    if (card) {
+      const { stages } = await loadPipelineStages(accountId)
+      const sent = typeof (card as any).stage === 'string' ? (card as any).stage : ''
+      if (!stageById(stages, sent)) {
+        const first = roleStageId(stages, 'first') ?? ''
+        console.warn(`[crm-contacts] new card ${card.id} by ${req.user?.email ?? req.user?.id}: stage "${sent}" is not in Settings > Pipeline Stages; put in "${first}"`)
+        await audit(req, 'update', 'PipelineState', accountId, { newValues: { unknownStageOnNewCard: { cardId: card.id, sent, putIn: first } } })
+        ;(card as any).stage = first
+      }
+    }
     let decision = await decideClientId(clientId, accountId, id => prisma.crmContact.findUnique({ where: { id } }))
 
     let result: { contact: any; isNew: boolean; pipelineVersion: number | null } | null = null
@@ -251,6 +269,9 @@ router.post('/', requireAccount, async (req: any, res) => {
 router.patch('/:id', requireAccount, async (req: any, res) => {
   try {
     const data = updateSchema.parse(req.body)
+    // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
+    if (data.leadSource !== undefined) data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? undefined
+    if (data.tags) data.tags = (await canonicalTags(req.user.crmAccountId, data.tags)) as string[]
     const existing = await prisma.crmContact.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.deletedAt) { res.status(404).json({ success: false, error: 'Contact not found' }); return }
     if (existing.accountId !== req.user.crmAccountId) {

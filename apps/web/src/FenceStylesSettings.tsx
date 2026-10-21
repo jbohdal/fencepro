@@ -31,6 +31,7 @@ import { getQuotes } from './quoteStore'
 import { getJobs } from './jobStore'
 import { isQuotable } from './styleAvailability'
 import { toast } from './toast'
+import { navigate } from './nav'
 import { KIT_LABEL } from './materialKits'
 import {
   catalogOf, colorDimOf, colorStatus, colorShape, coverageWarnings, defaultCovers, materialOf, optionOf, piecePartChoices,
@@ -183,6 +184,7 @@ function MaterialCard({ m, config, catalog, onToggleMaterial, onToggleOption, on
                 <span className="flex-1 min-w-0">
                   <span className={`block text-sm ${isQuotable(s) ? 'text-gray-900' : 'text-gray-400'}`}>{s.label || s.name}</span>
                   {!isQuotable(s) && <span className="block text-xs text-amber-700">Not available for quoting{s.held ? `: ${s.held}` : ''}</span>}
+                  {s.needsCostReview && <CostReviewBadge name={s.name} />}
                 </span>
                 <Switch on={s.quotable !== false} onClick={() => updateStyle(s.id, { quotable: s.quotable === false })} label={`${s.label || s.name} available for quoting`} data-style-quotable={s.name} />
               </li>
@@ -236,6 +238,17 @@ function OptionRow({ m, d, o, config, count, onToggle, onEdit, addColor }: {
 
 // ── Labor and profit per fence ───────────────────────────────────────────────
 
+/** A style priced with stand-in parts until the real supplier cost is entered (the Bell); clears when its kits are saved. */
+function CostReviewBadge({ name }: { name: string }) {
+  return (
+    <button type="button" onClick={() => navigate(`/inventory?tab=kits&style=${encodeURIComponent(name)}`)} data-style-cost-review={name}
+      className="inline-block mt-0.5 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 underline-offset-2 hover:underline"
+      title="Priced as a 6'x6' vinyl privacy section for now. Enter the real supplier cost in Inventory > Material Kits.">
+      Cost to review
+    </button>
+  )
+}
+
 function StyleTable({ styles, config, updateStyle }: { styles: FenceStyle[]; config: AppConfig; updateStyle: (id: string, patch: Partial<FenceStyle>) => void }) {
   const num = 'w-16 text-right border border-gray-200 rounded px-1 min-h-[36px] text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400'
   return (
@@ -266,6 +279,7 @@ function StyleTable({ styles, config, updateStyle }: { styles: FenceStyle[]; con
                   <span className="block font-medium text-gray-900">{style.label || style.name}</span>
                   <span className="block text-[11px] text-gray-400" title="Internal name: what saved quotes, kits and tiers use">{style.name}</span>
                   {!isQuotable(style) && <span className="block text-xs text-amber-700" data-style-on-hold>Not available for quoting{style.held ? `: ${style.held}` : ''}</span>}
+                  {style.needsCostReview && <CostReviewBadge name={style.name} />}
                 </td>
                 <td className="px-2 py-2.5">
                   <select className="border border-gray-200 rounded px-1 min-h-[36px] text-xs" value={style.category} onChange={e => updateStyle(style.id, { category: e.target.value as FenceStyle['category'] })}>

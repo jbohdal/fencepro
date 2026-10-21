@@ -13,6 +13,7 @@
  * apps/portal/src/server/lib/appointments.ts; a test checks they match.
  */
 
+import { stageAfterBooking as modelStageAfterBooking, stageAfterOutcome as modelStageAfterOutcome, type PipelineStageDef } from './pipelineStageModel'
 import { distanceMiles, type LatLng } from './geoUtils'
 
 /* ── Names ───────────────────────────────────────────────────────────────── */
@@ -208,23 +209,15 @@ export function overlapWarnings(slot: { startAt: string; endAt: string; person: 
 
 /* ── Pipeline ────────────────────────────────────────────────────────────── */
 
-/** Where booking moves the customer's card, or null to leave it. */
-export function stageAfterBooking(currentStage: string | null | undefined, type: AppointmentType, stages: string[]): string | null {
-  if (type !== 'estimate' || !currentStage) return null
-  const at = stages.indexOf(currentStage), target = stages.indexOf('Appointment')
-  return target >= 0 && at >= 0 && at < target ? 'Appointment' : null
+/** Where booking moves the customer's card (the Appointment stage, when the card is before it), or null to leave it. By role, from Settings > Pipeline Stages. */
+export function stageAfterBooking(currentStage: string | null | undefined, type: AppointmentType, stages: PipelineStageDef[]): string | null {
+  return modelStageAfterBooking(stages, currentStage, type)
 }
 
-/** What closing out an appointment does to the card: move it, offer a move, or nothing. */
-export function stageAfterOutcome(currentStage: string | null | undefined, outcome: AppointmentOutcome, stages: string[]):
+/** What closing out an appointment does to the card: Ready to quote moves it to the Ready to quote stage, Not interested offers the Lost stage. */
+export function stageAfterOutcome(currentStage: string | null | undefined, outcome: AppointmentOutcome, stages: PipelineStageDef[]):
   { move?: string; offer?: string } {
-  if (!currentStage) return {}
-  if (outcome === 'ready_to_quote') {
-    const at = stages.indexOf(currentStage), target = stages.indexOf('Estimating')
-    return target >= 0 && at >= 0 && at < target ? { move: 'Estimating' } : {}
-  }
-  if (outcome === 'not_interested' && currentStage !== 'Lost Sale' && stages.includes('Lost Sale')) return { offer: 'Lost Sale' }
-  return {}
+  return modelStageAfterOutcome(stages, currentStage, outcome)
 }
 
 /** The status an outcome closes an appointment with. */

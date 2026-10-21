@@ -1,4 +1,5 @@
 import type { QuoteProposal } from './proposal'
+import { sourceLabel } from './optionListsStore'
 import type { QuoteJobRequest } from './quoteJob'
 import { styleLabel } from './fenceCatalog'
 import type { QuoteLayoutRecord } from './yardLayout'
@@ -201,7 +202,8 @@ function PipelineAnalytics({ quotes }: { quotes: SavedQuote[] }) {
   const byLeadSource = useMemo(() => {
     const sources: Record<string, { opp: number, sold: number }> = {}
     quotes.forEach(q => {
-      const src = q.leadSource || 'Unknown'
+      // By option (Settings > Lead Sources): merged words and capital letter twins add up, under the option's name.
+      const src = q.leadSource ? sourceLabel(q.leadSource) : 'Unknown'
       if (!sources[src]) sources[src] = { opp: 0, sold: 0 }
       sources[src].opp++
       if (q.status === 'SOLD') sources[src].sold++
@@ -353,7 +355,7 @@ function QuoteDrawer({
               { label: 'Phone',       value: quote.customerPhone },
               { label: 'Email',       value: quote.customerEmail },
               { label: 'Address',     value: quote.customerAddress },
-              { label: 'Lead Source', value: quote.leadSource },
+              { label: 'Lead Source', value: sourceLabel(quote.leadSource) },
               { label: 'Sales Rep',   value: quote.salesRep },
             ].filter(r => r.value).map(r => (
               <div key={r.label} className="flex gap-3">
