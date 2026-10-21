@@ -97,6 +97,7 @@ import followUpRoutes from './routes/follow-ups.js'
 import opsStagesRoutes from './routes/ops-stages.js'
 import pipelineStagesRoutes from './routes/pipeline-stages.js'
 import optionListsRoutes from './routes/option-lists.js'
+import vinylColorRoutes from './routes/vinyl-colors.js'
 import { ensureOptionListsAll } from './lib/optionLists.js'
 import { ensurePipelineStageListAll } from './lib/pipelineStages.js'
 import { ensureOpsStageListAll } from './lib/opsStages.js'
@@ -264,6 +265,7 @@ app.use('/api/kv', kvRoutes)
 app.use('/api/ops-stages', opsStagesRoutes)
 app.use('/api/pipeline-stages', pipelineStagesRoutes)
 app.use('/api/option-lists', optionListsRoutes)
+app.use('/api/vinyl-colors', vinylColorRoutes)
 app.use('/api/intake', intakeRoutes)
 app.use('/api/scheduled-deletions', scheduledDeletionRoutes)
 app.use('/api/deleted-records', deletedRecordRoutes)

@@ -96,7 +96,10 @@ try {
   const rows = await b.locator('[data-compare-row]').count()
   const sixRow = (await b.locator(`[data-compare-row="${SIX}"]`).textContent()).replace(/\s+/g, ' ')
   // Every active 6 ft tall vinyl style: white/tan × no dig/dig set × 6/8 wide.
-  check('compare: white vs tan, no dig vs dig set, 6 vs 8 wide', rows >= 7 && rows <= 8, `${rows} rows`)
+  // Colors added with Settings > Vinyl Colors (Chai Gray on the dev copy) are compared too, on top of white and tan.
+  const keys = await b.locator('[data-compare-row]').evaluateAll(els => els.map(e => e.getAttribute('data-compare-row')))
+  const wt = keys.filter(k => /^(WV|TV)-/.test(k)).length
+  check('compare: white vs tan, no dig vs dig set, 6 vs 8 wide (plus any added color)', wt >= 7 && wt <= 8, `${rows} rows: ${keys.join(', ')}`)
   check('compare: shows what each costs against this quote', /\+\$[\d,]+\.\d\d/.test(sixRow), sixRow)
   await b.locator(`[data-compare-row="${TAN}"] input`).check()
   await b.locator(`[data-compare-row="${SIX}"] input`).check()

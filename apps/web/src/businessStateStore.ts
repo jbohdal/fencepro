@@ -207,6 +207,22 @@ export function initBusinessState(): Promise<void> {
 /** True once business state has loaded from the server. */
 export function isBusinessStateHydrated(): boolean { return hydrated }
 
+/**
+ * Read Settings and business data again from the server: the server changed
+ * them itself (Settings → Price List → Vinyl Colors saves the color, its
+ * fences and parts in one go). Skipped while a change made here is waiting to
+ * be saved; that save is merged with the server copy anyway.
+ */
+export async function refreshBusinessState(): Promise<void> {
+  if (!hydrated || flusher.isDirty()) return
+  const r = await call<BusinessFields>('GET')
+  if (!r.ok || !r.data || flusher.isDirty()) return
+  const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
+  cache = pickBusiness(r.data)
+  flusher.loaded(cache, version)
+  emit()
+}
+
 export function getBusinessField<K extends keyof BusinessFields>(key: K): BusinessFields[K] {
   return cache[key]
 }

@@ -2970,6 +2970,9 @@ model PriceHistory {
   // False when Inventory already had a newer price: kept for history (job costing) only.
   changedInventory   Boolean   @default(true)
   undoneAt           DateTime?
+  // Where the cost came from: null for a vendor invoice; 'color_form' for a cost
+  // typed in Settings → Price List → Vinyl Colors (lib/vinylColors.ts).
+  source             String?
   createdAt          DateTime  @default(now())
 
   @@index([accountId, inventoryItemId, day])

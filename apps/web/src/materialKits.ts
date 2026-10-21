@@ -27,6 +27,7 @@ import {
   styleHasPartsList,
   setKitEngine,
   normalizeItemName,
+  inventoryCost,
   type KitCounts,
   type KitLine,
   type RailWidth,
@@ -278,11 +279,23 @@ export function linesFromKitSetJobLot(set: KitSet, counts: KitCounts, lot: Style
   const piece = (name: string, qty: number, price: number | undefined) => {
     if (qty > 0 && typeof price === 'number' && price > 0) lines.push({ part: `Job lot, ${lot.color}: ${name}`, qty, fallbackCost: price, unitCost: price, piece: true })
   }
+  // A section sold as a kit is its own catalog item, priced from Inventory (Vinyl Colors form).
+  const section = (w: string, qty: number) => {
+    const item = lot.sectionNames?.[w]
+    if (!item) { piece(`section, ${w} ft wide`, qty, lot.sections[w]); return }
+    const price = inventoryCost(item) ?? lot.sections[w]
+    if (qty > 0 && typeof price === 'number' && price > 0) lines.push({ part: item, qty, fallbackCost: price, unitCost: price, piece: true })
+  }
+  // Gate leaves built from a section kit: one per walk gate, two per double gate.
+  const leaves = lot.leafWidth ? counts.walkGate + counts.dblGate * 2 : 0
   if (lot.width === 'auto') {
-    piece('section, 6 ft wide', counts.section, lot.sections['6'])
-    piece('section, 8 ft wide', counts.section8, lot.sections['8'])
+    section('6', counts.section + (lot.leafWidth === '6' ? leaves : 0))
+    section('8', counts.section8 + (lot.leafWidth === '8' ? leaves : 0))
+    if (leaves && lot.leafWidth !== '6' && lot.leafWidth !== '8') section(lot.leafWidth!, leaves)
   } else {
-    piece(`section, ${lot.width} ft wide`, counts.section + counts.section8, lot.sections[String(lot.width)])
+    const w = String(lot.width)
+    section(w, counts.section + counts.section8 + (lot.leafWidth === w ? leaves : 0))
+    if (leaves && lot.leafWidth !== w) section(lot.leafWidth!, leaves)
   }
   piece('corner post', counts.corner, lot.corner)
   piece('end post', counts.end, lot.end)

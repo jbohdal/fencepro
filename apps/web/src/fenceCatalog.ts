@@ -74,6 +74,29 @@ export interface JobLotQuote {
   byHeight: Record<string, PiecePrices>
   /** The parts each piece price includes (part names). */
   covers: Record<PieceKey, string[]>
+  /** Sections sold as a kit (Vinyl Colors form): the catalog item per height, then panel width; its price is its Inventory cost. */
+  sectionItems?: Record<string, Record<string, string>>
+  /** Gate leaves built from a section kit, per height: the panel width of the section a leaf takes. */
+  leafWidth?: Record<string, string>
+}
+
+/**
+ * A vinyl color made by Settings → Price List → Vinyl Colors (vinylColorForm.ts):
+ * what the form was filled in with, apart from the costs (those are the
+ * Inventory items' costs, with price history). Its parts, kits and fences
+ * are made from it; editing the color fills the form from it.
+ */
+export interface VinylColorFormSpec {
+  mode: 'piece' | 'section'
+  sizes: string[]
+  methods: string[]
+  samePostPrice: boolean
+  /** Per section mode: what each section kit includes, by size ("6x8"). */
+  contents?: Record<string, { pickets: number; rails: number; railFt: number; picketStiffeners: number; railStiffeners: number; uChannels: number }>
+  /** The catalog items the form prices, by what they are ("cap", "upright", "section:6x8", "post:6:all:78", ...): item names. */
+  items: Record<string, string>
+  /** YYYY-MM-DD the color was made. */
+  madeOn: string
 }
 
 export interface ColorSpec {
@@ -90,6 +113,8 @@ export interface ColorSpec {
   addedOn?: string
   /** When it was first fully priced and switched on by itself. */
   readyOn?: string
+  /** Made by the Vinyl Colors form (Settings → Price List); edited there, not in the Add color steps. */
+  form?: VinylColorFormSpec
 }
 
 export interface ChoiceOption {
@@ -261,14 +286,23 @@ export function styleWidths(s: Pick<FenceStyle, 'name' | 'panelWidth' | 'autoRai
   return s.autoRailMix ? ['6', '8'] : [String(sectionWidthForStyle(s.name, s.panelWidth))]
 }
 
-/** Job lot prices for one style, in dollars, from its color's job lot quote. */
-export function jobLotFor(s: FenceStyle, sc: StyleChoices, opt: ChoiceOption): StyleJobLot | undefined {
+/** Job lot prices for one style, in dollars, from its color's job lot quote (a section kit: its catalog item's Inventory cost). */
+export function jobLotFor(s: FenceStyle, sc: StyleChoices, opt: ChoiceOption, price: PriceFn = inventoryCost): StyleJobLot | undefined {
   const spec = opt.color
   if (!spec || spec.pricing !== 'piece' || !spec.jobLot) return undefined
-  const p = spec.jobLot.byHeight[sc.choices.height ?? ''] ?? spec.jobLot.byHeight[''] ?? {}
+  const h = sc.choices.height ?? ''
+  const p = spec.jobLot.byHeight[h] ?? spec.jobLot.byHeight[''] ?? {}
   const d = (v: number | null | undefined) => { const c = cents(v); return c === undefined ? undefined : c / 100 }
   const sections: Record<string, number> = {}
   for (const [w, v] of Object.entries(p.sectionCents ?? {})) { const x = d(v); if (x !== undefined) sections[w] = x }
+  const named = spec.jobLot.sectionItems?.[h]
+  const sectionNames: Record<string, string> = {}
+  for (const [w, item] of Object.entries(named ?? {})) {
+    sectionNames[w] = item
+    const c = price(item)
+    if (typeof c === 'number' && c > 0) sections[w] = c
+  }
+  const leafWidth = spec.jobLot.leafWidth?.[h]
   const post = d(p.postCents)
   return {
     color: opt.label, supplier: spec.jobLot.supplier, quotedOn: spec.jobLot.quotedOn,
@@ -277,6 +311,9 @@ export function jobLotFor(s: FenceStyle, sc: StyleChoices, opt: ChoiceOption): S
     line: p.separatePosts ? d(p.lineCents) : post, blank: p.separatePosts ? d(p.gatePostCents) : post,
     walkGate: d(p.walkGateCents), dblGate: d(p.dblGateCents),
     covers: { section: spec.jobLot.covers.section ?? [], post: spec.jobLot.covers.post ?? [], walkGate: spec.jobLot.covers.walkGate ?? [], dblGate: spec.jobLot.covers.dblGate ?? [] },
+    ...(named ? { sectionNames } : {}),
+    ...(leafWidth ? { leafWidth } : {}),
+    ...(spec.form ? { kit: true } : {}),
   }
 }
 
@@ -305,6 +342,7 @@ export function colorStatus(styles: FenceStyle[], m: MaterialDef, opt: ChoiceOpt
   const out: ColorStatus = { ready: false, unpricedParts: [], missingPieces: [], noKit: [] }
   const spec = opt.color
   if (!spec) return { ...out, ready: true }
+  if (spec.form) return formColorStatus(mine, spec, price, kitOf)
   const unpriced = new Set<string>()
   const heights = new Map<string, Set<string>>()
   for (const s of mine) {
@@ -333,6 +371,40 @@ export function colorStatus(styles: FenceStyle[], m: MaterialDef, opt: ChoiceOpt
     if (!spec.jobLot?.supplier?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(spec.jobLot?.quotedOn ?? '')) out.missingPieces.push('Supplier and quote date')
   }
   out.ready = mine.length > 0 && out.noKit.length === 0 && (spec.pricing === 'piece' ? out.missingPieces.length === 0 : out.unpricedParts.length === 0)
+  return out
+}
+
+/**
+ * A color made by the Vinyl Colors form is ready when every catalog item the
+ * form prices has an Inventory cost: each color part its fences use that a
+ * section kit does not include (posts, caps, uprights; pickets, rails and U
+ * trim per piece), and each section kit. Parts a section kit includes are $0
+ * on purpose.
+ */
+function formColorStatus(mine: FenceStyle[], spec: ColorSpec, price: PriceFn, kitOf: KitFn): ColorStatus {
+  const out: ColorStatus = { ready: false, unpricedParts: [], missingPieces: [], noKit: [] }
+  const covered = new Map<PieceKey, Set<string>>()
+  for (const [k, v] of Object.entries(spec.jobLot?.covers ?? {}) as Array<[PieceKey, string[]]>) covered.set(k, new Set((v ?? []).map(normalizeItemName)))
+  const unpriced = new Set<string>()
+  for (const s of mine) {
+    if (s.isActive === false) continue
+    const set = kitOf(s.name)
+    if (!set || set === 'archived') { out.noKit.push(s.name); continue }
+    for (const k of KIT_KINDS) for (const p of set.kits[k] ?? []) {
+      if (!isColorPart(p.part, spec.words)) continue
+      const piece = PIECE_OF_KIT[k]
+      if (piece && covered.get(piece)?.has(normalizeItemName(p.part))) continue
+      if (!((price(p.part) ?? 0) > 0)) unpriced.add(p.part)
+    }
+    const h = styleChoicesOf(s)?.choices.height ?? ''
+    for (const w of styleWidths(s)) {
+      const item = spec.jobLot?.sectionItems?.[h]?.[w]
+      if (item && !((price(item) ?? 0) > 0)) out.missingPieces.push(item)
+    }
+  }
+  out.unpricedParts = [...unpriced].sort()
+  out.missingPieces = [...new Set(out.missingPieces)].sort()
+  out.ready = mine.some(s => s.isActive !== false) && out.noKit.length === 0 && out.unpricedParts.length === 0 && out.missingPieces.length === 0
   return out
 }
 
@@ -425,7 +497,7 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
       if (d.isColor && opt.color && !(waits && !opt.copiedFrom)) {
         if (typeof opt.color.targetProfitPct === 'number' && Number.isFinite(opt.color.targetProfitPct)) s.colorTargetProfitPct = opt.color.targetProfitPct
         if (s.madeFrom) {
-          const lot = jobLotFor(s, sc, opt)
+          const lot = jobLotFor(s, sc, opt, price)
           if (lot) s.jobLot = lot
           const key = `${m.key}:${opt.key}`
           if (!statusCache.has(key)) statusCache.set(key, colorStatus(styles, m, opt, price, kitOf))

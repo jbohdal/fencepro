@@ -26,6 +26,9 @@ export { planWood } from './wood'
 export { planChainDigSet, planChainDigSetPipesAndTies } from './chainDigSet'
 // The server's tan dig set auto mix seed (lib/tanAutoDsSeed.ts).
 export { planTanAutoDs } from './tanAutoDs'
+// Settings → Price List → Vinyl Colors (server lib/vinylColors.ts).
+export { planVinylColor, planArchiveVinylColor, planUndoVinylColor, inputFromColor, kitLineCounts } from './vinylColorForm'
+export { catalogOf as fenceCatalogOf, DEFAULT_CATALOG as DEFAULT_FENCE_CATALOG } from './fenceCatalog'
 // Warranties per option (server lib/warranties.ts).
 export {
   defaultWarrantySettings, warrantySettingsOf, warrantyForStyle, installKeyOf, signedOptionWarranty, warrantyFromText,

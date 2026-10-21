@@ -99,8 +99,9 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
         <MaterialCard key={m.key} m={m} config={config} catalog={catalog}
           onToggleMaterial={() => setCatalog({ ...catalog, materials: catalog.materials.map(x => (x.key === m.key ? { ...x, quotable: x.quotable === false ? undefined : false } : x)) })}
           onToggleOption={(dim, key) => setCatalog({ ...catalog, materials: catalog.materials.map(x => (x.key !== m.key ? x : { ...x, dims: x.dims.map(d => (d.key !== dim ? d : { ...d, options: d.options.map(o => (o.key !== key ? o : { ...o, quotable: o.quotable === false ? undefined : false })) })) })) })}
-          onAddColor={under => setWizard({ material: m.key, under })}
-          onEditColor={key => setWizard({ material: m.key, edit: key })}
+          // Vinyl colors are added and edited in Settings → Price List → Vinyl Colors (one form, VinylColorsSettings.tsx).
+          onAddColor={under => (m.key === 'vinyl' ? navigate('/settings?tab=price_list&add=vinyl-color') : setWizard({ material: m.key, under }))}
+          onEditColor={key => (m.key === 'vinyl' && optionOf(m, 'color', key)?.color?.form ? navigate(`/settings?tab=price_list&color=${encodeURIComponent(key)}`) : setWizard({ material: m.key, edit: key }))}
           onAddChoice={dim => setChoiceDlg({ material: m.key, dim })}
           onEditChoice={(dim, key) => setChoiceDlg({ material: m.key, dim, edit: key })}
           updateStyle={updateStyle}
@@ -164,7 +165,7 @@ function MaterialCard({ m, config, catalog, onToggleMaterial, onToggleOption, on
           <div className="flex flex-wrap gap-2">
             {d.isColor
               // Vinyl: a color is added to one style (Privacy > Add color); elsewhere to the whole material.
-              ? (byStyle ? <p className={small}>Add a color from its style above (Privacy → + Add color).</p>
+              ? (byStyle ? <p className={small}>Add a color from its style above (Privacy → + Add color), or in Settings → Price List → Vinyl Colors.</p>
                 : <button type="button" className="btn btn-secondary btn-sm min-h-[44px]" onClick={() => onAddColor(undefined)} data-add-color={m.key}>+ Add {d.label.toLowerCase()}</button>)
               : <button type="button" className="btn btn-quiet btn-sm min-h-[44px]" onClick={() => onAddChoice(d.key)} data-add-choice={`${m.key}:${d.key}`}>+ Add {d.label.toLowerCase()}</button>}
           </div>
@@ -207,7 +208,7 @@ function OptionRow({ m, d, o, config, count, onToggle, onEdit, addColor }: {
     ? [...new Set(config.fenceStyles.filter(s => { const sc = styleChoicesOf(s); return !!s.madeFrom && sc?.material === m.key && sc.choices[d.key] === o.key }).flatMap(s => partsWaitingForPrice(s.name)))]
     : null
   let note = `${count} fence${count === 1 ? '' : 's'}`
-  if (d.isColor && o.color) note += o.color.pricing === 'piece' ? ` · job lot${o.color.jobLot?.supplier ? ` (${o.color.jobLot.supplier})` : ''}` : ' · priced by part'
+  if (d.isColor && o.color) note += o.color.form ? ` · ${o.color.form.mode === 'section' ? 'per section (kit)' : 'per piece'}, made in Price List → Vinyl Colors` : o.color.pricing === 'piece' ? ` · job lot${o.color.jobLot?.supplier ? ` (${o.color.jobLot.supplier})` : ''}` : ' · priced by part'
   if (d.isColor && typeof o.color?.targetProfitPct === 'number') note += ` · ${o.color.targetProfitPct}% profit`
   return (
     <div className="flex items-center gap-1 rounded-xl border border-gray-200 pl-3 pr-1 py-1" data-tree-option={`${m.key}:${d.key}:${o.key}`}>

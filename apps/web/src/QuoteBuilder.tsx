@@ -732,7 +732,7 @@ export default function QuoteBuilder({
     : []), [style, materialItems, invTick, staleMonths])  // eslint-disable-line react-hooks/exhaustive-deps
   // A color priced by the piece: whose job lot quote, from when, and whether that quote is old.
   const jobLot = style?.jobLot
-  const jobLotOld = !!jobLot && !!jobLot.quotedOn && jobLot.quotedOn <= staleCutoff(businessDate(new Date()), staleMonths)
+  const jobLotOld = !!jobLot && !jobLot.kit && !!jobLot.quotedOn && jobLot.quotedOn <= staleCutoff(businessDate(new Date()), staleMonths)
   const quoteWarnings = work ? [
     ...(style && jobType === 'move' ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout && jobType === 'move' ? gateChecks(yard) : []),
@@ -1470,8 +1470,13 @@ export default function QuoteBuilder({
 
               {jobLot && (
                 <div className={`rounded-xl p-3 space-y-1 border ${jobLotOld ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`} data-job-lot-note>
-                  <p className="text-xs font-semibold text-gray-800">Job lot pricing from {jobLot.supplier}, quoted {fmtYmd(jobLot.quotedOn)}</p>
-                  <p className="text-xs text-gray-600 leading-snug">{jobLot.color} sections, posts and gates are priced from that quote; the parts they include show at $0 on the pull sheet. Internal only.</p>
+                  {jobLot.kit ? (<>
+                    <p className="text-xs font-semibold text-gray-800">{jobLot.color} sections are sold as a kit</p>
+                    <p className="text-xs text-gray-600 leading-snug">Each section line carries the kit's cost (a gate leaf takes one); the parts in the kit show at $0 on the pull sheet. Internal only.</p>
+                  </>) : (<>
+                    <p className="text-xs font-semibold text-gray-800">Job lot pricing from {jobLot.supplier}, quoted {fmtYmd(jobLot.quotedOn)}</p>
+                    <p className="text-xs text-gray-600 leading-snug">{jobLot.color} sections, posts and gates are priced from that quote; the parts they include show at $0 on the pull sheet. Internal only.</p>
+                  </>)}
                   {jobLotOld && <p className="text-xs text-amber-800 leading-snug" data-job-lot-old>That job lot quote is older than {staleMonths} months. Ask {jobLot.supplier} for a new one and update it in Settings → Fence styles.</p>}
                 </div>
               )}

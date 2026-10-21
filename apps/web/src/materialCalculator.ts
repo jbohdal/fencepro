@@ -104,6 +104,21 @@ export interface StyleJobLot {
   walkGate?: number
   dblGate?: number
   covers: { section: string[]; post: string[]; walkGate: string[]; dblGate: string[] }
+  /**
+   * A color whose supplier sells the section as a kit (Settings → Price List →
+   * Vinyl Colors, per section): the section line is this catalog item by panel
+   * width ("*Vinyl, Chai Gray, Section, 6x8"), priced from Inventory, and the
+   * parts it includes are listed at $0.
+   */
+  sectionNames?: Record<string, string>
+  /**
+   * Each gate leaf is built from one section kit of this width (like White's
+   * gate leaf takes a 6 ft section's parts): the section line counts one per
+   * walk gate and two per double gate, and the leaf's kit parts are $0.
+   */
+  leafWidth?: string
+  /** Made by the Vinyl Colors form: sold as a section kit, no supplier job lot quote. */
+  kit?: boolean
 }
 
 export type KitEngine = (styleKey: string, counts: KitCounts, notes: () => string[], jobLot?: StyleJobLot) => { lines: KitLine[]; warnings: string[] } | null

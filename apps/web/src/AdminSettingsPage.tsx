@@ -24,6 +24,7 @@ import { useNav } from './nav'
 import { sectionWidthForStyle, styleHasPartsList } from './materialCalculator'
 import CalendarSyncSettings from './CalendarSyncSettings'
 import FenceStylesSettings from './FenceStylesSettings'
+import VinylColorsSettings from './VinylColorsSettings'
 import MoveRepairSettings from './MoveRepairSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
 import FollowUpSettings from './FollowUpSettings'
@@ -31,7 +32,7 @@ import SettingsChangeLog from './SettingsChangeLog'
 import DeletedRecords from './DeletedRecords'
 import { signedInRole, roleCan } from './permissions'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'warranties' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups' | 'change_log' | 'deleted'
+type AdminTab = 'company' | 'pricing' | 'price_list' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'warranties' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups' | 'change_log' | 'deleted'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -488,6 +489,7 @@ function OptimizerTab({ config, onChange }: { config: AppConfig; onChange: (c: A
 const TABS: { key: AdminTab; label: string }[] = [
   { key: 'company',         label: 'Company' },
   { key: 'pricing',         label: 'Pricing' },
+  { key: 'price_list',      label: 'Price List' },
   { key: 'styles',          label: 'Fence Styles' },
   { key: 'moves',           label: 'Moves and Repairs' },
   { key: 'optimizer',       label: 'Quote Optimizer' },
@@ -605,6 +607,7 @@ export default function AdminSettingsPage() {
         <div className="bg-white rounded-2xl border border-gray-200 p-4 lg:p-8">
           {tab === 'company' && <CompanyTab config={config} onChange={handleChange} />}
           {tab === 'pricing' && <PricingTab config={config} onChange={handleChange} />}
+          {tab === 'price_list' && <VinylColorsSettings blocked={dirty} onServerSaved={() => setConfig(getConfig())} />}
           {tab === 'styles' && <FenceStylesSettings config={config} onChange={handleChange} onCommit={next => handleSave(next)} />}
           {tab === 'leads' && <OptionListSettings kind="leadSources" />}
           {tab === 'tags' && <OptionListSettings kind="customerTags" />}
