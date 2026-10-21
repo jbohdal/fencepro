@@ -79,6 +79,7 @@ import TodayScreen from './TodayScreen'
 import FollowUpsPage from './FollowUpsPage'
 import { FollowUpPromptHost } from './FollowUpPrompt'
 import { startFollowUps } from './followUpStore'
+import { startPayments } from './paymentsStore'
 import { BookingHost, openBooking } from './BookingDialog'
 import GlobalSearch from './GlobalSearch'
 import { DashboardAppointments } from './AppointmentWidgets'
@@ -300,6 +301,8 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     setLoadingData(false)
     // Follow up badges, and this phone's answers still waiting for signal back on screen.
     void startFollowUps()
+    // Payments waiting on this phone back on screen; receipt numbers set aside for no signal (paymentsStore.ts).
+    startPayments(`${user.firstName} ${user.lastName}`.trim())
     // Website quotes and phone calls that came in while nobody was looking.
     startIntakeSync()
     startLiveRefresh()

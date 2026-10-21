@@ -117,10 +117,11 @@ export async function processFollowUps(): Promise<number> {
 
     const result = await sendFollowUp(followUp.lead.phone, followUp.message)
 
+    // No text consent: held back for good, with the reason (not a failure to try again).
     await prisma.followUp.update({
       where: { id: followUp.id },
       data: {
-        status: result.success ? 'sent' : 'failed',
+        status: result.success ? 'sent' : result.blocked ? 'cancelled' : 'failed',
         sentAt: result.success ? now : null,
         errorMessage: result.error || null,
       },

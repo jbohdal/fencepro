@@ -38,6 +38,7 @@ import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE } from '../lib/quoteLock.js'
 import { markEverSold } from '../lib/everSold.js'
+import { scheduleAfterSigning } from '../lib/contractBilling.js'
 import { makePreviewToken } from '../lib/proposalViews.js'
 import { stampQuoteWarranties } from '../lib/warranties.js'
 
@@ -287,7 +288,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     await audit(req, 'create', 'SavedQuote', created.id, { newValues: created })
     await linkQuoteMedia(created)
     // Job costing: a quote saved as Sold is signed now; its quoted cost is saved once.
-    if (created.status === 'SOLD') { await markEverSold(created.accountId, created.id); await snapshotAfterSigning(created.accountId, created.id, 'app') }
+    if (created.status === 'SOLD') { await markEverSold(created.accountId, created.id); await snapshotAfterSigning(created.accountId, created.id, 'app'); await scheduleAfterSigning(created.accountId, created.id, 'sold', { userId: req.user.id ?? null, name: req.user.email ?? '' }) }
     res.status(201).json({ success: true, data: created })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -365,6 +366,8 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     // Job costing: marked Sold (signed in person) now; its quoted cost is saved once. A quote already Sold keeps the one from its signing.
     if (updated.status === 'SOLD' && !updated.soldAt) await markEverSold(updated.accountId, updated.id)
     if (existing.status !== 'SOLD' && updated.status === 'SOLD') await snapshotAfterSigning(updated.accountId, updated.id, 'app')
+    // Its job's payment schedule, when the job is there already (lib/contractBilling.ts; otherwise made with the job).
+    if (updated.status === 'SOLD') await scheduleAfterSigning(updated.accountId, updated.id, 'sold', { userId: req.user.id ?? null, name: req.user.email ?? '' })
     res.json({ success: true, data: updated.status === 'SOLD' && !updated.soldAt ? await prisma.savedQuote.findUnique({ where: { id: updated.id } }) : updated })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -627,6 +630,7 @@ router.post('/share/:token/accept', async (req: any, res) => {
     console.log(`[saved-quotes] customer accepted quote ${q.id} as "${data.name}"`)
     // Job costing: the quoted cost, saved once at signing.
     await snapshotAfterSigning(updated.accountId, updated.id, 'share')
+    await scheduleAfterSigning(updated.accountId, updated.id, 'accepted', { userId: null, name: `${data.name} (customer, quote link)` })
     res.json({ success: true, data: forCustomer(updated) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }

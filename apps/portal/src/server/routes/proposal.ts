@@ -23,6 +23,7 @@ import { Prisma } from '@prisma/client'
 import { audit } from '../lib/auditLog.js'
 import { requireUser, requireAccount, signedNow } from './saved-quotes.js'
 import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAccepted.js'
+import { scheduleAfterSigning } from '../lib/contractBilling.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireCan } from '../lib/permissions.js'
@@ -321,6 +322,8 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>): P
   await onProposalAccepted(q, opt, body.name).catch(err => console.error('[proposal] after accept:', err))
   // Sold online: the job goes to Operations, as when a card is moved to Signed Contract.
   await ensureJobForAcceptedQuote(updated as any).catch(err => console.error('[proposal] job after accept:', err))
+  // Its payment schedule from the contract: deposit due now, final on completion (lib/contractBilling.ts).
+  await scheduleAfterSigning(q.accountId, q.id, 'accepted', { userId: null, name: `${body.name} (customer, proposal link)` })
   return { status: 200, json: { success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } }, accepted: true }
 }
 

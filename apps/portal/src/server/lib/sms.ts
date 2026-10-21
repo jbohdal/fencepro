@@ -3,7 +3,13 @@
  *
  * Sends SMS via Twilio REST API (no SDK needed — keeps deps light).
  * Falls back to console logging when Twilio is not configured.
+ *
+ * A text to a customer goes through sendCustomerSms: it is sent only when the
+ * customer said yes to texts (lib/textConsent.ts); otherwise it is not sent
+ * and the result says why (blocked). sendSms itself is for texts to the team.
  */
+
+import { textAllowedTo } from './textConsent.js'
 
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || ''
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || ''
@@ -19,6 +25,8 @@ interface SmsResult {
   success: boolean
   sid?: string
   error?: string
+  /** Not sent because the customer has not said yes to texts (error says why). */
+  blocked?: boolean
 }
 
 /** Send an SMS via Twilio REST API */
@@ -56,23 +64,30 @@ export async function sendSms(to: string, body: string): Promise<SmsResult> {
   }
 }
 
+/** Text a customer, only if they said yes to texts; otherwise not sent, with the reason. */
+export async function sendCustomerSms(to: string, body: string): Promise<SmsResult> {
+  const ok = await textAllowedTo(to)
+  if (!ok.allowed) return { success: false, blocked: true, error: ok.reason ?? 'Not sent: no text consent.' }
+  return sendSms(to, body)
+}
+
 /** Send the initial "thanks for reaching out" SMS to a new lead */
 export async function sendLeadConfirmation(phone: string, firstName?: string): Promise<SmsResult> {
   const name = firstName ? ` ${firstName}` : ''
   const body = `Thanks for reaching out${name}! ${COMPANY_NAME} received your info and we'll confirm your estimate shortly. Reply STOP to opt out.`
-  return sendSms(phone, body)
+  return sendCustomerSms(phone, body)
 }
 
 /** Send appointment confirmation */
 export async function sendAppointmentConfirmation(phone: string, dateStr: string, firstName?: string): Promise<SmsResult> {
   const name = firstName ? ` ${firstName}` : ''
   const body = `Hi${name}! Your fence estimate with ${COMPANY_NAME} is confirmed for ${dateStr}. We'll see you then! Reply STOP to opt out.`
-  return sendSms(phone, body)
+  return sendCustomerSms(phone, body)
 }
 
 /** Send follow-up message */
 export async function sendFollowUp(phone: string, message: string): Promise<SmsResult> {
-  return sendSms(phone, message)
+  return sendCustomerSms(phone, message)
 }
 
 export { COMPANY_NAME }

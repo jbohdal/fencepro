@@ -58,6 +58,36 @@ export type ListDoc =
 
 export type EntityType = 'customer' | 'quote' | 'job' | 'card' | 'login' | 'inventory_item' | 'vendor' | 'note' | 'photo' | 'file' | 'schedule_entry' | 'rain_day'
 
+/**
+ * Every place a customer's id is kept, by the field that holds it. A delete
+ * takes the soft deletable ones with the customer (plan, below, by these same
+ * fields); a merge moves all of them (lib/customerMerge.ts). A new table or
+ * list that names a customer goes here.
+ * `account: false`: the table has no accountId of its own.
+ */
+export const CUSTOMER_ID_ROWS = [
+  { model: 'savedQuote', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'savedJob', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'appointment', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'mediaItem', field: 'customerId', idField: 'id', account: true },
+  { model: 'crmContactNote', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'intakeLead', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'callLog', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'proposalView', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'pendingTouch', field: 'crmContactId', idField: 'userId', account: true },
+  { model: 'warrantyUpdate', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'crmTextConsent', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'portalAccount', field: 'crmCustomerId', idField: 'id', account: false },
+  { model: 'portalPhoto', field: 'crmCustomerId', idField: 'id', account: false },
+  { model: 'portalFile', field: 'crmCustomerId', idField: 'id', account: false },
+  { model: 'portalMessage', field: 'crmCustomerId', idField: 'id', account: false },
+  { model: 'inventoryPendingOrder', field: 'customerId', idField: 'id', account: false },
+] as const
+/** The company document lists whose entries carry `customerId`. */
+export const CUSTOMER_ID_LISTS: ListDoc[] = ['pipeline.leads', 'pipeline.archivedLeads', 'business.invoices', 'business.payments', 'business.pendingOrders', 'business.pullSheets', 'business.statements']
+/** Shared lists (AccountKeyValue, apps/web cloudStorage) whose entries carry `customerId`: the activity feed, files, site plans. */
+export const CUSTOMER_ID_KV = ['fencepro_customer_activity', 'fencepro_files', 'fencepro_siteplans'] as const
+
 export interface SnapRow { model: SoftModel; id: string; row: any }
 export interface SnapHard { model: HardModel; id: string; row: any }
 export interface SnapItem { doc: ListDoc; id: string; item: any }
@@ -133,13 +163,13 @@ export function labelOf(model: SoftModel | HardModel | ListDoc, row: any): strin
 // ── Company documents (pipeline, settings, inventory, vendors) ──────────────
 
 /** Lock a company document for the rest of the transaction and read it. */
-async function lockDoc(tx: Tx, doc: DocName, accountId: string): Promise<any | null> {
+export async function lockDoc(tx: Tx, doc: DocName, accountId: string): Promise<any | null> {
   const t = TABLE[doc]
   await tx.$queryRawUnsafe(`SELECT 1 FROM "${t.table}" WHERE "accountId" = $1 FOR UPDATE`, accountId)
   return tx[t.model].findUnique({ where: { accountId } })
 }
 
-async function writeDoc(tx: Tx, doc: DocName, accountId: string, fields: Record<string, unknown>): Promise<void> {
+export async function writeDoc(tx: Tx, doc: DocName, accountId: string, fields: Record<string, unknown>): Promise<void> {
   await tx[TABLE[doc].model].update({ where: { accountId }, data: { ...json(fields), version: { increment: 1 } } })
 }
 

@@ -41,6 +41,8 @@ export type AuditAction =
   | 'voided'
   | 'sent'
   | 'sold'
+  | 'merged'
+  | 'merge_undone'
 
 export interface AuditOptions {
   oldValues?: unknown

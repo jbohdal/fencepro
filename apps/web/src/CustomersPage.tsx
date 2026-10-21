@@ -17,10 +17,12 @@ import {
   nextInvoiceNumber,
   type Invoice, type Payment,
 } from './billingStore'
+import PaymentsPanel from './Payments'
 import { toast } from './toast'
 import CustomerPhotosTab from './CustomerPhotosTab'
 import CustomerFilesTab from './CustomerFilesTab'
 import CustomerMessagesTab from './CustomerMessagesTab'
+import TextConsent from './TextConsent'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import type { SavedQuote } from './QuotesPage'
 import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
@@ -49,6 +51,10 @@ import AddressAutocomplete from './AddressAutocomplete'
 import { can } from './permissions'
 import PopMenu, { PopItem } from './PopMenu'
 import ConfirmByTyping from './ConfirmByTyping'
+import PossibleMatch from './PossibleMatch'
+
+/** Open a customer's page (a possible match, or the one this customer was merged into). */
+const openCustomerPage = (id: string) => navigate(`/customers/${encodeURIComponent(id)}`)
 
 interface Customer {
   id: string
@@ -346,6 +352,9 @@ function CustomerBillingTab({ customerId, customerName, customerEmail }: { custo
 
   return (
     <div className="space-y-4">
+      {/* The payment schedules of this customer's sold jobs: due, paid, balance, Payment received (Payments.tsx). */}
+      <PaymentsPanel customerId={customerId} />
+      <p className="text-xs font-semibold text-gray-400">Invoices typed in Billing</p>
       {/* Sub-nav */}
       <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 w-fit">
         {(['overview', 'invoices', 'payments'] as const).map(t => (
@@ -398,7 +407,8 @@ function CustomerBillingTab({ customerId, customerName, customerEmail }: { custo
                       {inv.balanceDueCents > 0 && <p className="text-xs text-red-600">Due: {fmtD(inv.balanceDueCents)}</p>}
                     </div>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[inv.status] || 'bg-gray-100 text-gray-600'}`}>{inv.status}</span>
-                    {inv.balanceDueCents > 0 && inv.status !== 'void' && (
+                    {inv.adoptedJobId && <span className="text-xs text-green-700" data-adopted-invoice>On the job's payment schedule</span>}
+                    {inv.balanceDueCents > 0 && inv.status !== 'void' && !inv.adoptedJobId && (
                       <button onClick={() => setShowPayment(inv.id)} className="text-xs text-blue-600 hover:text-blue-800">Record Payment</button>
                     )}
                   </div>
@@ -1024,6 +1034,7 @@ function CustomerDetail({
                 {customer.email && <span className="text-sm text-gray-500 break-all">✉️ {customer.email}</span>}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2"><PipelineStageSelect customerId={customer.id} /><NextAppointmentBadge customerId={customer.id} /></div>
+              <TextConsent customerId={customer.id} />
               {/* One tap to reach the customer or the property */}
               {wide && <div className="flex flex-wrap gap-2 mt-3" data-contact-actions>
                 {customer.phone && <a href={telHref(customer.phone)} onClick={() => touchCustomer(customer, 'call')} className="btn btn-secondary btn-sm"><Phone size={16} aria-hidden="true" /> Call</a>}
@@ -1064,6 +1075,8 @@ function CustomerDetail({
           </div>
         )}
         <ArchivedOfCustomer customerId={customer.id} customerArchived={archived} />
+        {/* A website or phone lead's possible match (Merge, Not the same person), "Merged into", and Undo merge. */}
+        <div className="mt-4 empty:hidden"><PossibleMatch customerId={customer.id} history onOpenCustomer={openCustomerPage} onMerged={openCustomerPage} /></div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4 mt-5">
           {[
@@ -1349,7 +1362,9 @@ export default function CustomersPage({ onNewQuote }: {
     const reloadCustomers = () => {
       // Always trust the cache once a store mutation has fired the event
       // (covers delete-last-customer where the new list is legitimately empty).
-      setCustomers(getCustomers())
+      // A new array each time: the archived list arriving (an archived or merged customer opened by its
+      // address) leaves the active list as it was, and the page must still draw again to show them.
+      setCustomers([...getCustomers()])
     }
     window.addEventListener('fencepro:quotes:updated', reload)
     window.addEventListener('fencepro:jobs:updated', reload)

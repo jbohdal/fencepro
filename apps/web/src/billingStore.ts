@@ -54,6 +54,8 @@ export interface Invoice {
   createdBy: string
   createdAt: string
   updatedAt: string
+  /** Taken into this job's payment schedule (server lib/billingAdoption.ts): payments go there, not here. */
+  adoptedJobId?: string
 }
 
 let invCounter = 1000

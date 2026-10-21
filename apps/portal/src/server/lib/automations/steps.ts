@@ -26,6 +26,7 @@ import { sendPush } from './push.js'
 import { plainStyleName } from '../estimates.js'
 import { walkthroughApi, WALKTHROUGH_MISSING } from './walkthroughAdapter.js'
 import { ensurePermit, packetInputFor, portalFor, renderPacket } from './permits.js'
+import { textAllowedFor, textAllowedTo, mergedTextNo } from '../textConsent.js'
 
 export interface StepRun {
   accountId: string
@@ -122,8 +123,21 @@ async function email(r: StepRun, subject: string, body: string): Promise<StepOut
   return { detail: `${already ? 'already emailed' : 'emailed'} ${(result as any)?.to ?? r.entity.email}: "${subject}"` }
 }
 
+/** May this card's or job's customer be texted (their own answer; else by the phone number)? */
+async function textPermissionOf(accountId: string, e: EntityContext) {
+  const contact = e.customerId ? await prisma.crmContact.findUnique({ where: { id: e.customerId }, select: { id: true, firstName: true, lastName: true, textConsent: true } }) : null
+  if (!contact) return textAllowedTo(e.phone, accountId)
+  const own = textAllowedFor(contact)
+  // A customer merged into this one said no: blocked until a yes is recorded here (lib/customerMerge.ts).
+  const no = own.allowed ? await mergedTextNo(contact.id) : null
+  return no ? { ...own, allowed: false, reason: no, consent: 'no' as const } : own
+}
+
 async function preparedText(r: StepRun, part: string, body: string, assignTo: string): Promise<StepOutcome> {
   if (!r.entity.phone) throw new PermanentStepError(`${r.entity.name} has no phone number on file, so there is no text to prepare.`)
+  // Only a customer who said yes to texts gets one; otherwise the step says why and the run goes on.
+  const ok = await textPermissionOf(r.accountId, r.entity)
+  if (!ok.allowed) return { detail: `text not prepared. ${ok.reason}` }
   const link = smsLink(r.entity.phone, body)
   await makeTask(r, part, { title: `Text ${r.entity.name}`, description: `${body}\n\nTap to send from your phone: ${link}`, assignTo, dueInDays: 0 })
   await bell(r, `${part}:bell`, `Text ready for ${r.entity.name}`, body, entityLink(r.entity))
@@ -375,7 +389,11 @@ export async function describeSteps(accountId: string, steps: Step[], e: EntityC
       case 'create_task': d(`make a task "${fill(s.title)}"${fill(s.assignTo) ? ` for ${fill(s.assignTo)}` : ''}, due ${floridaDay(addDays(at, s.dueInDays))}`); break
       case 'notify': d(`notify: "${fill(s.title)}"${s.body ? ` - ${fill(s.body)}` : ''}${s.push ? ' (and push to your phone)' : ''}`); break
       case 'email_customer': d(`email ${e.email || '(no email on file)'}: "${fill(s.subject)}"\n${fill(s.body)}`, !e.email.includes('@') ? 'This customer has no email address; the step would fail.' : !gmail.connected ? GMAIL_NOT_CONNECTED : undefined); break
-      case 'prepare_text': d(`prepare a text to ${e.phone || '(no phone on file)'}: "${fill(s.body)}"`, e.phone ? undefined : 'No phone number on file; the step would fail.'); break
+      case 'prepare_text': {
+        const consent = e.phone ? await textPermissionOf(accountId, e) : null
+        d(`prepare a text to ${e.phone || '(no phone on file)'}: "${fill(s.body)}"`, !e.phone ? 'No phone number on file; the step would fail.' : consent && !consent.allowed ? `The text would not be prepared. ${consent.reason}` : undefined)
+        break
+      }
       case 'move_card': {
         let warning: string | undefined
         let toName = s.stage

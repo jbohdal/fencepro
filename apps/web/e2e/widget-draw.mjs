@@ -385,7 +385,7 @@ try {
   try {
     if (made.quote) await api(`/api/saved-quotes/${made.quote}`, { method: 'DELETE' })
     if (made.card) { const pipe = await api('/api/pipeline'); await api('/api/pipeline', { method: 'PATCH', body: JSON.stringify({ upsert: [], remove: [made.card], baseVersion: pipe.data.version }) }) }
-    if (made.contact) psql(`delete from "IntakeLead" where "crmContactId"='${made.contact}'; delete from "CrmContactNote" where "crmContactId"='${made.contact}'; delete from "AutomationEvent" where "entityId"='${made.card}'; delete from "CardFollowUp" where "cardId"='${made.card}'; delete from "CrmContact" where id='${made.contact}'`)
+    if (made.contact) psql(`delete from "IntakeLead" where "crmContactId"='${made.contact}'; delete from "CrmContactNote" where "crmContactId"='${made.contact}'; delete from "AutomationEvent" where "entityId"='${made.card}'; delete from "CardFollowUp" where "cardId"='${made.card}'; delete from "CustomerPossibleMatch" where "contactId"='${made.contact}'; delete from "CrmContact" where id='${made.contact}'`)
     if (made.draft) psql(`delete from "WidgetDraft" where id='${made.draft}'`)
     if (made.snapshot) { const f = path.resolve(process.cwd(), '../portal/uploads', made.snapshot.replace('/api/portal/files/', '')); if (fs.existsSync(f)) fs.unlinkSync(f) }
     check('test records removed', !made.contact || psql(`select count(*) from "CrmContact" where id='${made.contact}'`) === '0')

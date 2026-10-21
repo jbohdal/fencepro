@@ -33,6 +33,7 @@ import { requireCan } from '../lib/permissions.js'
 import { DeleteError, deleteRecord, emptySnapshot, logDeletion, labelOf, setArchived } from '../lib/deletion.js'
 import { addressParts } from '../lib/addressIndex.js'
 import { onCardMoves } from '../lib/followUps.js'
+import { recordTextConsent, textConsentHistory } from '../lib/textConsent.js'
 
 const router = Router()
 
@@ -397,6 +398,40 @@ async function loadContactInAccount(req: any, res: any) {
   }
   return contact
 }
+
+// ── Texting consent (lib/textConsent.ts) ──
+const consentView = (c: { textConsent: string; textConsentAt: Date | null; textConsentBy: string | null; textConsentSource: string | null }) =>
+  ({ textConsent: c.textConsent, textConsentAt: c.textConsentAt?.toISOString() ?? null, textConsentBy: c.textConsentBy, textConsentSource: c.textConsentSource })
+
+// The customer's answer now, and every answer before it.
+router.get('/:id/text-consent', requireAccount, async (req: any, res) => {
+  try {
+    const contact = await loadContactInAccount(req, res)
+    if (!contact) return
+    res.json({ success: true, data: { ...consentView(contact), history: await textConsentHistory(contact.id) } })
+  } catch (err) {
+    console.error('[crm-contacts] text consent error:', err)
+    res.status(500).json({ success: false, error: 'Could not load the texting answer' })
+  }
+})
+
+// A team member records the customer's yes or no (asked on the phone or in person).
+router.post('/:id/text-consent', requireAccount, async (req: any, res) => {
+  try {
+    const contact = await loadContactInAccount(req, res)
+    if (!contact) return
+    const { consent } = z.object({ consent: z.enum(['yes', 'no']) }).parse(req.body)
+    const me = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true, email: true } })
+    const byName = (me ? `${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.email : req.user.email) || 'staff'
+    const { contact: updated } = await recordTextConsent(contact.id, { consent, source: 'verbal', byName, byUserId: req.user.id })
+    await audit(req, 'update', 'CrmContact', contact.id, { oldValues: consentView(contact), newValues: consentView(updated) })
+    res.json({ success: true, data: { ...consentView(updated), history: await textConsentHistory(contact.id) } })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    console.error('[crm-contacts] text consent save error:', err)
+    res.status(500).json({ success: false, error: 'Could not save the texting answer' })
+  }
+})
 
 // List notes for a contact.
 router.get('/:id/notes', requireAccount, async (req: any, res) => {

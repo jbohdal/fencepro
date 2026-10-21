@@ -431,7 +431,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     setConfirmSold(null)
     try {
       const result = applySignedContractTransition({
-        id: lead.id, customerId: lead.customerId,
+        id: lead.id, customerId: lead.customerId, quoteId: lead.quoteId,
         firstName: lead.firstName, lastName: lead.lastName,
         phone: lead.phone, email: lead.email, address: lead.address,
         stage: signed, fromStage,
@@ -474,7 +474,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
         })
         if (stageHasRole(updated.stage, 'signed')) {
           const r = applySignedContractTransition({
-            id: updated.id, customerId: updated.customerId,
+            id: updated.id, customerId: updated.customerId, quoteId: updated.quoteId,
             firstName: updated.firstName, lastName: updated.lastName,
             phone: updated.phone, email: updated.email, address: updated.address,
             stage: updated.stage, fromStage: prev.stage,

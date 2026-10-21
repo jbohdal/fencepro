@@ -24,6 +24,10 @@ import DrawMap from './DrawMap'
 import { totalFt, toYardLayout, type LatLng, type WidgetDrawing } from '../widgetDraw'
 import { photoBackdrop } from '../sitePlanPhoto'
 import { bakePhoto } from '../aerialBake'
+import { TEXT_CONSENT_WORDING, TEXT_CONSENT_TERMS_URL } from '../../../portal/src/server/lib/textConsentModel'
+
+/** The end of the checkbox words, shown as the link to the terms. */
+const TERMS_TEXT = 'gdfencepro.com/terms.cfm'
 
 interface Material { material: 'vinyl' | 'chain' | 'alum' | 'wood'; label: string; photoUrl: string | null; colors: Array<{ key: string; label: string }>; heights: Array<{ key: string; height: string; kind: string; label: string; colors: string[] }> }
 interface Pick { material: Material['material']; color: string; height: string; kind: string }
@@ -95,6 +99,7 @@ export default function WidgetApp() {
   const [notes, setNotes] = useState('')
   const [website, setWebsite] = useState('')
   const [wantsVisit, setWantsVisit] = useState(true)
+  const [textOk, setTextOk] = useState(false)
   const [photos, setPhotos] = useState<string[]>([])
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
@@ -247,7 +252,7 @@ export default function WidgetApp() {
       }
       const snap = !sent && snapshot.current ? await Promise.race([snapshot.current, new Promise<null>(r => setTimeout(() => r(null), 4000))]) : null
       const j = await getJson<{ options: Option[]; chosen: Option; test?: boolean }>(`${API}/submit`, jsonInit('POST', {
-        draftId: id, name, phone, email, address, drawing: drawPayload, pick, fenceStyle: style, wantsVisit,
+        draftId: id, name, phone, email, address, drawing: drawPayload, pick, fenceStyle: style, wantsVisit, textConsent: textOk,
         notes: notes || undefined, photos, snapshot: snap, website, test: TEST || undefined,
       }))
       setOptions(j.options); setFenceStyle(j.chosen.fenceStyle); setSent(true)
@@ -376,7 +381,7 @@ export default function WidgetApp() {
           )}
 
           {(!priceFirst || sent) && !sent && (
-            <ContactForm {...{ name, setName, phone, setPhone, email, setEmail, notes, setNotes, website, setWebsite, wantsVisit, setWantsVisit, photos, addPhoto }}
+            <ContactForm {...{ name, setName, phone, setPhone, email, setEmail, notes, setNotes, website, setWebsite, wantsVisit, setWantsVisit, textOk, setTextOk, photos, addPhoto }}
               title="Where should we send your prices?" />
           )}
 
@@ -404,7 +409,7 @@ export default function WidgetApp() {
           {priceMsg && <p className="text-sm text-red-700" role="alert">{priceMsg}</p>}
 
           {priceFirst && !sent && (
-            <ContactForm {...{ name, setName, phone, setPhone, email, setEmail, notes, setNotes, website, setWebsite, wantsVisit, setWantsVisit, photos, addPhoto }}
+            <ContactForm {...{ name, setName, phone, setPhone, email, setEmail, notes, setNotes, website, setWebsite, wantsVisit, setWantsVisit, textOk, setTextOk, photos, addPhoto }}
               title="Send me this estimate" />
           )}
           {!(priceFirst || sent) && <p className="text-xs text-gray-600">{WORDING} No obligation.</p>}
@@ -427,6 +432,7 @@ export default function WidgetApp() {
 function ContactForm(p: {
   title: string; name: string; setName: (v: string) => void; phone: string; setPhone: (v: string) => void; email: string; setEmail: (v: string) => void
   notes: string; setNotes: (v: string) => void; website: string; setWebsite: (v: string) => void; wantsVisit: boolean; setWantsVisit: (v: boolean) => void
+  textOk: boolean; setTextOk: (v: boolean) => void
   photos: string[]; addPhoto: (f: File) => void
 }) {
   return (
@@ -440,6 +446,11 @@ function ContactForm(p: {
       <textarea className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base" rows={2} placeholder="Anything we should know? (optional)" value={p.notes} onChange={e => p.setNotes(e.target.value)} />
       <label className="flex items-center gap-2 text-sm text-gray-800 min-h-[44px]">
         <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={p.wantsVisit} onChange={e => p.setWantsVisit(e.target.checked)} /> I would like a free visit to confirm the price
+      </label>
+      {/* Texting consent: unchecked unless the customer checks it; the words are stored with a yes. */}
+      <label className="flex items-start gap-2 text-sm text-gray-800 min-h-[44px] py-1" data-w-text-consent>
+        <input type="checkbox" className="w-5 h-5 mt-0.5 shrink-0 accent-orange-500" checked={p.textOk} onChange={e => p.setTextOk(e.target.checked)} data-w-text-consent-box />
+        <span>{TEXT_CONSENT_WORDING.slice(0, TEXT_CONSENT_WORDING.indexOf(TERMS_TEXT))}<a href={TEXT_CONSENT_TERMS_URL} target="_blank" rel="noopener noreferrer" className="underline text-orange-700" data-w-terms>{TERMS_TEXT}</a></span>
       </label>
       <label className="btn btn-secondary w-full cursor-pointer" data-w-photo>
         Add photos of the yard (optional){p.photos.length ? ` · ${p.photos.length} added` : ''}

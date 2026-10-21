@@ -2,8 +2,10 @@
 //
 // A website quote (EZ Quote widget) and a phone agent call (Retell) arrive
 // while the CRM is open. Both must become a customer, a note and a pipeline
-// card, repeat contact must not create duplicates, and a second browser must
-// see the same thing.
+// card. Repeat contact makes its own customer and card, never attached to the
+// one on file by phone or email (Oct 21, 2026), with that one shown as a
+// possible match; a retried delivery makes nothing. A second browser must see
+// the same thing.
 //
 // Needs an EMPTY test database (it asserts exact counts). See README.md.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
@@ -45,14 +47,17 @@ check('phone call is a pipeline card with the callback time', !!carl && /callbac
 check('both customers exist and the cards point at them', st.customers.length === 2 && st.customers.some(c => c.id === wendy?.cid) && st.customers.some(c => c.id === carl?.cid))
 check('nothing left in the queue', await pull(a) === 0)
 
-// the same people again: no second card, no second customer
+// the same people again: a new customer and card each, the one on file a possible match; the retry makes nothing
 await phoneCall('call_2', '+13525550142', {})                      // Wendy calls in
 await websiteQuote('Carl Caller', '352-555-0177', 3300)            // Carl uses the website
 await phoneCall('call_1', '+13525550177', { caller_name: 'Carl Caller' })   // Retell retries call_1
 check('repeat contact picked up', await pull(a) === 2)
 st = await state(a)
-check('still two customers and two cards after repeat contact', st.customers.length === 2 && st.leads.length === 2, `${st.customers.length} customers, ${st.leads.length} cards`)
-check('the existing card got the new activity', /Phone call/.test(st.leads.find(l => l.name === 'Wendy Website')?.notes || '') && /Website quote/.test(st.leads.find(l => l.name === 'Carl Caller')?.notes || ''))
+check('four customers and four cards after repeat contact (the retried call made none)', st.customers.length === 4 && st.leads.length === 4, `${st.customers.length} customers, ${st.leads.length} cards`)
+const matchesOf = (s, id) => s.page.evaluate(`(async () => { ${IMP}; const h = await imp('syncHttp.ts'); const r = await h.sendJson('GET', '/api/customer-matches/customer/${id}'); return (r.json?.data?.matches ?? []).map(m => m.customer.id) })()`)
+const fresh = st.customers.filter(c => c.id !== wendy?.cid && c.id !== carl?.cid)
+const offered = await Promise.all(fresh.map(c => matchesOf(a, c.id)))
+check('each new one offers the customer on file as a possible match', offered.length === 2 && offered.some(m => m.includes(wendy?.cid)) && offered.some(m => m.includes(carl?.cid)), JSON.stringify(offered))
 
 // what the user sees
 await nav(a, 'Sales Pipeline'); await sleep(600)
@@ -67,7 +72,7 @@ check('the quote details are on the customer (Notes)', /Website quote \(EZ Quote
 // second browser
 const b = await newSession(browser, 'B'); await login(b); await ready(b)
 const stB = await state(b)
-check('second browser sees the same two cards and customers', stB.leads.length === 2 && stB.customers.length === 2)
+check('second browser sees the same four cards and customers', stB.leads.length === 4 && stB.customers.length === 4)
 check('no failed requests', a.log.failed.length === 0 && b.log.failed.length === 0, [...a.log.failed, ...b.log.failed].join(', '))
 
 const code = finish()

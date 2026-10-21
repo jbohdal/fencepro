@@ -16,6 +16,7 @@ import FinalWalkthroughPanel from './FinalWalkthrough'
 import JobTakeoffPanel from './JobTakeoff'
 import JobQuotedVsActual from './JobQuotedVsActual'
 import JobWarranty from './JobWarranty'
+import PaymentsPanel from './Payments'
 import { useState, useEffect } from 'react'
 import { getJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
@@ -168,6 +169,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {isJobSource && job.rawJob && <JobTakeoffPanel job={job.rawJob} />}
         {isJobSource && job.rawJob && <FinalWalkthroughPanel job={job.rawJob} />}
         {isJobSource && <JobQuotedVsActual jobId={job.id} />}
+        {/* The payment schedule from the contract, Payment received and receipts (Payments.tsx). */}
+        {isJobSource && <Section title="Payments"><PaymentsPanel jobId={job.id} /></Section>}
         {/* The warranty it was signed with, its dates, and whether service calls on it are covered. */}
         {isJobSource && job.rawJob && <JobWarranty job={job.rawJob} />}
 

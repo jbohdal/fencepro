@@ -88,6 +88,7 @@ import quotePricingRoutes from './routes/quote-pricing.js'
 import { ensureTwoOptionTiersAll } from './lib/tierSets.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
 import deletedRecordRoutes from './routes/deleted-records.js'
+import customerMatchRoutes from './routes/customer-matches.js'
 import quoteWidget from './routes/quote-widget.js'
 import systemRoutes from './routes/system.js'
 import cronRoutes from './routes/cron.js'
@@ -103,6 +104,9 @@ import { ensurePipelineStageListAll } from './lib/pipelineStages.js'
 import { ensureOpsStageListAll } from './lib/opsStages.js'
 import { ensureStagingSheetRemovedAll } from './lib/stagingSheetCleanup.js'
 import { ensureNoOrphanPendingCallsAll } from './lib/loginDelete.js'
+import paymentRoutes from './routes/payments.js'
+import { receiptPublic } from './routes/receiptPublic.js'
+import { adoptHandMadeBillingAll } from './lib/billingAdoption.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
@@ -250,11 +254,13 @@ app.use('/api/walkthroughs', walkthroughStaff)
 app.use('/p/w', walkthroughPublic)
 app.use('/p/co', changeOrderPublic)  // A change order's customer link (routes/changeOrderPublic.ts)
 app.use('/p/wu', warrantyUpdatePublic)  // A warranty update's customer link (routes/warrantyUpdatePublic.ts)
+app.use('/p/r', receiptPublic)  // A payment receipt's customer link and PDF (routes/receiptPublic.ts)
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff after install (lib/jobCosting.ts)
 app.use('/api/warranties', warrantyRoutes)  // A job's warranty, service call coverage, the signed contract PDF (lib/warranties.ts)
 app.use('/api/change-orders', changeOrderRoutes)  // Change orders on signed quotes (lib/changeOrders.ts)
+app.use('/api/payments', paymentRoutes)  // Payment schedules, payments and receipts (lib/contractBilling.ts)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/pipeline', pipelineRoutes)
 app.use('/api/inventory-state', inventoryStateRoutes)
@@ -269,6 +275,7 @@ app.use('/api/vinyl-colors', vinylColorRoutes)
 app.use('/api/intake', intakeRoutes)
 app.use('/api/scheduled-deletions', scheduledDeletionRoutes)
 app.use('/api/deleted-records', deletedRecordRoutes)
+app.use('/api/customer-matches', customerMatchRoutes) // Possible matches on website and phone leads; merge and Undo merge (lib/customerMerge.ts)
 app.use('/api/system', systemRoutes)
 app.use('/api/lead-chat', leadChatRoutes)
 app.use('/api/knowledge', knowledgeRoutes)
@@ -431,6 +438,8 @@ if (!isVercel) {
       await ensureWarrantiesAll().catch(err => console.error('[warranties] check failed:', err))
       // WV-ND Bell 4'x6' flagged "needs cost review" (real supplier cost to enter): once per company (lib/costReview.ts).
       await ensureCostReviewAll().catch(err => console.error('[cost review] check failed:', err))
+      // Invoices and payments typed in Billing for a sold job, into its payment schedule; nothing sent, no receipt made: once per company (lib/billingAdoption.ts).
+      await adoptHandMadeBillingAll().catch(err => console.error('[billing] hand-made Billing check failed:', err))
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))

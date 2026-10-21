@@ -5,6 +5,7 @@
 import { useState, useMemo } from 'react'
 import jsPDF from 'jspdf'
 import { getInvoices, getPayments, getARSummary, type Invoice, type Payment } from './billingStore'
+import { PaymentsToConfirm } from './Payments'
 import { businessDate } from './businessDate'
 
 const fmtD = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })
@@ -411,6 +412,9 @@ export default function BillingPage() {
         </button>
       </div>
 
+      {/* Payments a Salesman recorded in the field, for the owner or office to confirm (Payments.tsx). */}
+      <PaymentsToConfirm />
+
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Outstanding</p><p className="text-2xl font-bold text-gray-900">{fmtD(totalOutstanding)}</p></div>
@@ -505,6 +509,7 @@ export default function BillingPage() {
                   <div key={inv.id} className="px-5 py-3 grid grid-cols-12 gap-2 items-center text-sm hover:bg-gray-50">
                     <div className="col-span-3">
                       <p className="font-medium text-gray-900">{inv.invoiceNumber}</p>
+                      {inv.adoptedJobId && <p className="text-xs text-green-700" data-adopted-invoice>On the job's payment schedule</p>}
                       {inv.jobName && <p className="text-xs text-gray-400 truncate">{inv.jobName}</p>}
                     </div>
                     <div className="col-span-3 text-gray-700 truncate">{inv.customerName}</div>

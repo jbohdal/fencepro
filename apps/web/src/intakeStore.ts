@@ -109,7 +109,7 @@ export async function syncIntake(): Promise<number> {
   try {
     const leads = await api<IntakeLead[]>('GET', '')
     if (!leads || leads.length === 0) return 0
-    // The server created or matched the customers; get them into this browser.
+    // The server made the customers (a new one per lead; a possible match is noted on it); get them into this browser.
     await refreshCustomers()
     let added = 0
     for (const lead of leads) {

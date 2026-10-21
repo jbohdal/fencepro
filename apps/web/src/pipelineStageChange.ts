@@ -31,7 +31,7 @@ export function changeLeadStage(leadId: string, toStage: string): StageChangeRes
   try {
     if (toSold) {
       const result = applySignedContractTransition({
-        id: lead.id, customerId: lead.customerId,
+        id: lead.id, customerId: lead.customerId, quoteId: lead.quoteId,
         firstName: lead.firstName, lastName: lead.lastName,
         phone: lead.phone, email: lead.email, address: lead.address,
         stage: toStage, fromStage,

@@ -37,6 +37,9 @@ export interface PipelineLead {
   createdAt: string
   lastMoved: string
   assignedRep?: string
+  /** The quote (and job) this card was made or signed for (signedContractFlow stamps them). */
+  quoteId?: string
+  jobId?: string
   /** Hand placed position on the board. Only counts while the card is still in `stage`. */
   boardOrder?: { stage: string; rank: number }
 }

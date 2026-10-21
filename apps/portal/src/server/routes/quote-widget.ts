@@ -19,6 +19,7 @@
  *   POST /p/quote/api/price   the options and prices for a drawing (when Settings show prices before contact)
  *   POST /p/quote/api/photo   one photo of the yard
  *   POST /p/quote/api/submit  customer, quote and pipeline card, together; prices back
+ *                             (and the customer's answer to the texting checkbox)
  */
 
 import express, { Router, type Request, type Response } from 'express'
@@ -31,6 +32,8 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { estimateOnHold, pricingWithData, isNotQuotable, NOT_QUOTABLE_MESSAGE } from '../lib/estimates.js'
 import { resolveIntakeAccountId } from '../lib/intake.js'
+import { recordWebsiteTextConsent } from '../lib/textConsent.js'
+import { audit } from '../lib/auditLog.js'
 import { locate } from '../lib/appointments.js'
 import { suggest } from '../lib/addressIndex.js'
 import { plainZod } from '../lib/plainZod.js'
@@ -230,6 +233,8 @@ const submitSchema = z.object({
   pick,
   fenceStyle: z.string().trim().max(120).nullable().optional(),
   wantsVisit: z.boolean().default(true),
+  /** The "Text me updates" checkbox (unchecked by default): checked is a yes to texts, unchecked a no. */
+  textConsent: z.boolean().default(false),
   notes: z.string().trim().max(2000).optional(),
   photos: z.array(z.string().regex(/^\/api\/portal\/files\/intake\/[0-9a-f-]{36}\.(jpg|png|webp|heic)$/)).max(10).optional(),
   snapshot: z.string().max(560_000).nullable().optional(),
@@ -252,6 +257,12 @@ api.post('/submit', submitLimit, async (req, res) => {
       return
     }
     const r = await submitDrawnQuote({ ...data, email: data.email || undefined, test, notes: [data.notes, data.photos?.length ? `Photos: ${data.photos.join(' ')}` : ''].filter(Boolean).join('\n') || undefined })
+    // The texting checkbox on the customer the quote was filed under (a test run writes nothing).
+    if (!r.test && r.contactId) {
+      const done = await recordWebsiteTextConsent(r.contactId, data.textConsent, { ip: req.ip, userAgent: String(req.headers['user-agent'] || '') })
+        .catch(err => { console.error('[widget] text consent error:', err); return null })
+      if (done) await audit(req, 'update', 'CrmContact', r.contactId, { newValues: { textConsent: done.contact.textConsent, textConsentSource: 'website_checkbox', textConsentAt: done.contact.textConsentAt } })
+    }
     res.status(r.test || r.duplicate ? 200 : 201).json({ success: true, test: r.test, duplicate: r.duplicate, options: r.options, chosen: r.chosen, ...(r.test ? { preview: r.preview } : {}) })
   } catch (err) { refuse(res, err, 'Your quote did not send. Please try again, or call us.') }
 })

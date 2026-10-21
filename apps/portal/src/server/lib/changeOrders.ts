@@ -156,6 +156,9 @@ export async function applyToJob(accountId: string, quoteId: string, tx: any = p
   const cents = await approvedTotalCents(accountId, quoteId, tx)
   const quoteCents = Math.round((job.quotePrice || 0) * 100)
   await tx.savedJob.update({ where: { id: job.id }, data: { changeOrderTotal: cents / 100, contractValue: (quoteCents + cents) / 100 } })
+  // The job's payment schedule: its Final follows the change orders, logged (lib/contractBilling.ts).
+  const { finalFollowsChangeOrders } = await import('./contractBilling.js')
+  await finalFollowsChangeOrders(tx, accountId, job.id)
   return job.id
 }
 

@@ -20,19 +20,23 @@ export type Action =
   | 'costs.view'
   /** Vendor invoices: upload, review, match, OK, undo; vendor price history. Owner, admin, manager and office. */
   | 'invoices.manage'
+  /** Record a customer's payment and hand them the receipt: owner, admin, manager, office and Salesman. */
+  | 'payments.record'
+  /** Change an invoice's amount or the contract amount: owner and admin only. */
+  | 'billing.amounts'
 
 const FULL: Action[] = [
   'settings.change', 'prices.change', 'automations.change', 'records.archive', 'ops.delete',
   'schedule.change', 'billing.change', 'finance.change', 'quotes.change', 'permits.change',
-  'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'invoices.manage',
+  'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'invoices.manage', 'payments.record',
 ]
 
 export const ALLOWED: Record<CrmRole, ReadonlySet<Action>> = {
-  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change']),
-  admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change']),
+  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
+  admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   manager: new Set(FULL),
-  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage']),
-  sales_rep: new Set(['quotes.change', 'records.archive']),
+  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage', 'payments.record']),
+  sales_rep: new Set(['quotes.change', 'records.archive', 'payments.record']),
   field_crew: new Set([]),
 }
 
@@ -57,6 +61,8 @@ export const REFUSAL: Record<Action, string> = {
   'records.import': 'Your role cannot import records. Ask Jonathan.',
   'costs.view': 'Your role sees prices, not costs. Ask Jonathan.',
   'invoices.manage': 'Only the owner and the office can see vendor invoices. Ask Jonathan.',
+  'payments.record': 'Your role cannot record payments. Ask Jonathan.',
+  'billing.amounts': 'Only the owner or an admin can change an invoice amount or the contract amount.',
 }
 
 export function roleCan(role: string | null | undefined, action: Action): boolean {

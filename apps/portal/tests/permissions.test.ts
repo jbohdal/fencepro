@@ -26,15 +26,15 @@ describe('the role table', () => {
     for (const a of ACTIONS) expect(WEB_REFUSAL[a as WebAction]).toBe(REFUSAL[a])
   })
 
-  test('owner and admin: everything; manager: all but users, system, deleting (Archive instead) and the lists (pipeline stages, lead sources, tags)', () => {
+  test('owner and admin: everything; manager: all but users, system, deleting (Archive instead), the lists (pipeline stages, lead sources, tags) and billing amounts', () => {
     for (const a of ACTIONS) { expect(can('super_admin', a)).toBe(true); expect(can('admin', a)).toBe(true) }
-    for (const a of ACTIONS) expect(can('manager', a)).toBe(!['users.manage', 'system', 'records.delete', 'lists.change'].includes(a))
+    for (const a of ACTIONS) expect(can('manager', a)).toBe(!['users.manage', 'system', 'records.delete', 'lists.change', 'billing.amounts'].includes(a))
   })
 
-  test('salesman: quotes only among the guarded actions, no costs; crew: none; office: operations and costs', () => {
-    expect(ACTIONS.filter(a => can('sales_rep', a)).sort()).toEqual(['quotes.change', 'records.archive'])
+  test('salesman: quotes and recording payments among the guarded actions, no costs; crew: none; office: operations and costs', () => {
+    expect(ACTIONS.filter(a => can('sales_rep', a)).sort()).toEqual(['payments.record', 'quotes.change', 'records.archive'])
     expect(ACTIONS.filter(a => can('field_crew', a))).toEqual([])
-    expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'costs.view', 'inventory.stock', 'invoices.manage', 'ops.delete', 'packets.change', 'permits.change', 'quotes.change', 'records.archive', 'schedule.change'])
+    expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'costs.view', 'inventory.stock', 'invoices.manage', 'ops.delete', 'packets.change', 'payments.record', 'permits.change', 'quotes.change', 'records.archive', 'schedule.change'])
     for (const r of ['sales_rep', 'field_crew', 'office_staff']) {
       for (const a of ['settings.change', 'lists.change', 'prices.change', 'users.manage', 'records.delete', 'automations.change', 'system'] as Action[]) expect(can(r, a)).toBe(false)
     }

@@ -3,6 +3,7 @@
  * leaving the board. Same layout on a phone (full screen) and a computer (a
  * window over the board):
  *
+ *   A website or phone lead's possible match (PossibleMatch.tsx)
  *   New quote (filled in with this customer)
  *   Call · Text · Navigate · Book appointment
  *   The customer's quotes (status, price, date; tap to open)
@@ -31,7 +32,8 @@ import { shortWhen, smsLink } from './appointmentLogic'
 import { getCustomerById } from './customerStore'
 import { listContactNotes, createContactNote, noteChangeFor, type CrmContactNoteRecord, noteAuthor } from './crmContactsApi'
 import { subscribe, pendingFor } from './outbox'
-import { useBackLayer } from './nav'
+import { useBackLayer, navigate } from './nav'
+import PossibleMatch from './PossibleMatch'
 import { SaveStatus, cardChange } from './SaveStatus'
 import AutomationRunLog from './AutomationRunLog'
 import { sendJson } from './syncHttp'
@@ -39,6 +41,7 @@ import { useFollowUpBoard, followUpOf, changeNext, startTouch, openLogCall, pend
 import { openedBadgeText } from './proposalOpened'
 import { OUTCOME_LABEL, LOST_REASON_LABEL } from './followUpRules'
 import { DateChips, TextTemplatesSheet, dayLabel, kindWord } from './FollowUpPrompt'
+import PaymentsPanel from './Payments'
 
 const fmtUSD = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const STATUS: Record<string, string> = { DRAFT: 'bg-gray-100 text-gray-700', SENT: 'bg-blue-100 text-blue-800', SOLD: 'bg-green-100 text-green-800', LOST: 'bg-red-100 text-red-800' }
@@ -128,6 +131,8 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
         </div>
 
         <div className="overflow-y-auto px-4 py-4 space-y-4 pb-[calc(16px+env(safe-area-inset-bottom))]">
+          {/* A website or phone lead's possible match: Merge (the card goes with it) or Not the same person. */}
+          <div className="empty:hidden"><PossibleMatch customerId={lead.customerId} onOpenCustomer={id => navigate(`/customers/${encodeURIComponent(id)}`)} /></div>
           <button type="button" onClick={startQuote} className="btn btn-primary w-full h-14 text-lg" data-card-new-quote>
             <FilePlus2 size={22} aria-hidden="true" /> New quote
           </button>
@@ -195,6 +200,14 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
               </ul>
             )}
           </section>
+
+          {/* Payments on a sold deal: the schedule and "Payment received" (Payments.tsx). */}
+          {lead.customerId && quotes.some(q => q.status === 'SOLD') && (
+            <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3" data-card-payments>
+              <h3 className="text-sm font-semibold text-gray-900 mb-2">Payments</h3>
+              <PaymentsPanel customerId={lead.customerId} compact />
+            </section>
+          )}
 
           <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3" data-card-next-appt>
             <h3 className="text-sm font-semibold text-gray-900">Next appointment</h3>

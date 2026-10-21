@@ -12,6 +12,7 @@ import prisma from './prisma.js'
 import { withLock } from './once.js'
 import { loadPipelineStages } from './pipelineStages.js'
 import { roleStageId } from './pipelineStageModel.js'
+import { findPossibleMatches } from './customerMerge.js'
 
 export type IntakeSource = 'ez_quote' | 'retell' | 'website_chat'
 
@@ -53,30 +54,22 @@ export async function resolveIntakeAccountId(): Promise<string | null> {
   return first?.id ?? null
 }
 
-/** Find the contact with the same phone or email, or create one. Never duplicates on a repeat caller. */
-/** A transaction or the client itself: the widget finds or makes the customer inside its one save. */
-type Db = Pick<typeof prisma, 'crmContact'>
+/**
+ * Make the new customer for a lead from outside (website, phone agent, chat).
+ * Never attached to a customer on file by email or phone (Jonathan, Oct 21,
+ * 2026): one on file with the same email or phone is recorded as a possible
+ * match on the new customer, for the office to merge with one tap or dismiss
+ * (lib/customerMerge.ts). A delivery sent twice makes one customer because
+ * the caller saves this with its intake row (unique per source + ref) in one
+ * transaction: the second one finds that row, or its insert fails and takes
+ * this customer back out with it.
+ */
+/** A transaction or the client itself: the widget makes the customer inside its one save. */
+type Db = Pick<typeof prisma, 'crmContact' | 'customerPossibleMatch'>
 
 export async function findOrCreateContact(accountId: string, input: Pick<IntakeInput, 'name' | 'phone' | 'email' | 'address' | 'leadSource'>, db: Db = prisma): Promise<{ id: string; created: boolean; name: string }> {
-  const phone10 = digits(input.phone)
   const email = (input.email || '').trim().toLowerCase()
-
-  if (email) {
-    const byEmail = await db.crmContact.findFirst({
-      where: { accountId, deletedAt: null, archivedAt: null, email: { equals: email, mode: 'insensitive' } },
-      select: { id: true, firstName: true, lastName: true },
-    })
-    if (byEmail) return { id: byEmail.id, created: false, name: `${byEmail.firstName} ${byEmail.lastName}`.trim() }
-  }
-  if (phone10.length >= 7) {
-    // Phones are stored as typed ("(352) 555-0100"), so compare on digits.
-    const candidates = await db.crmContact.findMany({
-      where: { accountId, deletedAt: null, archivedAt: null, phone: { not: null } },
-      select: { id: true, phone: true, firstName: true, lastName: true },
-    })
-    const hit = candidates.find(c => digits(c.phone) === phone10)
-    if (hit) return { id: hit.id, created: false, name: `${hit.firstName} ${hit.lastName}`.trim() }
-  }
+  const matches = await findPossibleMatches(db, accountId, { phone: input.phone, email })
 
   const { firstName, lastName } = splitName(input.name)
   // The stage a new customer starts in: Settings > Pipeline Stages' "new cards land here" stage.
@@ -94,6 +87,9 @@ export async function findOrCreateContact(accountId: string, input: Pick<IntakeI
     },
     select: { id: true },
   })
+  if (matches.length) {
+    await db.customerPossibleMatch.createMany({ data: matches.map(m => ({ accountId, contactId: created.id, matchId: m.id, reason: m.reason })) })
+  }
   return { id: created.id, created: true, name: input.name }
 }
 
@@ -102,7 +98,7 @@ export interface IntakeResult {
   contactId: string | null
   /** True when this sourceRef was already recorded (a retry or duplicate delivery). */
   duplicate: boolean
-  /** The contact's name on file (an existing customer keeps their own name). */
+  /** The name the lead gave (each lead makes its own customer). */
   contactName: string
 }
 
@@ -122,31 +118,36 @@ async function recordIntakeNow(accountId: string, input: IntakeInput): Promise<I
   })
   if (existing) return { intakeId: existing.id, contactId: existing.crmContactId, duplicate: true, contactName: existing.name }
 
-  const contact = await findOrCreateContact(accountId, input)
-  // A caller we already know is filed under the name we have for them.
-  const displayName = contact.created ? input.name : (contact.name || input.name)
+  // Always a new customer (a possible match is noted on it); the name is the one given.
+  const displayName = input.name
 
+  let contact: { id: string }
   let row
   try {
-    row = await prisma.intakeLead.create({
-      data: {
-        accountId,
-        source: input.source,
-        sourceRef: input.sourceRef,
-        crmContactId: contact.id,
-        name: displayName.slice(0, 200),
-        phone: (input.phone || '').slice(0, 40),
-        email: (input.email || '').slice(0, 200),
-        address: (input.address || '').slice(0, 500),
-        fenceType: (input.fenceType || '').slice(0, 120),
-        summary: input.summary.slice(0, 8000),
-        estimate: typeof input.estimate === 'number' && Number.isFinite(input.estimate) ? input.estimate : null,
-        callbackAt: input.callbackAt ? String(input.callbackAt).slice(0, 120) : null,
-        payload: JSON.parse(JSON.stringify(input.payload ?? {})),
-      },
-    })
+    // The customer and its intake row together: a second delivery of the same event never makes a second customer.
+    ({ contact, row } = await prisma.$transaction(async tx => {
+      const contact = await findOrCreateContact(accountId, input, tx)
+      const row = await tx.intakeLead.create({
+        data: {
+          accountId,
+          source: input.source,
+          sourceRef: input.sourceRef,
+          crmContactId: contact.id,
+          name: displayName.slice(0, 200),
+          phone: (input.phone || '').slice(0, 40),
+          email: (input.email || '').slice(0, 200),
+          address: (input.address || '').slice(0, 500),
+          fenceType: (input.fenceType || '').slice(0, 120),
+          summary: input.summary.slice(0, 8000),
+          estimate: typeof input.estimate === 'number' && Number.isFinite(input.estimate) ? input.estimate : null,
+          callbackAt: input.callbackAt ? String(input.callbackAt).slice(0, 120) : null,
+          payload: JSON.parse(JSON.stringify(input.payload ?? {})),
+        },
+      })
+      return { contact, row }
+    }))
   } catch (err: any) {
-    // Two deliveries of the same event raced; the other one won.
+    // Two deliveries of the same event raced; the other one won (this one's customer went back out with it).
     if (err?.code === 'P2002') {
       const again = await prisma.intakeLead.findUnique({
         where: { source_sourceRef: { source: input.source, sourceRef: input.sourceRef } },

@@ -57,7 +57,7 @@ export function moveCardTo(cardId: string, stage: string, extra: Record<string, 
   savePipeline(leads.map((l: any) => (l === card ? { ...l, ...extra, stage, lastMoved: stage === from ? l.lastMoved : businessDate(new Date()) } : l)))
   if (stageHasRole(stage, 'signed') && !stageHasRole(from, 'signed')) {
     try {
-      const r = applySignedContractTransition({ id: card.id, customerId: card.customerId, firstName: card.firstName, lastName: card.lastName, phone: card.phone, email: card.email, address: card.address, stage, fromStage: from })
+      const r = applySignedContractTransition({ id: card.id, customerId: card.customerId, quoteId: card.quoteId, firstName: card.firstName, lastName: card.lastName, phone: card.phone, email: card.email, address: card.address, stage, fromStage: from })
       if (r) toast.success('Deal closed — job created', `${r.job.customerName} · job on Operations board`)
       else toast.info(`Moved to ${stageName(stage)}`, 'No quote linked yet: make a quote to make the job.')
     } catch { /* the card moved; the job can be made from the quote */ }

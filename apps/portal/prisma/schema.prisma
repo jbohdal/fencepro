@@ -1514,9 +1514,21 @@ model CrmContact {
   archivedAt       DateTime?
   /// Deleted (owner or admin): in Settings > Deleted Records until restored (lib/deletion.ts). archivedAt is the everyday Archive.
   deletedAt DateTime?
+  /// Merged into this customer (lib/customerMerge.ts): kept archived with its history; Undo merge clears it.
+  mergedIntoId String?
+  /// Texting consent (lib/textConsent.ts): yes | no | unknown. The app texts only a "yes".
+  textConsent       String    @default("unknown")
+  textConsentAt     DateTime?
+  /// Who recorded it: the team member's name, or "website"
+  textConsentBy     String?
+  /// CrmUser.id when a team member recorded it
+  textConsentById   String?
+  /// verbal | website_checkbox
+  textConsentSource String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  textConsents CrmTextConsent[]
   account      CrmAccount?      @relation("ContactsOfCrmAccount", fields: [accountId], references: [id])
   contactNotes CrmContactNote[]
   savedQuotes  SavedQuote[]
@@ -1529,6 +1541,55 @@ model CrmContact {
   @@index([email])
   @@index([archivedAt])
   @@index([jobStatus])
+}
+
+// ── Possible matches and merges (lib/customerMerge.ts) ──
+//
+// A website or phone lead always makes a new customer (never attached to one
+// on file by its email or phone). A customer on file with the same email or
+// phone is kept here as a possible match; the office merges with one tap or
+// says "Not the same person" (kept, so it does not come back).
+model CustomerPossibleMatch {
+  id          String    @id @default(uuid())
+  accountId   String
+  /// The new customer the lead made.
+  contactId   String
+  /// The customer already on file.
+  matchId     String
+  /// email | phone | email and phone
+  reason      String
+  /// open | dismissed | merged
+  status      String    @default("open")
+  decidedAt   DateTime?
+  decidedById String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([contactId, matchId])
+  @@index([accountId, status])
+  @@index([matchId])
+}
+
+// One merge: what moved (ids per table, list and key), so Undo merge moves
+// exactly those back. The kept customer's own record is never changed; the
+// merged customer's details as they were are kept here.
+model CustomerMerge {
+  id            String    @id @default(uuid())
+  accountId     String
+  keptId        String
+  mergedId      String
+  matchRowId    String?
+  mergedLabel   String
+  /// The merged customer's record as it was before the merge.
+  mergedDetails Json
+  /// { rows: [{ model, field, ids }], items: [{ doc, ids }], kv: [{ key, ids }] }
+  moved         Json
+  mergedById    String?
+  mergedAt      DateTime  @default(now())
+  undoneAt      DateTime?
+  undoneById    String?
+
+  @@index([accountId, keptId])
+  @@index([mergedId])
 }
 
 // ── CRM Contact Notes — staff notes attached to a CrmContact ──
@@ -1847,6 +1908,9 @@ model SavedJob {
 
   account CrmAccount? @relation("JobsOfCrmAccount", fields: [accountId], references: [id])
   contact CrmContact? @relation(fields: [crmContactId], references: [id])
+  /// Its payment schedule and the schedule's log (lib/contractBilling.ts); gone with the job only if the job row itself is removed.
+  paymentSchedules PaymentSchedule[]
+  billingLogs      BillingLog[]
 
   @@index([accountId])
   @@index([deletedAt])
@@ -3055,4 +3119,227 @@ model WarrantyUpdate {
   @@index([accountId, quoteId])
   @@index([jobId])
   @@index([crmContactId])
+}
+
+/// Every yes or no a customer gave to texts, oldest first (lib/textConsent.ts):
+/// a yes then a no are both kept, with who recorded each and when. The
+/// customer's current answer is on CrmContact.textConsent. Never edited.
+model CrmTextConsent {
+  id           String   @id @default(uuid())
+  accountId    String
+  crmContactId String
+  /// yes | no
+  consent      String
+  /// verbal | website_checkbox
+  source       String
+  /// The team member's name, or "website"
+  byName       String
+  byUserId     String?
+  /// A website answer: the exact checkbox words the customer saw
+  wording      String?
+  /// A website answer: where it came from, as proof of the opt in
+  ip           String?
+  userAgent    String?
+  at           DateTime @default(now())
+
+  contact CrmContact @relation(fields: [crmContactId], references: [id], onDelete: Cascade)
+
+  @@index([crmContactId, at])
+  @@index([accountId])
+}
+
+// ── Contract billing: payment schedules, payments, receipts (lib/contractBilling.ts) ──
+//
+// Made by the server from the signed contract (never typed by hand): a
+// Deposit due at signing and a Final due on completion (progress invoices
+// when a contract defines them). Integer cents. A payment never changes an
+// invoice's amount, only what is paid and the balance; every change to an
+// amount is a BillingLog row and an audit entry.
+
+/// One per job: the signed contract amount it was made from (never edited in place).
+model PaymentSchedule {
+  id           String   @id @default(uuid())
+  accountId    String
+  jobId        String
+  quoteId      String?
+  crmContactId String?
+  /// The signed contract amount, in cents, as signed.
+  signedCents  Int
+  /// The deposit percent the schedule was made with (the proposal's, else 50).
+  depositPct   Float    @default(50)
+  /// sold (marked Sold in the app) | accepted (the customer's link) | button (made from the job page) | adopted (hand-made Billing invoices)
+  source       String   @default("sold")
+  createdBy    String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  job      SavedJob          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  invoices ContractInvoice[]
+
+  @@unique([accountId, jobId])
+  @@index([accountId, crmContactId])
+}
+
+/// An invoice on a payment schedule. amountCents moves only by a logged edit (BillingLog).
+model ContractInvoice {
+  id            String    @id @default(uuid())
+  accountId     String
+  scheduleId    String
+  jobId         String
+  quoteId       String?
+  crmContactId  String?
+  /// deposit | progress-1 ... | final | legacy-<old id>
+  key           String
+  /// deposit | progress | final | other
+  kind          String
+  label         String
+  sortOrder     Int       @default(0)
+  /// The amount it was made with, never changed.
+  originalCents Int
+  /// The amount now (an owner's logged edit, or the Final following the contract).
+  amountCents   Int
+  /// The contract amount when this was made or last changed.
+  contractCents Int
+  /// signing | completion | date
+  dueOn         String    @default("signing")
+  /// YYYY-MM-DD; the Final's is the install date, empty until the job is installed.
+  dueDate       String?
+  /// Adopted from the hand-made Billing invoices (BusinessState.invoices).
+  legacyId      String?
+  legacyNumber  String?
+  voidedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  schedule PaymentSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, key])
+  @@index([accountId, jobId])
+}
+
+/// An owner's change to the contract amount (a signed amount is never edited in place): -27 = 27 cents off.
+model ContractAdjustment {
+  id          String   @id @default(uuid())
+  accountId   String
+  jobId       String
+  amountCents Int
+  reason      String
+  byUserId    String?
+  byName      String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([accountId, jobId])
+}
+
+/// A payment from the customer. The id is the one the phone gave it (a repeat create is the first one).
+model ContractPayment {
+  id             String    @id
+  accountId      String
+  jobId          String
+  quoteId        String?
+  crmContactId   String?
+  amountCents    Int
+  /// check | cash | zelle | card | other
+  method         String
+  checkNumber    String?
+  reference      String?
+  /// YYYY-MM-DD
+  paidOn         String
+  note           String    @default("")
+  /// The check's photo (uploads/payments/...), staff only.
+  photoKey       String?
+  recordedById   String?
+  recordedBy     String    @default("")
+  recordedRole   String?
+  /// Recorded by a Salesman: the owner or office confirms it (the receipt does not change).
+  needsConfirm   Boolean   @default(false)
+  confirmedAt    DateTime?
+  confirmedBy    String?
+  voidedAt       DateTime?
+  voidedBy       String?
+  voidReason     String?
+  /// app | adopted
+  source         String    @default("app")
+  legacyId       String?
+  createdAt      DateTime  @default(now())
+
+  @@index([accountId, jobId])
+  @@index([accountId, needsConfirm])
+}
+
+/// How much of a payment went to which invoice: oldest open invoice first, the rest carried to the next. Rebuilt on every change.
+model PaymentApplication {
+  id          String @id @default(uuid())
+  accountId   String
+  paymentId   String
+  invoiceId   String
+  amountCents Int
+
+  @@index([paymentId])
+  @@index([invoiceId])
+}
+
+/// A receipt for one payment, numbered in one company sequence. What it says is frozen in `snapshot` (cents).
+model Receipt {
+  id            String    @id @default(uuid())
+  accountId     String
+  number        Int
+  paymentId     String    @unique
+  jobId         String
+  crmContactId  String?
+  /// The customer's link /p/r/<token> (no sign in).
+  token         String    @unique
+  snapshot      Json
+  lienRelease   Boolean   @default(false)
+  portalFileId  String?
+  voidedAt      DateTime?
+  emailTo       String?
+  /// sent | failed | not_configured
+  emailStatus   String?
+  emailedAt     DateTime?
+  textedTo      String?
+  textedAt      DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@unique([accountId, number])
+  @@index([accountId, jobId])
+}
+
+/// The next receipt number of a company.
+model ReceiptCounter {
+  accountId String @id
+  next      Int    @default(1001)
+}
+
+/// Receipt numbers set aside for one phone while it had signal, so a receipt made with no signal has its real number.
+model ReceiptNumberBlock {
+  id        String   @id @default(uuid())
+  accountId String
+  userId    String
+  first     Int
+  last      Int
+  createdAt DateTime @default(now())
+
+  @@index([accountId, userId])
+}
+
+/// Every change to a schedule's amounts, in plain words: an amount edit, the Final following a change order or an adjustment, a void.
+model BillingLog {
+  id        String   @id @default(uuid())
+  accountId String
+  jobId     String
+  invoiceId String?
+  paymentId String?
+  /// amount_edit | final_follows | adjustment | adopted | void | confirm | made
+  kind      String
+  fromCents Int?
+  toCents   Int?
+  text      String
+  byName    String   @default("")
+  byUserId  String?
+  at        DateTime @default(now())
+
+  job SavedJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, jobId])
 }

@@ -23,45 +23,19 @@ import { createPendingOrderFromQuote } from './pendingOrderStore'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { fireQuoteSold, fireSalesStageChange } from './automationTrigger'
 import { getQuotes, getQuoteById, updateQuote } from './quoteStore'
+import { pickSignedQuote } from './signedQuotePick'
 
 export const QUOTES_UPDATED_EVENT = 'fencepro:quotes:updated'
 export const JOBS_UPDATED_EVENT = 'fencepro:jobs:updated'
 export const PIPELINE_UPDATED_EVENT = 'fencepro:pipeline:updated'
 
 /**
- * Find the best quote to associate with a deal: the most recent non-LOST quote.
- * Matches by customerId first; falls back to name + phone/email match so
- * legacy pipeline cards that lack a customerId still cascade correctly.
+ * The quote a deal marks sold: only this customer's own quotes, by customer
+ * id, and the card's own quote first (signedQuotePick.ts). Never a quote
+ * found by name, phone or email.
  */
-export function findActiveQuoteForCustomer(customer: Customer | string): SavedQuote | null {
-  const all = getQuotes()
-  if (typeof customer === 'string') {
-    return all
-      .filter(q => q.customerId === customer && q.status !== 'LOST' && q.status !== 'SOLD')
-      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0]
-      || all
-        .filter(q => q.customerId === customer && q.status !== 'LOST')
-        .sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0]
-      || null
-  }
-  const c = customer
-  const name = `${c.firstName} ${c.lastName}`.trim().toLowerCase()
-  const phone = (c.phone || '').replace(/\D/g, '')
-  const email = (c.email || '').toLowerCase()
-  // Prefer a quote with exact customerId; else fall back to name/phone/email match.
-  const byId = all.filter(q => q.customerId === c.id && q.status !== 'LOST')
-  const byFallback = all.filter(q => {
-    if (q.status === 'LOST') return false
-    if (!q.customerName) return false
-    if (name && q.customerName.toLowerCase() === name) return true
-    if (phone && (q.customerPhone || '').replace(/\D/g, '') === phone) return true
-    if (email && (q.customerEmail || '').toLowerCase() === email) return true
-    return false
-  })
-  const candidates = [...byId, ...byFallback]
-  // Prefer not-already-SOLD so each pipeline drop picks a fresh quote
-  const openFirst = candidates.find(q => q.status !== 'SOLD')
-  return openFirst || candidates[0] || null
+export function findActiveQuoteForCustomer(customer: Customer | string, ownQuoteId?: string | null): SavedQuote | null {
+  return pickSignedQuote(getQuotes(), typeof customer === 'string' ? customer : customer.id, ownQuoteId)
 }
 
 export interface SignedContractResult {
@@ -143,10 +117,12 @@ export function markQuoteSold(quoteId: string, opts?: { actor?: string }): Signe
 
 /**
  * Called when a lead card is dropped on the Signed stage on the
- * pipeline. Finds the most recent active quote for the customer and runs the
- * full cascade. If no quote exists a helpful error is thrown.
+ * pipeline. Takes the card's own quote, else its customer's newest open quote
+ * (by customer id only), and runs the full cascade. With none, nothing is
+ * marked sold: the customer's activity says so and null is returned (the
+ * board then says "No quote linked yet").
  */
-export function applySignedContractTransition(lead: { id: string; customerId?: string; firstName: string; lastName: string; phone?: string; email?: string; address?: string; stage: string; fromStage?: string }): SignedContractResult | null {
+export function applySignedContractTransition(lead: { id: string; customerId?: string; quoteId?: string; firstName: string; lastName: string; phone?: string; email?: string; address?: string; stage: string; fromStage?: string }): SignedContractResult | null {
 
   // Fire automation trigger regardless (engine can match conditions)
   try {
@@ -180,8 +156,8 @@ export function applySignedContractTransition(lead: { id: string; customerId?: s
   }
   if (!customer) return null
 
-  // Step 2: find a quote. customer-object version (fallback by name/phone/email).
-  const quote = findActiveQuoteForCustomer(customer)
+  // Step 2: the card's own quote, else its customer's (by id only; no name, phone or email fallback).
+  const quote = findActiveQuoteForCustomer(customer.id, lead.quoteId)
   if (!quote) {
     logCustomerActivity(customer.id, `Moved to ${stageName(lead.stage)} — no quote on file to mark sold automatically`, { kind: 'stage_change' })
     return null
