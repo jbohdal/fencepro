@@ -209,29 +209,35 @@ export function getCustomerById(id: string): Customer | null {
   return cache.find(c => c.id === id) || null
 }
 
-/** Find an existing customer by phone or email to avoid duplicates. */
-export function findDuplicate(data: { phone?: string; email?: string }): Customer | null {
+/**
+ * Customers on file with this phone or email. Only ever shown as a suggestion
+ * ("Use <name>"): a customer is linked by an explicit pick, never by a match.
+ */
+export function findPossibleMatches(data: { phone?: string; email?: string }): Customer[] {
   const phone = (data.phone || '').replace(/\D/g, '')
-  const email = (data.email || '').toLowerCase()
-  for (const c of cache) {
+  const email = (data.email || '').trim().toLowerCase()
+  if (!phone && !email) return []
+  return cache.filter(c => {
     const cPhone = (c.phone || '').replace(/\D/g, '')
-    const cEmail = (c.email || '').toLowerCase()
-    if (phone && cPhone && phone === cPhone) return c
-    if (email && cEmail && email === cEmail) return c
-  }
-  return null
+    const cEmail = (c.email || '').trim().toLowerCase()
+    return (!!phone && phone === cPhone) || (!!email && email === cEmail)
+  })
+}
+
+/** The first customer on file with this phone or email (the CSV import skips those rows). */
+export function findDuplicate(data: { phone?: string; email?: string }): Customer | null {
+  return findPossibleMatches(data)[0] ?? null
 }
 
 /**
- * Upsert a customer. Returns the merged record synchronously from the cache
- * and fires the API write in the background. If a row exists (by id, phone,
- * or email), fields are merged onto the existing record (non empty wins).
- * Otherwise a new record is created with a temporary client id; once the API
- * returns, the cache is rewritten with the server's id and the event refires.
+ * Save a customer. Returns the record synchronously from the cache and fires
+ * the API write in the background. A known id is an edit of that customer
+ * (fields merged, non empty wins). Anything else is a new customer with the
+ * given id: a matching phone, email or name never makes it someone else, and
+ * never changes the customer who has them.
  */
 export function upsertCustomer(partial: Partial<Customer> & { firstName: string }, opts: { stage?: string } = {}): { customer: Customer; created: boolean } {
-  let existing = partial.id ? cache.find(c => c.id === partial.id) : null
-  if (!existing) existing = findDuplicate({ phone: partial.phone, email: partial.email })
+  const existing = partial.id ? cache.find(c => c.id === partial.id) : null
 
   if (existing) {
     const merged: Customer = {
@@ -394,16 +400,13 @@ export function deleteCustomer(id: string): void {
 }
 
 /**
- * Bulk import (CSV). Pushes the records to the server's /sync endpoint and
- * refetches the canonical list. Used by the CSV import flow on CustomersPage.
+ * Bulk import (CSV), used by the CSV import flow on CustomersPage. Each row is
+ * a new customer through the normal create path, one at a time. A row whose
+ * phone or email is already on file is skipped: it neither links to nor
+ * changes the customer who has them.
  */
 export async function bulkImportCustomers(records: Customer[]): Promise<{ created: number; updated: number; total: number }> {
   if (!records || records.length === 0) return { created: 0, updated: 0, total: 0 }
-  // The /sync endpoint upserts by (ownerId, email) or (ownerId, firstName+lastName+phone)
-  // and is reused here so the same matching logic governs all bulk paths.
-  // Push directly via migrateLocalContactsOnce semantics — but that helper is
-  // gated by a one shot flag, so we hit the underlying endpoint via the
-  // normal create path serially. Keep it simple: one request per record.
   let created = 0
   for (const r of records) {
     const dup = findDuplicate({ phone: r.phone, email: r.email })

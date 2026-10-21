@@ -341,41 +341,34 @@ for (const [path, on] of [['archive', true], ['unarchive', false]] as const) {
 
 // ── Bulk sync (one-time migration helper) ──
 //
-// Accepts an array of localStorage-shaped customers. Matches on (accountId, email)
-// and falls back to (accountId, firstName, lastName, phone) so legacy records
-// from any user in the company merge into the shared account view. ownerId is
-// set to the syncing user only on insert (audit trail for the migrator).
+// Accepts an array of localStorage-shaped customers and creates the ones not on
+// file. A row matching a customer on file (by email, or by first name + last
+// name + phone) is skipped: it is never merged into that customer, and never
+// changes them. ownerId is the syncing user (audit trail for the migrator).
 router.post('/sync', requireAccount, requireCan('records.import'), async (req: any, res) => {
   try {
     const items = z.array(contactSchema).parse(req.body?.contacts || [])
-    let created = 0, updated = 0
+    let created = 0, skipped = 0
     for (const item of items) {
       const matchKey = item.email
         ? { email: item.email, accountId: req.user.crmAccountId, deletedAt: null, archivedAt: null as any }
         : { firstName: item.firstName, lastName: item.lastName, phone: item.phone || '', accountId: req.user.crmAccountId, deletedAt: null, archivedAt: null as any }
       const existing = await prisma.crmContact.findFirst({ where: matchKey })
-      if (existing) {
-        await prisma.crmContact.update({
-          where: { id: existing.id },
-          data: { ...item, tags: item.tags ? JSON.parse(JSON.stringify(item.tags)) : undefined },
-        })
-        updated++
-      } else {
-        await prisma.crmContact.create({
-          data: {
-            accountId: req.user.crmAccountId,
-            ownerId: req.user.id,
-            ...item,
-            tags: item.tags ? JSON.parse(JSON.stringify(item.tags)) : null,
-            billingDifferent: item.billingDifferent ?? false,
-            isCompleted: item.isCompleted ?? false,
-          },
-        })
-        created++
-      }
+      if (existing) { skipped++; continue }
+      await prisma.crmContact.create({
+        data: {
+          accountId: req.user.crmAccountId,
+          ownerId: req.user.id,
+          ...item,
+          tags: item.tags ? JSON.parse(JSON.stringify(item.tags)) : null,
+          billingDifferent: item.billingDifferent ?? false,
+          isCompleted: item.isCompleted ?? false,
+        },
+      })
+      created++
     }
-    console.log(`[crm-contacts] sync: ${created} created, ${updated} updated for account ${req.user.crmAccountId}`)
-    res.json({ success: true, data: { created, updated, total: items.length } })
+    console.log(`[crm-contacts] sync: ${created} created, ${skipped} skipped (already on file) for account ${req.user.crmAccountId}`)
+    res.json({ success: true, data: { created, updated: 0, skipped, total: items.length } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[crm-contacts] sync error:', err)

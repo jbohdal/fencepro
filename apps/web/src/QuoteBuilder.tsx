@@ -11,7 +11,7 @@ import StyleChoices from './StyleChoices'
 import { catalogOf } from './fenceCatalog'
 import { newId } from './recordSync'
 import type { SavedQuote } from './QuotesPage'
-import { getCustomers, getCustomerById, upsertCustomer } from './customerStore'
+import { getCustomers, getCustomerById, upsertCustomer, findPossibleMatches } from './customerStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
 import { getRailOptimizerConfig } from './configStore'
@@ -144,6 +144,7 @@ function SaveModal({
   const [status, setStatus]       = useState<SavedQuote['status']>(initialStatus)
   const [notes, setNotes]         = useState(initialNotes)
   const [leadTemp, setLeadTemp]   = useState(0)
+  // The quote's property. It is the quote's own: clearing or changing the customer never changes it.
   const [propertyAddress, setPropertyAddress] = useState(initialAddress || selectedCustomer?.serviceAddress || '')
   // Settings > Lead Sources (shown ones), and the quote's own word when it is not among them.
   const LEAD_SOURCES = sourcePicker(leadSource)
@@ -160,10 +161,15 @@ function SaveModal({
       c.email.toLowerCase().includes(q)
   }).slice(0, 6)
 
+  // Someone on file with the phone or email typed for a new customer: offered, not assumed.
+  const matches = mode === 'new' ? (findPossibleMatches({ phone, email }) as SavedCustomer[]) : []
+
+  // A pick links the quote to that customer; their record is not changed. Their
+  // address fills Property address only when the quote has none yet.
   function handleSelectCustomer(c: SavedCustomer) {
     setSelectedCustomer(c)
     setSearch(`${c.firstName} ${c.lastName}`)
-    setPropertyAddress(c.serviceAddress || '')
+    setPropertyAddress(prev => prev.trim() ? prev : (c.serviceAddress || ''))
   }
 
   // Save tapped twice before the window closes: saved once.
@@ -189,13 +195,15 @@ function SaveModal({
     if (mode === 'new') {
       if (!firstName.trim()) return
       submitted.current = true
+      // Always a new customer (a phone or email on file is only offered above, with Use).
+      // Their address, if left empty, is this property; the quote's property, if left empty, is theirs.
       const { customer } = upsertCustomer({
         id: newCustomerId,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         phone,
         email,
-        serviceAddress: address,
+        serviceAddress: address.trim() || propertyAddress.trim(),
         leadSource,
         salesRep,
       })
@@ -204,7 +212,7 @@ function SaveModal({
         customerName: `${customer.firstName} ${customer.lastName}`.trim(),
         customerPhone: customer.phone,
         customerEmail: customer.email,
-        customerAddress: customer.serviceAddress,
+        customerAddress: propertyAddress.trim() || customer.serviceAddress,
         leadSource: customer.leadSource,
         salesRep: customer.salesRep,
         status,
@@ -226,10 +234,10 @@ function SaveModal({
 
         <div className="px-6 py-5 space-y-5">
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
-            <button onClick={() => setMode('search')} className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'search' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
+            <button onClick={() => setMode('search')} data-save-mode="search" className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'search' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
               Existing Customer
             </button>
-            <button onClick={() => setMode('new')} className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'new' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
+            <button onClick={() => setMode('new')} data-save-mode="new" className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'new' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
               New Customer
             </button>
           </div>
@@ -242,13 +250,13 @@ function SaveModal({
                 autoFocus={!selectedCustomer}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 placeholder="Name, phone, or email..."
-                value={search}
+                value={search} data-customer-search
                 onChange={e => { setSearch(e.target.value); setSelectedCustomer(null) }}
               />
               {search && !selectedCustomer && filtered.length > 0 && (
                 <div className="mt-1 border border-gray-200 rounded-lg overflow-hidden shadow-sm">
                   {filtered.map(c => (
-                    <div key={c.id} onClick={() => handleSelectCustomer(c)} className="px-3 py-2.5 hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0">
+                    <div key={c.id} onClick={() => handleSelectCustomer(c)} data-customer-option={c.id} className="px-3 py-2.5 hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0">
                       <p className="text-sm font-medium text-gray-900">{c.firstName} {c.lastName}</p>
                       <p className="text-xs text-gray-400">{c.phone} {c.email && `· ${c.email}`}</p>
                     </div>
@@ -261,7 +269,7 @@ function SaveModal({
                     <p className="text-sm font-semibold text-gray-900">{selectedCustomer.firstName} {selectedCustomer.lastName}</p>
                     <p className="text-xs text-gray-500">{selectedCustomer.phone} · {selectedCustomer.serviceAddress}</p>
                   </div>
-                  <button onClick={() => { setSelectedCustomer(null); setSearch('') }} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+                  <button onClick={() => { setSelectedCustomer(null); setSearch('') }} data-clear-customer className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
                 </div>
               )}
               {search && !selectedCustomer && filtered.length === 0 && (
@@ -276,23 +284,37 @@ function SaveModal({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">First Name *</label>
-                  <input autoFocus className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={firstName} onChange={e => setFirstName(e.target.value)} />
+                  <input autoFocus className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={firstName} onChange={e => setFirstName(e.target.value)} data-new-field="first-name" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Last Name</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={lastName} onChange={e => setLastName(e.target.value)} />
+                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={lastName} onChange={e => setLastName(e.target.value)} data-new-field="last-name" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Phone</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="(352) 555-0100" value={phone} onChange={e => setPhone(e.target.value)} />
+                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="(352) 555-0100" value={phone} onChange={e => setPhone(e.target.value)} data-new-field="phone" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Email</label>
-                  <input type="email" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={email} onChange={e => setEmail(e.target.value)} />
+                  <input type="email" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={email} onChange={e => setEmail(e.target.value)} data-new-field="email" />
                 </div>
               </div>
+              {matches.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1.5" data-possible-match>
+                  <p className="text-xs text-amber-800">Already on file with this phone or email. Save makes a new customer unless you pick one.</p>
+                  {matches.slice(0, 3).map(c => (
+                    <div key={c.id} className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-gray-800 min-w-0 truncate">{`${c.firstName} ${c.lastName}`.trim()}{c.phone ? ` · ${c.phone}` : ''}</span>
+                      <button type="button" onClick={() => { handleSelectCustomer(c); setMode('search') }} data-use-customer={c.id}
+                        className="shrink-0 min-h-[40px] px-3 rounded-lg border border-amber-300 text-xs font-semibold text-amber-900 hover:bg-amber-100">
+                        Use {c.firstName || 'this customer'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Service Address</label>
                 <AddressAutocomplete value={address} onChange={setAddress} onSelect={p => setAddress(p.formatted)} placeholder="Address..." />
@@ -345,17 +367,15 @@ function SaveModal({
             </div>
           </div>
 
-          {mode === 'search' && selectedCustomer && (
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block font-medium">Property address</label>
-              <input
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                value={propertyAddress}
-                onChange={e => setPropertyAddress(e.target.value)}
-                data-quote-property-address
-              />
-            </div>
-          )}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block font-medium">Property address</label>
+            <input
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              value={propertyAddress}
+              onChange={e => setPropertyAddress(e.target.value)}
+              data-quote-property-address
+            />
+          </div>
 
           <div>
             <label className="text-xs text-gray-500 mb-1 block font-medium">Notes (optional)</label>
@@ -1034,7 +1054,7 @@ export default function QuoteBuilder({
                   onOpenSide={setOpenSide}
                   locked={signedQuote}
                   teeAs={teeAs}
-                  address={init?.customerAddress || getCustomers().find(c => `${c.firstName} ${c.lastName}`.trim().toLowerCase() === customerName.trim().toLowerCase())?.serviceAddress || ''}
+                  address={init?.customerAddress || (init?.customerId ? getCustomerById(init.customerId)?.serviceAddress : '') || ''}
                 />
               )}
             </div>

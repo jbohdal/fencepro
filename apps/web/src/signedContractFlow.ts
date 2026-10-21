@@ -17,7 +17,7 @@
 import { stageHasRole, stageName } from './pipelineStagesStore'
 import { getPipeline, savePipeline } from './pipelineStore'
 import type { SavedQuote } from './QuotesPage'
-import { getCustomerById, logCustomerActivity, getCustomers, upsertCustomer, type Customer } from './customerStore'
+import { getCustomerById, logCustomerActivity, upsertCustomer, type Customer } from './customerStore'
 import { createJobFromQuote, getJobByQuoteId, type Job } from './jobStore'
 import { createPendingOrderFromQuote } from './pendingOrderStore'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
@@ -160,26 +160,10 @@ export function applySignedContractTransition(lead: { id: string; customerId?: s
   if (!stageHasRole(lead.stage, 'signed')) return null
   if (stageHasRole(lead.fromStage, 'signed')) return null // same-to-same no-op
 
-  // Step 1: resolve (or create) the customer.
+  // Step 1: the card's own customer (set by a pick or a create, never guessed by name, phone or email).
   let customer: Customer | null = lead.customerId ? getCustomerById(lead.customerId) : null
   if (!customer) {
-    // Fallback 1: match any existing customer by name/phone/email
-    const all = getCustomers()
-    const leadName = `${lead.firstName} ${lead.lastName}`.trim().toLowerCase()
-    const leadPhone = (lead.phone || '').replace(/\D/g, '')
-    const leadEmail = (lead.email || '').toLowerCase()
-    customer = all.find(c => {
-      const cName = `${c.firstName} ${c.lastName}`.trim().toLowerCase()
-      const cPhone = (c.phone || '').replace(/\D/g, '')
-      const cEmail = (c.email || '').toLowerCase()
-      if (leadName && cName === leadName) return true
-      if (leadPhone && cPhone === leadPhone) return true
-      if (leadEmail && cEmail === leadEmail) return true
-      return false
-    }) || null
-  }
-  if (!customer) {
-    // Fallback 2: create a customer so the cascade can proceed
+    // None: create a customer so the cascade can proceed
     try {
       // A fixed id per card: the same card handled again (or on another phone) is the same customer.
       const fixedId = `c-${lead.id}`

@@ -315,11 +315,11 @@ export async function migrateLocalContactsOnce(localCustomers: any[]): Promise<v
       isCompleted: !!c.isCompleted,
     })).filter(c => c.firstName && c.lastName),
   }
-  const r = await call<{ created: number; updated: number; total: number }>('POST', '/sync', payload)
+  const r = await call<{ created: number; skipped: number; total: number }>('POST', '/sync', payload)
   if (r.ok && r.data) {
     localStorage.setItem(MIGRATION_FLAG, '1')
-    if (r.data.created > 0 || r.data.updated > 0) {
-      toast.info('Customers backed up to cloud', `${r.data.created} new and ${r.data.updated} existing customers are now in the database.`)
+    if (r.data.created > 0 || r.data.skipped > 0) {
+      toast.info('Customers backed up to cloud', `${r.data.created} new customers are now in the database. ${r.data.skipped ?? 0} already on file were left as they are.`)
     }
   }
 }

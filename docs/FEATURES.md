@@ -333,6 +333,13 @@ Status key:
 * A per section color carries the section cost once, on "Vinyl, <Color>, Section, 6x8", and lists what the kit holds at $0 so the crew loads it. A gate leaf uses one kit, cut down. **DEV**
 * Chai Gray made with the form on the practice copy: 6x8 only, $184.00 a section (15 pickets, 2 rails 8 ft, 3 picket stiffeners, 1 rail stiffener, 2 U channels), post $38.92 (78" No dig, 102" Dig set), cap $3.86, upright $13.36, No dig and Dig set. 100 ft in two runs, 2 corners, 2 ends, a 4 ft walk gate: Chai Gray $8,002.39, White $4,164.84 (~/Downloads/chai-gray-vs-white-2026-10-21.md). Not on live yet: waiting for the black rivet price. **DEV**
 
+## 9m. Customer links only by a pick (Oct 21)
+
+* A card, quote or signed card is linked to a customer only by picking them in a search or by Create new customer, never by a matching name, phone or email. The cause it fixes: on Oct 19 "Add to First Contact" matched Christa Feagin's record by the email typed for Guillermo Nunez, overwrote her record with his details and linked his card to her. **DEV**
+* A typed phone or email that is already on file shows "Use <name>" in Add lead and Save quote's New Customer; tapping it links that customer without changing their record. Not tapping it makes a new customer. **DEV**
+* Save quote: the Property address belongs to the quote. It shows in both modes, starts from the quote's own address, is filled from a picked customer only when empty, and clearing or changing the customer never changes it. **DEV**
+* The old bulk customer sync never overwrites a record it matches (it skips it). Website and phone agent leads still attach to a customer with the same phone or email (they never overwrite): decision pending. **DEV**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)

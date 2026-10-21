@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { styleLabel } from './fenceCatalog'
 import { sourcePicker, sourceLabel } from './optionListsStore'
-import { upsertCustomer, logCustomerActivity } from './customerStore'
+import { upsertCustomer, logCustomerActivity, findPossibleMatches, type Customer } from './customerStore'
 import { getPipeline, savePipeline as storeSavePipeline } from './pipelineStore'
 import { toast } from './toast'
 import { pickableIds, stageName, stageColor } from './pipelineStagesStore'
@@ -83,7 +83,11 @@ export function QuickAddModal({
   const [leadSource, setLeadSource] = useState('')
   const [notes, setNotes]         = useState('')
   const [newCustomerId] = useState(() => newId())
+  // A customer on file picked with "Use": the card goes on their record. Never set by a match alone.
+  const [picked, setPicked] = useState<Customer | null>(null)
   const added = useRef(false)
+  // Someone on file with the phone or email typed: offered, not assumed.
+  const matches = picked ? [] : findPossibleMatches({ phone, email })
 
   // Combine the four address fields into the single string the data layer expects.
   function composedAddress(): string {
@@ -92,14 +96,37 @@ export function QuickAddModal({
   }
 
   function handleAdd() {
-    if (!firstName.trim()) return
+    if (!firstName.trim() && !picked) return
     // Add tapped twice before the window closes: the second tap does nothing.
     if (added.current) return
     added.current = true
     const address = composedAddress()
+    if (picked) {
+      // A card for the picked customer in this column. Their record is not changed;
+      // the property typed here is the card's.
+      const lead: PipelineLead = {
+        id: newId(),
+        customerId: picked.id,
+        firstName: picked.firstName,
+        lastName: picked.lastName,
+        phone: picked.phone, email: picked.email,
+        address: address || picked.serviceAddress,
+        leadSource: leadSource || picked.leadSource, notes: notes || picked.notes,
+        leadTemp: 0, fenceType: '', sections: 0,
+        quotePrice: 0, crew: '', scheduledDate: '',
+        jobValue: 0, paymentStatus: '', balanceDue: 0,
+        stage,
+        createdAt: picked.createdAt,
+        lastMoved: businessDate(new Date()),
+      }
+      logCustomerActivity(picked.id, `Lead added to pipeline at ${stageName(stage)}`, { kind: 'stage_change' })
+      onAdd(lead)
+      toast.info('Lead added for a customer on file', `${picked.firstName} ${picked.lastName}`.trim())
+      return
+    }
     // A new customer and their card in this column are one save (customerStore): both or neither.
     // The customer's id is chosen when the window opens, so a resend is the same customer.
-    const { customer, created } = upsertCustomer({
+    const { customer } = upsertCustomer({
       id: newCustomerId,
       firstName: firstName.trim(),
       lastName: lastName.trim(),
@@ -108,30 +135,9 @@ export function QuickAddModal({
       city: city.trim(), state: state.trim(), zip: zip.trim(),
       leadSource, notes,
     }, { stage })
-    if (created) {
-      logCustomerActivity(customer.id, `Lead added to pipeline at ${stageName(stage)}`, { kind: 'stage_change' })
-      onAdd(null)
-      toast.info('Lead added', 'With a customer record. Its status shows Saved once the office has it.')
-      return
-    }
-    // Someone already on file (same phone or email): a card for them in this column.
-    const lead: PipelineLead = {
-      id: newId(),
-      customerId: customer.id,
-      firstName: customer.firstName,
-      lastName: customer.lastName,
-      phone: customer.phone, email: customer.email,
-      address: customer.serviceAddress,
-      leadSource: customer.leadSource, notes: customer.notes,
-      leadTemp: 0, fenceType: '', sections: 0,
-      quotePrice: 0, crew: '', scheduledDate: '',
-      jobValue: 0, paymentStatus: '', balanceDue: 0,
-      stage,
-      createdAt: customer.createdAt,
-      lastMoved: businessDate(new Date()),
-    }
-    onAdd(lead)
-    toast.info('Lead linked to a customer already on file', `${customer.firstName} ${customer.lastName}`.trim())
+    logCustomerActivity(customer.id, `Lead added to pipeline at ${stageName(stage)}`, { kind: 'stage_change' })
+    onAdd(null)
+    toast.info('Lead added', 'With a customer record. Its status shows Saved once the office has it.')
   }
 
   return (
@@ -178,10 +184,33 @@ export function QuickAddModal({
             <label className="text-xs text-gray-500 mb-1 block">Email</label>
             <input
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              value={email}
+              value={email} data-lead-field="email"
               onChange={e => setEmail(e.target.value)}
             />
           </div>
+          {matches.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1.5" data-possible-match>
+              <p className="text-xs text-amber-800">Already on file with this phone or email. Add Lead makes a new customer unless you pick one.</p>
+              {matches.slice(0, 3).map(c => (
+                <div key={c.id} className="flex items-center justify-between gap-2">
+                  <span className="text-sm text-gray-800 min-w-0 truncate">{`${c.firstName} ${c.lastName}`.trim()}{c.phone ? ` · ${c.phone}` : ''}</span>
+                  <button type="button" onClick={() => setPicked(c)} data-use-customer={c.id}
+                    className="shrink-0 min-h-[40px] px-3 rounded-lg border border-amber-300 text-xs font-semibold text-amber-900 hover:bg-amber-100">
+                    Use {c.firstName || 'this customer'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {picked && (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2" data-picked-customer={picked.id}>
+              <span className="text-sm text-gray-800 min-w-0">Card goes on <b>{`${picked.firstName} ${picked.lastName}`.trim()}</b>'s record. Their details are not changed.</span>
+              <button type="button" onClick={() => setPicked(null)} data-unpick-customer
+                className="shrink-0 min-h-[40px] px-3 rounded-lg text-xs text-orange-600 hover:underline">
+                New customer instead
+              </button>
+            </div>
+          )}
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Street Address</label>
             {/* Suggestions from the county's property list: one tap fills street, city, state and ZIP. */}
@@ -248,7 +277,7 @@ export function QuickAddModal({
             </button>
             <button
               onClick={handleAdd}
-              disabled={!firstName.trim()}
+              disabled={!firstName.trim() && !picked}
               data-lead-add
               className="btn btn-primary flex-1"
             >
