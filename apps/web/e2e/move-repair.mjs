@@ -23,6 +23,7 @@
 // Removes every quote, job and photo it made and puts Settings back.
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // changes Settings: takes turns with the other tests that do
 import { chromium } from 'playwright'
 import fs from 'fs'
 import path from 'path'
@@ -102,6 +103,19 @@ async function breakdownAddsUp() {
 }
 
 let saved = null
+// The dev copy holds live's real pull and disposal rates; the checks below are about blank rates,
+// so they are blanked for the run and the Moves and Repairs settings put back exactly afterwards.
+const PULL_KEYS = ['pullNdLaborCents', 'pullDsLaborCents', 'pullNdDisposalCents', 'pullDsDisposalCents']
+async function setMoveRepair(fn) {
+  for (let i = 0; i < 5; i++) {
+    const st = await api('/api/business-state')
+    const r = await fetch(API + '/api/business-state', { method: 'PATCH', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ config: { ...st.config, moveRepair: fn(st.config.moveRepair) }, baseVersion: st.version }) })
+    if (r.ok) return
+  }
+  throw new Error('could not save the Moves and Repairs settings')
+}
+const mrBefore = (await api('/api/business-state')).config?.moveRepair
+await setMoveRepair(mr => Object.fromEntries(Object.entries(mr ?? {}).filter(([k]) => !PULL_KEYS.includes(k))))
 try {
   // ── 1. Settings → Moves and Repairs ──
   await home(); await settingsTab()
@@ -258,7 +272,8 @@ try {
   await pickStyle('White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig')
   await b.locator('[data-what="leaning"]').click(); await sleep(200)
   await b.locator('[data-step="price"]').click(); await sleep(500)
-  check('Minimum: a leaning post prices at $350.00', money(await b.locator('[data-quote-price]').textContent()) === 350)
+  const leanText = await b.locator('[data-work-breakdown]').textContent().catch(() => '')
+  check('Minimum: a leaning post prices at $350.00', money(await b.locator('[data-quote-price]').textContent()) === 350, `${await b.locator('[data-quote-price]').textContent()} | ${leanText.slice(0, 300)}`)
   check('Minimum: "Minimum job price applied" shows internally', await b.locator('[data-price-minimum]').count() === 1 && await b.locator('[data-minimum-applied]').count() === 1)
   await shot('dev-repair-4-minimum-applied', b.locator('[data-work-breakdown]'))
   await b.locator('[data-quote-close]').click(); await sleep(500)
@@ -284,6 +299,7 @@ try {
 } catch (e) {
   check('test run finished', false, String(e).split('\n').slice(0, 3).join(' '))
 } finally {
+  await setMoveRepair(() => mrBefore).catch(e => console.error('Could not put Moves and Repairs back:', e))
   for (const m of made.media) if (m?.id) await api(`/api/media/${m.id}`, { method: 'DELETE' })
   for (const j of made.jobs) await api(`/api/saved-jobs/${j}`, { method: 'DELETE' })
   for (const q of made.quotes) await api(`/api/saved-quotes/${q}`, { method: 'DELETE' })

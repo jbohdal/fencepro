@@ -54,11 +54,12 @@ try {
   const wApps = JSON.stringify(wcfg.materials)
   check('website widget: no commercial chain link, no Industrial Abigail', !wcfg.materials.some(m => m.material === 'chain-link-commercial') && !/Ind Abigail/.test(wApps))
   check('website widget: offers "Commercial / Industrial" with the message and the business phone', wcfg.onHold?.message === MSG && !!wcfg.onHold?.phone, JSON.stringify(wcfg.onHold))
+  // The website widget (drawn on the photo since Oct 20) never takes a style name: customers pick
+  // from the materials its config offers, and the checks above show the five are not offered there.
   for (const s of HELD) {
-    const w = await (await fetch(`${APP}/p/quote/api/estimate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(job(s)) })).json()
     const q = await post('/api/quoting/estimate', job(s), WIDGET)
     const quick = await post('/api/quotes/quick-estimate', { fenceStyle: s, linearFootage: 100 })
-    check(`${s}: widget, phone agent and chat all answer "${MSG}"`, w.error === MSG && q.message === MSG && quick.data?.message === MSG && !q.estimate && !w.estimate, `${w.error} | ${q.message} | ${quick.data?.message}`)
+    check(`${s}: phone agent and chat both answer "${MSG}"`, q.message === MSG && quick.data?.message === MSG && !q.estimate, `${q.message} | ${quick.data?.message}`)
   }
   const ok = await post('/api/quoting/estimate', job("CL - 6' Galv"), WIDGET)
   check('other styles still estimate', ok.success && ok.estimate > 0)
@@ -103,14 +104,17 @@ try {
   const wctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
   const w = await wctx.newPage()
   await w.goto(`${APP}/p/quote/`); await w.waitForSelector('[data-w-address]', { timeout: 30000 })
-  await w.locator('[data-w-address]').fill('201 SE 3rd St, Ocala, FL 34471')
-  await w.locator('[data-w-next]').click(); await sleep(4000)
-  if (await w.locator('[data-w-step="address"]').count()) await w.locator('[data-w-next]').click()
-  await w.locator('[data-w-shape="straight"]').click(); await sleep(400)
-  await w.locator('[data-w-side] [data-w-length]').first().click()
-  for (const k of '100') await w.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-  await w.locator('[data-ftin-pad] [data-pad-done]').click(); await sleep(200)
-  await w.locator('[data-w-step="yard"] [data-w-next]').click(); await sleep(400)
+  await w.locator('[data-w-address]').fill('201 SE 3rd St, Ocala, FL 34471'); await sleep(1500)
+  if (await w.locator('[data-w-suggestion]').count()) await w.locator('[data-w-suggestion]').first().click()
+  else await w.locator('[data-w-step="address"] [data-w-next]').click()
+  await w.locator('[data-w-step="draw"] .leaflet-tile-loaded').first().waitFor({ timeout: 30000 }); await sleep(800)
+  // Draw one side on the photo: tap the start, tap the end, Done.
+  const box = await w.locator('[data-w-map]').boundingBox()
+  await w.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.5); await sleep(400)
+  await w.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.5); await sleep(400)
+  if (await w.locator('[data-w-done]').count()) await w.locator('[data-w-done]').click()
+  await sleep(400)
+  await w.locator('[data-w-step="draw"] [data-w-next]').click(); await sleep(600)
   check('widget: commercial chain link is not a material choice', await w.locator('[data-w-material="chain-link-commercial"]').count() === 0)
   await w.locator('[data-w-material="commercial-industrial"]').click(); await sleep(300)
   const line = await w.locator('[data-w-on-hold]').textContent().catch(() => '')
@@ -130,7 +134,9 @@ try {
   const wcfg2 = await (await fetch(`${APP}/p/quote/api/config`)).json()
   const q2 = await post('/api/quoting/estimate', job("CL - Com 6'"), WIDGET)
   check('back on: chat and phone agent list it and estimate it', styles2.includes("CL - Com 6'") && q2.success && q2.estimate > 0, `$${q2.estimate}`)
-  check('back on: the widget offers Commercial Chain Link again', wcfg2.materials.some(m => m.material === 'chain-link-commercial' && JSON.stringify(m).includes("CL - Com 6'")))
+  // The website widget (rebuilt Oct 20) offers residential chain link only, so a commercial style
+  // switched back on stays a phone call there; the other four still on hold keep the Commercial / Industrial choice.
+  check('back on: the widget still offers residential chain link only, and keeps the call-us choice', wcfg2.materials.some(m => m.material === 'chain') && !wcfg2.materials.some(m => m.heights?.some(h => h.kind === 'com')) && wcfg2.onHold?.message === MSG, JSON.stringify(wcfg2.materials.find(m => m.material === 'chain')?.heights.map(h => h.key)))
   await page.goto(`${APP}/quotes?quote=new`); await page.waitForSelector('[data-quote-builder]', { timeout: 60000 }); await sleep(800)
   await page.locator('[data-step="style"]').first().click(); await sleep(500)
   names = await pickerNames()

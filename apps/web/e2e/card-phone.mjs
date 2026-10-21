@@ -103,6 +103,7 @@ const tap = async (s, loc, opts) => { if (s.phone) await loc.tap(opts); else awa
 async function run(browser, phone) {
   const size = phone ? 'phone' : 'desktop'
   console.log(`\n── ${size} ──`)
+  await api('DELETE', '/api/follow-ups/pending').catch(() => {})  // a call left by the pass before would cover the board
   const s = await open(browser, phone)
   const p = pointer(s)
   const { leads } = await serverLeads()
@@ -205,6 +206,8 @@ async function run(browser, phone) {
   const now = d.leads.find(l => l.id === id)
   const back = await api('PATCH', '/api/pipeline', { upsert: [{ lead: { ...now, stage: src, lastMoved: lead.lastMoved, boardOrder: lead.boardOrder } }], remove: [], baseVersion: d.version })
   check(`${size}: card put back in ${src}`, back.status === 200 && (await stageOnServer(id)) === src, `status ${back.status}`)
+  // The number tapped above started a call the app asks about ("How'd it go?") when the page comes back: clear it first.
+  await api('DELETE', '/api/follow-ups/pending').catch(() => {})
   await s.page.reload(); await s.page.waitForSelector('[data-kanban-board]', { timeout: 30000 }); await sleep(700)
 
   /* opening the card, and the number in the card window */

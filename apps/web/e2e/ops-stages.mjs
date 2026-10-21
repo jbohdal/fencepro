@@ -112,8 +112,16 @@ try {
   await d.page.goto(`${APP}/operations`)
   await d.page.waitForSelector('[data-kanban-col="scheduled"]', { timeout: 60000 }); await sleep(800)
   const want = ['__unscheduled__', ...saved.stages.filter(s => !s.hidden && s.lane === 'main').map(s => s.id), ...saved.stages.filter(s => !s.hidden && s.lane === 'side').map(s => s.id)]
-  const got = await lanes(d.page)
-  check('board columns follow Settings: order, the new stage, no hidden stage', got.join() === want.join(), got.join(' | '))
+  // A hidden stage keeps a "(hidden)" lane at the end while a job is still in it (other dev data may have one).
+  const hiddenIds = new Set(saved.stages.filter(s => s.hidden).map(s => s.id))
+  const boardOk = async page => {
+    const got = await lanes(page)
+    const extra = got.slice(want.length)
+    const labelled = await Promise.all(extra.map(async k => hiddenIds.has(k) && /\(hidden\)/.test(await laneLabel(page, k))))
+    return { ok: got.slice(0, want.length).join() === want.join() && labelled.every(Boolean), got }
+  }
+  const b1 = await boardOk(d.page)
+  check('board columns follow Settings: order, the new stage, no hidden stage', b1.ok, `got ${b1.got.join(' | ')}  want ${want.join(' | ')}`)
   check('board column shows the new name', (await laneLabel(d.page, 'scheduled')).includes(RENAMED))
   check('board shows the added stage by name', (await laneLabel(d.page, newId)).includes(NEW_NAME))
   check('the test job is in the renamed column', (await d.page.locator(`[data-kanban-col="scheduled"] [data-kanban-card="${jobId}"]`).count()) === 1)
@@ -154,7 +162,7 @@ try {
   const m = await open(b, 360, 780, true)
   await m.page.goto(`${APP}/operations`)
   await m.page.waitForSelector('[data-kanban-col="scheduled"]', { timeout: 60000 }); await sleep(800)
-  check('phone (second browser): same columns after a reload', (await lanes(m.page)).join() === want.join())
+  check('phone (second browser): same columns after a reload', (await boardOk(m.page)).ok)
   check('phone: renamed column', (await m.page.locator('[data-kanban-col="scheduled"]').innerText()).includes(RENAMED))
   await m.page.goto(`${APP}/settings?tab=ops_stages`)
   await m.page.waitForSelector('[data-ops-stages-settings]', { timeout: 60000 }); await sleep(600)
