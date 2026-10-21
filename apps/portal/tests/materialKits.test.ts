@@ -233,10 +233,11 @@ describe('material kits reproduce the old parts lists', () => {
   })
 
   // Bell 4'x6' gates. Jonathan, Oct 21, 2026: "A Bell gate is built from a gate kit (hardware and
-  // uprights) plus one fence section, so each gate adds one section and one gate kit. TAKEOFF_RULES
-  // is correct, do not change it." TAKEOFF_RULES rows listing "WV-ND Bell 4'x6'":
+  // uprights) plus one fence section, so each gate adds one section and one gate kit." Then, on the
+  // gate kit count: "(b), 1 per walk gate, 2 per double. One kit builds one leaf." (his correction to
+  // the sheet's gateCount*2; docs/DECISIONS.md). TAKEOFF_RULES rows listing "WV-ND Bell 4'x6'":
   //   Misc, 6' Section              gateCount + totalSections (priced as 6'x6' privacy parts for now)
-  //   Misc, Gate Kit, No Hardware   gateCount*2 (a double gate counts 2, so 4)
+  //   Misc, Gate Kit, No Hardware   gateCount (one per leaf: 1 per walk gate, 2 per double gate)
   //   *Vinyl, Gate, Handle          gateCount*2
   //   *Vinyl, Gate, Brace / Hinge / Latch   1 per walk gate, 2 per double gate
   //   *Vinyl, White, Upright        2 per walk gate, 4 per double gate
@@ -258,12 +259,12 @@ describe('material kits reproduce the old parts lists', () => {
     const BELL = "WV-ND Bell 4'x6'"
     const section = { '*Vinyl, White, Picket, 62-1/4"': 11, "*Vinyl, White, Rail, 6'": 2, '*Vinyl, White, U-Trim, 59-1/4"': 2, '*Vinyl, Truss, 8 x 3/4" (U-Trim)': 6 }
     expect(delta(BELL, 1, 0)).toEqual({
-      ...section, 'Misc, Gate Kit, No Hardware': 2, '*Vinyl, Gate, Handle': 2, "*Vinyl, Gate, H-Beam, 6'": 2,
+      ...section, 'Misc, Gate Kit, No Hardware': 1, '*Vinyl, Gate, Handle': 2, "*Vinyl, Gate, H-Beam, 6'": 2,
       '*Vinyl, Gate, Brace': 1, '*Vinyl, Gate, Hinge': 1, '*Vinyl, Gate, Latch': 1, '*Vinyl, White, Upright': 2, '*Vinyl, White, Rivet, 1"': 50,
     })
     // A double gate: two leaves, plus its blank post (102") and what a post takes (cap, ties, pins, its concrete).
     const dbl = delta(BELL, 0, 1)
-    expect(dbl['Misc, Gate Kit, No Hardware']).toBe(4)
+    expect(dbl['Misc, Gate Kit, No Hardware']).toBe(2)
     expect(dbl['*Vinyl, White, Picket, 62-1/4"']).toBe(22)
     expect(dbl["*Vinyl, Gate, H-Beam, 6'"]).toBe(2)
     expect(dbl['*Vinyl, White, Upright']).toBe(4)

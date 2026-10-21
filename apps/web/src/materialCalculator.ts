@@ -463,11 +463,13 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     // Bell 4'x6' gates (TAKEOFF_RULES rows that list "WV-ND Bell 4'x6'"; Jonathan, Oct 21, 2026:
     // "A Bell gate is built from a gate kit (hardware and uprights) plus one fence section"):
     // each leaf takes one section of the parts above (panelCount, the "Misc, 6' Section" row
-    // gateCount + totalSections, priced as 6'x6' privacy for now), "Misc, Gate Kit, No Hardware"
-    // gateCount*2, and the shared vinyl gate rows: handle, H-beam 6', brace, hinge, latch,
-    // upright, rivet. The Bell is not in the P-channel, gate cap, H-beam hex or H-beam 8' rows.
+    // gateCount + totalSections, priced as 6'x6' privacy for now), one "Misc, Gate Kit, No Hardware"
+    // ("One kit builds one leaf": 1 per walk gate, 2 per double gate; Jonathan's correction to the
+    // sheet's gateCount*2, docs/DECISIONS.md), and the shared vinyl gate rows: handle, H-beam 6',
+    // brace, hinge, latch, upright, rivet. The Bell is not in the P-channel, gate cap, H-beam hex or
+    // H-beam 8' rows.
     const bell = s === "WV-ND Bell 4'x6'"
-    if (bell && gateOpenings > 0) add("Misc, Gate Kit, No Hardware", gateOpenings * 2, 57.00)
+    if (bell && gateOpenings > 0) add("Misc, Gate Kit, No Hardware", gateOpenings, 57.00)
     // Walk gate hardware
     if (walkGates > 0) {
       add("*Vinyl, Gate, H-Beam, 6'", walkGates * 2, 22.80)
