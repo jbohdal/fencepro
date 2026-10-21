@@ -92,14 +92,15 @@ async function run(engine, name, phone) {
     const listed = await page.locator('[data-vc-created-item]').allTextContents()
     const styles = await page.locator('[data-vc-created-style]').evaluateAll(els => els.map(e => e.getAttribute('data-vc-created-style')))
     const kits = await page.locator('[data-vc-created-kit]').count()
-    check(`${name}: the confirmation lists every catalog item (11), both fences and both kit sets`, listed.length === 11 && styles.join('|') === `${ND}|${DS}` && kits === 2, `${listed.length} items, ${styles.join(', ')}, ${kits} kits`)
-    check(`${name}: …with the section at $184.00 and its parts at $0 (in the section kit)`, listed.some(t => t.includes('Section, 6x8') && t.includes('$184.00')) && listed.filter(t => t.includes('$0 (in the section kit)')).length === 5)
+    // 10: the rail stiffener is White's rail insert, already in Inventory (Jonathan, Oct 21).
+    check(`${name}: the confirmation lists every catalog item (10), both fences and both kit sets`, listed.length === 10 && styles.join('|') === `${ND}|${DS}` && kits === 2, `${listed.length} items, ${styles.join(', ')}, ${kits} kits`)
+    check(`${name}: …with the section at $184.00 and its parts at $0 (in the section kit)`, listed.some(t => t.includes('Section, 6x8') && t.includes('$184.00')) && listed.filter(t => t.includes('$0 (in the section kit)')).length === 4)
     check(`${name}: …and Undo for 24 hours`, await page.locator('[data-vc-created-undo]').count() === 1)
     if (SHOTS) await page.locator('[data-sheet="vinyl-color-created"] > div').screenshot({ path: `${SHOTS}/${phone ? 'e2e-color-created-phone' : 'e2e-color-created'}.png` })
     const s = await snapshot()
     const made = s.bs.config.fenceStyles.filter(x => x.material === 'vinyl' && x.choices?.color === KEY)
     const history = (await api(`/api/vinyl-colors`)).records?.find(r => r.key === KEY)
-    check(`${name}: saved on the server: 2 fences, 2 kit sets, 11 catalog items, 6 dated costs`, made.length === 2 && (s.inv.kits ?? []).filter(k => k.madeFor === TAG).length === 2 && s.inv.items.filter(i => i.madeFor === TAG).length === 11 && history?.created.priceHistoryIds.length === 6)
+    check(`${name}: saved on the server: 2 fences, 2 kit sets, 10 catalog items, 6 dated costs`, made.length === 2 && (s.inv.kits ?? []).filter(k => k.madeFor === TAG).length === 2 && s.inv.items.filter(i => i.madeFor === TAG).length === 10 && history?.created.priceHistoryIds.length === 6)
     await tap('[data-vc-created-done]'); await sleep(300)
 
     // ── In the quote builder now ──
@@ -119,8 +120,9 @@ async function run(engine, name, phone) {
     const line = n => (est.pullSheet ?? []).find(l => l.item === n)
     const sec = line(SECTION)
     check(`${name}: the quote prices: 15 section kits (14 sections + the gate leaf) at $184.00, once`, est.price > 0 && sec?.qty === 15 && sec?.unitCost === 184 && (est.pullSheet ?? []).filter(l => l.item === SECTION).length === 1, JSON.stringify(sec))
-    const kit = ['Picket', "Rail, 8'", 'Picket Stiffener', 'Rail Stiffener', 'U Channel'].map(p => line(`*Vinyl, ${COLOR}, ${p}`))
-    check(`${name}: the kit's parts itemized at $0 (225 pickets, 30 rails, 45 picket stiffeners, 15 rail stiffeners, 30 U channel)`, kit.map(l => l?.qty).join(',') === '225,30,45,15,30' && kit.every(l => l?.total === 0), kit.map(l => `${l?.qty}@${l?.unitCost}`).join(' '))
+    // The rail stiffener in an 8 ft rail is White's rail insert, shared by every color (Jonathan, Oct 21): $0 inside the kit.
+    const kit = [...['Picket', "Rail, 8'", 'Picket Stiffener'].map(p => line(`*Vinyl, ${COLOR}, ${p}`)), line("Vinyl, Rail Insert, 8'"), line(`*Vinyl, ${COLOR}, U Channel`)]
+    check(`${name}: the kit's parts itemized at $0 (225 pickets, 30 rails, 45 picket stiffeners, 15 rail inserts, 30 U channel)`, kit.map(l => l?.qty).join(',') === '225,30,45,15,30' && kit.every(l => l?.total === 0), kit.map(l => `${l?.qty}@${l?.unitCost}`).join(' '))
 
     // ── Undo ──
     await page.goto(`${APP}/settings?tab=price_list`); await page.waitForSelector('[data-vinyl-colors]', { timeout: 60000 }); await sleep(600)

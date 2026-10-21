@@ -106,13 +106,14 @@ describe('creating a color: the same takeoff rules (kit lines) as the White temp
       const cc = kitLineCounts(c)
       for (const k of ['corner', 'end', 'line', 'blank'] as const) expect(cc[k], `${m} ${k}`).toBe(w[k])
       // White's section: picket, rail 8', U trim, rail insert, truss screws (5). Chai Gray: picket, rail 8', U channel,
-      // rail stiffener (White's insert), truss screws, and 3 picket stiffeners White has no line for (6).
+      // rail stiffener (White's rail insert, the same part for every color: Jonathan, Oct 21), truss screws,
+      // and 3 picket stiffeners White has no line for (6).
       expect(cc.section).toBe(w.section! + 1)
       expect(c.kits.section).toEqual([
         { part: '*Vinyl, Chai Gray, Picket', qty: 15, fallbackCost: 0 },
         { part: "*Vinyl, Chai Gray, Rail, 8'", qty: 2, fallbackCost: 0 },
         { part: '*Vinyl, Chai Gray, Picket Stiffener', qty: 3, fallbackCost: 0 },
-        { part: '*Vinyl, Chai Gray, Rail Stiffener', qty: 1, fallbackCost: 0 },
+        { part: "Vinyl, Rail Insert, 8'", qty: 1, fallbackCost: 0 },
         { part: '*Vinyl, Chai Gray, U Channel', qty: 2, fallbackCost: 0 },
         expect.objectContaining({ part: '*Vinyl, Truss, 8 x 3/4" (U-Trim)', qty: 6 }),
       ])
@@ -162,7 +163,7 @@ describe('a Chai Gray quote', () => {
     // 14 sections + 1 gate leaf, each one section kit, at $184.00, once.
     expect(line('*Vinyl, Chai Gray, Section, 6x8')).toMatchObject({ qty: 15, unitCost: 184, total: 2760 })
     expect(calc.materials.items.filter(i => i.item.includes('Section, 6x8')).length).toBe(1)
-    for (const [part, qty] of [['*Vinyl, Chai Gray, Picket', 225], ["*Vinyl, Chai Gray, Rail, 8'", 30], ['*Vinyl, Chai Gray, Picket Stiffener', 45], ['*Vinyl, Chai Gray, Rail Stiffener', 15], ['*Vinyl, Chai Gray, U Channel', 30]] as const) {
+    for (const [part, qty] of [['*Vinyl, Chai Gray, Picket', 225], ["*Vinyl, Chai Gray, Rail, 8'", 30], ['*Vinyl, Chai Gray, Picket Stiffener', 45], ["Vinyl, Rail Insert, 8'", 15], ['*Vinyl, Chai Gray, U Channel', 30]] as const) {
       expect(line(part), part).toMatchObject({ qty, unitCost: 0, total: 0 })
     }
     expect(line('*Vinyl, Chai Gray, Post, 5" x 5" x 78"')).toMatchObject({ qty: 16, unitCost: 38.92 })
@@ -173,6 +174,52 @@ describe('a Chai Gray quote', () => {
     // The section cost is in the material cost once: no part line carries it again.
     const kitMoney = calc.materials.items.filter(i => i.item.startsWith('*Vinyl, Chai Gray,') && !i.item.includes('Section,')).filter(i => i.unitCost === 0).reduce((t, i) => t + i.total, 0)
     expect(kitMoney).toBe(0)
+  })
+})
+
+describe('Jonathan\'s answers, Oct 21: the rail insert is shared, rivets can be another color', () => {
+  const withInsert = (): CatalogState => ({ ...baseState(), items: [{ id: 'inv_ri', name: "Vinyl, Rail Insert, 8'", unitCost: 8.15, category: 'Vinyl White', status: 'active' } as InvItem, { id: 'inv_wr', name: '*Vinyl, White, Rivet, 1"', unitCost: 0.12, category: 'Vinyl White', status: 'active' } as InvItem] })
+  const quote = (plan: ReturnType<typeof planVinylColor>) => {
+    const cfg = estimateConfig({ fenceStyles: plan.state.fenceStyles, fenceCatalog: plan.state.fenceCatalog } as any)
+    setMaterialPriceSource(priceSourceFromMap(Object.fromEntries(plan.state.items.map((i: InvItem) => [i.name, i.unitCost]))))
+    setSavedKitSets(() => plan.state.kits)
+    const style = resolveFenceStyles(cfg.fenceStyles, cfg.fenceCatalog!).find(s => s.name === 'vinyl/privacy/6/chai-gray/nd/8')!
+    return calculateQuote({
+      style, runs: [{ ft: 50, rail: 'auto' }, { ft: 50, rail: 'auto' }], corners: 2, ends: 2, walkGates: 1, dblGates: 0,
+      tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, pricing: cfg.pricing, optimizer: cfg.railOptimizer!,
+    })
+  }
+
+  test('the 8 ft rail stiffener is White\'s rail insert: not made again, not repriced, $0 inside the section kit', () => {
+    const plan = planVinylColor(withInsert(), CHAI_GRAY, opts)
+    expect(plan.created.items.map(i => i.name)).not.toContain("Vinyl, Rail Insert, 8'")
+    expect(plan.created.items.map(i => i.name)).not.toContain('*Vinyl, Chai Gray, Rail Stiffener')
+    expect(plan.priced.map(p => p.name)).not.toContain("Vinyl, Rail Insert, 8'")
+    expect(plan.state.items.find(i => i.name === "Vinyl, Rail Insert, 8'")!.unitCost).toBe(8.15)
+    const calc = quote(plan)
+    expect(calc.materials.items.filter(i => i.item === "Vinyl, Rail Insert, 8'")).toEqual([expect.objectContaining({ qty: 15, unitCost: 0, total: 0 })])
+    setMaterialPriceSource(null); setSavedKitSets(() => [])
+  })
+
+  test('rivets: White by default; another color makes its item at the price typed and swaps every rivet line', () => {
+    expect(formProblems({ ...CHAI_GRAY, rivets: { color: 'Black', cents: null } })).toEqual(['Enter the rivet cost (each).'])
+    expect(formProblems({ ...CHAI_GRAY, rivets: { color: ' ', cents: 60 } })).toEqual(['Type the rivet color, or keep White rivets.'])
+    // A test price only (Jonathan: black rivets cost about 5 times White's).
+    const plan = planVinylColor(withInsert(), { ...CHAI_GRAY, rivets: { color: 'Black', cents: 60 } }, opts)
+    expect(plan.created.items).toContainEqual(expect.objectContaining({ name: '*Vinyl, Black, Rivet, 1"', cents: 60 }))
+    for (const k of plan.state.kits.filter(k => /chai-gray/.test(k.styleName))) {
+      const parts = Object.values(k.kits).flat().map(p => p!.part)
+      expect(parts).not.toContain('*Vinyl, White, Rivet, 1"')
+      expect(parts).toContain('*Vinyl, Black, Rivet, 1"')
+    }
+    const calc = quote(plan)
+    expect(calc.materials.items.filter(i => /White/.test(i.item))).toEqual([])
+    expect(calc.materials.items.find(i => i.item === '*Vinyl, Black, Rivet, 1"')).toMatchObject({ unitCost: 0.6 })
+    // The White fences keep White rivets.
+    expect(Object.values(kitOf(white('6x8', 'nd'), plan.state.kits).kits).flat().map(p => p!.part)).toContain('*Vinyl, White, Rivet, 1"')
+    // The edit form reads it back.
+    expect(inputFromColor(plan.state, plan.key)!.rivets).toEqual({ color: 'Black', cents: 60 })
+    setMaterialPriceSource(null); setSavedKitSets(() => [])
   })
 })
 

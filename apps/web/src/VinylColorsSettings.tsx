@@ -168,11 +168,12 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
   const [sizes, setSizes] = useState<SizeKey[]>(start?.sizes ?? [])
   const [methods, setMethods] = useState<SetMethod[]>(start?.methods ?? ['nd', 'ds'])
   const [same, setSame] = useState(start?.samePostPrice ?? true)
+  const [rivetColor, setRivetColor] = useState(start?.rivets?.color ?? '')
   const [money, setMoney] = useState<Money>(() => {
     const out: Money = {}
     if (!start) return out
     for (const [h, p] of Object.entries(start.posts)) { out[`post:${h}:all`] = c(p?.allCents); for (const t of POST_TYPES) out[`post:${h}:${t}`] = c(p?.[`${t}Cents` as const]) }
-    out.cap = c(start.capCents); out.upright = c(start.uprightCents); out.gate8 = c(start.gate8Cents)
+    out.rivet = c(start.rivets?.cents); out.cap = c(start.capCents); out.upright = c(start.uprightCents); out.gate8 = c(start.gate8Cents)
     for (const [s, v] of Object.entries(start.sections)) out[`section:${s}`] = c(v?.costCents)
     out['piece:picket'] = c(start.pieces?.picketCents); out['piece:rail6'] = c(start.pieces?.rail6Cents); out['piece:rail8'] = c(start.pieces?.rail8Cents); out['piece:uTrim'] = c(start.pieces?.uTrimCents)
     return out
@@ -199,6 +200,7 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
     }
     return {
       name: name.trim(), mode, sizes: SIZE_KEYS.filter(s => sizes.includes(s)), methods, samePostPrice: same, posts, sections,
+      rivets: rivetColor.trim() ? { color: rivetColor.trim(), cents: toCents(money.rivet ?? '') } : null,
       capCents: toCents(money.cap ?? ''), uprightCents: toCents(money.upright ?? ''), gate8Cents: toCents(money.gate8 ?? ''),
       ...(mode === 'piece' ? { pieces: { picketCents: toCents(money['piece:picket'] ?? ''), rail6Cents: toCents(money['piece:rail6'] ?? ''), rail8Cents: toCents(money['piece:rail8'] ?? ''), uTrimCents: toCents(money['piece:uTrim'] ?? '') } } : {}),
     }
@@ -326,6 +328,20 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
               {moneyField('cap', 'Post cap', 'Also the gate caps')}
               {heights.includes('6') && moneyField('upright', 'Gate upright')}
               {heights.includes('8') && moneyField('gate8', 'Walk gate, 8 ft tall', 'Bought whole, as White’s')}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs text-gray-600">Rivets
+                <select className={inputCls + ' mt-1'} value={rivetColor ? 'other' : 'white'} onChange={e => setRivetColor(e.target.value === 'white' ? '' : 'Black')} data-vc-rivets>
+                  <option value="white">White (shared)</option>
+                  <option value="other">Another color</option>
+                </select>
+              </label>
+              {rivetColor !== '' && (
+                <label className="block text-xs text-gray-600">Rivet color
+                  <input className={inputCls + ' mt-1'} value={rivetColor} onChange={e => setRivetColor(e.target.value)} onBlur={e => { if (!e.target.value.trim()) setRivetColor('Black') }} data-vc-rivet-color />
+                </label>
+              )}
+              {rivetColor !== '' && moneyField('rivet', 'Rivet, each')}
             </div>
           </div>
         )}

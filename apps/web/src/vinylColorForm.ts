@@ -71,7 +71,14 @@ export interface VinylColorInput {
   sections: Partial<Record<SizeKey, { costCents: number | null } & Partial<SectionContents>>>
   /** Per piece, 6 ft tall. */
   pieces?: { picketCents?: number | null; rail6Cents?: number | null; rail8Cents?: number | null; uTrimCents?: number | null }
+  /** Rivets of another color in place of White's (Chai Gray takes black; about 5 times White's cost). Absent: White's, shared. */
+  rivets?: { color: string; cents: number | null } | null
 }
+
+/** The rail stiffener in an 8 ft rail is the same part for every privacy color (Jonathan, Oct 21): White's rail insert. */
+export const RAIL_INSERT_8 = "Vinyl, Rail Insert, 8'"
+export const rivetItemName = (color: string) => `*Vinyl, ${color}, Rivet, 1"`
+const WHITE_RIVET = /^\*Vinyl, White, Rivet, 1"$/
 
 /** White's section, by size: what the form starts a section's contents at (the rail insert is White's rail stiffener). */
 export const WHITE_SECTION: Record<SizeKey, SectionContents | null> = {
@@ -93,7 +100,7 @@ export type PartRole =
   | { role: 'post'; type: PostType; len: string }
   | { role: 'cap' } | { role: 'gateCap' } | { role: 'upright' } | { role: 'gate8' }
   | { role: 'picket' } | { role: 'rail'; ft: string } | { role: 'uTrim' } | { role: 'railInsert' } | { role: 'sectionItem' }
-  | { role: 'shared' }
+  | { role: 'rivet' } | { role: 'shared' }
 
 const TYPE_CODE: Record<string, PostType> = { CP: 'corner', EP: 'end', LP: 'line' }
 
@@ -107,6 +114,7 @@ export function whitePartRole(part: string): PartRole {
   if (/^\*Vinyl, White, Cap, 5"x5"$/.test(p)) return { role: 'cap' }
   if (/^\*Vinyl, White, Cap, Gate$/.test(p)) return { role: 'gateCap' }
   if (/^\*Vinyl, White, Upright$/.test(p)) return { role: 'upright' }
+  if (WHITE_RIVET.test(p)) return { role: 'rivet' }
   if (/^V , W, Privacy,? Gate 8 x 4$/.test(p)) return { role: 'gate8' }
   if (/^\*Vinyl, White, Picket\b/.test(p)) return { role: 'picket' }
   m = p.match(/^\*Vinyl, White, Rail, (\d+)'$/)
@@ -174,6 +182,12 @@ export function formProblems(input: VinylColorInput, opts: { taken?: string[] } 
     else for (const t of POST_TYPES) if (!(h === '8' && t === 'blank')) money(p[`${t}Cents` as const], `${t} post cost (${tall})`)
   }
   money(input.capCents, 'post cap cost')
+  if (input.rivets) {
+    const rc = (input.rivets.color ?? '').trim()
+    if (!rc) out.push('Type the rivet color, or keep White rivets.')
+    else if (/[,*]/.test(rc)) out.push('A rivet color cannot have a comma or a star in it.')
+    if (!isCents(input.rivets.cents)) out.push('Enter the rivet cost (each).')
+  }
   if (heights.includes('6')) money(input.uprightCents, 'gate upright cost')
   if (heights.includes('8')) money(input.gate8Cents, '8 ft tall walk gate cost')
   if (input.mode === 'piece' && heights.includes('6')) {
@@ -279,7 +293,8 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
     add('kit:picket', KIT_PART_NAME.picket(color), c.pickets, 'Picket (in the section kit)')
     add(`kit:rail:${c.railFt}`, KIT_PART_NAME.rail(color, c.railFt), c.rails, `Rail, ${c.railFt} ft (in the section kit)`)
     add('kit:picketStiffener', KIT_PART_NAME.picketStiffener(color), c.picketStiffeners, 'Picket stiffener (in the section kit)')
-    add('kit:railStiffener', KIT_PART_NAME.railStiffener(color), c.railStiffeners, 'Rail stiffener (in the section kit)')
+    // An 8 ft rail's stiffener is White's rail insert, the same part for every color; any other length gets the color's own.
+    add('kit:railStiffener', c.railFt === 8 ? RAIL_INSERT_8 : KIT_PART_NAME.railStiffener(color), c.railStiffeners, 'Rail stiffener (in the section kit)')
     add('kit:uChannel', KIT_PART_NAME.uChannel(color), c.uChannels, 'U channel (in the section kit)')
     return out
   }
@@ -354,14 +369,20 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
           continue
         }
         if (r.role === 'sectionItem') { out.push({ part: sectionItem!, qty: p.qty, fallbackCost: (input.sections[size]?.costCents ?? 0) / 100 }); continue }
-        if (r.role === 'railInsert' || r.role === 'shared') { out.push({ ...p }); continue }
+        if (r.role === 'rivet' && input.rivets?.color.trim() && !/^white$/i.test(input.rivets.color.trim())) {
+          const rc = input.rivets.color.trim(), cents = input.rivets.cents
+          out.push({ part: want('rivet', rivetItemName(rc), cents, `Rivet, ${rc}`), qty: p.qty, fallbackCost: (cents ?? 0) / 100 })
+          continue
+        }
+        if (r.role === 'railInsert' || r.role === 'rivet' || r.role === 'shared') { out.push({ ...p }); continue }
         const swapped = swapPart(r, h, p)
         out.push(swapped ?? { ...p })
       }
       kits[kind] = out
     }
     if (input.mode === 'section' && h === '6' && (kits.walkGate || kits.dblGate)) leafWidth[h] = widthOf(leafSize)
-    const roundUp = t.kits.roundUp.filter(p => whitePartRole(p).role === 'shared')
+    const ownRivet = input.rivets?.color.trim() && !/^white$/i.test(input.rivets.color.trim()) ? rivetItemName(input.rivets.color.trim()) : null
+    const roundUp = t.kits.roundUp.flatMap(p => { const role = whitePartRole(p).role; return role === 'shared' ? [p] : role === 'rivet' ? [ownRivet ?? p] : [] })
     const lines = Object.fromEntries(KIT_KINDS.filter(k => kits[k]).map(k => [k, kits[k]!.length])) as Partial<Record<KitKind, number>>
 
     const existing = st.fenceStyles.find(s => s.name === name)
@@ -509,6 +530,7 @@ export function inputFromColor(st: CatalogState, key: string): VinylColorInput |
     name: opt.label, mode: f.mode, sizes: f.sizes as SizeKey[], methods: f.methods as SetMethod[], samePostPrice: f.samePostPrice,
     posts, capCents: cost('cap'), uprightCents: cost('upright'), gate8Cents: cost('gate8'), sections,
     pieces: { picketCents: cost('piece:picket'), rail6Cents: cost('piece:rail:6'), rail8Cents: cost('piece:rail:8'), uTrimCents: cost('piece:uTrim') },
+    rivets: f.items.rivet ? { color: f.items.rivet.replace(/^\*Vinyl, (.+), Rivet, 1"$/, '$1'), cents: cost('rivet') } : null,
   }
 }
 

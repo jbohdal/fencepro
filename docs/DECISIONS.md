@@ -3,6 +3,14 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-21: vinyl colors added with the form (Chai Gray)
+
+- **Rail stiffener:** "technically universal to privacy vinyl for the 8ft rails regardless of color." An 8 ft rail's stiffener in a section kit is White's `Vinyl, Rail Insert, 8'`, shared; the form makes no color copy of it. Inside a section kit it is $0 (the section cost covers it).
+- **Gate leaf:** can use the whole 6x8 section kit (15 kits for 14 sections plus one walk gate).
+- **Gate caps:** use the post cap price.
+- **Rivets:** "will probably use black, about 5X the cost of white rivets." The form has a Rivets choice (White, shared, or another color at its own price). Chai Gray's black rivet price is still to be given.
+- **In the app:** apps/web/src/vinylColorForm.ts, pinned in apps/portal/tests/vinylColorForm.test.ts.
+
 ## 2026-10-21: Bell 4'x6' gate kit is one per gate leaf (correction to the sheet)
 
 - **Sheet:** "Misc, Gate Kit, No Hardware" for `WV-ND Bell 4'x6'` / `WV-DS Bell 4'x6'` = `gateCount*2`
