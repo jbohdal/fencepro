@@ -51,6 +51,17 @@ export interface Estimate {
 }
 
 interface EstimateModule {
+  /** Warranties per option (web/src/warranties.ts; the types are in lib/warranties.ts). */
+  stampWarranties(config: unknown, proposal: unknown, savedProposal: unknown, frozen: boolean): unknown
+  styleWarranty(config: unknown, styleName: string, kind?: 'move' | 'repair' | null): any
+  defaultWarrantySettings(): any
+  warrantySettingsOf(config: unknown): any
+  signedOptionWarranty(q: unknown, settings?: unknown): any
+  warrantyPeriod(w: unknown, start: string | null | undefined): any
+  serviceCoverage(w: unknown, start: string | null | undefined, day: string, override?: unknown): any
+  isOneYearText(text: unknown): boolean
+  isNoDigStyle(style: { name: string; material?: string; choices?: Record<string, string> } | null | undefined): boolean
+  dayText(day: string): string
   estimate(data: unknown, job: EstimateJob): Estimate
   estimateStyles(config: unknown, data?: unknown): Array<StyleListItem>
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }

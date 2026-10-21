@@ -6,6 +6,7 @@
  *   GET  /board               every card's follow up badge, for the pipeline (everyone)
  *   GET  /list?rep=<userId>   the Follow ups screen: a salesman gets only their own
  *                             cards; the owner and office everyone, or one rep
+ *                             (opened24h: proposals a customer opened in the last day)
  *   POST /calls               an answer to "How'd it go?" or Log a call (id from the phone; sent again is one row)
  *   PUT  /cards/:id/next      one tap to change the next date ({ dueOn } or { keep: true })
  *   GET  /history             one customer's history (?customerId=&cardId=)
@@ -96,7 +97,7 @@ router.get('/board', async (req: any, res) => {
     const { rows, today } = await cardRows(req.user.crmAccountId)
     const cards: Record<string, unknown> = {}
     for (const r of rows) {
-      cards[r.cardId] = { dueOn: r.dueOn, dueKind: r.dueKind, status: r.status, days: r.days, badge: r.badge, stepIndex: r.stepIndex, stepCount: r.stepCount, lastOutcome: r.lastOutcome, lastContactAt: r.lastContactAt, ownerName: r.ownerName, state: r.state }
+      cards[r.cardId] = { dueOn: r.dueOn, dueKind: r.dueKind, status: r.status, days: r.days, badge: r.badge, stepIndex: r.stepIndex, stepCount: r.stepCount, lastOutcome: r.lastOutcome, lastContactAt: r.lastContactAt, ownerName: r.ownerName, state: r.state, opened: r.opened }
     }
     res.json({ success: true, data: { today, cards } })
   } catch (err) { fail(res, err, 'load the follow ups') }

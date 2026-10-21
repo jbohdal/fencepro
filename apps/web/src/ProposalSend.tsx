@@ -53,6 +53,16 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   }
   const first = (quote.customerName || '').split(' ')[0] || 'there'
 
+  /** Open it yourself: a fresh staff mark each time, so the open shows as a Staff view and is never counted. */
+  async function openOwn() {
+    setBusy(true)
+    const t = await issueShareToken(quote.id).catch(() => null)
+    setBusy(false)
+    if (!t?.shareToken) { toast.error('Could not make the link. Check the connection and try again.'); return }
+    if (!url) { setUrl(proposalUrl(t.shareToken)); setExpiresAt(t.expiresAt); setOffAt(null) }
+    window.open(proposalUrl(t.shareToken, t.preview), '_blank', 'noopener')
+  }
+
   async function link(): Promise<string | null> {
     if (url) return url
     setBusy(true)
@@ -76,16 +86,16 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
 
   async function go(kind: 'open' | 'text' | 'email' | 'copy') {
     if (kind !== 'open' && photoBlock) { toast.error(`Take at least ${need} photos of the fence first, or tap Send anyway.`); return }
+    if (kind === 'open') { await openOwn(); return }
     const u = await link()
     if (!u) return
-    if (kind === 'open') window.open(u, '_blank', 'noopener')
     if (kind === 'text') window.location.href = smsLink(quote.customerPhone || '', message(u))
     if (kind === 'email') window.location.href = `mailto:${encodeURIComponent(quote.customerEmail || '')}?subject=${encodeURIComponent(`Your fence proposal from ${company}`)}&body=${encodeURIComponent(message(u))}`
     if (kind === 'copy') { await navigator.clipboard?.writeText(u).catch(() => {}); toast.success('Link copied') }
-    // Given to the customer (texted, emailed or copied to send): the quote is Sent. Opening it yourself is not.
-    if (kind !== 'open' && quote.status === 'DRAFT') updateQuote(quote.id, { status: 'SENT', needsResend: false })
+    // Given to the customer (texted, emailed or copied to send): the quote is Sent. Opening it yourself (above) is not.
+    if (quote.status === 'DRAFT') updateQuote(quote.id, { status: 'SENT', needsResend: false })
     // A new version (saved at today's prices) has now gone to the customer.
-    else if (kind !== 'open' && quote.needsResend) updateQuote(quote.id, { needsResend: false })
+    else if (quote.needsResend) updateQuote(quote.id, { needsResend: false })
   }
 
   const chosen = quote.acceptedAt != null && quote.chosenOption != null ? p.options[quote.chosenOption] : null

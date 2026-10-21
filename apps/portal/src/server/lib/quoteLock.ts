@@ -24,7 +24,7 @@
  *             "needs to be sent again", Sold <-> Lost, the site plan drawing
  *             (side names, headings, where it meets the house, dragged
  *             corners, the aerial photo's turn and position), and the
- *             proposal's words and plan picture.
+ *             proposal's words (not its warranty, kept as signed) and plan picture.
  */
 
 export const LOCKED_MESSAGE = 'This quote is signed. Make a change order instead.'
@@ -178,7 +178,8 @@ export function keepPrices<T extends Record<string, any>>(saved: T, edited: Reco
   if (isObj(saved.proposal) && isObj(edited.proposal)) {
     const p = edited.proposal as Json, s = saved.proposal as Json
     const words: Record<string, unknown> = {}
-    for (const k of ['planSvg', 'company', 'customer', 'included', 'includedNote', 'warranty', 'depositNote', 'description']) if (p[k] !== undefined) words[k] = p[k]
+    // Not the warranty: a signed proposal keeps the warranty words it was signed with (lib/warranties.ts).
+    for (const k of ['planSvg', 'company', 'customer', 'included', 'includedNote', 'depositNote', 'description']) if (p[k] !== undefined) words[k] = p[k]
     // The plan picture only when the drawing it shows is the same yard.
     if (!sameValue(layoutGeometry(saved.layout).yard, layoutGeometry(edited.layout).yard)) delete words.planSvg
     out.proposal = { ...s, ...words }

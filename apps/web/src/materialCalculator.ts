@@ -670,9 +670,10 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       add('ND, Donut', totalPostCount * 2, 3.19)
       add("Pipe, PT40, Galv, 2-1/2\" x 8'", totalPostCount, 19.50)
     } else {
-      // Taller post, deeper hole: 2 bags per post. White dig set walk gates take 2 bags
-      // each too (TAKEOFF_RULES "Misc, Concrete" WV-DS row; Jonathan, Oct 20, 2026).
-      add('Misc, Concrete', totalPostCount * 2 + (tall.white ? walkGates * 2 : 0), 6.25)
+      // Taller post, deeper hole: 2 bags per post. Walk gates take 2 bags each too
+      // (TAKEOFF_RULES "Misc, Concrete" WV-DS / TV-DS row: white on Oct 20, 2026, tan
+      // 8'x6' and 8'x8' the same day; Jonathan).
+      add('Misc, Concrete', totalPostCount * 2 + walkGates * 2, 6.25)
     }
 
     const gateLeaves = walkGates + dblGates * 2

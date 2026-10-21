@@ -42,6 +42,7 @@ export default function ContractTemplatesSettings() {
         <div>
           <h3 className="text-lg font-bold text-gray-900">Contract Templates</h3>
           <p className="text-sm text-gray-500 mt-0.5">The terms below appear on every quote. Existing quotes keep their saved text; changes apply to new quotes going forward.</p>
+          <p className="text-sm text-gray-600 mt-1" data-contract-warranty-moved>Proposals, signed contracts and warranty certificates take each option's warranty from Settings → Warranties (Lifetime for vinyl no dig, and so on). The Warranty section here shows only on the printable quote templates, and only for a quote without per option warranties.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowPreview(p => !p)} className="text-xs border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50">

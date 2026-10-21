@@ -125,7 +125,8 @@ try {
   const priceBefore = await page.locator('[data-quote-builder]').textContent()
   const runsBefore = await page.locator('[data-side-runs]').allTextContents()
   g = await geometry(page)
-  check('no corner handles until Adjust the drawing is tapped', await page.locator('[data-plan-corner]').count() === 0)
+  // Oct 20 (Jonathan): every corner and end point drags at any time, not only in Adjust the drawing.
+  check('every corner and end point is a handle at any time (6 on a backyard)', await page.locator('[data-plan-corner]').count() === 6)
   await page.locator('[data-plan-adjust]').click(); await sleep(300)
   g = await geometry(page)
   const corner = page.locator('[data-plan-corner="2"]')
@@ -141,7 +142,11 @@ try {
     && (await page.locator('[data-quote-builder]').textContent()).match(/\$[\d,]+/g)?.join() === priceBefore.match(/\$[\d,]+/g)?.join())
   // The plan refits to the screen after a drag, so compare shape, not pixels.
   const ratio = p => (p[1][0] - p[0][0]) / (p[2][1] - p[1][1])
-  check('the house stays square and level, same proportions', g2.pts.length === 4 && level(g2.pts) && Math.abs(ratio(g2.pts) - ratio(g.pts)) < 0.01, `${ratio(g.pts).toFixed(3)} -> ${ratio(g2.pts).toFixed(3)}`)
+  // Oct 20 (Jonathan): a drag keeps every side at its length and the house follows the returns (it turns and
+  // sizes to meet them), so it is no longer always level or the same proportions: it stays a rectangle.
+  void ratio
+  const square = pts => pts.length === 4 && pts.every((p, i) => { const a = pts[(i + 3) % 4], b = pts[(i + 1) % 4]; const u = [a[0] - p[0], a[1] - p[1]], v = [b[0] - p[0], b[1] - p[1]]; return Math.abs(u[0] * v[0] + u[1] * v[1]) / (Math.hypot(...u) * Math.hypot(...v)) < 0.02 })
+  check('the house stays a rectangle (square corners)', square(g2.pts), JSON.stringify(g2.pts))
   await shot('5-corner-dragged')
   check('"Reset the drawing" puts it back', await page.locator('[data-plan-reset]').count() === 1)
   await page.locator('[data-plan-reset]').click(); await sleep(400)

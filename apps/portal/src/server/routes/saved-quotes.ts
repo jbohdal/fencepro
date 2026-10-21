@@ -36,6 +36,8 @@ import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE } from '../lib/quoteLock.js'
 import { markEverSold } from '../lib/everSold.js'
+import { makePreviewToken } from '../lib/proposalViews.js'
+import { stampQuoteWarranties } from '../lib/warranties.js'
 
 const router = Router()
 
@@ -222,6 +224,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
   try {
     const sameId = typeof req.body?.id === 'string' ? await prisma.savedQuote.findFirst({ where: { id: req.body.id, accountId: req.user.crmAccountId } }) : null
     const data = quoteSchema.parse(await costsForLimited(req, sameId))
+    // Each proposal option's warranty, from Settings → Warranties now (lib/warranties.ts).
+    if (data.proposal) data.proposal = await stampQuoteWarranties(req.user.crmAccountId, data.proposal, null, false) as any
     const clientId = clientIdSchema.parse(req.body?.id)
     const decision = await decideClientId(clientId, req.user.crmAccountId, id => prisma.savedQuote.findUnique({ where: { id } }))
     if (decision.kind === 'exists') {
@@ -303,6 +307,8 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
       const fields = lockedChanges(existing, data)
       if (fields.length) { refuseLocked(res, fields, existing); return }
     }
+    // Each proposal option's warranty: a sent or signed proposal keeps the words it went out with (lib/warranties.ts).
+    if (data.proposal) data.proposal = await stampQuoteWarranties(existing.accountId, data.proposal, existing, existing.status !== 'DRAFT' || await signedNow(existing)) as any
     const updated = await prisma.savedQuote.update({
       where: { id: existing.id },
       data: {
@@ -504,7 +510,9 @@ router.post('/:id/share-token', requireUser, requireAccount, requireCan('quotes.
     // A link already sent keeps working until it runs out or is turned off;
     // after that (or with ?new=1) a new link is made.
     const open = existing.shareToken && !existing.shareDisabledAt && !(existing.shareExpiresAt && existing.shareExpiresAt.getTime() < Date.now())
-    if (open && req.query.new !== '1') { res.json({ success: true, data: { shareToken: existing.shareToken, quoteId: existing.id, expiresAt: existing.shareExpiresAt } }); return }
+    // preview: a short-lived signed mark the app adds when staff open the link themselves, so the open is a
+    // "Staff view" and never counted (lib/proposalViews.ts).
+    if (open && req.query.new !== '1') { res.json({ success: true, data: { shareToken: existing.shareToken, quoteId: existing.id, expiresAt: existing.shareExpiresAt, preview: makePreviewToken(req.user.id, existing.id) } }); return }
     const b = await prisma.businessState.findUnique({ where: { accountId: existing.accountId }, select: { config: true } }).catch(() => null)
     const days = Number((b?.config as any)?.proposal?.linkDays) > 0 ? Number((b?.config as any).proposal.linkDays) : 30
     const expiresAt = new Date(Date.now() + days * 86_400_000)
@@ -514,7 +522,7 @@ router.post('/:id/share-token', requireUser, requireAccount, requireCan('quotes.
       data: { shareToken: token, firstViewedAt: null, shareExpiresAt: expiresAt, shareDisabledAt: null },
     })
     await audit(req, 'update', 'SavedQuote', updated.id, { newValues: { shareToken: token } })
-    res.json({ success: true, data: { shareToken: token, quoteId: existing.id, expiresAt } })
+    res.json({ success: true, data: { shareToken: token, quoteId: existing.id, expiresAt, preview: makePreviewToken(req.user.id, existing.id) } })
   } catch (err) {
     console.error('[saved-quotes] share-token error:', err)
     res.status(500).json({ success: false, error: 'Failed to issue share token' })

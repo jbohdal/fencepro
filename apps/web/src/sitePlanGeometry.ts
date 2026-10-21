@@ -14,9 +14,18 @@
  * lengths. The drawing is a picture of the job, not a survey.
  */
 
-import { deriveLayout, formatFtIn, sidePieces, type GateHinge, type GateSwing, type LayoutResult, type PlanPoint, type SidePiece, type YardLayout, type YardSide } from './yardLayout'
+import { deriveLayout, formatFtIn, sidePieces, type GateHinge, type GateSwing, type HouseRect, type LayoutResult, type PlanPoint, type SidePiece, type YardLayout, type YardSide } from './yardLayout'
+import {
+  chainEnds, chainVertices, cornerAngles, houseCorners, houseFitted, houseRectOf, houseTouching, norm180, norm360, segmentsMeet, sideCrossings, specFromVertices, teeAnchor,
+  type ChainSpec, type CornerAngle, type SideCrossing, type SideEnds,
+} from './yardChain'
 
-export interface PlanPost { x: number; y: number; kind: 'corner' | 'end' | 'gate' | 'line'; /** A gate's hinge post (drawn as a dark square). */ hinge?: boolean }
+export interface PlanPost {
+  x: number; y: number
+  /** 'tee': where a side starts from another side (counted as the end post it is today). */
+  kind: 'corner' | 'end' | 'gate' | 'line' | 'tee'
+  /** A gate's hinge post (drawn as a dark square). */ hinge?: boolean
+}
 /** One gate leaf: hangs on `hinge`, closes toward `latch`, opens toward `dir` (unit, plan feet). */
 export interface PlanGateLeaf { hinge: PlanPoint; latch: PlanPoint; swing: GateSwing; dir: PlanPoint; side: GateHinge }
 export interface PlanGate {
@@ -74,6 +83,18 @@ export interface Plan {
   /** Backyard returns that meet the house: where, and how far from its back corner (feet). */
   houseAttach: Array<{ sideId: string; name: string; which: 'left' | 'right'; at: PlanPoint; distFt: number }>
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
+  /** The house as a box (middle, size, turn) and how it is placed (see houseOnPlan). */
+  houseRect: HouseRect | null
+  houseMode: HouseOnPlan['mode']
+  /** The angle at every corner and tee. */
+  angles: CornerAngle[]
+  /** Sides that cross or run over each other ("Side 3 crosses Side 6, check the drawing"). */
+  crossings: SideCrossing[]
+  /** Every corner and end point that can be dragged (vertex indexes), and each tee's start. */
+  handles: number[]
+  tees: Array<{ sideId: string; name: string; at: PlanPoint; anchorId: string }>
+  /** Drawn from the angles (an edited drawing) rather than the shape's own. */
+  chain: boolean
 }
 
 const DEFAULT_HEADINGS: Record<string, number[]> = {
@@ -172,9 +193,9 @@ export function canMoveHouse(layout: YardLayout): boolean {
 
 /**
  * Set where the returns meet the house (feet from the back corner, snapped to
- * whole feet). 0 is the back corner (saved as unset, as before). Corners
- * dragged by hand move along with the returns so the drawing keeps its shape.
- * Only `meetsHouse` and the drawing change: never lengths, gates or skips.
+ * whole feet). 0 is the back corner (saved as unset, as before). Once the
+ * drawing has its own angles the fence stays put and the house moves to meet
+ * it there (houseOnPlan). Only `meetsHouse` changes: never lengths, gates or skips.
  */
 export function setHouseMeets(layout: YardLayout, meets: { left?: number; right?: number }): YardLayout {
   const val = (ft: number) => {
@@ -186,14 +207,7 @@ export function setHouseMeets(layout: YardLayout, meets: { left?: number; right?
     if (i === 4 && meets.right !== undefined && returnHouseEnd(layout, 4)) return { ...s, meetsHouse: val(meets.right) }
     return s
   })
-  const next: YardLayout = { ...layout, sides }
-  const pts = layout.plan?.points
-  const applies = pts && pts.length === vertexCount(layout) && layout.plan?.pointsFor != null && layout.plan.pointsFor === layoutSignature(layout)
-  if (applies) {
-    const before = autoVertices(layout), after = autoVertices(next)
-    next.plan = { ...layout.plan, points: pts!.map((p, i) => ({ x: p.x + after[i].x - before[i].x, y: p.y + after[i].y - before[i].y })), pointsFor: layoutSignature(next) }
-  }
-  return next
+  return { ...layout, sides }
 }
 
 /** Both returns back at the house's back corners. */
@@ -268,23 +282,100 @@ function frontGeometry(layout: YardLayout): AutoGeometry {
 }
 
 /** Sides laid end to end in their drawing directions. */
-function chainVertices(layout: YardLayout): PlanPoint[] {
+function headingVertices(layout: YardLayout): PlanPoint[] {
   const standIn = standInFt(layout)
+  const lens = layout.sides.map(s => (s.lengthIn > 0 ? s.lengthIn / 12 : standIn))
+  const degs = untangledHeadings(layout, lens)
   const pts: PlanPoint[] = [{ x: 0, y: 0 }]
-  layout.sides.forEach((s, i) => {
-    const L = s.lengthIn > 0 ? s.lengthIn / 12 : standIn
-    const r = (heading(layout, i) * Math.PI) / 180
+  layout.sides.forEach((_, i) => {
+    const r = (degs[i] * Math.PI) / 180
     const p = pts[pts.length - 1]
-    pts.push({ x: p.x + L * Math.cos(r), y: p.y + L * Math.sin(r) })
+    pts.push({ x: p.x + lens[i] * Math.cos(r), y: p.y + lens[i] * Math.sin(r) })
   })
   // A perimeter closes on its first corner whatever the tape said.
   if (layout.closed && pts.length > 2) pts.pop()
   return pts
 }
 
+/** True when p is inside the polygon. */
+function inPoly(p: PlanPoint, poly: PlanPoint[]): boolean {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j]
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside
+  }
+  return inside
+}
+
+/** How many tries the untangle search makes before giving up (keeps it instant on a 60 side yard). */
+const UNTANGLE_TRIES = 20000
+
+/**
+ * The drawing directions of an open yard drawn side after side (Custom,
+ * Straight line, a yard with an odd number of sides) that nobody has drawn by
+ * hand: each side's saved heading, unless that makes the fence cross itself.
+ * Then each turn is tried the other way (the same angle, left instead of
+ * right), the saved way first, side by side from the start, and the first
+ * drawing with no side crossing another is used. The same every time
+ * (no randomness); the angles are only flipped, never changed; drawing only.
+ * A side running through the house drawn behind the first side's start
+ * (when the fence starts at the house) counts as crossing too.
+ */
+export function untangledHeadings(layout: YardLayout, lens: number[]): number[] {
+  const n = layout.sides.length
+  const saved = layout.sides.map((_, i) => heading(layout, i))
+  if (layout.closed || n < 3) return saved
+  const turns = saved.map((h, i) => (i === 0 ? 0 : norm180(h - saved[i - 1])))
+  // Only measured sides count (a stand-in for a side not typed yet would flip the drawing while typing).
+  const live = (i: number) => layout.sides[i].on && layout.sides[i].lengthIn > 0
+  const ends = (degs: number[]) => {
+    const out: Array<{ a: PlanPoint; b: PlanPoint }> = []
+    let p = { x: 0, y: 0 }
+    degs.forEach((d, i) => { const r = (d * Math.PI) / 180, b = { x: p.x + lens[i] * Math.cos(r), y: p.y + lens[i] * Math.sin(r) }; out.push({ a: p, b }); p = b })
+    return out
+  }
+  /** Side i crosses (or runs over) an earlier side that is on, other than the one it starts from. */
+  const hits = (e: Array<{ a: PlanPoint; b: PlanPoint }>, i: number) => {
+    if (!live(i)) return false
+    for (let j = 0; j < i - 1; j++) {
+      if (!live(j)) continue
+      const m = segmentsMeet(e[i].a, e[i].b, e[j].a, e[j].b, 0.25)
+      if (!m) continue
+      return true
+    }
+    // Through the house drawn behind the first side's start (when it meets the house).
+    if (house && i > 0 && live(i)) {
+      const c = houseCorners(house)
+      const mid = { x: (e[i].a.x + e[i].b.x) / 2, y: (e[i].a.y + e[i].b.y) / 2 }
+      if (c.some((q, k) => segmentsMeet(e[i].a, e[i].b, q, c[(k + 1) % 4], 0.25)) || inPoly(mid, c)) return true
+    }
+    // Doubled straight back over the side before.
+    if (i > 0 && live(i - 1)) { const m = segmentsMeet(e[i].a, e[i].b, e[i - 1].a, e[i - 1].b, 0.25); if (m?.kind === 'overlap') return true }
+    return false
+  }
+  const first = layout.sides[0]
+  const house = first.on && first.startFinish === 'house' ? houseBehind({ x: 0, y: 0, into: saved[0] }) : null
+  const savedEnds = ends(saved)
+  if (!saved.some((_, i) => hits(savedEnds, i))) return saved
+  // Depth first, the saved turn before the flipped one: the first answer keeps the most saved turns at the start.
+  const degs = saved.slice()
+  let tries = 0
+  const go = (i: number): boolean => {
+    if (i === n) return true
+    for (const t of Math.abs(turns[i]) > 1e-6 && Math.abs(Math.abs(turns[i]) - 180) > 1e-6 ? [turns[i], -turns[i]] : [turns[i]]) {
+      if (++tries > UNTANGLE_TRIES) return false
+      degs[i] = i === 0 ? saved[0] : norm360(degs[i - 1] + t)
+      const e = ends(degs.slice(0, i + 1))
+      if (!hits(e, i) && go(i + 1)) return true
+    }
+    return false
+  }
+  return go(0) ? degs : saved
+}
+
 function autoGeometry(layout: YardLayout): AutoGeometry {
   const g = isStandardBackyard(layout) ? backyardGeometry(layout) : isStandardFront(layout) ? frontGeometry(layout) : null
-  if (!g) return { vertices: chainVertices(layout), house: null, houseNotToScale: false, notes: [] }
+  if (!g) return { vertices: headingVertices(layout), house: null, houseNotToScale: false, notes: [] }
   // The first side starts at x = 0, as plans have always been drawn, so photo
   // pins saved on earlier quotes stay where they were put.
   const dx = -g.vertices[0].x
@@ -301,15 +392,206 @@ export function vertexCount(layout: YardLayout): number {
   return layout.closed && layout.sides.length > 1 ? layout.sides.length : layout.sides.length + 1
 }
 
-/** The measurements the drawing depends on; a corner dragged for other measurements no longer applies. */
+/** The measurements an older quote's dragged corners were drawn for (kept so those quotes read the same; no longer used to throw a drag away). */
 export function layoutSignature(layout: YardLayout): string {
   return JSON.stringify(layout.sides.map(s => [s.on ? 1 : 0, s.lengthIn, s.startFinish, s.endFinish, s.meetsHouse?.at ?? '', s.meetsHouse?.distanceIn ?? 0]))
 }
 
+// ── The drawing: to scale, from the typed lengths and the angles ─────────────
+
+/**
+ * How long side i is drawn (feet): its typed length; until it is measured,
+ * as long as the shape draws it (a stand-in), so saving the angles of a yard
+ * not yet measured moves nothing.
+ */
+export function drawLenFt(layout: YardLayout, i: number): number {
+  const s = layout.sides[i]
+  if (!s) return 0
+  if (s.lengthIn > 0) return s.lengthIn / 12
+  const v = autoVertices(layout), n = layout.sides.length
+  const a = v[layout.closed && n > 1 ? i % v.length : Math.min(i, v.length - 1)]
+  const b = v[layout.closed && n > 1 ? (i + 1) % v.length : Math.min(i + 1, v.length - 1)]
+  const auto = a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0
+  if (!s.on) return auto
+  return auto > 0.5 ? auto : standInFt(layout)
+}
+
+/** An older quote's dragged corners, when they still fit the sides (their angles are kept; lengths are the typed ones). */
+function legacyPoints(layout: YardLayout): PlanPoint[] | null {
+  const p = layout.plan?.points
+  return p && p.length === vertexCount(layout) && p.every(q => Number.isFinite(q?.x) && Number.isFinite(q?.y)) ? p : null
+}
+
+/**
+ * Corners tapped on the aerial photo (the website quote, Draw on photo) that
+ * still agree with the typed lengths (each within the foot the photo's
+ * lengths are rounded to): drawn exactly where they were tapped, true to the
+ * photo, until the drawing is edited or a length is typed that differs.
+ */
+function photoPoints(layout: YardLayout): PlanPoint[] | null {
+  const p = legacyPoints(layout)
+  if (!p || layout.plan?.drawn || layout.plan?.pointsFor != null || !layout.plan?.aerial) return null
+  if (layout.sides.some((_, i) => teeAnchor(layout, i) !== null)) return null
+  const n = layout.sides.length
+  const at = (k: number) => p[layout.closed && n > 1 ? k % p.length : k]
+  const agree = layout.sides.every((s, i) => !(s.lengthIn > 0) || Math.abs(Math.hypot(at(i + 1).x - at(i).x, at(i + 1).y - at(i).y) - s.lengthIn / 12) <= 0.75)
+  return agree ? p : null
+}
+
+/** True once the drawing has its own angles (edited, an older quote's dragged corners, or a tee): drawn as a chain. */
+export function drawingIsChain(layout: YardLayout): boolean {
+  if (photoPoints(layout)) return false
+  return !!layout.plan?.drawn || !!legacyPoints(layout) || layout.sides.some((_, i) => teeAnchor(layout, i) !== null)
+}
+
+/**
+ * Where the drawing starts and each side's direction (by index). The saved
+ * angles (layout.plan.drawn); else an older quote's dragged corners; else the
+ * drawing the shape makes from the typed lengths (all square corners), so an
+ * older quote looks the same until it is edited. A side added after the
+ * angles were saved turns a quarter right of the side before it.
+ */
+export function chainSpecOf(layout: YardLayout): ChainSpec {
+  const fallback = (i: number) => heading(layout, i)
+  const d = layout.plan?.drawn
+  if (d) {
+    const deg: number[] = []
+    layout.sides.forEach((s, i) => {
+      const v = d.deg?.[s.id]
+      deg.push(typeof v === 'number' && Number.isFinite(v) ? v : i > 0 ? norm360(deg[i - 1] - 90) : fallback(0))
+    })
+    const o = d.origin && Number.isFinite(d.origin.x) && Number.isFinite(d.origin.y) ? d.origin : { x: 0, y: 0 }
+    return { origin: { x: o.x, y: o.y }, deg }
+  }
+  return specFromVertices(layout, legacyPoints(layout) ?? autoVertices(layout), fallback)
+}
+
+export interface YardDrawing {
+  /** Each side's two ends as drawn. */
+  ends: SideEnds[]
+  vertices: PlanPoint[]
+  spec: ChainSpec
+  /** 'chain': drawn from the angles; 'auto': the shape's own drawing (nothing edited yet). */
+  mode: 'chain' | 'auto'
+}
+
+/** The drawing: each side's start and end. */
+export function yardDrawing(layout: YardLayout): YardDrawing {
+  const spec = chainSpecOf(layout)
+  if (drawingIsChain(layout)) {
+    const ends = chainEnds(layout, spec, i => drawLenFt(layout, i))
+    return { ends, vertices: chainVertices(layout, ends), spec, mode: 'chain' }
+  }
+  const v = photoPoints(layout) ?? autoVertices(layout)
+  const n = layout.sides.length
+  const at = (k: number) => v[layout.closed && n > 1 ? k % v.length : Math.min(k, v.length - 1)]
+  const ends = layout.sides.map((_, i) => {
+    const a = at(i), b = at(i + 1)
+    const len = Math.hypot(b.x - a.x, b.y - a.y)
+    return { a, b, deg: len > 1e-9 ? Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI : spec.deg[i], lenFt: len }
+  })
+  return { ends, vertices: v, spec, mode: 'auto' }
+}
+
 export function planVertices(layout: YardLayout): PlanPoint[] {
-  const custom = layout.plan?.points
-  const forNow = layout.plan?.pointsFor == null || layout.plan.pointsFor === layoutSignature(layout)
-  return custom && custom.length === vertexCount(layout) && forNow ? custom : autoVertices(layout)
+  return yardDrawing(layout).vertices
+}
+
+/** Fence ends that meet the house, in side order (drawn points), each with the direction from it into the fence. */
+function houseEndsDir(layout: YardLayout, result: LayoutResult, ends: SideEnds[]): Array<PlanPoint & { into: number }> {
+  const out: Array<PlanPoint & { into: number }> = []
+  layout.sides.forEach((s, i) => {
+    const r = result.sides[i]
+    if (!s.on || !r || !ends[i]) return
+    if (r.finishes.start === 'house' && r.touchesStart && teeAnchor(layout, i) === null) out.push({ ...ends[i].a, into: ends[i].deg })
+    if (r.finishes.end === 'house' && r.touchesEnd) out.push({ ...ends[i].b, into: ends[i].deg + 180 })
+  })
+  return out
+}
+function houseEnds(layout: YardLayout, result: LayoutResult, ends: SideEnds[]): PlanPoint[] {
+  return houseEndsDir(layout, result, ends).map(({ x, y }) => ({ x, y }))
+}
+
+/** True when the shape draws its own house (a standard backyard or front yard). */
+export function shapeHasHouse(layout: YardLayout): boolean {
+  return !!autoGeometry(layout).house
+}
+
+/** A house behind a fence end that meets it: the fence butts square into the middle of its wall. */
+function houseBehind(p: PlanPoint & { into: number }): HouseRect {
+  const w = 36, d = 28, r = (p.into * Math.PI) / 180
+  return { cx: p.x - Math.cos(r) * d / 2, cy: p.y - Math.sin(r) * d / 2, w, d, rotDeg: norm180(p.into + 90) }
+}
+
+export interface HouseOnPlan {
+  corners: PlanPoint[] | null
+  rect: HouseRect | null
+  notToScale: boolean
+  /**
+   * How it is placed: 'auto' (the shape's house, nothing edited), 'fit' (two
+   * fence ends meet it: it turns and sizes to them), 'one' (one end meets it:
+   * it slides to keep touching), 'free' (no end meets it).
+   */
+  mode: 'auto' | 'fit' | 'one' | 'free' | null
+}
+
+/** The house box an older drawing put beside where the fence meets it (other shapes than backyard and front yard). */
+function legacyHouse(E: PlanPoint[], v: PlanPoint[]): PlanPoint[] | null {
+  if (E.length >= 2) {
+    const p = E[0], q = E[E.length - 1]
+    const span = Math.hypot(q.x - p.x, q.y - p.y)
+    const d = unit(q.x - p.x, q.y - p.y)
+    const mid = lerp(p, q, 0.5)
+    const c = v.reduce((t, x) => ({ x: t.x + x.x / v.length, y: t.y + x.y / v.length }), { x: 0, y: 0 })
+    let nrm = { x: -d.y, y: d.x }
+    if ((c.x - mid.x) * nrm.x + (c.y - mid.y) * nrm.y > 0) nrm = { x: -nrm.x, y: -nrm.y }
+    const depth = Math.max(24, span * 0.5)
+    return [p, q, { x: q.x + nrm.x * depth, y: q.y + nrm.y * depth }, { x: p.x + nrm.x * depth, y: p.y + nrm.y * depth }]
+  }
+  if (E.length === 1) {
+    const p = E[0], size = 28
+    return [p, { x: p.x + size, y: p.y }, { x: p.x + size, y: p.y - size }, { x: p.x, y: p.y - size }]
+  }
+  return null
+}
+
+/**
+ * The house on the drawing. Nothing edited: where the shape puts it (as
+ * always). Once the drawing has its own angles the house follows the fence
+ * ends that meet it: two ends, it turns and sizes so both meet it (a backyard
+ * return meeting it the saved distance from its back corner); one end, it
+ * slides so its nearest wall touches that end; none, it stays where it was
+ * put. It can be moved, turned and sized by hand (yardDrawing.ts setHouse).
+ */
+export function houseOnPlan(layout: YardLayout, result: LayoutResult, dr: YardDrawing): HouseOnPlan {
+  const auto = autoGeometry(layout)
+  const E = houseEnds(layout, result, dr.ends)
+  if (dr.mode === 'auto') {
+    if (auto.house) return { corners: auto.house, rect: houseRectOf(auto.house), notToScale: auto.houseNotToScale, mode: 'auto' }
+    // One end meets the house: the house behind it (the fence butts into its wall), never over the fence.
+    if (E.length === 1) { const h = houseBehind(houseEndsDir(layout, result, dr.ends)[0]); return { corners: houseCorners(h), rect: h, notToScale: false, mode: 'auto' } }
+    const c = legacyHouse(E, dr.vertices)
+    return { corners: c, rect: c ? houseRectOf(c) : null, notToScale: false, mode: c ? 'auto' : null }
+  }
+  const stored = layout.plan?.drawn?.house
+  const valid = (h: HouseRect | null | undefined): h is HouseRect => !!h && [h.cx, h.cy, h.w, h.d, h.rotDeg].every(Number.isFinite) && h.w > 0 && h.d > 0
+  const base: HouseRect | null = valid(stored) ? stored : auto.house ? houseRectOf(auto.house) : (() => { const c = legacyHouse(E, dr.vertices); return c ? houseRectOf(c) : null })()
+  const v = dr.vertices
+  const yardAt = v.reduce((t, x) => ({ x: t.x + x.x / v.length, y: t.y + x.y / v.length }), { x: 0, y: 0 })
+  let rect: HouseRect | null = base
+  let mode: HouseOnPlan['mode'] = base ? 'free' : null
+  if (E.length >= 2) {
+    const p = E[0], q = E[E.length - 1]
+    const m = isStandardBackyard(layout) ? houseMeetsOf(layout) : { left: 0, right: 0, depth: 0 }
+    const depth = base?.d ?? (isStandardBackyard(layout) ? m.depth : Math.max(24, Math.hypot(q.x - p.x, q.y - p.y) * 0.5))
+    const fit = houseFitted(p, q, m.left, m.right, depth, yardAt)
+    if (fit && fit.w >= MIN_HOUSE_FT) { rect = fit; mode = 'fit' }
+    else if (base) { rect = houseTouching(base, p); mode = 'one' }
+  } else if (E.length === 1) {
+    rect = valid(stored) ? houseTouching(stored, E[0]) : auto.house && base ? houseTouching(base, E[0]) : houseBehind(houseEndsDir(layout, result, dr.ends)[0])
+    mode = 'one'
+  }
+  return { corners: rect ? houseCorners(rect) : null, rect, notToScale: false, mode }
 }
 
 /** Vertex indexes that are corner posts (where a side turns into the next). */
@@ -328,8 +610,8 @@ const unit = (dx: number, dy: number): PlanPoint => { const l = Math.hypot(dx, d
  *   the line posts. When missing, `widthFt` is used to count them.
  */
 export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayout(layout), runSections?: number[], widthFt = 8): Plan {
-  const v = planVertices(layout)
-  const at = (i: number) => v[i % v.length]
+  const drawing = yardDrawing(layout)
+  const v = drawing.vertices
 
   // Which way is the yard: the polygon through every corner (closed through
   // the house for a backyard) turns one way; the yard is on that side.
@@ -340,11 +622,11 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
   const sides: PlanSide[] = []
   const posts: PlanPost[] = []
   let runIndex = 0
-  const housePts: PlanPoint[] = []
+  const tees: Plan['tees'] = []
 
   layout.sides.forEach((s, i) => {
     const r = result.sides[i]
-    const a = at(i), b = at(i + 1)
+    const { a, b } = drawing.ends[i]
     const dir = unit(b.x - a.x, b.y - a.y)
     const inward = leftIsIn ? { x: -dir.y, y: dir.x } : { x: dir.y, y: -dir.x }
     const out = { x: -inward.x, y: -inward.y }
@@ -353,8 +635,8 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
     const placeholder = !(L > 0)
     const pt = (inches: number) => lerp(a, b, L > 0 ? inches / L : 0)
 
-    if (r.finishes.start === 'house' && r.touchesStart) housePts.push(a)
-    if (r.finishes.end === 'house' && r.touchesEnd) housePts.push(b)
+    const anchor = teeAnchor(layout, i)
+    if (anchor !== null) tees.push({ sideId: s.id, name: s.name, at: a, anchorId: layout.sides[anchor].id })
 
     const fence = r.pieceSpans.map(([f, t]) => ({ a: pt(f), b: pt(t) }))
     const skip = r.skipSpan && s.skip ? { a: pt(r.skipSpan[0]), b: pt(r.skipSpan[1]), kind: s.skip.kind } : null
@@ -375,7 +657,8 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
     })
 
     // Ends: corners are drawn once, at the earlier side's end.
-    if (r.touchesStart && r.finishes.start !== 'corner') posts.push({ ...a, kind: 'end' })
+    // A tee is posted as the end it is counted as; drawn as a tee where it meets its side.
+    if (r.touchesStart && r.finishes.start !== 'corner') posts.push({ ...a, kind: anchor !== null ? 'tee' : 'end' })
     if (r.finishes.end === 'corner') posts.push({ ...b, kind: 'corner' })
     else if (r.touchesEnd) posts.push({ ...b, kind: 'end' })
     if (r.skipSpan) {
@@ -395,49 +678,40 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
     })
   })
 
-  // The house: square and level, from the typed measurements (never from
-  // dragged corners). Other shapes: a gray box beside where the fence meets it.
-  const auto = autoGeometry(layout)
-  let house: PlanPoint[] | null = null
-  if (auto.house) {
-    house = auto.house
-  } else if (housePts.length >= 2) {
-    const p = housePts[0], q = housePts[housePts.length - 1]
-    const span = Math.hypot(q.x - p.x, q.y - p.y)
-    const d = unit(q.x - p.x, q.y - p.y)
-    // Away from the yard: opposite the side the corners are on.
-    const mid = lerp(p, q, 0.5)
-    const c = v.reduce((t, x) => ({ x: t.x + x.x / v.length, y: t.y + x.y / v.length }), { x: 0, y: 0 })
-    let nrm = { x: -d.y, y: d.x }
-    if ((c.x - mid.x) * nrm.x + (c.y - mid.y) * nrm.y > 0) nrm = { x: -nrm.x, y: -nrm.y }
-    const depth = Math.max(24, span * 0.5)
-    house = [p, q, { x: q.x + nrm.x * depth, y: q.y + nrm.y * depth }, { x: p.x + nrm.x * depth, y: p.y + nrm.y * depth }]
-  } else if (housePts.length === 1) {
-    const p = housePts[0], size = 28
-    house = [p, { x: p.x + size, y: p.y }, { x: p.x + size, y: p.y - size }, { x: p.x, y: p.y - size }]
-  }
-
-  const all = [...v, ...(house ?? [])]
+  const home = houseOnPlan(layout, result, drawing)
+  const house = home.corners
+  const all = [...v, ...drawing.ends.flatMap(e => [e.a, e.b]).filter((_, k) => layout.sides[k >> 1]?.on), ...(house ?? [])]
   const bounds = {
     minX: Math.min(...all.map(p => p.x)), maxX: Math.max(...all.map(p => p.x)),
     minY: Math.min(...all.map(p => p.y)), maxY: Math.max(...all.map(p => p.y)),
   }
+  const auto = autoGeometry(layout)
+  const handles = v.map((_, k) => k).filter(k => {
+    // A point is a handle when a side that is on starts or ends there.
+    const n = layout.sides.length
+    const touching = [k - 1, layout.closed && k === 0 ? n - 1 : -1, k < n ? k : -1].filter(j => j >= 0 && j < n)
+    return touching.some(j => layout.sides[j].on && !(j === k && teeAnchor(layout, j) !== null))
+  })
   return {
     vertices: v, sides, posts, house,
-    houseNotToScale: !!house && !!auto.house && auto.houseNotToScale,
+    houseNotToScale: !!house && home.notToScale,
     notes: auto.notes,
     corners: cornerVertices(layout, result),
     street: ['backyard', 'front', 'perimeter'].includes(layout.shape), bounds,
-    houseAttach: houseAttachOf(layout, v),
+    houseAttach: houseAttachOf(layout, drawing.ends),
+    houseRect: home.rect, houseMode: home.mode,
+    angles: cornerAngles(layout, drawing.ends),
+    crossings: sideCrossings(layout, drawing.ends),
+    handles, tees, chain: drawing.mode === 'chain',
   }
 }
 
-function houseAttachOf(layout: YardLayout, v: PlanPoint[]): Plan['houseAttach'] {
+function houseAttachOf(layout: YardLayout, ends: SideEnds[]): Plan['houseAttach'] {
   if (!canMoveHouse(layout)) return []
   const m = houseMeetsOf(layout)
   const out: Plan['houseAttach'] = []
-  if (returnHouseEnd(layout, 0)) out.push({ sideId: layout.sides[0].id, name: layout.sides[0].name, which: 'left', at: v[0], distFt: m.left })
-  if (returnHouseEnd(layout, 4)) out.push({ sideId: layout.sides[4].id, name: layout.sides[4].name, which: 'right', at: v[5], distFt: m.right })
+  if (returnHouseEnd(layout, 0)) out.push({ sideId: layout.sides[0].id, name: layout.sides[0].name, which: 'left', at: ends[0].a, distFt: m.left })
+  if (returnHouseEnd(layout, 4)) out.push({ sideId: layout.sides[4].id, name: layout.sides[4].name, which: 'right', at: ends[4].b, distFt: m.right })
   return out
 }
 
@@ -530,7 +804,7 @@ export function aerialFtPerPx(halfM: number, sizePx = AERIAL_PX): number {
 
 /** The computed corners moved so the drawing is centered on (0, 0). */
 export function centeredVertices(layout: YardLayout): PlanPoint[] {
-  const v = autoVertices(layout)
+  const v = planVertices(layout)
   const xs = v.map(p => p.x), ys = v.map(p => p.y)
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2
   return v.map(p => ({ x: p.x - cx, y: p.y - cy }))

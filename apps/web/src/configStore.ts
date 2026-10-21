@@ -168,7 +168,10 @@ export interface AppConfig {
   moveRepair?: Partial<MoveRepairSettings>
   /** The website quote (Settings → Portal & Quotes): prices shown before the name and phone (default off). */
   quoteWidget?: { showPriceBeforeContact?: boolean }
+  /** Named warranties and which one each kind of install gets (Settings → Warranties, warranties.ts). Missing: the starting ones. */
+  warranties?: WarrantySettings
 }
+import type { WarrantySettings } from './warranties'
 
 // Defaults live in configDefaults.ts (pure: the server's estimates use them too).
 

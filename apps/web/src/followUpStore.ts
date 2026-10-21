@@ -18,6 +18,7 @@ import { getAccessToken } from './crmAuth'
 import { registerKind, enqueue, allOps, reapply, subscribe as onOutbox } from './outbox'
 import { newId } from './recordSync'
 import { getPipeline, PIPELINE_UPDATED_EVENT } from './pipelineStore'
+import type { Opened } from './proposalOpened'
 import {
   applyAnswer, badgeFor, defaultConfig, dueStatus, floridaDay, keepGoing, setNext, reconcile, OUTCOME_LABEL, stopsSteps, MUST_HAVE_FOLLOW_UP,
   type Channel, type DueKind, type FollowUpConfig, type FollowUpState, type LostReason, type Outcome, type DueStatus,
@@ -35,6 +36,8 @@ export interface BoardCard {
   lastContactAt: string | null
   ownerName: string
   state: FollowUpState | null
+  /** Customer opens of the proposal sent (null: none sent). */
+  opened?: Opened | null
 }
 
 export interface ListRow extends BoardCard {
@@ -51,10 +54,21 @@ export interface ListRow extends BoardCard {
   touches: number
 }
 
+/** A card whose customer opened the proposal in the last day: the latest open. */
+export interface OpenedRow extends ListRow {
+  openedAt: string
+  openedDevice: string
+  /** "Better ($8,200)", or '' (one option, or none looked at). */
+  openedLongest: string
+  openedTimes: number
+}
+
 export interface FollowUpList {
   today: string
   seesEveryone: boolean
   rep: string | null
+  /** Opened in the last 24h (customers only), newest first. */
+  opened24h?: OpenedRow[]
   overdue: ListRow[]
   dueToday: ListRow[]
   upcoming: ListRow[]
@@ -104,6 +118,11 @@ function shown(cardId: string, base: BoardCard | undefined): BoardCard | null {
 /** A card's follow up, as this phone knows it (null: not loaded yet). */
 export function followUpOf(cardId: string): BoardCard | null {
   return shown(cardId, board?.cards[cardId])
+}
+
+/** How often the card's customer opened the proposal sent, as the server last said (null: none sent, or not loaded). */
+export function openedOf(cardId: string): Opened | null {
+  return board?.cards[cardId]?.opened ?? null
 }
 
 /** The badge for a card on the pipeline, or null (nothing to show). Worked out from the card as this phone has it, so a card just moved shows its new stage's follow up. */

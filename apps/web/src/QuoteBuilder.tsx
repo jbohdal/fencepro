@@ -16,8 +16,8 @@ import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
 import { getRailOptimizerConfig, leadSourceOptions } from './configStore'
 import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
-import { sectionWidthForStyle } from './materialCalculator'
-import { deriveLayout, formatFtIn, postSpacing, type YardLayout } from './yardLayout'
+import { layoutPanelFt } from './gateSlide'
+import { deriveLayout, formatFtIn, postSpacing, teePostFor, type YardLayout } from './yardLayout'
 import LayoutEditor, { nextEmptySide } from './LayoutEditor'
 import CustomerDrawing from './CustomerDrawing'
 import VoicePanel, { type VoiceHandle } from './VoicePanel'
@@ -563,8 +563,11 @@ export default function QuoteBuilder({
     finalPrice: numOrUndef(finalPriceStr),
   }
   // Section width decides where a gate "near the house" sits: one section in.
-  const widthFt = style ? (style.autoRailMix ? 8 : sectionWidthForStyle(style.name, style.panelWidth)) : 8
-  const layoutResult = useMemo(() => (entry === 'layout' && yard ? deriveLayout(yard, widthFt * 12) : null), [entry, yard, widthFt])
+  // (gateSlide.ts layoutPanelFt: the crew packet and the saved quote's drawing use the same rule.)
+  const widthFt = layoutPanelFt(style)
+  // A tee is posted as the style's tee post (chain link, aluminum, wood: a corner; vinyl: yardLayout.ts VINYL_TEE_POST).
+  const teeAs = teePostFor(style)
+  const layoutResult = useMemo(() => (entry === 'layout' && yard ? deriveLayout(yard, widthFt * 12, { teeAs }) : null), [entry, yard, widthFt, teeAs])
   // What reaches the quote math: the layout's runs and posts, or the typed run list.
   const fromLayout = !!layoutResult
   const effRuns = fromLayout ? layoutResult!.runs.map(r => ({ ft: r.ft, rail: 'auto' as const })) : runs.map(r => ({ ft: parseFloat(r.ft) || 0, rail: r.rail }))
@@ -1025,6 +1028,7 @@ export default function QuoteBuilder({
                   openSideId={openSide}
                   onOpenSide={setOpenSide}
                   locked={signedQuote}
+                  teeAs={teeAs}
                   address={init?.customerAddress || getCustomers().find(c => `${c.firstName} ${c.lastName}`.trim().toLowerCase() === customerName.trim().toLowerCase())?.serviceAddress || ''}
                 />
               )}

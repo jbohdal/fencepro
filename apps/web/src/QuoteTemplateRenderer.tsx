@@ -7,6 +7,7 @@
  *   - PDF export (via window.print on the rendered HTML)
  */
 
+import { signedOptionWarranty } from './warranties'
 import { styleLabel } from './fenceCatalog'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { useState } from 'react'
@@ -56,7 +57,11 @@ export default function QuoteTemplateRenderer({ quote, template, interactive, on
 
 function useComputedFields(quote: QuoteWithPresentation) {
   const company = readCompany()
-  const contractSections = readContract()
+  // The warranty of this quote's option (frozen on its proposal, warranties.ts) in place of the one Contract Templates warranty.
+  const own = signedOptionWarranty(quote as any)
+  const contractSections = readContract().map((s: any) => s.key === 'warranty' && own?.from === 'option'
+    ? { ...s, title: `Warranty: ${own.warranty.name}`, body: own.warranty.text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)).replace(/\n/g, '<br>') }
+    : s)
   const totalFootage = (quote.runs || []).reduce((s, n) => s + n, 0)
   const gateSummary = [
     quote.walkGates ? `${quote.walkGates} walk gate${quote.walkGates === 1 ? '' : 's'}` : '',

@@ -48,6 +48,12 @@ export default function ProposalSettings({ config, onChange, onOpenTiers }: { co
           <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!!p.publicLinks} onChange={e => set({ publicLinks: e.target.checked })} data-public-links />
           The public door for proposals is on: customers can open proposal links
         </label>
+        <label className="flex items-start gap-3 text-sm mt-3">
+          <input type="checkbox" className="w-5 h-5 mt-0.5 accent-orange-500" checked={p.notifyOpened !== false} onChange={e => set({ notifyOpened: e.target.checked })} data-notify-opened />
+          <span>Tell me when a proposal is opened
+            <span className="block text-xs text-gray-600">A push to the salesman on the card when the customer first opens it, and again when they come back after 2 days or more. For the whole company. Opens by your own team never count.</span>
+          </span>
+        </label>
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 flex flex-wrap items-center gap-3" data-tiers-moved>
@@ -60,7 +66,7 @@ export default function ProposalSettings({ config, onChange, onOpenTiers }: { co
         <p className="text-sm text-gray-600 mb-2">Shown under the facts from each quote (footage, posts, gates, tear out). One item per line.</p>
         <textarea rows={4} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={p.included ?? ''} onChange={e => set({ included: e.target.value })}
           placeholder={'Sunshine 811 utility locates\nCleanup and haul away of job debris'} data-included />
-        <p className="text-xs text-gray-500 mt-1">The warranty on proposals comes from Contract Templates → Warranty.</p>
+        <p className="text-xs text-gray-500 mt-1">Each option's warranty comes from Settings → Warranties (by its install: vinyl no dig, vinyl dig set, aluminum, chain link, wood).</p>
       </div>
 
       <div>

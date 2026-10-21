@@ -11,7 +11,8 @@ import { useState } from 'react'
 import { Phone, MessageSquare, ClipboardPen, RefreshCw } from 'lucide-react'
 import { formatPhone, telHref } from './phoneFormat'
 import { navigate } from './nav'
-import { useFollowUpList, useFollowUpBoard, startTouch, openLogCall, pendingFor, type ListRow } from './followUpStore'
+import { useFollowUpList, useFollowUpBoard, startTouch, openLogCall, pendingFor, type ListRow, type OpenedRow } from './followUpStore'
+import { agoWords } from './proposalOpened'
 import { OUTCOME_LABEL } from './followUpRules'
 import { TextTemplatesSheet, dayLabel, kindWord } from './FollowUpPrompt'
 
@@ -48,9 +49,10 @@ export default function FollowUpsPage() {
       </div>
 
       {loading && !list && <p className="text-sm text-gray-600">Loading follow ups…</p>}
-      {list && total === 0 && list.upcoming.length === 0 && list.notSet.length === 0 && (
+      {list && total === 0 && list.upcoming.length === 0 && list.notSet.length === 0 && !list.opened24h?.length && (
         <p className="panel p-6 text-center text-gray-600" data-follow-ups-empty>Nobody to call. New follow ups appear here as cards move and calls are answered.</p>
       )}
+      {list && <Section title="Opened in the last 24h" tone="purple" rows={list.opened24h ?? []} id="opened-24h" onText={setTexting} note="The customer opened the proposal. A good time to call." />}
       {list && <Section title="Overdue" tone="red" rows={list.overdue} id="overdue" onText={setTexting} />}
       {list && <Section title="Due today" tone="orange" rows={list.dueToday} id="today" onText={setTexting} />}
       {list && <Section title="Coming up" tone="gray" rows={list.upcoming} id="upcoming" onText={setTexting} />}
@@ -61,9 +63,11 @@ export default function FollowUpsPage() {
   )
 }
 
-function Section({ title, tone, rows, id, onText, note }: { title: string; tone: 'red' | 'orange' | 'gray'; rows: ListRow[]; id: string; onText: (r: ListRow) => void; note?: string }) {
+type Tone = 'red' | 'orange' | 'gray' | 'purple'
+
+function Section({ title, tone, rows, id, onText, note }: { title: string; tone: Tone; rows: ListRow[]; id: string; onText: (r: ListRow) => void; note?: string }) {
   if (!rows.length) return null
-  const head = tone === 'red' ? 'text-red-700' : tone === 'orange' ? 'text-orange-700' : 'text-gray-800'
+  const head = tone === 'red' ? 'text-red-700' : tone === 'orange' ? 'text-orange-700' : tone === 'purple' ? 'text-purple-800' : 'text-gray-800'
   return (
     <section className="space-y-2" data-follow-up-section={id}>
       <h2 className={`text-sm font-bold ${head}`}>{title} <span className="font-semibold text-gray-500">({rows.length})</span></h2>
@@ -75,8 +79,9 @@ function Section({ title, tone, rows, id, onText, note }: { title: string; tone:
   )
 }
 
-function Row({ r, tone, onText }: { r: ListRow; tone: 'red' | 'orange' | 'gray'; onText: () => void }) {
-  const border = tone === 'red' ? 'border-l-red-500' : tone === 'orange' ? 'border-l-orange-500' : 'border-l-gray-300'
+function Row({ r, tone, onText }: { r: ListRow; tone: Tone; onText: () => void }) {
+  const border = tone === 'red' ? 'border-l-red-500' : tone === 'orange' ? 'border-l-orange-500' : tone === 'purple' ? 'border-l-purple-500' : 'border-l-gray-300'
+  const o = 'openedAt' in r ? (r as OpenedRow) : null
   const since = r.daysSinceContact === null ? 'No contact logged' : r.daysSinceContact === 0 ? 'Contacted today' : `${r.daysSinceContact}d since last contact`
   const due = r.status === 'overdue' ? `Overdue ${r.days}d` : r.dueOn ? `${dayLabel(r.dueOn)} · ${kindWord(r.dueKind)}` : 'None set'
   const touch = { cardId: r.cardId, customerId: r.customerId, name: r.name, firstName: r.firstName, phone: r.phone, stage: r.stage }
@@ -94,6 +99,11 @@ function Row({ r, tone, onText }: { r: ListRow; tone: 'red' | 'orange' | 'gray';
             <span className={tone === 'red' ? 'font-semibold text-red-700' : 'font-semibold'} data-follow-up-due>{due}</span>
             {r.lastOutcome ? <> · {OUTCOME_LABEL[r.lastOutcome] ?? r.lastOutcome}</> : null}
           </span>
+          {o && (
+            <span className="block text-sm text-purple-800 mt-0.5" data-follow-up-opened>
+              Opened {agoWords(o.openedAt)}{o.openedDevice ? ` on ${o.openedDevice}` : ''}{o.openedTimes > 1 ? ` (${o.openedTimes}× in 24h)` : ''}{o.openedLongest ? ` · looked longest at ${o.openedLongest}` : ''}
+            </span>
+          )}
           <span className="block text-xs text-gray-500" data-follow-up-since>{since}{pendingFor(r.cardId) ? ' · Saving…' : ''}</span>
         </button>
       </div>

@@ -65,10 +65,11 @@ export default function WalkthroughSettings({ config, onChange }: { config: AppC
 
       <div className="border-t border-gray-200 pt-5">
         <h3 className="text-sm font-semibold text-gray-900 mb-1">Warranty on the Certificate of Completion</h3>
+        <p className="text-sm text-gray-600 mb-2" data-wt-warranty-source="job">The certificate is the job's warranty certificate: it shows the warranty the job was signed with (Settings → Warranties, frozen on the signed proposal), the day it starts and how long it covers. The text below is used only for a job with no fence style and no proposal.</p>
         {fromContract ? (
-          <p className="text-sm text-gray-600" data-wt-warranty-source="contract">The certificate uses the warranty in Contract Templates → Warranty (the same one proposals show). Change it there. The text below is used only if that warranty is turned off or empty.</p>
+          <p className="text-sm text-gray-600" data-wt-warranty-source="contract">For such a job the certificate uses the warranty in Contract Templates → Warranty, and the text below only if that one is turned off or empty.</p>
         ) : (
-          <p className="text-sm text-gray-600" data-wt-warranty-source="own">Contract Templates has no warranty turned on, so the certificate uses this text.</p>
+          <p className="text-sm text-gray-600" data-wt-warranty-source="own">For such a job, Contract Templates has no warranty turned on, so the certificate uses this text.</p>
         )}
         <textarea rows={4} className="mt-2 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={cfg.walkthroughWarranty ?? ''}
           onChange={e => onChange({ ...cfg, walkthroughWarranty: e.target.value } as AppConfig)} placeholder="Workmanship is warranted for 1 year from the completion date…" data-wt-warranty />

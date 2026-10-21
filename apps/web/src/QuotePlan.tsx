@@ -5,27 +5,42 @@
  */
 
 import SitePlan from './SitePlan'
-import { deriveLayout } from './yardLayout'
-import { gateWhereText } from './gateSlide'
+import { deriveLayout, type YardLayout } from './yardLayout'
+import { gateWhereText, layoutPanelFt, savedQuoteNearIn } from './gateSlide'
+import { DEFAULT_FENCE_STYLES } from './configDefaults'
 import type { SavedQuote } from './QuotesPage'
 
 export function quoteHasPlan(quote: Pick<SavedQuote, 'layout'>): boolean {
   return !!quote.layout?.yard
 }
 
-export default function QuotePlan({ quote, caption = true }: { quote: Pick<SavedQuote, 'layout' | 'runs'>; caption?: boolean }) {
+type PlanStyle = { name: string; panelWidth?: number; autoRailMix?: boolean }
+
+/**
+ * Where a saved quote's "near the house / corner" gates sit, as the builder
+ * placed them: one panel of the quote's style in (gateSlide.ts), checked
+ * against the runs it was priced on. The panel width and the inches.
+ */
+export function quotePlanWidth(yard: YardLayout, quote: { fenceStyle?: string; runs?: number[] }, style?: PlanStyle | null): { widthFt: number; nearIn: number } {
+  const s = style ?? (quote.fenceStyle ? DEFAULT_FENCE_STYLES.find(x => x.name === quote.fenceStyle) ?? { name: quote.fenceStyle } : null)
+  const widthFt = layoutPanelFt(s)
+  return { widthFt, nearIn: savedQuoteNearIn(yard, quote.runs, widthFt) }
+}
+
+export default function QuotePlan({ quote, style, caption = true }: { quote: Pick<SavedQuote, 'layout' | 'runs'> & { fenceStyle?: string }; style?: PlanStyle | null; caption?: boolean }) {
   const yard = quote.layout?.yard
   if (!yard) return null
-  const result = deriveLayout(yard)
+  const { widthFt, nearIn } = quotePlanWidth(yard, quote, style)
+  const result = deriveLayout(yard, nearIn)
   const secs = quote.layout?.runSections
   // Only use the saved sections when they still line up with the runs.
   const runSections = secs && secs.length === result.runs.length ? secs : undefined
   return (
     <figure style={{ margin: 0 }} data-quote-plan>
-      <SitePlan layout={yard} result={result} runSections={runSections} title="Site plan" />
+      <SitePlan layout={yard} result={result} runSections={runSections} widthFt={widthFt} title="Site plan" />
       {(() => {
         // Each gate, both ways: "Back: 5 ft walk gate, 12 ft from the Left side corner, 31 ft to the Right side corner".
-        const gates = yard.sides.map((s, i) => (s.on && s.gate ? gateWhereText(yard, i) : null)).map((t, i) => (t ? `${yard.sides[i].name}: ${t}` : null)).filter((t): t is string => !!t)
+        const gates = yard.sides.map((s, i) => (s.on && s.gate ? gateWhereText(yard, i, nearIn) : null)).map((t, i) => (t ? `${yard.sides[i].name}: ${t}` : null)).filter((t): t is string => !!t)
         return gates.length > 0 && (
           <div style={{ fontSize: 12, color: '#1F1A24', marginTop: 6 }} data-quote-plan-gates>
             {gates.map(g => <p key={g} style={{ margin: '2px 0' }} data-quote-plan-gate>{g}</p>)}

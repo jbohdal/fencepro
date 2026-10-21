@@ -253,11 +253,13 @@ function place(key: string, kind: PlacedLabel['kind'], sd: PlanSide, variants: A
   return { key, kind, sideId: sd.sideId, sideName: sd.name, lines, x, y: b.y0 + asc, anchor, box: b, leader, clear: best!.n === 0 }
 }
 
-/** Every label on the plan, placed. Font sizes are multiplied by `fontScale`. */
-export function placeLabels(plan: Plan, sc: PlanScreen, fontScale = 1): PlacedLabel[] {
+/** Every label on the plan, placed. Font sizes are multiplied by `fontScale`. `keepOff`: more boxes labels stay clear of. */
+export function placeLabels(plan: Plan, sc: PlanScreen, fontScale = 1, keepOff: Box[] = []): PlacedLabel[] {
   const fs = fontScale
   const { PURPLE, GRAY, INK } = PLAN_COLORS
   const obs = planObstacles(plan, sc)
+  // Other marks drawn on the plan (the angles at the corners) that labels keep off.
+  obs.boxes.push(...keepOff)
   const placed: Placed = { boxes: [], leaders: [] }
   const out: PlacedLabel[] = []
   const scr = (sd: PlanSide) => {

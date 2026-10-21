@@ -12,6 +12,7 @@
 import { priceOption, type ProposalOption } from './proposal'
 import { sectionWidthForStyle } from './materialCalculator'
 import { deriveLayout, layoutForShape, type YardLayout } from './yardLayout'
+import { layoutPanelFt } from './gateSlide'
 import type { QuoteCalcInput, QuoteStyle } from './quoteCalc'
 import { isQuotable } from './styleAvailability'
 import { styleLabel } from './fenceCatalog'
@@ -271,7 +272,7 @@ export const SAMPLE_YARDS: SampleYard[] = [
 /** A sample yard as the quote math takes it, measured and counted by the same yard layout rules as a quote. */
 export function sampleInput(yardKey: string, style: QuoteStyle, pricing: QuoteCalcInput['pricing'], optimizer: QuoteCalcInput['optimizer']): QuoteCalcInput {
   const yard = (SAMPLE_YARDS.find(y => y.key === yardKey) ?? SAMPLE_YARDS[0]).layout()
-  const widthFt = style.autoRailMix ? 8 : sectionWidthForStyle(style.name, style.panelWidth)
+  const widthFt = layoutPanelFt(style)
   const r = deriveLayout(yard, widthFt * 12)
   return {
     style, runs: r.runs.map(x => ({ ft: x.ft, rail: 'auto' as const })),

@@ -9,11 +9,16 @@
  */
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { buildPlan, planVertices, type Plan, type PlanGate } from './sitePlanGeometry'
-import { placeLabels, planScreen, screenLeaves, textWidth, PLAN_COLORS, type PlanScreen } from './sitePlanLabels'
-import { deriveLayout, type LayoutResult, type PlanPoint, type YardLayout } from './yardLayout'
+import { buildPlan, type Plan, type PlanGate } from './sitePlanGeometry'
+import { dragVertex, slideTee, setHouse } from './yardDrawing'
+import { dirDeg, houseCorners, norm180 } from './yardChain'
+import { boxesOverlap, placeLabels, planScreen, screenLeaves, textWidth, PLAN_COLORS, type PlanScreen } from './sitePlanLabels'
+import { deriveLayout, type HouseRect, type LayoutResult, type PlanPoint, type YardLayout } from './yardLayout'
 import { gateDistanceTextExact } from './gateSlide'
 import { sectionsForRun } from './sectionCount'
+import { formatPieceLen } from './yardLayout'
+
+const formatPieceLenFt = (inches: number) => formatPieceLen(inches).replace(/'$/, ' ft').replace(/' /, ' ft ')
 import { currentPlanAt, stepDeg, normDeg, type AerialBackdrop } from './sitePlanPhoto'
 
 const { PURPLE, GRAY, LIGHT, INK } = PLAN_COLORS
@@ -38,8 +43,11 @@ export function meetsText(m: HouseMeets, names: { left?: string; right?: string 
   return ''
 }
 
+type PointDrag<M> = { mode: M; k: number; start: YardLayout; s0: PlanPoint; touch: boolean; moved: boolean }
+type HouseEdit<M> = { mode: M; start: YardLayout; rect: HouseRect; p0: PlanPoint; a0: number; touch: boolean; moved: boolean }
 type Drag =
-  | { mode: 'corner'; index: number | 'all'; start: PlanPoint; points: PlanPoint[]; moved: boolean }
+  | PointDrag<'vertex'> | PointDrag<'tee'>
+  | HouseEdit<'houseMove'> | HouseEdit<'houseRot'> | HouseEdit<'houseSize'>
   | { mode: 'plan'; sx: number; sy: number; at: PlanPoint; ftPerPx: number; moved: boolean }
   | { mode: 'house' | 'attach'; which: 'both' | 'left' | 'right'; sy: number; ftPerPx: number; bounds: Plan['bounds']; left: number; right: number; last: string; moved: boolean }
   | { mode: 'gate'; sideId: string; grabIn: number; sx: number; sy: number; touch: boolean; moved: boolean }
@@ -47,7 +55,7 @@ type Drag =
 /** A fence move's old line: drawn dashed along a side of the new line, this many feet inside it. */
 export interface PlanOldLine { sideId: string; offsetFt: number; ft: number; label: string }
 
-export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onPointsChange, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap, oldLine, damaged, onSectionTap, onPlanMove, onRotate, onLineUpTap, lineUpTaps, onGateSlide, gateLocked, onGateDistanceTap }: {
+export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onDrawingChange, onAngleTap, checks = false, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap, oldLine, damaged, onSectionTap, onPlanMove, onRotate, onLineUpTap, lineUpTaps, onGateSlide, gateLocked, onGateDistanceTap }: {
   layout: YardLayout
   result?: LayoutResult
   runSections?: number[]
@@ -55,7 +63,17 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   onSideTap?: (sideId: string) => void
   /** Drawn to the photo's real scale, centered on it; corners can be dragged. */
   aerial?: AerialBackdrop | null
-  onPointsChange?: (points: PlanPoint[]) => void
+  /**
+   * With this, every corner and end point can be dragged (each side keeps its
+   * typed length and only the angles change, yardDrawing.ts), a tee's start
+   * slides along its side, and the house can be moved, turned and sized.
+   * `done` when the finger lifts.
+   */
+  onDrawingChange?: (next: YardLayout, done: boolean) => void
+  /** With this, each corner shows its angle as a chip; tapping it types the angle (the index of the side starting there). */
+  onAngleTap?: (sideIndex: number) => void
+  /** Show the drawing's checks: sides that cross ("Side 3 crosses Side 6, check the drawing"). */
+  checks?: boolean
   title?: string
   pins?: PlanPin[]
   onPinTap?: (id: string) => void
@@ -93,8 +111,13 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   // Ids for the magnifier (it shows the drawing again, closer); only on a plan where gates slide.
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const drawId = `plan-draw-${uid}`
+  const interactive = !!onGateSlide || !!onDrawingChange
   // The gate being dragged, and where the finger is (drawing units) for the magnifier on a phone.
   const [gateDrag, setGateDrag] = useState<{ sideId: string; finger: PlanPoint | null } | null>(null)
+  // A corner, tee or the house being dragged: what, and the finger (drawing units) for the magnifier on a phone.
+  // The house tapped: its turn and size handles show (a drag on it moves it any time).
+  const [houseSel, setHouseSel] = useState(false)
+  const [pointDrag, setPointDrag] = useState<{ mode: Drag['mode']; k: number; finger: PlanPoint | null } | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
   const drag = useRef<Drag | null>(null)
   // While something is dragged the drawing keeps its scale, so it stays under the finger.
@@ -130,7 +153,28 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   const sc: PlanScreen = planScreen(plan, { aerial: aerial ?? null, held: heldBounds, fontScale: fs })
   const { W, H, toX, toY, fromX, fromY, ftPerPx } = sc
   const P = (p: PlanPoint) => `${toX(p.x).toFixed(1)},${toY(p.y).toFixed(1)}`
-  const labels = useMemo(() => placeLabels(plan, sc, fs), [plan, heldBounds, fs, aerial?.sizePx, aerial?.ftPerPx, aerial?.shiftFt?.x, aerial?.shiftFt?.y])  // eslint-disable-line react-hooks/exhaustive-deps
+  // The angle at each corner: chips to tap and type in the builder; on the proposal and crew packet, the corners that are not square.
+  const editingAngles = !!onAngleTap
+  // (Static: only on a drawing whose angles were set, so an older quote's proposal looks as it did.)
+  const angleSpots = plan.angles.filter(a => (editingAngles ? a.typable : plan.chain && Math.abs(a.deg - 90) > 0.5 && a.deg < 179.5)).map(a => {
+    const off = editingAngles ? Math.max(26, 30 * unitsPerPx) : 20 * fs
+    const x = toX(a.at.x) + a.inward.x * off, y = toY(a.at.y) - a.inward.y * off
+    const text = `${Math.round(a.deg)}°`
+    const fz = editingAngles ? Math.max(11, 11.5 * unitsPerPx) : 11 * fs
+    const hw = textWidth(text, fz, 700) / 2 + (editingAngles ? 5 * unitsPerPx : 2), hh = fz * 0.75 + (editingAngles ? 3 * unitsPerPx : 1)
+    return { a, x, y, text, fz, hw, hh, box: { x0: x - hw, y0: y - hh, x1: x + hw, y1: y + hh } }
+  })
+  // Chips at corners close together are moved further into their angle until they clear each other.
+  for (let k = 1; k < angleSpots.length; k++) {
+    const sp = angleSpots[k]
+    for (let t = 0; t < 4 && angleSpots.slice(0, k).some(o => boxesOverlap(o.box, sp.box, 2)); t++) {
+      const step = sp.hh * 2 + 3
+      sp.x += sp.a.inward.x * step; sp.y -= sp.a.inward.y * step
+      sp.box = { x0: sp.x - sp.hw, y0: sp.y - sp.hh, x1: sp.x + sp.hw, y1: sp.y + sp.hh }
+    }
+  }
+  const angleKey = angleSpots.map(s => `${s.a.sideId}:${s.x.toFixed(1)},${s.y.toFixed(1)},${s.hw.toFixed(1)}`).join('|')
+  const labels = useMemo(() => placeLabels(plan, sc, fs, angleSpots.map(s => s.box)), [plan, heldBounds, fs, aerial?.sizePx, aerial?.ftPerPx, aerial?.shiftFt?.x, aerial?.shiftFt?.y, angleKey])  // eslint-disable-line react-hooks/exhaustive-deps
   const rot = aerial ? normDeg(aerial.rotDeg ?? 0) : 0
 
   // Two fingers on the photo: a twist turns it. A pinch with no twist does nothing here.
@@ -199,11 +243,20 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     const q = pt.matrixTransform(svg.getScreenCTM()!.inverse())
     drag.current = { mode: 'plan', sx: q.x, sy: q.y, at: currentPlanAt(layout), ftPerPx, moved: false }
   }
-  function startDrag(e: React.PointerEvent, index: number | 'all') {
-    if (!onPointsChange) return
+  function startDrag(e: React.PointerEvent, mode: 'vertex' | 'tee', k: number) {
+    if (!onDrawingChange || twist.current) return
     capture(e)
     if (!aerial) setHeldBounds(plan.bounds)
-    drag.current = { mode: 'corner', index, start: svgPoint(e), points: planVertices(layout).map(p => ({ ...p })), moved: false }
+    // Dragging a corner puts the house's handles away.
+    setHouseSel(false)
+    drag.current = { mode, k, start: layout, s0: svgPoint(e), touch: e.pointerType !== 'mouse', moved: false } as Drag
+  }
+  function startHouseEdit(e: React.PointerEvent, mode: 'houseMove' | 'houseRot' | 'houseSize') {
+    if (!onDrawingChange || !plan.houseRect || twist.current) return
+    capture(e)
+    if (!aerial) setHeldBounds(plan.bounds)
+    const p0 = svgPoint(e), r = plan.houseRect
+    drag.current = { mode, start: layout, rect: r, p0, a0: dirDeg({ x: r.cx, y: r.cy }, p0), touch: e.pointerType !== 'mouse', moved: false } as Drag
   }
   function startHouseDrag(e: React.PointerEvent, which: 'both' | 'left' | 'right') {
     if (!onHouseMeetsChange) return
@@ -272,14 +325,40 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
       setGateDrag({ sideId: d.sideId, finger: d.touch ? { x: q.x, y: q.y } : null })
       return
     }
-    if (d.mode === 'corner') {
-      if (!onPointsChange) return
+    if (d.mode === 'vertex' || d.mode === 'tee') {
+      if (!onDrawingChange) return
       const now = svgPoint(e)
-      const dx = now.x - d.start.x, dy = now.y - d.start.y
       // A tap on a corner is not a drag.
-      if (!d.moved && Math.hypot(dx, dy) / ftPerPx < 4) return
+      if (!d.moved && Math.hypot(now.x - d.s0.x, now.y - d.s0.y) / ftPerPx < 4) return
       d.moved = true
-      onPointsChange(d.points.map((p, i) => (d.index === 'all' || d.index === i ? { x: p.x + dx, y: p.y + dy } : p)))
+      const next = d.mode === 'vertex' ? dragVertex(d.start, d.k, now) : slideTee(d.start, d.k, now)
+      onDrawingChange(next, false)
+      setPointDrag({ mode: d.mode, k: d.k, finger: d.touch ? { x: toX(now.x), y: toY(now.y) } : null })
+      return
+    }
+    if (d.mode === 'houseMove' || d.mode === 'houseRot' || d.mode === 'houseSize') {
+      if (!onDrawingChange) return
+      const now = svgPoint(e)
+      if (!d.moved && Math.hypot(now.x - d.p0.x, now.y - d.p0.y) / ftPerPx < 4) return
+      d.moved = true
+      const r = d.rect
+      let next: HouseRect
+      if (d.mode === 'houseMove') {
+        next = { ...r, cx: r.cx + now.x - d.p0.x, cy: r.cy + now.y - d.p0.y }
+      } else if (d.mode === 'houseRot') {
+        // Whole degrees; square to the page when within 3.
+        let rot = Math.round(r.rotDeg + norm180(dirDeg({ x: r.cx, y: r.cy }, now) - d.a0))
+        const sq = Math.round(rot / 90) * 90
+        if (Math.abs(rot - sq) <= 3) rot = sq
+        next = { ...r, rotDeg: norm180(rot) }
+      } else {
+        // The grabbed corner (the house's first, out past it) moves with the finger; the middle stays. Whole feet.
+        const a = (-r.rotDeg * Math.PI) / 180, dx = now.x - d.p0.x, dy = now.y - d.p0.y
+        const lx = dx * Math.cos(a) - dy * Math.sin(a), ly = dx * Math.sin(a) + dy * Math.cos(a)
+        next = { ...r, w: Math.max(8, Math.round(r.w - 2 * lx)), d: Math.max(8, Math.round(r.d - 2 * ly)) }
+      }
+      onDrawingChange(setHouse(d.start, next), false)
+      setPointDrag({ mode: d.mode, k: 0, finger: d.touch ? { x: toX(now.x), y: toY(now.y) } : null })
       return
     }
     if (!onHouseMeetsChange) return
@@ -296,7 +375,8 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
       if (Number.isFinite(floor)) k = Math.max(k, floor)
       m = { ...(has('left') ? { left: d.left + k } : {}), ...(has('right') ? { right: d.right + k } : {}) }
       // Keep the fence where it was on screen; the house moves under the finger.
-      setHeldBounds({ ...d.bounds, minY: d.bounds.minY - k, maxY: d.bounds.maxY - k })
+      // (A drawing with its own angles already keeps the fence put: the house moves to meet it.)
+      if (!plan.chain) setHeldBounds({ ...d.bounds, minY: d.bounds.minY - k, maxY: d.bounds.maxY - k })
     } else {
       // One return's meeting point slides along the house wall under the finger.
       const v = Math.max(0, Math.round((d.which === 'left' ? d.left : d.right) + dyFt))
@@ -310,6 +390,7 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     if (e) touchUp(e)
     const d = drag.current
     if (d && (d.mode === 'house' || d.mode === 'attach') && d.moved) onHouseDragEnd?.()
+    if (d && d.moved && (d.mode === 'vertex' || d.mode === 'tee' || d.mode === 'houseMove' || d.mode === 'houseRot' || d.mode === 'houseSize')) onDrawingChange?.(layout, true)
     // Swallow the click that follows a drag so it is not a tap on a side.
     if (d?.moved) setTimeout(() => { drag.current = null }, 0)
     else drag.current = null
@@ -317,6 +398,7 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
     // The signed quote's "make a change order" stays up a moment after the finger lifts.
     setLive(l => (gateLocked && l === gateLocked ? l : ''))
     setGateDrag(null)
+    setPointDrag(null)
   }
 
   // Each section as its own piece of the line, keyed "run:section" (runs counted as the layout counts them).
@@ -363,14 +445,88 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   const center = plan.vertices.reduce((t, p) => ({ x: t.x + p.x / plan.vertices.length, y: t.y + p.y / plan.vertices.length }), { x: 0, y: 0 })
   const houseC = plan.house ? { x: plan.house.reduce((t, p) => t + toX(p.x), 0) / plan.house.length, y: plan.house.reduce((t, p) => t + toY(p.y), 0) / plan.house.length } : null
   const houseMovable = !aerial && !!onHouseMeetsChange && plan.houseAttach.length > 0 && !!houseC
+  // A house no two fence ends pin down: moved, turned and sized by hand (it keeps touching where one end meets it).
+  const houseEditable = !!onDrawingChange && !!plan.houseRect && !houseMovable && (plan.houseMode === 'one' || plan.houseMode === 'free' || (plan.houseMode === 'auto' && plan.houseAttach.length === 0))
+
+  // The angle chips (placed above, before the labels, so the labels keep off them); shown live while a corner is dragged.
+  const angleMarks = (
+    <g data-plan-angles>
+      {angleSpots.map(({ a, x, y, text, fz, hw, hh }) => {
+        const sideName = layout.sides[a.side]?.name ?? ''
+        const attrs = { 'data-plan-angle': sideName, 'data-angle-deg': a.deg.toFixed(2), 'data-angle-turn': a.turn, ...(a.tee ? { 'data-angle-tee': 'true' } : {}) }
+        if (!editingAngles) {
+          return <text key={`ang-${a.sideId}`} x={x} y={y + fz * 0.36} textAnchor="middle" fontSize={fz} fontWeight={700} fill={INK} style={{ paintOrder: 'stroke' }} stroke="white" strokeWidth={3} {...attrs}>{text}</text>
+        }
+        const hit = Math.max(16, 22 * unitsPerPx)
+        return (
+          <g key={`ang-${a.sideId}`} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); if (!drag.current) onAngleTap!(a.side) }} {...attrs}>
+            <circle cx={x} cy={y} r={hit} fill="white" fillOpacity={0.01} />
+            <rect x={x - hw} y={y - hh} width={hw * 2} height={hh * 2} rx={hh} fill={a.tee ? INK : 'white'} fillOpacity={0.95} stroke={a.tee ? INK : PURPLE} strokeWidth={1.5} pointerEvents="none" />
+            <text x={x} y={y + fz * 0.36} textAnchor="middle" fontSize={fz} fontWeight={700} fill={a.tee ? 'white' : PURPLE} pointerEvents="none">{text}</text>
+          </g>
+        )
+      })}
+    </g>
+  )
+  /** The magnifier above a finger (drawing units): the drawing again, closer. */
+  const loupeAt = (f: PlanPoint, key: string) => {
+    const R = 58 * unitsPerPx, Z = 2.5
+    const lp = { x: Math.min(Math.max(f.x, R + 4), W - R - 4), y: f.y - R - 34 * unitsPerPx < R + 4 ? f.y + R + 44 * unitsPerPx : f.y - R - 34 * unitsPerPx }
+    const clipId = `plan-loupe-${key}-${uid}`
+    return (
+      <g data-plan-loupe pointerEvents="none">
+        <clipPath id={clipId}><circle cx={lp.x} cy={lp.y} r={R} /></clipPath>
+        <circle cx={lp.x} cy={lp.y} r={R} fill="white" />
+        <g clipPath={`url(#${clipId})`}>
+          <use href={`#${drawId}`} transform={`translate(${lp.x} ${lp.y}) scale(${Z}) translate(${-f.x} ${-f.y})`} />
+        </g>
+        <circle cx={lp.x} cy={lp.y} r={R} fill="none" stroke="white" strokeWidth={5 * unitsPerPx} />
+        <circle cx={lp.x} cy={lp.y} r={R} fill="none" stroke={INK} strokeOpacity={0.5} strokeWidth={1.5 * unitsPerPx} />
+        <path d={`M${lp.x - 12 * unitsPerPx},${lp.y} h${24 * unitsPerPx} M${lp.x},${lp.y - 12 * unitsPerPx} v${24 * unitsPerPx}`} stroke={INK} strokeWidth={1.5 * unitsPerPx} />
+      </g>
+    )
+  }
+  // While a corner, a tee or the house is dragged: what it is now, in words, at the top of the drawing.
+  const pointLive = (() => {
+    if (!pointDrag) return null
+    const angleAt = (i: number) => plan.angles.find(a => a.side === i)
+    const lines: string[] = []
+    if (pointDrag.mode === 'vertex') {
+      const k = pointDrag.k
+      const here = angleAt(k), before = angleAt(k - 1)
+      const moved = layout.sides[Math.max(0, k - 1)]
+      if (here) lines.push(`${Math.round(here.deg)}° here`)
+      if (k > 0 && before) lines.push(`${Math.round(before.deg)}° where ${moved.name} starts`)
+      if (k === 0 && here) lines.length = 0
+      if (k === 0) { const a1 = angleAt(1); if (a1) lines.push(`${Math.round(a1.deg)}° where ${layout.sides[1].name} starts`) }
+      if (moved && moved.lengthIn > 0) lines.push(`${moved.name} stays ${formatPieceLenFt(moved.lengthIn)}`)
+    } else if (pointDrag.mode === 'tee') {
+      const s = layout.sides[pointDrag.k], an = layout.sides.find(x => x.id === s?.tee?.sideId)
+      if (s?.tee && an) lines.push(`${s.name} starts ${Math.round(s.tee.atIn / 12)} ft along ${an.name}`)
+    } else if (plan.houseRect) {
+      const h = plan.houseRect
+      lines.push(pointDrag.mode === 'houseRot' ? `House turned ${Math.round(norm180(h.rotDeg))}°` : pointDrag.mode === 'houseSize' ? `House ${Math.round(h.w)} × ${Math.round(h.d)} ft` : 'Moving the house')
+    }
+    if (!lines.length) return null
+    const fsz = Math.max(15 * fs, 14 * unitsPerPx)
+    const text = lines.join('  ·  ')
+    const bw = Math.min(W - 8, textWidth(text, fsz, 700) + 24 * unitsPerPx), bh = fsz + 16 * unitsPerPx
+    return (
+      <g pointerEvents="none" data-plan-drag-live={pointDrag.mode}>
+        {pointDrag.finger && loupeAt(pointDrag.finger, 'pt')}
+        <rect x={W / 2 - bw / 2} y={6} width={bw} height={bh} rx={8 * unitsPerPx} fill={INK} fillOpacity={0.92} />
+        <text x={W / 2} y={6 + 8 * unitsPerPx + fsz * 0.85} textAnchor="middle" fontSize={fsz} fontWeight={700} fill="white" data-plan-drag-text>{text}</text>
+      </g>
+    )
+  })()
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none touch-none bg-white rounded-xl border border-gray-200"
-      role="img" aria-label={title ?? 'Site plan'} data-site-plan onPointerDownCapture={touchDown} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
+      role="img" aria-label={title ?? 'Site plan'} data-site-plan data-ft-per-unit={String(ftPerPx)} onPointerDownCapture={touchDown} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
       {...(aerial ? { 'data-photo-rotation': String(rot), 'data-ft-per-px': String(aerial.ftPerPx) } : {})}
-      onClick={onPlanTap ? planTap : undefined} style={onPlanTap ? { cursor: 'crosshair' } : undefined}>
+      onClick={e => { if (houseSel) setHouseSel(false); if (onPlanTap) planTap(e) }} style={onPlanTap ? { cursor: 'crosshair' } : undefined}>
       {/* The drawing itself (the magnifier shows it again, closer, while a gate is dragged on a phone). */}
-      <g {...(onGateSlide ? { id: drawId } : {})}>
+      <g {...(interactive ? { id: drawId } : {})}>
       {aerial && (aerial.baked
         // Already turned and cut to the frame (proposal, crew packet, PDF).
         ? <image href={aerial.href} x={0} y={0} width={W} height={H} preserveAspectRatio="none" data-plan-photo />
@@ -388,8 +544,10 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
 
       {plan.house && houseC && (
         <g>
-          <polygon points={plan.house.map(P).join(' ')} fill={LIGHT} fillOpacity={aerial ? 0.45 : 1} stroke={aerial ? 'white' : GRAY} strokeWidth={aerial ? 2 : 1.5} strokeDasharray={aerial ? '6 4' : undefined}
-            onPointerDown={houseMovable ? e => startHouseDrag(e, 'both') : undefined} style={houseMovable ? { cursor: 'ns-resize' } : undefined} data-plan-house />
+          <polygon points={plan.house.map(P).join(' ')} fill={LIGHT} fillOpacity={aerial ? 0.45 : 1} stroke={houseSel && houseEditable ? INK : aerial ? 'white' : GRAY} strokeWidth={aerial || (houseSel && houseEditable) ? 2 : 1.5} strokeDasharray={aerial ? '6 4' : undefined}
+            onPointerDown={houseMovable ? e => startHouseDrag(e, 'both') : houseEditable ? e => startHouseEdit(e, 'houseMove') : undefined}
+            onClick={houseEditable ? e => { e.stopPropagation(); if (!drag.current?.moved) setHouseSel(v => !v) } : undefined}
+            style={houseMovable ? { cursor: 'ns-resize' } : houseEditable ? { cursor: 'move' } : undefined} data-plan-house {...(houseEditable ? { 'data-plan-house-editable': houseSel ? 'selected' : 'true' } : {})} />
           {/* While the house can be dragged its handle sits where the word was. */}
           {!houseMovable && <text x={houseC.x} y={houseC.y + (plan.houseNotToScale ? -2 : 5)}
             textAnchor="middle" fontSize={14 * fs} fontWeight={600} fill={INK} pointerEvents="none">House</text>}
@@ -432,6 +590,30 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
         )
       })}
 
+      {/* Corner and tee handles under the labels: a tap on a length or a gate distance wins where they overlap. */}
+      {onDrawingChange && plan.handles.map(k => plan.vertices[k] && (() => {
+        // Every corner and end point: at least 44 px across on a phone.
+        const r = Math.max(14, 22 * unitsPerPx)
+        const x = toX(plan.vertices[k].x), y = toY(plan.vertices[k].y)
+        return (
+          <g key={`drag-${k}`} style={{ cursor: 'grab', touchAction: 'none' }} onPointerDown={e => startDrag(e, 'vertex', k)} onClick={e => e.stopPropagation()} data-plan-corner={k}>
+            <circle cx={x} cy={y} r={r} fill="white" fillOpacity={0.01} />
+            <circle cx={x} cy={y} r={Math.min(r, 13)} fill="none" stroke={PURPLE} strokeOpacity={0.55} strokeWidth={1.5} strokeDasharray="3 3" pointerEvents="none" />
+          </g>
+        )
+      })())}
+      {onDrawingChange && plan.tees.map(t => {
+        const i = layout.sides.findIndex(s => s.id === t.sideId)
+        const r = Math.max(14, 22 * unitsPerPx)
+        const x = toX(t.at.x), y = toY(t.at.y)
+        return (
+          <g key={`tee-${t.sideId}`} style={{ cursor: 'grab', touchAction: 'none' }} onPointerDown={e => startDrag(e, 'tee', i)} onClick={e => e.stopPropagation()} data-plan-tee={t.name}>
+            <circle cx={x} cy={y} r={r} fill="white" fillOpacity={0.01} />
+            <circle cx={x} cy={y} r={Math.min(r, 13)} fill="none" stroke={INK} strokeOpacity={0.6} strokeWidth={1.5} strokeDasharray="2 3" pointerEvents="none" />
+          </g>
+        )
+      })}
+
       {labels.map(l => (
         <g key={l.key} data-plan-text={l.kind}>
           {l.leader && <line x1={l.leader.x1} y1={l.leader.y1} x2={l.leader.x2} y2={l.leader.y2} stroke={GRAY} strokeWidth={1} data-plan-leader />}
@@ -455,13 +637,23 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
         </g>
       ))}
 
+      {/* Posts take no taps: the corner handles and side taps under them get the finger. */}
+      <g pointerEvents="none">
       {plan.posts.map((p, i) => {
         const x = toX(p.x), y = toY(p.y)
         if (p.hinge) return <rect key={i} x={x - 4.5} y={y - 4.5} width={9} height={9} fill={INK} stroke="white" strokeWidth={1.5} data-plan-hinge />
         if (p.kind === 'corner') return <rect key={i} x={x - 6} y={y - 6} width={12} height={12} fill={PURPLE} stroke="white" strokeWidth={1.5} />
         if (p.kind === 'line') return <circle key={i} cx={x} cy={y} r={3.2} fill="white" stroke={PURPLE} strokeWidth={1.8} />
+        // A tee: where a side starts from another side (posted as the end post it is counted as).
+        if (p.kind === 'tee') return (
+          <g key={i} data-plan-tee-post>
+            <circle cx={x} cy={y} r={6.5} fill={PURPLE} stroke="white" strokeWidth={1.5} />
+            <text x={x} y={y + 3.4} textAnchor="middle" fontSize={8.5} fontWeight={800} fill="white" pointerEvents="none">T</text>
+          </g>
+        )
         return <circle key={i} cx={x} cy={y} r={5.5} fill={p.kind === 'gate' ? INK : PURPLE} stroke="white" strokeWidth={1.5} />
       })}
+      </g>
       </g>
 
       {pins?.map(pn => {
@@ -527,9 +719,13 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
         </g>
       )}
 
-      {!aerial && onPointsChange && plan.corners.map(i => plan.vertices[i] && (
-        <circle key={`drag-${i}`} cx={toX(plan.vertices[i].x)} cy={toY(plan.vertices[i].y)} r={14} fill="transparent" stroke={PURPLE} strokeOpacity={0.35} strokeWidth={1.5}
-          strokeDasharray="3 3" style={{ cursor: 'grab' }} onPointerDown={e => startDrag(e, i)} onClick={e => e.stopPropagation()} data-plan-corner={i} />
+      {angleMarks}
+
+      {checks && plan.crossings.map((c, k) => (
+        <g key={`x-${k}`} pointerEvents="none" data-plan-crossing={`${c.aName}|${c.bName}`}>
+          <circle cx={toX(c.at.x)} cy={toY(c.at.y)} r={11} fill="#DC2626" fillOpacity={0.18} stroke="#DC2626" strokeWidth={2.5} />
+          <path d={`M${toX(c.at.x) - 5},${toY(c.at.y) - 5} l10,10 M${toX(c.at.x) + 5},${toY(c.at.y) - 5} l-10,10`} stroke="#DC2626" strokeWidth={2.5} />
+        </g>
       ))}
 
       {houseMovable && (() => {
@@ -563,10 +759,19 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
         )
       })()}
 
+      {/* The middle of each corner and end handle over the labels and angle chips (a gate's grip, drawn next, stays clear of them); the rest of its 44 px sits under the labels. */}
+      {onDrawingChange && plan.handles.map(k => plan.vertices[k] && (
+        <circle key={`core-${k}`} cx={toX(plan.vertices[k].x)} cy={toY(plan.vertices[k].y)} r={Math.max(9, 12 * unitsPerPx)} fill="white" fillOpacity={0.01}
+          style={{ cursor: 'grab', touchAction: 'none' }} onPointerDown={e => startDrag(e, 'vertex', k)} onClick={e => e.stopPropagation()} data-plan-corner-core={k} />
+      ))}
+
       {((!aerial && onGateTap) || onGateSlide || gateLocked) && plan.sides.map(sd => {
         if (!sd.gate) return null
         const cx = (toX(sd.gate.a.x) + toX(sd.gate.b.x)) / 2, cy = (toY(sd.gate.a.y) + toY(sd.gate.b.y)) / 2
-        const r = Math.max(18, 20 * unitsPerPx)
+        // Clear of the corner handles at the side's two ends (a short side's gate sits close to them).
+        const coreR = onDrawingChange ? Math.max(9, 12 * unitsPerPx) : 0
+        const toEnd = Math.min(Math.hypot(cx - toX(sd.a.x), cy - toY(sd.a.y)), Math.hypot(cx - toX(sd.b.x), cy - toY(sd.b.y)))
+        const r = Math.max(6, Math.min(Math.max(18, 20 * unitsPerPx), toEnd - coreR))
         const tap = !aerial && onGateTap ? onGateTap : null
         const slides = !!onGateSlide && !gateLocked
         // Arrows along the side: drag me this way or that.
@@ -646,6 +851,36 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
           </g>
         )
       })()}
+
+      {houseEditable && houseSel && plan.houseRect && (() => {
+        // The house: drag it to move it, the round arrow turns it, the corner square sizes it. Each at least 44 px.
+        const hr = plan.houseRect!
+        const c = houseCorners(hr)
+        const rG = Math.max(16, 22 * unitsPerPx)
+        const cx = toX(hr.cx), cy = toY(hr.cy)
+        // The turn grip out past one corner, the size grip on the opposite one.
+        const out = (p: { x: number; y: number }, by: number) => { const dx = toX(p.x) - cx, dy = toY(p.y) - cy, l = Math.hypot(dx, dy) || 1; return { x: toX(p.x) + (dx / l) * by, y: toY(p.y) + (dy / l) * by } }
+        const rot = out(c[2], rG + 6), size = out(c[0], rG + 6)
+        return (
+          <g data-plan-house-tools>
+            <g style={{ cursor: 'move', touchAction: 'none' }} onPointerDown={e => startHouseEdit(e, 'houseMove')} onClick={e => e.stopPropagation()} data-plan-house-move>
+              <circle cx={cx} cy={cy} r={rG} fill={INK} fillOpacity={0.8} stroke="white" strokeWidth={2} />
+              <path d={`M${cx - rG * 0.55},${cy} h${rG * 1.1} M${cx},${cy - rG * 0.55} v${rG * 1.1}`} stroke="white" strokeWidth={2.5} pointerEvents="none" />
+            </g>
+            <g style={{ cursor: 'grab', touchAction: 'none' }} onPointerDown={e => startHouseEdit(e, 'houseRot')} onClick={e => e.stopPropagation()} data-plan-house-rotate>
+              <circle cx={rot.x} cy={rot.y} r={rG} fill="white" fillOpacity={0.9} stroke={INK} strokeWidth={2} />
+              <path d={`M${rot.x - rG * 0.45},${rot.y + rG * 0.1} A${rG * 0.45},${rG * 0.45} 0 1 1 ${rot.x + rG * 0.1},${rot.y + rG * 0.45}`} fill="none" stroke={INK} strokeWidth={2.2} pointerEvents="none" />
+              <path d={`M${rot.x + rG * 0.1},${rot.y + rG * 0.45} l${rG * 0.3},-${rG * 0.05} M${rot.x + rG * 0.1},${rot.y + rG * 0.45} l${rG * 0.05},-${rG * 0.3}`} stroke={INK} strokeWidth={2.2} pointerEvents="none" />
+            </g>
+            <g style={{ cursor: 'nwse-resize', touchAction: 'none' }} onPointerDown={e => startHouseEdit(e, 'houseSize')} onClick={e => e.stopPropagation()} data-plan-house-size>
+              <circle cx={size.x} cy={size.y} r={rG} fill="white" fillOpacity={0.01} />
+              <rect x={size.x - rG * 0.45} y={size.y - rG * 0.45} width={rG * 0.9} height={rG * 0.9} fill="white" stroke={INK} strokeWidth={2} pointerEvents="none" />
+            </g>
+          </g>
+        )
+      })()}
+
+      {pointLive}
 
       {live && (() => {
         // Just above the house, near the finger (the top of the drawing can be under a sticky header on a phone).

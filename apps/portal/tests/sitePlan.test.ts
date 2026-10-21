@@ -68,11 +68,14 @@ describe('site plan posts match the priced posts', () => {
     expect(count(buildPlan(l, deriveLayout(l)), 'corner')).toBe(4)
   })
 
-  test('corners dragged by hand are kept', () => {
+  test('corners dragged by hand (an older quote) keep their angle; the side is drawn at its typed length', () => {
     const l = layoutForShape('straight')
     l.sides[0].lengthIn = ft(50)
     l.plan = { points: [{ x: 5, y: 5 }, { x: 40, y: 30 }] }
-    expect(buildPlan(l, deriveLayout(l)).vertices).toEqual([{ x: 5, y: 5 }, { x: 40, y: 30 }])
+    const v = buildPlan(l, deriveLayout(l)).vertices
+    expect(v[0]).toEqual({ x: 5, y: 5 })
+    expect(Math.atan2(v[1].y - v[0].y, v[1].x - v[0].x)).toBeCloseTo(Math.atan2(25, 35), 9)
+    expect(dist(v[0], v[1])).toBeCloseTo(50, 9)
   })
 })
 
@@ -172,20 +175,24 @@ describe('backyard drawing: the house is level, the sides go straight back, the 
     expect(buildPlan(l, deriveLayout(l)).houseNotToScale).toBe(true)
   })
 
-  test('dragging a corner moves the drawing only, until a length changes', () => {
+  test('a corner dragged by hand (an older quote) moves the drawing only, and its angle stays when a length changes', () => {
     const l = yard(120, 100, 150)
     const before = deriveLayout(l)
     const pts = autoVertices(l).map(p => ({ ...p }))
     pts[2] = { x: pts[2].x - 15, y: pts[2].y + 6 }
     l.plan = { points: pts, pointsFor: layoutSignature(l) }
     const after = deriveLayout(l)
-    expect(planVertices(l)[2]).toEqual(pts[2])
+    const dirOf = (v: Array<{ x: number; y: number }>, i: number) => Math.atan2(v[i + 1].y - v[i].y, v[i + 1].x - v[i].x)
+    // The left side keeps the dragged direction, drawn at its typed 120 ft.
+    expect(dirOf(planVertices(l), 1)).toBeCloseTo(dirOf(pts, 1), 9)
+    expect(dist(planVertices(l)[1], planVertices(l)[2])).toBeCloseTo(120, 9)
     expect(after.runs.map(r => r.ft)).toEqual(before.runs.map(r => r.ft))
     expect(after.corners).toBe(before.corners)
     expect(buildPlan(l, after).sides[1].label).toBe(`120' 0"`)
-    // A typed length changes: the typed numbers win and the drawing is redrawn from them.
+    // A typed length changes: the typed numbers win, the dragged angle stays (no reset).
     l.sides[1].lengthIn = ft(110)
-    expect(planVertices(l)).toEqual(autoVertices(l))
+    expect(dirOf(planVertices(l), 1)).toBeCloseTo(dirOf(pts, 1), 9)
+    expect(dist(planVertices(l)[1], planVertices(l)[2])).toBeCloseTo(110, 9)
   })
 
   test('a new backyard with nothing typed: no warnings, every side drawn, house level', () => {

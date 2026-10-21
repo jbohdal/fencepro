@@ -1,7 +1,13 @@
 /**
- * The Certificate of Completion: a branded PDF (pdfkit, free) with the
- * checklist, the punch list and how each was fixed, the required photos,
- * both signatures (name, role, date, time, where) and the warranty.
+ * The warranty certificate (it is also the Certificate of Completion): a
+ * branded PDF (pdfkit, free) with the warranty up top (which warranty, the
+ * day it starts, how long it covers, the property), the checklist, the punch
+ * list and how each was fixed, the required photos, both signatures (name,
+ * role, date, time, where) and the warranty's coverage word for word.
+ *
+ * The warranty is the one the job was signed with (the accepted proposal
+ * option's, lib/warranties.ts); it starts on the install date (the job's
+ * completed date, else the day the walkthrough is finished).
  *
  * Saved to the job (Walkthrough.certificatePath) and, when the job has a
  * customer, to the customer portal as a document (PortalFile), where the
@@ -13,9 +19,10 @@ import path from 'path'
 import crypto from 'crypto'
 import PDFDocument from 'pdfkit'
 import prisma from './prisma.js'
-import { plainStyleName } from './estimates.js'
+import { plainStyleName, pricingModule } from './estimates.js'
 import { logoPath } from '../routes/proposal.js'
 import { CATEGORY_LABEL, locationText, type WalkItem, type PhotoSlot, type Signature, type WalkCategory } from './walkthroughRules.js'
+import { quoteWarranty, nyDay } from './warranties.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const TZ = 'America/New_York'
@@ -73,12 +80,16 @@ export interface CertificateInput {
   homeowner: Signature | null
   rep: Signature | null
   warranty: string
+  /** The job's warranty by name, its start (plain words) and how long it covers; missing: the older certificate. */
+  warrantyName?: string
+  warrantyStart?: string
+  warrantyEnd?: string
 }
 
 /** The PDF itself. */
 export function certificatePdf(c: CertificateInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: 48, info: { Title: `Certificate of Completion - ${c.customerName}`, Author: c.company.name } })
+    const doc = new PDFDocument({ size: 'LETTER', margin: 48, info: { Title: `${c.warrantyName ? 'Warranty Certificate' : 'Certificate of Completion'} - ${c.customerName}`, Author: c.company.name } })
     const chunks: Buffer[] = []
     doc.on('data', b => chunks.push(b))
     doc.on('end', () => resolve(Buffer.concat(chunks)))
@@ -93,10 +104,14 @@ export function certificatePdf(c: CertificateInput): Promise<Buffer> {
     doc.font('Helvetica-Bold').fontSize(18).fillColor(PURPLE).text(c.company.name, L + 68, 46)
     doc.font('Helvetica').fontSize(10).fillColor(GRAY).text([phoneText(c.company.phone), c.company.email].filter(Boolean).join('  ·  '), L + 68, 68)
     doc.moveTo(L, 108).lineTo(L + W, 108).lineWidth(2).strokeColor(PURPLE).stroke().lineWidth(1)
-    doc.font('Helvetica-Bold').fontSize(26).fillColor(INK).text('Certificate of Completion', L, 124, { width: W, align: 'center' })
+    doc.font('Helvetica-Bold').fontSize(26).fillColor(INK).text(c.warrantyName ? 'Warranty Certificate' : 'Certificate of Completion', L, 124, { width: W, align: 'center' })
+    if (c.warrantyName) doc.font('Helvetica-Bold').fontSize(12).fillColor(PURPLE).text('Certificate of Completion', L, doc.y + 2, { width: W, align: 'center' })
     doc.font('Helvetica').fontSize(11).fillColor(GRAY).text(`This certifies that the fence at the property below was installed, walked through with the homeowner and accepted on ${day(c.completedAt)}.`, L, doc.y + 6, { width: W, align: 'center' })
     doc.moveDown(1)
-    const facts: Array<[string, string]> = [['Homeowner', c.customerName], ['Property', c.address || 'Not given'], ['Fence', `${c.fenceStyle || CATEGORY_LABEL[c.category]} (${CATEGORY_LABEL[c.category]})`], ['Completed', when(c.completedAt)]]
+    const facts: Array<[string, string]> = [
+      ['Homeowner', c.customerName], ['Property', c.address || 'Not given'], ['Fence', `${c.fenceStyle || CATEGORY_LABEL[c.category]} (${CATEGORY_LABEL[c.category]})`], ['Completed', when(c.completedAt)],
+      ...(c.warrantyName ? [['Warranty', c.warrantyName], ['Starts', c.warrantyStart || day(c.completedAt)], ['Covers', c.warrantyEnd || '']] as Array<[string, string]> : []),
+    ]
     for (const [k, v] of facts) {
       const y = doc.y
       doc.font('Helvetica-Bold').fontSize(10).fillColor(GRAY).text(k, L, y, { width: 90 })
@@ -164,13 +179,28 @@ export function certificatePdf(c: CertificateInput): Promise<Buffer> {
     doc.y = sy + 160; doc.x = L
 
     if (c.warranty) {
-      heading('Warranty')
+      heading(c.warrantyName ? `Warranty coverage: ${c.warrantyName}` : 'Warranty')
       doc.font('Helvetica').fontSize(10).fillColor(INK).text(c.warranty, L, doc.y, { width: W })
     }
     doc.moveDown(1.5)
     doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(`Thank you for choosing ${c.company.name}.${c.company.phone ? ` Questions or warranty service: ${phoneText(c.company.phone)}.` : ''}`, L, doc.y, { width: W, align: 'center' })
     doc.end()
   })
+}
+
+/**
+ * The job's warranty for the certificate: the signed option's (lib/warranties.ts),
+ * starting on the job's completed date, else today (the walkthrough is finished now).
+ * No style and no proposal: the older single warranty (warrantyFrom).
+ */
+async function jobWarrantyLines(job: { quoteId: string | null; fenceStyle: string; completedDate: string | null; accountId: string } | null, completedAt: Date, b: { config?: unknown; contractSections?: unknown } | null) {
+  const q = job?.quoteId ? await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId: job.accountId }, select: { id: true, accountId: true, proposal: true, chosenOption: true, fenceStyle: true, status: true, acceptedAt: true, soldAt: true, work: true } }) : null
+  const { warranty } = job ? await quoteWarranty(q, job.fenceStyle, b?.config ?? null) : { warranty: null }
+  if (!warranty) return { warranty: warrantyFrom(b) }
+  const m = await pricingModule()
+  const start = job?.completedDate && /^\d{4}-\d{2}-\d{2}$/.test(job.completedDate) ? job.completedDate : nyDay(completedAt)
+  const period = m.warrantyPeriod(warranty, start)
+  return { warranty: warranty.text, warrantyName: warranty.name, warrantyStart: m.dayText(start), warrantyEnd: period.endText }
 }
 
 /** Where certificates and portal files live: the same folder the customer portal serves. */
@@ -207,7 +237,7 @@ export async function makeCertificate(
     ],
     homeowner: (w.homeownerSig ?? null) as Signature | null,
     rep: (w.repSig ?? null) as Signature | null,
-    warranty: warrantyFrom(b),
+    ...(await jobWarrantyLines(job, completedAt, b)),
   })
   const customerId = job?.crmContactId ?? null
   // Under the portal's folder for the customer (so the portal serves it), else under the job.

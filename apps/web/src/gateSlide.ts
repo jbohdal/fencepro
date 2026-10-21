@@ -23,6 +23,37 @@
 
 import { deriveLayout, effectiveFinishes, neighborName, formatPieceLen, type SideGate, type YardLayout } from './yardLayout'
 import { sectionsForRun } from './sectionCount'
+import { sectionWidthForStyle } from './materialCalculator'
+
+/**
+ * The panel width (feet) the quote builder lays a style's yard out at, so a
+ * gate set "near the house / corner" starts one panel in: the style's section
+ * width (6 ft on 6'x6', 8 ft on 6'x8', 10 ft on chain link). The auto mix lays
+ * out at 8 ft: its 6 / 8 ft choice per run is made after the gate splits the
+ * side into runs. No style: 8 ft, as the builder.
+ */
+export function layoutPanelFt(style: { name: string; panelWidth?: number; autoRailMix?: boolean } | null | undefined): number {
+  if (!style) return 8
+  return style.autoRailMix ? 8 : sectionWidthForStyle(style.name, style.panelWidth)
+}
+
+/**
+ * How far from an end a "near" gate starts on a saved quote's drawing (inches):
+ * one panel of the quote's style, as the builder placed it. When the saved runs
+ * show the builder used another panel width (a style whose width was changed
+ * in Settings after the quote was saved), that width, so the drawing always
+ * matches the runs the quote was priced on.
+ */
+export function savedQuoteNearIn(yard: YardLayout, runs: number[] | null | undefined, widthFt: number): number {
+  const first = widthFt * 12
+  if (!runs?.length) return first
+  const matches = (nearIn: number) => {
+    const r = deriveLayout(yard, nearIn).runs
+    return r.length === runs.length && r.every((x, i) => Math.abs(x.ft - Number(runs[i])) < 0.05)
+  }
+  if (matches(first)) return first
+  return [72, 96, 120].find(n => n !== first && matches(n)) ?? first
+}
 
 export interface Span { fromIn: number; toIn: number }
 

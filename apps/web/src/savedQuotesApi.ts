@@ -156,10 +156,11 @@ export async function archiveSavedQuote(id: string): Promise<boolean> {
 }
 
 /** The customer link for a quote: the one already sent while it is open, else a new one. */
-export async function issueShareToken(id: string, fresh = false): Promise<{ shareToken: string; expiresAt: string | null } | null> {
-  const r = await call<{ shareToken: string; quoteId: string; expiresAt?: string | null }>('POST', `/${id}/share-token${fresh ? '?new=1' : ''}`)
+export async function issueShareToken(id: string, fresh = false): Promise<{ shareToken: string; expiresAt: string | null; preview: string | null } | null> {
+  const r = await call<{ shareToken: string; quoteId: string; expiresAt?: string | null; preview?: string }>('POST', `/${id}/share-token${fresh ? '?new=1' : ''}`)
   if (!r.ok || !r.data) return null
-  return { shareToken: r.data.shareToken, expiresAt: r.data.expiresAt ?? null }
+  // preview: a signed mark (15 minutes) for opening the link yourself, so it shows as a Staff view and is not counted.
+  return { shareToken: r.data.shareToken, expiresAt: r.data.expiresAt ?? null, preview: r.data.preview ?? null }
 }
 
 /** Stops the customer link working; it shows a page with the company phone. */

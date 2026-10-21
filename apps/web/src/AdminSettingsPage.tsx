@@ -15,6 +15,7 @@ import PortalQuoteSettings from './PortalQuoteSettings'
 import ProposalSettings from './ProposalSettings'
 import TierSettings from './TierSettings'
 import WalkthroughSettings from './WalkthroughSettings'
+import WarrantySettings from './WarrantySettings'
 import VoiceSettings from './VoiceSettings'
 import { toast } from './toast'
 import { useNav } from './nav'
@@ -27,7 +28,7 @@ import FollowUpSettings from './FollowUpSettings'
 import SettingsChangeLog from './SettingsChangeLog'
 import { signedInRole } from './permissions'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups' | 'change_log'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'warranties' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups' | 'change_log'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -588,6 +589,7 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'contract_templates', label: 'Contract Templates' },
   { key: 'portal_quote',       label: 'Portal & Quotes' },
   { key: 'proposals',          label: 'Proposals' },
+  { key: 'warranties',         label: 'Warranties' },
   { key: 'tiers',              label: 'Good Better Best' },
   { key: 'voice',              label: 'Voice' },
   { key: 'appointments',       label: 'Appointments' },
@@ -727,6 +729,7 @@ export default function AdminSettingsPage() {
           {tab === 'contract_templates' && <ContractTemplatesSettings />}
           {tab === 'portal_quote' && <PortalQuoteSettings />}
           {tab === 'proposals' && <ProposalSettings config={config} onChange={handleChange} onOpenTiers={() => setTab('tiers')} />}
+          {tab === 'warranties' && <WarrantySettings config={config} onChange={handleChange} />}
           {tab === 'tiers' && <TierSettings />}
           {tab === 'voice' && <VoiceSettings config={config} onChange={handleChange} />}
           {tab === 'calendar' && <CalendarSyncSettings />}

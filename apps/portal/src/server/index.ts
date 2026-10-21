@@ -45,6 +45,8 @@ import { startMediaWorker } from './lib/media.js'
 import { startVoiceWorker } from './lib/voiceTranscribe.js'
 import savedJobRoutes from './routes/saved-jobs.js'
 import jobCostingRoutes from './routes/job-costing.js'
+import warrantyRoutes from './routes/warranties.js'
+import { ensureWarrantiesAll } from './lib/warranties.js'
 import changeOrderRoutes from './routes/change-orders.js'
 import scheduleRoutes from './routes/schedule.js'
 import pipelineRoutes from './routes/pipeline.js'
@@ -242,6 +244,7 @@ app.use('/p/co', changeOrderPublic)  // A change order's customer link (routes/c
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff after install (lib/jobCosting.ts)
+app.use('/api/warranties', warrantyRoutes)  // A job's warranty, service call coverage, the signed contract PDF (lib/warranties.ts)
 app.use('/api/change-orders', changeOrderRoutes)  // Change orders on signed quotes (lib/changeOrders.ts)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/pipeline', pipelineRoutes)
@@ -407,6 +410,8 @@ if (!isVercel) {
       await ensureNoOrphanPendingCallsAll().catch(err => console.error('[follow ups] orphan pending call cleanup failed:', err))
       // "Was ever sold" for quotes sold before soldAt existed: once per company (lib/everSold.ts).
       await backfillEverSoldAll().catch(err => console.error('[ever sold] check failed:', err))
+      // Settings → Warranties: Lifetime for vinyl no dig, 1 Year for the rest: once per company (lib/warranties.ts).
+      await ensureWarrantiesAll().catch(err => console.error('[warranties] check failed:', err))
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))

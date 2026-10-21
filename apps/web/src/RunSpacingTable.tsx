@@ -7,6 +7,7 @@
 import { getConfig } from './configStore'
 import { savedRunSections } from './quoteCalc'
 import { deriveLayout, formatFtIn, postSpacing } from './yardLayout'
+import { quotePlanWidth } from './QuotePlan'
 import type { SavedQuote } from './QuotesPage'
 
 export default function RunSpacingTable({ quote }: { quote: Pick<SavedQuote, 'runs' | 'sections' | 'fenceStyle' | 'layout'> }) {
@@ -15,7 +16,8 @@ export default function RunSpacingTable({ quote }: { quote: Pick<SavedQuote, 'ru
   const styleCfg = getConfig().fenceStyles.find(s => s.name === quote.fenceStyle)
   const sections = savedRunSections(quote, styleCfg?.panelWidth)
   // Side names from the layout, when the quote has one and it still matches.
-  const fromYard = quote.layout?.yard ? deriveLayout(quote.layout.yard).runs : []
+  const yard = quote.layout?.yard
+  const fromYard = yard ? deriveLayout(yard, quotePlanWidth(yard, quote, styleCfg).nearIn).runs : []
   const names = fromYard.length === runs.length
     ? fromYard.map(r => (r.pieces > 1 ? `${r.sideName} (${r.piece} of ${r.pieces})` : r.sideName))
     : runs.map((_, i) => `Run ${i + 1}`)

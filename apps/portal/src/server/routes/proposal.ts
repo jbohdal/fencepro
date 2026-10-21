@@ -26,6 +26,11 @@ import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAc
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireCan } from '../lib/permissions.js'
+import rateLimit from 'express-rate-limit'
+import { startView, beatView, markSigned, ignoredRequest, proposalOpenedPush } from '../lib/proposalViews.js'
+import { contractForQuote, warrantyLines } from '../lib/contractPdf.js'
+import { installDateOf } from '../lib/warranties.js'
+import { pricingModule } from '../lib/estimates.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -71,7 +76,7 @@ export function monthlyPayment(price: number, aprPct: number, months: number): n
   return r > 0 ? (price * r) / (1 - Math.pow(1 + r, -months)) : price / months
 }
 
-interface ProposalOption { label: string; fenceStyle: string; finalPrice: number; perFoot: number; sections: number; photoId?: string | null; tier?: { label?: string; blurb?: string }; badge?: string; snapshot?: any }
+interface ProposalOption { label: string; fenceStyle: string; finalPrice: number; perFoot: number; sections: number; photoId?: string | null; tier?: { label?: string; blurb?: string }; badge?: string; snapshot?: any; warranty?: { id?: string | null; name?: string; text?: string } }
 interface Proposal {
   version: number
   company?: { name?: string; phone?: string; email?: string }
@@ -144,10 +149,38 @@ publicProposal.get('/:token', async (req, res) => {
     return
   }
   if (!p || !Array.isArray(p.options) || p.options.length === 0) { res.status(404).type('html').send(page('Proposal not found', '<main class="wrap"><h1>This proposal is not ready yet</h1><p>Please call us.</p></main>', nonce)); return }
-  await prisma.savedQuote.update({ where: { id: q.id }, data: { firstViewedAt: q.firstViewedAt || new Date(), lastViewedAt: new Date(), viewCount: { increment: 1 } } }).catch(() => {})
+  // Opens are counted by the page's own script once it is on screen (POST <link>/view), so link
+  // previews, prefetch and staff opens never count (lib/proposalViews.ts).
   // A move or repair shows the photos marked Customer on this quote.
   const photos = p.kind ? await customerPhotos(q) : []
-  res.type('html').send(renderProposal(q, p, token, nonce, photos))
+  // Accepted: the warranty's start, once the job is installed (lib/warranties.ts).
+  const installDay = q.acceptedAt ? await acceptedInstallDay(q).catch(() => null) : null
+  res.type('html').send(renderProposal(q, p, token, nonce, photos, installDay))
+})
+
+/** "October 20, 2026": the install date of the job for an accepted quote, null until installed. */
+async function acceptedInstallDay(q: { id: string; accountId: string }): Promise<string | null> {
+  const job = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, archivedAt: null }, select: { id: true, completedDate: true } })
+  const day = job ? await installDateOf(job) : null
+  return day ? (await pricingModule()).dayText(day) : null
+}
+
+// The signed contract (PDF) for an accepted proposal: the accepted option's warranty, word for word (lib/contractPdf.ts).
+publicProposal.get('/:token/contract.pdf', async (req, res) => {
+  try {
+    const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) } })
+    if (!q || q.archivedAt || !q.acceptedAt || linkClosed(q)) { res.status(404).type('text').send('Not available'); return }
+    const pdf = await contractForQuote(q)
+    if (!pdf) { res.status(404).type('text').send('Not available'); return }
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', 'inline; filename="Signed contract.pdf"')
+    res.setHeader('Cache-Control', 'private, no-store')
+    res.setHeader('X-Robots-Tag', 'noindex')
+    res.end(pdf)
+  } catch (err) {
+    console.error('[proposal] contract pdf:', err)
+    res.status(500).type('text').send('Something went wrong. Please call us.')
+  }
 })
 
 /** Photos on a quote marked Customer (never Internal or Crew). */
@@ -172,10 +205,45 @@ publicProposal.get('/:token/media/:id', async (req, res) => {
   fs.createReadStream(file).pipe(res)
 })
 
+// ── Public: opens (the page's own script; lib/proposalViews.ts) ──
+
+const viewLimiter = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: false, legacyHeaders: false, message: { success: false } })
+// sendBeacon sends text/plain: read either.
+const viewBody = express.json({ limit: '4kb', type: ['application/json', 'text/plain'] })
+const viewQuoteSelect = { id: true, accountId: true, crmContactId: true, ownerId: true, customerName: true, viewCount: true, firstViewedAt: true, lastViewedAt: true, acceptedAt: true, proposal: true, archivedAt: true, shareDisabledAt: true, shareExpiresAt: true } as const
+
+publicProposal.post('/:token/view', viewLimiter, viewBody, async (req, res) => {
+  try {
+    if (ignoredRequest(req)) { res.status(204).end(); return }
+    const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) }, select: viewQuoteSelect })
+    if (!q || q.archivedAt || linkClosed(q) || !Array.isArray((q.proposal as any)?.options)) { res.status(404).json({ success: false }); return }
+    const v = await startView(req, q, (req.body as any)?.sp)
+    res.json({ success: true, data: { id: v.id, base: v.base } })
+    if (v.push) void proposalOpenedPush(v.id).catch(err => console.error('[proposal] opened push:', err))
+  } catch (err) {
+    console.error('[proposal] view start:', err)
+    res.status(500).json({ success: false })
+  }
+})
+
+publicProposal.post('/:token/view/:id', viewLimiter, viewBody, async (req, res) => {
+  try {
+    const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) }, select: { id: true, proposal: true, archivedAt: true } })
+    if (!q || q.archivedAt) { res.status(404).json({ success: false }); return }
+    const ok = await beatView(q, String(req.params.id), (req.body ?? {}) as any)
+    res.status(ok ? 204 : 404).end()
+  } catch (err) {
+    console.error('[proposal] view beat:', err)
+    res.status(500).json({ success: false })
+  }
+})
+
 const acceptSchema = z.object({
   option: z.number().int().min(0),
   name: z.string().trim().min(1, 'Please type your name').max(200),
   signature: z.string().max(1_000_000).regex(/^data:image\/png;base64,/, 'Please sign').optional(),
+  /** The open it was signed in (lib/proposalViews.ts). */
+  view: z.string().max(64).nullish(),
 })
 
 publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (req, res) => {
@@ -231,6 +299,7 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
     console.log(`[proposal] customer accepted quote ${q.id} option ${body.option} (${opt.fenceStyle}) as "${body.name}"`)
     // Job costing: the quoted cost, as the chosen option was priced, saved once at signing.
     await snapshotAfterSigning(q.accountId, q.id, 'proposal')
+    await markSigned(q.id, body.view).catch(err => console.error('[proposal] view signed:', err))
     await onProposalAccepted(q, opt, body.name).catch(err => console.error('[proposal] after accept:', err))
     // Sold online: the job goes to Operations, as when a card is moved to Signed Contract.
     await ensureJobForAcceptedQuote(updated as any).catch(err => console.error('[proposal] job after accept:', err))
@@ -280,7 +349,7 @@ function page(title: string, body: string, nonce: string, script = ''): string {
 <title>${esc(title)}</title><meta name="robots" content="noindex"><style>${CSS}</style></head><body>${body}${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`
 }
 
-function renderProposal(q: any, p: Proposal, token: string, nonce: string, photos: Array<{ id: string; caption: string; category: string }> = []): string {
+function renderProposal(q: any, p: Proposal, token: string, nonce: string, photos: Array<{ id: string; caption: string; category: string }> = [], installDay: string | null = null): string {
   const company = p.company ?? {}
   const rec = Math.min(Math.max(0, p.recommended ?? 0), p.options.length - 1)
   const accepted = !!q.acceptedAt
@@ -303,6 +372,7 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string, photo
         ${o.tier?.blurb ? `<span class="blurb">${esc(o.tier.blurb)}</span>` : ''}
         <span class="price">${money(o.finalPrice)}</span>
         ${o.perFoot > 0 ? `<span class="small">${money2(o.perFoot)} a foot · ${o.sections} sections</span>` : ''}
+        ${o.warranty?.name ? `<span class="wbadge" data-warranty-badge>${esc(o.warranty.name)}</span>` : ''}
         ${save}${monthly}
       </span>
     </label>`
@@ -314,10 +384,16 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string, photo
   const included = (p.included?.length || p.includedNote)
     ? `<section><h2>What's included</h2><ul>${(p.included ?? []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>${p.includedNote ? `<p>${esc(p.includedNote).replace(/\n/g, '<br>')}</p>` : ''}</section>`
     : ''
-  const warranty = p.warranty ? `<section><h2>Warranty</h2><p>${esc(p.warranty).replace(/\n/g, '<br>')}</p></section>` : ''
+  // Each option's own warranty (frozen when the proposal was saved); the chosen option's words show, and
+  // change as the customer picks. An older proposal has one warranty for every option.
+  const perOption = p.options.some(o => o.warranty?.text)
+  const wOf = (o: ProposalOption | undefined) => perOption ? { name: o?.warranty?.name || '', text: o?.warranty?.text || '' } : { name: '', text: p.warranty || '' }
+  const wNow = wOf(p.options[chosen])
+  const wStart = accepted ? warrantyLines(null, installDay).start : ''
+  const warranty = (perOption || p.warranty) ? `<section id="warranty" data-warranty-section><h2>Warranty</h2>${perOption ? `<p class="wname" id="wname">${esc(wNow.name)}</p>` : ''}<p id="wtext">${esc(wNow.text).replace(/\n/g, '<br>')}</p>${wStart ? `<p class="small" data-warranty-start><b>${esc(wStart)}</b></p>` : ''}</section>` : ''
   const plan = safeSvg(p.planSvg)
   const acceptBlock = accepted
-    ? `<section class="done"><h2>Accepted</h2><p>Accepted by ${esc(q.acceptedBy)} on ${new Date(q.acceptedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}: ${esc(p.options[chosen]?.label)} at ${money(p.options[chosen]?.finalPrice)}.</p><p>Thank you. We will call you to schedule.</p></section>`
+    ? `<section class="done"><h2>Accepted</h2><p>Accepted by ${esc(q.acceptedBy)} on ${new Date(q.acceptedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}: ${esc(p.options[chosen]?.label)} at ${money(p.options[chosen]?.finalPrice)}.</p><p>Thank you. We will call you to schedule.</p><p><a class="btn linkbtn" href="${esc(token)}/contract.pdf" data-contract-pdf>Your signed contract (PDF)</a></p></section>`
     : `<section id="accept"><h2>Accept this proposal</h2>
         <p class="small">Choose an option above, type your name and sign with your finger.</p>
         <label class="field">Your name<input id="name" autocomplete="name" maxlength="200"></label>
@@ -339,12 +415,13 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string, photo
     <p class="small foot">Questions? Call ${company.phone ? tel(company.phone) : 'us'}.</p>
   </main>`
 
-  const script = accepted ? '' : `
+  const script = trackScript(token) + (accepted ? '' : `
   (function(){
     var opts=[].slice.call(document.querySelectorAll('.opt'));
     var prices=${JSON.stringify(p.options.map(o => o.finalPrice))};
     var dep=document.getElementById('deposit');
-    function pick(){opts.forEach(function(o){var r=o.querySelector('input');o.classList.toggle('on',r.checked);if(r.checked&&dep){var b=dep.querySelector('b');b.textContent='$'+Math.round(prices[+r.value]*(+dep.dataset.pct)/100).toLocaleString('en-US');}});}
+    var ws=${JSON.stringify(perOption ? p.options.map(o => wOf(o)) : []).replace(/</g, '\\u003c')},wn=document.getElementById('wname'),wt=document.getElementById('wtext');
+    function pick(){opts.forEach(function(o){var r=o.querySelector('input');o.classList.toggle('on',r.checked);if(r.checked&&dep){var b=dep.querySelector('b');b.textContent='$'+Math.round(prices[+r.value]*(+dep.dataset.pct)/100).toLocaleString('en-US');}if(r.checked&&ws.length&&wt){var w=ws[+r.value]||{name:'',text:''};if(wn)wn.textContent=w.name;wt.textContent=w.text}});}
     opts.forEach(function(o){o.querySelector('input').addEventListener('change',pick)});
     var c=document.getElementById('sig'),x=c.getContext('2d'),down=false,inked=false;
     x.lineWidth=3;x.lineCap='round';x.strokeStyle='#1C1030';
@@ -360,12 +437,52 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string, photo
       if(!name){err.textContent='Please type your name.';return}
       if(!inked){err.textContent='Please sign in the box.';return}
       go.disabled=true;go.textContent='Sending...';err.textContent='';
-      fetch('${esc(token)}/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:+sel.value,name:name,signature:c.toDataURL('image/png')})})
+      fetch('${esc(token)}/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:+sel.value,name:name,signature:c.toDataURL('image/png'),view:window.__proposalView?window.__proposalView():null})})
         .then(function(r){return r.json()}).then(function(j){if(j.success){location.reload()}else{err.textContent=j.error||'Something went wrong.';go.disabled=false;go.textContent='Accept the selected option'}})
         .catch(function(){err.textContent='No connection. Please try again.';go.disabled=false;go.textContent='Accept the selected option'});
     });
-  })();`
+  })();`)
   return page(`Fence proposal for ${p.customer?.name || q.customerName}`, body, nonce, script)
+}
+
+/**
+ * Opens, on the page itself (lib/proposalViews.ts). Starts once the page is on
+ * screen (a prefetch or prerender is not an open), adds up each second which
+ * option card is in view (the one across the middle of the screen, else the
+ * one with the most of itself showing), notes when the signature box
+ * comes into view or is touched, and sends the running totals every 15 s and
+ * once more as the page goes away (sendBeacon). Nothing is stored in the
+ * browser; the open's id is kept in this page's memory only. Any failure is
+ * silent: the proposal works the same without it.
+ */
+export function trackScript(token: string): string {
+  return `
+  (function(){try{
+    var base=${JSON.stringify(token)}+'/view',id=null,o={},act=0,sig=false,started=false,last=Date.now(),seen={};
+    var sp=null;try{var m=/[?&]sp=([^&#]+)/.exec(location.search);if(m){sp=decodeURIComponent(m[1]);history.replaceState(null,'',location.pathname+location.hash)}}catch(_){}
+    window.__proposalView=function(){return id};
+    var cards=[].slice.call(document.querySelectorAll('.opt[data-option]'));
+    if('IntersectionObserver' in window){
+      var th=[];for(var i=0;i<=20;i++)th.push(i/20);
+      var io=new IntersectionObserver(function(es){es.forEach(function(e){seen[e.target.getAttribute('data-option')]=e.isIntersecting?e.intersectionRect.height:0})},{threshold:th});
+      cards.forEach(function(c){io.observe(c)});
+      var sa=document.getElementById('sig')||document.getElementById('accept')||document.querySelector('section.done');
+      if(sa)new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting)sig=true})},{threshold:0.5}).observe(sa);
+    }
+    var pad=document.getElementById('sig');if(pad)pad.addEventListener('pointerdown',function(){sig=true},{passive:true});
+    function step(){var now=Date.now(),d=now-last;last=now;if(!started||document.visibilityState!=='visible'||d<=0||d>5000)return;act+=d;var best=pick();if(best!==null)o[best]=(o[best]||0)+d}
+    function pick(){var mid=(window.innerHeight||0)/2,best=null,bh=0;for(var k in seen){if(!(seen[k]>0))continue;var c=cards[+k];if(!c)continue;var r=c.getBoundingClientRect();if(r.top<=mid&&r.bottom>=mid)return k;if(seen[k]>bh){bh=seen[k];best=k}}return best}
+    function body(){return JSON.stringify({o:o,a:act,sig:sig})}
+    function beat(){if(!id)return;try{fetch(base+'/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:body(),keepalive:true}).catch(function(){})}catch(_){}}
+    function bye(){step();if(!id)return;try{if(navigator.sendBeacon&&navigator.sendBeacon(base+'/'+id,new Blob([body()],{type:'text/plain'})))return}catch(_){}beat()}
+    function start(){if(started)return;started=true;last=Date.now();
+      try{fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sp:sp})}).then(function(r){return r.ok?r.json():null}).then(function(j){var d=j&&j.data;if(!d||!d.id)return;id=d.id;if(d.base){var b=d.base.o||{};for(var k in b){o[k]=Math.max(o[k]||0,0)+b[k]}act+=d.base.a||0;sig=sig||!!d.base.sig}}).catch(function(){})}catch(_){}}
+    setInterval(step,1000);
+    setInterval(function(){step();beat()},15000);
+    document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')bye();else{last=Date.now();start()}});
+    window.addEventListener('pagehide',bye);
+    if(document.visibilityState==='visible'&&!document.prerendering)start();
+  }catch(_){}})();`
 }
 
 export const CSS = `
@@ -384,6 +501,8 @@ section{background:#fff;border:1px solid var(--line);border-radius:16px;padding:
 .photo{grid-column:1/-1;width:100%;max-height:260px;object-fit:cover;border-radius:10px}
 .optbody{display:flex;flex-direction:column;gap:2px}.optlabel{font-weight:700}.price{font-size:28px;font-weight:800}
 .badge{align-self:flex-start;background:var(--p);color:#fff;font-size:12px;font-weight:700;border-radius:999px;padding:2px 10px}
+.wbadge{align-self:flex-start;margin-top:6px;border:1px solid #9D7BD0;color:var(--pd);background:#fff;font-size:13px;font-weight:700;border-radius:999px;padding:2px 10px}
+.wname{font-weight:700;margin:0 0 6px}#wtext{white-space:pre-line;margin:0}.linkbtn{display:block;text-align:center;line-height:52px;text-decoration:none}
 .save{color:#15803d;font-weight:700}.more{color:var(--g)}.monthly{margin:4px 0 0;font-size:14px;color:var(--pd);font-weight:600}
 ul{margin:0;padding-left:20px}.field{display:block;font-size:14px;color:var(--g);margin:8px 0}
 .field input{display:block;width:100%;height:48px;font-size:16px;border:1px solid #CBC4D6;border-radius:10px;padding:0 12px;margin-top:4px}

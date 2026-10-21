@@ -27,6 +27,7 @@ import {
   MUST_HAVE_FOLLOW_UP, setNext, stageSinceOf, startState, stopsSteps, reconcile, addDays, daysBetween,
   type Answer, type Channel, type FollowUpConfig, type FollowUpState, type LostReason, type Outcome,
 } from './followUpRules.js'
+import { openedForCard, longestOption, optionWords, viewHistoryItem, type Opened } from './proposalViewRules.js'
 
 type Tx = any
 
@@ -167,6 +168,8 @@ export interface CardRow {
   badge: { text: string; tone: string } | null
   /** The follow up as it stands (null: never followed up), for the app to work an answer out with no signal. */
   state: FollowUpState | null
+  /** Customer opens of the proposal sent (null: none sent, nothing shown). */
+  opened: Opened | null
 }
 
 /** A card's value: the customer's newest open quote (sent beats draft on the same day), else what the card says. Whole dollars to cents. */
@@ -190,7 +193,7 @@ export async function cardRows(accountId: string, now = new Date()): Promise<{ r
     prisma.pipelineState.findUnique({ where: { accountId }, select: { leads: true } }),
     loadConfig(accountId),
     prisma.cardFollowUp.findMany({ where: { accountId } }),
-    prisma.savedQuote.findMany({ where: { accountId, archivedAt: null, status: { in: ['DRAFT', 'SENT', 'SOLD'] as any } }, select: { crmContactId: true, status: true, date: true, finalPrice: true } }),
+    prisma.savedQuote.findMany({ where: { accountId, archivedAt: null, status: { in: ['DRAFT', 'SENT', 'SOLD'] as any } }, select: { crmContactId: true, status: true, date: true, finalPrice: true, shareToken: true, viewCount: true, lastViewedAt: true, acceptedAt: true } }),
     peopleOf(accountId),
   ])
   const leads = ((pipe?.leads as any[]) ?? []).filter(l => l?.id)
@@ -199,6 +202,7 @@ export async function cardRows(accountId: string, now = new Date()): Promise<{ r
   const contacts = contactIds.length ? await prisma.crmContact.findMany({ where: { id: { in: contactIds } }, select: { id: true, phone: true } }) : []
   const phoneOf = new Map(contacts.map(c => [c.id, c.phone || '']))
   const q = quotes.map(x => ({ crmContactId: x.crmContactId, status: String(x.status), date: x.date, finalPrice: x.finalPrice }))
+  const opens = quotes.map(x => ({ crmContactId: x.crmContactId, status: String(x.status), shareToken: x.shareToken, viewCount: x.viewCount, lastViewedAt: x.lastViewedAt, acceptedAt: x.acceptedAt }))
   const rows: CardRow[] = leads.map(card => {
     const row = byCard.get(card.id)
     const state = reconcile(row ? toState(row) : null, card, config, today)
@@ -218,12 +222,49 @@ export async function cardRows(accountId: string, now = new Date()): Promise<{ r
       daysSinceContact: last ? daysBetween(last, today) : null, touches: state?.touches ?? 0,
       badge: badgeFor(state, card.stage, today),
       state,
+      opened: openedForCard(card, opens),
     }
   })
   return { rows, config, people: who.people, today }
 }
 
-/** The Follow ups screen: overdue, due today and coming up, for this person (or a rep the owner picked). */
+export interface OpenedRow extends CardRow { openedAt: string; openedDevice: string; openedLongest: string; openedTimes: number }
+
+/**
+ * Cards whose customer opened the proposal in the last 24 hours (staff views
+ * never), newest open first, each with its latest open: when, on what, and the
+ * option looked at longest. Closed cards (signed, lost) are left out.
+ */
+export async function openedLastDay(accountId: string, rows: CardRow[], now = new Date()): Promise<OpenedRow[]> {
+  const views = await prisma.proposalView.findMany({
+    where: { accountId, staff: false, startedAt: { gt: new Date(now.getTime() - 86_400_000) } },
+    orderBy: { startedAt: 'desc' }, take: 500,
+    select: { quoteId: true, cardId: true, crmContactId: true, startedAt: true, device: true, optionMs: true },
+  })
+  if (!views.length) return []
+  const quotes = await prisma.savedQuote.findMany({ where: { id: { in: [...new Set(views.map(v => v.quoteId))] } }, select: { id: true, proposal: true } })
+  const optionsOf = new Map(quotes.map(q => [q.id, ((q.proposal as any)?.options ?? []) as any[]]))
+  const byCard = new Map<string, { v: (typeof views)[number]; times: number }>()
+  for (const v of views) {
+    const cards = v.cardId && rows.some(r => r.cardId === v.cardId) ? [v.cardId] : rows.filter(r => r.customerId && r.customerId === v.crmContactId).map(r => r.cardId)
+    for (const c of cards) {
+      const had = byCard.get(c)
+      if (had) had.times++
+      else byCard.set(c, { v, times: 1 })
+    }
+  }
+  const out: OpenedRow[] = []
+  for (const r of rows) {
+    const hit = byCard.get(r.cardId)
+    if (!hit || stopsSteps(r.stage)) continue
+    const options = optionsOf.get(hit.v.quoteId) ?? []
+    const top = longestOption(hit.v.optionMs as Record<string, number>)
+    out.push({ ...r, openedAt: hit.v.startedAt.toISOString(), openedDevice: hit.v.device, openedLongest: top && options.length > 1 ? optionWords(options[top.index]) : '', openedTimes: hit.times })
+  }
+  return out.sort((a, b) => b.openedAt.localeCompare(a.openedAt))
+}
+
+/** The Follow ups screen: opened in the last day, overdue, due today and coming up, for this person (or a rep the owner picked). */
 export async function followUpList(accountId: string, viewer: { id: string; role: string | null }, rep?: string | null) {
   const { rows, people, today } = await cardRows(accountId)
   const all = seesEveryone(viewer.role)
@@ -233,8 +274,10 @@ export async function followUpList(accountId: string, viewer: { id: string; role
   const by = (a: CardRow, b: CardRow) => (a.dueOn || '').localeCompare(b.dueOn || '') || b.valueCents - a.valueCents
   // The rep picker: everyone who owns a card with a follow up (the owner and office only).
   const reps = all ? people.filter(p => open.some(r => r.ownerId === p.id)).map(p => ({ id: p.id, name: p.name })) : []
+  const opened = await openedLastDay(accountId, who ? rows.filter(r => r.ownerId === who) : rows)
   return {
     today, seesEveryone: all, rep: who,
+    opened24h: opened,
     overdue: mine.filter(r => r.status === 'overdue').sort(by),
     dueToday: mine.filter(r => r.status === 'today').sort(by),
     upcoming: mine.filter(r => r.status === 'upcoming').sort(by).slice(0, 200),
@@ -468,6 +511,11 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
         orderBy: { createdAt: 'desc' }, take: 100,
       }),
     ])
+    const allViews = quotes.length ? await prisma.proposalView.findMany({ where: { accountId, quoteId: { in: quotes.map(q => q.id) } }, orderBy: { startedAt: 'desc' }, take: 300 }) : []
+    const viewsOf = new Map<string, typeof allViews>()
+    for (const v of allViews) viewsOf.set(v.quoteId, [...(viewsOf.get(v.quoteId) ?? []), v])
+    const staffIds = [...new Set(allViews.map(v => v.staffUserId).filter(Boolean))] as string[]
+    const staffNames = new Map((staffIds.length ? await prisma.crmUser.findMany({ where: { id: { in: staffIds } }, select: { id: true, firstName: true, lastName: true } }) : []).map(u => [u.id, `${u.firstName} ${u.lastName}`.trim()]))
     for (const n of notes) {
       const author = (n as any).createdBy && !String((n as any).createdBy).includes('@') ? String((n as any).createdBy) : 'Staff'
       items.push({ at: n.createdAt.toISOString(), kind: 'note', title: 'Note', detail: n.body, by: author })
@@ -485,9 +533,17 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
       } else {
         items.push({ at: q.createdAt.toISOString(), kind: 'quote', title: `Quote made: ${money(q.finalPrice)} (draft)`, detail: '', by: '' })
       }
-      if (q.viewCount > 0 && q.firstViewedAt) {
-        const last = q.lastViewedAt ?? q.firstViewedAt
-        items.push({ at: last.toISOString(), kind: 'proposal_opened', title: `Proposal opened ${q.viewCount} time${q.viewCount === 1 ? '' : 's'}`, detail: `First ${q.firstViewedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}, last ${last.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}.`, by: '' })
+      // Each open as it was recorded (Staff view for our own); an older quote opened before opens were recorded one by one keeps its count.
+      const views = viewsOf.get(q.id) ?? []
+      for (const v of views) items.push(viewHistoryItem(v, ((q.proposal as any)?.options ?? []) as any[], v.staffUserId ? staffNames.get(v.staffUserId) ?? '' : ''))
+      const counted = views.filter(v => !v.staff).length
+      const earlier = q.viewCount - counted
+      const firstAt = q.firstViewedAt ?? q.lastViewedAt
+      if (earlier > 0 && firstAt) {
+        const oldest = views.length ? views[views.length - 1].startedAt : null
+        const last = oldest && q.lastViewedAt && q.lastViewedAt >= oldest ? firstAt : (q.lastViewedAt ?? firstAt)
+        const day = (d: Date) => d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })
+        items.push({ at: last.toISOString(), kind: 'proposal_opened', title: `Proposal opened ${earlier} time${earlier === 1 ? '' : 's'}${counted ? ' before' : ''}`, detail: counted ? 'Before opens were recorded one by one.' : `First ${day(firstAt)}, last ${day(last)}.`, by: '' })
       }
       if (q.acceptedAt) items.push({ at: q.acceptedAt.toISOString(), kind: 'quote', title: 'Proposal accepted online', detail: q.acceptedBy ? `By ${q.acceptedBy}.` : '', by: '' })
     }

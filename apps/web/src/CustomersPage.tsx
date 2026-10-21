@@ -723,7 +723,7 @@ function CustomerPullSheetsTab({ customerId }: { customerId: string }) {
             const q = getQuotes().find(x => x.id === viewing.quoteId)
             return q && q.runs?.length ? (
               <div className="mb-4 space-y-3">
-                {quoteHasPlan(q) && <QuotePlan quote={q} />}
+                {quoteHasPlan(q) && <QuotePlan quote={q} style={getConfig().fenceStyles.find(s => s.name === q.fenceStyle)} />}
                 <div>
                   <p className="text-xs font-semibold text-gray-600 mb-1">Runs and post spacing</p>
                   <RunSpacingTable quote={q} />

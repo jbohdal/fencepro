@@ -26,6 +26,8 @@ export interface ProposalSettings {
   publicLinks?: boolean
   /** Days a customer link works after it is made (default 30). */
   linkDays?: number
+  /** Push to the card's owner when a customer opens a proposal (first open, and again after 2+ days). On unless false. */
+  notifyOpened?: boolean
   // Good, Better, Best used to be set here (tiers, popular); they now live in
   // their own tier sets on the server (Settings → Good Better Best). The server
   // carried any old settings over when it made the sets.
@@ -215,10 +217,12 @@ export function buildProposal(args: {
   }
 }
 
-/** The customer's link: the public door on a Tailscale address, the app's own address otherwise. */
-export function proposalUrl(token: string): string {
+/** The customer's link: the public door on a Tailscale address, the app's own address otherwise.
+ *  `preview`: staff opening it from the app (a signed mark, never sent to the customer; the page drops it from the address). */
+export function proposalUrl(token: string, preview?: string | null): string {
   const { protocol, hostname, origin } = window.location
-  return hostname.endsWith('.ts.net') ? `${protocol}//${hostname}:8443/p/${token}` : `${origin}/p/${token}`
+  const url = hostname.endsWith('.ts.net') ? `${protocol}//${hostname}:8443/p/${token}` : `${origin}/p/${token}`
+  return preview ? `${url}?sp=${encodeURIComponent(preview)}` : url
 }
 
 // ── Moves and repairs ────────────────────────────────────────────────────────

@@ -153,7 +153,7 @@ export default function QuoteDetailDrawer({
           {quoteHasPlan(quote) && (
             <section>
               <p className="text-xs font-bold text-gray-500 mb-2">Site plan</p>
-              <QuotePlan quote={quote} caption={false} />
+              <QuotePlan quote={quote} style={getConfig().fenceStyles.find(s => s.name === quote.fenceStyle)} caption={false} />
             </section>
           )}
 

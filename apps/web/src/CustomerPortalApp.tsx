@@ -523,7 +523,7 @@ function QuotesPage({ accent }: { session: PortalAccount; customer: PortalAccoun
               {quoteHasPlan(q) && (
                 <details className="mt-3" data-portal-plan>
                   <summary className="text-sm font-semibold cursor-pointer" style={{ color: accent }}>See the site plan</summary>
-                  <div className="mt-2"><QuotePlan quote={{ layout: q.layout, runs: q.runs }} /></div>
+                  <div className="mt-2"><QuotePlan quote={{ layout: q.layout, runs: q.runs, fenceStyle: q.fenceStyle }} /></div>
                 </details>
               )}
               </div>

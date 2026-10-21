@@ -34,7 +34,8 @@ import { useBackLayer } from './nav'
 import { SaveStatus, cardChange } from './SaveStatus'
 import AutomationRunLog from './AutomationRunLog'
 import { sendJson } from './syncHttp'
-import { useFollowUpBoard, followUpOf, changeNext, startTouch, openLogCall, pendingCalls, CHANGED_EVENT, badgeOf } from './followUpStore'
+import { useFollowUpBoard, followUpOf, changeNext, startTouch, openLogCall, pendingCalls, CHANGED_EVENT, badgeOf, openedOf } from './followUpStore'
+import { openedBadgeText } from './proposalOpened'
 import { OUTCOME_LABEL, LOST_REASON_LABEL } from './followUpRules'
 import { DateChips, TextTemplatesSheet, dayLabel, kindWord } from './FollowUpPrompt'
 
@@ -96,6 +97,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
   useFollowUpBoard()
   const follow = followUpOf(lead.id)
   const badge = badgeOf(lead)
+  const opened = openedBadgeText(openedOf(lead.id))
   const [texting, setTexting] = useState(false)
   const touch = { cardId: lead.id, customerId: lead.customerId ?? null, name, firstName: lead.firstName, phone, stage: lead.stage }
   const startCall = () => { if (phone) startTouch({ ...touch, channel: 'call' }) }
@@ -168,7 +170,10 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
           <AutomationRunLog entityId={lead.id} />
 
           <section className="bg-white rounded-2xl border border-gray-200" data-card-quotes>
-            <h3 className="px-4 pt-3 pb-2 text-sm font-semibold text-gray-900">Quotes</h3>
+            <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-gray-900">Quotes</h3>
+              {opened && <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${opened === 'Not opened yet' ? 'bg-gray-100 text-gray-600' : 'bg-purple-100 text-purple-800'}`} data-card-window-opened={opened}>{opened}</span>}
+            </div>
             {quotes.length === 0 ? (
               <p className="px-4 pb-3 text-sm text-gray-600">No quotes yet.</p>
             ) : (
@@ -256,7 +261,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
 }
 
 interface HistoryItem { at: string; kind: string; title: string; detail: string; by: string; saving?: boolean }
-const KIND_DOT: Record<string, string> = { call: 'bg-green-500', text: 'bg-blue-500', email: 'bg-indigo-500', quote: 'bg-purple-500', proposal_opened: 'bg-amber-500', appointment: 'bg-cyan-600', note: 'bg-gray-400' }
+const KIND_DOT: Record<string, string> = { call: 'bg-green-500', text: 'bg-blue-500', email: 'bg-indigo-500', quote: 'bg-purple-500', proposal_opened: 'bg-amber-500', proposal_staff: 'bg-gray-300', appointment: 'bg-cyan-600', note: 'bg-gray-400' }
 
 /** One history for the customer, newest first: calls with answers, texts, emails, quotes sent, proposal opens, appointments, notes. */
 function CardHistory({ cardId, customerId, notesShown }: { cardId: string; customerId: string | null; notesShown: number }) {

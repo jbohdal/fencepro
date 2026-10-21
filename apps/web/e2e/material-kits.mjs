@@ -10,6 +10,9 @@
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import './sharedLock.mjs' // tests that change shared dev data take turns
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
@@ -25,9 +28,21 @@ const api = async (p, init) => (await call(p, init)).data
 const STYLE = "WV-ND 6'x8' Privacy"
 const PICKET = '*Vinyl, White, Picket, 62-1/4"'
 
+const putKits = async kits => { const cur = await api('/api/inventory-state'); const { items, bundles, locations, stockLevels, transactions } = cur; return call('/api/inventory-state', { method: 'PUT', body: JSON.stringify({ items, bundles, locations, stockLevels, transactions, kits, baseVersion: cur.version }) }) }
+// The saved kits are emptied for the test and put back after. A run that dies part way (the dev
+// server restarting) once left the dev kits empty, so the kits are also written to a file first, and
+// a later run puts a left-over file back before it starts (Oct 20, 2026).
+const KEPT_FILE = path.join(os.tmpdir(), 'ezbiz-e2e-material-kits-kept.json')
+if (fs.existsSync(KEPT_FILE)) {
+  const left = JSON.parse(fs.readFileSync(KEPT_FILE, 'utf8'))
+  const r = await putKits(left)
+  if (!r?.success) { console.error(`A previous run left the dev kits emptied and they could not be put back yet. Kits are in ${KEPT_FILE}.`); process.exit(2) }
+  console.log(`(put back ${left.length} saved kits left emptied by an earlier run)`)
+  fs.rmSync(KEPT_FILE)
+}
 const before = await api('/api/inventory-state')
 const keptKits = JSON.parse(JSON.stringify(before.kits ?? []))
-const putKits = async kits => { const cur = await api('/api/inventory-state'); const { items, bundles, locations, stockLevels, transactions } = cur; return call('/api/inventory-state', { method: 'PUT', body: JSON.stringify({ items, bundles, locations, stockLevels, transactions, kits, baseVersion: cur.version }) }) }
+fs.writeFileSync(KEPT_FILE, JSON.stringify(keptKits))
 await putKits([])
 
 const browser = await chromium.launch()
@@ -107,8 +122,13 @@ try {
   check('test run finished', false, String(e?.message || e).split('\n').slice(0, 3).join(' '))
 } finally {
   if (quoteId) await api(`/api/saved-quotes/${quoteId}`, { method: 'DELETE' })
-  const r = await putKits(keptKits)
-  check('saved kits put back as they were', !!r?.success && JSON.stringify((await api('/api/inventory-state')).kits ?? []) === JSON.stringify(keptKits))
+  // Put the kits back, waiting out a dev server restart (up to 2 minutes).
+  let r = null
+  for (let i = 0; i < 24 && !r?.success; i++) { r = await putKits(keptKits).catch(() => null); if (!r?.success) await sleep(5000) }
+  const backOk = !!r?.success && JSON.stringify((await api('/api/inventory-state').catch(() => ({}))).kits ?? []) === JSON.stringify(keptKits)
+  if (backOk) fs.rmSync(KEPT_FILE, { force: true })
+  else console.error(`The dev kits could not be put back. They are saved in ${KEPT_FILE}; the next material-kits run puts them back first.`)
+  check('saved kits put back as they were', backOk)
   await browser.close()
 }
 const passed = results.filter(Boolean).length

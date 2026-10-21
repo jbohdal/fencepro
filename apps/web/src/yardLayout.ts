@@ -62,7 +62,40 @@ export interface YardSide {
   heading?: number
   /** A backyard return: where it meets the house (drawing only). Back corner when unset. */
   meetsHouse?: HouseMeet | null
+  /** A tee: this side starts from a point along an earlier side ("starts 40 ft along Side 3").
+   *  Drawing only: its posts are counted from its start finish, as any other side's. */
+  tee?: SideTee | null
 }
+
+export interface SideTee {
+  /** The earlier side it starts from. */
+  sideId: string
+  /** Inches along that side from its start. */
+  atIn: number
+}
+
+/**
+ * The drawing once it has been edited (a corner dragged, an angle typed, the
+ * house moved, a tee placed): where the first side starts and the direction
+ * of every side. Each side is drawn at its typed length from where the one
+ * before it ends (or from its tee point), so the drawing is always to scale
+ * and only angles change (yardChain.ts). Drawing only: footage, sections and
+ * price never come from it.
+ */
+export interface PlanDrawing {
+  v: 1
+  /** Where the first side starts, feet. */
+  origin: PlanPoint
+  /** Direction of each side, degrees (0 = right, 90 = up the page), by side id. */
+  deg: Record<string, number>
+  /** Sides whose angle was set by hand (dragged or typed): never turned again on their own. */
+  set?: string[] | null
+  /** The house as drawn. Unset: where the shape puts it. */
+  house?: HouseRect | null
+}
+
+/** The house on the drawing, feet: its middle, width, depth and turn (degrees, counterclockwise). */
+export interface HouseRect { cx: number; cy: number; w: number; d: number; rotDeg: number }
 
 export interface HouseMeet {
   at: 'back' | 'front' | 'distance'
@@ -100,6 +133,9 @@ export interface YardLayout {
     /** Compass heading (degrees) of "up the page", from standing at the house
      *  and pointing the phone at the back fence. Used without an aerial photo. */
     facingRef?: number | null
+    /** The drawing as edited: angles, where it starts, the house (see PlanDrawing).
+     *  Replaces `points` (an older quote's dragged corners keep their angles). */
+    drawn?: PlanDrawing | null
   } | null
 }
 
@@ -279,6 +315,8 @@ export interface LayoutResult {
   runs: LayoutRun[]
   /** Posts counted from the finishes. */
   counted: { corners: number; endPosts: number; gatePosts: number }
+  /** Sides that start along another side (tees); each is in `counted` as the style's tee post. */
+  tees: number
   /** What goes to the calculator: counted, or the typed override. */
   corners: number
   ends: number
@@ -295,17 +333,59 @@ const ftOf = (inches: number) => Math.round((inches / 12) * 1e6) / 1e6
  * @param nearIn How far from an end a gate placed "near the house / corner"
  *   starts: one section width, so the short piece is one full section.
  */
-export function deriveLayout(layout: YardLayout, nearIn = 96): LayoutResult {
+// ── Tees ──────────────────────────────────────────────────────────────────────
+
+/** What a tee's post is counted as. */
+export type TeePost = 'corner' | 'end'
+
+/**
+ * Vinyl tee post. Jonathan (Oct 20): "a 3 way post" for vinyl, but there is no
+ * 3 way post in Inventory or TAKEOFF_RULES (only corner, end, line and blank
+ * posts, white and tan), and no new material may be added. Until he says
+ * which existing post a vinyl tee uses, it is counted as an end post, as it
+ * always was. Change this one value when he answers.
+ */
+export const VINYL_TEE_POST: TeePost = 'end'
+
+/**
+ * How a style posts a tee (the side's start along another side). Chain link,
+ * aluminum and wood: a corner post (Jonathan, Oct 20, "until I say
+ * otherwise"). Vinyl: VINYL_TEE_POST. Anything else: an end post, as before.
+ */
+export function teePostFor(style: { name?: string; category?: string } | null | undefined): TeePost {
+  if (!style) return 'end'
+  const name = (style.name ?? '').trim().toLowerCase(), cat = (style.category ?? '').trim().toLowerCase()
+  if (cat.startsWith('chain') || name.startsWith('cl ') || name.startsWith('cl-')) return 'corner'
+  if (cat.startsWith('alum') || name.startsWith('alum')) return 'corner'
+  if (cat.startsWith('wood') || name.startsWith('wood')) return 'corner'
+  if (cat.startsWith('vinyl') || /^(wv|tv)[- ]/.test(name)) return VINYL_TEE_POST
+  return 'end'
+}
+
+/** Side i starts along an earlier side (a tee). */
+export function isTee(layout: YardLayout, i: number): boolean {
+  const t = layout.sides[i]?.tee
+  if (!t) return false
+  const j = layout.sides.findIndex(s => s.id === t.sideId)
+  return j >= 0 && j < i
+}
+
+export function deriveLayout(layout: YardLayout, nearIn = 96, opts: { teeAs?: TeePost } = {}): LayoutResult {
   const sides: SideResult[] = layout.sides.map((s, i) => deriveSide(layout, i, nearIn))
   const runs = sides.flatMap(r => r.runs)
+  const teeAs = opts.teeAs ?? 'end'
 
-  let corners = 0, endPosts = 0, gatePosts = 0
+  let corners = 0, endPosts = 0, gatePosts = 0, tees = 0
   sides.forEach((r, i) => {
     if (!r.on) return
     const measured = r.lengthIn > 0
     // A shared corner is counted once, at the earlier side's end, when fence
     // reaches it from either side (the other side may not be measured yet).
-    if (measured && r.finishes.start !== 'corner' && r.touchesStart) endPosts += 1
+    if (measured && r.finishes.start !== 'corner' && r.touchesStart) {
+      // A tee (the side starts along an earlier side): posted as the style's tee post (teePostFor).
+      if (isTee(layout, i)) { tees += 1; if (teeAs === 'corner') corners += 1; else endPosts += 1 }
+      else endPosts += 1
+    }
     if (r.finishes.end === 'corner') {
       const n = nextIndex(layout, i)!
       if (r.touchesEnd || sides[n].touchesStart) corners += 1
@@ -324,6 +404,7 @@ export function deriveLayout(layout: YardLayout, nearIn = 96): LayoutResult {
     sides,
     runs,
     counted: { corners, endPosts, gatePosts },
+    tees,
     corners: ov(layout.cornersOverride) ?? corners,
     ends: ov(layout.endsOverride) ?? endPosts + gatePosts,
     walkGates,

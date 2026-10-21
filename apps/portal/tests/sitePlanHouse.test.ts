@@ -68,13 +68,17 @@ describe('moving the house', () => {
     expect(buildPlan(l, deriveLayout(l)).vertices).toEqual(buildPlan(yard(), deriveLayout(yard())).vertices)
   })
 
-  test('corners dragged by hand move along with the returns', () => {
+  test('corners dragged by hand stay put; the house moves to meet the returns there', () => {
     const l = yard()
     const pts = planVertices(l).map(p => ({ x: p.x + 1, y: p.y + 2 }))
     l.plan = { points: pts, pointsFor: layoutSignature(l) }
     const m = setHouseMeets(l, { left: 6, right: 6 })
-    expect(m.plan!.pointsFor).toBe(layoutSignature(m))
-    expect(planVertices(m).map(p => p.y)).toEqual(pts.map(p => p.y - 6))
+    expect(planVertices(m)).toEqual(planVertices(l))
+    const plan = buildPlan(m, deriveLayout(m))
+    // Each return meets a side wall of the house 6 ft in front of its back wall.
+    const back = Math.max(...plan.house!.map(p => p.y))
+    expect(back - plan.vertices[0].y).toBeCloseTo(6, 6)
+    expect(back - plan.vertices[5].y).toBeCloseTo(6, 6)
   })
 
   test('not offered for shapes without returns meeting the house', () => {

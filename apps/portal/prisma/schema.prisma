@@ -372,6 +372,9 @@ model Appointment {
   startedAt    DateTime?
   completedAt  DateTime?
   createdBy    String?
+  /// A service or warranty call: staff set it covered or not covered by the job's warranty, with why
+  /// { covered, reason, by, at } (lib/warranties.ts). Null: worked out from the warranty's dates.
+  warrantyOverride Json?
   archivedAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -2375,6 +2378,42 @@ model Permit {
   updatedAt        DateTime  @updatedAt
 
   @@index([accountId, status])
+}
+
+/// One open of a customer's proposal link (/p/<link>), recorded by the page's
+/// own script (no script, no row: link previews and prefetch never count).
+/// See lib/proposalViews.ts. Staff opens are kept but marked and never counted.
+model ProposalView {
+  id               String   @id @default(uuid())
+  accountId        String
+  quoteId          String
+  /// The pipeline card of the quote's customer when it was opened.
+  cardId           String?
+  crmContactId     String?
+  startedAt        DateTime @default(now())
+  lastSeenAt       DateTime @default(now())
+  /// Time the page was on screen (ms, capped).
+  activeMs         Int      @default(0)
+  /// Time each option was the one most in view: { "<option index>": ms }.
+  optionMs         Json     @default("{}")
+  reachedSignature Boolean  @default(false)
+  signed           Boolean  @default(false)
+  staff            Boolean  @default(false)
+  staffUserId      String?
+  /// How staff was told apart: bearer, preview (the app's link), device (same device as a staff sign in).
+  staffHow         String?
+  userAgent        String   @default("")
+  /// iPhone, iPad, Android or Computer.
+  device           String   @default("")
+  /// A keyed hash of the address (never the address itself), to merge reloads and limit abuse.
+  ipHash           String?
+  /// first | reopen: the push this open earned (sent once per key, AutomationEffect).
+  pushTrigger      String?
+  pushKey          String?
+
+  @@index([quoteId, startedAt])
+  @@index([accountId, startedAt])
+  @@index([cardId])
 }
 
 /// A phone or browser that gets push notifications (free web push).

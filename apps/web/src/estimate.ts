@@ -26,6 +26,24 @@ export { planWood } from './wood'
 export { planChainDigSet, planChainDigSetPipesAndTies } from './chainDigSet'
 // The server's tan dig set auto mix seed (lib/tanAutoDsSeed.ts).
 export { planTanAutoDs } from './tanAutoDs'
+// Warranties per option (server lib/warranties.ts).
+export {
+  defaultWarrantySettings, warrantySettingsOf, warrantyForStyle, installKeyOf, signedOptionWarranty, warrantyFromText,
+  warrantyPeriod, serviceCoverage, isOneYearText, isNoDigStyle, dayText,
+} from './warranties'
+import { stampWarranties as stampOptionWarranties, warrantySettingsOf as warrantySettingsFrom, warrantyForStyle as warrantyForStyleOf } from './warranties'
+
+/** Each proposal option's warranty, from the saved Settings (warranties.ts stampWarranties). */
+export function stampWarranties(saved: Partial<AppConfig> | null, proposal: unknown, savedProposal: unknown, frozen: boolean): unknown {
+  const styles = estimateConfig(saved).fenceStyles
+  return stampOptionWarranties(proposal, warrantySettingsFrom(saved), name => styles.find(s => s.name === name), savedProposal, frozen)
+}
+
+/** A style's warranty from the saved Settings (by name; an old code is read from its name). */
+export function styleWarranty(saved: Partial<AppConfig> | null, styleName: string, kind?: 'move' | 'repair' | null) {
+  const style = estimateConfig(saved).fenceStyles.find(s => s.name === styleName) ?? { name: styleName }
+  return warrantyForStyleOf(warrantySettingsFrom(saved), style, kind)
+}
 
 export interface EstimateData {
   /** The saved Settings (business state config), as stored. */

@@ -12,7 +12,7 @@
  */
 
 import { deriveLayout, type YardLayout } from './yardLayout'
-import { sectionWidthForStyle } from './materialCalculator'
+import { layoutPanelFt } from './gateSlide'
 import { priceQuoteJob, type QuoteJob, type QuoteJobRequest } from './quoteJob'
 import { resolveTiers, type TierSet } from './tiers'
 import { isQuotable } from './styleAvailability'
@@ -97,7 +97,7 @@ export function newQuoteOverrides(cfg: Pick<AppConfig, 'pricing'>): QuotePricing
 
 /** Section width a style's gates are placed with (QuoteBuilder: auto mix 8, else the style's width). */
 export function layoutWidthFt(style: Pick<FenceStyle, 'name' | 'panelWidth' | 'autoRailMix'>): number {
-  return style.autoRailMix ? 8 : sectionWidthForStyle(style.name, style.panelWidth)
+  return layoutPanelFt(style)
 }
 
 /** Exactly what the quote builder sends to priceQuoteJob for this yard and style on a new quote. */

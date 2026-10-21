@@ -4,13 +4,17 @@
  * builder prices exactly the runs and posts this produces (see yardLayout.ts).
  */
 
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Pencil, Trash2, Plus, Image as ImageIcon, Mic, Check, ChevronDown, ChevronUp, RotateCcw, RotateCw } from 'lucide-react'
 import FtInPad from './FtInPad'
 import SitePlan, { type PlanPin } from './SitePlan'
-import { centeredVertices, buildPlan, layoutSignature, returnHouseEnd, setHouseMeets, clearHouseMeets, canMoveHouse } from './sitePlanGeometry'
+import { centeredVertices, buildPlan, returnHouseEnd, setHouseMeets, clearHouseMeets, canMoveHouse } from './sitePlanGeometry'
+import { freezeDrawing, placeNewSide, keepClear, setCornerAngle, cornerAngleAt, incomingSide, setTee, resetDrawing, isEdited } from './yardDrawing'
 import { bakePhoto, loadImage } from './aerialBake'
-import { photoBackdrop, photoView, withPhotoView, lineUpRotation, normDeg, stepDeg, turnAbout, FRAME_PX } from './sitePlanPhoto'
+import { photoBackdrop, photoView, withPhotoView, lineUpRotation, normDeg, stepDeg, turnAbout, planMiddle, FRAME_PX } from './sitePlanPhoto'
+
+// The website quote's drawing tool (Leaflet), loaded only when Draw on photo is opened.
+const DrawOnPhoto = lazy(() => import('./DrawOnPhoto'))
 import { lookupPosition } from './appointmentsStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import { slideGate, slideGateFromEnd, resizeGate, sameGateSpot, gateDistances, gateWhereText, sideEndName, ftText, STEP_FOOT, STEP_HALF_FOOT } from './gateSlide'
@@ -28,7 +32,7 @@ const SHAPES: Array<{ shape: YardShape; hint: string; path: string }> = [
   { shape: 'custom', hint: 'Add sides one by one', path: 'M6 30 L16 10 L32 14 L42 28' },
 ]
 
-type PadTarget = { sideId: string; field: 'length' | 'gateWidth' | 'gateDistance' | 'gateBefore' | 'gateAfter' | 'skipLength' | 'skipDistance' | 'meetDistance' }
+type PadTarget = { sideId: string; field: 'length' | 'gateWidth' | 'gateDistance' | 'gateBefore' | 'gateAfter' | 'skipLength' | 'skipDistance' | 'meetDistance' | 'teeAt' }
 
 /** Quick gate sizes, feet (the same as the website quote's). Any other width is typed. */
 const GATE_SIZES_FT: Record<GateType, number[]> = { walk: [4, 5, 6], double: [8, 10, 12] }
@@ -50,7 +54,7 @@ export function nextEmptySide(layout: YardLayout, id: string | null): YardSide |
   return order.find(s => s.on && !(s.lengthIn > 0)) ?? null
 }
 
-export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap, openSideId, onOpenSide, locked = false }: {
+export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap, openSideId, onOpenSide, locked = false, teeAs = 'end' }: {
   layout: YardLayout | null
   onChange: (l: YardLayout | null) => void
   result: LayoutResult | null
@@ -74,6 +78,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   onOpenSide?: (id: string | null) => void
   /** A signed quote: its gates cannot be moved here (a change order does that). */
   locked?: boolean
+  /** How the quote's style posts a tee (yardLayout.ts teePostFor), for the side's note. */
+  teeAs?: 'corner' | 'end'
 }) {
   const [pad, setPad] = useState<PadTarget | null>(null)
   const [openLocal, setOpenLocal] = useState<string | null>(null)
@@ -128,11 +134,28 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   const [houseHintDone, setHouseHintDone] = useState(false)
   // Dragged gates snap to whole feet, or half feet with this on (screen state only).
   const [halfFeet, setHalfFeet] = useState(false)
+  // The angle being typed: the side that starts at that corner (index).
+  const [angleFor, setAngleFor] = useState<number | null>(null)
+  // "Side 8 would cross Side 3, so it was drawn turning left" (screen state only).
+  const [drawMsg, setDrawMsg] = useState('')
+  // Draw on photo: the website quote's drawing tool, open.
+  const [drawPhoto, setDrawPhoto] = useState(false)
+
+  const drawOnPhoto = drawPhoto && (
+    <Suspense fallback={<p className="text-sm text-gray-600">Opening the photo…</p>}>
+      <DrawOnPhoto address={aerialAddress || address || ''} onClose={() => setDrawPhoto(false)}
+        onUse={y => { setDrawPhoto(false); setAerialOn(true); setDrawMsg(''); onChange(y) }} />
+    </Suspense>
+  )
 
   if (!layout) {
     return (
-      <div data-layout-shapes>
-        <p className="text-sm text-gray-600 mb-3">Pick the shape of the yard. You can turn sides off, add, rename or remove them next.</p>
+      <div data-layout-shapes className="space-y-3">
+        {drawOnPhoto}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-gray-600">Pick the shape of the yard. You can turn sides off, add, rename or remove them next.</p>
+          {!drawPhoto && <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDrawPhoto(true)} data-draw-on-photo-open><ImageIcon size={16} aria-hidden="true" /> Draw on photo</button>}
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {SHAPES.map(s => (
             <button key={s.shape} type="button" onClick={() => onChange(layoutForShape(s.shape))} data-shape={s.shape}
@@ -181,7 +204,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     const s = sides[i]
     const j = neighbor(i, which === 'start' ? -1 : 1)
     if (which === 'start') {
-      if (f === 'corner' && j !== null) { sides[j].endFinish = 'corner'; s.startFinish = 'corner' }
+      // A corner with the side before: no longer a tee.
+      if (f === 'corner' && j !== null) { sides[j].endFinish = 'corner'; s.startFinish = 'corner'; s.tee = null }
       else { if (j !== null && joinedFromPrev(layout!, i)) sides[j].endFinish = 'free'; s.startFinish = f }
     } else {
       if (f === 'corner' && j !== null) { s.endFinish = 'corner'; sides[j].startFinish = 'corner' }
@@ -208,21 +232,29 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   }
 
   function addSide() {
-    const last = layout!.sides[layout!.sides.length - 1]
-    const sides = layout!.sides.map(s => ({ ...s }))
+    // The drawing so far keeps its angles (saved first), so a new side never redraws the others.
+    const base = freezeDrawing(layout!)
+    const last = base.sides[base.sides.length - 1]
+    const sides = base.sides.map(s => ({ ...s }))
     const joined = !!last && last.on
     if (joined) sides[sides.length - 1].endFinish = 'corner'
     // A new side turns a quarter to the right of the last one on the plan.
     const heading = last ? (((last.heading ?? 0) - 90) % 360 + 360) % 360 : 0
     const added: YardSide = { id: newSideId(), name: `Side ${sides.length + 1}`, on: true, lengthIn: 0, startFinish: joined ? 'corner' : 'free', endFinish: 'free', gate: null, skip: null, heading }
     sides.push(added)
-    set({ ...layout!, sides })
+    // A quarter turn right of the side before, unless that crosses another side: then it bends away (and says so).
+    const placed = placeNewSide({ ...base, sides }, added.id)
+    set(placed.layout)
+    setDrawMsg(placed.message ?? '')
     setOpen(added.id)
   }
 
   function removeSide(i: number) {
     if (!window.confirm(`Remove ${layout!.sides[i].name}?`)) return
-    set({ ...layout!, sides: layout!.sides.filter((_, k) => k !== i) })
+    // The others keep their angles; a tee off the removed side starts where the side before it ends again.
+    const base = freezeDrawing(layout!)
+    const gone = base.sides[i].id
+    set({ ...base, sides: base.sides.filter((_, k) => k !== i).map(s => (s.tee?.sideId === gone ? { ...s, tee: null } : s)) })
   }
 
   function changeShape() {
@@ -245,6 +277,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     })()
     : pad.field === 'skipLength' ? padSide.skip?.lengthIn ?? 0
     : pad.field === 'meetDistance' ? padSide.meetsHouse?.distanceIn ?? 0
+    : pad.field === 'teeAt' ? padSide.tee?.atIn ?? 0
     : padSide.skip?.distanceIn ?? 0
   // Next: the following side, then round to any side still without a length, so none is skipped.
   const nextSideFor = (id: string) => {
@@ -256,7 +289,14 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   const padNext = pad?.field === 'length' && padSide ? nextSideFor(padSide.id) : null
   function padDone(inches: number, next: boolean) {
     if (!pad || !padSide) return
-    if (pad.field === 'length') updateSide(padSide.id, { lengthIn: inches })
+    if (pad.field === 'length') {
+      // A side whose angle was never set by hand bends away if its new length makes it cross another side.
+      const i = idx(padSide.id)
+      const k = keepClear({ ...layout!, sides: layout!.sides.map(s => (s.id === padSide.id ? { ...s, lengthIn: inches } : s)) }, i)
+      set(k.layout)
+      if (k.message) setDrawMsg(k.message)
+    }
+    if (pad.field === 'teeAt' && padSide.tee) set(setTee(layout!, idx(padSide.id), { sideId: padSide.tee.sideId, atIn: inches }))
     if (pad.field === 'gateWidth' && padSide.gate) setGateWidth(padSide.id, padSide.gate.type, inches)
     if (pad.field === 'gateDistance' && padSide.gate) updateSide(padSide.id, { gate: { ...padSide.gate, position: 'distance', distanceIn: inches } })
     // Typed exactly ("the gate starts 12' 4\" from the corner"), kept on the side and off the skip.
@@ -323,6 +363,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   const planNow = buildPlan(layout, result ?? undefined, runSections, widthFt)
   const planNotes = planNow.notes
   const houseMovable = !onPhoto && canMoveHouse(layout)
+  /** The sides side i crosses on the drawing (the warning in the side list). */
+  const crossNames = (i: number) => planNow.crossings.filter(c => c.a === i || c.b === i).map(c => (c.a === i ? c.bName : c.aName))
   const meetsSet = layout.sides.some(s => s.meetsHouse)
   // Tapping a gate while adjusting: a walk gate goes in/left, in/right, out/left,
   // out/right; a double gate flips both leaves in/out. Drawing and crew notes only.
@@ -362,8 +404,10 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           widthFt={widthFt}
           onSideTap={tapSide}
           aerial={onPhoto ? backdrop : null}
-          // Dragging only moves the drawing; on the plain plan it holds until a length changes.
-          onPointsChange={!onPhoto && adjusting ? pts => onChange({ ...layout, plan: { ...(layout.plan ?? {}), points: pts, pointsFor: layoutSignature(layout) } }) : undefined}
+          // Every corner and end point drags, any time: each side keeps its typed length, only the angles change.
+          onDrawingChange={next => onChange(onPhoto ? keepOnPhoto(layout, next) : next)}
+          onAngleTap={i => setAngleFor(i)}
+          checks
           // On the photo the plan stays square and level at the photo's scale: it only moves, and the photo turns.
           onPlanMove={onPhoto && !lineUp ? at => onChange(withPhotoView(layout, { planAt: at })) : undefined}
           onRotate={onPhoto && !lineUp ? turnTo : undefined}
@@ -371,6 +415,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           lineUpTaps={onPhoto ? lineTaps : undefined}
           pins={pins}
           onPinTap={onPinTap}
+          // A backyard's house slides along the returns in Adjust the drawing (its handle would cover the plan otherwise).
           onHouseMeetsChange={adjusting && houseMovable ? m => onChange(setHouseMeets(layout, m)) : undefined}
           onHouseDragEnd={() => setHouseHintDone(true)}
           onGateTap={adjusting && !onPhoto ? cycleGate : undefined}
@@ -383,6 +428,14 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
         )}
       </div>
       {planNotes.map((n, k) => <p key={k} className="text-sm text-amber-900 bg-amber-50 rounded-lg px-3 py-2" data-plan-note>{n}</p>)}
+      {planNow.crossings.map((c, k) => <p key={`x${k}`} className="text-sm font-semibold text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2" data-plan-crossing-note>{c.text}</p>)}
+      {drawMsg && (
+        <p className="text-sm text-amber-900 bg-amber-50 rounded-lg px-3 py-2 flex items-start gap-2" data-plan-draw-msg>
+          <span className="flex-1">{drawMsg}</span>
+          <button type="button" className="text-amber-900 underline shrink-0 min-h-[24px]" onClick={() => setDrawMsg('')}>OK</button>
+        </p>
+      )}
+      {drawOnPhoto}
       {adjusting && houseMovable && !houseHintDone && (
         <p className="text-sm font-semibold text-orange-900 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2" data-plan-house-hint>
           Drag the house to where the fence meets it. The round handles at the house move one return alone.
@@ -411,12 +464,18 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           )}
         </div>
       )}
-      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it.{onPhoto ? ' The plan is drawn to the photo\'s real scale. Turn the photo to match the house (Line up, the slider, or twist two fingers), then drag the center button to move the plan onto the yard. Footage and price stay as typed.' : adjusting ? ` Drag a corner to match an odd yard${houseMovable ? ', or the house to where the returns meet it' : ''}. Tap a gate to change its swing. Footage and price stay as typed.` : ''}</p>
+      <p className="text-xs text-gray-600 -mt-1">Tap a side on the plan to change it. Drag any corner or end to match the yard: each side keeps its length, only the angles change. Tap an angle to type it.{onPhoto ? ' The plan is drawn to the photo\'s real scale. Turn the photo to match the house (Line up, the slider, or twist two fingers), then drag the center button to move the plan onto the yard.' : houseMovable ? (adjusting ? ' Drag the house to where the returns meet it.' : '') : planNow.houseRect && (planNow.houseMode === 'one' || planNow.houseMode === 'free') ? ' Drag the house to move it; tap it to turn or size it.' : ''}{adjusting ? ' Tap a gate to change its swing.' : ''} Footage and price stay as typed.</p>
       <div className="flex flex-wrap items-center gap-2" data-aerial>
         {!onPhoto && (
           <button type="button" className={`btn ${adjusting ? 'btn-primary' : 'btn-quiet'} btn-sm`} onClick={() => setAdjusting(a => !a)} data-plan-adjust>
             {adjusting ? 'Done adjusting' : 'Adjust the drawing'}
           </button>
+        )}
+        {!drawPhoto && !locked && (
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => {
+            if (layout.sides.some(s => s.lengthIn > 0) && !window.confirm('Draw on photo starts the yard again from the drawing. The sides entered so far will be replaced.')) return
+            setDrawPhoto(true)
+          }} data-draw-on-photo-open><ImageIcon size={16} aria-hidden="true" /> Draw on photo</button>
         )}
         {layout.sides.some(s => s.on && s.gate) && !locked && (
           <button type="button" role="switch" aria-checked={halfFeet} className={`btn ${halfFeet ? 'btn-primary' : 'btn-quiet'} btn-sm`} onClick={() => setHalfFeet(h => !h)} data-gate-half-feet>
@@ -436,11 +495,11 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
         ) : (
           <button type="button" className="btn btn-quiet btn-sm" onClick={() => setShown(false)} data-aerial-hide>Hide aerial photo</button>
         )}
-        {(layout.plan?.points || meetsSet || (onPhoto && photoView(layout).planAt && (photoView(layout).planAt!.x !== 0 || photoView(layout).planAt!.y !== 0))) && (
+        {(layout.plan?.points || isEdited(layout) || meetsSet || (onPhoto && photoView(layout).planAt && (photoView(layout).planAt!.x !== 0 || photoView(layout).planAt!.y !== 0))) && (
           <button type="button" className="btn btn-quiet btn-sm" data-plan-reset onClick={() => {
-            // Back as typed: corners where the measurements put them, returns at the house's back corners.
-            const l = clearHouseMeets(layout)
-            const back = { ...l, plan: { ...(l.plan ?? {}), points: null, pointsFor: null } }
+            if (isEdited(layout) && !window.confirm('Reset the drawing? The angles and the house go back to where the measurements put them. Lengths, gates and price stay.')) return
+            // Back as typed: corners where the measurements put them, returns at the house's back corners. The only thing that clears the drawing.
+            const back = resetDrawing(clearHouseMeets(layout))
             // On the photo: the plan back in the middle of it (the photo keeps its turn).
             onChange(aerialOn ? withPhotoView(back, { planAt: { x: 0, y: 0 } }) : back)
           }}>Reset the drawing</button>
@@ -479,6 +538,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
               </span>
               <span className={`flex-1 min-w-0 truncate text-base font-semibold ${s.on ? 'text-gray-900' : 'text-gray-500'}`}>{s.name}{!s.on && <span className="font-normal text-sm"> · off</span>}</span>
               {s.on && s.gate && <span className="shrink-0 text-xs font-semibold text-orange-800 bg-orange-100 rounded-full px-2 py-0.5" data-side-gate>{GATE_LABEL[s.gate.type]}</span>}
+              {s.on && s.tee && <span className="shrink-0 text-xs font-semibold text-purple-900 bg-purple-100 rounded-full px-2 py-0.5" data-side-tee-badge>Tee</span>}
+              {crossNames(i).length > 0 && <span className="min-w-0 max-w-[45%] truncate text-xs font-semibold text-red-800 bg-red-100 rounded-full px-2 py-0.5" title={`Crosses ${crossNames(i).join(', ')}`} data-side-crosses={crossNames(i).join('|')}>Crosses {crossNames(i).join(', ')}</span>}
               <span className={`shrink-0 tabular-nums text-sm ${done ? 'text-gray-900 font-semibold' : 'text-gray-400'}`} data-side-len>{done ? formatFtIn(s.lengthIn) : s.on ? 'no length' : ''}</span>
             </button>
 
@@ -572,6 +633,48 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                         {finishSelect('end', endF, nextOn, endJoined)}
                       </label>
                     </div>
+
+                    {i > 0 && (() => {
+                      const anchor = s.tee ? layout.sides.find(x => x.id === s.tee!.sideId) : null
+                      return (
+                        <div className="space-y-2" data-side-tee-block>
+                          <label className="block">
+                            <span className="text-xs text-gray-600 mb-1 block">Starts from</span>
+                            <select className={selectCls} value={s.tee?.sideId ?? ''} data-side-tee
+                              onChange={e => {
+                                const v = e.target.value
+                                if (!v) { set(setTee(layout, i, null)); return }
+                                const an = layout.sides.find(x => x.id === v)!
+                                const atIn = s.tee?.sideId === v ? s.tee.atIn : Math.round((an.lengthIn || 0) / 24) * 12
+                                set(setTee(layout, i, { sideId: v, atIn }))
+                                setPad({ sideId: s.id, field: 'teeAt' })
+                              }}>
+                              <option value="">Where {layout.sides[i - 1].name} ends</option>
+                              {layout.sides.slice(0, i).map(x => <option key={x.id} value={x.id}>Along {x.name} (a tee)</option>)}
+                            </select>
+                          </label>
+                          {s.tee && anchor && (
+                            <>
+                              <button type="button" onClick={() => setPad({ sideId: s.id, field: 'teeAt' })} className="w-full h-11 rounded-lg border border-gray-300 px-3 text-left text-sm" data-side-tee-at>
+                                <span className="text-gray-600">Starts </span><span className="font-semibold text-gray-900">{ftText(s.tee.atIn)}</span><span className="text-gray-600"> along {anchor.name}</span>
+                              </button>
+                              <p className="text-xs text-gray-600" data-side-tee-note>Drawn as a tee on {anchor.name}, counted as {teeAs === 'corner' ? 'a corner post' : 'an end post'} where it starts (the style's tee post). Drag its start on the drawing to slide it.</p>
+                            </>
+                          )}
+                        </div>
+                      )
+                    })()}
+                    {incomingSide(layout, i) !== null && (() => {
+                      const a = cornerAngleAt(layout, i)
+                      if (!a) return null
+                      const from = layout.sides[incomingSide(layout, i)!]
+                      return (
+                        <div className="flex items-center gap-2" data-side-angle>
+                          <p className="flex-1 text-sm text-gray-700">Angle with {from.name}: <span className="font-semibold tabular-nums" data-side-angle-value>{Math.round(a.deg)}°{a.turn !== 'straight' ? `, turns ${a.turn}` : ''}</span></p>
+                          <button type="button" className="btn btn-secondary btn-sm shrink-0" onClick={() => setAngleFor(i)} data-side-angle-edit>Type the angle</button>
+                        </div>
+                      )
+                    })()}
 
                     {returnHouseEnd(layout, i) && (
                       <label className="block">
@@ -717,7 +820,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
             <button type="button" className="btn btn-quiet btn-sm" onClick={() => setEditCounts(e => !e)}>{editCounts ? 'Done' : 'Change'}</button>
           </div>
           <p className="text-sm text-gray-700 mt-1 tabular-nums">
-            {result!.corners} corner · {result!.ends} end{counted.gatePosts > 0 && layout.endsOverride == null ? ` (${counted.gatePosts} at gates)` : ''}
+            {result!.corners} corner · {result!.ends} end{counted.gatePosts > 0 && layout.endsOverride == null ? ` (${counted.gatePosts} at gates)` : ''}{result!.tees > 0 ? ` · ${result!.tees} tee${result!.tees === 1 ? '' : 's'} counted as ${result!.tees === 1 ? (teeAs === 'end' ? 'an ' : 'a ') : ''}${teeAs} post${result!.tees === 1 ? '' : 's'}` : ''}
             {(layout.cornersOverride != null || layout.endsOverride != null) && <span className="text-amber-700"> · changed by hand</span>}
           </p>
           {editCounts && (
@@ -740,10 +843,20 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
       )}
       </div>
 
+      {angleFor !== null && layout.sides[angleFor] && incomingSide(layout, angleFor) !== null && (() => {
+        const a = cornerAngleAt(layout, angleFor)!
+        const from = layout.sides[incomingSide(layout, angleFor)!]
+        return (
+          <AngleSheet key={angleFor} title={`Angle between ${from.name} and ${layout.sides[angleFor].name}`} deg={a.deg} turn={a.turn} canTurn
+            onDone={(d, t) => { const next = setCornerAngle(layout, angleFor, d, t); onChange(onPhoto ? keepOnPhoto(layout, next) : next); setAngleFor(null) }}
+            onClose={() => setAngleFor(null)} />
+        )
+      })()}
+
       {pad && padSide && (
         <FtInPad
           key={`${pad.sideId}-${pad.field}`}
-          title={pad.field === 'length' ? `${padSide.name} length` : pad.field === 'gateWidth' ? `${padSide.name} gate width` : pad.field === 'skipLength' ? `${padSide.name} skip length` : pad.field === 'meetDistance' ? `${padSide.name}: meets the house this far from its back corner` : pad.field === 'gateBefore' ? `${padSide.name}: gate starts this far from ${sideEndName(layout, idx(padSide.id), 'start')}` : pad.field === 'gateAfter' ? `${padSide.name}: gate ends this far from ${sideEndName(layout, idx(padSide.id), 'end')}` : `${padSide.name}: distance from the start`}
+          title={pad.field === 'length' ? `${padSide.name} length` : pad.field === 'gateWidth' ? `${padSide.name} gate width` : pad.field === 'skipLength' ? `${padSide.name} skip length` : pad.field === 'meetDistance' ? `${padSide.name}: meets the house this far from its back corner` : pad.field === 'teeAt' ? `${padSide.name}: starts this far along ${layout.sides.find(x => x.id === padSide.tee?.sideId)?.name ?? 'the side'}` : pad.field === 'gateBefore' ? `${padSide.name}: gate starts this far from ${sideEndName(layout, idx(padSide.id), 'start')}` : pad.field === 'gateAfter' ? `${padSide.name}: gate ends this far from ${sideEndName(layout, idx(padSide.id), 'end')}` : `${padSide.name}: distance from the start`}
           valueIn={padValue}
           onDone={padDone}
           onClose={() => setPad(null)}
@@ -755,3 +868,58 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
 }
 
 function cap(s: string) { return s.charAt(0).toUpperCase() + s.slice(1) }
+
+/** On the aerial photo the drawing stays where it is on the picture while a corner is dragged (its middle moves, the plan's place on the photo moves with it). */
+function keepOnPhoto(prev: YardLayout, next: YardLayout): YardLayout {
+  const at = photoView(prev).planAt
+  if (!at || !next.plan?.aerial) return next
+  const a = planMiddle(prev), b = planMiddle(next)
+  return withPhotoView(next, { planAt: { x: at.x + b.x - a.x, y: at.y + b.y - a.y } })
+}
+
+/** Type the angle at a corner: degrees between the two sides (90 square, 180 straight on), and which way the fence turns. */
+function AngleSheet({ title, deg, turn, canTurn, onDone, onClose }: {
+  title: string
+  deg: number
+  turn: 'left' | 'right' | 'straight'
+  canTurn: boolean
+  onDone: (deg: number, turn: 'left' | 'right') => void
+  onClose: () => void
+}) {
+  const [text, setText] = useState(String(Math.round(deg * 10) / 10))
+  const [dir, setDir] = useState<'left' | 'right'>(turn === 'left' ? 'left' : 'right')
+  const v = Number(text)
+  const ok = Number.isFinite(v) && v >= 1 && v <= 180
+  return (
+    <div className="fixed inset-0 z-[80] bg-black/40 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label={title} data-angle-sheet onClick={onClose}>
+      <div className="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl p-4 space-y-3" onClick={e => e.stopPropagation()}>
+        <p className="text-base font-semibold text-gray-900">{title}</p>
+        {/* Which way first, then the number: a phone's keyboard covers the bottom of the sheet while typing. */}
+        {canTurn && (
+          <div className="grid grid-cols-2 gap-1 bg-gray-100 rounded-xl p-1" data-angle-turn-choice>
+            {(['left', 'right'] as const).map(t => (
+              <button key={t} type="button" className={`h-11 rounded-lg text-sm font-semibold ${dir === t ? 'bg-white text-orange-700 shadow-sm' : 'text-gray-600'}`} onClick={() => setDir(t)} data-angle-turn={t}>
+                Turns {t}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <input className="flex-1 min-w-0 h-14 rounded-xl border-2 border-orange-400 px-4 text-2xl font-bold tabular-nums" inputMode="decimal" value={text}
+            onChange={e => setText(e.target.value.replace(/[^0-9.]/g, ''))} onKeyDown={e => { if (e.key === 'Enter' && ok) onDone(v, dir) }} aria-label="Angle in degrees" data-angle-input />
+          <span className="text-2xl font-bold text-gray-700">°</span>
+        </div>
+        <div className="grid grid-cols-5 gap-1.5">
+          {[45, 90, 120, 135, 150].map(a => (
+            <button key={a} type="button" className={`btn btn-sm min-h-[44px] ${Number(text) === a ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setText(String(a))} data-angle-pick={a}>{a}°</button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-600">90° is a square corner, 180° straight on. Walking along the fence from {canTurn ? 'its first side' : 'the start'}. Drawing only: footage and price stay as typed.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" className="btn btn-secondary min-h-[48px]" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-primary min-h-[48px]" disabled={!ok} onClick={() => onDone(v, dir)} data-angle-done>Done</button>
+        </div>
+      </div>
+    </div>
+  )
+}

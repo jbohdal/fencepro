@@ -42,7 +42,8 @@ import type { SavedQuote } from './QuotesPage'
 import { navigate, useNav, useScreenMemory, takeOpenedParam, BackClose } from './nav'
 import { refreshNow } from './liveRefresh'
 import { businessDate } from './businessDate'
-import { useFollowUpBoard, badgeOf, needsFollowUpNow, startTouch } from './followUpStore'
+import { useFollowUpBoard, badgeOf, needsFollowUpNow, startTouch, openedOf } from './followUpStore'
+import { openedBadgeText } from './proposalOpened'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -633,6 +634,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
               needsOutcome={!!l.customerId && apptInfo.overdue.has(l.customerId)}
               onBook={() => bookFor(l)}
               followBadge={badgeOf(l)}
+              opened={openedBadgeText(openedOf(l.id))}
             />
           )}
         />
@@ -741,7 +743,7 @@ function slug(s: string) { return s.replace(/[^a-z0-9]+/gi, '-').toLowerCase() }
 const INTAKE_SOURCES = new Set(['Website Quote', 'Phone (AI receptionist)', 'Website chat'])
 
 function PipelineCard({
-  lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook, followBadge,
+  lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook, followBadge, opened,
 }: {
   lead: PipelineLead
   /** From the customer's quotes; see pipelineValue. */
@@ -761,6 +763,8 @@ function PipelineCard({
   onBook: () => void
   /** Follow up: "Call today", "Overdue 3d", "No follow up set", or null (nothing shown, no extra height). */
   followBadge: { text: string; tone: 'red' | 'orange' | 'gray' } | null
+  /** "Opened 3× · last 2h ago" or "Not opened yet"; null when no proposal was sent (nothing shown, no extra height). */
+  opened: string | null
 }) {
   const days = daysInStage(lead)
   const hex = stageHexFromTailwind(lead.stage)
@@ -822,8 +826,11 @@ function PipelineCard({
         </span>
       </div>
 
-      {(next || overdue || followBadge || (!next && lead.stage === 'First Contact' && INTAKE_SOURCES.has(lead.leadSource))) && (
+      {(next || overdue || followBadge || opened || (!next && lead.stage === 'First Contact' && INTAKE_SOURCES.has(lead.leadSource))) && (
         <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          {opened && (
+            <span data-card-opened={opened} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${opened === 'Not opened yet' ? 'bg-gray-100 text-gray-600' : 'bg-purple-100 text-purple-800'}`}>{opened}</span>
+          )}
           {followBadge && (
             <span data-card-follow-up={followBadge.text} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${followBadge.tone === 'red' ? 'bg-red-100 text-red-700' : followBadge.tone === 'orange' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-700'}`}>{followBadge.text}</span>
           )}

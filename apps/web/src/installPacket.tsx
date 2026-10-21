@@ -15,6 +15,7 @@ import type { AerialBackdrop } from './sitePlanPhoto'
 import { buildPlan } from './sitePlanGeometry'
 import { deriveLayout, formatFtIn, postSpacing, GATE_LABEL } from './yardLayout'
 import { gateWhereText } from './gateSlide'
+import { quotePlanWidth } from './QuotePlan'
 import { savedRunSections } from './quoteCalc'
 import { listMedia, type ServerMedia } from './mediaStore'
 import { fetchWithAuth } from './crmAuth'
@@ -59,7 +60,9 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
   const styleCfg = cfg.fenceStyles.find(s => s.name === quote.fenceStyle)
   const sections = savedRunSections(quote, styleCfg?.panelWidth)
   const yard = quote.layout?.yard ?? null
-  const derived = yard ? deriveLayout(yard) : null
+  // A gate "near the house / corner" sits one panel of the style in, as the builder placed it.
+  const plan = yard ? quotePlanWidth(yard, quote, styleCfg) : null
+  const derived = yard ? deriveLayout(yard, plan!.nearIn) : null
   const named = derived && derived.runs.length === runs.length ? derived.runs : null
   snap.runs = runs.map((ft, i) => ({
     label: named ? (named[i].pieces > 1 ? `${named[i].sideName} (${named[i].piece} of ${named[i].pieces})` : named[i].sideName) : `Run ${i + 1}`,
@@ -81,13 +84,13 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
   if (yard && derived) {
     snap.gates = []; snap.skips = []
     // Swing and hinge come from the drawing (left / right as seen from inside the yard).
-    const planGates = new Map(buildPlan(yard, derived).sides.map(p => [p.sideId, p.gate]))
+    const planGates = new Map(buildPlan(yard, derived, undefined, plan!.widthFt).sides.map(p => [p.sideId, p.gate]))
     yard.sides.forEach((s, i) => {
       if (!s.on) return
       const r = derived.sides[i]
       if (s.gate && r.gateAtIn != null) {
         // Both ways, by the side's real ends: "Back: 5 ft walk gate, 12 ft from the Left side corner, 31 ft to the Right side corner".
-        const where = gateWhereText(yard, i) ?? `${formatFtIn(s.gate.widthIn)} ${GATE_LABEL[s.gate.type].toLowerCase()}`
+        const where = gateWhereText(yard, i, plan!.nearIn) ?? `${formatFtIn(s.gate.widthIn)} ${GATE_LABEL[s.gate.type].toLowerCase()}`
         snap.gates!.push(`${s.name}: ${where}; ${planGates.get(s.id)?.swingText ?? 'swings in'} (as seen from inside the yard)`)
       }
       if (s.skip && r.skipAtIn != null) snap.skips!.push(`${s.name}: ${formatFtIn(s.skip.lengthIn)} ${s.skip.kind === 'existing' ? 'existing fence' : 'with no fence'}, starting ${formatFtIn(r.skipAtIn)} from the start of the side`)
@@ -97,7 +100,7 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
       .map(m => ({ id: m.id, x: m.pin!.x, y: m.pin!.y, angle: m.pin!.angle ?? null }))
     const runSections = quote.layout?.runSections && quote.layout.runSections.length === derived.runs.length ? quote.layout.runSections : undefined
     const mv = quote.work?.type === 'move' ? quote.work.move : undefined
-    snap.planSvg = renderToStaticMarkup(<SitePlan layout={yard} result={derived} runSections={runSections} pins={pins} title="Site plan" aerial={photo}
+    snap.planSvg = renderToStaticMarkup(<SitePlan layout={yard} result={derived} runSections={runSections} widthFt={plan!.widthFt} pins={pins} title="Site plan" aerial={photo}
       oldLine={mv?.oldLinePlan ? { ...mv.oldLinePlan, ft: mv.oldFt, label: `Old line ${Math.round(mv.oldFt)} ft` } : null}
       damaged={quote.work?.type === 'repair' ? quote.work.repair?.tapped : undefined} />)
   } else {

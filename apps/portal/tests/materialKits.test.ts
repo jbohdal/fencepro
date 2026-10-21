@@ -210,6 +210,15 @@ describe('material kits reproduce the old parts lists', () => {
     for (const s of ["WV-DS 6'x6' Privacy", "WV-DS 6'x8' Privacy", 'WV-Auto DS Privacy']) {
       expect(delta(s, 0, 1, 'Misc, Concrete'), s).toBe(3) // its blank post's bag + 2 per double gate, as before
     }
+    // Tan dig set 8 ft tall walk gates get 2 bags of concrete too (Jonathan's decision, Oct 20, 2026:
+    // "Tan dig set 8 ft tall walk gates get 2 bags of concrete too"; TAKEOFF_RULES "Misc, Concrete",
+    // TV-DS row, ceil(postCount + blankPosts + 2*dblGates + 2*walkGates)). Like the white 8 ft list,
+    // the posts keep their 2 bags each; double gates are unchanged.
+    for (const s of ["TV-DS 8'x6' Privacy", "TV-DS 8'x8' Privacy"]) {
+      expect(delta(s, 1, 0, 'Misc, Concrete'), s).toBe(2)
+      expect(delta(s, 2, 0, 'Misc, Concrete'), s).toBe(4)
+      expect(delta(s, 0, 1, 'Misc, Concrete'), s).toBe(0)
+    }
     const handleStyles = [...LOCKED.filter(s => /^(WV|TV)-(ND|DS) /.test(s)), ...Object.keys(AUTO)]
     expect(handleStyles.length).toBe(21)
     for (const s of handleStyles) {

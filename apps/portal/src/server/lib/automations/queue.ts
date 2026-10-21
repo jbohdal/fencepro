@@ -30,6 +30,7 @@ import { describeSteps, runStep, type DryStep } from './steps.js'
 import { MAX_ATTEMPTS, RETRY_BACKOFF_MS, SAME_STAGE_WINDOW_MS, STARTER_RULES, STARTER_STAGE_RULES, ruleSchema, stepSchema, triggerSchema, conditionSchema, type Board, type Condition, type Step, type Trigger } from './types.js'
 import { sendPush } from './push.js'
 import { followUpMorningPush } from '../followUps.js'
+import { proposalOpenedSweep } from '../proposalViews.js'
 import { PERMIT_STATUS_LABEL, portalFor, type PermitStatus } from './permits.js'
 import type { AutomationEvent, AutomationRule, AutomationRun } from '@prisma/client'
 
@@ -466,6 +467,8 @@ export async function tick(now = new Date(), opts: { scan?: boolean } = {}): Pro
       try { await permitReminders(now) } catch (err) { console.error('[automations] permit reminders:', err) }
       // 7 am: each person's follow up calls for the day, one push per person per day (lib/followUps.ts).
       try { await followUpMorningPush(now) } catch (err) { console.error('[automations] follow up morning push:', err) }
+      // Proposal opened pushes a restart kept from going out (each once, lib/proposalViews.ts).
+      try { await proposalOpenedSweep(now) } catch (err) { console.error('[automations] proposal opened push:', err) }
     }
     for (let guard = 0; guard < 20; guard++) {
       const events = await prisma.automationEvent.findMany({ where: { processedAt: null }, orderBy: { occurredAt: 'asc' }, take: 100 })
