@@ -6,6 +6,11 @@
  *   POST /service/:appointmentId/override  { covered: true | false | null, reason } staff decide a
  *                                      call is covered or not (null: back to the warranty's dates)
  *   GET  /quote/:quoteId/contract.pdf  the signed contract with the accepted option's warranty
+ *   GET  /quote/:quoteId/update        "Send updated warranty": what it would send (each option's
+ *                                      warranty now and before) and the last one sent
+ *   POST /quote/:quoteId/update        make it (a new customer link, /p/wu/<link>), or give back the
+ *                                      last one when it would be the same (lib/warrantyUpdates.ts)
+ *   POST /update/:id/sent              { channel: text | email | copy } staff sent it from their phone
  *
  * Settings → Warranties themselves are saved with the rest of Settings
  * (business-state config.warranties, settings.change, the change log).
@@ -20,6 +25,8 @@ import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { jobWarranty, SERVICE_TYPES } from '../lib/warranties.js'
 import { contractForQuote, CONTRACT_SELECT } from '../lib/contractPdf.js'
+import { previewUpdate, createUpdate, markSent, summaryOf } from '../lib/warrantyUpdates.js'
+import { makePreviewToken } from '../lib/proposalViews.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -71,6 +78,48 @@ router.get('/quote/:quoteId/contract.pdf', async (req: any, res) => {
   } catch (err) {
     console.error('[warranties] contract:', err)
     res.status(500).json({ success: false, error: 'Could not make the contract' })
+  }
+})
+
+// ── Send updated warranty (lib/warrantyUpdates.ts) ──
+
+router.get('/quote/:quoteId/update', async (req: any, res) => {
+  try {
+    const p = await previewUpdate(req.user.crmAccountId, String(req.params.quoteId))
+    if (!p) { res.status(404).json({ success: false, error: 'Quote not found' }); return }
+    res.json({ success: true, data: { ...p, preview: makePreviewToken(req.user.id, p.quoteId) } })
+  } catch (err) {
+    console.error('[warranties] update preview:', err)
+    res.status(500).json({ success: false, error: 'Could not read the warranty' })
+  }
+})
+
+router.post('/quote/:quoteId/update', requireCan('quotes.change'), async (req: any, res) => {
+  try {
+    const me = await prisma.crmUser.findUnique({ where: { id: String(req.user.id) }, select: { firstName: true, lastName: true } }).catch(() => null)
+    const name = `${me?.firstName || ''} ${me?.lastName || ''}`.trim() || String(req.user.email || 'Staff')
+    const out = await createUpdate(req.user.crmAccountId, String(req.params.quoteId), { userId: req.user.id ?? null, name })
+    if ('error' in out) { res.status(out.status).json({ success: false, error: out.error }); return }
+    if (!out.reused) await audit(req, 'create', 'WarrantyUpdate', out.update.id, { newValues: { quoteId: out.update.quoteId, kind: out.update.kind, warrantyName: out.update.warrantyName } })
+    res.status(out.reused ? 200 : 201).json({ success: true, data: { ...out.preview, latest: summaryOf(out.update), reused: out.reused, preview: makePreviewToken(req.user.id, out.update.quoteId) } })
+  } catch (err) {
+    console.error('[warranties] update create:', err)
+    res.status(500).json({ success: false, error: 'Could not make the warranty update' })
+  }
+})
+
+const sentSchema = z.object({ channel: z.enum(['text', 'email', 'copy']) })
+
+router.post('/update/:id/sent', requireCan('quotes.change'), async (req: any, res) => {
+  try {
+    const { channel } = sentSchema.parse(req.body)
+    const u = await markSent(req.user.crmAccountId, String(req.params.id), channel)
+    if (!u) { res.status(404).json({ success: false, error: 'Warranty update not found' }); return }
+    res.json({ success: true, data: summaryOf(u) })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    console.error('[warranties] update sent:', err)
+    res.status(500).json({ success: false, error: 'Could not save' })
   }
 })
 

@@ -31,6 +31,7 @@ import { startView, beatView, markSigned, ignoredRequest, proposalOpenedPush } f
 import { contractForQuote, warrantyLines } from '../lib/contractPdf.js'
 import { installDateOf } from '../lib/warranties.js'
 import { pricingModule } from '../lib/estimates.js'
+import { overlayAcceptedUpdate } from '../lib/warrantyUpdates.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -76,8 +77,8 @@ export function monthlyPayment(price: number, aprPct: number, months: number): n
   return r > 0 ? (price * r) / (1 - Math.pow(1 + r, -months)) : price / months
 }
 
-interface ProposalOption { label: string; fenceStyle: string; finalPrice: number; perFoot: number; sections: number; photoId?: string | null; tier?: { label?: string; blurb?: string }; badge?: string; snapshot?: any; warranty?: { id?: string | null; name?: string; text?: string } }
-interface Proposal {
+export interface ProposalOption { label: string; fenceStyle: string; finalPrice: number; perFoot: number; sections: number; photoId?: string | null; tier?: { label?: string; blurb?: string }; badge?: string; snapshot?: any; warranty?: { id?: string | null; name?: string; text?: string } }
+export interface Proposal {
   version: number
   company?: { name?: string; phone?: string; email?: string }
   customer?: { name?: string; address?: string }
@@ -155,12 +156,14 @@ publicProposal.get('/:token', async (req, res) => {
   const photos = p.kind ? await customerPhotos(q) : []
   // Accepted: the warranty's start, once the job is installed (lib/warranties.ts).
   const installDay = q.acceptedAt ? await acceptedInstallDay(q).catch(() => null) : null
-  res.type('html').send(renderProposal(q, p, token, nonce, photos, installDay))
+  // Signed on a warranty update link: the accepted option shows the warranty it was signed with (lib/warrantyUpdates.ts).
+  const shown = q.acceptedAt ? await overlayAcceptedUpdate(q, p).catch(() => p) : p
+  res.type('html').send(renderProposal(q, shown, token, nonce, photos, installDay))
 })
 
 /** "October 20, 2026": the install date of the job for an accepted quote, null until installed. */
 async function acceptedInstallDay(q: { id: string; accountId: string }): Promise<string | null> {
-  const job = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, archivedAt: null }, select: { id: true, completedDate: true } })
+  const job = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, deletedAt: null, archivedAt: null }, select: { id: true, completedDate: true } })
   const day = job ? await installDateOf(job) : null
   return day ? (await pricingModule()).dayText(day) : null
 }
@@ -238,7 +241,7 @@ publicProposal.post('/:token/view/:id', viewLimiter, viewBody, async (req, res) 
   }
 })
 
-const acceptSchema = z.object({
+export const acceptSchema = z.object({
   option: z.number().int().min(0),
   name: z.string().trim().min(1, 'Please type your name').max(200),
   signature: z.string().max(1_000_000).regex(/^data:image\/png;base64,/, 'Please sign').optional(),
@@ -250,66 +253,76 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
   try {
     const body = acceptSchema.parse(req.body)
     const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) } })
-    if (!q || q.archivedAt) { res.status(404).json({ success: false, error: 'This proposal is no longer available.' }); return }
-    // The same acceptance sent again (the customer's signal dropped before the answer came back): it stands.
-    if (q.acceptedAt && q.chosenOption === body.option && q.acceptedBy === body.name) { res.json({ success: true, data: { acceptedAt: q.acceptedAt, option: body.option } }); return }
-    if (q.acceptedAt) { res.status(409).json({ success: false, error: 'This proposal was already accepted.' }); return }
-    if (linkClosed(q)) { res.status(410).json({ success: false, error: 'This link is no longer active. Please call us.' }); return }
-    const p = q.proposal as unknown as Proposal | null
-    const opt = p?.options?.[body.option]
-    if (!opt) { res.status(400).json({ success: false, error: 'Please choose an option.' }); return }
-    // Already signed in the app (Sold, or its quoted cost saved): the price stays as signed (lib/quoteLock.ts).
-    // The customer's acceptance is recorded only for the option it was signed at.
-    const signed = await signedNow(q)
-    if (signed && !(opt.fenceStyle === q.fenceStyle && Math.round(Number(opt.finalPrice) * 100) === Math.round(q.finalPrice * 100))) {
-      res.status(409).json({ success: false, error: 'This proposal was already signed for a different option. Please call us to make a change.' }); return
-    }
-    // The quote becomes the option the customer chose, exactly as it was priced.
-    const s = opt.snapshot ?? {}
-    const layout = q.layout as any
-    // Only while still unaccepted: two taps on Accept at once are one acceptance.
-    const claimed = await prisma.savedQuote.updateMany({
-      where: { id: q.id, acceptedAt: null },
-      data: {
-        status: 'SOLD',
-        acceptedAt: new Date(),
-        acceptedBy: body.name,
-        acceptedSignature: body.signature ?? null,
-        chosenOption: body.option,
-        // Ever sold: set once, never cleared (lib/everSold.ts).
-        ...(q.soldAt ? {} : { soldAt: new Date() }),
-        ...(signed ? {} : {
-          fenceStyle: opt.fenceStyle,
-          finalPrice: opt.finalPrice,
-          sections: opt.sections,
-          ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: s.gmPct } : {}),
-          ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
-          ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : {}),
-          ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections } } : {}),
-          // A move or repair option carries its work; "New fence instead" carries null (the quote becomes a new fence).
-          ...(s && Object.prototype.hasOwnProperty.call(s, 'work') ? { work: s.work === null ? Prisma.JsonNull : s.work } : {}),
-        }),
-      },
-    })
-    const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
-    if (claimed.count === 0) {
-      if (updated.chosenOption === body.option && updated.acceptedBy === body.name) { res.json({ success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } }); return }
-      res.status(409).json({ success: false, error: 'This proposal was already accepted.' }); return
-    }
-    console.log(`[proposal] customer accepted quote ${q.id} option ${body.option} (${opt.fenceStyle}) as "${body.name}"`)
-    // Job costing: the quoted cost, as the chosen option was priced, saved once at signing.
-    await snapshotAfterSigning(q.accountId, q.id, 'proposal')
-    await markSigned(q.id, body.view).catch(err => console.error('[proposal] view signed:', err))
-    await onProposalAccepted(q, opt, body.name).catch(err => console.error('[proposal] after accept:', err))
-    // Sold online: the job goes to Operations, as when a card is moved to Signed Contract.
-    await ensureJobForAcceptedQuote(updated as any).catch(err => console.error('[proposal] job after accept:', err))
-    res.json({ success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } })
+    const out = await acceptQuote(q, body)
+    res.status(out.status).json(out.json)
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[proposal] accept error:', err)
     res.status(500).json({ success: false, error: 'Something went wrong. Please call us.' })
   }
 })
+
+/**
+ * The customer accepts option `body.option` of quote `q` (the proposal link, or
+ * a warranty update link: routes/warrantyUpdatePublic.ts). `accepted`: this
+ * call is the one that accepted it (not a repeat of an acceptance that stands).
+ */
+export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>): Promise<{ status: number; json: any; accepted?: boolean }> {
+  if (!q || q.archivedAt) { return { status: 404, json: { success: false, error: 'This proposal is no longer available.' } } }
+  // The same acceptance sent again (the customer's signal dropped before the answer came back): it stands.
+  if (q.acceptedAt && q.chosenOption === body.option && q.acceptedBy === body.name) { return { status: 200, json: { success: true, data: { acceptedAt: q.acceptedAt, option: body.option } }, accepted: false } }
+  if (q.acceptedAt) { return { status: 409, json: { success: false, error: 'This proposal was already accepted.' } } }
+  if (linkClosed(q)) { return { status: 410, json: { success: false, error: 'This link is no longer active. Please call us.' } } }
+  const p = q.proposal as unknown as Proposal | null
+  const opt = p?.options?.[body.option]
+  if (!opt) { return { status: 400, json: { success: false, error: 'Please choose an option.' } } }
+  // Already signed in the app (Sold, or its quoted cost saved): the price stays as signed (lib/quoteLock.ts).
+  // The customer's acceptance is recorded only for the option it was signed at.
+  const signed = await signedNow(q)
+  if (signed && !(opt.fenceStyle === q.fenceStyle && Math.round(Number(opt.finalPrice) * 100) === Math.round(q.finalPrice * 100))) {
+    return { status: 409, json: { success: false, error: 'This proposal was already signed for a different option. Please call us to make a change.' } }
+  }
+  // The quote becomes the option the customer chose, exactly as it was priced.
+  const s = opt.snapshot ?? {}
+  const layout = q.layout as any
+  // Only while still unaccepted: two taps on Accept at once are one acceptance.
+  const claimed = await prisma.savedQuote.updateMany({
+    where: { id: q.id, acceptedAt: null },
+    data: {
+      status: 'SOLD',
+      acceptedAt: new Date(),
+      acceptedBy: body.name,
+      acceptedSignature: body.signature ?? null,
+      chosenOption: body.option,
+      // Ever sold: set once, never cleared (lib/everSold.ts).
+      ...(q.soldAt ? {} : { soldAt: new Date() }),
+      ...(signed ? {} : {
+        fenceStyle: opt.fenceStyle,
+        finalPrice: opt.finalPrice,
+        sections: opt.sections,
+        ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: s.gmPct } : {}),
+        ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
+        ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : {}),
+        ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections } } : {}),
+        // A move or repair option carries its work; "New fence instead" carries null (the quote becomes a new fence).
+        ...(s && Object.prototype.hasOwnProperty.call(s, 'work') ? { work: s.work === null ? Prisma.JsonNull : s.work } : {}),
+      }),
+    },
+  })
+  const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
+  if (claimed.count === 0) {
+    if (updated.chosenOption === body.option && updated.acceptedBy === body.name) { return { status: 200, json: { success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } }, accepted: false } }
+    return { status: 409, json: { success: false, error: 'This proposal was already accepted.' } }
+  }
+  console.log(`[proposal] customer accepted quote ${q.id} option ${body.option} (${opt.fenceStyle}) as "${body.name}"`)
+  // Job costing: the quoted cost, as the chosen option was priced, saved once at signing.
+  await snapshotAfterSigning(q.accountId, q.id, 'proposal')
+  await markSigned(q.id, body.view).catch(err => console.error('[proposal] view signed:', err))
+  await onProposalAccepted(q, opt, body.name).catch(err => console.error('[proposal] after accept:', err))
+  // Sold online: the job goes to Operations, as when a card is moved to Signed Contract.
+  await ensureJobForAcceptedQuote(updated as any).catch(err => console.error('[proposal] job after accept:', err))
+  return { status: 200, json: { success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } }, accepted: true }
+}
 
 // ── Staff: style photos ──
 
@@ -349,7 +362,8 @@ function page(title: string, body: string, nonce: string, script = ''): string {
 <title>${esc(title)}</title><meta name="robots" content="noindex"><style>${CSS}</style></head><body>${body}${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`
 }
 
-function renderProposal(q: any, p: Proposal, token: string, nonce: string, photos: Array<{ id: string; caption: string; category: string }> = [], installDay: string | null = null): string {
+/** The proposal page. `notice`: HTML put first (a warranty update's note, routes/warrantyUpdatePublic.ts). */
+export function renderProposal(q: any, p: Proposal, token: string, nonce: string, photos: Array<{ id: string; caption: string; category: string }> = [], installDay: string | null = null, notice = ''): string {
   const company = p.company ?? {}
   const rec = Math.min(Math.max(0, p.recommended ?? 0), p.options.length - 1)
   const accepted = !!q.acceptedAt
@@ -403,7 +417,7 @@ function renderProposal(q: any, p: Proposal, token: string, nonce: string, photo
       </section>`
 
   const body = `<header class="top"><img src="logo.png" alt="" class="logo"><div><p class="co">${esc(company.name || 'Getter Done Fence')}</p><p class="small">${[company.phone ? tel(company.phone) : '', company.email ? esc(company.email) : ''].filter(Boolean).join(' · ')}</p></div></header>
-  <main class="wrap">
+  <main class="wrap">${notice}
     <p class="small upper">${p.kind === 'move' ? 'Fence move proposal' : p.kind === 'repair' ? 'Fence repair proposal' : 'Fence proposal'}</p>
     <h1>${esc(p.customer?.name || q.customerName)}</h1>
     <p class="small">${esc(p.customer?.address || q.customerAddress || '')}</p>

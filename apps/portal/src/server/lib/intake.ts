@@ -61,7 +61,7 @@ export async function findOrCreateContact(accountId: string, input: Pick<IntakeI
 
   if (email) {
     const byEmail = await db.crmContact.findFirst({
-      where: { accountId, archivedAt: null, email: { equals: email, mode: 'insensitive' } },
+      where: { accountId, deletedAt: null, archivedAt: null, email: { equals: email, mode: 'insensitive' } },
       select: { id: true, firstName: true, lastName: true },
     })
     if (byEmail) return { id: byEmail.id, created: false, name: `${byEmail.firstName} ${byEmail.lastName}`.trim() }
@@ -69,7 +69,7 @@ export async function findOrCreateContact(accountId: string, input: Pick<IntakeI
   if (phone10.length >= 7) {
     // Phones are stored as typed ("(352) 555-0100"), so compare on digits.
     const candidates = await db.crmContact.findMany({
-      where: { accountId, archivedAt: null, phone: { not: null } },
+      where: { accountId, deletedAt: null, archivedAt: null, phone: { not: null } },
       select: { id: true, phone: true, firstName: true, lastName: true },
     })
     const hit = candidates.find(c => digits(c.phone) === phone10)

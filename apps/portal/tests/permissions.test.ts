@@ -26,15 +26,15 @@ describe('the role table', () => {
     for (const a of ACTIONS) expect(WEB_REFUSAL[a as WebAction]).toBe(REFUSAL[a])
   })
 
-  test('owner and admin: everything; manager: all but users and system', () => {
+  test('owner and admin: everything; manager: all but users, system and deleting (Archive instead)', () => {
     for (const a of ACTIONS) { expect(can('super_admin', a)).toBe(true); expect(can('admin', a)).toBe(true) }
-    for (const a of ACTIONS) expect(can('manager', a)).toBe(!['users.manage', 'system'].includes(a))
+    for (const a of ACTIONS) expect(can('manager', a)).toBe(!['users.manage', 'system', 'records.delete'].includes(a))
   })
 
   test('salesman: quotes only among the guarded actions, no costs; crew: none; office: operations and costs', () => {
-    expect(ACTIONS.filter(a => can('sales_rep', a))).toEqual(['quotes.change'])
+    expect(ACTIONS.filter(a => can('sales_rep', a)).sort()).toEqual(['quotes.change', 'records.archive'])
     expect(ACTIONS.filter(a => can('field_crew', a))).toEqual([])
-    expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'costs.view', 'inventory.stock', 'invoices.manage', 'ops.delete', 'packets.change', 'permits.change', 'quotes.change', 'schedule.change'])
+    expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'costs.view', 'inventory.stock', 'invoices.manage', 'ops.delete', 'packets.change', 'permits.change', 'quotes.change', 'records.archive', 'schedule.change'])
     for (const r of ['sales_rep', 'field_crew', 'office_staff']) {
       for (const a of ['settings.change', 'prices.change', 'users.manage', 'records.delete', 'automations.change', 'system'] as Action[]) expect(can(r, a)).toBe(false)
     }
@@ -90,7 +90,8 @@ describe('inventory', () => {
     expect(inventoryChangeRefusal('sales_rep', inv, next({ items: [{ ...inv.items[0], reservedQty: 3 }] }))).toBeNull()
     expect(inventoryChangeRefusal('sales_rep', inv, next({ items: [{ ...inv.items[0], unitCost: 9 }] }))).toBe('prices.change')
     expect(inventoryChangeRefusal('sales_rep', inv, next({ items: [{ ...inv.items[0], qtyOnHand: 9 }] }))).toBe('inventory.stock')
-    expect(inventoryChangeRefusal('sales_rep', inv, next({ items: [] }))).toBe('prices.change')
+    // Removing a catalog item is a delete (Settings > Deleted Records): owner and admin only.
+    expect(inventoryChangeRefusal('sales_rep', inv, next({ items: [] }))).toBe('records.delete')
     expect(inventoryChangeRefusal('sales_rep', inv, next({ kits: [] }))).toBe('prices.change')
     // A phone on an older build sends no kits: not a change.
     expect(inventoryChangeRefusal('sales_rep', inv, next({ kits: undefined }))).toBeNull()
@@ -100,7 +101,9 @@ describe('inventory', () => {
     expect(inventoryChangeRefusal('office_staff', inv, next({ items: [{ ...inv.items[0], qtyOnHand: 9, reorderPoint: 2 }], transactions: [{ id: 't' }] }))).toBeNull()
     expect(inventoryChangeRefusal('office_staff', inv, next({ items: [{ ...inv.items[0], priceUpdatedAt: '2026-10-18' }] }))).toBe('prices.change')
     expect(inventoryChangeRefusal('office_staff', inv, next({ items: [...inv.items, { id: 'i2', name: 'New', unitCost: 1 }] }))).toBe('prices.change')
-    expect(inventoryChangeRefusal('manager', inv, next({ items: [], kits: [] }))).toBeNull()
+    expect(inventoryChangeRefusal('manager', inv, next({ items: [...inv.items, { id: 'i2', name: 'New', unitCost: 1 }], kits: [] }))).toBeNull()
+    expect(inventoryChangeRefusal('manager', inv, next({ items: [], kits: [] }))).toBe('records.delete')
+    expect(inventoryChangeRefusal('admin', inv, next({ items: [], kits: [] }))).toBeNull()
   })
 })
 

@@ -43,6 +43,7 @@ export interface EverSoldCounts { sold: number; accepted: number; quotedCost: nu
  * run against a database that must not be written.
  */
 export async function everSoldCandidates(accountId: string, tx: any = prisma): Promise<{ ids: Map<string, Date>; counts: EverSoldCounts }> {
+  // all rows: the sold stamp is set on every quote that was ever sold, deleted or not.
   const [quotes, costs, jobs, alreadySet] = await Promise.all([
     tx.savedQuote.findMany({ where: { accountId, soldAt: null }, select: { id: true, status: true, acceptedAt: true, updatedAt: true, createdAt: true } }),
     tx.jobQuotedCost.findMany({ where: { accountId }, select: { quoteId: true, signedAt: true } }),
@@ -85,6 +86,7 @@ export async function backfillEverSold(accountId: string): Promise<EverSoldCount
 
 /** At server start: every company with quotes. */
 export async function backfillEverSoldAll(): Promise<void> {
+  // all rows: every company with quotes.
   const rows = await prisma.savedQuote.groupBy({ by: ['accountId'] })
   for (const r of rows) {
     try {

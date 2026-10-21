@@ -18,7 +18,8 @@ import { plainZod } from '../lib/plainZod.js'
 import { checkPipelineMoves, refuseBlocked } from '../lib/automations/stageRules.js'
 import { recordCardMoves } from '../lib/automations/hooks.js'
 import { onCardMoves } from '../lib/followUps.js'
-import { pipelineChangeRefusal, refuse, removedIds, roleOf } from '../lib/permissions.js'
+import { pipelineChangeRefusal, refuse, removedIds, roleOf, requireCan } from '../lib/permissions.js'
+import { DeleteError, deleteRecord, logRemovedCards, removedIdsAmong, setArchived } from '../lib/deletion.js'
 
 const router = Router()
 
@@ -55,6 +56,24 @@ const pipelineSchema = z.object({
   stages: z.array(z.any()).default([]),
 })
 
+/**
+ * Cards a save may not bring back: a card deleted (in Settings > Deleted
+ * Records until restored), archived, or of a deleted customer. An older screen
+ * still holding one sends it again; only a card already on the board passes.
+ */
+async function cardsNotWelcome(accountId: string, current: { leads?: unknown; archivedLeads?: unknown } | null, incoming: any[]): Promise<Set<string>> {
+  const onBoard = new Set(((current?.leads as any[]) ?? []).map(l => l?.id))
+  const fresh = incoming.filter(l => l?.id && !onBoard.has(l.id))
+  if (!fresh.length) return new Set()
+  const archived = new Set(((current?.archivedLeads as any[]) ?? []).map(l => l?.id))
+  const removed = await removedIdsAmong(prisma, accountId, fresh.map(l => l.id))
+  const customerIds = [...new Set(fresh.map(l => l.customerId).filter((x: unknown): x is string => typeof x === 'string' && !!x))]
+  const gone = customerIds.length ? new Set((await prisma.crmContact.findMany({ where: { id: { in: customerIds }, accountId, deletedAt: { not: null } }, select: { id: true } })).map(c => c.id)) : new Set<string>()
+  return new Set(fresh.filter(l => archived.has(l.id) || removed.has(l.id) || (l.customerId && gone.has(l.customerId))).map(l => l.id))
+}
+
+const actorOf = (req: any) => ({ accountId: req.user.crmAccountId as string, userId: (req.user.id ?? null) as string | null })
+
 router.get('/', async (req: any, res) => {
   try {
     const accountId = req.user.crmAccountId
@@ -83,6 +102,8 @@ router.put('/', async (req: any, res) => {
     const fields = { leads: oneById(JSON.parse(JSON.stringify(data.leads)) as any[]), stages: JSON.parse(JSON.stringify(data.stages)) }
     // Stage rules: a card cannot enter a stage whose requirements are not met (the app puts it back and says what is missing).
     const prev = await prisma.pipelineState.findUnique({ where: { accountId } })
+    const unwelcome = await cardsNotWelcome(accountId, prev, fields.leads)
+    if (unwelcome.size) fields.leads = fields.leads.filter(l => !unwelcome.has(l?.id))
     // A whole board saved by a limited role may add and move cards, never drop one or change the stages.
     const refusedPut = prev ? pipelineChangeRefusal(roleOf(req), prev as any, { removed: removedIds(prev.leads, fields.leads), stages: fields.stages }) : null
     if (refusedPut) { refuse(res, refusedPut, { data: prev, version: prev?.version ?? 0 }); return }
@@ -94,6 +115,8 @@ router.put('/', async (req: any, res) => {
     // Stage moves are saved for automations in the same step.
     const done = await prisma.$transaction(async tx => {
       const d = await tx.pipelineState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+      // A card taken off the board is a delete: one Deleted Records row each (before its follow up goes).
+      if (d.count && prev) await logRemovedCards(tx, actorOf(req), (prev.leads as any[]) ?? [], fields.leads)
       if (d.count && prev) await recordCardMoves(accountId, (prev.leads as any[]) ?? [], fields.leads, base + 1, tx)
       // A card in a new stage starts that stage's follow up steps (stops on Signed or Lost).
       if (d.count && prev) await onCardMoves(tx, accountId, (prev.leads as any[]) ?? [], fields.leads)
@@ -139,6 +162,8 @@ router.patch('/', async (req: any, res) => {
     const current = await prisma.pipelineState.findUnique({ where: { accountId } })
     // Same rule as a whole save: only onto the version it was built on.
     if (!current || current.version !== base) { refuseStale(res, current, current?.version ?? 0); return }
+    const unwelcome = await cardsNotWelcome(accountId, current, delta.upsert.map(u => u.lead))
+    if (unwelcome.size) delta.upsert = delta.upsert.filter(u => !unwelcome.has(u.lead.id))
     // Adding and moving cards is for everyone; removing a card or changing the stages is not.
     const refusedDelta = pipelineChangeRefusal(roleOf(req), current as any, { removed: delta.remove.filter(id => ((current.leads as any[]) ?? []).some(l => l?.id === id)), stages: delta.stages })
     if (refusedDelta) { refuse(res, refusedDelta, { data: current, version: current.version }); return }
@@ -148,6 +173,7 @@ router.patch('/', async (req: any, res) => {
     if (blocked.length) { refuseBlocked(res, blocked, { data: current, version: current.version }); return }
     const done = await prisma.$transaction(async tx => {
       const d = await tx.pipelineState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+      if (d.count) await logRemovedCards(tx, actorOf(req), (current.leads as any[]) ?? [], next.leads)
       if (d.count) await recordCardMoves(accountId, (current.leads as any[]) ?? [], next.leads, base + 1, tx)
       if (d.count) await onCardMoves(tx, accountId, (current.leads as any[]) ?? [], next.leads)
       return d
@@ -166,5 +192,36 @@ router.patch('/', async (req: any, res) => {
     res.status(500).json({ success: false, error: 'Failed to save pipeline' })
   }
 })
+
+// ── One card: archive, unarchive, delete ──
+// Archive moves the card to archivedLeads (off the board, kept for search and
+// reports); Unarchive puts it back. Delete (owner, admin) sends it to
+// Settings > Deleted Records with its follow up.
+async function cardAction(req: any, res: any, run: () => Promise<unknown>) {
+  try {
+    const data = await run()
+    const p = await prisma.pipelineState.findUnique({ where: { accountId: req.user.crmAccountId }, select: { version: true } })
+    res.json({ success: true, data, version: p?.version ?? null })
+  } catch (err) {
+    if (err instanceof DeleteError) { res.status(err.status).json({ success: false, error: err.message }); return }
+    console.error('[pipeline] card action error:', err)
+    res.status(500).json({ success: false, error: 'Failed to change the card' })
+  }
+}
+router.post('/cards/:id/archive', requireCan('records.archive'), (req: any, res) => cardAction(req, res, async () => {
+  const r = await setArchived(actorOf(req), 'card', String(req.params.id), true)
+  await audit(req, 'update', 'PipelineCard', String(req.params.id), { newValues: { archivedAt: r.archivedAt } })
+  return r
+}))
+router.post('/cards/:id/unarchive', requireCan('records.archive'), (req: any, res) => cardAction(req, res, async () => {
+  const r = await setArchived(actorOf(req), 'card', String(req.params.id), false)
+  await audit(req, 'update', 'PipelineCard', String(req.params.id), { newValues: { archivedAt: null } })
+  return r
+}))
+router.delete('/cards/:id', requireCan('records.delete'), (req: any, res) => cardAction(req, res, async () => {
+  const r = await deleteRecord(actorOf(req), 'card', String(req.params.id), typeof req.body?.reason === 'string' ? req.body.reason : null)
+  await audit(req, 'soft_delete', 'PipelineCard', String(req.params.id), { newValues: r })
+  return r
+}))
 
 export default router

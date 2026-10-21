@@ -9,7 +9,7 @@
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, User, ClipboardList, Wrench, LayoutGrid, CalendarPlus, FilePlus2, UserPlus, type LucideIcon } from 'lucide-react'
-import { getCustomers, type Customer } from './customerStore'
+import { getCustomers, getArchivedCustomers, type Customer } from './customerStore'
 import { openBooking } from './BookingDialog'
 
 interface QuoteLike { id: string; customerId?: string; customerName: string; customerAddress?: string; fenceStyle: string; finalPrice: number; status: string; date: string }
@@ -46,12 +46,14 @@ export default function GlobalSearch({ onClose, quotes, jobs, pages, openCustome
     ]
     if (text.length < 2) return actions
     const out: Hit[] = []
-    const customers = getCustomers().filter(c => {
+    // Archived customers are found too (marked so); deleted ones never.
+    const archivedIds = new Set(getArchivedCustomers().map(c => c.id))
+    const customers = [...getCustomers(), ...getArchivedCustomers()].filter(c => {
       const name = `${c.firstName} ${c.lastName}`.toLowerCase()
       return name.includes(text) || (c.serviceAddress || '').toLowerCase().includes(text) || (c.email || '').toLowerCase().includes(text) ||
         (num.length >= 3 && digits(c.phone).includes(num))
     }).slice(0, 8)
-    for (const c of customers) out.push({ group: 'Customers', icon: User, label: `${c.firstName} ${c.lastName}`.trim(), sub: [c.phone, c.serviceAddress].filter(Boolean).join(' · '), run: done(() => openCustomer(c.id)), customer: c })
+    for (const c of customers) out.push({ group: 'Customers', icon: User, label: `${c.firstName} ${c.lastName}`.trim(), sub: [archivedIds.has(c.id) ? 'Archived' : '', c.phone, c.serviceAddress].filter(Boolean).join(' · '), run: done(() => openCustomer(c.id)), ...(archivedIds.has(c.id) ? {} : { customer: c }) })
     for (const x of quotes.filter(x => x.customerName.toLowerCase().includes(text) || (x.customerAddress || '').toLowerCase().includes(text) || (x.fenceStyle.toLowerCase().includes(text) || styleLabel(x.fenceStyle).toLowerCase().includes(text))).slice(0, 5))
       out.push({ group: 'Quotes', icon: ClipboardList, label: x.customerName, sub: [styleLabel(x.fenceStyle), money(x.finalPrice), x.status.charAt(0) + x.status.slice(1).toLowerCase(), x.date].filter(Boolean).join(' · '), run: done(() => openQuote(x)) })
     for (const j of jobs.filter(j => j.customerName.toLowerCase().includes(text) || (j.customerAddress || '').toLowerCase().includes(text)).slice(0, 5))

@@ -39,6 +39,7 @@ export async function shrinkDueMedia(now = new Date()): Promise<{ videos: number
   const accounts = await prisma.crmAccount.findMany({ select: { id: true } })
   for (const { id: accountId } of accounts) {
     const cutoff = shrinkCutoff(now, await settingDays(accountId))
+    // all rows: photos of a deleted job are kept (and shrunk) so a restore gets them back.
     const jobs = await prisma.savedJob.findMany({
       where: { accountId, completedDate: { not: null, lte: cutoff }, NOT: { completedDate: '' } },
       select: { id: true, quoteId: true },

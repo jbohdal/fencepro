@@ -31,6 +31,8 @@ const LEGACY_KEY = 'fencepro_quotes'
 const uid = () => Math.random().toString(36).slice(2, 10)
 
 let cache: SavedQuote[] = []
+/** Archived quotes (not deleted): kept for search and reports; never on the active lists. */
+let archivedCache: SavedQuote[] = []
 let initPromise: Promise<void> | null = null
 let hydrated = false
 
@@ -146,6 +148,7 @@ export function initQuotes(): Promise<void> {
     if (!records) return
     cache = records.map(fromApi)
     hydrated = true
+    void loadArchivedQuotes()
     // Quotes saved on this phone and not on the server yet.
     reapply('quote.')
     emit()
@@ -159,6 +162,18 @@ export function isQuotesHydrated(): boolean { return hydrated }
 
 export function getQuotes(): SavedQuote[] {
   return cache
+}
+
+/** Archived quotes (with their customer, or on their own): for search and reports. */
+export function getArchivedQuotes(): SavedQuote[] {
+  return archivedCache
+}
+
+async function loadArchivedQuotes(): Promise<void> {
+  const r = await sendJson('GET', '/api/saved-quotes?archived=1')
+  if (!r.result.ok || !Array.isArray(r.json?.data)) return
+  archivedCache = (r.json.data as SavedQuoteRecord[]).map(fromApi)
+  emit()
 }
 
 export function getQuoteById(id: string): SavedQuote | null {
@@ -314,13 +329,17 @@ export async function refreshQuotes(): Promise<void> {
   if (!hydrated) return
   const r = await sendJson('GET', `/api/saved-quotes${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`)
   if (!r.result.ok || !Array.isArray(r.json?.data)) return
-  const rows = r.json.data as Array<SavedQuoteRecord & { archivedAt?: string | null }>
+  const rows = r.json.data as Array<SavedQuoteRecord & { archivedAt?: string | null; deletedAt?: string | null }>
   if (r.json.partial) {
     if (rows.length) {
       const byId = new Map(cache.map(x => [x.id, x]))
+      const arch = new Map(archivedCache.map(x => [x.id, x]))
       for (const row of rows) {
         const was = byId.get(row.id)
-        if (row.archivedAt) { byId.delete(row.id); continue }
+        arch.delete(row.id)
+        // Deleted: off both lists. Archived: off the active list, on the archived one.
+        if (row.deletedAt) { byId.delete(row.id); continue }
+        if (row.archivedAt) { byId.delete(row.id); arch.set(row.id, fromApi(row)); continue }
         const now = fromApi(row)
         // A customer accepted online while the app was open: say so.
         if (was && !was.acceptedAt && now.acceptedAt) {
@@ -329,8 +348,9 @@ export async function refreshQuotes(): Promise<void> {
         byId.set(row.id, now)
       }
       cache = [...byId.values()]
+      archivedCache = [...arch.values()]
     }
-  } else cache = rows.map(fromApi)
+  } else { cache = rows.map(fromApi); void loadArchivedQuotes() }
   if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
   if (!r.json.partial || rows.length) { reapply('quote.'); emit() }
 }

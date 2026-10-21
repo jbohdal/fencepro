@@ -71,12 +71,12 @@ export const CUSTOMER_VISIBLE = { OR: [{ status: 'sent' }, { status: 'approved' 
 export async function changeOrdersForContact(contactId: string) {
   if (typeof contactId !== 'string' || !contactId) return [] // never "every quote"
   const quotes = await prisma.savedQuote.findMany({
-    where: { crmContactId: contactId, archivedAt: null },
+    where: { crmContactId: contactId, deletedAt: null, archivedAt: null },
     select: { id: true, accountId: true, fenceStyle: true, finalPrice: true, customerName: true },
   })
   if (!quotes.length) return []
   const rows = await prisma.changeOrder.findMany({
-    where: { AND: [{ OR: quotes.map(q => ({ accountId: q.accountId, quoteId: q.id })) }, CUSTOMER_VISIBLE] },
+    where: { AND: [{ OR: quotes.map(q => ({ accountId: q.accountId, quoteId: q.id })) }, CUSTOMER_VISIBLE, { deletedAt: null }] },
     orderBy: [{ createdAt: 'desc' }],
   })
   const byId = new Map(quotes.map(q => [q.id, q]))
@@ -141,7 +141,7 @@ export async function quoteIsSigned(accountId: string, quoteId: string): Promise
 
 /** The approved total of a quote's change orders, in cents. */
 export async function approvedTotalCents(accountId: string, quoteId: string, tx: any = prisma): Promise<number> {
-  const rows = await tx.changeOrder.findMany({ where: { accountId, quoteId, status: 'approved' }, select: { totalCents: true } })
+  const rows = await tx.changeOrder.findMany({ where: { accountId, quoteId, status: 'approved', deletedAt: null }, select: { totalCents: true } })
   return rows.reduce((s: number, r: { totalCents: number }) => s + r.totalCents, 0)
 }
 
@@ -151,7 +151,7 @@ export async function approvedTotalCents(accountId: string, quoteId: string, tx:
  * Returns the job's id, or null when the quote has no job yet.
  */
 export async function applyToJob(accountId: string, quoteId: string, tx: any = prisma): Promise<string | null> {
-  const job = await tx.savedJob.findFirst({ where: { accountId, quoteId, archivedAt: null } })
+  const job = await tx.savedJob.findFirst({ where: { accountId, quoteId, deletedAt: null, archivedAt: null } })
   if (!job) return null
   const cents = await approvedTotalCents(accountId, quoteId, tx)
   const quoteCents = Math.round((job.quotePrice || 0) * 100)
@@ -162,7 +162,7 @@ export async function applyToJob(accountId: string, quoteId: string, tx: any = p
 /** For a job save: the server's change order total and contract value, when its quote has change orders. */
 export async function jobTotalsFor(accountId: string, quoteId: string | null | undefined, quotePrice: number): Promise<{ changeOrderTotal: number; contractValue: number } | null> {
   if (!quoteId) return null
-  const any = await prisma.changeOrder.count({ where: { accountId, quoteId } })
+  const any = await prisma.changeOrder.count({ where: { accountId, quoteId, deletedAt: null } })
   if (!any) return null
   const cents = await approvedTotalCents(accountId, quoteId)
   return { changeOrderTotal: cents / 100, contractValue: (Math.round((quotePrice || 0) * 100) + cents) / 100 }
@@ -183,6 +183,7 @@ export async function importFromKv(accountId: string): Promise<number> {
   const kv = await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: 'fencepro_changeorders' } } }).catch(() => null)
   const list = Array.isArray(kv?.value) ? (kv!.value as any[]) : []
   if (!list.length) return 0
+  // all rows: an id taken by a deleted change order is still taken.
   const have = new Set((await prisma.changeOrder.findMany({ where: { accountId, id: { in: list.map(o => String(o?.id ?? '')) } }, select: { id: true } })).map(r => r.id))
   let made = 0
   for (const o of list) {

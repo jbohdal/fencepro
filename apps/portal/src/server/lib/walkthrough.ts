@@ -53,7 +53,7 @@ export async function startWalkthrough(accountId: string, jobId: string, by: str
     if (existing.accountId !== accountId) throw Object.assign(new Error('Job not found'), { status: 404 })
     return { id: existing.id, created: false }
   }
-  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, archivedAt: null } })
+  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null, archivedAt: null } })
   if (!job) throw Object.assign(new Error('Job not found'), { status: 404 })
   // A phone's id that is already used by another company's record is not taken.
   let id = input.id

@@ -21,6 +21,8 @@ import { getJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
 import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, pickable, useOpsStages } from './opsStagesStore'
 import { ChangeOrderPanel } from './ChangeOrders'
+import { can } from './permissions'
+import { archiveRecord, deleteRecord } from './recordArchive'
 
 // Unified job type for display
 export interface UnifiedJob {
@@ -250,6 +252,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
             <p className="text-sm text-red-600 mt-1">{job.holdReason}</p>
           </div>
         )}
+
+        {isJobSource && <JobArchiveDelete job={job} onClose={onClose} />}
       </div>
 
       {/* Footer actions */}
@@ -271,6 +275,41 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Archive (everyday: off the board, kept for search and reports; Unarchive is
+ * on the customer's page) and Delete (owner, admin: to Settings > Deleted
+ * Records with its schedule entries, appointments and invoices).
+ */
+function JobArchiveDelete({ job, onClose }: { job: UnifiedJob; onClose: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const canArchive = can('records.archive') && can('schedule.change')
+  const canDelete = can('records.delete')
+  if (!canArchive && !canDelete) return null
+  async function archive() {
+    setBusy(true)
+    const r = await archiveRecord('job', job.id)
+    setBusy(false)
+    if (!r.ok) { toast.error('Not archived', r.error || 'Try again.'); return }
+    toast.success('Job archived', 'Off the board. Search and reports still have it; Unarchive is on the customer\'s page.')
+    onClose()
+  }
+  async function remove() {
+    if (!confirm(`Delete the job for ${job.customerName || 'this customer'}? Its schedule entries, appointments and invoices go with it. The owner or an admin can restore it from Settings > Deleted Records.`)) return
+    setBusy(true)
+    const r = await deleteRecord('job', job.id)
+    setBusy(false)
+    if (!r.ok) { toast.error('Not deleted', r.error || 'Try again.'); return }
+    toast.success('Job deleted', 'Restore it from Settings > Deleted Records.')
+    onClose()
+  }
+  return (
+    <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100" data-job-record-actions>
+      {canArchive && <button className="btn btn-secondary btn-sm min-h-[44px]" disabled={busy} onClick={archive} data-job-archive>Archive job</button>}
+      {canDelete && <button className="btn btn-quiet btn-sm min-h-[44px] text-red-700" disabled={busy} onClick={remove} data-job-delete>Delete job…</button>}
     </div>
   )
 }

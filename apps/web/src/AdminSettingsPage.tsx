@@ -26,9 +26,10 @@ import MoveRepairSettings from './MoveRepairSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
 import FollowUpSettings from './FollowUpSettings'
 import SettingsChangeLog from './SettingsChangeLog'
-import { signedInRole } from './permissions'
+import DeletedRecords from './DeletedRecords'
+import { signedInRole, roleCan } from './permissions'
 
-type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'warranties' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups' | 'change_log'
+type AdminTab = 'company' | 'pricing' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'warranties' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups' | 'change_log' | 'deleted'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -597,6 +598,7 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'walkthrough',        label: 'Final Walkthrough' },
   { key: 'calendar',           label: 'Google Calendar' },
   { key: 'change_log',         label: 'Change log' },        // owner only (SettingsChangeLog.tsx)
+  { key: 'deleted',            label: 'Deleted Records' },   // owner and admin (DeletedRecords.tsx)
 ]
 
 export default function AdminSettingsPage() {
@@ -684,7 +686,7 @@ export default function AdminSettingsPage() {
         </div>
 
         <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-xl p-1 lg:w-fit mb-6 lg:mb-8 overflow-x-auto">
-          {TABS.filter(t => t.key !== 'change_log' || signedInRole() === 'super_admin').map(t => (
+          {TABS.filter(t => (t.key !== 'change_log' || signedInRole() === 'super_admin') && (t.key !== 'deleted' || roleCan(signedInRole(), 'records.delete'))).map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} data-settings-tab={t.key} aria-pressed={tab === t.key} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.key ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-800'}`}>
               {t.label}
             </button>
@@ -737,6 +739,7 @@ export default function AdminSettingsPage() {
           {tab === 'follow_ups' && <FollowUpSettings />}
           {tab === 'walkthrough' && <WalkthroughSettings config={config} onChange={handleChange} />}
           {tab === 'change_log' && signedInRole() === 'super_admin' && <SettingsChangeLog />}
+          {tab === 'deleted' && roleCan(signedInRole(), 'records.delete') && <DeletedRecords />}
         </div>
       </div>
     </div>

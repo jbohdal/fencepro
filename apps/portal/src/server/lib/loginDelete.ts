@@ -14,12 +14,25 @@
  */
 
 import prisma from './prisma.js'
+import { emptySnapshot, labelOf, loginForLog, logDeletion } from './deletion.js'
 
 export const PENDING_CALLS_CLEANUP_KEY = 'migration:orphan-pending-calls-2026-10'
 
-/** Delete a login and its pending call, in one transaction. */
-export async function deleteLogin(userId: string): Promise<void> {
+/**
+ * Delete a login and its pending call, in one transaction. The login (never
+ * its password) and its pending call go to Settings > Deleted Records;
+ * Restore makes the login again as invited, so it is sent a new invite.
+ */
+export async function deleteLogin(userId: string, byUserId: string | null = null): Promise<void> {
   await prisma.$transaction(async tx => {
+    const user = await tx.crmUser.findUnique({ where: { id: userId } })
+    if (user?.crmAccountId) {
+      const snap = emptySnapshot()
+      snap.hard.push({ model: 'crmUser', id: user.id, row: loginForLog(user) })
+      const touch = await tx.pendingTouch.findUnique({ where: { userId } })
+      if (touch) snap.hard.push({ model: 'pendingTouch', id: touch.userId, row: JSON.parse(JSON.stringify(touch)) })
+      await logDeletion(tx, { accountId: user.crmAccountId, userId: byUserId }, { entityType: 'login', entityId: user.id, entityLabel: labelOf('crmUser', user), snapshot: snap })
+    }
     await tx.crmUserSession.deleteMany({ where: { userId } })
     await tx.crmUserActivity.deleteMany({ where: { userId } })
     await tx.pendingTouch.deleteMany({ where: { userId } })

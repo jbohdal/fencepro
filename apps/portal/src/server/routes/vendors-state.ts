@@ -7,6 +7,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { logRemovedVendors } from '../lib/deletion.js'
 import { findOrCreate, isUniqueViolation, oneById } from '../lib/once.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
@@ -74,18 +75,22 @@ router.put('/', async (req: any, res) => {
       bills: oneById(JSON.parse(JSON.stringify(data.bills)) as any[]),
       payments: oneById(JSON.parse(JSON.stringify(data.payments)) as any[]),
     }
-    // Vendors and bills: the office may add and edit them, only the owner, admin or manager may remove one.
+    // Vendors and bills: the office may add and edit them; removing one is a delete, for the owner or an admin.
     const role = roleOf(req)
-    if (!isFullRole(role)) {
-      const saved = await prisma.vendorState.findUnique({ where: { accountId } })
-      const changed = (['vendors', 'bills', 'payments'] as const).some(k => !sameJson((saved as any)?.[k] ?? [], fields[k]))
-      const refused = !changed ? null
-        : !can(role, 'billing.change') ? 'billing.change' as const
-        : (['vendors', 'bills', 'payments'] as const).some(k => removedIds((saved as any)?.[k], fields[k]).length) ? 'records.delete' as const
-        : null
-      if (refused) { refuse(res, refused, { data: saved, version: saved?.version ?? 0 }); return }
-    }
-    const done = await prisma.vendorState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+    const saved = await prisma.vendorState.findUnique({ where: { accountId } })
+    const changed = (['vendors', 'bills', 'payments'] as const).some(k => !sameJson((saved as any)?.[k] ?? [], fields[k]))
+    const removes = (['vendors', 'bills', 'payments'] as const).some(k => removedIds((saved as any)?.[k], fields[k]).length)
+    const refused = !changed ? null
+      : !isFullRole(role) && !can(role, 'billing.change') ? 'billing.change' as const
+      : removes && !can(role, 'records.delete') ? 'records.delete' as const
+      : null
+    if (refused) { refuse(res, refused, { data: saved, version: saved?.version ?? 0 }); return }
+    // A vendor removed goes to Settings > Deleted Records (its bills stay: they are the books).
+    const done = await prisma.$transaction(async tx => {
+      const d = await tx.vendorState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+      if (d.count && saved) await logRemovedVendors(tx, { accountId, userId: req.user?.id ?? null }, saved.vendors, fields.vendors)
+      return d
+    })
     if (done.count === 0) {
       const current = await prisma.vendorState.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }

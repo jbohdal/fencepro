@@ -33,7 +33,15 @@ let hydrated = false
 let timer: ReturnType<typeof setTimeout> | null = null
 
 const clone = (d: PipelineDoc): PipelineDoc => JSON.parse(JSON.stringify(d))
-const pick = (d: any): PipelineDoc => ({ leads: Array.isArray(d?.leads) ? d.leads : [], stages: Array.isArray(d?.stages) ? d.stages : [] })
+/** Archived cards (Archive on the card or its customer): off the board, kept for search and reports. Read only here; the server moves them. */
+let archivedCards: any[] = []
+const pick = (d: any): PipelineDoc => {
+  if (Array.isArray(d?.archivedLeads)) archivedCards = d.archivedLeads
+  return { leads: Array.isArray(d?.leads) ? d.leads : [], stages: Array.isArray(d?.stages) ? d.stages : [] }
+}
+
+/** Archived cards, for search, reports and the customer record's Unarchive. */
+export function getArchivedCards(): any[] { return archivedCards }
 function emit() { try { window.dispatchEvent(new CustomEvent(EVT)) } catch { /* no window */ } }
 
 /** The server's copy with this phone's waiting changes on top. */
@@ -179,6 +187,12 @@ async function reloadPipeline(): Promise<void> {
   cache = withPending(pick(r.json.data))
   base = clone(cache)
   emit()
+}
+
+/** The whole board again now (after an archive, delete or restore made on the server). */
+export async function refreshPipelineNow(): Promise<void> {
+  if (!hydrated) return
+  await reloadPipeline()
 }
 
 /** Read the board again (the server moves cards on its own: a customer accepting online). This phone's waiting changes stay on top. */

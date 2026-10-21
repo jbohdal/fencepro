@@ -158,7 +158,7 @@ router.get('/history', async (req: any, res) => {
     const customerId = typeof req.query.customerId === 'string' ? req.query.customerId : null
     const cardId = typeof req.query.cardId === 'string' ? req.query.cardId : null
     if (customerId) {
-      const c = await prisma.crmContact.findFirst({ where: { id: customerId, accountId: req.user.crmAccountId }, select: { id: true } }).catch(() => null)
+      const c = await prisma.crmContact.findFirst({ where: { id: customerId, accountId: req.user.crmAccountId, deletedAt: null }, select: { id: true } }).catch(() => null)
       if (!c) { res.json({ success: true, data: await customerHistory(req.user.crmAccountId, { cardId }) }); return }
     }
     res.json({ success: true, data: await customerHistory(req.user.crmAccountId, { customerId, cardId }) })

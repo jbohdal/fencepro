@@ -56,6 +56,8 @@ export interface Customer {
 }
 
 let cache: Customer[] = []
+/** Archived customers (not deleted): kept for search, reports and the record's Unarchive; never on the active list. */
+let archivedCache: Customer[] = []
 let initPromise: Promise<void> | null = null
 let hydrated = false
 
@@ -134,6 +136,7 @@ export function initCustomers(): Promise<void> {
     if (!records) return
     cache = records.map(fromApi)
     hydrated = true
+    void loadArchivedCustomers()
     // Customers added or changed on this phone and not on the server yet.
     reapply('customer.')
     emit()
@@ -159,14 +162,21 @@ export async function refreshCustomers(): Promise<void> {
   // Only what changed since the last read (small on cell data); waiting changes stay on top.
   const r = await sendJson('GET', `/api/crm-contacts${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`)
   if (!r.result.ok || !Array.isArray(r.json?.data)) return
-  const rows = r.json.data as Array<CrmContactRecord & { archivedAt?: string | null }>
+  const rows = r.json.data as Array<CrmContactRecord & { archivedAt?: string | null; deletedAt?: string | null }>
   if (r.json.partial) {
     if (rows.length) {
       const byId = new Map(cache.map(c => [c.id, c]))
-      for (const row of rows) { if (row.archivedAt) byId.delete(row.id); else byId.set(row.id, fromApi(row)) }
+      const arch = new Map(archivedCache.map(c => [c.id, c]))
+      // Deleted: off both lists. Archived: off the active list, on the archived one.
+      for (const row of rows) {
+        byId.delete(row.id); arch.delete(row.id)
+        if (row.deletedAt) continue
+        if (row.archivedAt) arch.set(row.id, fromApi(row)); else byId.set(row.id, fromApi(row))
+      }
       cache = [...byId.values()]
+      archivedCache = [...arch.values()]
     }
-  } else cache = rows.map(fromApi)
+  } else { cache = rows.map(fromApi); void loadArchivedCustomers() }
   if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
   if (!r.json.partial || rows.length) { reapply('customer.'); emit() }
 }
@@ -176,6 +186,23 @@ function reloadCustomers() { lastSync = null; void refreshCustomers() }
 
 export function getCustomers(): Customer[] {
   return cache
+}
+
+/** Archived customers: for search, reports and KPIs, and the record's Unarchive. */
+export function getArchivedCustomers(): Customer[] {
+  return archivedCache
+}
+
+/** True when this customer is archived (on the archived list, not the active one). */
+export function isCustomerArchived(id: string): boolean {
+  return !cache.some(c => c.id === id) && archivedCache.some(c => c.id === id)
+}
+
+async function loadArchivedCustomers(): Promise<void> {
+  const r = await sendJson('GET', '/api/crm-contacts?archived=1')
+  if (!r.result.ok || !Array.isArray(r.json?.data)) return
+  archivedCache = (r.json.data as CrmContactRecord[]).map(fromApi)
+  emit()
 }
 
 export function getCustomerById(id: string): Customer | null {

@@ -35,6 +35,7 @@ import pricingRoutes from './routes/pricing.js'
 import quoteApiRoutes from './routes/quotes-api.js'
 import savedQuoteRoutes from './routes/saved-quotes.js'
 import { publicProposal, stylePhotos } from './routes/proposal.js'
+import { warrantyUpdatePublic } from './routes/warrantyUpdatePublic.js'
 import { changeOrderPublic } from './routes/changeOrderPublic.js'
 import tierSetRoutes from './routes/tier-sets.js'
 import voiceRoutes from './routes/voice.js'
@@ -85,6 +86,7 @@ import { hidesCosts, staffRoleOf, redactCosts } from './lib/costRedact.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
 import { ensureTwoOptionTiersAll } from './lib/tierSets.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
+import deletedRecordRoutes from './routes/deleted-records.js'
 import quoteWidget from './routes/quote-widget.js'
 import systemRoutes from './routes/system.js'
 import cronRoutes from './routes/cron.js'
@@ -241,6 +243,7 @@ app.use('/p/i', packetPublic)
 app.use('/api/walkthroughs', walkthroughStaff)
 app.use('/p/w', walkthroughPublic)
 app.use('/p/co', changeOrderPublic)  // A change order's customer link (routes/changeOrderPublic.ts)
+app.use('/p/wu', warrantyUpdatePublic)  // A warranty update's customer link (routes/warrantyUpdatePublic.ts)
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff after install (lib/jobCosting.ts)
@@ -256,6 +259,7 @@ app.use('/api/kv', kvRoutes)
 app.use('/api/ops-stages', opsStagesRoutes)
 app.use('/api/intake', intakeRoutes)
 app.use('/api/scheduled-deletions', scheduledDeletionRoutes)
+app.use('/api/deleted-records', deletedRecordRoutes)
 app.use('/api/system', systemRoutes)
 app.use('/api/lead-chat', leadChatRoutes)
 app.use('/api/knowledge', knowledgeRoutes)
@@ -291,7 +295,7 @@ app.get('/api/health', async (_req, res) => {
     const dt = Date.now() - t0
     const [customerCount, contactCount, invoiceCount, portalAccountCount] = await Promise.all([
       prisma.customer.count().catch(() => -1),
-      prisma.crmContact.count({ where: { archivedAt: null } }).catch(() => -1),
+      prisma.crmContact.count({ where: { deletedAt: null, archivedAt: null } }).catch(() => -1),
       prisma.invoice.count().catch(() => -1),
       prisma.portalAccount.count().catch(() => -1),
     ])

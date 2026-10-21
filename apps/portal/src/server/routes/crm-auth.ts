@@ -855,7 +855,7 @@ router.delete('/users/:id', async (req, res) => {
     }
 
     // Sessions, activity and the pending call go with the login, in one transaction (lib/loginDelete.ts).
-    await deleteLogin(userId)
+    await deleteLogin(userId, payload.sub)
 
     // Log the deletion
     await prisma.crmUserActivity.create({

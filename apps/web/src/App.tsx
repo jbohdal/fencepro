@@ -47,8 +47,8 @@ import MessagesInbox from './MessagesInbox'
 import PublicQuotePage from './PublicQuotePage'
 import { isAuthenticated, checkSession, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
 import { initCustomers, getCustomers, isCustomersHydrated } from './customerStore'
-import { initQuotes, getQuotes, getQuoteById, upsertQuote, isQuotesHydrated } from './quoteStore'
-import { initJobs, isJobsHydrated, getJobs } from './jobStore'
+import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated } from './quoteStore'
+import { initJobs, isJobsHydrated, getJobs, getArchivedJobs } from './jobStore'
 import type { Job } from './jobStore'
 import { initSchedule, isScheduleHydrated } from './scheduleStore'
 import { initPipeline, getPipeline, isPipelineHydrated } from './pipelineStore'
@@ -759,9 +759,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const thisMonth    = new Date().getMonth()
   const thisYear     = new Date().getFullYear()
   // Installed revenue by install date, the way the GD Schedule counts it.
-  const ytdRevenue   = installedRevenueForYear(jobs, thisYear)
+  // Archived jobs and quotes still count in the KPIs and reports (only deleted ones do not).
+  const reportJobs   = [...jobs, ...getArchivedJobs()]
+  const reportQuotes = [...quotes, ...(getArchivedQuotes() as SavedQuote[])]
+  const ytdRevenue   = installedRevenueForYear(reportJobs, thisYear)
   const openSold     = soldNotInstalled(jobs)
-  const monthQuotes  = quotes.filter(q => {
+  const monthQuotes  = reportQuotes.filter(q => {
     if (!q.date) return false
     const d = new Date(q.date)
     return d.getMonth() === thisMonth && d.getFullYear() === thisYear
@@ -1078,7 +1081,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Today'     && <TodayScreen />}
           {active === 'Follow ups' && <FollowUpsPage />}
           {active === 'Dispatch'  && <DispatchPage />}
-          {active === 'Reports'   && <ReportsPage quotes={quotes} />}
+          {active === 'Reports'   && <ReportsPage quotes={reportQuotes} />}
           {active === 'Site Plans' && <SitePlansPage />}
 
           {active === 'Dashboard' && (
@@ -1215,8 +1218,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       {searchOpen && (
         <GlobalSearch
           onClose={() => { setSearchOpen(false); setSearchQuery('') }}
-          quotes={quotes}
-          jobs={jobs}
+          quotes={reportQuotes}
+          jobs={reportJobs}
           pages={ALL_NAV_ITEMS.filter(i => i.roles.includes(role)).map(i => i.name)}
           openCustomer={openCustomerFromAnywhere}
           openQuote={q => handleOpenQuote(q as SavedQuote)}

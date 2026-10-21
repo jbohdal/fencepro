@@ -49,7 +49,7 @@ async function gatherCounts(): Promise<{
     portalAccountCount,
   ] = await Promise.all([
     prisma.customer.count().catch(() => 0),
-    prisma.crmContact.count({ where: { archivedAt: null } }).catch(() => 0),
+    prisma.crmContact.count({ where: { deletedAt: null, archivedAt: null } }).catch(() => 0),
     // Quote table is named differently across the schema — we use a soft fallback.
     Promise.resolve(0), // placeholder until /api/quotes is wired to a real Quote model
     Promise.resolve(0), // placeholder for jobs (today: localStorage on the CRM)

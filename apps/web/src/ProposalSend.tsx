@@ -15,6 +15,7 @@ import { toast } from './toast'
 import { updateQuote } from './quoteStore'
 import { listMedia, localMedia } from './mediaStore'
 import { moveRepairSettings } from './moveRepair'
+import WarrantyUpdateSend from './WarrantyUpdateSend'
 
 export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   const [url, setUrl] = useState<string | null>(null)
@@ -143,6 +144,10 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
         {hasLink && !offAt && !expired && <button type="button" className="btn btn-quiet btn-sm" disabled={busy} onClick={turnOff} data-link-off>Turn off link</button>}
       </div>
       {url && <p className="text-xs text-gray-500 break-all">{url}</p>}
+      {/* Sent or signed: send the warranty Settings give it now, on a new link (prices unchanged). */}
+      {(quote.status === 'SENT' || quote.status === 'SOLD' || quote.acceptedAt != null) && (
+        <div className="border-t border-gray-100 pt-3"><WarrantyUpdateSend quoteId={quote.id} /></div>
+      )}
     </div>
   )
 }

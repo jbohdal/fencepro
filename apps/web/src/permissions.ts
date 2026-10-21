@@ -11,7 +11,7 @@ export type CrmRole = 'super_admin' | 'admin' | 'manager' | 'office_staff' | 'sa
 
 export type Action =
   | 'settings.change' | 'prices.change' | 'users.manage' | 'system' | 'automations.change'
-  | 'records.delete' | 'ops.delete' | 'schedule.change' | 'billing.change' | 'finance.change'
+  | 'records.delete' | 'records.archive' | 'ops.delete' | 'schedule.change' | 'billing.change' | 'finance.change'
   | 'quotes.change' | 'permits.change' | 'packets.change' | 'inventory.stock' | 'records.import'
   /** See costs, margins, sub rates and profit; Salesman and Installer see prices only (the server never sends them costs). */
   | 'costs.view'
@@ -19,17 +19,17 @@ export type Action =
   | 'invoices.manage'
 
 const FULL: Action[] = [
-  'settings.change', 'prices.change', 'automations.change', 'records.delete', 'ops.delete',
+  'settings.change', 'prices.change', 'automations.change', 'records.archive', 'ops.delete',
   'schedule.change', 'billing.change', 'finance.change', 'quotes.change', 'permits.change',
   'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'invoices.manage',
 ]
 
 export const ALLOWED: Record<CrmRole, ReadonlySet<Action>> = {
-  super_admin: new Set([...FULL, 'users.manage', 'system']),
-  admin: new Set([...FULL, 'users.manage', 'system']),
+  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system']),
+  admin: new Set([...FULL, 'records.delete', 'users.manage', 'system']),
   manager: new Set(FULL),
-  office_staff: new Set(['ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage']),
-  sales_rep: new Set(['quotes.change']),
+  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage']),
+  sales_rep: new Set(['quotes.change', 'records.archive']),
   field_crew: new Set([]),
 }
 
@@ -40,7 +40,8 @@ export const REFUSAL: Record<Action, string> = {
   'users.manage': 'Only the owner or an admin can manage users.',
   'system': 'Only the owner or an admin can use this.',
   'automations.change': 'Your role cannot change automations. Ask Jonathan.',
-  'records.delete': 'Your role cannot delete records. Ask Jonathan.',
+  'records.delete': 'Only the owner or an admin can delete. Archive it instead, or ask Jonathan.',
+  'records.archive': 'Your role cannot archive records. Ask Jonathan.',
   'ops.delete': 'Your role cannot delete this. Ask Jonathan.',
   'schedule.change': 'Your role cannot change the crew schedule. Ask Jonathan.',
   'billing.change': 'Your role cannot change billing. Ask Jonathan.',

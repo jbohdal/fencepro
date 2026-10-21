@@ -170,7 +170,10 @@ try {
   // ── 4. Not offered ──
   await sp.goto(`${APP}/?customer=${made.contactId}`, { waitUntil: 'domcontentloaded' })
   await sp.waitForSelector('[data-book-appointment]', { timeout: 30000 }); await sleep(800)
-  check('customer: no Delete (the More menu is not there)', (await sp.locator('[data-customer-more]').count()) === 0)
+  // More holds Archive (a salesman may archive, Oct 20, 2026) but never Delete.
+  await sp.locator('[data-customer-more]').click().catch(() => {}); await sleep(300)
+  check('customer: no Delete (More offers Archive only)', (await sp.locator('[data-customer-delete]').count()) === 0 && (await sp.locator('[data-customer-archive]').count()) === 1)
+  await sp.keyboard.press('Escape').catch(() => {}); await sleep(200)
   await shot(sp, 'desktop-customer')
   await sp.goto(`${APP}/settings`, { waitUntil: 'domcontentloaded' })
   const told = await sp.locator('text=Settings is not open to your login').first().waitFor({ timeout: 20000 }).then(() => true, () => false)
@@ -191,7 +194,7 @@ try {
 
   // ── 5. Straight to the server with the salesman's own login ──
   const r1 = await call(token, 'DELETE', `/api/crm-contacts/${made.contactId}`)
-  check('API: deleting the customer is refused', r1.status === 403 && r1.json.error === 'Your role cannot delete records. Ask Jonathan.', `${r1.status} ${r1.json.error}`)
+  check('API: deleting the customer is refused', r1.status === 403 && r1.json.error === 'Only the owner or an admin can delete. Archive it instead, or ask Jonathan.', `${r1.status} ${r1.json.error}`)
   const r2 = await call(token, 'DELETE', `/api/saved-quotes/${made.quoteIds[0]}`)
   check('API: deleting the quote is refused', r2.status === 403, `${r2.status} ${r2.json.error}`)
   const pv = (await call(token, 'GET', '/api/pipeline')).json.data.version

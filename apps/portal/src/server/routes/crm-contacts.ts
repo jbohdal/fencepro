@@ -27,6 +27,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { applyPipelineDelta } from '../lib/pipelineDelta.js'
 import { recordCardMoves } from '../lib/automations/hooks.js'
 import { requireCan } from '../lib/permissions.js'
+import { DeleteError, deleteRecord, emptySnapshot, logDeletion, labelOf, setArchived } from '../lib/deletion.js'
 import { addressParts } from '../lib/addressIndex.js'
 import { onCardMoves } from '../lib/followUps.js'
 
@@ -131,13 +132,19 @@ router.get('/', requireAccount, async (req: any, res) => {
     // ?since=<time>: only what changed after it (removed ones too), for a small refresh.
     const sinceRaw = typeof req.query.since === 'string' ? Date.parse(req.query.since) : NaN
     const serverTime = new Date(Date.now() - 5000).toISOString()
+    // ?archived=1: the archived ones (not deleted), for search, reports and the record's Unarchive.
+    const archived = req.query.archived === '1'
     const contacts = await prisma.crmContact.findMany({
       where: Number.isFinite(sinceRaw)
         ? { accountId: req.user.crmAccountId, updatedAt: { gt: new Date(sinceRaw) } }
-        : { accountId: req.user.crmAccountId, archivedAt: null },
+        : archived ? { accountId: req.user.crmAccountId, deletedAt: null, archivedAt: { not: null } }
+        : { accountId: req.user.crmAccountId, deletedAt: null, archivedAt: null },
       orderBy: { updatedAt: 'desc' },
     })
-    res.json({ success: true, data: contacts, serverTime, partial: Number.isFinite(sinceRaw) })
+    // A small refresh also names the ones gone off the list: an older screen reads archivedAt
+    // as "gone", so a deleted one carries it too (a new screen checks deletedAt first).
+    const data = Number.isFinite(sinceRaw) ? contacts.map(c => (c.deletedAt && !c.archivedAt ? { ...c, archivedAt: c.deletedAt } : c)) : contacts
+    res.json({ success: true, data, serverTime, partial: Number.isFinite(sinceRaw) })
   } catch (err) {
     console.error('[crm-contacts] list error:', err)
     res.status(500).json({ success: false, error: 'Failed to list contacts' })
@@ -245,7 +252,7 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
   try {
     const data = updateSchema.parse(req.body)
     const existing = await prisma.crmContact.findUnique({ where: { id: req.params.id } })
-    if (!existing) { res.status(404).json({ success: false, error: 'Contact not found' }); return }
+    if (!existing || existing.deletedAt) { res.status(404).json({ success: false, error: 'Contact not found' }); return }
     if (existing.accountId !== req.user.crmAccountId) {
       res.status(404).json({ success: false, error: 'Contact not found' }); return
     }
@@ -278,22 +285,38 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
   }
 })
 
-// ── Delete (soft) ──
+// ── Delete (soft, owner and admin) ──
+// The customer and everything of theirs (quotes, jobs, cards, appointments,
+// schedule entries, invoices, ...) in one transaction, logged in Settings >
+// Deleted Records with a snapshot to restore from (lib/deletion.ts).
+const actorOf = (req: any) => ({ accountId: req.user.crmAccountId as string, userId: (req.user.id ?? null) as string | null })
 router.delete('/:id', requireAccount, requireCan('records.delete'), async (req: any, res) => {
   try {
-    const existing = await prisma.crmContact.findUnique({ where: { id: req.params.id } })
-    if (!existing) { res.status(404).json({ success: false, error: 'Contact not found' }); return }
-    if (existing.accountId !== req.user.crmAccountId) {
-      res.status(404).json({ success: false, error: 'Contact not found' }); return
-    }
-    await prisma.crmContact.update({ where: { id: req.params.id }, data: { archivedAt: new Date() } })
-    await audit(req, 'soft_delete', 'CrmContact', existing.id, { oldValues: existing })
-    res.json({ success: true })
+    const r = await deleteRecord(actorOf(req), 'customer', String(req.params.id), typeof req.body?.reason === 'string' ? req.body.reason : null)
+    await audit(req, 'soft_delete', 'CrmContact', String(req.params.id), { newValues: r })
+    res.json({ success: true, data: r })
   } catch (err) {
+    if (err instanceof DeleteError) { res.status(err.status).json({ success: false, error: err.status === 404 ? 'Contact not found' : err.message }); return }
     console.error('[crm-contacts] delete error:', err)
     res.status(500).json({ success: false, error: 'Failed to delete contact' })
   }
 })
+
+// ── Archive / Unarchive (everyday, reversible; no Deleted Records row) ──
+// Its active cards, quotes and jobs go with it; Unarchive brings back those.
+for (const [path, on] of [['archive', true], ['unarchive', false]] as const) {
+  router.post(`/:id/${path}`, requireAccount, requireCan('records.archive'), async (req: any, res) => {
+    try {
+      const r = await setArchived(actorOf(req), 'customer', String(req.params.id), on)
+      await audit(req, 'update', 'CrmContact', String(req.params.id), { newValues: { archivedAt: r.archivedAt } })
+      res.json({ success: true, data: r })
+    } catch (err) {
+      if (err instanceof DeleteError) { res.status(err.status).json({ success: false, error: err.message }); return }
+      console.error(`[crm-contacts] ${path} error:`, err)
+      res.status(500).json({ success: false, error: `Failed to ${path} contact` })
+    }
+  })
+}
 
 // ── Bulk sync (one-time migration helper) ──
 //
@@ -307,8 +330,8 @@ router.post('/sync', requireAccount, requireCan('records.import'), async (req: a
     let created = 0, updated = 0
     for (const item of items) {
       const matchKey = item.email
-        ? { email: item.email, accountId: req.user.crmAccountId, archivedAt: null as any }
-        : { firstName: item.firstName, lastName: item.lastName, phone: item.phone || '', accountId: req.user.crmAccountId, archivedAt: null as any }
+        ? { email: item.email, accountId: req.user.crmAccountId, deletedAt: null, archivedAt: null as any }
+        : { firstName: item.firstName, lastName: item.lastName, phone: item.phone || '', accountId: req.user.crmAccountId, deletedAt: null, archivedAt: null as any }
       const existing = await prisma.crmContact.findFirst({ where: matchKey })
       if (existing) {
         await prisma.crmContact.update({
@@ -354,7 +377,7 @@ const noteUpdateSchema = noteSchema.partial()
 // already sent a response (caller should bail out).
 async function loadContactInAccount(req: any, res: any) {
   const contact = await prisma.crmContact.findUnique({ where: { id: req.params.id } })
-  if (!contact || contact.accountId !== req.user.crmAccountId) {
+  if (!contact || contact.accountId !== req.user.crmAccountId || contact.deletedAt) {
     res.status(404).json({ success: false, error: 'Contact not found' })
     return null
   }
@@ -455,9 +478,13 @@ router.delete('/:id/notes/:noteId', requireAccount, requireCan('ops.delete'), as
       res.status(404).json({ success: false, error: 'Note not found' })
       return
     }
-    await prisma.crmContactNote.update({
-      where: { id: existing.id },
-      data: { deletedAt: new Date() },
+    // Soft delete, logged in Settings > Deleted Records (Restore brings it back).
+    await prisma.$transaction(async tx => {
+      const at = new Date()
+      const row = await tx.crmContactNote.update({ where: { id: existing.id }, data: { deletedAt: at } })
+      const snap = emptySnapshot()
+      snap.rows.push({ model: 'crmContactNote', id: row.id, row: JSON.parse(JSON.stringify(row)) })
+      await logDeletion(tx, actorOf(req), { entityType: 'note', entityId: row.id, entityLabel: `${labelOf('crmContactNote', row)} (${[contact.firstName, contact.lastName].filter(Boolean).join(' ')})`, snapshot: snap, at })
     })
     await audit(req, 'soft_delete', 'CrmContactNote', existing.id, { oldValues: existing })
     res.json({ success: true })
@@ -487,7 +514,7 @@ router.post('/notes/sync', requireAccount, requireCan('records.import'), async (
     for (const n of notes) {
       // Confirm the contact belongs to the caller's account
       const contact = await prisma.crmContact.findUnique({ where: { id: n.crmContactId } })
-      if (!contact || contact.accountId !== req.user.crmAccountId) { skipped++; continue }
+      if (!contact || contact.accountId !== req.user.crmAccountId || contact.deletedAt) { skipped++; continue }
       const dupe = await prisma.crmContactNote.findFirst({
         where: {
           crmContactId: n.crmContactId,

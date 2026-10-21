@@ -12,6 +12,7 @@ import { newId } from './recordSync'
 import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
 import { can } from './permissions'
+import { archiveRecord } from './recordArchive'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -496,13 +497,26 @@ export function LeadDrawer({
             )}
           </div>
 
-          {can('records.delete') && <div className="pt-2 border-t border-gray-100">
-            <button
-              onClick={() => { if (confirm('Delete this lead?')) { onDelete(lead.id); onClose() } }}
-              className="text-red-400 hover:text-red-600 text-sm font-medium"
+          {(can('records.archive') || can('records.delete')) && <div className="pt-2 border-t border-gray-100 flex flex-wrap gap-3 items-center">
+            {/* Archive: the everyday way off the board (search and reports keep it; Unarchive is on the customer's page). */}
+            {can('records.archive') && <button
+              onClick={async () => {
+                const r = await archiveRecord('card', lead.id)
+                if (!r.ok) { toast.error('Not archived', r.error || 'Try again.'); return }
+                toast.success('Card archived', 'Off the board. Unarchive it from the customer\'s page.')
+                onClose()
+              }}
+              className="btn btn-secondary btn-sm min-h-[44px]" data-card-archive
+            >
+              Archive card
+            </button>}
+            {/* Delete (owner, admin): to Settings > Deleted Records, where it can be restored. */}
+            {can('records.delete') && <button
+              onClick={() => { if (confirm('Delete this card? The owner or an admin can restore it from Settings > Deleted Records.')) { onDelete(lead.id); onClose() } }}
+              className="text-red-600 hover:text-red-700 text-sm font-medium min-h-[44px]" data-card-delete
             >
               Delete lead
-            </button>
+            </button>}
           </div>}
         </div>
       </div>

@@ -16,6 +16,7 @@ import prisma from './prisma.js'
 import { logoPath } from '../routes/proposal.js'
 import { quoteWarranty, installDateOf, type OptionWarranty } from './warranties.js'
 import { pricingModule } from './estimates.js'
+import { acceptedOnUpdate } from './warrantyUpdates.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const TZ = 'America/New_York'
@@ -128,8 +129,10 @@ export async function contractForQuote(q: Q): Promise<Buffer | null> {
   const opt = p.options[idx] ?? p.options[0]
   const b = await prisma.businessState.findUnique({ where: { accountId: q.accountId }, select: { config: true } })
   const co = (b?.config as any)?.company ?? {}
-  const { warranty } = await quoteWarranty({ ...q, chosenOption: idx }, q.fenceStyle, b?.config ?? null)
-  const job = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, archivedAt: null }, select: { id: true, completedDate: true } })
+  // Signed on a warranty update link (lib/warrantyUpdates.ts): the warranty that link showed for the option. Otherwise as signed.
+  const fromUpdate = await acceptedOnUpdate(q)
+  const warranty = fromUpdate ?? (await quoteWarranty({ ...q, chosenOption: idx }, q.fenceStyle, b?.config ?? null)).warranty
+  const job = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, deletedAt: null, archivedAt: null }, select: { id: true, completedDate: true } })
   const day = job ? await installDateOf(job) : null
   const m = await pricingModule()
   const sig = /^data:image\/png;base64,(.+)$/.exec(q.acceptedSignature || '')

@@ -13,6 +13,7 @@
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { lockAccountState } from './lockState.js'
+import { acknowledgedUpdate } from './warrantyUpdates.js'
 
 export type WarrantyTerm = 'lifetime' | 'years' | 'unknown'
 export interface OptionWarranty { id: string | null; name: string; text: string; term: WarrantyTerm; years?: number }
@@ -109,6 +110,19 @@ export async function quoteWarranty(q: QuoteRow | null, fenceStyle: string, conf
   return { warranty: m.styleWarranty(cfg, style, kind), from: 'settings' }
 }
 
+/**
+ * The warranty a signed job has now: the signed option's (quoteWarranty), or
+ * the warranty update the customer acknowledged since (lib/warrantyUpdates.ts),
+ * with the day they did.
+ */
+export async function effectiveQuoteWarranty(q: QuoteRow | null, fenceStyle: string, config?: unknown): Promise<{ warranty: OptionWarranty | null; from: 'option' | 'proposal' | 'settings' | 'update' | null; update: { at: Date; by: string; how: string; previous: OptionWarranty | null } | null }> {
+  const base = await quoteWarranty(q, fenceStyle, config)
+  const signed = !!q && (q.status === 'SOLD' || !!q.acceptedAt || !!q.soldAt)
+  const acked = q && signed ? await acknowledgedUpdate(q) : null
+  if (!acked) return { ...base, update: null }
+  return { warranty: acked.warranty, from: 'update', update: { at: acked.at, by: acked.by, how: acked.how, previous: acked.previous ?? base.warranty } }
+}
+
 export interface ServiceCall {
   id: string
   type: string
@@ -124,8 +138,10 @@ export interface JobWarranty {
   jobId: string
   quoteId: string | null
   warranty: OptionWarranty | null
-  /** option: the signed option's own warranty; proposal: the one block of words an older proposal had; settings: no proposal, today's Settings for the style. */
-  from: 'option' | 'proposal' | 'settings' | null
+  /** option: the signed option's own warranty; proposal: the one block of words an older proposal had; settings: no proposal, today's Settings for the style; update: a warranty update the customer acknowledged. */
+  from: 'option' | 'proposal' | 'settings' | 'update' | null
+  /** The warranty update it came from: when the customer acknowledged it (YYYY-MM-DD in Ocala), who, how, and the warranty before. */
+  updated: { day: string; by: string; how: string; previousName: string | null } | null
   signed: boolean
   start: string | null
   end: string | null
@@ -146,11 +162,11 @@ export async function jobWarranty(accountId: string, jobId: string): Promise<Job
     select: { id: true, accountId: true, proposal: true, chosenOption: true, fenceStyle: true, status: true, acceptedAt: true, soldAt: true, work: true },
   }) : null
   const m = await pricingModule()
-  const { warranty, from } = await quoteWarranty(q, job.fenceStyle, await configOf(accountId))
+  const { warranty, from, update } = await effectiveQuoteWarranty(q, job.fenceStyle, await configOf(accountId))
   const start = await installDateOf(job)
   const period = m.warrantyPeriod(warranty, start)
   const appts = await prisma.appointment.findMany({
-    where: { accountId, jobId: job.id, type: { in: [...SERVICE_TYPES] }, archivedAt: null },
+    where: { accountId, jobId: job.id, type: { in: [...SERVICE_TYPES] }, deletedAt: null, archivedAt: null },
     orderBy: [{ startAt: 'asc' }, { createdAt: 'asc' }],
     select: { id: true, type: true, status: true, startAt: true, createdAt: true, notes: true, warrantyOverride: true },
   })
@@ -162,6 +178,7 @@ export async function jobWarranty(accountId: string, jobId: string): Promise<Job
   })
   return {
     jobId: job.id, quoteId: q?.id ?? null, warranty, from,
+    updated: update ? { day: nyDay(update.at), by: update.by, how: update.how, previousName: update.previous?.name ?? null } : null,
     signed: !!q && (q.status === 'SOLD' || !!q.acceptedAt || !!q.soldAt),
     start: period.start, end: period.end, endText: period.endText,
     contract: !!q && (!!q.acceptedAt || q.status === 'SOLD' || !!q.soldAt) && isObj(q.proposal) && Array.isArray((q.proposal as any).options),

@@ -9,6 +9,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { logRemovedInventoryItems } from '../lib/deletion.js'
 import { findOrCreate, isUniqueViolation, oneById } from '../lib/once.js'
 import { oneActiveKitPerStyle } from '../lib/seeds.js'
 import { audit } from '../lib/auditLog.js'
@@ -92,7 +93,12 @@ router.put('/', async (req: any, res) => {
     }
     const refused = inventoryChangeRefusal(roleOf(req), saved ?? {}, { ...fields, kits: data.kits === undefined ? undefined : fields.kits })
     if (refused) { refuse(res, refused, { data: saved, version: saved?.version ?? 0 }); return }
-    const done = await prisma.inventoryState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+    // A catalog item removed goes to Settings > Deleted Records, with its stock counts.
+    const done = await prisma.$transaction(async tx => {
+      const d = await tx.inventoryState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })
+      if (d.count && saved) await logRemovedInventoryItems(tx, { accountId, userId: req.user?.id ?? null }, saved as any, { items: fields.items, stockLevels: fields.stockLevels })
+      return d
+    })
     if (done.count === 0) {
       const current = await prisma.inventoryState.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }

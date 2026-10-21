@@ -132,7 +132,8 @@ router.post('/geo/pin', requireUser, async (req: any, res) => {
 /* ── Staff ───────────────────────────────────────────────────────────────── */
 
 router.get('/', requireUser, async (req: any, res) => {
-  const where: any = { accountId: req.user.crmAccountId }
+  // Deleted ones never (Settings > Deleted Records); ?all=1 also lists the archived (cancelled) ones.
+  const where: any = { accountId: req.user.crmAccountId, deletedAt: null }
   if (!req.query.all) where.archivedAt = null
   if (req.query.contactId) where.crmContactId = String(req.query.contactId)
   if (req.query.from || req.query.to) {
@@ -141,12 +142,12 @@ router.get('/', requireUser, async (req: any, res) => {
       { startAt: null },
     ]
   }
-  const rows = await prisma.appointment.findMany({ where, include: { contact: { select: contactSelect } }, orderBy: [{ startAt: 'asc' }, { createdAt: 'asc' }] })
+  const rows = await prisma.appointment.findMany({ where: { ...where, deletedAt: null }, include: { contact: { select: contactSelect } }, orderBy: [{ startAt: 'asc' }, { createdAt: 'asc' }] })
   res.json({ success: true, data: rows.map(toClient) })
 })
 
 router.get('/:id', requireUser, async (req: any, res) => {
-  const a = await prisma.appointment.findFirst({ where: { id: String(req.params.id), accountId: req.user.crmAccountId }, include: { contact: { select: contactSelect } } })
+  const a = await prisma.appointment.findFirst({ where: { id: String(req.params.id), accountId: req.user.crmAccountId, deletedAt: null }, include: { contact: { select: contactSelect } } })
   if (!a) { res.status(404).json({ success: false, error: 'Appointment not found' }); return }
   res.json({ success: true, data: toClient(a), version: a.version })
 })
@@ -155,7 +156,7 @@ async function bookByStaff(req: any, res: any) {
   try {
     const d = createSchema.parse(req.body)
     const accountId = req.user.crmAccountId
-    const contact = await prisma.crmContact.findFirst({ where: { id: d.crmContactId, accountId }, select: { id: true, serviceAddress: true } })
+    const contact = await prisma.crmContact.findFirst({ where: { id: d.crmContactId, accountId, deletedAt: null }, select: { id: true, serviceAddress: true } })
     if (!contact) { res.status(400).json({ success: false, error: 'That customer is not saved on the server yet. It will be booked once the customer is.' }); return }
     // Sent again because the phone did not hear the answer: the first one stands.
     if (d.id) {
@@ -196,7 +197,7 @@ router.patch('/:id', requireUser, async (req: any, res) => {
   try {
     const { baseVersion, reason, ...d } = patchSchema.parse(req.body)
     const accountId = req.user.crmAccountId
-    const cur = await prisma.appointment.findFirst({ where: { id: String(req.params.id), accountId }, include: { contact: { select: contactSelect } } })
+    const cur = await prisma.appointment.findFirst({ where: { id: String(req.params.id), accountId, deletedAt: null }, include: { contact: { select: contactSelect } } })
     if (!cur) { res.status(404).json({ success: false, error: 'Appointment not found' }); return }
     if (cur.version !== baseVersion) { refuseStale(res, toClient(cur), cur.version); return }
 

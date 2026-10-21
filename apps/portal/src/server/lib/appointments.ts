@@ -102,7 +102,7 @@ export async function pinAddress(accountId: string, address: string, point: Poin
     create: { accountId, addressKey: key, address, lat: point.lat, lng: point.lng, source: 'manual' },
     update: { lat: point.lat, lng: point.lng, source: 'manual', address },
   })
-  const same = await prisma.appointment.findMany({ where: { accountId, archivedAt: null }, select: { id: true, address: true } })
+  const same = await prisma.appointment.findMany({ where: { accountId, deletedAt: null, archivedAt: null }, select: { id: true, address: true } })
   const ids = same.filter(a => addressKey(a.address) === key).map(a => a.id)
   if (ids.length) await prisma.appointment.updateMany({ where: { id: { in: ids } }, data: { lat: point.lat, lng: point.lng } })
   return ids.length

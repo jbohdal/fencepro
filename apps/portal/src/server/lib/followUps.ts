@@ -193,13 +193,13 @@ export async function cardRows(accountId: string, now = new Date()): Promise<{ r
     prisma.pipelineState.findUnique({ where: { accountId }, select: { leads: true } }),
     loadConfig(accountId),
     prisma.cardFollowUp.findMany({ where: { accountId } }),
-    prisma.savedQuote.findMany({ where: { accountId, archivedAt: null, status: { in: ['DRAFT', 'SENT', 'SOLD'] as any } }, select: { crmContactId: true, status: true, date: true, finalPrice: true, shareToken: true, viewCount: true, lastViewedAt: true, acceptedAt: true } }),
+    prisma.savedQuote.findMany({ where: { accountId, deletedAt: null, archivedAt: null, status: { in: ['DRAFT', 'SENT', 'SOLD'] as any } }, select: { crmContactId: true, status: true, date: true, finalPrice: true, shareToken: true, viewCount: true, lastViewedAt: true, acceptedAt: true } }),
     peopleOf(accountId),
   ])
   const leads = ((pipe?.leads as any[]) ?? []).filter(l => l?.id)
   const byCard = new Map(states.map(s => [s.cardId, s]))
   const contactIds = [...new Set(leads.map(l => l.customerId).filter(Boolean))] as string[]
-  const contacts = contactIds.length ? await prisma.crmContact.findMany({ where: { id: { in: contactIds } }, select: { id: true, phone: true } }) : []
+  const contacts = contactIds.length ? await prisma.crmContact.findMany({ where: { id: { in: contactIds }, deletedAt: null }, select: { id: true, phone: true } }) : []
   const phoneOf = new Map(contacts.map(c => [c.id, c.phone || '']))
   const q = quotes.map(x => ({ crmContactId: x.crmContactId, status: String(x.status), date: x.date, finalPrice: x.finalPrice }))
   const opens = quotes.map(x => ({ crmContactId: x.crmContactId, status: String(x.status), shareToken: x.shareToken, viewCount: x.viewCount, lastViewedAt: x.lastViewedAt, acceptedAt: x.acceptedAt }))
@@ -242,7 +242,7 @@ export async function openedLastDay(accountId: string, rows: CardRow[], now = ne
     select: { quoteId: true, cardId: true, crmContactId: true, startedAt: true, device: true, optionMs: true },
   })
   if (!views.length) return []
-  const quotes = await prisma.savedQuote.findMany({ where: { id: { in: [...new Set(views.map(v => v.quoteId))] } }, select: { id: true, proposal: true } })
+  const quotes = await prisma.savedQuote.findMany({ where: { id: { in: [...new Set(views.map(v => v.quoteId))] }, deletedAt: null }, select: { id: true, proposal: true } })
   const optionsOf = new Map(quotes.map(q => [q.id, ((q.proposal as any)?.options ?? []) as any[]]))
   const byCard = new Map<string, { v: (typeof views)[number]; times: number }>()
   for (const v of views) {
@@ -504,9 +504,9 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
   if (customerId) {
     const [notes, appts, quotes] = await Promise.all([
       prisma.crmContactNote.findMany({ where: { crmContactId: customerId, deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 200 }),
-      prisma.appointment.findMany({ where: { accountId, crmContactId: customerId }, orderBy: { createdAt: 'desc' }, take: 100 }),
+      prisma.appointment.findMany({ where: { accountId, crmContactId: customerId, deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 100 }),
       prisma.savedQuote.findMany({
-        where: { accountId, crmContactId: customerId, archivedAt: null },
+        where: { accountId, crmContactId: customerId, deletedAt: null, archivedAt: null },
         select: { id: true, status: true, date: true, finalPrice: true, fenceStyle: true, createdAt: true, proposal: true, shareToken: true, firstViewedAt: true, lastViewedAt: true, viewCount: true, acceptedAt: true, acceptedBy: true },
         orderBy: { createdAt: 'desc' }, take: 100,
       }),
@@ -546,6 +546,16 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
         items.push({ at: last.toISOString(), kind: 'proposal_opened', title: `Proposal opened ${earlier} time${earlier === 1 ? '' : 's'}${counted ? ' before' : ''}`, detail: counted ? 'Before opens were recorded one by one.' : `First ${day(firstAt)}, last ${day(last)}.`, by: '' })
       }
       if (q.acceptedAt) items.push({ at: q.acceptedAt.toISOString(), kind: 'quote', title: 'Proposal accepted online', detail: q.acceptedBy ? `By ${q.acceptedBy}.` : '', by: '' })
+    }
+    // Warranty updates (lib/warrantyUpdates.ts): sent (or made), opened, acknowledged.
+    const updates = quotes.length ? await prisma.warrantyUpdate.findMany({ where: { accountId, quoteId: { in: quotes.map(q => q.id) } }, orderBy: { createdAt: 'desc' }, take: 50 }) : []
+    for (const u of updates) {
+      const how = u.sentChannel === 'text' ? 'By text.' : u.sentChannel === 'email' ? 'By email.' : u.sentChannel === 'copy' ? 'Link copied to send.' : 'Link made, not sent yet.'
+      const opened = u.openCount > 0 ? ` Opened ${u.openCount} time${u.openCount === 1 ? '' : 's'}${u.lastOpenedAt ? `, last ${u.lastOpenedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}` : ''}.` : ''
+      items.push({ at: (u.sentAt ?? u.createdAt).toISOString(), kind: 'warranty_update', title: `Warranty update ${u.sentAt ? 'sent' : 'made'} (${u.warrantyName || 'warranty'})`, detail: `${how}${opened}`, by: u.createdBy })
+      if (u.acknowledgedAt) {
+        items.push({ at: u.acknowledgedAt.toISOString(), kind: 'warranty_update', title: u.acknowledgedHow === 'accepted' ? `Proposal accepted on the warranty update by ${u.acknowledgedBy}` : `Warranty update acknowledged by ${u.acknowledgedBy}`, detail: u.warrantyName ? `${u.warrantyName}.` : '', by: '' })
+      }
     }
   }
   // Emails and prepared texts sent by automations for this card.

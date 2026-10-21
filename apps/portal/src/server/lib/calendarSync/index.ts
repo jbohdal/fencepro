@@ -37,15 +37,15 @@ const baseUrl = () => (process.env.CLIENT_URL || process.env.APP_URL || '').repl
 
 async function loadInputs(accountId: string): Promise<SpecInputs> {
   const [gridJobs, pipeline, contacts, settings, appointments, business, owner] = await Promise.all([
-    prisma.scheduledGridJob.findMany({ where: { accountId } }),
+    prisma.scheduledGridJob.findMany({ where: { accountId, deletedAt: null } }),
     prisma.pipelineState.findUnique({ where: { accountId }, select: { leads: true } }),
     prisma.crmContact.findMany({
-      where: { accountId, archivedAt: null, AND: [{ firstApptDate: { not: null } }, { firstApptDate: { not: '' } }] },
+      where: { accountId, deletedAt: null, archivedAt: null, AND: [{ firstApptDate: { not: null } }, { firstApptDate: { not: '' } }] },
       select: { id: true, firstName: true, lastName: true, phone: true, email: true, serviceAddress: true, firstApptDate: true, notes: true },
     }),
     prisma.scheduleSettings.findUnique({ where: { accountId } }),
     prisma.appointment.findMany({
-      where: { accountId, archivedAt: null, source: { not: 'import' }, startAt: { gte: new Date(Date.now() - 60 * 86_400_000) } },
+      where: { accountId, deletedAt: null, archivedAt: null, source: { not: 'import' }, startAt: { gte: new Date(Date.now() - 60 * 86_400_000) } },
       include: { contact: { select: { firstName: true, lastName: true, phone: true, email: true, serviceAddress: true } } },
     }),
     prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
@@ -55,7 +55,7 @@ async function loadInputs(accountId: string): Promise<SpecInputs> {
   const defaultPerson = team?.find(t => t?.isDefault)?.name || team?.[0]?.name || `${owner?.firstName || ''} ${owner?.lastName || ''}`.trim()
   const onBoard = gridJobs.map(g => g.stagingJobId).filter((x): x is string => !!x)
   const jobs = await prisma.savedJob.findMany({
-    where: { accountId, archivedAt: null, OR: [{ scheduledDate: { not: '' } }, { id: { in: onBoard } }] },
+    where: { accountId, deletedAt: null, archivedAt: null, OR: [{ scheduledDate: { not: '' } }, { id: { in: onBoard } }] },
   })
   const leads = (Array.isArray(pipeline?.leads) ? pipeline!.leads : []) as unknown as LeadRow[]
   // Plain style names from this company's Settings. If they cannot be worked

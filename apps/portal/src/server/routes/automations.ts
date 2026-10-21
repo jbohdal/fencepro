@@ -230,7 +230,7 @@ router.get('/samples', async (req: any, res) => {
       res.json({ success: true, data: list }); return
     }
     const jobs = await prisma.savedJob.findMany({
-      where: { accountId, archivedAt: null, ...(q ? { OR: [{ customerName: { contains: q, mode: 'insensitive' } }, { customerAddress: { contains: q, mode: 'insensitive' } }] } : {}) },
+      where: { accountId, deletedAt: null, archivedAt: null, ...(q ? { OR: [{ customerName: { contains: q, mode: 'insensitive' } }, { customerAddress: { contains: q, mode: 'insensitive' } }] } : {}) },
       orderBy: { updatedAt: 'desc' }, take: 40,
     })
     const { stages } = await loadOpsStages(accountId)
@@ -404,7 +404,7 @@ const permitSchema = z.object({
 })
 
 async function jobOf(req: any) {
-  return prisma.savedJob.findFirst({ where: { id: req.params.jobId, accountId: req.user.crmAccountId, archivedAt: null } })
+  return prisma.savedJob.findFirst({ where: { id: req.params.jobId, accountId: req.user.crmAccountId, deletedAt: null, archivedAt: null } })
 }
 
 router.get('/permits/:jobId', async (req: any, res) => {

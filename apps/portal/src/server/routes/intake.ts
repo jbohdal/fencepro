@@ -244,7 +244,7 @@ quotingRouter.get('/quotes', readLimiter, async (req, res) => {
     const userId = String(req.query.userId || '')
     if (!userId) { res.json({ quotes: [] }); return }
     const rows = await prisma.intakeLead.findMany({
-      where: { source: 'ez_quote', payload: { path: ['userId'], equals: userId } },
+      where: { source: 'ez_quote', deletedAt: null, payload: { path: ['userId'], equals: userId } },
       orderBy: { createdAt: 'desc' },
       take: 50,
     })
@@ -390,7 +390,7 @@ router.get('/', async (req: any, res) => {
   try {
     const all = req.query.status === 'all'
     const rows = await prisma.intakeLead.findMany({
-      where: { accountId: req.user.crmAccountId, ...(all ? {} : { status: 'new' }) },
+      where: { accountId: req.user.crmAccountId, deletedAt: null, ...(all ? {} : { status: 'new' }) },
       orderBy: { createdAt: 'asc' },
       take: 200,
       select: publicFields,

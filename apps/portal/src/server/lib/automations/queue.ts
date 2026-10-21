@@ -73,7 +73,7 @@ async function entityFor(rule: AutomationRule, ev: AutomationEvent): Promise<str
     }
     const customerId = data.customerId ?? (ev.entityKind === 'customer' ? ev.entityId : null)
     if (!customerId) return null
-    const job = await prisma.savedJob.findFirst({ where: { accountId: rule.accountId, crmContactId: customerId, archivedAt: null }, orderBy: { createdAt: 'desc' } })
+    const job = await prisma.savedJob.findFirst({ where: { accountId: rule.accountId, crmContactId: customerId, deletedAt: null, archivedAt: null }, orderBy: { createdAt: 'desc' } })
     return job?.id ?? null
   }
   if (data.cardId && leads.some(l => l?.id === data.cardId)) return String(data.cardId)
@@ -278,7 +278,7 @@ export async function scanTimeTriggers(now = new Date()): Promise<number> {
           if (today >= due && due >= enabledDay) await fire(l.id, `${trigger.stage}:${since}`, `${trigger.days} days in ${trigger.stage} (since ${since})`)
         }
       } else {
-        const jobs = await prisma.savedJob.findMany({ where: { accountId: rule.accountId, archivedAt: null } })
+        const jobs = await prisma.savedJob.findMany({ where: { accountId: rule.accountId, deletedAt: null, archivedAt: null } })
         const { stages } = await loadOpsStages(rule.accountId)
         for (const j of jobs) {
           if (opsStageOfJob(j, stages) !== trigger.stage) continue
@@ -311,18 +311,18 @@ async function datesFor(accountId: string, board: Board, field: 'install' | 'app
     if (board === 'ops') {
       if (job) return job.id
       if (!customerId) return null
-      return (await prisma.savedJob.findFirst({ where: { accountId, crmContactId: customerId, archivedAt: null }, orderBy: { createdAt: 'desc' } }))?.id ?? null
+      return (await prisma.savedJob.findFirst({ where: { accountId, crmContactId: customerId, deletedAt: null, archivedAt: null }, orderBy: { createdAt: 'desc' } }))?.id ?? null
     }
     return cardForJob(leads, { crmContactId: customerId ?? job?.crmContactId })?.id ?? null
   }
   if (field === 'install') {
-    const jobs = await prisma.savedJob.findMany({ where: { accountId, archivedAt: null, scheduledDate: { gte: ymdPlus(today, -60) } } })
+    const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null, scheduledDate: { gte: ymdPlus(today, -60) } } })
     for (const j of jobs) { if (!isYmd(j.scheduledDate)) continue; const id = await toEntity(j.crmContactId, j); if (id) out.push({ entityId: id, date: j.scheduledDate.slice(0, 10) }) }
   } else if (field === 'appointment') {
-    const appts = await prisma.appointment.findMany({ where: { accountId, startAt: { gte: from }, status: { notIn: ['cancelled'] } } })
+    const appts = await prisma.appointment.findMany({ where: { accountId, deletedAt: null, archivedAt: null, startAt: { gte: from }, status: { notIn: ['cancelled'] } } })
     for (const a of appts) { const id = await toEntity(a.crmContactId, a.jobId ? { id: a.jobId, crmContactId: a.crmContactId } : null); if (id) out.push({ entityId: id, date: floridaDay(a.startAt!) }) }
   } else {
-    const quotes = await prisma.savedQuote.findMany({ where: { accountId, status: 'SENT', archivedAt: null, updatedAt: { gte: from } } })
+    const quotes = await prisma.savedQuote.findMany({ where: { accountId, status: 'SENT', deletedAt: null, archivedAt: null, updatedAt: { gte: from } } })
     for (const q of quotes) {
       const date = String((q.proposal as any)?.createdAt || q.date || '').slice(0, 10)
       if (!isYmd(date)) continue
@@ -342,7 +342,7 @@ export async function permitReminders(now = new Date()): Promise<number> {
   let sent = 0
   const today = floridaDay(now)
   for (const p of open) {
-    const job = await prisma.savedJob.findFirst({ where: { id: p.jobId, archivedAt: null, status: { notIn: ['completed', 'invoiced', 'paid'] } } })
+    const job = await prisma.savedJob.findFirst({ where: { id: p.jobId, deletedAt: null, archivedAt: null, status: { notIn: ['completed', 'invoiced', 'paid'] } } })
     if (!job) continue
     const ageDays = (now.getTime() - p.updatedAt.getTime()) / 86_400_000
     if (ageDays < PERMIT_REMIND_EVERY_DAYS) continue

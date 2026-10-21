@@ -2,16 +2,19 @@
  * Who may do what. The one place the rule lives; every route asks `can()`.
  *
  *   super_admin (Jonathan, the owner), admin   everything
- *   manager                                     everything except users and system tools
+ *   manager                                     everything except users, system tools and
+ *                                               deleting records (Archive instead)
  *   office_staff                                runs the office: schedule, billing, vendors,
  *                                               stock counts, permits, crew links, quotes;
  *                                               may remove operational entries (schedule
- *                                               entries, rain days, photos, files, notes).
+ *                                               entries, rain days, photos, files, notes);
+ *                                               archives customers, cards and jobs.
  *                                               Not settings, prices, users, automations,
  *                                               and never customers, quotes, jobs or cards.
  *   sales_rep                                   quotes and proposals, customers and leads,
  *                                               notes, appointments, moving pipeline cards,
- *                                               photos. Nothing else changes, nothing is deleted.
+ *                                               photos; archives customers and cards.
+ *                                               Nothing else changes, nothing is deleted.
  *   field_crew                                  as sales_rep, but no quote writes either
  *                                               (photos, notes, walkthroughs, job checklists).
  *
@@ -33,8 +36,14 @@ export type Action =
   | 'system'
   /** Automation rules and stage rules. */
   | 'automations.change'
-  /** Deleting records: customers, quotes, jobs, pipeline cards, vendors, automation rules, users' data. */
+  /**
+   * Deleting records: customers, quotes, jobs, pipeline cards, catalog items,
+   * vendors and bills. Owner and admin only (Oct 20, 2026): a delete goes to
+   * Settings > Deleted Records, where they can restore it (lib/deletion.ts).
+   */
   | 'records.delete'
+  /** Archive and unarchive a customer, card or job: the everyday, reversible way off the boards. */
+  | 'records.archive'
   /** Removing operational entries: schedule entries, rain days, photos and media, documents, files, notes. */
   | 'ops.delete'
   /** The crew schedule (jobs on the board, rain days). */
@@ -67,17 +76,17 @@ export type Action =
   | 'invoices.manage'
 
 const FULL: Action[] = [
-  'settings.change', 'prices.change', 'automations.change', 'records.delete', 'ops.delete',
+  'settings.change', 'prices.change', 'automations.change', 'records.archive', 'ops.delete',
   'schedule.change', 'billing.change', 'finance.change', 'quotes.change', 'permits.change',
   'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'invoices.manage',
 ]
 
 const ALLOWED: Record<StaffRole, ReadonlySet<Action>> = {
-  super_admin: new Set([...FULL, 'users.manage', 'system']),
-  admin: new Set([...FULL, 'users.manage', 'system']),
+  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system']),
+  admin: new Set([...FULL, 'records.delete', 'users.manage', 'system']),
   manager: new Set(FULL),
-  office_staff: new Set(['ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage']),
-  sales_rep: new Set(['quotes.change']),
+  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage']),
+  sales_rep: new Set(['quotes.change', 'records.archive']),
   field_crew: new Set([]),
 }
 
@@ -97,7 +106,8 @@ export const REFUSAL: Record<Action, string> = {
   'users.manage': 'Only the owner or an admin can manage users.',
   'system': 'Only the owner or an admin can use this.',
   'automations.change': 'Your role cannot change automations. Ask Jonathan.',
-  'records.delete': 'Your role cannot delete records. Ask Jonathan.',
+  'records.delete': 'Only the owner or an admin can delete. Archive it instead, or ask Jonathan.',
+  'records.archive': 'Your role cannot archive records. Ask Jonathan.',
   'ops.delete': 'Your role cannot delete this. Ask Jonathan.',
   'schedule.change': 'Your role cannot change the crew schedule. Ask Jonathan.',
   'billing.change': 'Your role cannot change billing. Ask Jonathan.',
@@ -259,8 +269,9 @@ export function businessPatchRefusal(role: string | null, userId: string | null,
  * record; renaming, adding, removing or reordering stages is a setting.
  */
 export function pipelineChangeRefusal(role: string | null, current: { leads: unknown; stages: unknown } | null, next: { removed: string[]; stages?: unknown }): Action | null {
+  // Removing a card is a delete: owner and admin only, manager included (they archive instead).
+  if (next.removed.length && !can(role, 'records.delete')) return 'records.delete'
   if (isFullRole(role)) return null
-  if (next.removed.length) return 'records.delete'
   if (next.stages !== undefined && !sameJson(current?.stages ?? [], next.stages)) return 'settings.change'
   return null
 }
@@ -279,6 +290,9 @@ const SALE_STOCK_FIELDS = new Set(['reservedQty'])
  * Everyone else may only set stock aside for a sold job (reservedQty).
  */
 export function inventoryChangeRefusal(role: string | null, current: any, next: any): Action | null {
+  // Removing a catalog item is a delete (it goes to Deleted Records): owner and admin only.
+  const kept = new Set((Array.isArray(next?.items) ? next.items : []).map((i: any) => i?.id))
+  if ((Array.isArray(current?.items) ? current.items : []).some((i: any) => i?.id && !kept.has(i.id)) && !can(role, 'records.delete')) return 'records.delete'
   if (isFullRole(role)) return null
   const office = can(role, 'inventory.stock')
   if (next.kits !== undefined && !sameJson(current?.kits ?? [], next.kits)) return 'prices.change'
@@ -313,8 +327,9 @@ const KV_PRICES = new Set(['fencepro_inv_suppliers'])
 const KV_RECORD_LISTS = new Set(['fencepro_files', 'fencepro_siteplans', 'fencepro_changeorders'])
 
 export function kvChangeRefusal(role: string | null, key: string, current: unknown, next: unknown): Action | null {
-  if (isFullRole(role)) return null
   if (sameJson(current ?? null, next ?? null)) return null
+  if ((next === null || next === undefined) && !can(role, 'records.delete')) return 'records.delete'
+  if (isFullRole(role)) return null
   if (KV_SETTINGS.has(key)) return 'settings.change'
   if (KV_PRICES.has(key)) return 'prices.change'
   if (next === null || next === undefined) return 'records.delete'

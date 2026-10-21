@@ -106,6 +106,8 @@ const EVT = 'fencepro:jobs:updated'
 const uid = () => Math.random().toString(36).slice(2, 9)
 
 let cache: Job[] = []
+/** Archived jobs (not deleted): off the operations board, kept for search, reports and Unarchive. */
+let archivedCache: Job[] = []
 let initPromise: Promise<void> | null = null
 let hydrated = false
 
@@ -222,6 +224,7 @@ export function initJobs(): Promise<void> {
     if (!records) return
     cache = records.map(fromApi)
     hydrated = true
+    void loadArchivedJobs()
     // Jobs made or changed on this phone and not on the server yet.
     reapply('job.')
     emit()
@@ -235,6 +238,18 @@ export function isJobsHydrated(): boolean { return hydrated }
 
 export function getJobs(): Job[] {
   return cache
+}
+
+/** Archived jobs: for search, reports and KPIs, and the customer record's Unarchive. */
+export function getArchivedJobs(): Job[] {
+  return archivedCache
+}
+
+async function loadArchivedJobs(): Promise<void> {
+  const r = await sendJson('GET', '/api/saved-jobs?archived=1')
+  if (!r.result.ok || !Array.isArray(r.json?.data)) return
+  archivedCache = (r.json.data as SavedJobRecord[]).map(fromApi)
+  emit()
 }
 
 export function saveJobs(_jobs: Job[]): void {
@@ -554,14 +569,21 @@ export async function refreshJobs(): Promise<void> {
   if (!hydrated) return
   const r = await sendJson('GET', `/api/saved-jobs${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`)
   if (!r.result.ok || !Array.isArray(r.json?.data)) return
-  const rows = r.json.data as Array<SavedJobRecord & { archivedAt?: string | null }>
+  const rows = r.json.data as Array<SavedJobRecord & { archivedAt?: string | null; deletedAt?: string | null }>
   if (r.json.partial) {
     if (rows.length) {
       const byId = new Map(cache.map(x => [x.id, x]))
-      for (const row of rows) { if (row.archivedAt) byId.delete(row.id); else byId.set(row.id, fromApi(row)) }
+      const arch = new Map(archivedCache.map(x => [x.id, x]))
+      // Deleted: off both lists. Archived: off the board, on the archived list.
+      for (const row of rows) {
+        byId.delete(row.id); arch.delete(row.id)
+        if (row.deletedAt) continue
+        if (row.archivedAt) arch.set(row.id, fromApi(row)); else byId.set(row.id, fromApi(row))
+      }
       cache = [...byId.values()]
+      archivedCache = [...arch.values()]
     }
-  } else cache = rows.map(fromApi)
+  } else { cache = rows.map(fromApi); void loadArchivedJobs() }
   if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
   if (!r.json.partial || rows.length) { reapply('job.'); emit() }
 }

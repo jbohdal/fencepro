@@ -69,7 +69,7 @@ export async function lookupParcel(address: string, fetchFn: typeof fetch = fetc
 export async function ensurePermit(accountId: string, jobId: string, by = 'automation') {
   const existing = await prisma.permit.findUnique({ where: { jobId } })
   if (existing) return existing
-  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId } })
+  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null } })
   if (!job) throw new Error('The job is not there any more.')
   try {
     return await prisma.permit.create({ data: { accountId, jobId, status: 'needed', county: countyOf(job.customerAddress) || 'Marion', updatedBy: by } })
@@ -89,7 +89,7 @@ interface PacketInput {
 }
 
 export async function packetInputFor(accountId: string, jobId: string, opts: { lookup?: boolean } = {}): Promise<PacketInput> {
-  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId } })
+  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null } })
   if (!job) throw new Error('The job is not there any more.')
   // Read only: a job with no permit record yet is shown as Needed (the record is made when the permit is saved or the step runs).
   const permit: any = (await prisma.permit.findUnique({ where: { jobId } })) ?? { id: null, status: 'needed', county: countyOf(job.customerAddress) || 'Marion', parcelId: '', permitNumber: '' }

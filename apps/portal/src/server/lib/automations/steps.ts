@@ -257,7 +257,7 @@ async function moveCard(r: StepRun, stage: string): Promise<StepOutcome> {
     }
     throw new Error('The pipeline kept changing while the card was being moved; it will try again.')
   }
-  const job = await prisma.savedJob.findFirst({ where: { id: e.entityId, accountId: r.accountId, archivedAt: null } })
+  const job = await prisma.savedJob.findFirst({ where: { id: e.entityId, accountId: r.accountId, deletedAt: null, archivedAt: null } })
   if (!job) throw new PermanentStepError('The job is not there any more.')
   // By stage id, in the company's list (Settings > Operations Stages).
   const { stages } = await loadOpsStages(r.accountId)

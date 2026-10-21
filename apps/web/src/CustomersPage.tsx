@@ -23,13 +23,14 @@ import type { SavedQuote } from './QuotesPage'
 import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
 import { getPortalAccessStatus, loadAccountsSoon, sendPortalInvite, resendPortalInvite, buildActivationLink } from './portalStaffApi'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
-import { logCustomerActivity, getCustomers, upsertCustomer, deleteCustomer as storeDeleteCustomer, bulkImportCustomers } from './customerStore'
+import { logCustomerActivity, getCustomers, getArchivedCustomers, upsertCustomer, bulkImportCustomers } from './customerStore'
+import { archiveRecord, unarchiveRecord, deleteRecord } from './recordArchive'
 import { getQuotes } from './quoteStore'
 import RunSpacingTable from './RunSpacingTable'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
-import { getJobs } from './jobStore'
+import { getJobs, getArchivedJobs } from './jobStore'
 import { stageOf, stageName, stageColor, OPS_STAGES_UPDATED_EVENT } from './opsStagesStore'
-import { getPipeline } from './pipelineStore'
+import { getPipeline, getArchivedCards } from './pipelineStore'
 import { loadPipeline } from './JobsPage'
 import { changeLeadStage } from './pipelineStageChange'
 import {
@@ -908,11 +909,59 @@ function CustomerActionBar({ customer, onNewQuote, onEdit }: { customer: Custome
   )
 }
 
+/**
+ * A customer's own archived jobs and pipeline cards, each with Unarchive (the
+ * record's own way back). Hidden while the whole customer is archived: its
+ * Unarchive brings those back with it.
+ */
+function ArchivedOfCustomer({ customerId, customerArchived }: { customerId: string; customerArchived: boolean }) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const on = () => setTick(t => t + 1)
+    window.addEventListener('fencepro:jobs:updated', on)
+    window.addEventListener('fencepro:pipeline:updated', on)
+    return () => { window.removeEventListener('fencepro:jobs:updated', on); window.removeEventListener('fencepro:pipeline:updated', on) }
+  }, [])
+  const [busy, setBusy] = useState<string | null>(null)
+  if (customerArchived) return null
+  const jobs = getArchivedJobs().filter(j => j.customerId === customerId)
+  const cards = getArchivedCards().filter(c => c?.customerId === customerId)
+  if (!jobs.length && !cards.length) return null
+  const back = async (kind: 'job' | 'card', id: string) => {
+    setBusy(id)
+    const r = await unarchiveRecord(kind, id)
+    setBusy(null)
+    if (r.ok) toast.success(kind === 'job' ? 'Job unarchived' : 'Card unarchived', kind === 'job' ? 'It is back on the operations board.' : 'It is back on the pipeline.')
+    else toast.error('Not unarchived', r.error || 'Try again.')
+  }
+  const canJob = can('records.archive') && can('schedule.change')
+  return (
+    <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-2" data-customer-archived-children>
+      <p className="text-xs font-semibold text-gray-600">Archived</p>
+      {jobs.map(j => (
+        <div key={j.id} className="flex flex-wrap items-center gap-2" data-archived-job={j.id}>
+          <span className="flex-1 min-w-[10rem] text-sm text-gray-800 break-words">Job: {j.fenceStyle || 'fence'}{j.contractValue ? `, ${fmt(j.contractValue)}` : ''}</span>
+          {canJob && <button className="btn btn-secondary btn-sm min-h-[44px]" disabled={busy === j.id} onClick={() => back('job', j.id)} data-unarchive-job={j.id}>Unarchive</button>}
+        </div>
+      ))}
+      {cards.map(c => (
+        <div key={c.id} className="flex flex-wrap items-center gap-2" data-archived-card={c.id}>
+          <span className="flex-1 min-w-[10rem] text-sm text-gray-800 break-words">Pipeline card{c.stage ? ` (${c.stage})` : ''}</span>
+          {can('records.archive') && <button className="btn btn-secondary btn-sm min-h-[44px]" disabled={busy === c.id} onClick={() => back('card', c.id)} data-unarchive-card={c.id}>Unarchive</button>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function CustomerDetail({
   customer, quotes, importedQuotes, jobs, files,
-  onEdit, onNewQuote, onDelete, onDeleteFile, onQuoteClick, onFileClick, initialTab, onTabConsumed,
+  onEdit, onNewQuote, onDelete, onDeleteFile, onQuoteClick, onFileClick, initialTab, onTabConsumed, archived = false, onArchive,
 }: {
   customer: Customer
+  /** Archived: off the active list; still found by search, and Unarchive is right here. */
+  archived?: boolean
+  onArchive?: (on: boolean) => void
   quotes: Quote[]
   importedQuotes: ImportedQuote[]
   jobs: Job[]
@@ -991,13 +1040,24 @@ function CustomerDetail({
             <button onClick={() => onNewQuote(customer)} className="btn btn-primary flex-1 lg:flex-none">+ New quote</button>
             <button onClick={onEdit} className="btn btn-quiet">Edit</button>
             </>}
-            {/* Delete lives behind "More" and typing the name, never one tap away. */}
-            {can('records.delete') && <PopMenu name="customer-more" label="More ▾" title="More actions" width={208}
+            {/* Archive is the everyday way off the lists; Delete (owner, admin) lives behind "More" and typing the name. */}
+            {(can('records.archive') || can('records.delete')) && <PopMenu name="customer-more" label="More ▾" title="More actions" width={208}
               triggerClassName="btn btn-quiet" triggerProps={{ 'aria-label': 'More actions', 'data-customer-more': true }}>
-              {close => <PopItem danger onClick={() => { close(); onDelete(customer.id) }} data-customer-delete>Delete customer…</PopItem>}
+              {close => <>
+                {can('records.archive') && onArchive && <PopItem onClick={() => { close(); onArchive(!archived) }} data-customer-archive={archived ? 'off' : 'on'}>{archived ? 'Unarchive customer' : 'Archive customer'}</PopItem>}
+                {can('records.delete') && <PopItem danger onClick={() => { close(); onDelete(customer.id) }} data-customer-delete>Delete customer…</PopItem>}
+              </>}
             </PopMenu>}
           </div>
         </div>
+
+        {archived && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3" data-customer-archived>
+            <p className="flex-1 min-w-[12rem] text-sm text-amber-900">Archived: off the customer list and the boards, still in search and reports.</p>
+            {can('records.archive') && onArchive && <button className="btn btn-secondary btn-sm min-h-[44px]" onClick={() => onArchive(false)} data-customer-unarchive>Unarchive</button>}
+          </div>
+        )}
+        <ArchivedOfCustomer customerId={customer.id} customerArchived={archived} />
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4 mt-5">
           {[
@@ -1359,7 +1419,8 @@ export default function CustomersPage({ onNewQuote }: {
     )
   })
 
-  const selected = customers.find(c => c.id === selectedId) ?? null
+  const archivedSelected = customers.some(c => c.id === selectedId) ? null : getArchivedCustomers().find(c => c.id === selectedId) ?? null
+  const selected = customers.find(c => c.id === selectedId) ?? archivedSelected
   const customerQuotes = quotes.filter(q => q.customerId === selectedId)
   const customerImportedQuotes = importedQuotes.filter(q => q.customerId === selectedId)
   const customerJobs = jobs.filter(j => j.customerId === selectedId)
@@ -1389,17 +1450,26 @@ export default function CustomersPage({ onNewQuote }: {
   // Deleting a customer asks for their name to be typed (see ConfirmByTyping).
   const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null)
   function handleDelete(id: string) {
-    const c = customers.find(x => x.id === id)
+    const c = customers.find(x => x.id === id) ?? getArchivedCustomers().find(x => x.id === id)
     if (!c) return
     const name = `${c.firstName} ${c.lastName}`.trim().replace(/\s+/g, ' ') || c.phone || c.email || 'DELETE'
     setDeleting({ id, name })
   }
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!deleting) return
-    const { id } = deleting
+    const { id, name } = deleting
     setDeleting(null)
-    storeDeleteCustomer(id)
+    // Straight to the server: the customer and everything of theirs go to Settings > Deleted Records together.
+    const r = await deleteRecord('customer', id)
+    if (!r.ok) { toast.error('Not deleted', r.error || 'Try again.'); return }
+    toast.success(`${name} deleted`, 'With their quotes, jobs and pipeline card. The owner or an admin can restore them from Settings > Deleted Records.')
     if (selectedId === id) navigate('/customers', { replace: true })
+  }
+  async function setArchived(id: string, on: boolean) {
+    const r = on ? await archiveRecord('customer', id) : await unarchiveRecord('customer', id)
+    if (!r.ok) { toast.error(on ? 'Not archived' : 'Not unarchived', r.error || 'Try again.'); return }
+    setCustomers([...getCustomers()])
+    toast.success(on ? 'Customer archived' : 'Customer unarchived', on ? 'Off the customer list and the boards with their cards, quotes and jobs. Search still finds them; Unarchive is on their page.' : 'Back on the customer list, with what was archived with them.')
   }
 
   function handleCSVImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1675,6 +1745,8 @@ export default function CustomersPage({ onNewQuote }: {
             onEdit={() => setEditing(true)}
             onNewQuote={(c) => onNewQuote?.(c)}
             onDelete={handleDelete}
+            archived={!!archivedSelected}
+            onArchive={on => setArchived(selected.id, on)}
             onDeleteFile={id => setFiles(prev => {
               const updated = prev.filter(f => f.id !== id)
               cloudStorage.setItem('fencepro_files', JSON.stringify(updated))
@@ -1693,7 +1765,7 @@ export default function CustomersPage({ onNewQuote }: {
 
       {deleting && (
         <ConfirmByTyping title={`Delete ${deleting.name}?`} name={deleting.name}
-          body="Their customer record is removed. This cannot be undone from here."
+          body="Their quotes, jobs, pipeline card, appointments and invoices go with them. The owner or an admin can restore all of it from Settings > Deleted Records."
           action="Delete customer" onConfirm={confirmDelete} onCancel={() => setDeleting(null)} />
       )}
 

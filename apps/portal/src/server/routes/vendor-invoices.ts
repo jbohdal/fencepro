@@ -137,7 +137,7 @@ router.get('/vendors-by-month', async (req: any, res) => {
 router.get('/jobs', async (req: any, res) => {
   try {
     const jobs = await prisma.savedJob.findMany({
-      where: { accountId: req.user.crmAccountId },
+      where: { accountId: req.user.crmAccountId, deletedAt: null },
       select: { id: true, customerName: true, fenceStyle: true, status: true, customerAddress: true },
       orderBy: { updatedAt: 'desc' }, take: 200,
     })

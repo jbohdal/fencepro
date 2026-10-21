@@ -72,7 +72,7 @@ export async function ensureJobForAcceptedQuote(q: {
   fenceStyle: string; sections: number; runs: unknown; walkGates: number; dblGates: number; tearOutSections: number; hasSalesman: boolean
   finalPrice: number; gmPct: number; notes: string; salesRep: string; leadSource: string
 }): Promise<string | null> {
-  const existing = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, archivedAt: null }, select: { id: true } })
+  const existing = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, deletedAt: null, archivedAt: null }, select: { id: true } })
   if (existing) return existing.id
   const runs = Array.isArray(q.runs) ? (q.runs as unknown[]).map(Number).filter(n => Number.isFinite(n)) : []
   // The same job (same customer, sold within 60 days, price within 10%): the
@@ -81,7 +81,7 @@ export async function ensureJobForAcceptedQuote(q: {
   if (q.crmContactId) {
     const since = new Date(Date.now() - 60 * 86_400_000)
     const open = await prisma.savedJob.findMany({
-      where: { accountId: q.accountId, crmContactId: q.crmContactId, archivedAt: null, createdAt: { gte: since }, status: { notIn: ['completed', 'invoiced', 'paid'] } },
+      where: { accountId: q.accountId, crmContactId: q.crmContactId, deletedAt: null, archivedAt: null, createdAt: { gte: since }, status: { notIn: ['completed', 'invoiced', 'paid'] } },
       orderBy: { createdAt: 'desc' },
     })
     const same = open.find(j => j.contractValue > 0 && Math.abs(j.contractValue - q.finalPrice) <= 0.1 * Math.max(j.contractValue, q.finalPrice))

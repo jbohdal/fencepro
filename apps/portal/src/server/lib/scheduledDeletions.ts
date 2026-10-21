@@ -32,10 +32,12 @@ export async function runDueDeletions(now = new Date()): Promise<string[]> {
   for (const d of due) {
     if (d.model !== 'CrmContact') { out.push(`${d.id}: unknown record type ${d.model}`); continue }
     const wanted = ids(d.recordIds)
-    const archived = await prisma.crmContact.findMany({ where: { id: { in: wanted }, accountId: d.accountId, archivedAt: { not: null } }, select: { id: true } })
+    // Still archived or deleted (one brought back or restored is left alone).
+    const archived = await prisma.crmContact.findMany({ where: { id: { in: wanted }, accountId: d.accountId, OR: [{ archivedAt: { not: null } }, { deletedAt: { not: null } }] }, select: { id: true } })
     const kept: string[] = []
     const deletable: string[] = []
     for (const { id } of archived) {
+      // all rows: anything still pointing at the customer, deleted or not, keeps it (the rows refer to it).
       const [appts, quotes, jobs] = await Promise.all([
         prisma.appointment.count({ where: { crmContactId: id } }),
         prisma.savedQuote.count({ where: { crmContactId: id } }),
@@ -44,7 +46,7 @@ export async function runDueDeletions(now = new Date()): Promise<string[]> {
       if (appts + quotes + jobs > 0) kept.push(id); else deletable.push(id)
     }
     const notArchived = wanted.filter(id => !archived.some(a => a.id === id))
-    const deleted = deletable.length ? (await prisma.crmContact.deleteMany({ where: { id: { in: deletable }, archivedAt: { not: null } } })).count : 0
+    const deleted = deletable.length ? (await prisma.crmContact.deleteMany({ where: { id: { in: deletable }, OR: [{ archivedAt: { not: null } }, { deletedAt: { not: null } }] } })).count : 0
     const result = [
       `Deleted ${deleted} of ${wanted.length} on ${today} (backup ${backup.completedAt.toISOString()}).`,
       notArchived.length ? `Left alone, no longer archived: ${notArchived.length}.` : '',

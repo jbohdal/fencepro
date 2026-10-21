@@ -68,7 +68,7 @@ router.get('/', async (req: any, res) => {
     let quoteId = typeof req.query.quoteId === 'string' ? req.query.quoteId : null
     if (!quoteId && typeof req.query.jobId === 'string') quoteId = await quoteOfJob(accountId, req.query.jobId)
     if (!quoteId && (req.query.quoteId || req.query.jobId)) { res.json({ success: true, data: [] }); return }
-    const rows = await prisma.changeOrder.findMany({ where: { accountId, ...(quoteId ? { quoteId } : {}) }, orderBy: [{ quoteId: 'asc' }, { number: 'asc' }] })
+    const rows = await prisma.changeOrder.findMany({ where: { accountId, deletedAt: null, ...(quoteId ? { quoteId } : {}) }, orderBy: [{ quoteId: 'asc' }, { number: 'asc' }] })
     res.json({ success: true, data: rows.map(view) })
   } catch (e) { fail(res, e, 'load change orders') }
 })

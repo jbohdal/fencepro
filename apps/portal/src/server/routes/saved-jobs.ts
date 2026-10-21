@@ -17,6 +17,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { DeleteError, deleteRecord, setArchived } from '../lib/deletion.js'
 import { ensureJobChecklist } from '../lib/seeds.js'
 import { audit } from '../lib/auditLog.js'
 import { resolveSecret } from '../lib/secrets.js'
@@ -132,10 +133,14 @@ router.get('/', requireUser, requireAccount, async (req: any, res) => {
     const jobs = await prisma.savedJob.findMany({
       where: Number.isFinite(sinceRaw)
         ? { accountId: req.user.crmAccountId, updatedAt: { gt: new Date(sinceRaw) } }
-        : { accountId: req.user.crmAccountId, archivedAt: null },
+        : req.query.archived === '1' ? { accountId: req.user.crmAccountId, deletedAt: null, archivedAt: { not: null } }
+        : { accountId: req.user.crmAccountId, deletedAt: null, archivedAt: null },
       orderBy: { updatedAt: 'desc' },
     })
-    res.json({ success: true, data: jobs, serverTime, partial: Number.isFinite(sinceRaw) })
+    // ?archived=1 above: the archived ones (search, reports, Unarchive). A small refresh marks a deleted
+    // one with archivedAt too, so an older screen drops it (a new screen checks deletedAt first).
+    const data = Number.isFinite(sinceRaw) ? jobs.map(x => (x.deletedAt && !x.archivedAt ? { ...x, archivedAt: x.deletedAt } : x)) : jobs
+    res.json({ success: true, data, serverTime, partial: Number.isFinite(sinceRaw) })
   } catch (err) {
     console.error('[saved-jobs] list error:', err)
     res.status(500).json({ success: false, error: 'Failed to list jobs' })
@@ -146,7 +151,7 @@ router.get('/', requireUser, requireAccount, async (req: any, res) => {
 router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
   try {
     const j = await prisma.savedJob.findUnique({ where: { id: req.params.id } })
-    if (!j || j.accountId !== req.user.crmAccountId || j.archivedAt) {
+    if (!j || j.accountId !== req.user.crmAccountId || j.deletedAt) {
       res.status(404).json({ success: false, error: 'Job not found' })
       return
     }
@@ -177,8 +182,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     // job (it carries the customer's details) and drop the link.
     let contactId: string | null = null
     if (data.crmContactId) {
-      const c = await prisma.crmContact.findUnique({ where: { id: data.crmContactId }, select: { id: true, accountId: true } })
-      if (c && c.accountId === req.user.crmAccountId) contactId = c.id
+      const c = await prisma.crmContact.findUnique({ where: { id: data.crmContactId }, select: { id: true, accountId: true, deletedAt: true } })
+      if (c && c.accountId === req.user.crmAccountId && !c.deletedAt) contactId = c.id
       else console.warn(`[saved-jobs] contact ${data.crmContactId} not found for this company; saving the job without the link`)
     }
     const { id: _ignored, ...fields } = data
@@ -225,7 +230,7 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     // A Salesman or Installer never had the margin: it stays as saved.
     if (hidesCosts(roleOf(req))) delete (data as any).gmPct
     const existing = await prisma.savedJob.findUnique({ where: { id: req.params.id } })
-    if (!existing || existing.accountId !== req.user.crmAccountId || existing.archivedAt) {
+    if (!existing || existing.accountId !== req.user.crmAccountId || existing.deletedAt) {
       res.status(404).json({ success: false, error: 'Job not found' })
       return
     }
@@ -269,22 +274,36 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
   }
 })
 
-// ── Delete (soft) ──
+// ── Delete (soft, owner and admin) ──
+// With everything that hangs off it, in one transaction, logged in Settings >
+// Deleted Records with a snapshot to restore from (lib/deletion.ts).
+const actorOf = (req: any) => ({ accountId: req.user.crmAccountId as string, userId: (req.user.id ?? null) as string | null })
 router.delete('/:id', requireUser, requireAccount, requireCan('records.delete'), async (req: any, res) => {
   try {
-    const existing = await prisma.savedJob.findUnique({ where: { id: req.params.id } })
-    if (!existing || existing.accountId !== req.user.crmAccountId || existing.archivedAt) {
-      res.status(404).json({ success: false, error: 'Job not found' })
-      return
-    }
-    await prisma.savedJob.update({ where: { id: existing.id }, data: { archivedAt: new Date() } })
-    await audit(req, 'soft_delete', 'SavedJob', existing.id, { oldValues: existing })
-    res.json({ success: true })
+    const r = await deleteRecord(actorOf(req), 'job', String(req.params.id), typeof req.body?.reason === 'string' ? req.body.reason : null)
+    await audit(req, 'soft_delete', 'SavedJob', String(req.params.id), { newValues: r })
+    res.json({ success: true, data: r })
   } catch (err) {
+    if (err instanceof DeleteError) { res.status(err.status).json({ success: false, error: err.status === 404 ? 'Job not found' : err.message }); return }
     console.error('[saved-jobs] delete error:', err)
     res.status(500).json({ success: false, error: 'Failed to delete job' })
   }
 })
+
+// ── Archive / Unarchive (everyday, reversible; no Deleted Records row) ──
+for (const [path, on] of [['archive', true], ['unarchive', false]] as const) {
+  router.post(`/:id/${path}`, requireUser, requireAccount, requireCan('records.archive'), requireCan('schedule.change'), async (req: any, res) => {
+    try {
+      const r = await setArchived(actorOf(req), 'job', String(req.params.id), on)
+      await audit(req, 'update', 'SavedJob', String(req.params.id), { newValues: { archivedAt: r.archivedAt } })
+      res.json({ success: true, data: r })
+    } catch (err) {
+      if (err instanceof DeleteError) { res.status(err.status).json({ success: false, error: err.message }); return }
+      console.error(`[saved-jobs] ${path} error:`, err)
+      res.status(500).json({ success: false, error: `Failed to ${path} job` })
+    }
+  })
+}
 
 // ── Bulk sync ──
 const syncSchema = z.object({ jobs: z.array(jobSchema) })

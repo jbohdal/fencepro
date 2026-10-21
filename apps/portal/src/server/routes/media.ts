@@ -16,6 +16,7 @@ import path from 'path'
 import multer from 'multer'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { softDeleteLogged } from '../lib/deletion.js'
 import { withLock } from '../lib/once.js'
 import { recordPhotoUploaded } from '../lib/automations/hooks.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
@@ -224,8 +225,8 @@ router.get('/', async (req: any, res) => {
   }
   if (customerId) {
     or.push({ customerId })
-    const quotes = await prisma.savedQuote.findMany({ where: { accountId, crmContactId: customerId }, select: { id: true } })
-    const jobs = await prisma.savedJob.findMany({ where: { accountId, crmContactId: customerId }, select: { id: true } }).catch(() => [])
+    const quotes = await prisma.savedQuote.findMany({ where: { accountId, crmContactId: customerId, deletedAt: null }, select: { id: true } })
+    const jobs = await prisma.savedJob.findMany({ where: { accountId, crmContactId: customerId, deletedAt: null }, select: { id: true } }).catch(() => [])
     if (quotes.length) or.push({ quoteKey: { in: quotes.map(q => q.id) } })
     if (jobs.length) or.push({ jobId: { in: jobs.map(j => j.id) } })
   }
@@ -269,8 +270,9 @@ router.delete('/:id/markup', async (req: any, res) => {
 
 // Removed from the app; the files stay on the Mac (and in the backup).
 router.delete('/:id', requireCan('ops.delete'), async (req: any, res) => {
-  const n = await prisma.mediaItem.updateMany({ where: { id: String(req.params.id), accountId: req.user.crmAccountId, deletedAt: null }, data: { deletedAt: new Date() } })
-  res.json({ success: true, data: { deleted: n.count } })
+  // Soft delete, one row in Settings > Deleted Records (Restore brings it back).
+  const n = await prisma.$transaction(tx => softDeleteLogged(tx, { accountId: req.user.crmAccountId, userId: req.user.id ?? null }, 'mediaItem', 'photo', [String(req.params.id)]))
+  res.json({ success: true, data: { deleted: n } })
 })
 
 /** Disk space on this Mac, for the storage note in Settings. */

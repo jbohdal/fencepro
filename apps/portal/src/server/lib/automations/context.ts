@@ -71,15 +71,15 @@ export async function loadLeads(accountId: string): Promise<{ leads: any[]; vers
 export async function jobForCard(accountId: string, card: any): Promise<any | null> {
   if (!card) return null
   if (card.jobId) {
-    const j = await prisma.savedJob.findFirst({ where: { id: String(card.jobId), accountId, archivedAt: null } })
+    const j = await prisma.savedJob.findFirst({ where: { id: String(card.jobId), accountId, deletedAt: null, archivedAt: null } })
     if (j) return j
   }
   if (card.quoteId) {
-    const j = await prisma.savedJob.findFirst({ where: { accountId, quoteId: String(card.quoteId), archivedAt: null } })
+    const j = await prisma.savedJob.findFirst({ where: { accountId, quoteId: String(card.quoteId), deletedAt: null, archivedAt: null } })
     if (j) return j
   }
   if (!card.customerId) return null
-  return prisma.savedJob.findFirst({ where: { accountId, crmContactId: String(card.customerId), archivedAt: null }, orderBy: { createdAt: 'desc' } })
+  return prisma.savedJob.findFirst({ where: { accountId, crmContactId: String(card.customerId), deletedAt: null, archivedAt: null }, orderBy: { createdAt: 'desc' } })
 }
 
 /** The pipeline card that goes with a job: the customer's open card, else their newest. */
@@ -124,7 +124,7 @@ export async function buildContext(accountId: string, board: Board, entityId: st
     if (!card) return null
     job = await jobForCard(accountId, card)
   } else {
-    job = await prisma.savedJob.findFirst({ where: { id: entityId, accountId, archivedAt: null } })
+    job = await prisma.savedJob.findFirst({ where: { id: entityId, accountId, deletedAt: null, archivedAt: null } })
     if (!job) return null
     card = cardForJob(leads, job)
   }
@@ -132,13 +132,13 @@ export async function buildContext(accountId: string, board: Board, entityId: st
   const contact = customerId ? await prisma.crmContact.findFirst({ where: { id: customerId, accountId } }) : null
   const permit = job ? await prisma.permit.findUnique({ where: { jobId: job.id } }) : null
   const quotes = customerId
-    ? await prisma.savedQuote.findMany({ where: { accountId, crmContactId: customerId, archivedAt: null }, orderBy: { updatedAt: 'desc' }, take: 20 })
+    ? await prisma.savedQuote.findMany({ where: { accountId, crmContactId: customerId, deletedAt: null, archivedAt: null }, orderBy: { updatedAt: 'desc' }, take: 20 })
     : []
   const quote = (job?.quoteId ? quotes.find(q => q.id === job.quoteId) : null) ?? quotes.find(q => q.status === 'SOLD') ?? quotes[0] ?? null
   const shared = (quote?.shareToken && !quote.shareDisabledAt ? quote : null) ?? quotes.find(q => q.shareToken && !q.shareDisabledAt) ?? null
   const sent = quotes.find(q => q.status === 'SENT') ?? null
   const appt = customerId
-    ? await prisma.appointment.findFirst({ where: { accountId, crmContactId: customerId, startAt: { gte: new Date(Date.now() - 12 * 3600_000) }, status: { notIn: ['cancelled', 'completed', 'no_show'] } }, orderBy: { startAt: 'asc' } })
+    ? await prisma.appointment.findFirst({ where: { accountId, crmContactId: customerId, deletedAt: null, archivedAt: null, startAt: { gte: new Date(Date.now() - 12 * 3600_000) }, status: { notIn: ['cancelled', 'completed', 'no_show'] } }, orderBy: { startAt: 'asc' } })
     : null
 
   const firstName = String(contact?.firstName ?? card?.firstName ?? (job?.customerName || '').split(/\s+/)[0] ?? '').trim()

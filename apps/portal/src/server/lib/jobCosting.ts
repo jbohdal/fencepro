@@ -102,7 +102,7 @@ export const laborOf = (t: { labor: unknown }): TakeoffLabor => {
 }
 
 async function jobOf(accountId: string, jobId: string) {
-  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, archivedAt: null } })
+  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null, archivedAt: null } })
   if (!job) throw err(404, 'Job not found')
   return job
 }
@@ -245,7 +245,7 @@ const DONE = ['completed', 'invoiced', 'paid'] as const
 /** Every completed job (and any with a takeoff): quoted vs actual, "No takeoff" where there is none. */
 export async function reportJobs(accountId: string, from?: string, to?: string): Promise<ReportJob[]> {
   const [jobs, takeoffs, quotedRows] = await Promise.all([
-    prisma.savedJob.findMany({ where: { accountId, archivedAt: null } }),
+    prisma.savedJob.findMany({ where: { accountId, deletedAt: null } }),
     prisma.jobTakeoff.findMany({ where: { accountId } }),
     prisma.jobQuotedCost.findMany({ where: { accountId } }),
   ])

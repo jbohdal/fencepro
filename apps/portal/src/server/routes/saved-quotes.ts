@@ -26,6 +26,7 @@ import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma.js'
+import { DeleteError, deleteRecord } from '../lib/deletion.js'
 import { audit } from '../lib/auditLog.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { resolveSecret } from '../lib/secrets.js'
@@ -161,8 +162,8 @@ function toJsonValue(value: unknown): any {
  */
 async function ownContactId(contactId: string | null | undefined, accountId: string): Promise<string | null> {
   if (!contactId) return null
-  const c = await prisma.crmContact.findUnique({ where: { id: contactId }, select: { id: true, accountId: true } })
-  if (c && c.accountId === accountId) return c.id
+  const c = await prisma.crmContact.findUnique({ where: { id: contactId }, select: { id: true, accountId: true, deletedAt: true } })
+  if (c && c.accountId === accountId && !c.deletedAt) return c.id
   console.warn(`[saved-quotes] contact ${contactId} not found for this company; saving the quote without the link`)
   return null
 }
@@ -185,10 +186,14 @@ router.get('/', requireUser, requireAccount, async (req: any, res) => {
     const quotes = await prisma.savedQuote.findMany({
       where: Number.isFinite(sinceRaw)
         ? { accountId: req.user.crmAccountId, updatedAt: { gt: new Date(sinceRaw) } }
-        : { accountId: req.user.crmAccountId, archivedAt: null },
+        : req.query.archived === '1' ? { accountId: req.user.crmAccountId, deletedAt: null, archivedAt: { not: null } }
+        : { accountId: req.user.crmAccountId, deletedAt: null, archivedAt: null },
       orderBy: { updatedAt: 'desc' },
     })
-    res.json({ success: true, data: quotes, serverTime, partial: Number.isFinite(sinceRaw) })
+    // ?archived=1 above: the archived ones (search, reports, Unarchive). A small refresh marks a deleted
+    // one with archivedAt too, so an older screen drops it (a new screen checks deletedAt first).
+    const data = Number.isFinite(sinceRaw) ? quotes.map(x => (x.deletedAt && !x.archivedAt ? { ...x, archivedAt: x.deletedAt } : x)) : quotes
+    res.json({ success: true, data, serverTime, partial: Number.isFinite(sinceRaw) })
   } catch (err) {
     console.error('[saved-quotes] list error:', err)
     res.status(500).json({ success: false, error: 'Failed to list quotes' })
@@ -199,7 +204,7 @@ router.get('/', requireUser, requireAccount, async (req: any, res) => {
 router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
   try {
     const q = await prisma.savedQuote.findUnique({ where: { id: req.params.id } })
-    if (!q || q.accountId !== req.user.crmAccountId || q.archivedAt) {
+    if (!q || q.accountId !== req.user.crmAccountId || q.deletedAt) {
       res.status(404).json({ success: false, error: 'Quote not found' })
       return
     }
@@ -297,7 +302,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
 router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   try {
     const existing = await prisma.savedQuote.findUnique({ where: { id: req.params.id } })
-    if (!existing || existing.accountId !== req.user.crmAccountId || existing.archivedAt) {
+    if (!existing || existing.accountId !== req.user.crmAccountId || existing.deletedAt) {
       res.status(404).json({ success: false, error: 'Quote not found' })
       return
     }
@@ -363,18 +368,17 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
   }
 })
 
-// ── Delete (soft) ──
+// ── Delete (soft, owner and admin) ──
+// With everything that hangs off it, in one transaction, logged in Settings >
+// Deleted Records with a snapshot to restore from (lib/deletion.ts).
+const actorOf = (req: any) => ({ accountId: req.user.crmAccountId as string, userId: (req.user.id ?? null) as string | null })
 router.delete('/:id', requireUser, requireAccount, requireCan('records.delete'), async (req: any, res) => {
   try {
-    const existing = await prisma.savedQuote.findUnique({ where: { id: req.params.id } })
-    if (!existing || existing.accountId !== req.user.crmAccountId || existing.archivedAt) {
-      res.status(404).json({ success: false, error: 'Quote not found' })
-      return
-    }
-    await prisma.savedQuote.update({ where: { id: existing.id }, data: { archivedAt: new Date() } })
-    await audit(req, 'soft_delete', 'SavedQuote', existing.id, { oldValues: existing })
-    res.json({ success: true })
+    const r = await deleteRecord(actorOf(req), 'quote', String(req.params.id), typeof req.body?.reason === 'string' ? req.body.reason : null)
+    await audit(req, 'soft_delete', 'SavedQuote', String(req.params.id), { newValues: r })
+    res.json({ success: true, data: r })
   } catch (err) {
+    if (err instanceof DeleteError) { res.status(err.status).json({ success: false, error: err.status === 404 ? 'Quote not found' : err.message }); return }
     console.error('[saved-quotes] delete error:', err)
     res.status(500).json({ success: false, error: 'Failed to delete quote' })
   }
@@ -503,7 +507,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
 router.post('/:id/share-token', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
   try {
     const existing = await prisma.savedQuote.findUnique({ where: { id: req.params.id } })
-    if (!existing || existing.accountId !== req.user.crmAccountId || existing.archivedAt) {
+    if (!existing || existing.accountId !== req.user.crmAccountId || existing.deletedAt) {
       res.status(404).json({ success: false, error: 'Quote not found' })
       return
     }
@@ -546,7 +550,7 @@ router.post('/:id/share-off', requireUser, requireAccount, requireCan('quotes.ch
 router.get('/share/:token', async (req: any, res) => {
   try {
     const q = await prisma.savedQuote.findUnique({ where: { shareToken: req.params.token } })
-    if (!q || q.archivedAt) {
+    if (!q || q.archivedAt || q.deletedAt) {
       res.status(404).json({ success: false, error: 'Quote not found or no longer available' })
       return
     }
@@ -595,7 +599,7 @@ router.post('/share/:token/accept', async (req: any, res) => {
   try {
     const data = acceptSchema.parse(req.body)
     const q = await prisma.savedQuote.findUnique({ where: { shareToken: req.params.token } })
-    if (!q || q.archivedAt) {
+    if (!q || q.archivedAt || q.deletedAt) {
       res.status(404).json({ success: false, error: 'Quote not found or no longer available' })
       return
     }

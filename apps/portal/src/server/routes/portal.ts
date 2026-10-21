@@ -48,6 +48,25 @@ import { buildFrontendUrl } from '../lib/urls.js'
 import { isStaffRequest } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireStaffCan } from '../lib/permissions.js'
+import { verifyStaffBearer } from '../lib/secrets.js'
+import { emptySnapshot, logDeletion } from '../lib/deletion.js'
+
+/** Soft delete a customer's portal photo or file and log it; false when it is not this company's (or already gone). */
+async function softDeletePortalItem(model: 'portalPhoto' | 'portalFile', entityType: 'photo' | 'file', id: string, staff: { sub?: string; crmAccountId?: string | null } | null): Promise<boolean> {
+  return prisma.$transaction(async (tx: any) => {
+    const row = await tx[model].findUnique({ where: { id } })
+    if (!row || row.deletedAt) return false
+    const contact = await tx.crmContact.findUnique({ where: { id: row.crmCustomerId }, select: { accountId: true, firstName: true, lastName: true } })
+    const accountId = contact?.accountId ?? null
+    if (!accountId || (staff?.crmAccountId && staff.crmAccountId !== accountId)) return false
+    const at = new Date()
+    const after = await tx[model].update({ where: { id }, data: { deletedAt: at } })
+    const snap = emptySnapshot()
+    snap.rows.push({ model, id, row: JSON.parse(JSON.stringify(after)) })
+    await logDeletion(tx, { accountId, userId: staff?.sub ?? null }, { entityType, entityId: id, entityLabel: `${entityType === 'photo' ? 'Customer photo' : 'Customer file'} ${row.originalFilename} (${[contact?.firstName, contact?.lastName].filter(Boolean).join(' ')})`, snapshot: snap, at })
+    return true
+  })
+}
 import { changeOrdersForContact, signByCustomer, customerView } from '../lib/changeOrders.js'
 import { signSchema as coSignSchema } from './changeOrderPublic.js'
 
@@ -443,8 +462,9 @@ router.post('/logout', async (req, res) => {
 
 /** The customer's CRM record (the portal login's customer), or null. */
 async function contactOf(crmCustomerId: string) {
-  return prisma.crmContact.findUnique({
-    where: { id: crmCustomerId },
+  // A deleted customer (Settings > Deleted Records) has no portal until restored.
+  return prisma.crmContact.findFirst({
+    where: { id: crmCustomerId, deletedAt: null },
     select: { id: true, accountId: true, firstName: true, lastName: true, phone: true, serviceAddress: true },
   })
 }
@@ -531,7 +551,7 @@ router.get('/quotes', requirePortalAuth, async (req: PortalAuthRequest, res) => 
     if (!c?.accountId) { res.json({ success: true, data: [] }); return }
     const now = Date.now()
     const rows = await prisma.savedQuote.findMany({
-      where: { accountId: c.accountId, crmContactId: c.id, archivedAt: null, status: { in: [...QUOTE_STATUSES_SHOWN] as any } },
+      where: { accountId: c.accountId, crmContactId: c.id, deletedAt: null, archivedAt: null, status: { in: [...QUOTE_STATUSES_SHOWN] as any } },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       select: { id: true, fenceStyle: true, date: true, finalPrice: true, status: true, layout: true, runs: true, shareToken: true, shareDisabledAt: true, shareExpiresAt: true },
     })
@@ -555,9 +575,9 @@ router.get('/projects', requirePortalAuth, async (req: PortalAuthRequest, res) =
   try {
     const c = await contactOf(req.portalAccount!.crmCustomerId)
     if (!c?.accountId) { res.json({ success: true, data: [] }); return }
-    const quotes = await prisma.savedQuote.findMany({ where: { accountId: c.accountId, crmContactId: c.id }, select: { id: true } })
+    const quotes = await prisma.savedQuote.findMany({ where: { accountId: c.accountId, crmContactId: c.id, deletedAt: null }, select: { id: true } })
     const jobs = await prisma.savedJob.findMany({
-      where: { accountId: c.accountId, archivedAt: null, OR: [{ crmContactId: c.id }, ...(quotes.length ? [{ quoteId: { in: quotes.map(q => q.id) } }] : [])] },
+      where: { accountId: c.accountId, deletedAt: null, archivedAt: null, OR: [{ crmContactId: c.id }, ...(quotes.length ? [{ quoteId: { in: quotes.map(q => q.id) } }] : [])] },
       orderBy: { createdAt: 'desc' },
       select: { id: true, fenceStyle: true, status: true, scheduledDate: true, crewAssigned: true, customerAddress: true },
     })
@@ -789,7 +809,7 @@ router.get('/photos', requirePortalAuth, async (req: PortalAuthRequest, res) => 
 router.get('/media', requirePortalAuth, async (req: PortalAuthRequest, res) => {
   try {
     const customerId = req.portalAccount!.crmCustomerId
-    const quotes = await prisma.savedQuote.findMany({ where: { crmContactId: customerId }, select: { id: true } })
+    const quotes = await prisma.savedQuote.findMany({ where: { crmContactId: customerId, deletedAt: null }, select: { id: true } })
     const items = await prisma.mediaItem.findMany({
       where: { deletedAt: null, visibility: 'customer', OR: [{ customerId }, ...(quotes.length ? [{ quoteKey: { in: quotes.map(q => q.id) } }] : [])] },
       orderBy: { takenAt: 'asc' },
@@ -871,7 +891,9 @@ router.delete('/photos/:id', requireStaffCan('ops.delete'), async (req, res) => 
     const id = String(req.params.id)
     // The office only (the portal has no delete); a customer's sign in is not a staff one.
     if (!isStaffRequest(req)) { res.status(401).json({ success: false, error: 'AUTH_REQUIRED' }); return }
-    await prisma.portalPhoto.update({ where: { id }, data: { deletedAt: new Date() } })
+    // Only one of the caller's company, soft deleted and kept in Settings > Deleted Records.
+    const done = await softDeletePortalItem('portalPhoto', 'photo', id, verifyStaffBearer(req))
+    if (!done) { res.status(404).json({ success: false, error: 'NOT_FOUND' }); return }
     res.json({ success: true })
   } catch (err) {
     console.error('[portal-photo-delete]', err)
@@ -1028,7 +1050,9 @@ router.delete('/documents/:id', requireStaffCan('ops.delete'), async (req, res) 
   try {
     const id = String(req.params.id)
     if (!isStaffRequest(req)) { res.status(401).json({ success: false, error: 'AUTH_REQUIRED' }); return }
-    await prisma.portalFile.update({ where: { id }, data: { deletedAt: new Date() } })
+    // Only one of the caller's company, soft deleted and kept in Settings > Deleted Records.
+    const done = await softDeletePortalItem('portalFile', 'file', id, verifyStaffBearer(req))
+    if (!done) { res.status(404).json({ success: false, error: 'NOT_FOUND' }); return }
     res.json({ success: true })
   } catch (err) {
     console.error('[portal-doc-delete]', err)

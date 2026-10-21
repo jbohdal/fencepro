@@ -45,9 +45,9 @@ const DAYS_AFTER_COMPLETE = 30
 const CREW_CATEGORIES = ['Progress', 'Completed'] as const
 
 /** Why a packet link no longer works, or null. */
-export function packetClosed(p: { disabledAt: Date | null }, job: { completedDate: string | null; archivedAt?: Date | null } | null, now = Date.now()): 'off' | 'expired' | 'gone' | null {
+export function packetClosed(p: { disabledAt: Date | null }, job: { completedDate: string | null; archivedAt?: Date | null; deletedAt?: Date | null } | null, now = Date.now()): 'off' | 'expired' | 'gone' | null {
   if (p.disabledAt) return 'off'
-  if (!job || job.archivedAt) return 'gone'
+  if (!job || job.archivedAt || job.deletedAt) return 'gone'
   if (job.completedDate) {
     const done = new Date(job.completedDate.length <= 10 ? `${job.completedDate}T23:59:59` : job.completedDate).getTime()
     if (Number.isFinite(done) && now > done + DAYS_AFTER_COMPLETE * 86_400_000) return 'expired'
@@ -108,7 +108,7 @@ packetStaff.post('/', requireCan('packets.change'), express.json({ limit: '1mb' 
   try {
     const body = z.object({ jobId: z.string().min(1).max(100), snapshot: snapSchema }).parse(req.body)
     const accountId = req.user.crmAccountId
-    const job = await prisma.savedJob.findFirst({ where: { id: body.jobId, accountId } })
+    const job = await prisma.savedJob.findFirst({ where: { id: body.jobId, accountId, deletedAt: null } })
     if (!job) { res.status(404).json({ success: false, error: 'Job not found' }); return }
     const existing = await prisma.installPacket.findUnique({ where: { jobId: job.id } })
     const token = !existing || existing.disabledAt ? crypto.randomBytes(24).toString('base64url') : existing.token

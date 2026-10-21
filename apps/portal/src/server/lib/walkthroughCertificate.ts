@@ -22,7 +22,7 @@ import prisma from './prisma.js'
 import { plainStyleName, pricingModule } from './estimates.js'
 import { logoPath } from '../routes/proposal.js'
 import { CATEGORY_LABEL, locationText, type WalkItem, type PhotoSlot, type Signature, type WalkCategory } from './walkthroughRules.js'
-import { quoteWarranty, nyDay } from './warranties.js'
+import { effectiveQuoteWarranty, nyDay } from './warranties.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const TZ = 'America/New_York'
@@ -84,6 +84,8 @@ export interface CertificateInput {
   warrantyName?: string
   warrantyStart?: string
   warrantyEnd?: string
+  /** "October 21, 2026": the customer acknowledged a warranty update that day (lib/warrantyUpdates.ts). */
+  warrantyUpdated?: string
 }
 
 /** The PDF itself. */
@@ -111,6 +113,7 @@ export function certificatePdf(c: CertificateInput): Promise<Buffer> {
     const facts: Array<[string, string]> = [
       ['Homeowner', c.customerName], ['Property', c.address || 'Not given'], ['Fence', `${c.fenceStyle || CATEGORY_LABEL[c.category]} (${CATEGORY_LABEL[c.category]})`], ['Completed', when(c.completedAt)],
       ...(c.warrantyName ? [['Warranty', c.warrantyName], ['Starts', c.warrantyStart || day(c.completedAt)], ['Covers', c.warrantyEnd || '']] as Array<[string, string]> : []),
+      ...(c.warrantyName && c.warrantyUpdated ? [['Updated', `Warranty updated on ${c.warrantyUpdated}`]] as Array<[string, string]> : []),
     ]
     for (const [k, v] of facts) {
       const y = doc.y
@@ -181,6 +184,7 @@ export function certificatePdf(c: CertificateInput): Promise<Buffer> {
     if (c.warranty) {
       heading(c.warrantyName ? `Warranty coverage: ${c.warrantyName}` : 'Warranty')
       doc.font('Helvetica').fontSize(10).fillColor(INK).text(c.warranty, L, doc.y, { width: W })
+      if (c.warrantyUpdated) { doc.moveDown(0.4); doc.font('Helvetica-Oblique').fontSize(9).fillColor(GRAY).text(`Warranty updated on ${c.warrantyUpdated}. The price and the rest of the signed contract are unchanged.`, L, doc.y, { width: W }) }
     }
     doc.moveDown(1.5)
     doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(`Thank you for choosing ${c.company.name}.${c.company.phone ? ` Questions or warranty service: ${phoneText(c.company.phone)}.` : ''}`, L, doc.y, { width: W, align: 'center' })
@@ -195,12 +199,12 @@ export function certificatePdf(c: CertificateInput): Promise<Buffer> {
  */
 async function jobWarrantyLines(job: { quoteId: string | null; fenceStyle: string; completedDate: string | null; accountId: string } | null, completedAt: Date, b: { config?: unknown; contractSections?: unknown } | null) {
   const q = job?.quoteId ? await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId: job.accountId }, select: { id: true, accountId: true, proposal: true, chosenOption: true, fenceStyle: true, status: true, acceptedAt: true, soldAt: true, work: true } }) : null
-  const { warranty } = job ? await quoteWarranty(q, job.fenceStyle, b?.config ?? null) : { warranty: null }
+  const { warranty, update } = job ? await effectiveQuoteWarranty(q, job.fenceStyle, b?.config ?? null) : { warranty: null, update: null }
   if (!warranty) return { warranty: warrantyFrom(b) }
   const m = await pricingModule()
   const start = job?.completedDate && /^\d{4}-\d{2}-\d{2}$/.test(job.completedDate) ? job.completedDate : nyDay(completedAt)
   const period = m.warrantyPeriod(warranty, start)
-  return { warranty: warranty.text, warrantyName: warranty.name, warrantyStart: m.dayText(start), warrantyEnd: period.endText }
+  return { warranty: warranty.text, warrantyName: warranty.name, warrantyStart: m.dayText(start), warrantyEnd: period.endText, ...(update ? { warrantyUpdated: m.dayText(nyDay(update.at)) } : {}) }
 }
 
 /** Where certificates and portal files live: the same folder the customer portal serves. */
@@ -210,6 +214,7 @@ export const uploadRoot = () => path.resolve(process.env.UPLOAD_DIR || './upload
 export async function makeCertificate(
   w: { id: string; accountId: string; jobId: string; category: string; items: unknown; photos: unknown; homeownerSig: unknown; repSig: unknown },
   punch: Array<{ label: string; note: string; fixNote: string; fixedAt: Date | null; fixedBy: string | null; fixPhotoClientId: string | null }>,
+  remake?: { completedAt: Date; path: string },
 ): Promise<{ path: string; portalFileId: string | null }> {
   const job = await prisma.savedJob.findUnique({ where: { id: w.jobId } })
   const b = await prisma.businessState.findUnique({ where: { accountId: w.accountId }, select: { config: true, contractSections: true } }).catch(() => null)
@@ -221,7 +226,7 @@ export async function makeCertificate(
     const m = media.find(x => x.clientId === cid)
     return m ? (drawable(m.markupPath) ?? drawable(m.thumbPath) ?? drawable(m.path)) : null
   }
-  const completedAt = new Date()
+  const completedAt = remake?.completedAt ?? new Date()
   const pdf = await certificatePdf({
     company: { name: String(co.name || 'Getter Done Fence'), phone: String(co.phone || ''), email: String(co.email || '') },
     customerName: job?.customerName || 'Homeowner',
@@ -239,6 +244,12 @@ export async function makeCertificate(
     rep: (w.repSig ?? null) as Signature | null,
     ...(await jobWarrantyLines(job, completedAt, b)),
   })
+  // Made again (a warranty update acknowledged): the same file, so the job, the portal and the walkthrough link all show the new one.
+  if (remake) {
+    fs.mkdirSync(path.dirname(remake.path), { recursive: true })
+    fs.writeFileSync(remake.path, pdf)
+    return { path: remake.path, portalFileId: null }
+  }
   const customerId = job?.crmContactId ?? null
   // Under the portal's folder for the customer (so the portal serves it), else under the job.
   const rel = customerId ? path.join('portal', customerId, `${crypto.randomUUID()}.pdf`) : path.join('walkthroughs', w.accountId, `${w.id}.pdf`)
@@ -257,4 +268,22 @@ export async function makeCertificate(
     portalFileId = f.id
   }
   return { path: abs, portalFileId }
+}
+
+/**
+ * A finished walkthrough's certificate made again, in place (the warranty
+ * changed: a warranty update was acknowledged). Same completion time, same
+ * file; the portal file's size follows. Nothing when the job has no finished
+ * walkthrough.
+ */
+export async function remakeCertificateForJob(jobId: string): Promise<boolean> {
+  const w = await prisma.walkthrough.findUnique({ where: { jobId } })
+  if (!w || w.status !== 'completed' || !w.certificatePath || !w.completedAt) return false
+  const punch = await prisma.walkthroughPunchItem.findMany({ where: { walkthroughId: w.id }, orderBy: { createdAt: 'asc' } })
+  await makeCertificate(w, punch, { completedAt: w.completedAt, path: w.certificatePath })
+  if (w.certificateFileId) {
+    const size = fs.statSync(w.certificatePath).size
+    await prisma.portalFile.updateMany({ where: { id: w.certificateFileId }, data: { fileSizeBytes: size } }).catch(() => {})
+  }
+  return true
 }

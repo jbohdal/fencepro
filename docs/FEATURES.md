@@ -311,6 +311,12 @@ Status key:
 * Job costing labor uses the sub rate and crew hourly rate saved at signing, or "Sub paid $" (owner and office only) when entered on the takeoff. **LIVE**
 * Deleting a login asks for its full name to be typed. **LIVE**
 
+## 9j. Delete, Archive, Deleted Records; Send updated warranty (Oct 21)
+
+* Archive is the everyday way off the boards: a customer, pipeline card or job leaves the active lists, the pipeline and the operations board, but search, reports and KPIs keep it; Unarchive is on the record itself (archiving a customer takes its cards, quotes and jobs along, and Unarchive brings back exactly those). Owner, admin, manager, office and salesman can archive (a job also needs schedule rights). **DEV**
+* Delete is owner and admin only. The record and everything that hangs off it (quotes, jobs, cards, appointments, schedule entries, change orders, photos, notes, invoices, payments, reserved materials) go together in one step; queued texts are stopped. Settings > Deleted Records lists every delete newest first, filterable by type, with what went with it, and Restore puts it all back (anything changed since is left and named; queued texts are never resent). Deleted logins, catalog items, vendors, notes, photos, schedule entries and rain days are listed too. Nothing in Deleted Records is ever removed. (Before: deleting a customer only hid the customer; their card and job stayed on the boards.) **DEV**
+* Send updated warranty: on a sent proposal and on a sold job, a new customer link (/p/wu/…) with each option's current warranty and unchanged prices; Text it, Email it and Copy link open your own apps. A signed customer types their name to acknowledge; the job and the Warranty Certificate then use the new warranty ("Warranty updated on <date>"), and the signed contract stays as signed. An unsigned customer gets the same proposal with today's warranties; the old link still works as sent. **DEV**
+
 
 ## 10. Reliability (top priority)
 

@@ -64,8 +64,8 @@ async function answers(accountId: string): Promise<Record<string, any>> {
 export interface SetupItem { key: string; label: string; done: boolean; detail: string; link?: string; answer?: Array<{ label: string; value: string }> }
 
 /** A job is closed out when it is archived, its quote was Lost, it is Paid, or it is Complete (or Invoiced) and paid. */
-export function closedOut(j: { status: string; paymentStatus?: string | null; archivedAt?: Date | null }, quoteStatus?: string | null): boolean {
-  if (j.archivedAt) return true
+export function closedOut(j: { status: string; paymentStatus?: string | null; archivedAt?: Date | null; deletedAt?: Date | null }, quoteStatus?: string | null): boolean {
+  if (j.archivedAt || j.deletedAt) return true
   if (quoteStatus === 'LOST') return true
   if (j.status === 'paid') return true
   return j.paymentStatus === 'paid' && ['completed', 'invoiced'].includes(j.status)
@@ -82,12 +82,12 @@ export async function setupList(accountId: string): Promise<SetupItem[]> {
   const [biz, inv, jobs, closeJobs, scheduleContacts, cal, voice, offsite, kv, a] = await Promise.all([
     prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
     prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } }),
-    prisma.savedJob.findMany({ where: { accountId, archivedAt: null, notes: { contains: 'Tag: not on GD Schedule' } }, select: { id: true } }),
+    prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null, notes: { contains: 'Tag: not on GD Schedule' } }, select: { id: true } }),
     prisma.savedJob.findMany({
       where: { accountId, OR: [{ customerName: { contains: 'pahl', mode: 'insensitive' } }, { customerName: { contains: 'madsen', mode: 'insensitive' } }, { customerName: { contains: 'tieman', mode: 'insensitive' } }] },
-      select: { id: true, customerName: true, status: true, paymentStatus: true, archivedAt: true, quoteId: true },
+      select: { id: true, customerName: true, status: true, paymentStatus: true, archivedAt: true, deletedAt: true, quoteId: true },
     }),
-    prisma.crmContact.count({ where: { accountId, archivedAt: null, notes: { contains: 'Created from the GD Schedule' }, AND: [{ OR: [{ phone: null }, { phone: '' }] }, { OR: [{ email: null }, { email: '' }] }] } }),
+    prisma.crmContact.count({ where: { accountId, deletedAt: null, archivedAt: null, notes: { contains: 'Created from the GD Schedule' }, AND: [{ OR: [{ phone: null }, { phone: '' }] }, { OR: [{ email: null }, { email: '' }] }] } }),
     prisma.calendarSyncState.findUnique({ where: { accountId } }).catch(() => null),
     prisma.voiceCheck.findMany({ where: { accountId }, select: { userAgent: true } }).catch(() => [] as Array<{ userAgent: string | null }>),
     prisma.backupLog.findFirst({ where: { backupType: 'offsite', status: 'success', completedAt: { gte: new Date(Date.now() - 2 * DAY) } }, orderBy: { completedAt: 'desc' } }),
@@ -118,6 +118,7 @@ export async function setupList(accountId: string): Promise<SetupItem[]> {
   const gatesLeft = GATE_STYLES.filter(styleQuotable).filter(s => !filledIn(s))
   const fillLeft = [zeroPrices && `${zeroPrices} prices at $0`, gatesLeft.length && `gate parts for ${gatesLeft.join(', ')}`, styleQuotable(DURAFENCE) && !filledIn(DURAFENCE) && 'a Durafence parts list'].filter(Boolean) as string[]
   const quoteIds = closeJobs.map(j => j.quoteId).filter((x): x is string => !!x)
+  // all rows: the status of the quotes of jobs already listed.
   const quoteStatus = new Map((quoteIds.length ? await prisma.savedQuote.findMany({ where: { accountId, id: { in: quoteIds } }, select: { id: true, status: true } }) : []).map(q => [q.id, q.status]))
   const closeOpen = closeJobs.filter(j => CLOSE_OUT.some(rx => rx.test(j.customerName || '')) && !closedOut(j, j.quoteId ? quoteStatus.get(j.quoteId) : null))
   const offSchedule = jobs.length

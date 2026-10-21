@@ -55,7 +55,7 @@ export interface StageUsage {
 
 /** What uses a stage: jobs in it (by the board's rule, removed jobs too), Operations automations, its stage rule. */
 export async function stageUsage(accountId: string, stages: OpsStageDef[], id: string, db: Db = prisma): Promise<StageUsage> {
-  const jobs = await db.savedJob.findMany({ where: { accountId }, select: JOB_FIELDS })
+  const jobs = await db.savedJob.findMany({ where: { accountId, deletedAt: null }, select: JOB_FIELDS })
   const rules = await db.automationRule.findMany({ where: { accountId, board: 'ops' }, select: { id: true, name: true, board: true, trigger: true, conditions: true, steps: true } })
   const sr = await db.stageRule.findMany({ where: { accountId, board: 'ops', stage: id } })
   return {
@@ -131,7 +131,7 @@ export async function deleteOpsStage(accountId: string, id: string, moveTo: stri
       if (!stageById(rest, moveTo)) return { ok: false, status: 400, code: 'INVALID', error: 'Pick a stage that stays in the list.', list: cur }
       // Jobs: into the stage picked, with the status it stands for (the same as moving each one on the board).
       const ids = u.jobs.map(j => j.id)
-      const jobs = await tx.savedJob.findMany({ where: { accountId, id: { in: ids } }, select: JOB_FIELDS })
+      const jobs = await tx.savedJob.findMany({ where: { accountId, id: { in: ids }, deletedAt: null }, select: JOB_FIELDS })
       for (const j of jobs) {
         const fields = fieldsForStage(rest, moveTo, j as any, today) ?? { opsStage: moveTo }
         await tx.savedJob.update({ where: { id: j.id }, data: fields as any })

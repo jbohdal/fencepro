@@ -11,6 +11,9 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { emptySnapshot, logDeletion, softDeleteLogged } from '../lib/deletion.js'
+
+const actorOf = (req: any) => ({ accountId: req.user.crmAccountId as string, userId: (req.user.id ?? req.user.sub ?? null) as string | null })
 import { findOrCreate, isUniqueViolation } from '../lib/once.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { audit } from '../lib/auditLog.js'
@@ -129,7 +132,7 @@ const jobSchema = z.object({
 router.get('/jobs', async (req: any, res) => {
   try {
     const jobs = await prisma.scheduledGridJob.findMany({
-      where: { accountId: req.user.crmAccountId },
+      where: { accountId: req.user.crmAccountId, deletedAt: null },
       orderBy: { date: 'asc' },
     })
     res.json({ success: true, data: jobs })
@@ -171,7 +174,7 @@ router.patch('/jobs/:id', requireCan('schedule.change'), async (req: any, res) =
   try {
     const data = jobSchema.partial().parse(req.body)
     const existing = await prisma.scheduledGridJob.findUnique({ where: { id: req.params.id } })
-    if (!existing || existing.accountId !== req.user.crmAccountId) {
+    if (!existing || existing.accountId !== req.user.crmAccountId || existing.deletedAt) {
       res.status(404).json({ success: false, error: 'Scheduled job not found' })
       return
     }
@@ -195,11 +198,12 @@ router.patch('/jobs/:id', requireCan('schedule.change'), async (req: any, res) =
 router.delete('/jobs/:id', requireCan('schedule.change'), requireCan('ops.delete'), async (req: any, res) => {
   try {
     const existing = await prisma.scheduledGridJob.findUnique({ where: { id: req.params.id } })
-    if (!existing || existing.accountId !== req.user.crmAccountId) {
+    if (!existing || existing.accountId !== req.user.crmAccountId || existing.deletedAt) {
       res.status(404).json({ success: false, error: 'Scheduled job not found' })
       return
     }
-    await prisma.scheduledGridJob.delete({ where: { id: existing.id } })
+    // Soft delete, in Settings > Deleted Records until restored.
+    await prisma.$transaction(tx => softDeleteLogged(tx, actorOf(req), 'scheduledGridJob', 'schedule_entry', [existing.id]))
     await audit(req, 'delete', 'ScheduledGridJob', existing.id, { oldValues: existing })
     res.json({ success: true })
   } catch (err) {
@@ -232,6 +236,8 @@ router.post('/jobs/sync', requireCan('schedule.change'), async (req: any, res) =
       const data = { ...fields, stagingJobId: j.stagingJobId || null }
       if (clientId) {
         const existing = await prisma.scheduledGridJob.findUnique({ where: { id: clientId } })
+        // A deleted entry sent again by an older screen stays deleted (Settings > Deleted Records restores it).
+        if (existing && existing.accountId === accountId && existing.deletedAt) continue
         if (existing && existing.accountId === accountId) {
           await prisma.scheduledGridJob.update({ where: { id: existing.id }, data })
           keptIds.push(existing.id)
@@ -277,7 +283,7 @@ router.post('/jobs/sync', requireCan('schedule.change'), async (req: any, res) =
 async function readBoard(accountId: string) {
   const [settings, jobs] = await Promise.all([
     prisma.scheduleSettings.findUnique({ where: { accountId } }),
-    prisma.scheduledGridJob.findMany({ where: { accountId }, orderBy: { date: 'asc' } }),
+    prisma.scheduledGridJob.findMany({ where: { accountId, deletedAt: null }, orderBy: { date: 'asc' } }),
   ])
   return { settings, jobs, version: settings?.version ?? 0 }
 }
@@ -321,6 +327,7 @@ router.put('/board', requireCan('schedule.change'), async (req: any, res) => {
         const { id: clientId, ...fields } = j
         const data = { ...fields, stagingJobId: j.stagingJobId || null }
         const existing = clientId ? await tx.scheduledGridJob.findUnique({ where: { id: clientId } }) : null
+        if (existing && existing.accountId === accountId && existing.deletedAt) continue
         if (existing && existing.accountId === accountId) {
           await tx.scheduledGridJob.update({ where: { id: existing.id }, data })
           keptIds.push(existing.id)
@@ -330,7 +337,9 @@ router.put('/board', requireCan('schedule.change'), async (req: any, res) => {
           keptIds.push(row.id)
         }
       }
-      await tx.scheduledGridJob.deleteMany({ where: { accountId, id: { notIn: keptIds } } })
+      // Entries taken off the board are soft deleted, one Deleted Records row each.
+      const dropped = await tx.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, id: { notIn: keptIds } }, select: { id: true } })
+      await softDeleteLogged(tx, actorOf(req), 'scheduledGridJob', 'schedule_entry', dropped.map(d => d.id))
       return true
     })
     const board = await readBoard(accountId)
@@ -411,7 +420,13 @@ router.delete('/rain-log/:id', requireCan('schedule.change'), requireCan('ops.de
       res.status(404).json({ success: false, error: 'Rain day entry not found' })
       return
     }
-    await prisma.scheduleRainDay.delete({ where: { id: existing.id } })
+    // Removed, and kept in Settings > Deleted Records to put back.
+    await prisma.$transaction(async tx => {
+      const snap = emptySnapshot()
+      snap.hard.push({ model: 'scheduleRainDay', id: existing.id, row: JSON.parse(JSON.stringify(existing)) })
+      await logDeletion(tx, actorOf(req), { entityType: 'rain_day', entityId: existing.id, entityLabel: `Rain day ${existing.originalDate}${existing.clientName ? `, ${existing.clientName}` : ''}`, snapshot: snap })
+      await tx.scheduleRainDay.delete({ where: { id: existing.id } })
+    })
     res.json({ success: true })
   } catch (err) {
     console.error('[schedule] rain log delete error:', err)

@@ -57,6 +57,7 @@ interface EstimateModule {
   defaultWarrantySettings(): any
   warrantySettingsOf(config: unknown): any
   signedOptionWarranty(q: unknown, settings?: unknown): any
+  warrantyFromText(text: string, settings?: unknown): any
   warrantyPeriod(w: unknown, start: string | null | undefined): any
   serviceCoverage(w: unknown, start: string | null | undefined, day: string, override?: unknown): any
   isOneYearText(text: unknown): boolean

@@ -376,6 +376,8 @@ model Appointment {
   /// { covered, reason, by, at } (lib/warranties.ts). Null: worked out from the warranty's dates.
   warrantyOverride Json?
   archivedAt   DateTime?
+  /// Deleted (owner or admin): in Settings > Deleted Records until restored (lib/deletion.ts). archivedAt is the everyday Archive.
+  deletedAt DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -383,6 +385,7 @@ model Appointment {
 
   @@unique([accountId, sourceRef])
   @@index([accountId, startAt])
+  @@index([deletedAt])
   @@index([crmContactId])
   // A new table: the old chat-only "Appointment" table (always empty) is dropped.
   @@map("CrmAppointment")
@@ -1509,6 +1512,8 @@ model CrmContact {
   // Linkage back to the customer-portal account, if one exists
   portalCustomerId String?
   archivedAt       DateTime?
+  /// Deleted (owner or admin): in Settings > Deleted Records until restored (lib/deletion.ts). archivedAt is the everyday Archive.
+  deletedAt DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -1519,6 +1524,7 @@ model CrmContact {
   appointments Appointment[]
 
   @@index([accountId])
+  @@index([deletedAt])
   @@index([ownerId])
   @@index([email])
   @@index([archivedAt])
@@ -1718,6 +1724,8 @@ model SavedQuote {
   needsResend       Boolean   @default(false)
 
   archivedAt DateTime?
+  /// Deleted (owner or admin): in Settings > Deleted Records until restored (lib/deletion.ts). archivedAt is the everyday Archive.
+  deletedAt DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -1725,6 +1733,7 @@ model SavedQuote {
   contact CrmContact? @relation(fields: [crmContactId], references: [id])
 
   @@index([accountId])
+  @@index([deletedAt])
   @@index([crmContactId])
   @@index([status])
   @@index([shareToken])
@@ -1831,6 +1840,8 @@ model SavedJob {
   leadSource String  @default("")
 
   archivedAt DateTime?
+  /// Deleted (owner or admin): in Settings > Deleted Records until restored (lib/deletion.ts). archivedAt is the everyday Archive.
+  deletedAt DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -1838,6 +1849,7 @@ model SavedJob {
   contact CrmContact? @relation(fields: [crmContactId], references: [id])
 
   @@index([accountId])
+  @@index([deletedAt])
   @@index([crmContactId])
   @@index([quoteId])
   @@index([status])
@@ -1894,12 +1906,15 @@ model ScheduledGridJob {
   date         String                 @default("") // YYYY-MM-DD
   notes        String                 @default("")
   status       ScheduledGridJobStatus @default(Scheduled)
+  /// Deleted (owner or admin): in Settings > Deleted Records until restored (lib/deletion.ts). archivedAt is the everyday Archive.
+  deletedAt DateTime?
   createdAt    DateTime               @default(now())
   updatedAt    DateTime               @updatedAt
 
   account CrmAccount @relation(fields: [accountId], references: [id])
 
   @@index([accountId])
+  @@index([deletedAt])
   @@index([date])
   @@index([crewId])
   @@index([status])
@@ -1935,6 +1950,8 @@ model PipelineState {
   accountId String   @unique
   leads     Json // PipelineLead[]
   stages    Json // Stage[] (id, name, color, etc.)
+  /// Archived cards (Archive on the card or its customer): off the board, kept for search and reports; Unarchive puts them back in leads.
+  archivedLeads Json @default("[]")
   // Goes up by one on every save; a save built on an older version is refused (see lib/versioned.ts).
   version   Int      @default(1)
   createdAt DateTime @default(now())
@@ -2073,9 +2090,12 @@ model IntakeLead {
   status       String    @default("new") // new | imported
   createdAt    DateTime  @default(now())
   importedAt   DateTime?
+  /// Deleted (owner or admin): in Settings > Deleted Records until restored (lib/deletion.ts). archivedAt is the everyday Archive.
+  deletedAt DateTime?
 
   @@unique([source, sourceRef])
   @@index([accountId, status])
+  @@index([deletedAt])
 }
 
 // ── Website quote drafts (EZ Budget, /p/quote) ──
@@ -2686,11 +2706,14 @@ model ChangeOrder {
   /// portal | link
   signedVia       String?
   version    Int       @default(1)
+  /// Deleted (owner or admin): in Settings > Deleted Records until restored (lib/deletion.ts). archivedAt is the everyday Archive.
+  deletedAt DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
   @@unique([accountId, quoteId, number])
   @@index([accountId, quoteId])
+  @@index([deletedAt])
   @@index([shareToken])
 }
 
@@ -2951,4 +2974,82 @@ model PriceHistory {
 
   @@index([accountId, inventoryItemId, day])
   @@index([invoiceId])
+}
+
+// ── Deletion log: one row per delete, never removed ──
+// What was deleted and everything that went with it (snapshot: lib/deletion.ts
+// Snapshot), so Settings > Deleted Records can put it back. Archive writes no
+// row here.
+model DeletionLog {
+  id               String    @id @default(uuid())
+  accountId        String
+  /// customer, quote, job, card, login, inventory_item, vendor, note, photo, schedule_entry, rain_day
+  entityType       String
+  entityId         String
+  /// What a person reads: the customer's name, "Quote for Smith, ...", "Job for Smith, ..."
+  entityLabel      String    @default("")
+  snapshot         Json
+  /// Every id the snapshot holds (the record and its children), so a waiting change from an older screen cannot put one back.
+  ids              String[]  @default([])
+  deletedByUserId  String?
+  deletedAt        DateTime  @default(now())
+  reason           String?
+  restoredAt       DateTime?
+  restoredByUserId String?
+  /// { restored, skipped: [{ what, why }] }
+  restoreResult    Json?
+
+  @@index([accountId, deletedAt])
+  @@index([accountId, entityType])
+}
+
+/// A warranty update sent to a customer (Oct 2026, lib/warrantyUpdates.ts): a new
+/// link (/p/wu/<token>) that shows the warranty Settings give their option now,
+/// with the price and the signed contract unchanged. The quote itself is never
+/// changed: the warranties are a snapshot on this row.
+///   signed:   a sold or accepted quote; the customer types their name to
+///             acknowledge it, then the job and its Warranty Certificate use it.
+///   proposal: a sent, unsigned proposal; the link is the same proposal with
+///             each option's current warranty (prices identical), and the
+///             original link still works as sent. Accepting on it signs the
+///             proposal with these warranties.
+model WarrantyUpdate {
+  id                 String    @id @default(uuid())
+  accountId          String
+  quoteId            String
+  jobId              String?
+  crmContactId       String?
+  /// signed | proposal
+  kind               String
+  /// The option it is for (signed: the accepted option; null for an unsigned proposal, which shows every option).
+  optionIndex        Int?
+  warrantyId         String?
+  warrantyName       String    @default("")
+  warrantyText       String    @default("")
+  /// lifetime | years | unknown
+  warrantyTerm       String    @default("")
+  warrantyYears      Int?
+  /// Each option's warranty now: [{ index, label, fenceStyle, finalPrice, warranty: { id, name, text, term, years }, before, changed }]
+  options            Json      @default("[]")
+  token              String    @unique
+  createdByUserId    String?
+  createdBy          String    @default("")
+  createdAt          DateTime  @default(now())
+  /// text | email | copy: the last way staff sent it, and when.
+  sentChannel        String?
+  sentAt             DateTime?
+  /// Customer opens (staff opens are not counted).
+  openCount          Int       @default(0)
+  firstOpenedAt      DateTime?
+  lastOpenedAt       DateTime?
+  acknowledgedAt     DateTime?
+  acknowledgedBy     String?
+  /// acknowledged (typed name on a signed quote) | accepted (signed the proposal on this link)
+  acknowledgedHow    String?
+  /// The option acknowledged or accepted.
+  acknowledgedOption Int?
+
+  @@index([accountId, quoteId])
+  @@index([jobId])
+  @@index([crmContactId])
 }

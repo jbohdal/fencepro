@@ -125,10 +125,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('roles and permissions (dev datab
 
   test('salesman: cannot remove a card, change the stages, or drop a card with a whole board save', async () => {
     const board = (await call('sales', 'GET', '/api/pipeline')).json.data
-    refused(await call('sales', 'PATCH', '/api/pipeline', { upsert: [], remove: [cardId], baseVersion: board.version }), /cannot delete records/)
+    refused(await call('sales', 'PATCH', '/api/pipeline', { upsert: [], remove: [cardId], baseVersion: board.version }), /owner or an admin can delete/)
     refused(await call('sales', 'PATCH', '/api/pipeline', { upsert: [], remove: [], stages: [{ id: 'x', name: 'Renamed' }], baseVersion: board.version }), /cannot change settings/)
     const dropped = await call('sales', 'PUT', '/api/pipeline', { leads: board.leads.filter((l: any) => l.id !== cardId), stages: board.stages, baseVersion: board.version })
-    refused(dropped, /cannot delete records/)
+    refused(dropped, /owner or an admin can delete/)
     expect(dropped.json.data.leads.some((l: any) => l.id === cardId)).toBe(true)
     // Adding a card with a whole board save is fine.
     const added = await call('sales', 'PUT', '/api/pipeline', { leads: [...board.leads, { id: `${cardId}-2`, firstName: 'Second', stage: 'New Lead' }], stages: board.stages, baseVersion: board.version })
@@ -142,7 +142,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('roles and permissions (dev datab
     expect(e.status).toBe(200)
     const link = await call('sales', 'POST', `/api/saved-quotes/${quoteId}/share-token`, {})
     expect(link.status).toBe(200)
-    refused(await call('sales', 'DELETE', `/api/saved-quotes/${quoteId}`), /cannot delete records/)
+    refused(await call('sales', 'DELETE', `/api/saved-quotes/${quoteId}`), /owner or an admin can delete/)
   })
 
   test('salesman: uploads a photo; cannot delete it', async () => {
@@ -163,14 +163,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('roles and permissions (dev datab
   })
 
   test('salesman: cannot delete a customer, a note or a job', async () => {
-    refused(await call('sales', 'DELETE', `/api/crm-contacts/${contactId}`), /cannot delete records/)
+    refused(await call('sales', 'DELETE', `/api/crm-contacts/${contactId}`), /owner or an admin can delete/)
     const notes = await call('sales', 'GET', `/api/crm-contacts/${contactId}/notes`)
     const noteId = notes.json.data[0].id
     refused(await call('sales', 'DELETE', `/api/crm-contacts/${contactId}/notes/${noteId}`), /cannot delete/)
     const job = await call('sales', 'POST', '/api/saved-jobs', { id: crypto.randomUUID(), crmContactId: contactId, customerName: 'Perm Test', fenceStyle: "CL - 4' Galv", quoteId })
     expect([200, 201]).toContain(job.status)
-    refused(await call('sales', 'DELETE', `/api/saved-jobs/${job.json.data.id}`), /cannot delete records/)
-    refused(await call('office', 'DELETE', `/api/crm-contacts/${contactId}`), /cannot delete records/)
+    refused(await call('sales', 'DELETE', `/api/saved-jobs/${job.json.data.id}`), /owner or an admin can delete/)
+    refused(await call('office', 'DELETE', `/api/crm-contacts/${contactId}`), /owner or an admin can delete/)
   })
 
   test('salesman: business data — settings, billing and the books refused, a quote\'s own data allowed', async () => {
@@ -255,7 +255,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('roles and permissions (dev datab
     refused(await call('crew', 'POST', '/api/saved-quotes', { id: crypto.randomUUID(), customerName: 'Crew', fenceStyle: 'x', runs: [10] }), /cannot change quotes/)
     refused(await call('crew', 'PATCH', `/api/saved-quotes/${quoteId}`, { customerName: 'Crew' }), /cannot change quotes/)
     expect((await call('office', 'PATCH', `/api/saved-quotes/${quoteId}`, { customerName: 'Perm Test', fenceStyle: "CL - 4' Galv", runs: [40], finalPrice: 1500, status: 'DRAFT' })).status).toBe(200)
-    refused(await call('office', 'DELETE', `/api/saved-quotes/${quoteId}`), /cannot delete records/)
+    refused(await call('office', 'DELETE', `/api/saved-quotes/${quoteId}`), /owner or an admin can delete/)
   })
 
   test('owner: still may delete the card, the note, the quote and the customer', async () => {

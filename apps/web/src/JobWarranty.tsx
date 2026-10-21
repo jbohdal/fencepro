@@ -14,13 +14,15 @@ import { createAppointment } from './appointmentsStore'
 import { dayText } from './warranties'
 import { toast } from './toast'
 import type { Job } from './jobStore'
+import WarrantyUpdateSend from './WarrantyUpdateSend'
 
 interface Coverage { covered: boolean | null; label: string; why: string; overridden: boolean }
 interface ServiceCall { id: string; type: string; status: string; day: string; notes: string; coverage: Coverage; override: { covered: boolean; reason: string; by: string; at: string } | null }
 interface JobWarrantyView {
   jobId: string; quoteId: string | null
   warranty: { id: string | null; name: string; text: string; term: 'lifetime' | 'years' | 'unknown'; years?: number } | null
-  from: 'option' | 'proposal' | 'settings' | null
+  from: 'option' | 'proposal' | 'settings' | 'update' | null
+  updated: { day: string; by: string; how: string; previousName: string | null } | null
   signed: boolean; start: string | null; end: string | null; endText: string; contract: boolean
   serviceCalls: ServiceCall[]
 }
@@ -88,12 +90,15 @@ export default function JobWarranty({ job }: { job: Job }) {
               <Row label="Starts" value={w.start ? dayText(w.start) : 'On the install date (not installed yet)'} attr="start" />
               <Row label="Ends" value={w.endText} attr="end" />
             </div>
-            <p className="text-xs text-gray-500 mt-1">{w.from ? FROM[w.from] : ''}</p>
+            {w.from === 'update' && w.updated
+              ? <p className="text-xs text-green-800 mt-1" data-job-warranty-updated>Warranty updated on {dayText(w.updated.day)}: {w.updated.how === 'accepted' ? 'signed on the warranty update link' : 'acknowledged'} by {w.updated.by}.{w.updated.previousName && w.updated.previousName !== wr.name ? ` Was ${w.updated.previousName}.` : ''} The price and the signed contract are unchanged.</p>
+              : <p className="text-xs text-gray-500 mt-1">{w.from ? FROM[w.from] : ''}</p>}
             <button type="button" className="text-sm text-purple-700 underline min-h-[48px]" onClick={() => setShowText(s => !s)} data-job-warranty-toggle>{showText ? 'Hide the words' : 'Show the words'}</button>
             {showText && <p className="text-sm text-gray-700 whitespace-pre-line border-l-2 border-purple-200 pl-3" data-job-warranty-text>{wr.text}</p>}
           </>
         ) : <p className="text-sm text-gray-600">No warranty on file for this job.</p>}
         {w.contract && <div><button type="button" className="btn btn-secondary min-h-[48px] mt-1" onClick={openContract} data-job-contract-pdf>Signed contract (PDF)</button></div>}
+        {w.signed && w.quoteId && <div className="mt-2"><WarrantyUpdateSend quoteId={w.quoteId} onChange={reload} /></div>}
       </div>
 
       <div className="border-t border-gray-100 pt-3 mt-3 space-y-2" data-service-calls>
