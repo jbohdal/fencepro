@@ -155,20 +155,30 @@ export async function applyToJob(accountId: string, quoteId: string, tx: any = p
   if (!job) return null
   const cents = await approvedTotalCents(accountId, quoteId, tx)
   const quoteCents = Math.round((job.quotePrice || 0) * 100)
-  await tx.savedJob.update({ where: { id: job.id }, data: { changeOrderTotal: cents / 100, contractValue: (quoteCents + cents) / 100 } })
+  const adj = await adjustmentsOf(tx, accountId, [job.id])
+  await tx.savedJob.update({ where: { id: job.id }, data: { changeOrderTotal: cents / 100, contractValue: (quoteCents + cents + adj) / 100 } })
   // The job's payment schedule: its Final follows the change orders, logged (lib/contractBilling.ts).
   const { finalFollowsChangeOrders } = await import('./contractBilling.js')
   await finalFollowsChangeOrders(tx, accountId, job.id)
   return job.id
 }
 
-/** For a job save: the server's change order total and contract value, when its quote has change orders. */
+/** Contract amount adjustments on the payment schedule (owner/admin, logged; lib/contractBilling.ts addAdjustment), in cents. */
+async function adjustmentsOf(db: any, accountId: string, jobIds: string[]): Promise<number> {
+  if (!jobIds.length) return 0
+  const r = await db.contractAdjustment.aggregate({ where: { accountId, jobId: { in: jobIds } }, _sum: { amountCents: true } })
+  return r._sum.amountCents ?? 0
+}
+
+/** For a job save: the server's change order total and contract value (quote price + approved change orders + adjustments), when its quote has either. */
 export async function jobTotalsFor(accountId: string, quoteId: string | null | undefined, quotePrice: number): Promise<{ changeOrderTotal: number; contractValue: number } | null> {
   if (!quoteId) return null
   const any = await prisma.changeOrder.count({ where: { accountId, quoteId, deletedAt: null } })
-  if (!any) return null
-  const cents = await approvedTotalCents(accountId, quoteId)
-  return { changeOrderTotal: cents / 100, contractValue: (Math.round((quotePrice || 0) * 100) + cents) / 100 }
+  const jobs = (await prisma.savedJob.findMany({ where: { accountId, quoteId, deletedAt: null }, select: { id: true } })).map(j => j.id)
+  const adj = await adjustmentsOf(prisma, accountId, jobs)
+  if (!any && !adj) return null
+  const cents = any ? await approvedTotalCents(accountId, quoteId) : 0
+  return { changeOrderTotal: cents / 100, contractValue: (Math.round((quotePrice || 0) * 100) + cents + adj) / 100 }
 }
 
 /** The quote a job is for (a job page asks by job). */

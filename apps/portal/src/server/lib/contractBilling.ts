@@ -261,7 +261,8 @@ export async function settleIn(tx: any, accountId: string, jobId: string, why: s
   const last = payments.filter((p: any) => !p.voidedAt).sort((x: any, y: any) => y.paidOn.localeCompare(x.paidOn))[0]
   await tx.savedJob.update({
     where: { id: jobId },
-    data: { amountPaid: paid / 100, paymentStatus: paid <= 0 ? 'invoiced' : paid >= contractCents ? 'paid' : 'partial', ...(last ? { paymentDate: last.paidOn, paymentMethod: last.method } : {}) },
+    // contractValue: the contract with its change orders and adjustments, as the schedule has it (lib/changeOrders.ts adds the same).
+    data: { amountPaid: paid / 100, contractValue: contractCents / 100, paymentStatus: paid <= 0 ? 'invoiced' : paid >= contractCents ? 'paid' : 'partial', ...(last ? { paymentDate: last.paidOn, paymentMethod: last.method } : {}) },
   })
 }
 
