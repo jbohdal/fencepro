@@ -25,6 +25,16 @@ PG_BIN="/opt/homebrew/opt/postgresql@16/bin"
 stamp="$(date +%Y-%m-%d_%H%M%S)"
 say() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
+# Every run writes to the same log as the nightly one (launchd already sends
+# the nightly run there), so a manual or pre-deploy backup and its Google
+# Drive result are on record too, not only in a terminal.
+LOG="${EZBIZ_BACKUP_LOG:-$HOME/Library/Logs/ezbiz/backup.log}"
+mkdir -p "$(dirname "$LOG")"
+exec 9>&1
+if [ "$(stat -L -f %i /dev/fd/9 2>/dev/null)" != "$(stat -f %i "$LOG" 2>/dev/null)" ]; then exec > >(tee -a "$LOG") 2>&1; fi
+exec 9>&-
+say "start: ${EZBIZ_BACKUP_TYPE:-daily} backup"
+
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 

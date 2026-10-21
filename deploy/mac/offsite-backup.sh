@@ -15,6 +15,7 @@ DB_NAME="${EZBIZ_DB_NAME:-ezbiz}"
 PG_BIN="/opt/homebrew/opt/postgresql@16/bin"
 RCLONE="$(command -v rclone || echo /opt/homebrew/bin/rclone)"
 say() { echo "$(date '+%Y-%m-%d %H:%M:%S') offsite: $*"; }
+trap 'say "FAILED (exit $?): the Google Drive copy did not finish"' ERR
 
 if [ ! -x "$RCLONE" ]; then say "rclone is not installed, skipped"; exit 0; fi
 if ! "$RCLONE" listremotes | grep -qx "${REMOTE%%:*}:"; then say "Google Drive is not connected yet (rclone remote ${REMOTE%%:*}), skipped"; exit 0; fi
@@ -22,13 +23,15 @@ if ! "$RCLONE" listremotes | grep -qx "${REMOTE%%:*}:"; then say "Google Drive i
 latest="$(ls -t "$BACKUP_DIR"/ezbiz-db_*.dump 2>/dev/null | head -1 || true)"
 if [ -z "$latest" ]; then say "no database backup to copy"; exit 1; fi
 
-"$RCLONE" copy "$latest" "$REMOTE" --checksum --retries 3
+# Google Drive answers 500 now and then (Oct 21, 10:28 and 10:32): retry with pauses.
+RETRY=(--retries 5 --retries-sleep 20s --low-level-retries 10)
+"$RCLONE" copy "$latest" "$REMOTE" --checksum "${RETRY[@]}"
 say "copied $(basename "$latest") to $REMOTE"
 
 # Keep the newest $KEEP (the names carry the date and time, so name order is age order).
 old="$("$RCLONE" lsf "$REMOTE" --files-only --include 'ezbiz-db_*.dump' | sort | awk -v keep="$KEEP" '{ a[NR] = $0 } END { for (i = 1; i <= NR - keep; i++) print a[i] }')"
 if [ -n "$old" ]; then
-  while IFS= read -r f; do "$RCLONE" deletefile "$REMOTE/$f"; done <<< "$old"
+  while IFS= read -r f; do "$RCLONE" deletefile "$REMOTE/$f" --low-level-retries 10; done <<< "$old"
   say "removed $(printf '%s\n' "$old" | wc -l | tr -d ' ') older copies, keeping $KEEP"
 fi
 
