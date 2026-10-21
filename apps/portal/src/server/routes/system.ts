@@ -16,6 +16,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js'
 import { plainZod } from '../lib/plainZod.js'
 import { openFindings, dismissFinding } from '../lib/duplicateCheck.js'
 import { COST_REVIEW_KEY } from '../lib/costReview.js'
+import { pricingWithData } from '../lib/estimates.js'
 
 const router = Router()
 router.use(requireAuth, requireRole('admin'))
@@ -122,8 +123,13 @@ export async function setupList(accountId: string): Promise<SetupItem[]> {
   // Styles priced with stand-in parts until the real supplier cost is entered (lib/costReview.ts): the Bell.
   // Listed once the one-time step flagged it; ticked off when the flag is cleared (its kits saved).
   const flaggedOnce = (((costReview?.value as any)?.changed ?? []) as unknown[]).filter((n): n is string => typeof n === 'string')
-  const reviewStyles = styles.filter((s: any) => s?.needsCostReview === true || flaggedOnce.includes(s?.name))
+  // The Bell's own item (the one-time step flagged it); any other fence flagged with a note gets a line of its own.
+  const BELL = "WV-ND Bell 4'x6'"
+  const reviewStyles = styles.filter((s: any) => (s?.needsCostReview === true || flaggedOnce.includes(s?.name)) && !(s?.costReviewNote && s?.name !== BELL))
   const toReview = reviewStyles.filter((s: any) => s.needsCostReview === true)
+  const noted = styles.filter((s: any) => s?.needsCostReview === true && typeof s?.costReviewNote === 'string' && s.costReviewNote && s.name !== BELL)
+  // Plain names ("Chai Gray Vinyl Privacy, 6 ft tall, 8 ft panels, No dig"), from the app's own pricing code.
+  const plainName = new Map<string, string>(noted.length ? (await pricingWithData().then(({ m, data }) => (m.estimateConfig(data.config).fenceStyles as any[]).map(f => [f.name, f.label || f.name] as [string, string])).catch(() => [])) : [])
   const quoteIds = closeJobs.map(j => j.quoteId).filter((x): x is string => !!x)
   // all rows: the status of the quotes of jobs already listed.
   const quoteStatus = new Map((quoteIds.length ? await prisma.savedQuote.findMany({ where: { accountId, id: { in: quoteIds } }, select: { id: true, status: true } }) : []).map(q => [q.id, q.status]))
@@ -146,7 +152,11 @@ export async function setupList(accountId: string): Promise<SetupItem[]> {
       detail: toReview.length
         ? "Priced as a 6'x6' vinyl privacy section for now. In Material Kits, put the Bell's real section part in its Section kit and in each gate's section parts (its cost in the Catalog), then Save kits."
         : 'Entered.',
-      link: `/inventory?tab=kits&style=${encodeURIComponent("WV-ND Bell 4'x6'")}` }] : []),
+      link: `/inventory?tab=kits&style=${encodeURIComponent(BELL)}` }] : []),
+    ...[...new Set(noted.map((s: any) => s.costReviewNote as string))].map(note => ({ key: `cost-review:${note}`,
+      label: `Cost to review: ${note}`, done: false,
+      detail: `${noted.filter((s: any) => s.costReviewNote === note).map((s: any) => plainName.get(s.name) ?? s.name).join('; ')}. Enter it and save the color (Settings → Price List → Vinyl Colors) or the fence's kits (Material Kits); saving clears this.`,
+      link: '/settings?tab=price_list' })),
     { key: 'close-out', label: 'Close out Diane Pahl, Brenda Madsen and Bill Tieman', done: closeOpen.length === 0,
       detail: closeOpen.length ? closeOpen.map(j => `${j.customerName}: ${statusLabel(j)}`).join('; ') + '. Done when each is Complete and paid, archived, or its quote is Lost.' : 'All closed out.',
       link: closeOpen.length ? `/operations?ids=${closeOpen.map(j => j.id).join(',')}` : '/operations' },

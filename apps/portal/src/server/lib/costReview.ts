@@ -98,7 +98,7 @@ export async function clearCostReviewOnKitSave(accountId: string, before: unknow
     if (!cleared.length) return []
     const next = styles.map(s => {
       if (!s || typeof s.name !== 'string' || !cleared.includes(s.name)) return s
-      const { needsCostReview: _drop, ...rest } = s
+      const { needsCostReview: _drop, costReviewNote: _note, ...rest } = s as Style & { costReviewNote?: unknown }
       return rest
     })
     await tx.businessState.update({ where: { accountId }, data: { config: { ...cfg, fenceStyles: next } as any, version: { increment: 1 } } })

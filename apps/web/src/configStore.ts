@@ -57,6 +57,8 @@ export interface FenceStyle {
    *  shown on Finish setup and as a badge here; cleared by the server when the style's kit set is
    *  saved in Inventory > Material Kits (portal lib/costReview.ts). */
   needsCostReview?: boolean
+  /** What to review, in plain words ("black rivet price needed"), shown with the flag. Cleared with it. */
+  costReviewNote?: string
   // ── Worked out on every read (fenceCatalog.resolveFenceStyles); not saved ──
   /** The plain name: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig". */
   label?: string

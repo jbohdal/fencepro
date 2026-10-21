@@ -177,7 +177,9 @@ export default function MaterialKitsTab() {
 
       {cfg.fenceStyles.find(s => s.name === style)?.needsCostReview && (
         <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3" data-kit-cost-review={style}>
-          Cost to review: this fence is priced with 6'x6' vinyl privacy section parts for now. Put its real section part in the Section kit and in each gate's section parts (the part's cost is set in the Catalog), then Save kits. Saving this style's kits clears the reminder.
+          {cfg.fenceStyles.find(s => s.name === style)?.costReviewNote
+            ? `Cost to review: ${cfg.fenceStyles.find(s => s.name === style)!.costReviewNote}. Put the right part and its cost in this fence's kits (a color added with Settings → Price List → Vinyl Colors: edit the color there), then save. Saving this style's kits clears the reminder.`
+            : "Cost to review: this fence is priced with 6'x6' vinyl privacy section parts for now. Put its real section part in the Section kit and in each gate's section parts (the part's cost is set in the Catalog), then Save kits. Saving this style's kits clears the reminder."}
         </p>
       )}
 

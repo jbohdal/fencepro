@@ -54,8 +54,13 @@ async function lockedState(tx: any, accountId: string) {
   return { cfg, items: arr(inv.items), kits: arr(inv.kits) }
 }
 
-async function saveState(tx: any, accountId: string, cfg: Record<string, any>, state: { fenceStyles: unknown[]; fenceCatalog: unknown; items: unknown[]; kits: unknown[] }, before: { items: unknown[]; kits: unknown[] }) {
-  await tx.businessState.update({ where: { accountId }, data: { config: { ...cfg, fenceStyles: state.fenceStyles, fenceCatalog: state.fenceCatalog } as any, version: { increment: 1 } } })
+async function saveState(tx: any, accountId: string, cfg: Record<string, any>, state: { fenceStyles: unknown[]; fenceCatalog: unknown; items: unknown[]; kits: unknown[] }, before: { items: unknown[]; kits: unknown[] }, reviewedColor?: string) {
+  // A save of the form that set a price or added a part has had its cost entered: the color's fences lose
+  // "cost to review" and its note, as a fence does when its kits are saved in Material Kits (lib/costReview.ts).
+  const fenceStyles = reviewedColor
+    ? state.fenceStyles.map((s: any) => { if (s?.needsCostReview !== true || s?.choices?.color !== reviewedColor) return s; const { needsCostReview: _f, costReviewNote: _n, ...rest } = s; return rest })
+    : state.fenceStyles
+  await tx.businessState.update({ where: { accountId }, data: { config: { ...cfg, fenceStyles, fenceCatalog: state.fenceCatalog } as any, version: { increment: 1 } } })
   if (!sameJson(before.items, state.items) || !sameJson(before.kits, state.kits)) {
     await tx.inventoryState.update({ where: { accountId }, data: { items: state.items as any, kits: state.kits as any, version: { increment: 1 } } })
   }
@@ -110,7 +115,7 @@ export async function saveVinylColor(actor: ColorActor, input: unknown, key?: st
     try {
       plan = m.planVinylColor(st, input, { today: day, newId: uid, ...(key ? { key } : {}) })
     } catch (err) { throw new ColorError(400, (err as Error).message) }
-    await saveState(tx, actor.accountId, cfg, plan.state, { items, kits })
+    await saveState(tx, actor.accountId, cfg, plan.state, { items, kits }, key && (plan.priced.length || plan.created.items.length) ? plan.key : undefined)
     const historyIds = await writeHistory(tx, actor, day, plan.priced, items)
     const now = new Date()
     const rk = recordKey(plan.key)

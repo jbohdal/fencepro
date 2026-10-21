@@ -161,4 +161,25 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('vinyl colors (dev database)', ()
     expect(await prisma.accountKeyValue.count({ where: { accountId, key: { startsWith: 'vinyl-color:' } } })).toBe(0)
     expect((await call(owner, 'GET', '/api/vinyl-colors')).json.data.records).toEqual([])
   })
+
+  test('a fence flagged "cost to review" with a note is cleared when its color is saved with the missing part; other flags stay', async () => {
+    const add = await call(owner, 'POST', '/api/vinyl-colors', { input: { ...CHAI_GRAY, name: 'Flag Gray' } })
+    expect(add.status).toBe(201)
+    const names = ['vinyl/privacy/6/flag-gray/nd/8', 'vinyl/privacy/6/flag-gray/ds/8']
+    const BELL = "WV-ND Bell 4'x6'"
+    const flag = async () => {
+      const b = await prisma.businessState.findUnique({ where: { accountId } })
+      const cfg = b.config as any
+      cfg.fenceStyles = cfg.fenceStyles.map((s: any) => (names.includes(s.name) || s.name === BELL ? { ...s, needsCostReview: true, costReviewNote: s.name === BELL ? 'Bell section cost' : 'black rivet price needed' } : s))
+      await prisma.businessState.update({ where: { accountId }, data: { config: cfg } })
+    }
+    const flags = async () => ((await snapshot()).config as any).fenceStyles.filter((s: any) => [...names, BELL].includes(s.name)).map((s: any) => [s.name, s.needsCostReview ?? false, s.costReviewNote ?? null])
+    await flag()
+    // A save that sets no price and adds no part leaves the flags.
+    expect((await call(owner, 'PUT', '/api/vinyl-colors/flag-gray', { input: { ...CHAI_GRAY, name: 'Flag Gray' } })).status).toBe(200)
+    expect((await flags()).filter((f: any) => f[1]).length).toBe(3)
+    // Black rivets entered: both Flag Gray fences cleared, note and all; the Bell (its kits untouched) keeps its flag.
+    expect((await call(owner, 'PUT', '/api/vinyl-colors/flag-gray', { input: { ...CHAI_GRAY, name: 'Flag Gray', rivets: { color: 'Black', cents: 36 } } })).status).toBe(200)
+    expect(await flags()).toEqual(expect.arrayContaining([[names[0], false, null], [names[1], false, null], [BELL, true, 'Bell section cost']]))
+  })
 })
