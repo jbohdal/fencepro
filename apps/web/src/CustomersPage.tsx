@@ -27,6 +27,7 @@ import QuoteDetailDrawer from './QuoteDetailDrawer'
 import type { SavedQuote } from './QuotesPage'
 import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
 import { getPortalAccessStatus, loadAccountsSoon, sendPortalInvite, resendPortalInvite, buildActivationLink } from './portalStaffApi'
+import { portalPageUrl } from './publicDoor'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity, getCustomers, getArchivedCustomers, upsertCustomer, bulkImportCustomers } from './customerStore'
 import { archiveRecord, unarchiveRecord, deleteRecord } from './recordArchive'
@@ -1981,7 +1982,7 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
           </>
         )}
         {status.state === 'active' && (
-          <a href={`${window.location.origin}/#/portal/login`} target="_blank" rel="noreferrer"
+          <a href={portalPageUrl('#/portal/login')} target="_blank" rel="noreferrer"
             className="btn btn-secondary">
             Open Portal
           </a>

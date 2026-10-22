@@ -48,6 +48,8 @@ export interface ProposalOption {
   snapshot: {
     materialCost: number; laborCost: number; tearOutCost: number; totalCOGS: number; gmPct: number
     pullSheet: LineItem[]; runRails?: Array<'auto' | '6ft' | '8ft'>; runSections: number[]
+    /** Cents this option's price was rounded down by to the whole dollar (out of profit). */
+    roundingCents?: number
     /** A move or repair option: the work the quote becomes if picked; null: a new fence (the quote stops being a move or repair). */
     work?: SavedWork | null
   }
@@ -76,6 +78,8 @@ export interface QuoteProposal {
   /** A fence move or repair: the plain words of the work (no cost lines). */
   kind?: 'move' | 'repair'
   description?: string
+  /** Priced to the whole dollar (Oct 21 2026 on): the deposit is whole dollars too, the final takes the rest. */
+  wholeDollar?: boolean
 }
 
 // ── Which options make sense for a style ──────────────────────────────────────
@@ -144,6 +148,7 @@ export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalO
       totalCOGS: q.priced.totalCOGS, gmPct: q.priced.gmPct, pullSheet: q.materials.items,
       runRails: style.autoRailMix ? filled.map(x => q.perRunRail[x.i] ?? '6ft') : undefined,
       runSections: filled.map(x => q.perRunSections[x.i]),
+      roundingCents: q.priced.roundingCents,
     },
   }
 }
@@ -167,6 +172,10 @@ export function buildProposal(args: {
   styles: QuoteStyle[]
   /** The quote's own price, as shown on the quote (it may be typed by hand). */
   ownPrice: number
+  /** The cents the quote's own price was rounded down by. */
+  ownRoundingCents?: number
+  /** Priced to the whole dollar (false: a quote that keeps its cents). */
+  wholeDollar?: boolean
   company: { name: string; phone: string; email: string }
   customer: { name: string; address: string }
   planSvg?: string
@@ -189,6 +198,7 @@ export function buildProposal(args: {
       const feet = input.runs.reduce((t, r) => t + (r.ft > 0 ? r.ft : 0), 0)
       o.finalPrice = args.ownPrice
       o.perFoot = feet > 0 ? Math.round((args.ownPrice / feet) * 100) / 100 : 0
+      if (typeof args.ownRoundingCents === 'number') o.snapshot = { ...o.snapshot, roundingCents: args.ownRoundingCents }
     }
     // A tier's own photo, else the style's photo.
     o.photoId = o.photoId || args.photoIds[o.fenceStyle] || null
@@ -214,6 +224,7 @@ export function buildProposal(args: {
     tierSet: args.tierSet ? { category: args.tierSet.category, tiers: args.tierSet.tiers.map(t => ({ ...t })), popular: args.tierSet.popular } : undefined,
     recommended: popular >= 0 ? popular : Math.max(0, options.findIndex(o => o.fenceStyle === own.name)),
     options,
+    ...(args.wholeDollar === false ? {} : { wholeDollar: true }),
   }
 }
 
@@ -233,7 +244,7 @@ export function workOption(label: string, styleName: string, w: WorkResult, save
     label, fenceStyle: styleName, finalPrice: w.priceCents / 100, perFoot: 0, sections: w.sections,
     snapshot: {
       materialCost: w.materialCents / 100, laborCost: w.laborCents / 100, tearOutCost: w.disposalCents / 100, totalCOGS: w.costCents / 100,
-      gmPct: w.gmPct, pullSheet: w.pullSheet, runSections, work: saved,
+      gmPct: w.gmPct, pullSheet: w.pullSheet, runSections, work: saved, roundingCents: w.roundingCents,
     },
   }
 }
@@ -251,6 +262,8 @@ export function buildWorkProposal(args: {
   footageFt: number
   gatesText: string
   photoIds: Record<string, string>
+  /** Priced to the whole dollar (false: a quote that keeps its cents). */
+  wholeDollar?: boolean
 }): QuoteProposal {
   const { settings } = args
   const fin = settings.financing
@@ -272,5 +285,6 @@ export function buildWorkProposal(args: {
     financing: fin && (fin.months ?? 0) > 0 ? { provider: fin.provider ?? '', apr: fin.apr ?? 0, months: fin.months!, link: fin.link ?? '' } : null,
     recommended: 0,
     options: args.options.map(o => ({ ...o, photoId: o.photoId || args.photoIds[o.fenceStyle] || null })),
+    ...(args.wholeDollar === false ? {} : { wholeDollar: true }),
   }
 }

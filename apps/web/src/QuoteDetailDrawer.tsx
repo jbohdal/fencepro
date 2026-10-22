@@ -13,7 +13,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
 import { updateQuote, getQuoteById } from './quoteStore'
 import { markQuoteSold, markQuoteLost } from './signedContractFlow'
-import { ensureShareForQuote, stampSent, getShareByQuoteId } from './quoteShareStore'
+import { issueShareToken } from './savedQuotesApi'
+import { proposalUrl } from './proposal'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { toast } from './toast'
 import { TEMPLATES, getDefaultTemplateKey, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
@@ -68,8 +69,10 @@ export default function QuoteDetailDrawer({
   useBackLayer(onClose, { key: 'qv', params: { qv: quote.id } })
   const status = STATUS_STYLES[quote.status]
   const totalFootage = useMemo(() => (quote.runs || []).reduce((a, b) => a + b, 0), [quote.runs])
-  const share = getShareByQuoteId(quote.id)
-  const shareUrl = share ? `${window.location.origin}/#/quote/${share.token}` : null
+  // The customer's link under the public door (/p/<link>): the proposal, or for a quote with none, the quote itself.
+  const linkOpen = !!quote.shareToken && !quote.shareDisabledAt && !(quote.shareExpiresAt && new Date(quote.shareExpiresAt).getTime() < Date.now())
+  const [madeUrl, setMadeUrl] = useState<string | null>(null)
+  const shareUrl = madeUrl ?? (linkOpen ? proposalUrl(quote.shareToken!) : null)
 
   function handleMarkSold() {
     if (!confirm(`Mark this quote as SOLD and create a job?`)) return
@@ -93,9 +96,11 @@ export default function QuoteDetailDrawer({
     onClose()
   }
 
-  function handleCopyShareLink() {
-    const s = ensureShareForQuote(quote.id)
-    const url = `${window.location.origin}/#/quote/${s.token}`
+  async function handleCopyShareLink() {
+    const t = await issueShareToken(quote.id).catch(() => null)
+    if (!t?.shareToken) { toast.error('Could not make the link. Check the connection and try again.'); return }
+    const url = proposalUrl(t.shareToken)
+    setMadeUrl(url)
     navigator.clipboard?.writeText(url).catch(() => {})
     toast.success('Link copied', url)
   }
@@ -161,8 +166,10 @@ export default function QuoteDetailDrawer({
           {quote.finalPrice > 0 && quote.totalCOGS > 0 && (() => {
             const cfg = getConfig()
             const pct = typeof quote.pricing?.commissionPct === 'number' ? quote.pricing.commissionPct : (quote.hasSalesman ? cfg.pricing.commissionSalesman : cfg.pricing.commissionNonSalesman) ?? 0
+            // Rounded to the whole dollar: commission and overhead stay on the price before rounding (the cents are out of profit).
+            const rounding = typeof quote.pricing?.roundingCents === 'number' ? quote.pricing.roundingCents : 0
             return <DollarPickets price={quote.finalPrice} materials={quote.materialCost} labor={(quote.laborCost || 0) + (quote.tearOutCost || 0)}
-              commission={quote.finalPrice * pct} overheadPct={typeof quote.pricing?.overheadPct === 'number' ? quote.pricing.overheadPct : overheadPctOf(cfg)} />
+              commission={(quote.finalPrice + rounding / 100) * pct} overheadPct={typeof quote.pricing?.overheadPct === 'number' ? quote.pricing.overheadPct : overheadPctOf(cfg)} roundingCents={rounding} />
           })()}
 
           {/* Photos and video taken for this quote (site walk, gate location, ...) */}
@@ -327,9 +334,27 @@ function TemplatePicker({ quote, onChange }: { quote: SavedQuote & QuotePresenta
 // ── Send Quote Modal ──
 
 function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose: () => void; onSent: () => void }) {
+  // The customer's link under the public door (/p/<link>), made (or reused while it works) on the server.
+  const [shareUrl, setShareUrl] = useState<string | null>(null)
+  const [linkError, setLinkError] = useState(false)
+  useEffect(() => {
+    let live = true
+    issueShareToken(quote.id).then(t => { if (!live) return; if (t?.shareToken) setShareUrl(proposalUrl(t.shareToken)); else setLinkError(true) }).catch(() => { if (live) setLinkError(true) })
+    return () => { live = false }
+  }, [quote.id])
+  if (shareUrl) return <SendQuoteForm quote={quote} shareUrl={shareUrl} onClose={onClose} onSent={onSent} />
+  return (
+    <div className="fixed inset-0 z-60 bg-black/40 flex items-center justify-center p-6">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-3" data-send-quote-link>
+        <p className="text-sm text-gray-800">{linkError ? 'Could not make the customer link. Check the connection and try again.' : 'Making the customer link…'}</p>
+        <div className="flex justify-end"><button onClick={onClose} className="btn btn-secondary">Close</button></div>
+      </div>
+    </div>
+  )
+}
+
+function SendQuoteForm({ quote, shareUrl, onClose, onSent }: { quote: SavedQuote; shareUrl: string; onClose: () => void; onSent: () => void }) {
   const tpl = getEmailTemplate('quote_sent')
-  const share = ensureShareForQuote(quote.id)
-  const shareUrl = `${window.location.origin}/#/quote/${share.token}`
 
   const company = useMemo(() => {
     try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company || {} } catch {}
@@ -356,7 +381,7 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
   function handleSend() {
     if (!to.trim()) { toast.error('Enter a recipient email'); return }
     // In this local-storage build we don't have a live email service directly
-    // from the browser. We mark the quote as SENT, stamp the share, and hand
+    // from the browser. We mark the quote as SENT and hand
     // off to the user's email client via mailto: if nothing else is configured.
     try {
       // Mark as SENT (only if currently DRAFT)
@@ -364,7 +389,6 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
       if (current && current.status === 'DRAFT') {
         updateQuote(quote.id, { status: 'SENT' })
       }
-      stampSent(share.token, to)
 
       // Build mailto for a seamless handoff. Body is stripped of HTML for
       // mailto safety; customer still gets the live HTML link in their email.

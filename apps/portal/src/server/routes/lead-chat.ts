@@ -69,7 +69,7 @@ async function buildSystemPrompt(): Promise<string> {
   for (const s of samplesToRun) {
     try {
       const q = await quickEstimate(s.style, 100, 1, 0)
-      samplePricing.push(`- ${s.label}: ~$${q.pricePerFoot.toFixed(2)}/ft installed, estimate (100ft example: about $${Math.round(q.price).toLocaleString()})`)
+      samplePricing.push(`- ${s.label}: ~$${Math.round(q.pricePerFoot)}/ft installed, estimate (100ft example: about $${Math.floor(q.price).toLocaleString()})`)
     } catch { /* skip unavailable styles */ }
   }
 

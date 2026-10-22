@@ -13,8 +13,14 @@
  * A move or repair, or a login that sees prices only (the server prices
  * their quotes), gets the changes as lines and one price difference line:
  * today's price of the new version minus the signed price.
+ *
+ * Every amount is whole dollars (Jonathan, Oct 21 2026): each step is priced
+ * to the whole dollar, even on a quote signed with cents, and the one price
+ * difference line is rounded down to the whole dollar (a credit to the larger
+ * whole dollar), so the cents never go on the customer.
  */
 import { calculateQuote, type QuoteCalcInput } from './quoteCalc'
+import { wholeDollarCents } from './pricingEngine'
 import type { SavedQuote } from './QuotesPage'
 import type { ChangeOrderLine, ChangeOrderPrefill, ChangeOrderScope } from './ChangeOrders'
 import { styleLabel } from './fenceCatalog'
@@ -24,7 +30,9 @@ type Style = NonNullable<QuoteCalcInput['style']>
 
 const ft = (runs: Array<{ ft: number }>) => Math.round(runs.reduce((s, r) => s + (r.ft > 0 ? r.ft : 0), 0) * 100) / 100
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
-const priceCents = (input: QuoteCalcInput) => (input.style ? Math.round(calculateQuote(input).priced.price * 100) : 0)
+const priceCents = (input: QuoteCalcInput) => (input.style ? Math.round(calculateQuote({ ...input, overrides: { ...(input.overrides ?? {}), wholeDollar: true } }).priced.price * 100) : 0)
+/** The pricing choices without the whole dollar mark (which every change order step prices with). */
+const choices = (o: QuoteCalcInput['overrides']) => { const { wholeDollar, roundingCents, ...rest } = o ?? {}; void wholeDollar; void roundingCents; return rest }
 
 export interface DraftInput {
   /** The signed quote as saved. */
@@ -82,7 +90,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
     words.push({ text: `Tear out: ${parts.join(', ')}`, step: x => ({ ...x, tearOutSections: cur.tearOutSections, tearOutGates: cur.tearOutGates }) })
   }
   const restChanged = cur.extraLaborHrs !== (s.adjLaborHrs || 0) || cur.hasSalesman !== !!s.hasSalesman || cur.priceAdjust !== (s.priceAdjust || 0)
-    || JSON.stringify(cur.overrides ?? {}) !== JSON.stringify(d.signedOverrides ?? {})
+    || JSON.stringify(choices(cur.overrides)) !== JSON.stringify(choices(d.signedOverrides))
   words.push({ text: 'Other price changes', step: x => ({ ...x, extraLaborHrs: cur.extraLaborHrs, hasSalesman: cur.hasSalesman, priceAdjust: cur.priceAdjust, overrides: cur.overrides }) })
 
   const sectionsDelta = d.sectionsNow - s.sections
@@ -92,7 +100,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
 
   if (d.simple || !signedStyle) {
     const lines = words.filter(w => w.text !== 'Other price changes').map(w => ({ id: newId(), description: w.text, amountCents: 0 }))
-    const diff = Math.round(d.priceNow * 100) - Math.round(s.finalPrice * 100)
+    const diff = wholeDollarCents(Math.round(d.priceNow * 100) - Math.round(s.finalPrice * 100)).cents
     lines.push({ id: newId(), description: lines.length ? "Price difference at today's prices" : "Changes to the work, at today's prices", amountCents: diff })
     return done(lines)
   }

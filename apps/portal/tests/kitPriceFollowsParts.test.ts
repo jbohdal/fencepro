@@ -75,7 +75,10 @@ describe.each(STYLES)('$name', style => {
   test('price = (materials + labor) ÷ (1 − Target Margin)', () => {
     const q = quote(style, 150, 1)
     expect(q.priced.priceMethod).toBe('cost_factor')
-    expect(q.priced.price).toBeCloseTo((q.materialCost + q.priced.laborCost) / style.margin!, 2)
+    // To the cent (half a cent either way).
+    expect(Math.abs(q.priced.priceBeforeRounding - (q.materialCost + q.priced.laborCost) / style.margin!)).toBeLessThanOrEqual(0.005 + 1e-9)
+    // The customer's price: rounded down to the whole dollar (Oct 21 2026).
+    expect(q.priced.price).toBe(Math.floor(q.priced.priceBeforeRounding + 1e-9))
   })
 })
 

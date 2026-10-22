@@ -265,10 +265,15 @@ for devices signed in to your Tailscale account and nobody else. To use it
 from a new phone or laptop, install Tailscale there and sign in with
 `jbohdal@gdfencepro.com`.
 
-**Public (intake only).** Tailscale Funnel opens port 8443 of the same name to
-the internet, and only two paths are connected to it: `/api/quoting` for the
-website widget and `/api/intake/retell` for the phone agent. The sign in page
-and the rest of the API are not on that port.
+**Public door.** Tailscale Funnel opens port 8443 of the same name to the
+internet, and only three paths are connected to it: `/p` (everything a
+customer opens: proposals `/p/<link>`, change orders `/p/co/`, warranty updates
+`/p/wu/`, walkthrough certificates `/p/w/`, crew packets `/p/i/`, receipts
+`/p/r/`, the website quote `/p/quote/`, and the customer portal `/p/portal/`
+with its own API under `/p/portal/api/`, which answers only what a customer
+uses), `/api/quoting` for the phone agent and old widget calls, and
+`/api/intake/retell` for the phone agent. The staff sign in page and the rest
+of the API are not on that port.
 
 See what is set up:
 

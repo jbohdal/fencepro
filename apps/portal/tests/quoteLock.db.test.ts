@@ -214,7 +214,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
       scope: { footageFt: 16, walkGates: 1 },
     })
     expect(made.status).toBe(201)
-    expect([made.json.data.number, made.json.data.status, made.json.data.totalCents]).toEqual([1, 'draft', 63_550])
+    // Whole dollar lines (Oct 21 2026): $240.50 is saved as $240, the cents out of profit.
+    expect([made.json.data.number, made.json.data.status, made.json.data.totalCents]).toEqual([1, 'draft', 63_500])
+    expect(made.json.data.lines.map((l: any) => l.amountCents)).toEqual([24_000, 39_500])
     // Sent twice (no signal): one.
     expect((await call(owner, 'POST', '/api/change-orders', { id: coId, quoteId: q.id, lines: [{ id: 'l1', description: 'Add 16 ft of fence', amountCents: 24_050 }] })).json.data.id).toBe(coId)
     expect(await prisma.changeOrder.count({ where: { quoteId: q.id } })).toBe(1)
@@ -229,17 +231,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     expect(ok.status).toBe(200)
     expect(ok.json.data.approvedBy).toBeTruthy()
     let j = await prisma.savedJob.findUnique({ where: { id: job.id } })
-    expect([j!.changeOrderTotal, j!.contractValue]).toEqual([635.5, 1635.5])
+    expect([j!.changeOrderTotal, j!.contractValue]).toEqual([635, 1635])
     // Lines of an approved one cannot change.
     expect((await call(owner, 'PATCH', `/api/change-orders/${coId}`, { baseVersion: 3, lines: [{ id: 'l1', description: 'x', amountCents: 1 }] })).status).toBe(409)
     // A job save from an older screen with the old figures: the server keeps the change orders'.
     expect((await call(owner, 'PATCH', `/api/saved-jobs/${job.id}`, { notes: 'crew note', changeOrderTotal: 0, contractValue: 1000 })).status).toBe(200)
     j = await prisma.savedJob.findUnique({ where: { id: job.id } })
-    expect([j!.notes, j!.contractValue]).toEqual(['crew note', 1635.5])
-    // Approved at once (agreed on site), a credit: 1635.50 - 100.00.
+    expect([j!.notes, j!.contractValue]).toEqual(['crew note', 1635])
+    // Approved at once (agreed on site), a credit: 1635.00 - 100.00.
     const credit = await call(owner, 'POST', '/api/change-orders', { quoteId: q.id, status: 'approved', lines: [{ id: 'c1', description: 'Credit: no tear out', amountCents: -10_000 }] })
     expect([credit.status, credit.json.data.number]).toEqual([201, 2])
-    expect((await prisma.savedJob.findUnique({ where: { id: job.id } }))!.contractValue).toBe(1535.5)
+    expect((await prisma.savedJob.findUnique({ where: { id: job.id } }))!.contractValue).toBe(1535)
     // Voided: off again.
     expect((await call(owner, 'PATCH', `/api/change-orders/${coId}`, { baseVersion: 3, status: 'void' })).status).toBe(200)
     expect((await prisma.savedJob.findUnique({ where: { id: job.id } }))!.contractValue).toBe(900)

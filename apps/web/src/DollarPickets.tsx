@@ -17,11 +17,15 @@ const LABEL: Record<Part, string> = { materials: 'Materials', labor: 'Labor', ov
 
 const money = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
-export interface DollarSplit { price: number; materials: number; labor: number; commission: number; overheadPct: number }
+export interface DollarSplit {
+  price: number; materials: number; labor: number; commission: number; overheadPct: number
+  /** Cents the price was rounded down by to the whole dollar: out of profit, never overhead. */
+  roundingCents?: number
+}
 
-/** Dollars and share of the price for each part; profit is what is left. */
-export function splitDollars({ price, materials, labor, commission, overheadPct }: DollarSplit) {
-  const overhead = price * (overheadPct / 100)
+/** Dollars and share of the price for each part; profit is what is left. Overhead is on the price before rounding to the whole dollar. */
+export function splitDollars({ price, materials, labor, commission, overheadPct, roundingCents }: DollarSplit) {
+  const overhead = (price + (roundingCents ?? 0) / 100) * (overheadPct / 100)
   const profit = price - materials - labor - commission - overhead
   const parts: Array<{ part: Part; dollars: number }> = [
     { part: 'materials', dollars: materials },

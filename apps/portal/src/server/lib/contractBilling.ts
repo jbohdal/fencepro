@@ -40,7 +40,7 @@ import path from 'path'
 import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { approvedTotalCents } from './changeOrders.js'
-import { applyPayments, depositOf, finalOf, moneyText, methodText, DEFAULT_DEPOSIT_PCT, METHODS } from './paymentMath.js'
+import { applyPayments, depositOf, finalOf, moneyText, methodText, pricedWholeDollar, DEFAULT_DEPOSIT_PCT, METHODS } from './paymentMath.js'
 import { receiptPdf, receiptName, type ReceiptSnapshot } from './receiptPdf.js'
 import { effectiveQuoteWarranty, installDateOf } from './warranties.js'
 
@@ -64,7 +64,7 @@ export function dayWords(day: string): string {
 
 // ── The signed amount ────────────────────────────────────────────────────────
 
-type QuoteRow = { id: string; status: string; acceptedAt: Date | null; soldAt: Date | null; finalPrice: number; proposal: unknown; chosenOption: number | null; fenceStyle: string }
+type QuoteRow = { id: string; status: string; acceptedAt: Date | null; soldAt: Date | null; finalPrice: number; proposal: unknown; pricing?: unknown; chosenOption: number | null; fenceStyle: string }
 
 /** The amount signed, in cents: accepted on the link, the option's price; signed in person, the quote's (as the contract PDF prints it). */
 export function signedCentsOf(q: QuoteRow | null, job: { quotePrice: number; contractValue: number }): number {
@@ -90,7 +90,7 @@ export function progressOf(q: { proposal: unknown } | null): Array<{ label: stri
   return list.map((x: any) => ({ label: String(x?.label || 'Progress payment').slice(0, 80), pct: Number(x?.pct) })).filter(x => x.pct > 0 && x.pct < 100)
 }
 
-const QUOTE_SELECT = { id: true, status: true, acceptedAt: true, soldAt: true, finalPrice: true, proposal: true, chosenOption: true, fenceStyle: true } as const
+const QUOTE_SELECT = { id: true, status: true, acceptedAt: true, soldAt: true, finalPrice: true, proposal: true, pricing: true, chosenOption: true, fenceStyle: true } as const
 
 async function adjustmentCents(tx: any, accountId: string, jobId: string): Promise<number> {
   const rows = await tx.contractAdjustment.findMany({ where: { accountId, jobId }, select: { amountCents: true } })
@@ -153,7 +153,8 @@ export async function makeScheduleIn(tx: any, accountId: string, jobId: string, 
       others.push(h.amountCents)
     }
   } else {
-    const deposit = depositOf(signedCents, depositPct)
+    // Whole dollars on a contract priced to the whole dollar, as its proposal and contract show it (routes/proposal.ts, lib/contractPdf.ts).
+    const deposit = depositOf(signedCents, depositPct, pricedWholeDollar(q))
     await tx.contractInvoice.create({ data: { ...base, key: 'deposit', kind: 'deposit', label: 'Deposit', sortOrder: 0, originalCents: deposit, amountCents: deposit, dueOn: 'signing', dueDate: ocalaDay(q?.acceptedAt ?? q?.soldAt ?? new Date()) } })
     others.push(deposit)
     let i = 0

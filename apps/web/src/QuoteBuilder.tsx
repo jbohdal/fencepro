@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { Camera, ChevronLeft } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
-import { resolveSubRate, cleanOverrides, importedOldPrice } from './pricingEngine'
+import { resolveSubRate, cleanOverrides, importedOldPrice, keepsCents } from './pricingEngine'
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
 import { normalizeItemName } from './materialCalculator'
@@ -49,7 +49,7 @@ import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepa
 import { workOption, buildWorkProposal } from './proposal'
 import { signedInRole, can } from './permissions'
 import { useServerQuoteView, viewCalc, viewWork, viewTiers, viewCompare, viewProposalOptions } from './quoteViewApi'
-import type { QuoteJobRequest } from './quoteJob'
+import { minimumPrice, wholeDollarRecord, type QuoteJobRequest } from './quoteJob'
 import { bakedBackdrop } from './aerialBake'
 // A signed quote's lock: the same rules the server checks every save with.
 import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../portal/src/server/lib/quoteLock'
@@ -569,6 +569,10 @@ export default function QuoteBuilder({
   // Salesman or Installer gets prices only: the server prices it (quoteJob.ts)
   // and their phone never receives a cost (Jonathan, Oct 2026).
   const internal = seesCosts(signedInRole())
+  // Whole dollar prices (Oct 21 2026): a quote sent, sold or accepted before keeps its cents exactly as the
+  // customer saw or signed them; a sent one that is changed here is priced to the whole dollar like any new price.
+  const [keptCents] = useState(() => !!init?.id && keepsCents(init as any))
+  const keepCents = keptCents && (signedQuote || !dirty())
 
   // Everything about sections, the 6 ft / 8 ft choice per run, the pull sheet,
   // labor, cost and price comes out of quoteCalc, driven by Settings, the
@@ -582,6 +586,7 @@ export default function QuoteBuilder({
     pricePerFoot: priceMethod === 'per_foot' ? numOrUndef(perFootStr) : undefined,
     costFactor: priceMethod === 'cost_factor' ? numOrUndef(factorStr) : undefined,
     finalPrice: numOrUndef(finalPriceStr),
+    wholeDollar: keepCents ? false : undefined,
   }
   // Section width decides where a gate "near the house" sits: one section in.
   // (gateSlide.ts layoutPanelFt: the crew packet and the saved quote's drawing use the same rule.)
@@ -632,6 +637,7 @@ export default function QuoteBuilder({
     overrides: pricingOverrides, jobType,
     move: jobType === 'move' ? moveIn : null, repair: jobType === 'repair' ? repairIn : null,
     tierSet: tierSet ?? null, tierPrefs, compare: showCompare, offer, offerNewFence, offerMoveAsIs, photoIds, keepStyle: init?.fenceStyle ?? null,
+    keepCents,
   }
   const { view: sv, pricing: svPricing, error: svError } = useServerQuoteView(!internal, priceRequest, init?.id)
 
@@ -696,13 +702,16 @@ export default function QuoteBuilder({
   const repairCheck = internal ? repairCheckLocal : sv?.repairCheck ?? null
   const matchWarning = jobType !== 'new' && style ? matchRisk(style) : null
   // A new fence under the minimum job price, when Settings say the minimum applies to new fences too.
-  const newMin = !internal ? !!sv?.newMin : jobType === 'new' && mr.minimumAppliesToNew && priced.priceMethod !== 'manual' && priced.price > 0 && Math.round(priced.price * 100) < mr.minimumJobCents
+  const newMin = !internal ? !!sv?.newMin : jobType === 'new' && mr.minimumAppliesToNew && priced.priceMethod !== 'manual' && priced.price > 0 && Math.round(priced.priceBeforeRounding * 100) < mr.minimumJobCents
+  const minimum = minimumPrice(mr.minimumJobCents, pricingOverrides)
   const adjustedMH  = work ? work.manHours : priced.manHours
   const laborCost   = work ? work.laborCents / 100 : priced.laborCost
   const tearOutCost = work ? work.disposalCents / 100 : priced.tearOutCost
   const totalCOGS   = work ? work.costCents / 100 : priced.totalCOGS
-  const adjPrice    = work ? work.priceCents / 100 : newMin ? mr.minimumJobCents / 100 : priced.price
-  const commAmt     = work ? work.commissionCents / 100 : newMin ? Math.round(adjPrice * priced.commissionPct * 100) / 100 : priced.commissionAmt
+  const adjPrice    = work ? work.priceCents / 100 : newMin ? minimum.price : priced.price
+  // Cents the price was rounded down by to the whole dollar: its own line, out of profit (commission and overhead stay on the price before it).
+  const roundingCents = !internal ? 0 : work ? work.roundingCents : newMin ? minimum.roundingCents : priced.roundingCents
+  const commAmt     = work ? work.commissionCents / 100 : newMin ? Math.round(mr.minimumJobCents * priced.commissionPct) / 100 : priced.commissionAmt
   const grossMargin = work ? work.grossMarginCents / 100 : newMin ? Math.round((adjPrice - totalCOGS - commAmt) * 100) / 100 : priced.grossMargin
   const gmPct       = work ? work.gmPct : newMin ? (adjPrice > 0 ? grossMargin / adjPrice : 0) : priced.gmPct
   // The pull sheet: a move or repair lists only the NEW material.
@@ -752,7 +761,7 @@ export default function QuoteBuilder({
     : []), [style, materialItems, invTick, staleMonths])  // eslint-disable-line react-hooks/exhaustive-deps
   // A color priced by the piece: whose job lot quote, from when, and whether that quote is old.
   const jobLot = style?.jobLot
-  const jobLotOld = !!jobLot && !jobLot.kit && !!jobLot.quotedOn && jobLot.quotedOn <= staleCutoff(businessDate(new Date()), staleMonths)
+  const jobLotOld = !!jobLot && !jobLot.kit && !jobLot.tall && !!jobLot.quotedOn && jobLot.quotedOn <= staleCutoff(businessDate(new Date()), staleMonths)
   const quoteWarnings = work ? [
     ...(style && jobType === 'move' ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout && jobType === 'move' ? gateChecks(yard) : []),
@@ -862,7 +871,7 @@ export default function QuoteBuilder({
         kind: jobType as 'move' | 'repair', description: work.description, options, company,
         customer: { name: data.customerName, address: data.customerAddress }, planSvg: workPlan, warranty, settings: cfg.proposal ?? {},
         footageFt: jobType === 'move' ? work.footage : 0,
-        gatesText: jobType === 'move' ? workGatesText(effWalk, effDbl) : '', photoIds,
+        gatesText: jobType === 'move' ? workGatesText(effWalk, effDbl) : '', photoIds, wholeDollar: !keepCents,
       })
     })() : undefined
     const quote: SavedQuote = {
@@ -906,7 +915,7 @@ export default function QuoteBuilder({
       notes: data.notes,
       leadTemp: data.leadTemp ?? 0,
       // The Target Margin it was priced at is kept, so this quote's price never moves when Settings change.
-      pricing: cleanOverrides({ ...pricingOverrides, ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow }),
+      pricing: cleanOverrides({ ...pricingOverrides, ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow, ...wholeDollarRecord(pricingOverrides, roundingCents) }),
       work: savedWork,
       // A Salesman's or Installer's save: the server works out the costs from these inputs.
       ...(internal ? {} : { priceRequest }),
@@ -915,6 +924,8 @@ export default function QuoteBuilder({
         // A Salesman or Installer: every option comes priced from the server.
         styles: internal ? [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)] : [],
         ownPrice: adjPrice,
+        ownRoundingCents: roundingCents,
+        wholeDollar: !keepCents,
         company: { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' },
         customer: { name: data.customerName, address: data.customerAddress },
         planSvg: fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo} />) : undefined,
@@ -1477,7 +1488,7 @@ export default function QuoteBuilder({
               )}
 
               {work && internal && <WorkBreakdown work={work} />}
-              {internal && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} />}
+              {internal && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} roundingCents={roundingCents} />}
 
               {quoteWarnings.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
@@ -1490,7 +1501,10 @@ export default function QuoteBuilder({
 
               {jobLot && (
                 <div className={`rounded-xl p-3 space-y-1 border ${jobLotOld ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`} data-job-lot-note>
-                  {jobLot.kit ? (<>
+                  {jobLot.tall ? (<>
+                    <p className="text-xs font-semibold text-gray-800">8 ft tall is priced by the piece</p>
+                    <p className="text-xs text-gray-600 leading-snug">One price per section and one per post (Settings → Price List); the parts they cover show at $0 on the pull sheet. Gates are priced from their parts. Internal only.</p>
+                  </>) : jobLot.kit ? (<>
                     <p className="text-xs font-semibold text-gray-800">{jobLot.color} sections are sold as a kit</p>
                     <p className="text-xs text-gray-600 leading-snug">Each section line carries the kit's cost (a gate leaf takes one); the parts in the kit show at $0 on the pull sheet. Internal only.</p>
                   </>) : (<>
@@ -1518,6 +1532,12 @@ export default function QuoteBuilder({
               )}
 
               <div className={`bg-white rounded-xl border border-gray-200 p-4 ${!internal ? 'hidden' : ''}`}>
+                {roundingCents > 0 && (
+                  <div className="flex justify-between items-center text-sm mb-2 pb-2 border-b border-gray-100" data-quote-rounding>
+                    <span className="text-gray-600">Rounded to the whole dollar <span className="text-xs text-gray-400">(out of profit)</span></span>
+                    <span className="font-semibold text-red-600 tabular-nums" data-quote-rounding-amount>−{fmt(roundingCents / 100)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">Gross Margin</span>
                   <span className={`text-2xl font-bold ${gmColor}`}>{(gmPct * 100).toFixed(1)}%</span>

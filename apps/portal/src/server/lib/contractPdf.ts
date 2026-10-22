@@ -17,6 +17,7 @@ import { logoPath } from '../routes/proposal.js'
 import { quoteWarranty, installDateOf, type OptionWarranty } from './warranties.js'
 import { pricingModule } from './estimates.js'
 import { acceptedOnUpdate } from './warrantyUpdates.js'
+import { depositOf, pricedWholeDollar } from './paymentMath.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const TZ = 'America/New_York'
@@ -37,6 +38,8 @@ export interface ContractInput {
   includedNote: string
   depositPct: number
   depositNote: string
+  /** Priced to the whole dollar (Oct 21 2026 on): the deposit is whole dollars, as the payment schedule makes it. */
+  wholeDollar?: boolean
   description: string
   warranty: OptionWarranty | null
   /** Plain words ("October 20, 2026"), null until installed. */
@@ -80,7 +83,7 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
       ['Fence', `${c.tierLabel ? `${c.tierLabel}: ` : ''}${c.optionLabel}`],
       ...(c.footageFt > 0 ? [['Footage', `${Math.round(c.footageFt)} ft${c.gatesText ? `, ${c.gatesText}` : ''}`] as [string, string]] : []),
       ['Price', money(c.price)],
-      ...(c.depositPct > 0 ? [['Deposit', `${c.depositPct}% to schedule: ${money(c.price * c.depositPct / 100)}${c.depositNote ? ` (${c.depositNote})` : ''}`] as [string, string]] : []),
+      ...(c.depositPct > 0 ? [['Deposit', `${c.depositPct}% to schedule: ${money(c.wholeDollar ? depositOf(Math.round(c.price * 100), c.depositPct, true) / 100 : c.price * c.depositPct / 100)}${c.depositNote ? ` (${c.depositNote})` : ''}`] as [string, string]] : []),
       ['Warranty', c.warranty?.name || 'None written'],
     ]
     for (const [k, v] of facts) {
@@ -144,7 +147,7 @@ export async function contractForQuote(q: Q): Promise<Buffer | null> {
     optionLabel: String(opt.label || q.fenceStyle), tierLabel: String(opt.tier?.label || ''), price,
     footageFt: Number(p.footageFt) || 0, gatesText: p.kind ? '' : String(p.gatesText || ''),
     included: Array.isArray(p.included) ? p.included.map(String) : [], includedNote: String(p.includedNote || ''),
-    depositPct: Number(p.depositPct) || 0, depositNote: String(p.depositNote || ''), description: p.kind ? String(p.description || '') : '',
+    depositPct: Number(p.depositPct) || 0, depositNote: String(p.depositNote || ''), wholeDollar: pricedWholeDollar(q), description: p.kind ? String(p.description || '') : '',
     warranty, installDate: day ? m.dayText(day) : null,
     acceptedBy: String(q.acceptedBy || ''), acceptedAt: q.acceptedAt ?? q.soldAt ?? null, signedHow: q.acceptedAt ? 'link' : 'in_person',
     signature: sig ? Buffer.from(sig[1], 'base64') : null,

@@ -289,7 +289,8 @@ try {
   await pickStyle('Wood Privacy, 6 ft tall, 6 ft panels, No dig')
   await b.locator('[data-step="price"]').click(); await sleep(400)
   const woodPrice = money(await b.locator('[data-quote-price]').textContent())
-  check('Wood: a new 100 ft wood privacy fence is 115% of the same vinyl job (to the cent, ± rounding)', Math.abs(woodPrice - vinylPrice * 1.15) <= 0.03, `${woodPrice} vs ${vinylPrice} × 1.15 = ${(vinylPrice * 1.15).toFixed(2)}`)
+  // Both prices are rounded down to the whole dollar (Oct 21 2026): the vinyl's dropped cents (under $1) × 1.15, and the wood's own.
+  check('Wood: a new 100 ft wood privacy fence is 115% of the same vinyl job (whole dollars, ± rounding)', woodPrice % 1 === 0 && vinylPrice % 1 === 0 && woodPrice - vinylPrice * 1.15 > -1.03 && woodPrice - vinylPrice * 1.15 < 1.18, `${woodPrice} vs ${vinylPrice} × 1.15 = ${(vinylPrice * 1.15).toFixed(2)}`)
   const pull = (await b.locator('text=Pull sheet').locator('..').locator('..').textContent().catch(() => '')) || (await b.textContent())
   check('Wood: the pull sheet names wood parts and carries the wood material line', /Wood, Picket/.test(pull) && /Wood material: White Vinyl Privacy/.test(pull))
   await shot('dev-wood-1-new-fence-quote', b.locator('[data-quote-price]'))

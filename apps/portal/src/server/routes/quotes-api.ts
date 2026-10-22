@@ -42,7 +42,9 @@ router.post('/quick-estimate', async (req, res) => {
   try {
     const data = quickEstimateSchema.parse(req.body)
     const quote = await quickEstimate(data.fenceStyle, data.linearFootage, data.walkGates, data.dblGates)
-    const price = Math.round(quote.price)
+    // Whole dollars (the price is rounded down to the whole dollar, Oct 21 2026): the customer never sees cents.
+    const price = Math.floor(quote.price)
+    const perFoot = Math.round(quote.pricePerFoot)
 
     // Return customer-facing data only (no internal costs/margins)
     res.json({
@@ -54,10 +56,10 @@ router.post('/quick-estimate', async (req, res) => {
         totalFootage: quote.totalFootage,
         sections: quote.sections,
         estimatedPrice: price,
-        pricePerFoot: quote.pricePerFoot,
+        pricePerFoot: perFoot,
         walkGates: data.walkGates,
         dblGates: data.dblGates,
-        message: `Based on ${quote.totalFootage} linear feet of ${quote.style.name} with ${data.walkGates} walk gate${data.walkGates !== 1 ? 's' : ''}${data.dblGates > 0 ? ` and ${data.dblGates} double gate${data.dblGates !== 1 ? 's' : ''}` : ''}, your estimated project cost is around $${price.toLocaleString()}. That's about $${quote.pricePerFoot.toFixed(2)} per linear foot installed. We can confirm the exact price with a free in-person estimate — want to schedule one?`,
+        message: `Based on ${quote.totalFootage} linear feet of ${quote.style.name} with ${data.walkGates} walk gate${data.walkGates !== 1 ? 's' : ''}${data.dblGates > 0 ? ` and ${data.dblGates} double gate${data.dblGates !== 1 ? 's' : ''}` : ''}, your estimated project cost is around $${price.toLocaleString()}. That's about $${perFoot} per linear foot installed. We can confirm the exact price with a free in-person estimate — want to schedule one?`,
       },
     })
   } catch (err) {

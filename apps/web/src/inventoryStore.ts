@@ -159,6 +159,8 @@ export interface InventoryItem {
   status?: 'active' | 'inactive' | 'discontinued'
   /** Made by Settings → Fence styles for a color or choice added there ("vinyl:color:clay"); removed with it. */
   madeFor?: string
+  /** $0 on purpose: a part whose cost is in a section kit or piece price ("*Vinyl, Chai Gray, Section, 6x8", "8 ft tall section price"). Never asked for a price. */
+  includedIn?: string
   /** YYYY-MM-DD: the day the cost last changed or was confirmed (see priceAge.ts). */
   priceUpdatedAt?: string
   /** Came in by import (price book, bulk import) and not confirmed since. */

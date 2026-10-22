@@ -41,7 +41,9 @@ describe('defaults reproduce the original EZ Biz quote math', () => {
     expect(r.manHours).toBeCloseTo(mh, 6)
     expect(r.laborCost).toBeCloseTo(mh * 22, 2)
     expect(r.totalCOGS).toBeCloseTo(3000 + mh * 22, 2)
-    expect(r.price).toBeCloseTo((3000 + mh * 22) / 0.64, 2)
+    expect(r.priceBeforeRounding).toBeCloseTo((3000 + mh * 22) / 0.64, 2)
+    // Whole dollar (Oct 21 2026): rounded down, the cents out of profit.
+    expect(r.price).toBe(Math.floor((3000 + mh * 22) / 0.64))
     expect(r.commissionAmt).toBe(0)
     expect(r.gmPct).toBeCloseTo(0.36, 4)
   })
@@ -50,14 +52,15 @@ describe('defaults reproduce the original EZ Biz quote math', () => {
     const r = calculatePrice({ ...job, hasSalesman: true })
     const noComm = calculatePrice(job)
     expect(r.price).toBe(noComm.price)
-    expect(r.commissionAmt).toBeCloseTo(r.price * 0.10, 2)
+    expect(r.commissionAmt).toBeCloseTo(r.priceBeforeRounding * 0.10, 2)
     expect(r.gmPct).toBeCloseTo(0.26, 4)
   })
 
   test('price adjust slider scales the price', () => {
     const base = calculatePrice(job)
     const up = calculatePrice({ ...job, priceAdjust: 0.10 })
-    expect(up.price).toBeCloseTo(base.price * 1.10, 1)
+    expect(up.priceBeforeRounding).toBeCloseTo(base.priceBeforeRounding * 1.10, 1)
+    expect(up.price).toBe(Math.floor(up.priceBeforeRounding))
   })
 
   test('tear out is costed from Settings', () => {
@@ -136,13 +139,13 @@ describe('price methods', () => {
   test('per foot with no price set falls back to cost and says so', () => {
     const r = calculatePrice({ ...job, pricing: { ...pricing, priceMethod: 'per_foot' } })
     expect(r.priceMethod).toBe('cost_factor')
-    expect(r.price).toBeCloseTo(r.totalCOGS / 0.64, 1)
+    expect(r.priceBeforeRounding).toBeCloseTo(r.totalCOGS / 0.64, 1)
     expect(r.notes.join(' ')).toMatch(/No per foot price/)
   })
 
   test('magic number override on the quote', () => {
     const r = calculatePrice({ ...job, overrides: { costFactor: 0.5 } })
-    expect(r.price).toBeCloseTo(r.totalCOGS / 0.5, 1)
+    expect(r.priceBeforeRounding).toBeCloseTo(r.totalCOGS / 0.5, 1)
   })
 
   test('manual final price wins over everything, slider included', () => {
@@ -157,14 +160,14 @@ describe('commission modes', () => {
   test('added: price is grossed up so the company nets the same', () => {
     const noComm = calculatePrice(job)
     const added = calculatePrice({ ...job, hasSalesman: true, pricing: { ...pricing, commissionMode: 'added' } })
-    expect(added.price).toBeCloseTo(noComm.price / 0.9, 1)
-    expect(added.price - added.commissionAmt).toBeCloseTo(noComm.price, 1)
+    expect(added.priceBeforeRounding).toBeCloseTo(noComm.priceBeforeRounding / 0.9, 1)
+    expect(added.priceBeforeRounding - added.commissionAmt).toBeCloseTo(noComm.priceBeforeRounding, 1)
   })
 
   test('commission percent comes from Settings, not a constant', () => {
     const r = calculatePrice({ ...job, hasSalesman: true, pricing: { ...pricing, commissionSalesman: 0.07 } })
     expect(r.commissionPct).toBe(0.07)
-    expect(r.commissionAmt).toBeCloseTo(r.price * 0.07, 2)
+    expect(r.commissionAmt).toBeCloseTo(r.priceBeforeRounding * 0.07, 2)
   })
 })
 
@@ -172,7 +175,8 @@ describe('edge cases', () => {
   test('no style: no labor, price from material only', () => {
     const r = calculatePrice({ ...job, style: undefined })
     expect(r.manHours).toBe(0)
-    expect(r.price).toBeCloseTo(3000 / 0.64, 2)
+    expect(r.priceBeforeRounding).toBeCloseTo(3000 / 0.64, 2)
+    expect(r.price).toBe(4687)
   })
 
   test('empty job prices at zero without NaN', () => {

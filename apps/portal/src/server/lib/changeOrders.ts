@@ -44,6 +44,14 @@ export const linesOf = (r: { lines: unknown }): ChangeOrderLine[] =>
 
 export const totalOf = (lines: ChangeOrderLine[]) => lines.reduce((s, l) => s + l.amountCents, 0)
 
+/**
+ * Whole dollar lines (Jonathan, Oct 21 2026): each amount made or changed from
+ * now on is rounded down to the whole dollar (a credit to the larger whole
+ * dollar credit), so the cents never go on the customer. Change orders already
+ * saved keep their amounts until their lines are changed.
+ */
+export const wholeDollarLine = (l: ChangeOrderLine): ChangeOrderLine => ({ ...l, amountCents: Math.floor(Math.round(l.amountCents) / 100) * 100 })
+
 /** What every phone gets: prices only (a change order has no cost in it). */
 export function view(r: Row) {
   return {
@@ -252,7 +260,7 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
     const same = await prisma.changeOrder.findUnique({ where: { id: c.id } })
     if (same) { if (same.accountId !== accountId) throw err(409, 'Invalid id'); return same } // sent twice: the first one stands
   }
-  const lines = c.lines.filter(l => l.description.trim() || l.amountCents !== 0)
+  const lines = c.lines.map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
   if (!lines.length) throw err(400, 'Add at least one line with a description or an amount.')
   for (let attempt = 0; ; attempt++) {
     try {
@@ -297,7 +305,7 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
     if (edit.lines !== undefined || edit.reason !== undefined) {
       if (!open) throw err(409, cur.status === 'approved' ? 'This change order is approved. Void it and make a new one to change it.' : 'This change order is void.')
       if (edit.lines !== undefined) {
-        const lines = edit.lines.filter(l => l.description.trim() || l.amountCents !== 0)
+        const lines = edit.lines.map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
         if (!lines.length) throw err(400, 'Add at least one line with a description or an amount.')
         data.lines = lines; data.totalCents = totalOf(lines)
       }

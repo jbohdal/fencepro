@@ -3,6 +3,16 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-21 (evening): tan 6x8 is 15 pickets; 8 ft tall vinyl priced by the piece
+
+- **Tan 6 ft tall, 8 ft wide:** 15 pickets a section, as White and Chai Gray. This reverses the Oct 20 ruling below (16, as on the sheet). Applies to TV-ND / TV-DS 6'x8' and to the 8 ft rail runs of TV-Auto DS.
+- **8 ft tall vinyl, every color, ND and DS** (White, Tan, Chai Gray and any color added later in Settings > Price List > Vinyl Colors): priced by the piece, like job lot pricing: one price per section and one per post (corner, end and line), set for each 8 ft tall style in Settings > Price List > 8 ft tall vinyl (a color made with the form: its 8x6 / 8x8 section price and 8 ft post price, saved on its 8 ft tall fences, editable in either place). Until both prices are in, the style is not available for quoting (the same "Not available for quoting" as commercial).
+- **The pull sheet still lists every part, at $0,** so the crew loads the right material. A section: 2 rails (top and bottom) and 1 mid rail of the panel's width, 4 ft pickets (22 at 6 ft wide, 30 at 8 ft wide), 4 U channels (4 ft), and on an 8 ft wide panel 2 rail inserts (`Vinyl, Rail Insert, 8'`, shared). The whole "V , W, Picket Section 8' x 6' / 8' x 8' Privacy" item is no longer used. A post keeps its kit (8 ft post, cap, donuts and pipe or concrete), covered by the post price.
+- **Gates on 8 ft tall stay as they were:** priced from their parts (the whole 8 x 4 gate per leaf, hinges, latch, handles, gate caps, 2 bags of concrete per dig set walk gate), not covered by the section or post price; no blank post at a double gate.
+- **New catalog items, $0, included in the section price** (made once per company at start-up for White, which has 8 ft tall fences; Jonathan may rename them): `*Vinyl, White, Picket, 4'`, `*Vinyl, White, U Channel, 4'`, `*Vinyl, White, Mid Rail, 6'`, `*Vinyl, White, Mid Rail, 8'`. A color made with the form makes its own (`*Vinyl, {Color}, Picket, 4'` and so on, and `*Vinyl, {Color}, Post, 5" x 5", 8' Privacy`). Tan has no 8 ft tall fence in Settings, so no Tan items were made.
+- **Saved quotes** keep the prices they were priced with; sent and signed proposals are not changed.
+- **In the app:** apps/web/src/materialCalculator.ts (TALL_VINYL_SECTION, the tan count), fenceCatalog.ts (tallJobLot, the hold), materialKits.ts (piece prices that cover a whole kit), vinylColorForm.ts, TallVinylPrices.tsx, tallVinylParts.ts; pinned in apps/portal/tests/tallVinyl.test.ts and vinylColorForm.test.ts.
+
 ## 2026-10-21: vinyl colors added with the form (Chai Gray)
 
 - **Rail stiffener:** "technically universal to privacy vinyl for the 8ft rails regardless of color." An 8 ft rail's stiffener in a section kit is White's `Vinyl, Rail Insert, 8'`, shared; the form makes no color copy of it. Inside a section kit it is $0 (the section cost covers it).
@@ -25,6 +35,7 @@ or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same co
 ## 2026-10-20: tan vinyl 8 ft pickets stay 16 per section
 
 - An earlier note in TAKEOFF_RULES changed tan 8 ft pickets to 15 (the white row has 15). Jonathan confirmed 16, as on the sheet and in the app.
+- **Reversed on Oct 21, 2026:** 15 (see above).
 
 ## 2026-10-20 and 2026-10-21: other sheet rows applied as written
 

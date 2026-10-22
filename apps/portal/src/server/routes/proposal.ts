@@ -31,8 +31,9 @@ import rateLimit from 'express-rate-limit'
 import { startView, beatView, markSigned, ignoredRequest, proposalOpenedPush } from '../lib/proposalViews.js'
 import { contractForQuote, warrantyLines } from '../lib/contractPdf.js'
 import { installDateOf } from '../lib/warranties.js'
-import { pricingModule } from '../lib/estimates.js'
+import { pricingModule, plainStyleName } from '../lib/estimates.js'
 import { overlayAcceptedUpdate } from '../lib/warrantyUpdates.js'
+import { depositOf } from '../lib/paymentMath.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -97,6 +98,13 @@ export interface Proposal {
   /** A fence move or repair: the plain words of the work. */
   kind?: 'move' | 'repair'
   description?: string
+  /** Priced to the whole dollar (Oct 21 2026 on): no cents anywhere on the page, the deposit whole dollars too. */
+  wholeDollar?: boolean
+}
+
+/** The deposit shown for an option's price (dollars): as the payment schedule makes it (lib/paymentMath.ts depositOf). */
+export function depositDollars(p: Pick<Proposal, 'depositPct' | 'wholeDollar'>, price: number): number {
+  return p.wholeDollar === true ? depositOf(Math.round(price * 100), Number(p.depositPct), true) / 100 : price * (Number(p.depositPct) / 100)
 }
 
 export function logoPath(): string | null {
@@ -150,7 +158,11 @@ publicProposal.get('/:token', async (req, res) => {
       <p>We are happy to help. Call us${phone ? ` at <a href="tel:${esc(phone.replace(/[^\d+]/g, ''))}"><b>${esc(phone)}</b></a>` : ''} and we will send you a current proposal.</p></section></main>`, nonce))
     return
   }
-  if (!p || !Array.isArray(p.options) || p.options.length === 0) { res.status(404).type('html').send(page('Proposal not found', '<main class="wrap"><h1>This proposal is not ready yet</h1><p>Please call us.</p></main>', nonce)); return }
+  if (!p || !Array.isArray(p.options) || p.options.length === 0) {
+    // An older quote with no proposal (the quote list's "Copy Share Link"): the quote itself, to read, and how to accept it.
+    if (q.finalPrice > 0 && q.fenceStyle) { res.type('html').send(await renderQuoteView(q, nonce)); return }
+    res.status(404).type('html').send(page('Proposal not found', '<main class="wrap"><h1>This proposal is not ready yet</h1><p>Please call us.</p></main>', nonce)); return
+  }
   // Opens are counted by the page's own script once it is on screen (POST <link>/view), so link
   // previews, prefetch and staff opens never count (lib/proposalViews.ts).
   // A move or repair shows the photos marked Customer on this quote.
@@ -161,6 +173,35 @@ publicProposal.get('/:token', async (req, res) => {
   const shown = q.acceptedAt ? await overlayAcceptedUpdate(q, p).catch(() => p) : p
   res.type('html').send(renderProposal(q, shown, token, nonce, photos, installDay))
 })
+
+/**
+ * A quote with no proposal, for the customer: the fence, footage, gates and
+ * price (never a cost), and a call to accept or ask for changes. Read only:
+ * accepting online needs a proposal (saved from the quote builder).
+ */
+export async function renderQuoteView(q: any, nonce: string): Promise<string> {
+  const b = await prisma.businessState.findUnique({ where: { accountId: q.accountId }, select: { config: true } }).catch(() => null)
+  const co = ((b?.config as any)?.company ?? {}) as { name?: string; phone?: string; email?: string }
+  const footage = (Array.isArray(q.runs) ? q.runs : []).reduce((t: number, n: unknown) => t + (Number(n) > 0 ? Number(n) : 0), 0)
+  const gates = [q.walkGates ? `${q.walkGates} walk gate${q.walkGates === 1 ? '' : 's'}` : '', q.dblGates ? `${q.dblGates} double gate${q.dblGates === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')
+  const label = await plainStyleName(q.fenceStyle)
+  const status = q.acceptedAt || q.status === 'SOLD' ? '<section class="done"><h2>Accepted</h2><p>Thank you. We will call you to schedule.</p></section>'
+    : `<section><h2>Ready to go ahead?</h2><p>Call us${co.phone ? ` at ${tel(co.phone)}` : ''} to accept this quote or to ask for any changes.</p></section>`
+  const body = `<header class="top"><img src="logo.png" alt="" class="logo"><div><p class="co">${esc(co.name || 'Getter Done Fence')}</p><p class="small">${[co.phone ? tel(co.phone) : '', co.email ? esc(co.email) : ''].filter(Boolean).join(' · ')}</p></div></header>
+  <main class="wrap" data-quote-view>
+    <p class="small upper">Fence quote</p>
+    <h1>${esc(q.customerName)}</h1>
+    <p class="small">${esc(q.customerAddress || '')}</p>
+    <section><h2>Your fence</h2><div class="opts"><div class="opt on"><span class="optbody">
+      <span class="optlabel">${esc(label)}</span>
+      <span class="price" data-quote-view-price>${money(q.finalPrice)}</span>
+      <span class="small">${footage ? `${Math.round(footage)} ft of fence` : ''}${gates ? ` · ${esc(gates)}` : ''}</span>
+    </span></div></div></section>
+    ${status}
+    <p class="small foot">Questions? Call ${co.phone ? tel(co.phone) : 'us'}.</p>
+  </main>`
+  return page(`Fence quote for ${q.customerName}`, body, nonce)
+}
 
 /** "October 20, 2026": the install date of the job for an accepted quote, null until installed. */
 async function acceptedInstallDay(q: { id: string; accountId: string }): Promise<string | null> {
@@ -307,6 +348,8 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>): P
         ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections } } : {}),
         // A move or repair option carries its work; "New fence instead" carries null (the quote becomes a new fence).
         ...(s && Object.prototype.hasOwnProperty.call(s, 'work') ? { work: s.work === null ? Prisma.JsonNull : s.work } : {}),
+        // The cents the chosen option was rounded down by to the whole dollar go with it into the contract (out of profit).
+        ...(typeof s.roundingCents === 'number' && (q.proposal as any)?.wholeDollar === true ? { pricing: { ...((q.pricing as any) ?? {}), wholeDollar: true, roundingCents: s.roundingCents } } : {}),
       }),
     },
   })
@@ -373,11 +416,15 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
   const chosen = accepted ? (q.chosenOption ?? rec) : rec
   const base = p.options[rec]?.finalPrice ?? p.options[0].finalPrice
   const fin = p.financing && (p.financing.months ?? 0) > 0 ? p.financing : null
+  // Priced to the whole dollar: the price a foot and the monthly payment show no cents either.
+  const whole = p.wholeDollar === true
+  const perFootText = (n: number) => whole ? `About ${money(n)}` : money2(n)
+  const monthlyText = (n: number) => whole ? money(Math.ceil(n)) : money2(n)
 
   const options = p.options.map((o, i) => {
     const diff = o.finalPrice - base
     const save = i !== rec && diff < -0.5 ? `<span class="save">Save ${money(-diff)}</span>` : i !== rec && diff > 0.5 ? `<span class="more">${money(diff)} more</span>` : ''
-    const monthly = fin ? `<p class="monthly">As low as ${money2(monthlyPayment(o.finalPrice, fin.apr ?? 0, fin.months!))}/month for ${fin.months} months${fin.provider ? ` with ${esc(fin.provider)}` : ''}</p>` : ''
+    const monthly = fin ? `<p class="monthly">As low as ${monthlyText(monthlyPayment(o.finalPrice, fin.apr ?? 0, fin.months!))}/month for ${fin.months} months${fin.provider ? ` with ${esc(fin.provider)}` : ''}</p>` : ''
     const photo = o.photoId ? `<img class="photo" src="photo/${esc(o.photoId)}" alt="${esc(o.label)}" loading="lazy">` : ''
     return `<label class="opt${i === chosen ? ' on' : ''}" data-option="${i}">
       <input type="radio" name="option" value="${i}"${i === chosen ? ' checked' : ''}${accepted ? ' disabled' : ''}>
@@ -388,7 +435,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
         <span class="optlabel">${esc(o.label)}</span>
         ${o.tier?.blurb ? `<span class="blurb">${esc(o.tier.blurb)}</span>` : ''}
         <span class="price">${money(o.finalPrice)}</span>
-        ${o.perFoot > 0 ? `<span class="small">${money2(o.perFoot)} a foot · ${o.sections} sections</span>` : ''}
+        ${o.perFoot > 0 ? `<span class="small">${perFootText(o.perFoot)} a foot · ${o.sections} sections</span>` : ''}
         ${o.warranty?.name ? `<span class="wbadge" data-warranty-badge>${esc(o.warranty.name)}</span>` : ''}
         ${save}${monthly}
       </span>
@@ -396,7 +443,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
   }).join('')
 
   const deposit = (p.depositPct ?? 0) > 0
-    ? `<section><h2>Deposit</h2><p id="deposit" data-pct="${Number(p.depositPct)}">${esc(p.depositPct)}% to schedule: <b>${money(p.options[chosen].finalPrice * (p.depositPct! / 100))}</b></p>${p.depositNote ? `<p class="small">${esc(p.depositNote)}</p>` : ''}</section>`
+    ? `<section><h2>Deposit</h2><p id="deposit" data-pct="${Number(p.depositPct)}"${whole ? ' data-whole="1"' : ''}>${esc(p.depositPct)}% to schedule: <b>${money(depositDollars(p, p.options[chosen].finalPrice))}</b></p>${p.depositNote ? `<p class="small">${esc(p.depositNote)}</p>` : ''}</section>`
     : ''
   const included = (p.included?.length || p.includedNote)
     ? `<section><h2>What's included</h2><ul>${(p.included ?? []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>${p.includedNote ? `<p>${esc(p.includedNote).replace(/\n/g, '<br>')}</p>` : ''}</section>`
@@ -438,7 +485,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
     var prices=${JSON.stringify(p.options.map(o => o.finalPrice))};
     var dep=document.getElementById('deposit');
     var ws=${JSON.stringify(perOption ? p.options.map(o => wOf(o)) : []).replace(/</g, '\\u003c')},wn=document.getElementById('wname'),wt=document.getElementById('wtext');
-    function pick(){opts.forEach(function(o){var r=o.querySelector('input');o.classList.toggle('on',r.checked);if(r.checked&&dep){var b=dep.querySelector('b');b.textContent='$'+Math.round(prices[+r.value]*(+dep.dataset.pct)/100).toLocaleString('en-US');}if(r.checked&&ws.length&&wt){var w=ws[+r.value]||{name:'',text:''};if(wn)wn.textContent=w.name;wt.textContent=w.text}});}
+    function pick(){opts.forEach(function(o){var r=o.querySelector('input');o.classList.toggle('on',r.checked);if(r.checked&&dep){var b=dep.querySelector('b');var c=Math.round(Math.round(prices[+r.value]*100)*(+dep.dataset.pct)/100);b.textContent='$'+(dep.dataset.whole?Math.floor(c/100):Math.round(c/100)).toLocaleString('en-US');}if(r.checked&&ws.length&&wt){var w=ws[+r.value]||{name:'',text:''};if(wn)wn.textContent=w.name;wt.textContent=w.text}});}
     opts.forEach(function(o){o.querySelector('input').addEventListener('change',pick)});
     var c=document.getElementById('sig'),x=c.getContext('2d'),down=false,inked=false;
     x.lineWidth=3;x.lineCap='round';x.strokeStyle='#1C1030';

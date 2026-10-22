@@ -175,7 +175,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
     const r2 = (await prisma.automationRun.findMany({ where: { ruleId: rule.id, entityId: card2 } }))
     expect(r2.every(r => r.status === 'skipped')).toBe(true)
     await pause(rule.id)
-  })
+  }, 30_000) // a full run on the shared dev copy can take longer than the default 5 s
 
   test('moved out of a stage, with conditions', async () => {
     const rule = await makeRule({

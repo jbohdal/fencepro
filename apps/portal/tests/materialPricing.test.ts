@@ -141,14 +141,26 @@ describe('styles that used to quote $0 material', () => {
     expect(r.warnings.length).toBeGreaterThan(0)
   })
 
-  test("8'x6' is 8 tall and 6 wide: 150 ft is 26 six foot sections", () => {
+  // 8 ft tall sections are listed by their parts (Jonathan, Oct 21, 2026); with an Inventory that has
+  // every part, so the $0 parts stay on the sheet.
+  const allParts = () => setMaterialPriceSource(() => 0)
+
+  test("8'x6' is 8 tall and 6 wide: 150 ft is 26 six foot sections, each 2 rails, a mid rail, 22 pickets, 4 U channels", () => {
+    allParts()
     const r = calculateMaterialsDetailed(job("WV-ND 8'x6' Privacy"))
-    expect(find(r.items, "V , W, Picket Section 8' x 6' Privacy")?.qty).toBe(17 + 9)
+    const n = 17 + 9
+    expect([find(r.items, "*Vinyl, White, Rail, 6'")?.qty, find(r.items, "*Vinyl, White, Mid Rail, 6'")?.qty, find(r.items, "*Vinyl, White, Picket, 4'")?.qty, find(r.items, "*Vinyl, White, U Channel, 4'")?.qty])
+      .toEqual([2 * n, n, 22 * n, 4 * n])
+    expect(find(r.items, "Vinyl, Rail Insert, 8'")).toBeUndefined()
+    expect(r.items.some(i => /Picket Section/.test(i.item))).toBe(false)
   })
 
-  test("8'x8' uses 8 ft wide sections", () => {
+  test("8'x8' uses 8 ft wide sections: each 2 rails, a mid rail, 30 pickets, 4 U channels, 2 rail inserts", () => {
+    allParts()
     const r = calculateMaterialsDetailed(job("WV-DS 8'x8' Privacy"))
-    expect(find(r.items, "V , W, Picket Section 8' x 8' Privacy")?.qty).toBe(13 + 7)
+    const n = 13 + 7
+    expect([find(r.items, "*Vinyl, White, Rail, 8'")?.qty, find(r.items, "*Vinyl, White, Mid Rail, 8'")?.qty, find(r.items, "*Vinyl, White, Picket, 4'")?.qty, find(r.items, "*Vinyl, White, U Channel, 4'")?.qty, find(r.items, "Vinyl, Rail Insert, 8'")?.qty])
+      .toEqual([2 * n, n, 30 * n, 4 * n, 2 * n])
     // 2 bags per post, plus 2 per walk gate (TAKEOFF_RULES WV-DS concrete row; Jonathan, Oct 20, 2026).
     expect(find(r.items, 'Misc, Concrete')?.qty).toBe((2 + 2 + 12 + 6) * 2 + 1 * 2)
   })

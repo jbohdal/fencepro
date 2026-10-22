@@ -18,6 +18,16 @@
  *
  *   Commission included      taken out of the price (margin drops)
  *              added         price is grossed up so the commission is on top
+ *
+ *   Rounding   whole dollar  the last step (Jonathan, Oct 21 2026): the price is
+ *                            rounded DOWN to the whole dollar, after the slider,
+ *                            a price typed by hand and the commission gross up
+ *                            (and after a ± dollar adjustment on the quote, when
+ *                            there is one). The cents come out of profit only:
+ *                            commission and overhead stay on the price before
+ *                            rounding, so the margin drops by exactly the cents.
+ *                            A quote sent, sold or accepted before this keeps its
+ *                            cents (wholeDollar: false on its pricing, keepsCents).
  */
 
 export type LaborMode = 'hourly' | 'subcontractor'
@@ -80,6 +90,14 @@ export interface QuotePricingOverrides {
   finalPrice?: number
   /** Overhead % the quote was priced at (for "where every dollar goes"; the engine does not use it). */
   overheadPct?: number
+  /**
+   * false: priced to the cent, as every quote was before the whole dollar rule
+   * (a quote sent, sold or accepted before Oct 21 2026 keeps it). Anything
+   * else: the price is rounded down to the whole dollar.
+   */
+  wholeDollar?: boolean
+  /** Saved with the quote: the cents the price was rounded down by (internal; the engine does not read it). */
+  roundingCents?: number
 }
 
 export interface PriceInputs {
@@ -123,8 +141,12 @@ export interface PriceResult {
   commissionPct: number
   commissionMode: CommissionMode
   commissionAmt: number
-  /** What the customer pays. */
+  /** What the customer pays: the whole dollar price (to the cent on a quote that keeps its cents). */
   price: number
+  /** The price before it was rounded down to the whole dollar. */
+  priceBeforeRounding: number
+  /** Cents the price was rounded down by (0 to 99), out of profit. */
+  roundingCents: number
   /** price − cost − commission. */
   grossMargin: number
   gmPct: number
@@ -148,6 +170,37 @@ function pos(v: unknown): number | undefined {
 
 function cents(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+/**
+ * The whole dollar rule on an amount in cents: rounded DOWN to the whole
+ * dollar (a credit, below zero, goes to the larger whole dollar credit), so
+ * the customer never pays the cents. `on` false: the amount as it is.
+ */
+export function wholeDollarCents(amountCents: number, on = true): { cents: number; roundingCents: number } {
+  const c = Math.round(amountCents)
+  if (!on) return { cents: c, roundingCents: 0 }
+  const whole = Math.floor(c / 100) * 100
+  return { cents: whole, roundingCents: c - whole }
+}
+
+/** Whether these pricing choices round to the whole dollar (every quote but one that keeps its cents). */
+export function roundsToWholeDollar(o: QuotePricingOverrides | null | undefined): boolean {
+  return o?.wholeDollar !== false
+}
+
+/**
+ * A quote that keeps its cents: one sent, sold or accepted (or given a
+ * customer link) before the whole dollar rule, and never priced with it.
+ * Its prices stay exactly as the customer saw or signed them. A draft is
+ * priced to the whole dollar the next time it is opened and saved.
+ */
+export function keepsCents(q: { pricing?: QuotePricingOverrides | null; status?: string | null; shareToken?: string | null; acceptedAt?: unknown; soldAt?: unknown } | null | undefined): boolean {
+  if (!q) return false
+  const w = q.pricing?.wholeDollar
+  if (w === false) return true
+  if (w === true) return false
+  return q.status === 'SENT' || q.status === 'SOLD' || !!q.shareToken || !!q.acceptedAt || !!q.soldAt
 }
 
 /** Subcontractor rate for a style: quote override → style → category → default. */
@@ -254,16 +307,20 @@ export function calculatePrice(input: PriceInputs): PriceResult {
   const commissionPct = Math.min(Math.max(rawPct, 0), 0.95)
 
   // ── Final price ──
-  let price: number
+  let unrounded: number
   if (typeof o.finalPrice === 'number' && Number.isFinite(o.finalPrice) && o.finalPrice > 0) {
     priceMethod = 'manual'
-    price = o.finalPrice
+    unrounded = o.finalPrice
   } else {
     const withCommission = commissionMode === 'added' ? basePrice / (1 - commissionPct) : basePrice
-    price = withCommission * (1 + num(input.priceAdjust))
+    unrounded = withCommission * (1 + num(input.priceAdjust))
   }
+  // A ± dollar adjustment on the quote, when there is one, goes here: before the rounding.
 
-  const commissionAmt = price * commissionPct
+  // ── Whole dollar (last): the cents come out of profit; commission stays on the price before rounding ──
+  const r = wholeDollarCents(unrounded * 100, roundsToWholeDollar(o))
+  const price = r.roundingCents > 0 ? r.cents / 100 : unrounded
+  const commissionAmt = unrounded * commissionPct
   const grossMargin = price - totalCOGS - commissionAmt
   const gmPct = price > 0 ? grossMargin / price : 0
 
@@ -287,6 +344,8 @@ export function calculatePrice(input: PriceInputs): PriceResult {
     commissionMode,
     commissionAmt: cents(commissionAmt),
     price: cents(price),
+    priceBeforeRounding: cents(unrounded),
+    roundingCents: r.roundingCents,
     grossMargin: cents(grossMargin),
     gmPct,
     pricePerFoot: footage > 0 ? cents(price / footage) : 0,

@@ -18,6 +18,7 @@ import { refreshJobs } from './jobStore'
 import { getQuotes } from './quoteStore'
 import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
+import { wholeDollarCents } from './pricingEngine'
 
 /* ───────── types ───────── */
 
@@ -166,8 +167,10 @@ export function useChangeOrders(quoteId: string): { orders: ChangeOrder[]; loade
 /* ───────── Make a change order ───────── */
 
 interface EditLine { id: string; description: string; amount: string; credit: boolean }
-const toEdit = (l: ChangeOrderLine): EditLine => ({ id: l.id, description: l.description, amount: l.amountCents ? (Math.abs(l.amountCents) / 100).toFixed(2) : '', credit: l.amountCents < 0 })
-const centsOf = (l: EditLine) => { const n = Math.round((parseFloat(l.amount) || 0) * 100); return l.credit ? -Math.abs(n) : Math.abs(n) }
+const toEdit = (l: ChangeOrderLine): EditLine => ({ id: l.id, description: l.description, amount: l.amountCents ? (Math.abs(l.amountCents) / 100).toFixed(l.amountCents % 100 ? 2 : 0) : '', credit: l.amountCents < 0 })
+/** A line in whole dollars (Oct 21 2026): rounded down, a credit to the larger whole dollar, so the cents never go on the customer. */
+const centsOf = (l: EditLine) => { const n = Math.round((parseFloat(l.amount) || 0) * 100); return wholeDollarCents(l.credit ? -Math.abs(n) : Math.abs(n)).cents }
+const hasCents = (l: EditLine) => Math.round((parseFloat(l.amount) || 0) * 100) % 100 !== 0
 
 export function QuickChangeOrderModal({
   quoteId,
@@ -244,13 +247,14 @@ export function QuickChangeOrderModal({
                     </select>
                     <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden flex-1 focus-within:ring-2 focus-within:ring-orange-400">
                       <span className="px-2 text-gray-500 bg-gray-50 border-r border-gray-300 py-2 text-sm">$</span>
-                      <input type="number" inputMode="decimal" min={0} step="0.01" className="w-full px-2 py-2 text-sm text-right outline-none" placeholder="0.00"
+                      <input type="number" inputMode="numeric" min={0} step="1" className="w-full px-2 py-2 text-sm text-right outline-none" placeholder="0"
                         value={item.amount} onChange={e => update(item.id, { amount: e.target.value })} data-co-line-amount />
                     </div>
                     {items.length > 1 && (
                       <button onClick={() => setItems(p => p.filter(i => i.id !== item.id))} aria-label="Remove line" className="min-w-[44px] min-h-[44px] inline-grid place-items-center text-gray-400 hover:text-red-500 text-lg leading-none">×</button>
                     )}
                   </div>
+                  {hasCents(item) && <p className="text-xs text-gray-600" data-co-line-whole>Whole dollars only: {signed(centsOf(item))} (the cents come off, out of profit).</p>}
                 </div>
               ))}
             </div>

@@ -119,6 +119,17 @@ export interface StyleJobLot {
   leafWidth?: string
   /** Made by the Vinyl Colors form: sold as a section kit, no supplier job lot quote. */
   kit?: boolean
+  /**
+   * 8 ft tall vinyl (Jonathan, Oct 21, 2026): one price per section and one
+   * per post, from the style's own prices in Settings → Price List
+   * (FenceStyle.pieceCents), no supplier quote. Every part of a section kit
+   * and of a post kit is covered (coversAll); gates are priced from their parts.
+   */
+  tall?: boolean
+  /** These piece prices cover every part of their kits (no part list to tick). */
+  coversAll?: Array<keyof StyleJobLot['covers']>
+  /** What a piece price line starts with (default "Job lot, {color}"). */
+  label?: string
 }
 
 export type KitEngine = (styleKey: string, counts: KitCounts, notes: () => string[], jobLot?: StyleJobLot) => { lines: KitLine[]; warnings: string[] } | null
@@ -260,8 +271,8 @@ export interface LineItem {
 // Vinyl and aluminum names read height x width: 6'x8' is 6 tall, 8 wide.
 function panelLengthForStyle(style: string): number {
   if (isChainlink(style)) return 10
-  // 8 ft tall privacy is bought as assembled sections, so the section width is
-  // the second number in the name (8'x6' = 8 tall, 6 wide).
+  // 8 ft tall privacy: the section width is the second number in the name
+  // (8'x6' = 8 tall, 6 wide).
   const tall = vinyl8Tall(style)
   if (tall) return tall.width
   // 6 tall, 8 wide: 8' rails, 15 pickets and an insert per section.
@@ -340,6 +351,26 @@ function is8Wide(s: string) {
 }
 function isDurafence(s: string) { return s === "Durafence" }
 function isAlumIndAbigail(s: string) { return s.includes('Ind Abigail') }
+/**
+ * One 8 ft tall vinyl privacy section, every color, no dig and dig set
+ * (Jonathan, Oct 21, 2026), by panel width: top and bottom rails and a mid
+ * rail of the panel's width, 4 ft pickets, 4 ft U channels, and on an 8 ft
+ * wide panel two rail inserts (White's "Vinyl, Rail Insert, 8'", shared by
+ * every color). The section's piece price covers them all.
+ */
+export const TALL_VINYL_SECTION: Record<6 | 8, { rails: number; midRails: number; pickets: number; uChannels: number; railInserts: number }> = {
+  6: { rails: 2, midRails: 1, pickets: 22, uChannels: 4, railInserts: 0 },
+  8: { rails: 2, midRails: 1, pickets: 30, uChannels: 4, railInserts: 2 },
+}
+/** The catalog items of an 8 ft tall section, by color ("White", "Tan", "Chai Gray"). */
+export const TALL_PART_NAME = {
+  rail: (color: string, width: number | string) => `*Vinyl, ${color}, Rail, ${width}'`,
+  midRail: (color: string, width: number | string) => `*Vinyl, ${color}, Mid Rail, ${width}'`,
+  picket: (color: string) => `*Vinyl, ${color}, Picket, 4'`,
+  uChannel: (color: string) => `*Vinyl, ${color}, U Channel, 4'`,
+}
+export const TALL_RAIL_INSERT = "Vinyl, Rail Insert, 8'"
+
 /** 8 ft tall vinyl privacy ("WV-ND 8'x6' Privacy"): color, install, width. */
 function vinyl8Tall(s: string): { white: boolean; noDig: boolean; width: 6 | 8 } | null {
   const m = s.match(/^(WV|TV)-(ND|DS) 8'x([68])'/)
@@ -532,7 +563,8 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       add("*Vinyl, Tan, U-Trim, 59-1/4\"", 2 * tanPanels, 1.85)
     }
     if (isVinyl6x8(s)) {
-      add("*Vinyl, Tan, Picket, 62-1/4\"", tanPanels * 16, 3.22)
+      // 15 pickets per 8 ft wide section, as White and Chai Gray (Jonathan, Oct 21, 2026; was 16).
+      add("*Vinyl, Tan, Picket, 62-1/4\"", tanPanels * 15, 3.22)
       add("*Vinyl, Tan, Rail, 8'", 2 * tanPanels, 10.18)
       add("*Vinyl, Tan, U-Trim, 59-1/4\"", 2 * tanPanels, 1.85)
       add("Vinyl, Rail Insert, 8' ", tanPanels, 8.00)
@@ -640,7 +672,8 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       add("*Vinyl, Tan, U-Trim, 59-1/4\"", 2 * tanDsPanels, 1.85)
     }
     if (isVinyl6x8(s)) {
-      add("*Vinyl, Tan, Picket, 62-1/4\"", tanDsPanels * 16, 3.22)
+      // 15 pickets per 8 ft wide section (Jonathan, Oct 21, 2026; was 16).
+      add("*Vinyl, Tan, Picket, 62-1/4\"", tanDsPanels * 15, 3.22)
       add("*Vinyl, Tan, Rail, 8'", 2 * tanDsPanels, 10.18)
       add("*Vinyl, Tan, U-Trim, 59-1/4\"", 2 * tanDsPanels, 1.85)
       add("Vinyl, Rail Insert, 8' ", tanDsPanels, 8.00)
@@ -680,14 +713,22 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
   }
 
   // ── VINYL 8 FT TALL PRIVACY (WV/TV, ND/DS, 8'x6' and 8'x8') ──────────────────
-  // Assembled picket sections, 8 ft privacy posts, complete 8 x 4 gates. These
-  // styles had no parts list before, so they quoted with $0 material.
+  // 8 ft privacy posts and complete 8 x 4 gates. Each section's parts are
+  // listed (Jonathan, Oct 21, 2026; TALL_VINYL_SECTION): they and the posts'
+  // parts are covered by the style's section and post piece prices
+  // (fenceCatalog.ts tallJobLot), so the pull sheet shows them at $0. Until
+  // Oct 21, 2026 a section was one assembled "Picket Section 8' x 6'" item.
   const tall = vinyl8Tall(s)
   if (tall) {
     const V = tall.white ? 'V , W' : 'V , T'
-    const secCost = tall.white ? (tall.width === 8 ? 143.25 : 108.68) : (tall.width === 8 ? 164.74 : 124.98)
+    const C = tall.white ? 'White' : 'Tan'
     const postCost = tall.white ? 24.56 : 27.50
-    add(`${V}, Picket Section 8' x ${tall.width}' Privacy`, sections, secCost)
+    const sec = TALL_VINYL_SECTION[tall.width]
+    add(TALL_PART_NAME.rail(C, tall.width), sections * sec.rails, tall.white ? (tall.width === 8 ? 9.26 : 5.98) : (tall.width === 8 ? 10.18 : 7.98))
+    add(TALL_PART_NAME.midRail(C, tall.width), sections * sec.midRails, 0)
+    add(TALL_PART_NAME.picket(C), sections * sec.pickets, 0)
+    add(TALL_PART_NAME.uChannel(C), sections * sec.uChannels, 0)
+    add(TALL_RAIL_INSERT, sections * sec.railInserts, 8.00)
     add(`${V}, Post, 8' Privacy, CP, 5" x 5"`, corners, postCost)
     add(`${V}, Post, 8' Privacy, EP, 5" x 5"`, ends, postCost)
     add(`${V}, Post, 8' Privacy, LP, 5" x 5"`, linePosts, postCost)
@@ -710,7 +751,7 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     add('*Vinyl, Gate, Handle', gateLeaves * 2, 5.98)
     add(tall.white ? '*Vinyl, White, Cap, Gate' : 'Vinyl, Tan, Cap, Gate', gateLeaves * 2, 1.00)
     warnings.push(
-      `8 ft privacy parts list is new and unconfirmed: assembled 8' x ${tall.width}' sections, 8 ft posts${tall.noDig ? ", the same 8' no dig pipe as 6 ft fence" : ', 2 bags of concrete per post'}, and 4 ft wide gate leaves. Check the pull sheet before you quote.`,
+      `8 ft privacy parts list is new and unconfirmed: 8' x ${tall.width}' sections from their parts, 8 ft posts${tall.noDig ? ", the same 8' no dig pipe as 6 ft fence" : ', 2 bags of concrete per post'}, and 4 ft wide gate leaves. Check the pull sheet before you quote.`,
     )
   }
 
@@ -1160,7 +1201,7 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
 
   // ── Panel goods, split by rail width ──
   // 6'x6' panels: 11 pickets, 2 × 6' rails, 2 × u-trim. No stiffener.
-  // 6'x8' panels: 15 pickets, 2 × 8' rails, 2 × u-trim, 1 stiffener.
+  // 6'x8' panels: 15 pickets (tan too, Oct 21, 2026), 2 × 8' rails, 2 × u-trim, 1 stiffener.
   // U-trim is the same SKU; quantity proportional to (sections × 2).
   if (isWhite) {
     if (sections6 > 0) {
@@ -1179,7 +1220,8 @@ export function legacyCalculateMixedMaterialsDetailed(input: MixedJobInputs): Ma
       add("*Vinyl, Tan, Rail, 6'", sections6 * 2, 7.98)
     }
     if (sections8 > 0) {
-      add('*Vinyl, Tan, Picket, 62-1/4"', sections8 * 16, 3.22)
+      // 15 pickets per 8 ft wide section (Jonathan, Oct 21, 2026; was 16).
+      add('*Vinyl, Tan, Picket, 62-1/4"', sections8 * 15, 3.22)
       add("*Vinyl, Tan, Rail, 8'", sections8 * 2, 10.18)
       add("Vinyl, Rail Insert, 8'", sections8, 8.00)
     }

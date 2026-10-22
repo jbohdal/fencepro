@@ -71,6 +71,8 @@ async function openQuote(page, id) {
   await sleep(1500)
 }
 const barPrice = async page => cents(await page.locator('[data-bar-price]').first().innerText())
+/** A price in cents rounded down to the whole dollar (the change order prices each side that way). */
+const whole = c => Math.floor(c / 100) * 100
 
 /** Change the first run's length by `addFt` on the Yard step and come back to Price. */
 async function addFeet(page, addFt) {
@@ -131,7 +133,8 @@ try {
     const firstLine = await page.locator('[data-co-line-description]').first().inputValue()
     const total = cents(await page.locator('[data-co-total]').innerText())
     check('computer: the change order is filled in with the change', /^Add 10 ft of fence/.test(firstLine), firstLine)
-    check('computer: priced by the quote builder\'s own math (the change\'s price difference)', total === p1 - p0, `${total} vs ${p1 - p0}`)
+    // Whole dollars (Oct 21 2026): each side priced to the whole dollar, so the cents never go on the customer.
+    check('computer: priced by the quote builder\'s own math (the change\'s price difference, in whole dollars)', total === whole(p1) - whole(p0) && total % 100 === 0, `${total} vs ${whole(p1) - whole(p0)}`)
     await shot(page, 'dev-change-order.png')
     await page.locator('[data-co-save-approved]').click()
     await sleep(2500)
@@ -166,7 +169,7 @@ try {
     await page.locator('[data-quote-lock-co]').click()
     await page.waitForSelector('[data-co-modal]', { timeout: 10000 })
     const total = cents(await page.locator('[data-co-total]').innerText())
-    check('phone: filled in at the change\'s price', total === p1 - p0, `${total} vs ${p1 - p0}`)
+    check('phone: filled in at the change\'s price (whole dollars)', total === whole(p1) - whole(p0) && total % 100 === 0, `${total} vs ${whole(p1) - whole(p0)}`)
     await page.locator('[data-co-save-draft]').click()
     await sleep(2500)
     let job = (await jobOf())

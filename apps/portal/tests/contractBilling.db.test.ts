@@ -190,6 +190,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
   })
 
   test('a login keeps its set aside numbers: 10 sign ins make no new numbers; an online receipt takes the next number in sequence', async () => {
+    // Numbers left set aside for this login by earlier runs on the dev copy would be handed back first.
+    await prisma.receiptNumberBlock.deleteMany({ where: { accountId, userId: ownerId } })
     const first = await billing.reserveReceiptNumbers(accountId, ownerId, 5)
     expect(first.numbers).toHaveLength(5)
     for (let i = 0; i < 10; i++) {

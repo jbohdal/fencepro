@@ -59,13 +59,14 @@ describe('creating a color: the same takeoff rules (kit lines) as the White temp
       const st = baseState()
       const input: VinylColorInput = {
         name: 'Test Clay', mode, sizes, methods: ['nd', 'ds'], samePostPrice: false,
-        posts: { '6': { cornerCents: 3000, endCents: 3100, lineCents: 3200, blankCents: 3300 }, '8': { cornerCents: 4000, endCents: 4100, lineCents: 4200 } },
+        // 8 ft tall: one post price and a section price per size (priced by the piece, Oct 21, 2026); its contents are not asked.
+        posts: { '6': { cornerCents: 3000, endCents: 3100, lineCents: 3200, blankCents: 3300 }, '8': { allCents: 4000 } },
         capCents: 300, uprightCents: 1200, gate8Cents: 40000,
         sections: {
           '6x6': { costCents: 15000, pickets: 11, rails: 2, railFt: 6, picketStiffeners: 0, railStiffeners: 0, uChannels: 2 },
           '6x8': { costCents: 18000, pickets: 15, rails: 2, railFt: 8, picketStiffeners: 0, railStiffeners: 1, uChannels: 2 },
-          '8x6': { costCents: 20000, pickets: 11, rails: 3, railFt: 6, picketStiffeners: 0, railStiffeners: 0, uChannels: 2 },
-          '8x8': { costCents: 24000, pickets: 15, rails: 3, railFt: 8, picketStiffeners: 0, railStiffeners: 1, uChannels: 2 },
+          '8x6': { costCents: 20000 },
+          '8x8': { costCents: 24000 },
         },
         pieces: { picketCents: 300, rail6Cents: 700, rail8Cents: 1000, uTrimCents: 150 },
       }
@@ -79,6 +80,8 @@ describe('creating a color: the same takeoff rules (kit lines) as the White temp
         expect(Object.keys(cc).sort(), `${name}: the same kits`).toEqual(Object.keys(wc).sort())
         for (const kind of KIT_KINDS) {
           if (!wc[kind]) continue
+          // 8 ft tall: the same shape as White's, line for line, per piece or per section alike.
+          if (size.startsWith('8')) { expect(cc[kind], `${name} ${kind} = White`).toBe(wc[kind]); continue }
           // Per section: White's section-part lines become the section kit's own lines.
           const sectionParts = (set: KitSet) => (set.kits[kind] ?? []).filter(p => ['picket', 'rail', 'uTrim', 'railInsert', 'sectionItem'].includes(whitePartRole(p.part).role)).length
           const kitLines = mode === 'section' && sectionParts(w) > 0
@@ -220,6 +223,72 @@ describe('Jonathan\'s answers, Oct 21: the rail insert is shared, rivets can be 
     // The edit form reads it back.
     expect(inputFromColor(plan.state, plan.key)!.rivets).toEqual({ color: 'Black', cents: 60 })
     setMaterialPriceSource(null); setSavedKitSets(() => [])
+  })
+})
+
+describe('an 8 ft tall color (Jonathan, Oct 21, 2026): the same shape as White, priced by the piece', () => {
+  const GRAY8: VinylColorInput = {
+    ...CHAI_GRAY, sizes: ['6x8', '8x8'], posts: { '6': { allCents: 3892 }, '8': { allCents: 6500 } }, gate8Cents: 45000,
+    sections: { ...CHAI_GRAY.sections, '8x8': { costCents: 41250 } },
+  }
+
+  test('the form asks one 8 ft post price and an 8x8 section price, not what the section includes', () => {
+    expect(formProblems(GRAY8)).toEqual([])
+    expect(formProblems({ ...GRAY8, posts: { ...GRAY8.posts, '8': {} } })).toEqual(['Enter the post price (8 ft tall).'])
+    expect(formProblems({ ...GRAY8, sections: { ...GRAY8.sections, '8x8': { costCents: null } } })).toEqual(['Enter the 8x8 section price.'])
+  })
+
+  test('kits, catalog items at $0, the fences\' own prices, a quote, and the edit form', () => {
+    const plan = planVinylColor(baseState(), GRAY8, opts)
+    for (const m of ['nd', 'ds'] as const) {
+      const name = `vinyl/privacy/8/chai-gray/${m}/8`
+      const w = kitOf(white('8x8', m), [])
+      const c = kitOf(name, plan.state.kits)
+      expect(kitLineCounts(c), name).toEqual(kitLineCounts(w))
+      expect(Object.fromEntries(c.kits.section!.map(p => [p.part, p.qty]))).toEqual({
+        "*Vinyl, Chai Gray, Rail, 8'": 2, "*Vinyl, Chai Gray, Mid Rail, 8'": 1, "*Vinyl, Chai Gray, Picket, 4'": 30, "*Vinyl, Chai Gray, U Channel, 4'": 4, "Vinyl, Rail Insert, 8'": 2,
+      })
+      expect(c.kits.end!.map(p => p.part)).toContain('*Vinyl, Chai Gray, Post, 5" x 5", 8\' Privacy')
+      // The gate is bought whole, as White's.
+      expect(c.kits.walkGate!.map(p => p.part)).toContain('*Vinyl, Chai Gray, Gate, 8 x 4')
+      expect(plan.state.fenceStyles.find(s => s.name === name)!.pieceCents).toEqual({ section: 41250, post: 6500, pricedOn: '2026-10-21' })
+    }
+    expect(plan.tallPrices.map(t => [t.name, t.sectionCents, t.postCents])).toEqual([['vinyl/privacy/8/chai-gray/nd/8', 41250, 6500], ['vinyl/privacy/8/chai-gray/ds/8', 41250, 6500]])
+    // Its own new parts: catalog items at $0, included in the 8 ft tall section or post price; no 8x8 section item.
+    const made = Object.fromEntries(plan.created.items.map(i => [i.name, i]))
+    for (const n of ["*Vinyl, Chai Gray, Mid Rail, 8'", "*Vinyl, Chai Gray, Picket, 4'", "*Vinyl, Chai Gray, U Channel, 4'"]) expect(made[n], n).toMatchObject({ cents: null, includedIn: '8 ft tall section price' })
+    expect(made['*Vinyl, Chai Gray, Post, 5" x 5", 8\' Privacy']).toMatchObject({ cents: null, includedIn: '8 ft tall post price' })
+    expect(Object.keys(made).some(n => /Section, 8x8/.test(n))).toBe(false)
+    expect(plan.priced.map(p => p.name)).not.toContain("*Vinyl, Chai Gray, Picket, 4'")
+
+    // A quote: the section and post prices, every part at $0.
+    const cfg = estimateConfig({ fenceStyles: plan.state.fenceStyles, fenceCatalog: plan.state.fenceCatalog } as any)
+    setMaterialPriceSource(priceSourceFromMap(Object.fromEntries(plan.state.items.map((i: InvItem) => [i.name, i.unitCost]))))
+    setSavedKitSets(() => plan.state.kits)
+    const style = resolveFenceStyles(cfg.fenceStyles, cfg.fenceCatalog!).find(s => s.name === 'vinyl/privacy/8/chai-gray/nd/8')!
+    expect(style.held).toBeUndefined()
+    const calc = calculateQuote({
+      style, runs: [{ ft: 48, rail: 'auto' }], corners: 0, ends: 2, walkGates: 0, dblGates: 0,
+      tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, pricing: cfg.pricing, optimizer: cfg.railOptimizer!,
+    })
+    const pieces = Object.fromEntries(calc.materials.items.filter(i => i.jobLotPiece).map(i => [i.item, [i.qty, i.unitCost]]))
+    expect(pieces).toEqual({ '8 ft tall Chai Gray: section, 8 ft wide': [6, 412.5], '8 ft tall Chai Gray: end post': [2, 65], '8 ft tall Chai Gray: line post': [5, 65] })
+    expect(calc.materials.items.filter(i => !i.jobLotPiece).every(i => i.total === 0)).toBe(true)
+    expect(calc.materials.items.find(i => i.item === "*Vinyl, Chai Gray, Picket, 4'")).toMatchObject({ qty: 180, unitCost: 0 })
+    // With no prices it is not available for quoting.
+    const bare = plan.state.fenceStyles.map(s => (s.name === 'vinyl/privacy/8/chai-gray/nd/8' ? { ...s, pieceCents: undefined } : s))
+    const held = resolveFenceStyles(estimateConfig({ fenceStyles: bare, fenceCatalog: plan.state.fenceCatalog } as any).fenceStyles, plan.state.fenceCatalog).find(s => s.name === 'vinyl/privacy/8/chai-gray/nd/8')!
+    expect(held.held).toMatch(/8 ft tall is priced by the piece/)
+    setMaterialPriceSource(null); setSavedKitSets(() => [])
+
+    // The edit form reads the prices back; a changed price is set on both fences, dated.
+    const filled = inputFromColor(plan.state, plan.key)!
+    expect(filled.posts['8']).toEqual({ allCents: 6500 })
+    expect(filled.sections['8x8']).toEqual({ costCents: 41250 })
+    const edit = planVinylColor(plan.state, { ...filled, sections: { ...filled.sections, '8x8': { costCents: 43000 } } }, { ...opts, today: '2026-11-02', key: plan.key })
+    expect(edit.tallPrices.map(t => [t.sectionCents, t.prevSectionCents])).toEqual([[43000, 41250], [43000, 41250]])
+    expect(edit.state.fenceStyles.find(s => s.name === 'vinyl/privacy/8/chai-gray/ds/8')!.pieceCents).toEqual({ section: 43000, post: 6500, pricedOn: '2026-11-02' })
+    expect(edit.message).toMatch(/8 ft tall section and post prices set on 2 fences/)
   })
 })
 

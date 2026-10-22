@@ -17,7 +17,7 @@ import {
   priceMove, priceRepair, moveRepairSettings, newFenceBetter, toSavedWork,
   type JobType, type MoveInputs, type RepairInputs, type SavedWork, type WorkResult,
 } from './moveRepair'
-import { cleanOverrides, type QuotePricingOverrides } from './pricingEngine'
+import { cleanOverrides, wholeDollarCents, roundsToWholeDollar, type QuotePricingOverrides } from './pricingEngine'
 import { isQuotable } from './styleAvailability'
 import type { AppConfig, FenceStyle } from './configStore'
 
@@ -52,6 +52,8 @@ export interface QuoteJobRequest {
   photoIds?: Record<string, string>
   /** The style the saved quote already has: kept in the list even when it is not available for new quotes. */
   keepStyle?: string | null
+  /** The phone's word that a quote keeping its cents (sent or signed before the whole dollar rule) is unchanged: false once it is changed. The server decides from the saved quote (lib/quotePricing.ts). */
+  keepCents?: boolean
 }
 
 export interface QuoteJob {
@@ -67,6 +69,8 @@ export interface QuoteJob {
   totals: {
     manHours: number; materialCost: number; laborCost: number; tearOutCost: number; totalCOGS: number
     price: number; commission: number; grossMargin: number; gmPct: number
+    /** Cents the price was rounded down by to the whole dollar (pricingEngine.ts). */
+    roundingCents: number
   }
   pullSheet: LineItem[]
   tiers: ResolvedTier[]
@@ -75,6 +79,17 @@ export interface QuoteJob {
   proposalOptions: ProposalOption[]
   /** What the quote saves as its pricing choices (with the cost factor and overhead it was priced at). */
   pricing: QuotePricingOverrides | undefined
+}
+
+/** The minimum job price for a new fence, under the whole dollar rule (dollars, and the cents rounded off). */
+export function minimumPrice(minimumJobCents: number, overrides: QuotePricingOverrides | null | undefined): { price: number; roundingCents: number } {
+  const r = wholeDollarCents(minimumJobCents, roundsToWholeDollar(overrides))
+  return { price: r.cents / 100, roundingCents: r.roundingCents }
+}
+
+/** What a saved quote keeps about the whole dollar rule: whether it was priced with it, and the cents rounded off. */
+export function wholeDollarRecord(overrides: QuotePricingOverrides | null | undefined, roundingCents: number): Pick<QuotePricingOverrides, 'wholeDollar' | 'roundingCents'> {
+  return roundsToWholeDollar(overrides) ? { wholeDollar: true, roundingCents: Math.max(0, Math.round(roundingCents) || 0) } : { wholeDollar: false }
 }
 
 /** The styles a quote may use: available for quoting, and the one it already has. */
@@ -128,17 +143,19 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
   }
 
   // The figures the quote shows and saves (QuoteBuilder).
-  const newMin = req.jobType === 'new' && mr.minimumAppliesToNew && priced.priceMethod !== 'manual' && priced.price > 0 && Math.round(priced.price * 100) < mr.minimumJobCents
+  const newMin = req.jobType === 'new' && mr.minimumAppliesToNew && priced.priceMethod !== 'manual' && priced.price > 0 && Math.round(priced.priceBeforeRounding * 100) < mr.minimumJobCents
+  const minimum = minimumPrice(mr.minimumJobCents, req.overrides)
   const totalCOGS = work ? work.costCents / 100 : priced.totalCOGS
-  const price = work ? work.priceCents / 100 : newMin ? mr.minimumJobCents / 100 : priced.price
-  const commission = work ? work.commissionCents / 100 : newMin ? Math.round(price * priced.commissionPct * 100) / 100 : priced.commissionAmt
+  const price = work ? work.priceCents / 100 : newMin ? minimum.price : priced.price
+  const commission = work ? work.commissionCents / 100 : newMin ? Math.round(mr.minimumJobCents * priced.commissionPct) / 100 : priced.commissionAmt
   const grossMargin = work ? work.grossMarginCents / 100 : newMin ? Math.round((price - totalCOGS - commission) * 100) / 100 : priced.grossMargin
+  const roundingCents = work ? work.roundingCents : newMin ? minimum.roundingCents : priced.roundingCents
   const totals = {
     manHours: work ? work.manHours : priced.manHours,
     materialCost: work ? work.materialCents / 100 : totalMaterialCost(calc.materials.items),
     laborCost: work ? work.laborCents / 100 : priced.laborCost,
     tearOutCost: work ? work.disposalCents / 100 : priced.tearOutCost,
-    totalCOGS, price, commission, grossMargin,
+    totalCOGS, price, commission, grossMargin, roundingCents,
     gmPct: work ? work.gmPct : newMin ? (price > 0 ? grossMargin / price : 0) : priced.gmPct,
   }
 
@@ -172,6 +189,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     ...req.overrides,
     ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}),
     overheadPct,
+    ...wholeDollarRecord(req.overrides, roundingCents),
   })
   return {
     style, calcInput, calc, width, work, moveAsIs, repairCheck, newMin, totals,

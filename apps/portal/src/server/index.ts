@@ -82,6 +82,7 @@ import { resumeInvoiceReading } from './lib/vendorInvoices.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
 import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
 import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
+import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
 import { hidesCosts, staffRoleOf, redactCosts } from './lib/costRedact.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
@@ -106,6 +107,7 @@ import { ensureStagingSheetRemovedAll } from './lib/stagingSheetCleanup.js'
 import { ensureNoOrphanPendingCallsAll } from './lib/loginDelete.js'
 import paymentRoutes from './routes/payments.js'
 import { receiptPublic } from './routes/receiptPublic.js'
+import { portalPublicApi, portalPublicPage } from './routes/portalPublic.js'
 import { adoptHandMadeBillingAll } from './lib/billingAdoption.js'
 
 const app = express()
@@ -255,6 +257,8 @@ app.use('/p/w', walkthroughPublic)
 app.use('/p/co', changeOrderPublic)  // A change order's customer link (routes/changeOrderPublic.ts)
 app.use('/p/wu', warrantyUpdatePublic)  // A warranty update's customer link (routes/warrantyUpdatePublic.ts)
 app.use('/p/r', receiptPublic)  // A payment receipt's customer link and PDF (routes/receiptPublic.ts)
+app.use('/p/portal/api', portalPublicApi)  // The customer portal's API through the public door: customer routes only (routes/portalPublic.ts)
+app.use('/p/portal', portalPublicPage)     // The customer portal's page through the public door
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff after install (lib/jobCosting.ts)
@@ -422,6 +426,8 @@ if (!isVercel) {
       await ensureChainDigSetPipesAll().catch(err => console.error('[chain link] dig set pipe names check failed:', err))
       // Tan dig set, 6 or 8 ft panels (best price), TV-Auto DS Privacy: once per company (lib/tanAutoDsSeed.ts).
       await ensureTanAutoDsAll().catch(err => console.error('[tan dig set] 6/8 ft mix check failed:', err))
+      // 8 ft tall vinyl section parts (4 ft pickets, 4 ft U channels, mid rails) at $0, included in the section price: once per company (lib/tallVinylParts.ts).
+      await ensureTallVinylPartsAll().catch(err => console.error('[8 ft tall vinyl] section parts check failed:', err))
       // The one Operations stage list from the old Settings one; no job changes: once per company (lib/opsStages.ts).
       await ensureOpsStageListAll().catch(err => console.error('[ops stages] one list check failed:', err))
       // The one Sales Pipeline stage list; ids are the old names, so no card changes: once per company (lib/pipelineStages.ts).

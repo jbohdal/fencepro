@@ -94,7 +94,8 @@ describe('move (spec 2 a to h)', () => {
     expect(r.disposalCents).toBe(5400)
     expect(r.costCents).toBe(198031)
     expect(r.costFactor).toBe(0.56)
-    expect(r.priceCents).toBe(Math.round(1980.31 / 0.56 * 100))   // $3,536.27
+    expect(r.priceCents).toBe(353600)                   // $3,536.27 rounded down to the whole dollar (Oct 21 2026)
+    expect(r.roundingCents).toBe(Math.round(1980.31 / 0.56 * 100) - 353600)   // the 27 cents, out of profit
     expect(r.minimumApplied).toBe(false)
     expect(r.needs811).toBe(true)
     expect(r.pullSheet.every(i => !/Tear Out/.test(i.item))).toBe(true)
@@ -139,7 +140,7 @@ describe('move (spec 2 a to h)', () => {
   test('Repair Profit % sets the Target Margin to Overhead + it', () => {
     const r = priceMove(common(style(WV), { settings: { ...SETTINGS, repairProfitPct: 20 } }), mv({}), straight(100))
     expect(r.costFactor).toBe(0.5)
-    expect(r.priceCents).toBe(Math.round(r.costCents / 0.5))
+    expect(r.priceCents).toBe(Math.floor(Math.round(r.costCents / 0.5) / 100) * 100)
   })
   test('hourly crew still works', () => {
     const r = priceMove(common(style(WV), { pricing: { ...PRICING, laborMode: 'hourly' } }), mv({}), straight(100))

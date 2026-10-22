@@ -44,7 +44,7 @@ import { signedFileUrl, checkFileSig, isPublicFileKey } from '../lib/portalFiles
 import { resolveIntakeAccountId } from '../lib/intake.js'
 import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
 import { createNotification } from '../lib/notificationService.js'
-import { buildFrontendUrl } from '../lib/urls.js'
+import { portalPageUrl } from '../lib/urls.js'
 import { isStaffRequest } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireStaffCan } from '../lib/permissions.js'
@@ -138,9 +138,9 @@ function generateRawToken(): string {
 const HEX64_RE = /^[0-9a-f]{64}$/
 
 function buildActivationUrl(rawToken: string): string {
-  // buildFrontendUrl reads APP_URL → CLIENT_URL → PORTAL_APP_URL in that order
-  // and strips trailing slashes. Single source of truth.
-  return buildFrontendUrl(`/#/portal/activate?token=${rawToken}`)
+  // Through the public door (/p/portal/, routes/portalPublic.ts), so a customer can open it from anywhere.
+  // The base is APP_URL → CLIENT_URL → PORTAL_APP_URL (lib/urls.ts). Links sent before keep working.
+  return portalPageUrl(`#/portal/activate?token=${rawToken}`)
 }
 
 function companyName(): string {
@@ -374,7 +374,7 @@ router.post('/activate', async (req, res) => {
 
     // Brief welcome confirmation
     try {
-      const link = buildActivationUrl('').replace(/token=/, '').replace(/\/#\/portal\/activate\?$/, '/#/portal/login')
+      const link = portalPageUrl('#/portal/login')
       await sendEmail({
         to: updated.email,
         subject: `Your ${companyName()} portal is now active`,
@@ -1229,7 +1229,7 @@ router.post('/customer/:customerId/messages', requireStaffSyncKey, async (req, r
           subject: `New message from ${companyName()}`,
           body: buildEmailHtml(`<p>Hi ${account.firstName || 'there'},</p>
 <p>You have a new message from ${companyName()}. Log in to your portal to view it.</p>
-<p><a href="${buildFrontendUrl('/#/portal/messages')}">Open Messages</a></p>
+<p><a href="${portalPageUrl('#/portal/messages')}">Open Messages</a></p>
 <p>— ${companyName()}</p>`),
         })
       }

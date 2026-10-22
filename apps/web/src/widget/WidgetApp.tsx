@@ -39,7 +39,7 @@ const STEPS = ['Address', 'Draw', 'Fence', 'Price'] as const
 const WORDING = 'Instant estimate based on your drawing. We confirm every measurement on site before you sign.'
 const PARCELS = 'https://gis.ocalafl.org/arcgis/rest/services/Public/Parcels/FeatureServer/0/query'
 const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
-const money2 = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// Prices are whole dollars (the quote builder rounds them down, Oct 21 2026): the customer never sees cents.
 const params = new URLSearchParams(window.location.search)
 const TEST = params.get('test') === '1'
 
@@ -395,11 +395,11 @@ export default function WidgetApp() {
                     <span className="text-lg font-bold text-gray-900">{o.name}</span>
                     {o.popular && <span className="text-xs font-semibold text-white bg-orange-600 rounded-full px-2 py-0.5" data-w-popular>Most popular</span>}
                     <span className="flex-1" />
-                    <span className="text-xl font-bold tabular-nums text-gray-900">{money2(o.price)}</span>
+                    <span className="text-xl font-bold tabular-nums text-gray-900" data-w-price-text>{money(o.price)}</span>
                   </span>
                   <span className="flex items-center justify-between text-sm text-gray-700 mt-1">
                     <span className="min-w-0">{o.styleLabel}</span>
-                    <span className="shrink-0 tabular-nums" data-w-per-foot>{money2(o.perFoot)}/ft</span>
+                    <span className="shrink-0 tabular-nums" data-w-per-foot>about {money(o.perFoot)}/ft</span>
                   </span>
                   {o.text && <span className="block text-sm text-gray-600 mt-1">{o.text}</span>}
                 </button>

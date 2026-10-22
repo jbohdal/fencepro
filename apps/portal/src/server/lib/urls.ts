@@ -26,6 +26,26 @@ export function buildFrontendUrl(path: string): string {
 }
 
 /**
+ * A customer link through the public door: on the Tailscale address only
+ * port 8443 (Tailscale Funnel) reaches the internet, and only for /p,
+ * /api/quoting and /api/intake/retell (GO_LIVE.md section 12). Anywhere else
+ * (localhost, the dev folder) the app's own address. `path` starts with /p/.
+ */
+export function publicDoorUrl(path: string): string {
+  const base = getFrontendBase()
+  try {
+    const u = new URL(base)
+    if (u.hostname.endsWith('.ts.net')) return `${u.protocol}//${u.hostname}:8443${path}`
+  } catch { /* fall through */ }
+  return `${base}${path}`
+}
+
+/** The customer portal's page through the public door (routes/portalPublic.ts): `#/portal/<page>`. */
+export function portalPageUrl(hash: string): string {
+  return publicDoorUrl(`/p/portal/${hash}`)
+}
+
+/**
  * Production env validator. Returns a list of human-readable problems.
  * Called at server startup — see index.ts.
  */

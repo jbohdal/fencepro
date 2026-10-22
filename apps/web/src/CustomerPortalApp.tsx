@@ -22,6 +22,7 @@
  */
 
 import { styleLabel } from './fenceCatalog'
+import { publicDoorUrl } from './publicDoor'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { useEffect, useRef, useState } from 'react'
 import { SignaturePad } from './SignaturePad'
@@ -537,7 +538,8 @@ function QuotesPage({ accent }: { session: PortalAccount; customer: PortalAccoun
 
 /** The quote's own page, when the office made a link for it (the server says which, and that it still works). */
 function QuoteViewButton({ shareToken, accent }: { shareToken: string | null; accent: string }) {
-  const url = shareToken ? `${window.location.origin}/#/quote/${shareToken}` : null
+  // The quote's customer page under the public door (/p/<link>), like the proposal link the office sends.
+  const url = shareToken ? publicDoorUrl(`/p/${shareToken}`) : null
   if (!url) return <span className="text-[10px] text-gray-400 px-3">not shared</span>
   return (
     <a href={url} target="_blank" rel="noreferrer"

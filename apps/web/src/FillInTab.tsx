@@ -98,7 +98,8 @@ export default function FillInTab() {
   const [tick, setTick] = useState(0)
   useEffect(() => { const h = () => setTick(t => t + 1); window.addEventListener(INVENTORY_UPDATED_EVENT, h); return () => window.removeEventListener(INVENTORY_UPDATED_EVENT, h) }, [])
   const items = useMemo(() => getInventory(), [tick])
-  const zero = items.filter(i => isActive(i) && !(i.unitCost > 0))
+  // A part included in a section kit or piece price is $0 on purpose (includedIn): not asked for.
+  const zero = items.filter(i => isActive(i) && !(i.unitCost > 0) && !i.includedIn)
   // Styles on hold (not available for quoting) are left out until they are turned back on.
   const quotable = useMemo(() => { const st = getConfig().fenceStyles; return (name: string) => { const f = st.find(x => x.name === name); return !f || isQuotable(f) } }, [])
   const gateStyles = GATE_STYLES.filter(quotable)

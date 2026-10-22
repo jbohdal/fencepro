@@ -112,7 +112,8 @@ quotingRouter.post('/estimate', estimateLimiter, async (req, res) => {
     const e = await estimateJob(job)
     res.json({
       success: true, label: 'Estimate', fenceStyle: e.style.name, totalFootage: e.totalFootage, sections: e.sections,
-      estimate: Math.round(e.price), pricePerFoot: e.pricePerFoot,
+      // Whole dollars (the price is rounded down to the whole dollar, Oct 21 2026): the caller never hears cents.
+      estimate: Math.floor(e.price), pricePerFoot: Math.round(e.pricePerFoot),
       message: `Estimate: about ${money(e.price)} for ${e.totalFootage} ft of ${e.style.name}. The final price is confirmed at a free on site visit.`,
     })
   } catch (err) {

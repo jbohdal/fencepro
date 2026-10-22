@@ -43,7 +43,7 @@ async function dataFor(accountId: string) {
 }
 
 /** The quote builder's request, with the saved quote's cost choices and Overhead %. */
-export function requestFrom(body: Json, existing: Json | null, importedOldPrice: (q: Json) => number | null): { req: Json; overheadPct: number | null } {
+export function requestFrom(body: Json, existing: Json | null, importedOldPrice: (q: Json) => number | null, keepsCents: (q: Json) => boolean = () => false): { req: Json; overheadPct: number | null } {
   const b = body && typeof body === 'object' ? body : {}
   const runs = (Array.isArray(b.runs) ? b.runs : []).slice(0, 200).map((r: Json) => ({
     ft: num(typeof r === 'number' ? r : r?.ft), rail: r?.rail === '6ft' || r?.rail === '8ft' ? r.rail : 'auto',
@@ -55,6 +55,9 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
   const overrides: Record<string, unknown> = {}
   for (const k of COST_CHOICES) if (savedPricing[k] !== undefined && savedPricing[k] !== null) overrides[k] = savedPricing[k]
   for (const k of PRICE_CHOICES) if (sent[k] !== undefined && sent[k] !== null && sent[k] !== '') overrides[k] = sent[k]
+  // Whole dollar prices (Oct 21 2026): a quote sent, sold or accepted before keeps its cents while it is
+  // unchanged (the phone says keepCents: false once it is changed); every other quote is priced to the whole dollar.
+  if (existing && keepsCents(existing) && b.keepCents !== false) overrides.wholeDollar = false
   const jobType = b.jobType === 'move' || b.jobType === 'repair' ? b.jobType : 'new'
   const req = {
     fenceStyle: String(b.fenceStyle ?? ''),
@@ -85,7 +88,7 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
 export async function quoteViewFor(accountId: string, body: Json, quoteId?: string | null) {
   const m = await pricingModule() as Json
   const existing = quoteId ? await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } }) : null
-  const { req, overheadPct } = requestFrom(body, existing, m.importedOldPrice)
+  const { req, overheadPct } = requestFrom(body, existing, m.importedOldPrice, m.keepsCents)
   const job = m.quoteJobFor(await dataFor(accountId), req, overheadPct)
   return m.quoteView(job)
 }
@@ -99,7 +102,7 @@ const optKey = (o: Json) => `${o?.fenceStyle ?? ''}|${o?.tier?.key ?? ''}|${o?.l
  */
 export async function withServerCosts(accountId: string, body: Json, existing: Json | null): Promise<Json> {
   const m = await pricingModule() as Json
-  const { req, overheadPct } = requestFrom(body.priceRequest, existing, m.importedOldPrice)
+  const { req, overheadPct } = requestFrom(body.priceRequest, existing, m.importedOldPrice, m.keepsCents)
   const job = m.quoteJobFor(await dataFor(accountId), req, overheadPct)
   const out: Json = { ...body }
   delete out.priceRequest
@@ -128,10 +131,16 @@ export async function withServerCosts(accountId: string, body: Json, existing: J
         if (p) { next.snapshot = p.snapshot; next.finalPrice = p.finalPrice; next.perFoot = p.perFoot; next.sections = p.sections }
         else delete next.snapshot
         // The quote's own option keeps the quote's price (QuoteBuilder's buildProposal does the same).
-        if (own && t.price > 0) { next.finalPrice = t.price; next.perFoot = feet > 0 ? Math.round((t.price / feet) * 100) / 100 : 0 }
+        if (own && t.price > 0) {
+          next.finalPrice = t.price; next.perFoot = feet > 0 ? Math.round((t.price / feet) * 100) / 100 : 0
+          if (next.snapshot) next.snapshot = { ...next.snapshot, roundingCents: t.roundingCents }
+        }
         return next
       }),
     }
+    // Priced to the whole dollar unless this quote keeps its cents: the deposit follows (lib/paymentMath.ts).
+    if (req.overrides.wholeDollar === false) delete out.proposal.wholeDollar
+    else out.proposal.wholeDollar = true
   }
   return out
 }

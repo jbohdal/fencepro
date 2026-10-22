@@ -14,10 +14,18 @@
  */
 
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { onPublicPortalPage, PUBLIC_PORTAL_API } from './publicDoor'
 
 function apiBase(): string {
   if (typeof window === 'undefined') return ''
+  // The page under the public door talks to the server it came from.
+  if (onPublicPortalPage()) return ''
   return window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
+}
+
+/** The portal's API: /p/portal/api on the page under the public door (only /p reaches the internet), else /api/portal. */
+function apiRoot(): string {
+  return onPublicPortalPage() ? PUBLIC_PORTAL_API : `${apiBase()}/api/portal`
 }
 
 /** Signed out by the server (session ended or run out): the pages go to the sign in page. */
@@ -28,7 +36,7 @@ async function call(method: string, p: string, body?: unknown): Promise<{ status
   const headers: Record<string, string> = {}
   if (write) headers['X-Portal-Request'] = '1'
   if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json'
-  const res = await fetch(`${apiBase()}/api/portal${p}`, {
+  const res = await fetch(`${apiRoot()}${p}`, {
     method, credentials: 'include', headers,
     body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
   })

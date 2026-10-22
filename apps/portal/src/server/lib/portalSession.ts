@@ -12,7 +12,8 @@
  *   - Signing in (password, or setting one on the invite link) makes a
  *     PortalSession row and sets the cookie `ezbiz_portal` to a random 32 byte
  *     token. The row keeps only its SHA-256. The page's script never sees it
- *     (HttpOnly), it is sent only to /api/portal (Path), never from another
+ *     (HttpOnly), it is sent only to the portal's API (Path: /api/portal, or
+ *     /p/portal/api when signed in through the public door, routes/portalPublic.ts), never from another
  *     site (SameSite=Strict), and only over https (Secure; plain http is let
  *     through only for localhost, the developer's own machine).
  *   - Every portal request looks the session up: not signed out, not run out
@@ -35,6 +36,13 @@ import prisma from './prisma.js'
 
 export const PORTAL_COOKIE = 'ezbiz_portal'
 export const PORTAL_COOKIE_PATH = '/api/portal'
+/** The portal's API through the public door (routes/portalPublic.ts); its cookie is sent only there. */
+export const PUBLIC_PORTAL_API = '/p/portal/api'
+
+/** The cookie's Path for this request: the door it came through. */
+export function portalCookiePath(req: Pick<Request, 'baseUrl'>): string {
+  return String(req.baseUrl || '').startsWith(PUBLIC_PORTAL_API) ? PUBLIC_PORTAL_API : PORTAL_COOKIE_PATH
+}
 export const PORTAL_SESSION_DAYS = 30
 export const PORTAL_WRITE_HEADER = 'x-portal-request'
 const TOUCH_MS = 5 * 60_000
@@ -70,13 +78,13 @@ export async function startPortalSession(req: Request, res: Response, portalAcco
     },
   })
   res.cookie(PORTAL_COOKIE, token, {
-    httpOnly: true, secure: secureFor(req), sameSite: 'strict', path: PORTAL_COOKIE_PATH,
+    httpOnly: true, secure: secureFor(req), sameSite: 'strict', path: portalCookiePath(req),
     maxAge: PORTAL_SESSION_DAYS * 86_400_000,
   })
 }
 
 export function clearPortalCookie(req: Request, res: Response): void {
-  res.clearCookie(PORTAL_COOKIE, { httpOnly: true, secure: secureFor(req), sameSite: 'strict', path: PORTAL_COOKIE_PATH })
+  res.clearCookie(PORTAL_COOKIE, { httpOnly: true, secure: secureFor(req), sameSite: 'strict', path: portalCookiePath(req) })
 }
 
 /** The signed in customer for this request, or null (no cookie, unknown, ended, run out, login not active, no customer). */

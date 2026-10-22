@@ -25,6 +25,7 @@ import { sectionWidthForStyle, styleHasPartsList } from './materialCalculator'
 import CalendarSyncSettings from './CalendarSyncSettings'
 import FenceStylesSettings from './FenceStylesSettings'
 import VinylColorsSettings from './VinylColorsSettings'
+import TallVinylPrices from './TallVinylPrices'
 import MoveRepairSettings from './MoveRepairSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
 import FollowUpSettings from './FollowUpSettings'
@@ -607,7 +608,10 @@ export default function AdminSettingsPage() {
         <div className="bg-white rounded-2xl border border-gray-200 p-4 lg:p-8">
           {tab === 'company' && <CompanyTab config={config} onChange={handleChange} />}
           {tab === 'pricing' && <PricingTab config={config} onChange={handleChange} />}
-          {tab === 'price_list' && <VinylColorsSettings blocked={dirty} onServerSaved={() => setConfig(getConfig())} />}
+          {tab === 'price_list' && <>
+            <VinylColorsSettings blocked={dirty} onServerSaved={() => setConfig(getConfig())} />
+            <TallVinylPrices config={config} onCommit={next => handleSave(next)} />
+          </>}
           {tab === 'styles' && <FenceStylesSettings config={config} onChange={handleChange} onCommit={next => handleSave(next)} />}
           {tab === 'leads' && <OptionListSettings kind="leadSources" />}
           {tab === 'tags' && <OptionListSettings kind="customerTags" />}

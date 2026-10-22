@@ -317,6 +317,52 @@ export function jobLotFor(s: FenceStyle, sc: StyleChoices, opt: ChoiceOption, pr
   }
 }
 
+// ── 8 ft tall vinyl: priced by the piece ─────────────────────────────────────
+
+/**
+ * 8 ft tall vinyl privacy, every color (White, Tan, a color made in
+ * Settings), no dig and dig set (Jonathan, Oct 21, 2026): one price per
+ * section and one per post, each style's own (FenceStyle.pieceCents, entered
+ * in Settings → Price List → 8 ft tall vinyl). Like a job lot color: the
+ * section price covers every part of a section kit (rails, mid rail, 4 ft
+ * pickets, 4 ft U channels, rail inserts) and the post price every part of a
+ * post kit (the 8 ft post, its cap, donuts and pipe or concrete), listed on
+ * the pull sheet at $0. Gates are priced from their parts, as before. Until
+ * both prices are in, the style is not available for quoting.
+ */
+export function isTallVinyl(sc: StyleChoices | null | undefined): boolean {
+  return !!sc && sc.material === 'vinyl' && sc.choices.height === '8'
+}
+
+/** The piece prices an 8 ft tall style still needs ('section', 'post'). */
+export function tallPricesMissing(s: Pick<FenceStyle, 'pieceCents'>): Array<'section' | 'post'> {
+  const p = s.pieceCents ?? {}
+  return (['section', 'post'] as const).filter(k => cents(p[k]) === undefined)
+}
+
+/** Why an 8 ft tall style is held back, in words. */
+export function tallHeldReason(missing: Array<'section' | 'post'>): string {
+  return `8 ft tall is priced by the piece: enter its ${missing.join(' and ')} price${missing.length === 1 ? '' : 's'} in Settings → Price List`
+}
+
+/** An 8 ft tall style's piece prices, in dollars, as a job lot the material kits price with. */
+export function tallJobLot(s: FenceStyle, color: string): StyleJobLot {
+  const p = s.pieceCents ?? {}
+  const d = (v: number | null | undefined) => { const c = cents(v); return c === undefined ? undefined : c / 100 }
+  const width = sectionWidthForStyle(s.name, s.panelWidth)
+  const section = d(p.section), post = d(p.post)
+  return {
+    color, supplier: '', quotedOn: p.pricedOn ?? '', width, sections: section === undefined ? {} : { [String(width)]: section },
+    // One price per post: corner, end and line. No blank post (a double gate's center) on 8 ft tall, as before.
+    corner: post, end: post, line: post,
+    covers: { section: [], post: [], walkGate: [], dblGate: [] }, coversAll: ['section', 'post'],
+    tall: true, label: `8 ft tall ${color}`,
+  }
+}
+
+/** Whether a kit of an 8 ft tall style is covered by its piece prices (section and post kits). */
+const tallCovers = (sc: StyleChoices | null | undefined, kind: KitKind) => isTallVinyl(sc) && (PIECE_OF_KIT[kind] === 'section' || PIECE_OF_KIT[kind] === 'post')
+
 export interface ColorStatus {
   ready: boolean
   /** Color parts with no Inventory price yet (priced by part). */
@@ -348,10 +394,14 @@ export function colorStatus(styles: FenceStyle[], m: MaterialDef, opt: ChoiceOpt
   for (const s of mine) {
     const set = kitOf(s.name)
     if (!set || set === 'archived') { out.noKit.push(s.name); continue }
+    const sc = styleChoicesOf(s)
     for (const k of KIT_KINDS) for (const p of set.kits[k] ?? []) {
+      // 8 ft tall: its own section and post prices cover those kits (and hold the style until they are in).
+      if (tallCovers(sc, k)) continue
       if (isColorPart(p.part, spec.words) && !((price(p.part) ?? 0) > 0)) unpriced.add(p.part)
     }
-    const h = styleChoicesOf(s)!.choices.height ?? ''
+    if (isTallVinyl(sc)) continue
+    const h = sc!.choices.height ?? ''
     const ws = heights.get(h) ?? new Set<string>()
     for (const w of styleWidths(s)) ws.add(w)
     heights.set(h, ws)
@@ -390,13 +440,17 @@ function formColorStatus(mine: FenceStyle[], spec: ColorSpec, price: PriceFn, ki
     if (s.isActive === false) continue
     const set = kitOf(s.name)
     if (!set || set === 'archived') { out.noKit.push(s.name); continue }
+    const sc = styleChoicesOf(s)
     for (const k of KIT_KINDS) for (const p of set.kits[k] ?? []) {
       if (!isColorPart(p.part, spec.words)) continue
+      // 8 ft tall: its own section and post prices cover those kits (and hold the style until they are in).
+      if (tallCovers(sc, k)) continue
       const piece = PIECE_OF_KIT[k]
       if (piece && covered.get(piece)?.has(normalizeItemName(p.part))) continue
       if (!((price(p.part) ?? 0) > 0)) unpriced.add(p.part)
     }
-    const h = styleChoicesOf(s)?.choices.height ?? ''
+    if (isTallVinyl(sc)) continue
+    const h = sc?.choices.height ?? ''
     for (const w of styleWidths(s)) {
       const item = spec.jobLot?.sectionItems?.[h]?.[w]
       if (item && !((price(item) ?? 0) > 0)) out.missingPieces.push(item)
@@ -497,7 +551,8 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
       if (d.isColor && opt.color && !(waits && !opt.copiedFrom)) {
         if (typeof opt.color.targetProfitPct === 'number' && Number.isFinite(opt.color.targetProfitPct)) s.colorTargetProfitPct = opt.color.targetProfitPct
         if (s.madeFrom) {
-          const lot = jobLotFor(s, sc, opt, price)
+          // 8 ft tall: priced by its own section and post prices (below), not the color's job lot.
+          const lot = isTallVinyl(sc) ? undefined : jobLotFor(s, sc, opt, price)
           if (lot) s.jobLot = lot
           const key = `${m.key}:${opt.key}`
           if (!statusCache.has(key)) statusCache.set(key, colorStatus(styles, m, opt, price, kitOf))
@@ -508,6 +563,13 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
     if (s.madeFrom) {
       const set = kitOf(s.name)
       if (!set || set === 'archived') why.push('it has no material kit')
+    }
+    // 8 ft tall vinyl, every color: one price per section and one per post (Jonathan, Oct 21, 2026).
+    if (isTallVinyl(sc)) {
+      const dim = colorDimOf(m)
+      s.jobLot = tallJobLot(s, (dim ? optionOf(m, dim.key, sc.choices[dim.key])?.label : undefined) ?? sc.choices.color ?? '')
+      const missing = tallPricesMissing(s)
+      if (missing.length) why.push(tallHeldReason(missing))
     }
     if (why.length) s.held = why.join('; ')
     return s

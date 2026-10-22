@@ -19,6 +19,7 @@ import {
   formProblems, inputFromColor, POST_TYPES, SET_METHOD_LABEL, SIZE_KEYS, WHITE_SECTION,
   type SetMethod, type SizeKey, type VinylColorInput,
 } from './vinylColorForm'
+import { TALL_VINYL_SECTION } from './materialCalculator'
 import { addVinylColor, loadColorRecords, removeVinylColor, restoreVinylColor, saveVinylColor, undoVinylColor, type ColorRecord } from './vinylColorsStore'
 import { navigate, useNav } from './nav'
 import { toast } from './toast'
@@ -192,11 +193,12 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
 
   const input = (): VinylColorInput => {
     const posts: VinylColorInput['posts'] = {}
-    for (const h of heights) posts[h] = same ? { allCents: toCents(money[`post:${h}:all`] ?? '') } : Object.fromEntries(POST_TYPES.map(t => [`${t}Cents`, toCents(money[`post:${h}:${t}`] ?? '')]))
+    // 8 ft tall: one post price (priced by the piece).
+    for (const h of heights) posts[h] = same || h === '8' ? { allCents: toCents(money[`post:${h}:all`] ?? '') } : Object.fromEntries(POST_TYPES.map(t => [`${t}Cents`, toCents(money[`post:${h}:${t}`] ?? '')]))
     const sections: VinylColorInput['sections'] = {}
     for (const s of sizes) {
       const n = (k: string) => toWhole(counts[`${s}:${k}`] ?? '')
-      sections[s] = { costCents: toCents(money[`section:${s}`] ?? ''), ...(mode === 'section' ? { pickets: n('pickets')!, rails: n('rails')!, railFt: n('railFt')!, picketStiffeners: n('picketStiffeners')!, railStiffeners: n('railStiffeners')!, uChannels: n('uChannels')! } : {}) }
+      sections[s] = { costCents: toCents(money[`section:${s}`] ?? ''), ...(mode === 'section' && s.startsWith('6') ? { pickets: n('pickets')!, rails: n('rails')!, railFt: n('railFt')!, picketStiffeners: n('picketStiffeners')!, railStiffeners: n('railStiffeners')!, uChannels: n('uChannels')! } : {}) }
     }
     return {
       name: name.trim(), mode, sizes: SIZE_KEYS.filter(s => sizes.includes(s)), methods, samePostPrice: same, posts, sections,
@@ -276,11 +278,15 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
           if (mode === 'piece' && !tall8) return null
           return (
             <div key={s} className="rounded-xl border border-gray-200 p-3 space-y-3" data-vc-size-card={s}>
-              <p className="text-sm font-semibold text-gray-900">{s.replace('x', ' × ')} section{mode === 'piece' ? ' (8 ft tall sections are bought whole, as White’s are)' : ''}</p>
+              <p className="text-sm font-semibold text-gray-900">{s.replace('x', ' × ')} section{tall8 ? ' (8 ft tall: priced by the piece, as every color)' : ''}</p>
               <div className="grid grid-cols-2 gap-3">
-                {moneyField(`section:${s}`, 'Section cost')}
+                {moneyField(`section:${s}`, tall8 ? 'Section price' : 'Section cost', tall8 ? 'Also in Price List → 8 ft tall vinyl' : undefined)}
               </div>
-              {mode === 'section' && (<>
+              {tall8 && (() => { const c = TALL_VINYL_SECTION[s === '8x8' ? 8 : 6]; return (
+                <p className="text-[11px] text-gray-500" data-vc-tall-contents={s}>
+                  The section price covers {c.rails} rails ({s.split('x')[1]} ft), {c.midRails} mid rail, {c.pickets} pickets (4 ft), {c.uChannels} U channels (4 ft){c.railInserts ? ` and ${c.railInserts} rail inserts (White’s, shared)` : ''}: listed on the pull sheet at $0, the same for every color.
+                </p>) })()}
+              {mode === 'section' && !tall8 && (<>
                 <p className="text-xs font-semibold text-gray-700">What the section includes</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {countField(s, 'pickets', 'Pickets')}
@@ -319,7 +325,8 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
               <div key={h} className="space-y-2">
                 {heights.length > 1 && <p className="text-xs font-semibold text-gray-700">{h} ft tall</p>}
                 <div className="grid grid-cols-2 gap-3">
-                  {same ? moneyField(`post:${h}:all`, 'Post', h === '6' ? '78" for ND, 102" for DS, as White' : '8 ft privacy posts, as White')
+                  {h === '8' ? moneyField(`post:${h}:all`, 'Post price', 'Every 8 ft tall post (corner, end, line); covers its cap and setting material')
+                    : same ? moneyField(`post:${h}:all`, 'Post', '78" for ND, 102" for DS, as White')
                     : POST_TYPES.filter(t => !(h === '8' && t === 'blank')).map(t => <div key={t}>{moneyField(`post:${h}:${t}`, POST_LABEL[t])}</div>)}
                 </div>
               </div>

@@ -7,6 +7,7 @@
  * code), so a customer's browser never loads this file.
  */
 
+import { portalPageUrl } from './publicDoor'
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { plainError, plainThrown } from './plainError'
@@ -92,9 +93,10 @@ export async function resendPortalInvite(email: string): Promise<{ ok: boolean; 
   }
 }
 
+/** The invite link: the portal's page through the public door (/p/portal/), so the customer can open it from anywhere. */
 export function buildActivationLink(rawToken: string): string {
-  if (typeof window === 'undefined') return `/#/portal/activate?token=${rawToken}`
-  return `${window.location.origin}/#/portal/activate?token=${rawToken}`
+  if (typeof window === 'undefined') return `/p/portal/#/portal/activate?token=${rawToken}`
+  return portalPageUrl(`#/portal/activate?token=${rawToken}`)
 }
 
 export interface PortalAccessStatus {

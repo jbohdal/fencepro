@@ -59,6 +59,16 @@ export interface FenceStyle {
   needsCostReview?: boolean
   /** What to review, in plain words ("black rivet price needed"), shown with the flag. Cleared with it. */
   costReviewNote?: string
+  /**
+   * 8 ft tall vinyl, every color (Jonathan, Oct 21, 2026): priced by the
+   * piece, one price per section and one per post (corner, end and line), in
+   * integer cents, entered in Settings → Price List (fenceCatalog.ts
+   * tallJobLot). The pull sheet still lists every part of a section and a
+   * post, at $0. Until both are in, the style is not available for quoting.
+   * `pricedOn` (YYYY-MM-DD) is when they were last changed; a saved quote
+   * keeps the prices it was priced with.
+   */
+  pieceCents?: { section?: number | null; post?: number | null; pricedOn?: string }
   // ── Worked out on every read (fenceCatalog.resolveFenceStyles); not saved ──
   /** The plain name: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig". */
   label?: string

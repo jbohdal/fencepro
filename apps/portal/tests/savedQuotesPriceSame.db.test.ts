@@ -22,6 +22,7 @@ import fs from 'fs'
 import { describe, test, expect } from 'vitest'
 import { estimateConfig } from '../../web/src/estimate'
 import { calculateQuote, widthComparison, type QuoteCalcInput } from '../../web/src/quoteCalc'
+import { keepsCents } from '../../web/src/pricingEngine'
 import { setMaterialPriceSource, inventoryPriceSource } from '../../web/src/materialCalculator'
 import { setSavedKitSets, type KitSet } from '../../web/src/materialKits'
 import { resolveTiers, tierSetFor, type TierSet } from '../../web/src/tiers'
@@ -53,7 +54,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !file)('every saved quote price
       const sets = await tx.proposalTierSet.findMany({ where: { accountId }, orderBy: { sortOrder: 'asc' } }) as TierSet[]
       const quotes = await tx.savedQuote.findMany({
         where: { accountId }, orderBy: { id: 'asc' },
-        select: { id: true, fenceStyle: true, runs: true, runRails: true, corners: true, ends: true, walkGates: true, dblGates: true, tearOutSections: true, tearOutGates: true, adjLaborHrs: true, hasSalesman: true, priceAdjust: true, pricing: true, layout: true },
+        select: { id: true, fenceStyle: true, runs: true, runRails: true, corners: true, ends: true, walkGates: true, dblGates: true, tearOutSections: true, tearOutGates: true, adjLaborHrs: true, hasSalesman: true, priceAdjust: true, pricing: true, layout: true, status: true, shareToken: true, acceptedAt: true, soldAt: true },
       })
       return { business, inv, sets, quotes }
     }, { isolationLevel: 'RepeatableRead', timeout: 60_000 })
@@ -93,7 +94,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !file)('every saved quote price
         ...(Number(q.layout?.teeLinePosts) > 0 ? { extraLinePosts: Number(q.layout.teeLinePosts) } : {}),
         tearOutSections: q.tearOutSections || 0, tearOutGates: q.tearOutGates || 0,
         extraLaborHrs: q.adjLaborHrs || 0, hasSalesman: !!q.hasSalesman, priceAdjust: q.priceAdjust || 0,
-        pricing: cfg.pricing, overrides: q.pricing ?? undefined, optimizer: cfg.railOptimizer!,
+        // As the quote builder opens it: a quote sent, sold or accepted before the whole dollar rule keeps its cents.
+        pricing: cfg.pricing, overrides: keepsCents(q) ? { ...(q.pricing ?? {}), wholeDollar: false } : (q.pricing ?? undefined), optimizer: cfg.railOptimizer!,
       })
       const own = base(q.fenceStyle)
       const rec: Record<string, unknown> = { own: pick(calculateQuote(own)) }

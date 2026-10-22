@@ -113,11 +113,12 @@ export async function setupList(accountId: string): Promise<SetupItem[]> {
   ].filter(Boolean) as string[]
   const items = (Array.isArray(inv?.items) ? inv!.items : []) as any[]
   const activeItems = items.filter(i => i?.status !== 'inactive' && i?.status !== 'discontinued')
-  const unconfirmed = activeItems.filter(i => !i?.priceUpdatedAt || i?.priceImported).length
+  // A part included in a section kit or piece price (includedIn) is $0 on purpose: never asked for a price.
+  const unconfirmed = activeItems.filter(i => !i?.includedIn && (!i?.priceUpdatedAt || i?.priceImported)).length
   // Inventory > Fill in: $0 prices; gate parts and the Durafence list only for styles available for quoting.
   const kits = (Array.isArray(inv?.kits) ? inv!.kits : []) as any[]
   const filledIn = (style: string) => kits.some(k => k?.styleName === style && !k?.archived && k?.filledInAt)
-  const zeroPrices = activeItems.filter(i => !(Number(i?.unitCost) > 0)).length
+  const zeroPrices = activeItems.filter(i => !(Number(i?.unitCost) > 0) && !i?.includedIn).length
   const gatesLeft = GATE_STYLES.filter(styleQuotable).filter(s => !filledIn(s))
   const fillLeft = [zeroPrices && `${zeroPrices} prices at $0`, gatesLeft.length && `gate parts for ${gatesLeft.join(', ')}`, styleQuotable(DURAFENCE) && !filledIn(DURAFENCE) && 'a Durafence parts list'].filter(Boolean) as string[]
   // Styles priced with stand-in parts until the real supplier cost is entered (lib/costReview.ts): the Bell.

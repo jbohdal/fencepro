@@ -70,6 +70,7 @@ interface EstimateModule {
   planWood(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean }
   planChainDigSet(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean; concrete: Array<{ kit: string; part: string; qty: number }> }
   planTanAutoDs(fenceStyles: unknown[]): { fenceStyles: unknown[]; added: string | null; copiedFrom: string | null; skipped?: string }
+  planTallVinylParts(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { items: unknown[]; added: string[] }
   planChainDigSetPipesAndTies(state:{ fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }; renamed: Array<{ from: string; to: string }>; kitLines: Array<{ kitSet: string; kit: string; part: string }>; ties: string[]; skipped: string[] }
 }
 

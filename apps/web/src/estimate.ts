@@ -17,7 +17,7 @@ import { priceQuoteJob, quoteView, savedWorkOf, type QuoteJob, type QuoteJobRequ
 import { widgetCatalog, widgetOptions, widgetStyles, priceForStyle, type WidgetCatalog, type WidgetPick, type WidgetPriced } from './widgetPricing'
 import type { YardLayout } from './yardLayout'
 import type { TierSet } from './tiers'
-export { importedOldPrice } from './pricingEngine'
+export { importedOldPrice, keepsCents } from './pricingEngine'
 
 export { NOT_QUOTABLE_MESSAGE }
 // The server's wood seed (lib/woodSeed.ts) runs this through the bundle.
@@ -26,6 +26,8 @@ export { planWood } from './wood'
 export { planChainDigSet, planChainDigSetPipesAndTies } from './chainDigSet'
 // The server's tan dig set auto mix seed (lib/tanAutoDsSeed.ts).
 export { planTanAutoDs } from './tanAutoDs'
+// 8 ft tall vinyl section parts as $0 catalog items (lib/tallVinylParts.ts).
+export { planTallVinylParts } from './tallVinylParts'
 // Settings → Price List → Vinyl Colors (server lib/vinylColors.ts).
 export { planVinylColor, planArchiveVinylColor, planUndoVinylColor, inputFromColor, kitLineCounts } from './vinylColorForm'
 export { catalogOf as fenceCatalogOf, DEFAULT_CATALOG as DEFAULT_FENCE_CATALOG } from './fenceCatalog'

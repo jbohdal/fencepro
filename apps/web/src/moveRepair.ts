@@ -30,7 +30,7 @@
  * are multiplied by the Wood factor.
  */
 
-import { calculatePrice, resolveSubRate, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
+import { calculatePrice, resolveSubRate, wholeDollarCents, roundsToWholeDollar, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
 import { inventoryCost, sectionWidthForStyle, type LineItem } from './materialCalculator'
 import { kitSetFor, type KitPart, type KitSet } from './materialKits'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
@@ -339,6 +339,8 @@ export interface WorkResult {
   /** Cost ÷ factor. */
   basePriceCents: number
   priceCents: number
+  /** Cents the price was rounded down by to the whole dollar (out of profit). */
+  roundingCents: number
   commissionCents: number
   grossMarginCents: number
   gmPct: number
@@ -691,12 +693,15 @@ function price(c: WorkCommon, type: 'move' | 'repair', acc: Acc, t: { materialCe
     overrides: { ...o, laborCost: t.laborCents / 100, costFactor, priceMethod: 'cost_factor', pricePerFoot: undefined },
   })
   const manual = p.priceMethod === 'manual'
-  let priceCents = Math.round(p.price * 100)
+  // The price before the whole dollar rule, lifted to the minimum job price; then rounded down (pricingEngine.ts).
+  let unroundedCents = Math.round(p.priceBeforeRounding * 100)
   const minimumCents = s.minimumJobCents
-  const minimumApplied = !manual && minimumCents > 0 && priceCents < minimumCents
-  if (minimumApplied) priceCents = minimumCents
-  if (manual && minimumCents > 0 && priceCents < minimumCents) acc.warnings.push(`The price typed by hand is under the minimum job price (${usd(minimumCents / 100)}).`)
-  const commissionCents = Math.round(priceCents * p.commissionPct)
+  const minimumApplied = !manual && minimumCents > 0 && unroundedCents < minimumCents
+  if (minimumApplied) unroundedCents = minimumCents
+  if (manual && minimumCents > 0 && unroundedCents < minimumCents) acc.warnings.push(`The price typed by hand is under the minimum job price (${usd(minimumCents / 100)}).`)
+  const { cents: priceCents, roundingCents } = wholeDollarCents(unroundedCents, roundsToWholeDollar(o))
+  // Commission on the price before rounding: the cents come out of profit only.
+  const commissionCents = Math.round(unroundedCents * p.commissionPct)
   const grossMarginCents = priceCents - costCents - commissionCents
   const warnings = [...acc.warnings]
   if (acc.missingRates.length) warnings.unshift(`No rate per ${[...new Set(acc.missingRates)].join(', per ')} is set, so that cost is $0. Set it in Settings → Pricing or Settings → Moves and Repairs, or switch this quote to Hourly crew.`)
@@ -709,7 +714,7 @@ function price(c: WorkCommon, type: 'move' | 'repair', acc: Acc, t: { materialCe
   }
   return {
     type, lines: acc.lines, ...t, costCents, costFactor, targetMarginPct: Math.round((1 - costFactor) * 10000) / 100, marginFrom,
-    basePriceCents: Math.round(p.basePrice * 100), priceCents, commissionCents, grossMarginCents, gmPct: priceCents > 0 ? grossMarginCents / priceCents : 0,
+    basePriceCents: Math.round(p.basePrice * 100), priceCents, roundingCents, commissionCents, grossMarginCents, gmPct: priceCents > 0 ? grossMarginCents / priceCents : 0,
     minimumApplied, minimumCents, manual, pullSheet, warnings, description, crew, needs811: newPosts, sections, footage, manHours,
   }
 }
@@ -816,6 +821,8 @@ export interface SavedWork {
     costFactor: number
     targetMarginPct: number
     priceCents: number
+    /** Cents rounded off to the whole dollar (none on a quote that keeps its cents, or saved before the rule). */
+    roundingCents?: number
     commissionCents: number
     grossMarginCents: number
     minimumApplied: boolean
@@ -839,7 +846,7 @@ export function toSavedWork(r: WorkResult, inputs: { move?: MoveInputs; repair?:
     priced: {
       lines: r.lines.map(({ parts, ...l }) => { void parts; return l }),
       materialCents: r.materialCents, laborCents: r.laborCents, disposalCents: r.disposalCents, costCents: r.costCents,
-      costFactor: r.costFactor, targetMarginPct: r.targetMarginPct, priceCents: r.priceCents, commissionCents: r.commissionCents,
+      costFactor: r.costFactor, targetMarginPct: r.targetMarginPct, priceCents: r.priceCents, roundingCents: r.roundingCents, commissionCents: r.commissionCents,
       grossMarginCents: r.grossMarginCents, minimumApplied: r.minimumApplied, minimumCents: r.minimumCents, ...(r.wood ? { wood: r.wood } : {}),
     },
     description: r.description, crew: r.crew, needs811: r.needs811, warnings: r.warnings, ...extra,

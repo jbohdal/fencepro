@@ -27,12 +27,23 @@
  * are $0 and the section line counts one per leaf. 8 ft tall gates are
  * bought whole, as White's are ("Privacy Gate 8 x 4").
  *
+ * 8 ft tall (8x6, 8x8), per piece or per section alike (Jonathan, Oct 21,
+ * 2026): the same shape as White's. Each fence is priced by the piece, one
+ * section price and one post price (the form's 8 ft section cost and 8 ft
+ * post cost, saved as each 8 ft tall fence's own prices, FenceStyle.pieceCents,
+ * also edited in Settings → Price List → 8 ft tall vinyl). The section kit is
+ * TALL_VINYL_SECTION in the color's parts ("*Vinyl, {Color}, Picket, 4'",
+ * "U Channel, 4'", "Mid Rail, {6|8}'", "Rail, {6|8}'", White's shared rail
+ * insert) and the post kit the color's 8 ft post and cap with White's
+ * setting material, all $0 on the pull sheet (the color's own new parts are
+ * catalog items at $0, "included in" the 8 ft tall section or post price).
+ *
  * Costs are integer cents here; Inventory keeps dollars. The server
  * (portal lib/vinylColors.ts) runs this in one transaction and writes a price
  * history row for every cost set (source color_form).
  */
 
-import { normalizeItemName } from './materialCalculator'
+import { normalizeItemName, TALL_PART_NAME } from './materialCalculator'
 import { KIT_KINDS, kitSetFor, type KitKind, type KitPart, type KitSet } from './materialKits'
 import {
   colorDimOf, generatedName, madeForTag, materialOf, optionOf, plainName, slug, styleChoicesOf, stylesOfOption,
@@ -84,10 +95,13 @@ const WHITE_RIVET = /^\*Vinyl, White, Rivet, 1"$/
 export const WHITE_SECTION: Record<SizeKey, SectionContents | null> = {
   '6x6': { pickets: 11, rails: 2, railFt: 6, picketStiffeners: 0, railStiffeners: 0, uChannels: 2 },
   '6x8': { pickets: 15, rails: 2, railFt: 8, picketStiffeners: 0, railStiffeners: 1, uChannels: 2 },
-  // White's 8 ft tall sections are bought whole; their parts are not listed.
+  // 8 ft tall: the section is the same for every color (materialCalculator TALL_VINYL_SECTION); the form does not ask.
   '8x6': null,
   '8x8': null,
 }
+
+/** What the $0 parts of an 8 ft tall fence are included in. */
+export const TALL_INCLUDED = { section: '8 ft tall section price', post: '8 ft tall post price' } as const
 
 const heightOf = (s: SizeKey) => s.split('x')[0]
 const widthOf = (s: SizeKey) => s.split('x')[1]
@@ -100,6 +114,7 @@ export type PartRole =
   | { role: 'post'; type: PostType; len: string }
   | { role: 'cap' } | { role: 'gateCap' } | { role: 'upright' } | { role: 'gate8' }
   | { role: 'picket' } | { role: 'rail'; ft: string } | { role: 'uTrim' } | { role: 'railInsert' } | { role: 'sectionItem' }
+  | { role: 'tallPicket' } | { role: 'tallUChannel' } | { role: 'midRail'; ft: string }
   | { role: 'rivet' } | { role: 'shared' }
 
 const TYPE_CODE: Record<string, PostType> = { CP: 'corner', EP: 'end', LP: 'line' }
@@ -116,6 +131,11 @@ export function whitePartRole(part: string): PartRole {
   if (/^\*Vinyl, White, Upright$/.test(p)) return { role: 'upright' }
   if (WHITE_RIVET.test(p)) return { role: 'rivet' }
   if (/^V , W, Privacy,? Gate 8 x 4$/.test(p)) return { role: 'gate8' }
+  // 8 ft tall section parts (Oct 21, 2026).
+  if (/^\*Vinyl, White, Picket, 4'$/.test(p)) return { role: 'tallPicket' }
+  if (/^\*Vinyl, White, U Channel, 4'$/.test(p)) return { role: 'tallUChannel' }
+  m = p.match(/^\*Vinyl, White, Mid Rail, (\d+)'$/)
+  if (m) return { role: 'midRail', ft: m[1] }
   if (/^\*Vinyl, White, Picket\b/.test(p)) return { role: 'picket' }
   m = p.match(/^\*Vinyl, White, Rail, (\d+)'$/)
   if (m) return { role: 'rail', ft: m[1] }
@@ -167,8 +187,9 @@ export function formProblems(input: VinylColorInput, opts: { taken?: string[] } 
   const money = (v: unknown, what: string) => { if (!isCents(v)) out.push(`Enter the ${what}.`) }
   for (const s of sizes) {
     const sec = input.sections[s]
-    if (input.mode === 'section' || heightOf(s) === '8') money(sec?.costCents, `${s} section cost`)
-    if (input.mode === 'section') {
+    // 8 ft tall: the section price (priced by the piece); what it includes is the same for every color.
+    if (input.mode === 'section' || heightOf(s) === '8') money(sec?.costCents, `${s} section ${heightOf(s) === '8' ? 'price' : 'cost'}`)
+    if (input.mode === 'section' && heightOf(s) === '6') {
       const c: Partial<SectionContents> = sec ?? {}
       const whole = (v: unknown, min: number, what: string) => { if (!(typeof v === 'number' && Number.isInteger(v) && v >= min)) out.push(`${s} section: enter ${what}${min > 0 ? '' : ' (0 if none)'}.`) }
       whole(c.pickets, 1, 'the picket count'); whole(c.rails, 1, 'the rail count'); whole(c.railFt, 1, 'the rail length in feet')
@@ -178,8 +199,10 @@ export function formProblems(input: VinylColorInput, opts: { taken?: string[] } 
   for (const h of heights) {
     const p = input.posts[h] ?? {}
     const tall = `${h} ft tall`
-    if (input.samePostPrice) money(p.allCents, `post cost (${tall})`)
-    else for (const t of POST_TYPES) if (!(h === '8' && t === 'blank')) money(p[`${t}Cents` as const], `${t} post cost (${tall})`)
+    // 8 ft tall: one post price (corner, end and line), priced by the piece.
+    if (h === '8') money(p.allCents, `post price (${tall})`)
+    else if (input.samePostPrice) money(p.allCents, `post cost (${tall})`)
+    else for (const t of POST_TYPES) money(p[`${t}Cents` as const], `${t} post cost (${tall})`)
   }
   money(input.capCents, 'post cap cost')
   if (input.rivets) {
@@ -219,6 +242,8 @@ export interface VinylColorPlan {
   created: CreatedList
   /** Every catalog item whose cost this save set or changed: a price history row each. */
   priced: Array<{ id: string; name: string; cents: number; prevCents: number | null }>
+  /** 8 ft tall fences whose section or post price this save set or changed (FenceStyle.pieceCents). */
+  tallPrices: Array<{ name: string; sectionCents: number; postCents: number; prevSectionCents: number | null; prevPostCents: number | null }>
   /** Fences switched off (a size or method unticked) or back on (ticked again). */
   archived: string[]
   reactivated: string[]
@@ -300,10 +325,22 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
   }
   const postCost = (h: string, type: PostType): number | null => {
     const p = input.posts[h] ?? {}
-    return (input.samePostPrice ? p.allCents : p[`${type}Cents` as const]) ?? null
+    return (input.samePostPrice || h === '8' ? p.allCents : p[`${type}Cents` as const]) ?? null
   }
   const swapPart = (r: PartRole, h: string, original: KitPart): KitPart | null => {
     const at = (name: string, cents: number | null): KitPart => ({ part: name, qty: original.qty, fallbackCost: (cents ?? 0) / 100 })
+    // 8 ft tall: the section and post kits' color parts are $0, included in the fence's section or post price.
+    const tall = (role: string, name: string, what: string, into: string) => at(want(role, name, null, what, into), null)
+    if (h === '8') {
+      switch (r.role) {
+        case 'post': return tall('tall:post', postItemName(color, h, r.len, 'all'), 'Post, 8 ft tall (in the 8 ft tall post price)', TALL_INCLUDED.post)
+        case 'tallPicket': return tall('tall:picket', TALL_PART_NAME.picket(color), 'Picket, 4 ft (in the 8 ft tall section price)', TALL_INCLUDED.section)
+        case 'tallUChannel': return tall('tall:uChannel', TALL_PART_NAME.uChannel(color), 'U channel, 4 ft (in the 8 ft tall section price)', TALL_INCLUDED.section)
+        case 'midRail': return tall(`tall:midRail:${r.ft}`, TALL_PART_NAME.midRail(color, r.ft), `Mid rail, ${r.ft} ft (in the 8 ft tall section price)`, TALL_INCLUDED.section)
+        case 'rail': return tall(`tall:rail:${r.ft}`, TALL_PART_NAME.rail(color, r.ft), `Rail, ${r.ft} ft (in the 8 ft tall section price)`, TALL_INCLUDED.section)
+        default: break
+      }
+    }
     switch (r.role) {
       case 'post': {
         const type = input.samePostPrice ? 'all' : r.type
@@ -325,6 +362,7 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
   // ── Fences and their kits ──
   const madeStyles: CreatedList['styles'] = [], madeKits: CreatedList['kits'] = []
   const archived: string[] = [], reactivated: string[] = [], allStyles: string[] = []
+  const tallPrices: VinylColorPlan['tallPrices'] = []
   const sectionItems: Record<string, Record<string, string>> = {}
   const leafWidth: Record<string, string> = {}
   const covers: JobLotQuote['covers'] = { section: [], post: [], walkGate: [], dblGate: [] }
@@ -340,11 +378,11 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
     const name = generatedName(m, choices)
     ticked.add(name)
     allStyles.push(name)
-    // Per section, or a size bought whole (8 ft tall, as White's are): the section item.
-    const sectionItem = input.mode === 'section' || h === '8'
+    // Per section (6 ft tall): the section item. 8 ft tall is priced by the piece: no section item.
+    const sectionItem = input.mode === 'section' && h === '6'
       ? want(`section:${size}`, sectionItemName(color, size), input.sections[size]?.costCents ?? null, `Section, ${size}`)
       : null
-    if (input.mode === 'section') (sectionItems[h] ??= {})[w] = sectionItem!
+    if (sectionItem) (sectionItems[h] ??= {})[w] = sectionItem
     // A gate leaf takes a 6 ft wide section kit when the color has one, else this size's.
     const leafSize: SizeKey = h === '6' && sizes.includes('6x6') ? '6x6' : size
     const kits: KitSet['kits'] = {}
@@ -358,7 +396,7 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
       for (const p of parts) {
         const r = whitePartRole(p.part)
         const sectionPart = r.role === 'picket' || r.role === 'rail' || r.role === 'uTrim' || r.role === 'railInsert' || r.role === 'sectionItem'
-        if (input.mode === 'section' && sectionPart && (isSectionKit || leaves)) {
+        if (input.mode === 'section' && h === '6' && sectionPart && (isSectionKit || leaves)) {
           // The section's parts become what the section kit includes, listed once where White's first one was.
           if (!placed) {
             const kitParts = isSectionKit ? sectionKitParts(size) : sectionKitParts(leafSize, leaves)
@@ -368,7 +406,10 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
           }
           continue
         }
-        if (r.role === 'sectionItem') { out.push({ part: sectionItem!, qty: p.qty, fallbackCost: (input.sections[size]?.costCents ?? 0) / 100 }); continue }
+        if (r.role === 'sectionItem') {
+          if (!sectionItem) throw new Error(`${t.style.name}'s material kit still lists a whole section (${p.part}); 8 ft tall sections are listed by their parts since Oct 21, 2026. Update its kit in Inventory > Material Kits first.`)
+          out.push({ part: sectionItem, qty: p.qty, fallbackCost: (input.sections[size]?.costCents ?? 0) / 100 }); continue
+        }
         if (r.role === 'rivet' && input.rivets?.color.trim() && !/^white$/i.test(input.rivets.color.trim())) {
           const rc = input.rivets.color.trim(), cents = input.rivets.cents
           out.push({ part: want('rivet', rivetItemName(rc), cents, `Rivet, ${rc}`), qty: p.qty, fallbackCost: (cents ?? 0) / 100 })
@@ -398,6 +439,16 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
         material: 'vinyl', choices, madeFrom: s.name,
       })
       madeStyles.push({ name, label: '', madeFrom: s.name })
+    }
+    // 8 ft tall: the form's section and post price are the fence's own piece prices.
+    if (h === '8') {
+      const fs = st.fenceStyles.find(x => x.name === name)!
+      const sec = input.sections[size]?.costCents ?? null, post = input.posts['8']?.allCents ?? null
+      const was = fs.pieceCents ?? {}
+      if (isCents(sec) && isCents(post) && (was.section !== sec || was.post !== post)) {
+        tallPrices.push({ name, sectionCents: sec, postCents: post, prevSectionCents: isCents(was.section) ? was.section : null, prevPostCents: isCents(was.post) ? was.post : null })
+        fs.pieceCents = { section: sec, post, pricedOn: opts.today }
+      }
     }
     const set = st.kits.find(k => k.styleName === name && !k.archived)
     if (set) { set.kits = kits; set.roundUp = roundUp; set.updatedAt = now }
@@ -435,7 +486,7 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
   // ── The color in the choice tree ──
   const form: VinylColorFormSpec = {
     mode: input.mode, sizes: [...sizes], methods: [...methods], samePostPrice: !!input.samePostPrice,
-    ...(input.mode === 'section' ? { contents: Object.fromEntries(sizes.map(s => { const c = input.sections[s]!; return [s, { pickets: c.pickets!, rails: c.rails!, railFt: c.railFt!, picketStiffeners: c.picketStiffeners!, railStiffeners: c.railStiffeners!, uChannels: c.uChannels! }] })) } : {}),
+    ...(input.mode === 'section' ? { contents: Object.fromEntries(sizes.filter(s => heightOf(s) === '6').map(s => { const c = input.sections[s]!; return [s, { pickets: c.pickets!, rails: c.rails!, railFt: c.railFt!, picketStiffeners: c.picketStiffeners!, railStiffeners: c.railStiffeners!, uChannels: c.uChannels! }] })) } : {}),
     items: Object.fromEntries([...items.values()].map(i => [i.role, i.name])),
     madeOn: opt?.color?.form?.madeOn ?? opts.today,
   }
@@ -453,11 +504,12 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
 
   for (const s of madeStyles) s.label = plainName(st.fenceCatalog, { material: 'vinyl', choices: st.fenceStyles.find(x => x.name === s.name)!.choices! })
   const n = (k: number, w: string) => `${k} ${w}${k === 1 ? '' : 's'}`
+  const tallNote = tallPrices.length ? `, 8 ft tall section and post prices set on ${n(tallPrices.length, 'fence')}` : ''
   const message = opt
-    ? `${color} saved: ${n(priced.length, 'cost')} changed${madeStyles.length ? `, ${n(madeStyles.length, 'fence')} added` : ''}${archived.length ? `, ${n(archived.length, 'fence')} switched off` : ''}. Saved quotes keep the prices they were priced with.`
-    : `${color} added: ${n(madeItems.length, 'catalog item')}, ${n(madeStyles.length, 'fence')}, ${n(madeKits.length, 'material kit set')}. It is in the quote builder now.`
+    ? `${color} saved: ${n(priced.length, 'cost')} changed${tallNote}${madeStyles.length ? `, ${n(madeStyles.length, 'fence')} added` : ''}${archived.length ? `, ${n(archived.length, 'fence')} switched off` : ''}. Saved quotes keep the prices they were priced with.`
+    : `${color} added: ${n(madeItems.length, 'catalog item')}, ${n(madeStyles.length, 'fence')}, ${n(madeKits.length, 'material kit set')}${tallNote}. It is in the quote builder now.`
   return {
-    state: st, key, label: color, priced, archived, reactivated, styles: allStyles, message,
+    state: st, key, label: color, priced, tallPrices, archived, reactivated, styles: allStyles, message,
     created: { items: madeItems, styles: madeStyles, kits: madeKits, option: { key, label: color } },
   }
 }
@@ -518,14 +570,22 @@ export function inputFromColor(st: CatalogState, key: string): VinylColorInput |
     return it && it.unitCost > 0 ? Math.round(it.unitCost * 100) : null
   }
   const anyCost = (prefix: string): number | null => { for (const r of Object.keys(f.items)) if (r.startsWith(prefix)) { const c = cost(r); if (c != null) return c } return null }
+  // 8 ft tall: the fences' own section and post prices (no dig first, as the form saves both the same).
+  const tallStyles = stylesOfOption(st.fenceStyles, 'vinyl', colorDimOf(m)!.key, key).filter(s => s.choices?.height === '8')
+    .sort((a, b) => (a.choices?.install === 'nd' ? 0 : 1) - (b.choices?.install === 'nd' ? 0 : 1))
+  const tallPrice = (piece: 'section' | 'post', width?: string): number | null => {
+    for (const s of tallStyles) { if (width && s.choices?.width !== width) continue; const v = s.pieceCents?.[piece]; if (isCents(v)) return v }
+    return null
+  }
   const posts: VinylColorInput['posts'] = {}
   for (const h of ['6', '8']) {
     if (!f.sizes.some(s => s.startsWith(`${h}x`))) continue
-    posts[h] = f.samePostPrice ? { allCents: anyCost(`post:${h}:all:`) }
-      : { cornerCents: anyCost(`post:${h}:corner:`), endCents: anyCost(`post:${h}:end:`), lineCents: anyCost(`post:${h}:line:`), blankCents: anyCost(`post:${h}:blank:`) }
+    posts[h] = h === '8' ? { allCents: tallPrice('post') }
+      : f.samePostPrice ? { allCents: anyCost(`post:${h}:all:`) }
+        : { cornerCents: anyCost(`post:${h}:corner:`), endCents: anyCost(`post:${h}:end:`), lineCents: anyCost(`post:${h}:line:`), blankCents: anyCost(`post:${h}:blank:`) }
   }
   const sections: VinylColorInput['sections'] = {}
-  for (const s of f.sizes as SizeKey[]) sections[s] = { costCents: cost(`section:${s}`), ...(f.contents?.[s] ?? {}) }
+  for (const s of f.sizes as SizeKey[]) sections[s] = heightOf(s) === '8' ? { costCents: tallPrice('section', widthOf(s)) } : { costCents: cost(`section:${s}`), ...(f.contents?.[s] ?? {}) }
   return {
     name: opt.label, mode: f.mode, sizes: f.sizes as SizeKey[], methods: f.methods as SetMethod[], samePostPrice: f.samePostPrice,
     posts, capCents: cost('cap'), uprightCents: cost('upright'), gate8Cents: cost('gate8'), sections,

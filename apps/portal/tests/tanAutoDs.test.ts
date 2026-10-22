@@ -55,7 +55,8 @@ describe('tan dig set mixed parts list = the TV-DS rows', () => {
   test('a mix: each run at its width, posts, concrete and hardware from the post counts', () => {
     // 60 ft at 6 ft = 10 sections, 64 ft at 8 ft = 8 sections; line posts 9 + 7.
     const items = mixed({ runs: [60, 64], corners: 1, ends: 2, walkGates: 0, dblGates: 0 }, ['6ft', '8ft'])
-    expect(qty(items, '*Vinyl, Tan, Picket, 62-1/4"')).toBe(10 * 11 + 8 * 16)
+    // 15 pickets on an 8 ft wide tan section (Jonathan, Oct 21, 2026; was 16).
+    expect(qty(items, '*Vinyl, Tan, Picket, 62-1/4"')).toBe(10 * 11 + 8 * 15)
     expect(qty(items, "*Vinyl, Tan, Rail, 6'")).toBe(20)
     expect(qty(items, "*Vinyl, Tan, Rail, 8'")).toBe(16)
     expect(qty(items, "Vinyl, Rail Insert, 8'")).toBe(8)

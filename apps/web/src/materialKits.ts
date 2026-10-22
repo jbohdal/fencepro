@@ -256,12 +256,14 @@ export function linesFromKitSetJobLot(set: KitSet, counts: KitCounts, lot: Style
   const unc = new Map<string, { qty: number; cost: number }>()
   const cov = new Map<string, number>()
   const covers = Object.fromEntries(Object.entries(lot.covers).map(([k, v]) => [k, new Set((v ?? []).map(normalizeItemName))])) as Record<keyof StyleJobLot['covers'], Set<string>>
+  // 8 ft tall vinyl: the section and post prices cover every part of their kits.
+  const all = new Set(lot.coversAll ?? [])
   for (const kind of KIT_KINDS) {
     const n = counts[kind]
     if (!n) continue
     const piece = PIECE_OF_KIT[kind]
     for (const p of set.kits[kind] ?? []) {
-      if (piece && covers[piece]?.has(normalizeItemName(p.part))) cov.set(p.part, (cov.get(p.part) ?? 0) + p.qty * n)
+      if (piece && (all.has(piece) || covers[piece]?.has(normalizeItemName(p.part)))) cov.set(p.part, (cov.get(p.part) ?? 0) + p.qty * n)
       else { const was = unc.get(p.part); unc.set(p.part, { qty: (was?.qty ?? 0) + p.qty * n, cost: was?.cost || p.fallbackCost }) }
     }
   }
@@ -277,7 +279,7 @@ export function linesFromKitSetJobLot(set: KitSet, counts: KitCounts, lot: Style
     if (total - uq > 0) lines.push({ part, qty: exact(total - uq), fallbackCost: 0, unitCost: 0 })
   }
   const piece = (name: string, qty: number, price: number | undefined) => {
-    if (qty > 0 && typeof price === 'number' && price > 0) lines.push({ part: `Job lot, ${lot.color}: ${name}`, qty, fallbackCost: price, unitCost: price, piece: true })
+    if (qty > 0 && typeof price === 'number' && price > 0) lines.push({ part: `${lot.label ?? `Job lot, ${lot.color}`}: ${name}`, qty, fallbackCost: price, unitCost: price, piece: true })
   }
   // A section sold as a kit is its own catalog item, priced from Inventory (Vinyl Colors form).
   const section = (w: string, qty: number) => {

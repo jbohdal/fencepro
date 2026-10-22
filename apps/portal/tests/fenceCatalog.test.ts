@@ -94,6 +94,12 @@ describe('choices and plain names for the old codes', () => {
     for (const s of cfg.fenceStyles) {
       const was = LIVE.find(x => x.name === s.name)!
       for (const k of ['name', 'category', 'sectionsPerMH', 'panelWidth', 'mhPerWalkGate', 'mhPerDblGate', 'isActive', 'quotable', 'autoRailMix', 'installMethod', 'colorFamily'] as const) expect(s[k], `${s.name} ${k}`).toEqual(was[k])
+      if (/ 8'x[68]' /.test(s.name)) {
+        // 8 ft tall is priced by the piece (Jonathan, Oct 21, 2026): held until its section and post prices are in.
+        expect(s.held, s.name).toBe('8 ft tall is priced by the piece: enter its section and post prices in Settings → Price List')
+        expect(s.jobLot).toMatchObject({ tall: true, coversAll: ['section', 'post'], sections: {} })
+        continue
+      }
       expect(s.held, s.name).toBeUndefined()
       expect(s.jobLot).toBeUndefined()
     }
@@ -211,7 +217,9 @@ describe('a job lot color (priced by piece)', () => {
     expect(estimateStyles({ fenceStyles: blank.fenceStyles, fenceCatalog: blank.fenceCatalog } as any, { inventory: blank.items, kits: blank.kits }).some(s => s.madeFrom)).toBe(false)
     const priced = planUpdateOption(blank, 'vinyl', 'color', 'testclay', { jobLot: LOT(covers) })
     cfg = use(priced)
-    expect(cfg.fenceStyles.filter(s => s.madeFrom).every(isQuotable)).toBe(true)
+    // 6 ft tall: on. 8 ft tall waits only for its own section and post prices (Oct 21, 2026), not the color's job lot.
+    expect(cfg.fenceStyles.filter(s => s.madeFrom && s.choices?.height === '6').every(isQuotable)).toBe(true)
+    expect(cfg.fenceStyles.filter(s => s.madeFrom && s.choices?.height === '8').map(s => s.held)).toEqual(Array(4).fill('8 ft tall is priced by the piece: enter its section and post prices in Settings → Price List'))
     // White's fences were never touched.
     expect(cfg.fenceStyles.filter(s => !s.madeFrom).map(s => [s.name, isQuotable(s)])).toEqual(use(fresh()).fenceStyles.map(s => [s.name, isQuotable(s)]))
   })
@@ -236,7 +244,10 @@ describe('a color priced by part', () => {
     const m = materialOf(st.fenceCatalog, 'vinyl')!
     const status = colorStatus(cfg.fenceStyles, m, optionOf(m, 'color', 'testclay')!)
     expect(status.ready).toBe(false)
-    expect(status.unpricedParts.length).toBe(st.items.filter(i => i.madeFor).length)
+    // Every part made, except the 8 ft tall section and post parts: those fences' own piece prices cover them (Oct 21, 2026).
+    const tallOnly = new Set(['Mid Rail', "Picket, 4'", "U Channel, 4'", "8' Privacy"].flatMap(w => st.items.filter(i => i.madeFor && i.name.includes(w)).map(i => i.name)))
+    expect(tallOnly.size).toBeGreaterThan(0)
+    expect(status.unpricedParts.sort()).toEqual(st.items.filter(i => i.madeFor && !tallOnly.has(i.name)).map(i => i.name).sort())
     // Price every part: it switches on.
     const priced = { ...st, items: st.items.map(i => (i.madeFor ? { ...i, unitCost: prices[swapColor(i.name, ['Testclay'], 'White')] ?? 5 } : i)) }
     cfg = use(priced)

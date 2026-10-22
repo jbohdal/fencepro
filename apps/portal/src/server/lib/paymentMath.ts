@@ -3,7 +3,10 @@
  * lib/contractBilling.ts saves what these work out, and the phone's offline
  * receipt (web/src/paymentsStore.ts predictReceipt) follows the same rules.
  *
- *   depositOf       contract × deposit percent, to the cent (half a cent rounds up)
+ *   depositOf       contract × deposit percent, to the cent (half a cent rounds up);
+ *                   on a contract priced to the whole dollar (Oct 21 2026 on),
+ *                   rounded down to the whole dollar, so the final (the rest)
+ *                   is whole dollars too
  *   finalOf         what is left of the contract after every other invoice (never below 0)
  *   applyPayments   each payment to the oldest open invoice first, the rest
  *                   carried to the next; what is left over is a credit
@@ -11,9 +14,15 @@
 
 export const DEFAULT_DEPOSIT_PCT = 50
 
-export function depositOf(contractCents: number, pct: number | null | undefined): number {
+export function depositOf(contractCents: number, pct: number | null | undefined, wholeDollars = false): number {
   const p = typeof pct === 'number' && pct > 0 && pct <= 100 ? pct : DEFAULT_DEPOSIT_PCT
-  return Math.round((contractCents * p) / 100)
+  const exact = Math.round((contractCents * p) / 100)
+  return wholeDollars ? Math.floor(exact / 100) * 100 : exact
+}
+
+/** A signed quote priced to the whole dollar: its proposal or its pricing says so (quotes before Oct 21 2026 keep cents). */
+export function pricedWholeDollar(q: { proposal?: unknown; pricing?: unknown } | null | undefined): boolean {
+  return (q?.proposal as any)?.wholeDollar === true || (q?.pricing as any)?.wholeDollar === true
 }
 
 export function finalOf(contractCents: number, otherInvoiceCents: number[]): number {
