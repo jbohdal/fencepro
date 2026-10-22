@@ -48,6 +48,7 @@ import savedJobRoutes from './routes/saved-jobs.js'
 import jobCostingRoutes from './routes/job-costing.js'
 import pullSheetRoutes from './routes/pull-sheets.js'
 import warrantyRoutes from './routes/warranties.js'
+import signedDocumentRoutes from './routes/signed-documents.js'
 import { ensureWarrantiesAll } from './lib/warranties.js'
 import changeOrderRoutes from './routes/change-orders.js'
 import scheduleRoutes from './routes/schedule.js'
@@ -265,6 +266,7 @@ app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff after install (lib/jobCosting.ts)
 app.use('/api/pull-sheets', pullSheetRoutes)  // A customer's pull sheets from their quotes and jobs (lib/customerPullSheets.ts)
 app.use('/api/warranties', warrantyRoutes)  // A job's warranty, service call coverage, the signed contract PDF (lib/warranties.ts)
+app.use('/api/signed-documents', signedDocumentRoutes)  // Stored signed contract and change order PDFs (lib/signedDocuments.ts)
 app.use('/api/change-orders', changeOrderRoutes)  // Change orders on signed quotes (lib/changeOrders.ts)
 app.use('/api/payments', paymentRoutes)  // Payment schedules, payments and receipts (lib/contractBilling.ts)
 app.use('/api/schedule', scheduleRoutes)

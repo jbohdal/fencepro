@@ -44,6 +44,12 @@ export interface ProposalOption {
   tier?: { key: string; label: string; blurb: string }
   /** "Most popular" */
   badge?: string
+  /**
+   * The quote's ± dollar adjustment applied to this option's price, in cents
+   * (−3000: $30 off). The list price is finalPrice − this. Every option on a
+   * proposal carries the same adjustment (the salesman took $X off the job).
+   */
+  adjustmentCents?: number
   /** Priced snapshot copied onto the quote if the customer picks this option. Never shown to the customer. */
   snapshot: {
     materialCost: number; laborCost: number; tearOutCost: number; totalCOGS: number; gmPct: number
@@ -80,6 +86,8 @@ export interface QuoteProposal {
   description?: string
   /** Priced to the whole dollar (Oct 21 2026 on): the deposit is whole dollars too, the final takes the rest. */
   wholeDollar?: boolean
+  /** Show a reduction as the list price, a Discount line and the final price (the quote's "Show as discount on the proposal"). Otherwise the final price only. */
+  showDiscount?: boolean
 }
 
 // ── Which options make sense for a style ──────────────────────────────────────
@@ -143,6 +151,7 @@ export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalO
     finalPrice: q.priced.price,
     perFoot: q.priced.pricePerFoot,
     sections: q.sections,
+    ...(q.priced.adjustmentCents ? { adjustmentCents: q.priced.adjustmentCents } : {}),
     snapshot: {
       materialCost: q.priced.materialCost, laborCost: q.priced.laborCost, tearOutCost: q.priced.tearOutCost,
       totalCOGS: q.priced.totalCOGS, gmPct: q.priced.gmPct, pullSheet: q.materials.items,
@@ -174,6 +183,10 @@ export function buildProposal(args: {
   ownPrice: number
   /** The cents the quote's own price was rounded down by. */
   ownRoundingCents?: number
+  /** The ± dollar adjustment in the quote's own price (cents). */
+  ownAdjustmentCents?: number
+  /** "Show as discount on the proposal" on the quote. */
+  showDiscount?: boolean
   /** Priced to the whole dollar (false: a quote that keeps its cents). */
   wholeDollar?: boolean
   company: { name: string; phone: string; email: string }
@@ -199,6 +212,10 @@ export function buildProposal(args: {
       o.finalPrice = args.ownPrice
       o.perFoot = feet > 0 ? Math.round((args.ownPrice / feet) * 100) / 100 : 0
       if (typeof args.ownRoundingCents === 'number') o.snapshot = { ...o.snapshot, roundingCents: args.ownRoundingCents }
+      if (typeof args.ownAdjustmentCents === 'number') {
+        if (args.ownAdjustmentCents) o.adjustmentCents = args.ownAdjustmentCents
+        else delete o.adjustmentCents
+      }
     }
     // A tier's own photo, else the style's photo.
     o.photoId = o.photoId || args.photoIds[o.fenceStyle] || null
@@ -225,7 +242,13 @@ export function buildProposal(args: {
     recommended: popular >= 0 ? popular : Math.max(0, options.findIndex(o => o.fenceStyle === own.name)),
     options,
     ...(args.wholeDollar === false ? {} : { wholeDollar: true }),
+    ...(args.showDiscount && options.some(o => (o.adjustmentCents ?? 0) < 0) ? { showDiscount: true } : {}),
   }
+}
+
+/** An option's list price (before the quote's ± dollar adjustment), in dollars. */
+export function listPriceOf(o: Pick<ProposalOption, 'finalPrice' | 'adjustmentCents'>): number {
+  return Math.round(o.finalPrice * 100 - (o.adjustmentCents ?? 0)) / 100
 }
 
 /** The customer's link: the public door on a Tailscale address, the app's own address otherwise.
@@ -242,6 +265,7 @@ export function proposalUrl(token: string, preview?: string | null): string {
 export function workOption(label: string, styleName: string, w: WorkResult, saved: SavedWork, runSections: number[]): ProposalOption {
   return {
     label, fenceStyle: styleName, finalPrice: w.priceCents / 100, perFoot: 0, sections: w.sections,
+    ...(w.adjustmentCents ? { adjustmentCents: w.adjustmentCents } : {}),
     snapshot: {
       materialCost: w.materialCents / 100, laborCost: w.laborCents / 100, tearOutCost: w.disposalCents / 100, totalCOGS: w.costCents / 100,
       gmPct: w.gmPct, pullSheet: w.pullSheet, runSections, work: saved, roundingCents: w.roundingCents,
@@ -264,6 +288,8 @@ export function buildWorkProposal(args: {
   photoIds: Record<string, string>
   /** Priced to the whole dollar (false: a quote that keeps its cents). */
   wholeDollar?: boolean
+  /** "Show as discount on the proposal" on the quote. */
+  showDiscount?: boolean
 }): QuoteProposal {
   const { settings } = args
   const fin = settings.financing
@@ -286,5 +312,6 @@ export function buildWorkProposal(args: {
     recommended: 0,
     options: args.options.map(o => ({ ...o, photoId: o.photoId || args.photoIds[o.fenceStyle] || null })),
     ...(args.wholeDollar === false ? {} : { wholeDollar: true }),
+    ...(args.showDiscount && args.options.some(o => (o.adjustmentCents ?? 0) < 0) ? { showDiscount: true } : {}),
   }
 }

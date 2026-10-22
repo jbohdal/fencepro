@@ -136,7 +136,10 @@ export interface PortalBilling {
   payments: Array<{ id: string; amountCents: number; paidOn: string; paidOnText: string; method: string; receipt: { number: number; link: string; pdf: string } | null }>
 }
 export interface PortalPapers {
-  contracts: Array<{ quoteId: string; style: string; signedOn: string; url: string }>
+  /** The signed PDFs as they were stored at signing (contracts and change orders); `url` is a file link (fileHref). */
+  signed?: Array<{ id: string; kind: 'contract' | 'change_order'; title: string; detail: string; signedOn: string; signedBy: string; quoteId: string; url: string }>
+  /** `stored`: this quote's signed contract is in `signed`. */
+  contracts: Array<{ quoteId: string; style: string; signedOn: string; url: string; stored?: boolean }>
   certificates: Array<{ jobId: string; style: string; completedOn: string; url: string }>
 }
 

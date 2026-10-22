@@ -24,7 +24,7 @@ import fs from 'fs'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { plainZod } from '../lib/plainZod.js'
-import { CSS, esc, linkClosed, renderProposal, trackScript, acceptQuote, acceptSchema, type Proposal } from './proposal.js'
+import { CSS, esc, linkClosed, renderProposal, trackScript, acceptQuote, acceptSchema, signerOf, type Proposal } from './proposal.js'
 import { signedNow } from './saved-quotes.js'
 import { startView, beatView, staffOf, ignoredRequest, proposalOpenedPush } from '../lib/proposalViews.js'
 import { contractForQuote } from '../lib/contractPdf.js'
@@ -266,7 +266,7 @@ warrantyUpdatePublic.post('/:token/accept', express.json({ limit: '1.5mb' }), as
     const r = await load(String(req.params.token))
     if (!r) { res.status(404).json({ success: false, error: 'This proposal is no longer available.' }); return }
     if (r.ack) { res.status(409).json({ success: false, error: 'This proposal was already accepted.' }); return }
-    const out = await acceptQuote(r.q, body)
+    const out = await acceptQuote(r.q, body, signerOf(req))
     if (out.status === 200) {
       const q = await prisma.savedQuote.findUnique({ where: { id: r.q.id }, select: { chosenOption: true } })
       const o = r.options.find(x => x.index === body.option)

@@ -117,6 +117,14 @@ export interface CustomerSignature { name: string; signature: string; ip: string
  * sent again (the answer was lost) stands; a different one is refused.
  */
 export async function signByCustomer(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean }> {
+  const out = await signIn(accountId, id, s)
+  // The signed change order PDF, stored once with the signed record (lib/signedDocuments.ts); a repeat makes it if the first try did not.
+  const { fileSignedChangeOrder } = await import('./signedDocuments.js')
+  await fileSignedChangeOrder(out.row.id).catch(e => console.error('[change-orders] signed file:', e))
+  return out
+}
+
+async function signIn(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean }> {
   return prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM "ChangeOrder" WHERE id = ${id} FOR UPDATE`
     const cur = await tx.changeOrder.findUnique({ where: { id } })

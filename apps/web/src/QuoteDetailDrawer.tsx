@@ -28,6 +28,7 @@ import DollarPickets from './DollarPickets'
 import { getConfig, overheadPctOf } from './configStore'
 import { useBackLayer, BackClose } from './nav'
 import { SaveStatus } from './SaveStatus'
+import SignedDocuments from './SignedDocuments'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -169,8 +170,10 @@ export default function QuoteDetailDrawer({
             const pct = typeof quote.pricing?.commissionPct === 'number' ? quote.pricing.commissionPct : (quote.hasSalesman ? cfg.pricing.commissionSalesman : cfg.pricing.commissionNonSalesman) ?? 0
             // Rounded to the whole dollar: commission and overhead stay on the price before rounding (the cents are out of profit).
             const rounding = typeof quote.pricing?.roundingCents === 'number' ? quote.pricing.roundingCents : 0
+            // The ± dollar adjustment is out of profit too: commission and overhead stay on the price before it.
+            const adj = typeof quote.pricing?.priceAdjustmentCents === 'number' ? quote.pricing.priceAdjustmentCents : 0
             return <DollarPickets price={quote.finalPrice} materials={quote.materialCost} labor={(quote.laborCost || 0) + (quote.tearOutCost || 0)}
-              commission={(quote.finalPrice + rounding / 100) * pct} overheadPct={typeof quote.pricing?.overheadPct === 'number' ? quote.pricing.overheadPct : overheadPctOf(cfg)} roundingCents={rounding} />
+              commission={(quote.finalPrice + rounding / 100 - adj / 100) * pct} overheadPct={typeof quote.pricing?.overheadPct === 'number' ? quote.pricing.overheadPct : overheadPctOf(cfg)} roundingCents={rounding} adjustmentCents={adj} />
           })()}
 
           {/* Photos and video taken for this quote (site walk, gate location, ...) */}
@@ -237,6 +240,9 @@ export default function QuoteDetailDrawer({
               <p className="text-xs font-mono text-blue-900 mt-1 break-all">{shareUrl}</p>
             </section>
           )}
+
+          {/* The signed contract and signed change orders, as stored at signing (SignedDocuments.tsx). */}
+          {quote.acceptedAt && <SignedDocuments which={{ quoteId: quote.id }} heading="Signed documents" />}
         </div>
 
         {/* Template picker + preview */}

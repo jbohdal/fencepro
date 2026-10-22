@@ -28,6 +28,16 @@
  *                            rounding, so the margin drops by exactly the cents.
  *                            A quote sent, sold or accepted before this keeps its
  *                            cents (wholeDollar: false on its pricing, keepsCents).
+ *
+ *   Adjustment ± dollars      (Jonathan, Oct 22 2026): a whole dollar amount typed
+ *                            on the quote (priceAdjustmentCents, −3000 = $30 off),
+ *                            applied after the slider and before the rounding, so
+ *                            a typed final price comes out exact. Like the
+ *                            rounding it comes out of profit only: commission and
+ *                            overhead stay on the price before the adjustment
+ *                            (the slider's price). It never takes the price
+ *                            under cost (cost of goods + commission): such a
+ *                            reduction is not applied and a note says so.
  */
 
 export type LaborMode = 'hourly' | 'subcontractor'
@@ -98,6 +108,13 @@ export interface QuotePricingOverrides {
   wholeDollar?: boolean
   /** Saved with the quote: the cents the price was rounded down by (internal; the engine does not read it). */
   roundingCents?: number
+  /**
+   * A whole dollar ± adjustment on the price, in cents (−3000 = $30 off; an
+   * increase is positive). After the slider, before the rounding, out of profit.
+   */
+  priceAdjustmentCents?: number
+  /** The proposal shows the list price, a Discount line and the final (a reduction only); otherwise the final price only. */
+  showDiscountOnProposal?: boolean
 }
 
 export interface PriceInputs {
@@ -147,6 +164,14 @@ export interface PriceResult {
   priceBeforeRounding: number
   /** Cents the price was rounded down by (0 to 99), out of profit. */
   roundingCents: number
+  /** The price after the slider and before the ± dollar adjustment (not rounded): commission and overhead are on it. */
+  priceBeforeAdjustment: number
+  /** What the price would be with no ± dollar adjustment (rounded like the price): the proposal's list price. */
+  listPrice: number
+  /** The ± dollar adjustment applied, in whole dollar cents (0 when there is none or it was refused). */
+  adjustmentCents: number
+  /** A reduction asked for that would put the price under cost, so it was not applied. */
+  adjustmentRefused: boolean
   /** price − cost − commission. */
   grossMargin: number
   gmPct: number
@@ -187,6 +212,47 @@ export function wholeDollarCents(amountCents: number, on = true): { cents: numbe
 /** Whether these pricing choices round to the whole dollar (every quote but one that keeps its cents). */
 export function roundsToWholeDollar(o: QuotePricingOverrides | null | undefined): boolean {
   return o?.wholeDollar !== false
+}
+
+/** The ± dollar adjustment asked for on a quote, in whole dollar cents (0: none). */
+export function adjustmentOf(o: QuotePricingOverrides | null | undefined): number {
+  const v = o?.priceAdjustmentCents
+  if (typeof v !== 'number' || !Number.isFinite(v)) return 0
+  return Math.round(v / 100) * 100 || 0
+}
+
+export interface AdjustedPrice {
+  /** The price the customer pays, in cents (rounded per the whole dollar rule). */
+  priceCents: number
+  roundingCents: number
+  /** The same price with no adjustment, in cents. */
+  listCents: number
+  /** The adjustment applied (0 when there is none or it was refused). */
+  adjustmentCents: number
+  refused: boolean
+}
+
+/**
+ * The ± dollar adjustment on a price before rounding (`unroundedCents`, the
+ * price after the slider), then the whole dollar rule. A reduction that would
+ * leave the price under `floorCents` (cost of goods + commission) or under $0
+ * is refused: the price stays as it was.
+ */
+export function adjustedPrice(unroundedCents: number, o: QuotePricingOverrides | null | undefined, floorCents: number): AdjustedPrice {
+  const on = roundsToWholeDollar(o)
+  const list = wholeDollarCents(unroundedCents, on)
+  const wanted = adjustmentOf(o)
+  if (wanted === 0 || !(unroundedCents > 0)) return { priceCents: list.cents, roundingCents: list.roundingCents, listCents: list.cents, adjustmentCents: 0, refused: false }
+  const r = wholeDollarCents(unroundedCents + wanted, on)
+  if (wanted < 0 && r.cents < Math.max(0, Math.ceil(Math.round(floorCents * 100) / 100))) {
+    return { priceCents: list.cents, roundingCents: list.roundingCents, listCents: list.cents, adjustmentCents: 0, refused: true }
+  }
+  return { priceCents: r.cents, roundingCents: r.roundingCents, listCents: list.cents, adjustmentCents: wanted, refused: false }
+}
+
+/** The note shown when a reduction is refused. */
+export function refusedNote(adjustmentCents: number): string {
+  return `Taking $${Math.abs(Math.round(adjustmentCents / 100)).toLocaleString('en-US')} off would put the price under cost, so it is not applied.`
 }
 
 /**
@@ -315,12 +381,17 @@ export function calculatePrice(input: PriceInputs): PriceResult {
     const withCommission = commissionMode === 'added' ? basePrice / (1 - commissionPct) : basePrice
     unrounded = withCommission * (1 + num(input.priceAdjust))
   }
-  // A ± dollar adjustment on the quote, when there is one, goes here: before the rounding.
+  // Commission (and overhead) are on the price after the slider, before the ± dollar adjustment and the rounding.
+  const priceBeforeAdjustment = unrounded
+  const commissionAmt = priceBeforeAdjustment * commissionPct
 
-  // ── Whole dollar (last): the cents come out of profit; commission stays on the price before rounding ──
-  const r = wholeDollarCents(unrounded * 100, roundsToWholeDollar(o))
-  const price = r.roundingCents > 0 ? r.cents / 100 : unrounded
-  const commissionAmt = unrounded * commissionPct
+  // ── ± dollar adjustment (out of profit, never under cost), then whole dollar (last) ──
+  const a = adjustedPrice(unrounded * 100, o, (totalCOGS + commissionAmt) * 100)
+  if (a.refused) notes.push(refusedNote(adjustmentOf(o)))
+  unrounded += a.adjustmentCents / 100
+  const r = { cents: a.priceCents, roundingCents: a.roundingCents }
+  const price = r.roundingCents > 0 || a.adjustmentCents !== 0 ? r.cents / 100 : unrounded
+  const listPrice = r.roundingCents > 0 || a.adjustmentCents !== 0 ? a.listCents / 100 : priceBeforeAdjustment
   const grossMargin = price - totalCOGS - commissionAmt
   const gmPct = price > 0 ? grossMargin / price : 0
 
@@ -346,6 +417,10 @@ export function calculatePrice(input: PriceInputs): PriceResult {
     price: cents(price),
     priceBeforeRounding: cents(unrounded),
     roundingCents: r.roundingCents,
+    priceBeforeAdjustment: cents(priceBeforeAdjustment),
+    listPrice: cents(listPrice),
+    adjustmentCents: a.adjustmentCents,
+    adjustmentRefused: a.refused,
     grossMargin: cents(grossMargin),
     gmPct,
     pricePerFoot: footage > 0 ? cents(price / footage) : 0,

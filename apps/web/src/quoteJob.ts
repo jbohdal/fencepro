@@ -17,7 +17,7 @@ import {
   priceMove, priceRepair, moveRepairSettings, newFenceBetter, toSavedWork,
   type JobType, type MoveInputs, type RepairInputs, type SavedWork, type WorkResult,
 } from './moveRepair'
-import { cleanOverrides, wholeDollarCents, roundsToWholeDollar, type QuotePricingOverrides } from './pricingEngine'
+import { cleanOverrides, adjustedPrice, roundsToWholeDollar, type QuotePricingOverrides } from './pricingEngine'
 import { isQuotable } from './styleAvailability'
 import type { AppConfig, FenceStyle } from './configStore'
 
@@ -71,6 +71,10 @@ export interface QuoteJob {
     price: number; commission: number; grossMargin: number; gmPct: number
     /** Cents the price was rounded down by to the whole dollar (pricingEngine.ts). */
     roundingCents: number
+    /** The price with no ± dollar adjustment (the proposal's list price), the adjustment applied (cents), and whether a reduction was refused (under cost). */
+    listPrice: number
+    adjustmentCents: number
+    adjustmentRefused: boolean
   }
   pullSheet: LineItem[]
   tiers: ResolvedTier[]
@@ -82,9 +86,22 @@ export interface QuoteJob {
 }
 
 /** The minimum job price for a new fence, under the whole dollar rule (dollars, and the cents rounded off). */
-export function minimumPrice(minimumJobCents: number, overrides: QuotePricingOverrides | null | undefined): { price: number; roundingCents: number } {
-  const r = wholeDollarCents(minimumJobCents, roundsToWholeDollar(overrides))
-  return { price: r.cents / 100, roundingCents: r.roundingCents }
+export function minimumPrice(minimumJobCents: number, overrides: QuotePricingOverrides | null | undefined, floorCents = 0): { price: number; roundingCents: number; listPrice: number; adjustmentCents: number; adjustmentRefused: boolean } {
+  // The ± dollar adjustment goes on after the minimum (it is the last choice on the price before rounding).
+  const r = adjustedPrice(minimumJobCents, overrides, floorCents)
+  return { price: r.priceCents / 100, roundingCents: r.roundingCents, listPrice: r.listCents / 100, adjustmentCents: r.adjustmentCents, adjustmentRefused: r.refused }
+}
+
+/** What a saved quote keeps about its ± dollar adjustment: the amount applied (none when refused) and how the proposal shows it. */
+export function adjustmentRecord(overrides: QuotePricingOverrides | null | undefined, appliedCents: number): Pick<QuotePricingOverrides, 'priceAdjustmentCents' | 'showDiscountOnProposal'> {
+  return appliedCents !== 0
+    ? { priceAdjustmentCents: appliedCents, showDiscountOnProposal: overrides?.showDiscountOnProposal === true ? true : undefined }
+    : { priceAdjustmentCents: undefined, showDiscountOnProposal: undefined }
+}
+
+/** A new fence lifted to the minimum job price: its price before the ± dollar adjustment is under the minimum. */
+export function isNewMin(jobType: JobType, mr: { minimumAppliesToNew: boolean; minimumJobCents: number }, priced: { priceMethod: string; price: number; priceBeforeAdjustment: number }): boolean {
+  return jobType === 'new' && mr.minimumAppliesToNew && priced.priceMethod !== 'manual' && priced.price > 0 && Math.round(priced.priceBeforeAdjustment * 100) < mr.minimumJobCents
 }
 
 /** What a saved quote keeps about the whole dollar rule: whether it was priced with it, and the cents rounded off. */
@@ -143,19 +160,23 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
   }
 
   // The figures the quote shows and saves (QuoteBuilder).
-  const newMin = req.jobType === 'new' && mr.minimumAppliesToNew && priced.priceMethod !== 'manual' && priced.price > 0 && Math.round(priced.priceBeforeRounding * 100) < mr.minimumJobCents
-  const minimum = minimumPrice(mr.minimumJobCents, req.overrides)
+  const newMin = isNewMin(req.jobType, mr, priced)
   const totalCOGS = work ? work.costCents / 100 : priced.totalCOGS
+  const minCommission = Math.round(mr.minimumJobCents * priced.commissionPct) / 100
+  const minimum = minimumPrice(mr.minimumJobCents, req.overrides, Math.round((totalCOGS + minCommission) * 100))
   const price = work ? work.priceCents / 100 : newMin ? minimum.price : priced.price
-  const commission = work ? work.commissionCents / 100 : newMin ? Math.round(mr.minimumJobCents * priced.commissionPct) / 100 : priced.commissionAmt
+  const commission = work ? work.commissionCents / 100 : newMin ? minCommission : priced.commissionAmt
   const grossMargin = work ? work.grossMarginCents / 100 : newMin ? Math.round((price - totalCOGS - commission) * 100) / 100 : priced.grossMargin
   const roundingCents = work ? work.roundingCents : newMin ? minimum.roundingCents : priced.roundingCents
+  const listPrice = work ? work.listCents / 100 : newMin ? minimum.listPrice : priced.listPrice
+  const adjustmentCents = work ? work.adjustmentCents : newMin ? minimum.adjustmentCents : priced.adjustmentCents
+  const adjustmentRefused = work ? work.adjustmentRefused : newMin ? minimum.adjustmentRefused : priced.adjustmentRefused
   const totals = {
     manHours: work ? work.manHours : priced.manHours,
     materialCost: work ? work.materialCents / 100 : totalMaterialCost(calc.materials.items),
     laborCost: work ? work.laborCents / 100 : priced.laborCost,
     tearOutCost: work ? work.disposalCents / 100 : priced.tearOutCost,
-    totalCOGS, price, commission, grossMargin, roundingCents,
+    totalCOGS, price, commission, grossMargin, roundingCents, listPrice, adjustmentCents, adjustmentRefused,
     gmPct: work ? work.gmPct : newMin ? (price > 0 ? grossMargin / price : 0) : priced.gmPct,
   }
 
@@ -170,10 +191,10 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     if (req.jobType === 'move') {
       if (moveAsIs && req.offerMoveAsIs !== false) {
         proposalOptions.push(workOption(`Move as is: ${Math.round(moveIn!.oldFt)} ft of your fence on the new line`, style.name, moveAsIs, saved(moveAsIs), runSecs))
-        proposalOptions.push({ ...workOption('Move plus new fence for the extra length', style.name, work, saved(work), runSecs), finalPrice: price })
-      } else proposalOptions.push({ ...workOption('Move your fence to the new line', style.name, work, saved(work), runSecs), finalPrice: price })
+        proposalOptions.push({ ...workOption('Move plus new fence for the extra length', style.name, work, saved(work), runSecs), finalPrice: price, adjustmentCents })
+      } else proposalOptions.push({ ...workOption('Move your fence to the new line', style.name, work, saved(work), runSecs), finalPrice: price, adjustmentCents })
     } else {
-      proposalOptions.push({ ...workOption('Repair', style.name, work, saved(work), runSecs), finalPrice: price })
+      proposalOptions.push({ ...workOption('Repair', style.name, work, saved(work), runSecs), finalPrice: price, adjustmentCents })
       if (req.offerNewFence && repairCheck?.nf) {
         const o = priceOption({ ...calcInput, runs: repairCheck.runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0 }, style)
         proposalOptions.push({ ...o, label: `New fence instead: ${o.label}`, snapshot: { ...o.snapshot, work: null } })
@@ -190,6 +211,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}),
     overheadPct,
     ...wholeDollarRecord(req.overrides, roundingCents),
+    ...adjustmentRecord(req.overrides, adjustmentCents),
   })
   return {
     style, calcInput, calc, width, work, moveAsIs, repairCheck, newMin, totals,
@@ -212,10 +234,11 @@ export function savedWorkOf(job: QuoteJob, req: QuoteJobRequest, extra: Pick<Sav
 const lineView = (i: LineItem) => ({ item: i.item, qty: i.qty, ...(i.costSource === 'jobLot' || i.costSource === 'wood' ? { costSource: i.costSource } : {}), ...(i.moneyOnly ? { moneyOnly: true } : {}) })
 const optionView = (o: ProposalOption) => ({
   label: o.label, fenceStyle: o.fenceStyle, finalPrice: o.finalPrice, perFoot: o.perFoot, sections: o.sections,
+  ...(o.adjustmentCents ? { adjustmentCents: o.adjustmentCents } : {}),
   ...(o.tier ? { tier: o.tier } : {}), ...(o.badge ? { badge: o.badge } : {}), ...(o.photoId ? { photoId: o.photoId } : {}),
 })
 const workView = (w: WorkResult | null) => (w ? {
-  type: w.type, priceCents: w.priceCents, manual: w.manual, minimumApplied: w.minimumApplied, pullSheet: w.pullSheet.map(lineView),
+  type: w.type, priceCents: w.priceCents, listCents: w.listCents, adjustmentCents: w.adjustmentCents, adjustmentRefused: w.adjustmentRefused, manual: w.manual, minimumApplied: w.minimumApplied, pullSheet: w.pullSheet.map(lineView),
   warnings: w.warnings, description: w.description, crew: w.crew, needs811: w.needs811, sections: w.sections, footage: w.footage, manHours: w.manHours,
 } : null)
 
@@ -231,7 +254,9 @@ export function quoteView(job: QuoteJob) {
     sections: c.sections, perRunSections: c.perRunSections, perRunRail: c.perRunRail,
     pullSheet: job.pullSheet.map(lineView),
     materialWarnings: c.materials.warnings,
-    price: job.totals.price, pricePerFoot: c.priced.pricePerFoot, newFencePrice: c.priced.price, priceMethod: c.priced.priceMethod,
+    price: job.totals.price, pricePerFoot: c.priced.pricePerFoot,
+    // The ± dollar adjustment (a price, not a cost): the list price, the amount applied, and a reduction refused for being under cost.
+    listPrice: job.totals.listPrice, adjustmentCents: job.totals.adjustmentCents, adjustmentRefused: job.totals.adjustmentRefused, newFencePrice: c.priced.price, priceMethod: c.priced.priceMethod,
     manHours: job.totals.manHours,
     crewSize: c.priced.crewSize, crewHours: c.priced.crewHours, crewDays: c.priced.crewDays,
     commissionMode: c.priced.commissionMode,

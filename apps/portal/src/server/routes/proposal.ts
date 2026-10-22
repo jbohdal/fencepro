@@ -34,6 +34,8 @@ import { installDateOf } from '../lib/warranties.js'
 import { pricingModule, plainStyleName } from '../lib/estimates.js'
 import { overlayAcceptedUpdate } from '../lib/warrantyUpdates.js'
 import { depositOf } from '../lib/paymentMath.js'
+import { clientIpOf } from '../lib/staffDevices.js'
+import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -79,7 +81,7 @@ export function monthlyPayment(price: number, aprPct: number, months: number): n
   return r > 0 ? (price * r) / (1 - Math.pow(1 + r, -months)) : price / months
 }
 
-export interface ProposalOption { label: string; fenceStyle: string; finalPrice: number; perFoot: number; sections: number; photoId?: string | null; tier?: { label?: string; blurb?: string }; badge?: string; snapshot?: any; warranty?: { id?: string | null; name?: string; text?: string } }
+export interface ProposalOption { label: string; fenceStyle: string; finalPrice: number; perFoot: number; sections: number; photoId?: string | null; adjustmentCents?: number; tier?: { label?: string; blurb?: string }; badge?: string; snapshot?: any; warranty?: { id?: string | null; name?: string; text?: string } }
 export interface Proposal {
   version: number
   company?: { name?: string; phone?: string; email?: string }
@@ -100,6 +102,17 @@ export interface Proposal {
   description?: string
   /** Priced to the whole dollar (Oct 21 2026 on): no cents anywhere on the page, the deposit whole dollars too. */
   wholeDollar?: boolean
+  /** Show a reduction (the quote's ± dollar adjustment) as the list price, a Discount line and the final. Otherwise the final price only. */
+  showDiscount?: boolean
+}
+
+/** An option's price block: the final price; with "Show as discount" and a reduction, the list price and a Discount line above it. */
+export function optionPriceHtml(p: Pick<Proposal, 'showDiscount'>, o: Pick<ProposalOption, 'finalPrice' | 'adjustmentCents'>): string {
+  const adj = Math.round(Number(o.adjustmentCents) || 0)
+  const fmt = money
+  if (p.showDiscount !== true || !(adj < 0)) return `<span class="price">${fmt(o.finalPrice)}</span>`
+  const list = Math.round(o.finalPrice * 100 - adj) / 100
+  return `<span class="list" data-list-price>Price <s>${fmt(list)}</s></span><span class="disc" data-discount>Discount −${fmt(-adj / 100)}</span><span class="price" data-final-price>${fmt(o.finalPrice)}</span>`
 }
 
 /** The deposit shown for an option's price (dollars): as the payment schedule makes it (lib/paymentMath.ts depositOf). */
@@ -295,7 +308,7 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
   try {
     const body = acceptSchema.parse(req.body)
     const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) } })
-    const out = await acceptQuote(q, body)
+    const out = await acceptQuote(q, body, signerOf(req))
     res.status(out.status).json(out.json)
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -304,15 +317,22 @@ publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (r
   }
 })
 
+/** Where an acceptance came from: the client's IP as Express gives it (trust proxy 1: the address Tailscale Funnel saw) and its browser. */
+export interface Signer { ip: string | null; userAgent: string | null }
+export const signerOf = (req: express.Request): Signer => ({ ip: plainIp(clientIpOf(req)), userAgent: String(req.headers['user-agent'] ?? '').slice(0, 500) || null })
+
+/** The signed contract PDF, stored once (lib/signedDocuments.ts); a retry makes it if the first try did not. */
+const fileContract = (quoteId: string) => fileSignedContract(quoteId).catch(err => console.error('[proposal] signed contract file:', err))
+
 /**
  * The customer accepts option `body.option` of quote `q` (the proposal link, or
  * a warranty update link: routes/warrantyUpdatePublic.ts). `accepted`: this
  * call is the one that accepted it (not a repeat of an acceptance that stands).
  */
-export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>): Promise<{ status: number; json: any; accepted?: boolean }> {
+export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, signer: Signer = { ip: null, userAgent: null }): Promise<{ status: number; json: any; accepted?: boolean }> {
   if (!q || q.archivedAt) { return { status: 404, json: { success: false, error: 'This proposal is no longer available.' } } }
   // The same acceptance sent again (the customer's signal dropped before the answer came back): it stands.
-  if (q.acceptedAt && q.chosenOption === body.option && q.acceptedBy === body.name) { return { status: 200, json: { success: true, data: { acceptedAt: q.acceptedAt, option: body.option } }, accepted: false } }
+  if (q.acceptedAt && q.chosenOption === body.option && q.acceptedBy === body.name) { await fileContract(q.id); return { status: 200, json: { success: true, data: { acceptedAt: q.acceptedAt, option: body.option } }, accepted: false } }
   if (q.acceptedAt) { return { status: 409, json: { success: false, error: 'This proposal was already accepted.' } } }
   if (linkClosed(q)) { return { status: 410, json: { success: false, error: 'This link is no longer active. Please call us.' } } }
   const p = q.proposal as unknown as Proposal | null
@@ -335,6 +355,8 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>): P
       acceptedAt: new Date(),
       acceptedBy: body.name,
       acceptedSignature: body.signature ?? null,
+      acceptedIp: signer.ip,
+      acceptedUserAgent: signer.userAgent,
       chosenOption: body.option,
       // Ever sold: set once, never cleared (lib/everSold.ts).
       ...(q.soldAt ? {} : { soldAt: new Date() }),
@@ -355,7 +377,7 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>): P
   })
   const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
   if (claimed.count === 0) {
-    if (updated.chosenOption === body.option && updated.acceptedBy === body.name) { return { status: 200, json: { success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } }, accepted: false } }
+    if (updated.chosenOption === body.option && updated.acceptedBy === body.name) { await fileContract(q.id); return { status: 200, json: { success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } }, accepted: false } }
     return { status: 409, json: { success: false, error: 'This proposal was already accepted.' } }
   }
   console.log(`[proposal] customer accepted quote ${q.id} option ${body.option} (${opt.fenceStyle}) as "${body.name}"`)
@@ -367,6 +389,8 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>): P
   await ensureJobForAcceptedQuote(updated as any).catch(err => console.error('[proposal] job after accept:', err))
   // Its payment schedule from the contract: deposit due now, final on completion (lib/contractBilling.ts).
   await scheduleAfterSigning(q.accountId, q.id, 'accepted', { userId: null, name: `${body.name} (customer, proposal link)` })
+  // The signed contract, stored with the signature, name, IP and time on its last page (after the job, so it is linked to it).
+  await fileContract(q.id)
   return { status: 200, json: { success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } }, accepted: true }
 }
 
@@ -434,7 +458,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
         ${o.tier?.label ? `<span class="tier">${esc(o.tier.label)}</span>` : ''}
         <span class="optlabel">${esc(o.label)}</span>
         ${o.tier?.blurb ? `<span class="blurb">${esc(o.tier.blurb)}</span>` : ''}
-        <span class="price">${money(o.finalPrice)}</span>
+        ${optionPriceHtml(p, o)}
         ${o.perFoot > 0 ? `<span class="small">${perFootText(o.perFoot)} a foot · ${o.sections} sections</span>` : ''}
         ${o.warranty?.name ? `<span class="wbadge" data-warranty-badge>${esc(o.warranty.name)}</span>` : ''}
         ${save}${monthly}
@@ -564,6 +588,7 @@ section{background:#fff;border:1px solid var(--line);border-radius:16px;padding:
 .opt.on{border-color:var(--p);background:#F7F3FD}.opt input{width:24px;height:24px;margin-top:4px;accent-color:var(--p)}
 .photo{grid-column:1/-1;width:100%;max-height:260px;object-fit:cover;border-radius:10px}
 .optbody{display:flex;flex-direction:column;gap:2px}.optlabel{font-weight:700}.price{font-size:28px;font-weight:800}
+.list{font-size:15px;color:var(--g)}.disc{font-size:16px;font-weight:700;color:#15803d}
 .badge{align-self:flex-start;background:var(--p);color:#fff;font-size:12px;font-weight:700;border-radius:999px;padding:2px 10px}
 .wbadge{align-self:flex-start;margin-top:6px;border:1px solid #9D7BD0;color:var(--pd);background:#fff;font-size:13px;font-weight:700;border-radius:999px;padding:2px 10px}
 .wname{font-weight:700;margin:0 0 6px}#wtext{white-space:pre-line;margin:0}.linkbtn{display:block;text-align:center;line-height:52px;text-decoration:none}

@@ -17,6 +17,7 @@ import {
   type PortalFileRow,
 } from './portalStaffApi'
 import { can } from './permissions'
+import SignedDocuments from './SignedDocuments'
 
 interface LegacyFile {
   id: string
@@ -71,7 +72,10 @@ export default function CustomerFilesTab({
   onLegacyFileClick?: (f: LegacyFile) => void
   onLegacyFileDelete?: (id: string) => void
 }) {
-  const [docs, setDocs] = useState<PortalFileRow[]>([])
+  const [allDocs, setDocs] = useState<PortalFileRow[]>([])
+  // The stored signed PDFs show under Documents above (SignedDocuments.tsx), not again in the list of other files.
+  const [signedFileIds, setSignedFileIds] = useState<Set<string>>(new Set())
+  const docs = allDocs.filter(d => !signedFileIds.has(d.id))
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -129,9 +133,11 @@ export default function CustomerFilesTab({
 
   return (
     <div className="space-y-4">
+      {/* Signed contracts and change orders: signed date, signer, kind, the stored signed PDF. */}
+      <SignedDocuments which={{ customerId }} onLoaded={rows => setSignedFileIds(new Set(rows.map(r => r.portalFileId).filter((x): x is string => !!x)))} />
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">
-          {loading ? 'Loading…' : `${totalCount} file${totalCount === 1 ? '' : 's'} uploaded`}
+          {loading ? 'Loading…' : `Other documents: ${totalCount} file${totalCount === 1 ? '' : 's'}`}
         </p>
         <label className={`bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer ${uploading ? 'opacity-60 pointer-events-none' : ''}`}>
           {uploading ? 'Uploading…' : '+ Upload File'}

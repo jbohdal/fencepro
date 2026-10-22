@@ -15,7 +15,7 @@
  *   GET  /projects       — the customer's jobs (status, install date)
  *   GET  /billing        — the payment schedule of each job: invoices, payments, receipt links, balance
  *   GET  /invoices       — the customer's sent invoices typed in Billing (before payment schedules)
- *   GET  /papers         — the signed contracts and warranty certificates
+ *   GET  /papers         — the stored signed PDFs (contracts, change orders), the signed contracts and warranty certificates
  *   GET  /contracts/:quoteId.pdf   — a signed contract (lib/contractPdf.ts)
  *   GET  /certificates/:jobId.pdf  — a warranty certificate (lib/walkthroughCertificate.ts)
  *   GET  /change-orders  — the customer's own change orders (sent, approved, void ones they were shown)
@@ -642,7 +642,7 @@ router.get('/invoices', requirePortalAuth, async (req: PortalAuthRequest, res) =
 router.get('/papers', requirePortalAuth, async (req: PortalAuthRequest, res) => {
   try {
     const c = await contactOf(req.portalAccount!.crmCustomerId)
-    res.json({ success: true, data: c?.accountId ? await papersOf(c) : { contracts: [], certificates: [] } })
+    res.json({ success: true, data: c?.accountId ? await papersOf(c) : { signed: [], contracts: [], certificates: [] } })
   } catch (err) {
     console.error('[portal-papers]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })

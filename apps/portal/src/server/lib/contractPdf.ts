@@ -24,6 +24,17 @@ const TZ = 'America/New_York'
 const money = (n: number) => '$' + (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const phoneText = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p }
 const when = (d: Date) => d.toLocaleString('en-US', { timeZone: TZ, month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+/** "October 22, 2026 at 3:04:09 PM EDT": the signed record's time, to the second, with the time zone. */
+export const whenSigned = (d: Date) => d.toLocaleString('en-US', { timeZone: TZ, month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short' }).replace(/[\u202f\u00a0]/g, ' ')
+export const IP_NOT_RECORDED = 'not recorded at the time'
+
+/** The signed record printed at the end of the last page of a stored signed PDF (lib/signedDocuments.ts). */
+export interface SignedRecord {
+  at: Date
+  ip: string | null
+  /** What was accepted: "Better: WV-ND 6'x8' Privacy at $10,000.00" or "Change order #2: total $450.00". */
+  accepted: string
+}
 
 export interface ContractInput {
   company: { name: string; phone: string; email: string }
@@ -49,6 +60,29 @@ export interface ContractInput {
   /** How it was signed: on the customer's link, or in person (marked Sold in the app). */
   signedHow: 'link' | 'in_person'
   signature: Buffer | null
+  /** The stored signed copy: the signed record (time with zone, IP, what was accepted) under the signature. */
+  signedRecord?: SignedRecord | null
+}
+
+/**
+ * The signed record under a signature: the typed name, date and time with
+ * the time zone, the IP and what was accepted. Drawn by the contract and the
+ * change order PDFs, as the last thing on the last page.
+ */
+export function drawSignedRecord(doc: PDFKit.PDFDocument, L: number, W: number, name: string, r: SignedRecord): void {
+  const lines: Array<[string, string]> = [
+    ['Signed by', name],
+    ['Date and time', whenSigned(r.at)],
+    ['IP address', r.ip || IP_NOT_RECORDED],
+    ['Accepted', r.accepted],
+  ]
+  doc.moveDown(0.4)
+  for (const [k, v] of lines) {
+    const y = doc.y
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(GRAY).text(k, L, y, { width: 90 })
+    doc.font('Helvetica').fontSize(9).fillColor(INK).text(v, L + 95, y, { width: W - 95 })
+    doc.moveDown(0.15)
+  }
 }
 
 /** The warranty lines exactly as the contract prints them (the job page and tests use the same words). */
@@ -104,13 +138,15 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
     doc.moveDown(0.4)
     doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text(w.start, L, doc.y, { width: W })
 
-    heading('Signed', 110)
+    // The signature block (and the signed record of a stored copy) stays together on the last page.
+    heading('Signed', c.signedRecord ? 240 : 110)
     const sy = doc.y
     if (c.signature) { try { doc.image(c.signature, L, sy, { fit: [240, 70] }) } catch { /* unreadable ink */ } }
     doc.moveTo(L, sy + 76).lineTo(L + 260, sy + 76).strokeColor(INK).stroke()
     doc.font('Helvetica-Bold').fontSize(11).fillColor(INK).text(c.acceptedBy || c.customerName, L, sy + 82, { width: W })
     doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(
       `${c.signedHow === 'link' ? 'Accepted and signed on the proposal link' : 'Signed in person'}${c.acceptedAt ? ` on ${when(c.acceptedAt)}` : ''}`, L, doc.y, { width: W })
+    if (c.signedRecord) drawSignedRecord(doc, L, W, c.acceptedBy || c.customerName, c.signedRecord)
     doc.moveDown(1.5)
     doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(`Thank you for choosing ${c.company.name}.${c.company.phone ? ` Questions or warranty service: ${phoneText(c.company.phone)}.` : ''}`, L, doc.y, { width: W, align: 'center' })
     doc.end()
@@ -123,8 +159,23 @@ type Q = {
   customerName: string; customerAddress: string
 }
 
-/** The contract for a signed quote (accepted on the link or sold), or null when it is not signed or has no proposal. */
-export async function contractForQuote(q: Q): Promise<Buffer | null> {
+/** The option the customer accepted and its price, as the contract prints them ("Better: White vinyl privacy at $10,000.00"). */
+export function acceptedOptionText(q: Pick<Q, 'proposal' | 'chosenOption' | 'fenceStyle' | 'finalPrice' | 'acceptedAt'>): string {
+  const p = q.proposal as any
+  const opts = Array.isArray(p?.options) ? p.options : []
+  const idx = typeof q.chosenOption === 'number' && opts[q.chosenOption] ? q.chosenOption : Math.max(0, opts.findIndex((o: any) => o?.fenceStyle === q.fenceStyle))
+  const opt = opts[idx] ?? opts[0] ?? {}
+  const price = q.acceptedAt ? Number(opt.finalPrice) || q.finalPrice : q.finalPrice
+  const tier = String(opt.tier?.label || '')
+  const label = String(opt.label || q.fenceStyle)
+  return `${tier && tier !== label ? `${tier}: ` : ''}${label} at ${money(price)}`
+}
+
+/**
+ * The contract for a signed quote (accepted on the link or sold), or null when it is not signed or has no proposal.
+ * `signed`: the stored signed copy (lib/signedDocuments.ts): as it stood at signing (no install date yet) with the signed record.
+ */
+export async function contractForQuote(q: Q, signed?: SignedRecord | null): Promise<Buffer | null> {
   const p = q.proposal as any
   if (!p || !Array.isArray(p.options) || !p.options.length) return null
   if (!(q.acceptedAt || q.status === 'SOLD' || q.soldAt)) return null
@@ -135,7 +186,7 @@ export async function contractForQuote(q: Q): Promise<Buffer | null> {
   // Signed on a warranty update link (lib/warrantyUpdates.ts): the warranty that link showed for the option. Otherwise as signed.
   const fromUpdate = await acceptedOnUpdate(q)
   const warranty = fromUpdate ?? (await quoteWarranty({ ...q, chosenOption: idx }, q.fenceStyle, b?.config ?? null)).warranty
-  const job = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, deletedAt: null, archivedAt: null }, select: { id: true, completedDate: true } })
+  const job = signed ? null : await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, deletedAt: null, archivedAt: null }, select: { id: true, completedDate: true } })
   const day = job ? await installDateOf(job) : null
   const m = await pricingModule()
   const sig = /^data:image\/png;base64,(.+)$/.exec(q.acceptedSignature || '')
@@ -151,6 +202,7 @@ export async function contractForQuote(q: Q): Promise<Buffer | null> {
     warranty, installDate: day ? m.dayText(day) : null,
     acceptedBy: String(q.acceptedBy || ''), acceptedAt: q.acceptedAt ?? q.soldAt ?? null, signedHow: q.acceptedAt ? 'link' : 'in_person',
     signature: sig ? Buffer.from(sig[1], 'base64') : null,
+    signedRecord: signed ?? null,
   })
 }
 

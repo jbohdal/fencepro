@@ -16,6 +16,7 @@ import FinalWalkthroughPanel from './FinalWalkthrough'
 import JobTakeoffPanel from './JobTakeoff'
 import JobQuotedVsActual from './JobQuotedVsActual'
 import JobWarranty from './JobWarranty'
+import SignedDocuments from './SignedDocuments'
 import PaymentsPanel from './Payments'
 import { useState, useEffect } from 'react'
 import { getJobs, type Job } from './jobStore'
@@ -173,6 +174,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {isJobSource && <Section title="Payments"><PaymentsPanel jobId={job.id} /></Section>}
         {/* The warranty it was signed with, its dates, and whether service calls on it are covered. */}
         {isJobSource && job.rawJob && <JobWarranty job={job.rawJob} />}
+        {/* The signed contract and signed change orders of this job, as stored at signing (SignedDocuments.tsx). */}
+        {isJobSource && <div className="mt-3"><SignedDocuments which={{ jobId: job.id }} heading="Documents" /></div>}
 
         {isJobSource && (
           <Section title="Install packet">

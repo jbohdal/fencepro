@@ -68,7 +68,7 @@ export function viewCalc(local: QuoteCalc, v: QuoteView | null): QuoteCalc {
       ...p, subRate: 0, laborCost: 0, tearOutCost: 0, materialCost: 0, totalCOGS: 0, costFactor: 0, pricePerFootUsed: 0, basePrice: 0,
       commissionPct: 0, commissionAmt: 0, grossMargin: 0, gmPct: 0, notes: [],
       commissionMode: v?.commissionMode ?? p.commissionMode,
-      price: v?.newFencePrice ?? 0, priceBeforeRounding: v?.newFencePrice ?? 0, roundingCents: 0, pricePerFoot: v?.pricePerFoot ?? 0, priceMethod: v?.priceMethod ?? p.priceMethod,
+      price: v?.newFencePrice ?? 0, priceBeforeRounding: v?.newFencePrice ?? 0, roundingCents: 0, priceBeforeAdjustment: 0, listPrice: v?.listPrice ?? 0, adjustmentCents: v?.adjustmentCents ?? 0, adjustmentRefused: !!v?.adjustmentRefused, pricePerFoot: v?.pricePerFoot ?? 0, priceMethod: v?.priceMethod ?? p.priceMethod,
       manHours: v?.manHours ?? 0, crewSize: v?.crewSize ?? p.crewSize, crewHours: v?.crewHours ?? 0, crewDays: v?.crewDays ?? 0,
     },
   }

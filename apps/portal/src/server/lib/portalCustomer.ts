@@ -29,6 +29,7 @@ import { plainStyleName } from './estimates.js'
 import { applyPayments, methodText } from './paymentMath.js'
 import { contractParts, dayWords } from './contractBilling.js'
 import { safeSvg } from '../routes/proposal.js'
+import { signedForPortal } from './signedDocuments.js'
 
 /** The customer's own quotes (not deleted or archived), by their customer id and company. */
 export async function quotesOf(contact: { id: string; accountId: string | null }) {
@@ -75,13 +76,20 @@ export async function quoteRowOf(q: QuoteRow, now = Date.now()) {
   }
 }
 
-/** The signed contracts and the warranty certificates of the customer. */
+/**
+ * The signed contracts and the warranty certificates of the customer.
+ * `signed`: the stored signed PDFs (contracts and change orders, as signed:
+ * lib/signedDocuments.ts signedForPortal, its own field list). `contracts`:
+ * the contract made fresh (with the install date) for each signed quote; a
+ * quote with a stored signed contract is marked `stored`.
+ */
 export async function papersOf(contact: { id: string; accountId: string | null }) {
+  const signed = await signedForPortal(contact.id)
   const quotes = (await quotesOf(contact)).filter(q => isSigned(q))
   const contracts = []
   for (const q of quotes) {
     const row = await quoteRowOf(q)
-    if (row.hasContract) contracts.push({ quoteId: q.id, style: row.style, signedOn: (q.acceptedAt ?? q.soldAt)?.toISOString().slice(0, 10) ?? q.date, url: `contracts/${q.id}.pdf` })
+    if (row.hasContract) contracts.push({ quoteId: q.id, style: row.style, signedOn: (q.acceptedAt ?? q.soldAt)?.toISOString().slice(0, 10) ?? q.date, url: `contracts/${q.id}.pdf`, stored: signed.some(d => d.kind === 'contract' && d.quoteId === q.id) })
   }
   const jobs = await jobsOf(contact)
   const walks = jobs.length ? await prisma.walkthrough.findMany({ where: { jobId: { in: jobs.map(j => j.id) }, status: 'completed', certificatePath: { not: null } }, select: { jobId: true, completedAt: true } }) : []
@@ -90,7 +98,7 @@ export async function papersOf(contact: { id: string; accountId: string | null }
     const j = jobs.find(x => x.id === w.jobId)!
     certificates.push({ jobId: j.id, style: await plainStyleName(j.fenceStyle), completedOn: w.completedAt?.toISOString().slice(0, 10) ?? j.completedDate ?? '', url: `certificates/${j.id}.pdf` })
   }
-  return { contracts, certificates }
+  return { signed, contracts, certificates }
 }
 
 /** The payment schedule of each of the customer's jobs, as the customer may see it. */

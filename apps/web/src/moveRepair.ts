@@ -30,7 +30,7 @@
  * are multiplied by the Wood factor.
  */
 
-import { calculatePrice, resolveSubRate, wholeDollarCents, roundsToWholeDollar, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
+import { calculatePrice, resolveSubRate, adjustedPrice, adjustmentOf, refusedNote, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
 import { inventoryCost, sectionWidthForStyle, type LineItem } from './materialCalculator'
 import { kitSetFor, type KitPart, type KitSet } from './materialKits'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
@@ -341,6 +341,11 @@ export interface WorkResult {
   priceCents: number
   /** Cents the price was rounded down by to the whole dollar (out of profit). */
   roundingCents: number
+  /** The price with no ± dollar adjustment (cents): the proposal's list price. */
+  listCents: number
+  /** The ± dollar adjustment applied (cents, out of profit); 0 when none or refused. */
+  adjustmentCents: number
+  adjustmentRefused: boolean
   commissionCents: number
   grossMarginCents: number
   gmPct: number
@@ -690,7 +695,8 @@ function price(c: WorkCommon, type: 'move' | 'repair', acc: Acc, t: { materialCe
     sections: 0, footage: 0, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0,
     materialCost: (t.materialCents + t.disposalCents) / 100, extraLaborHrs: 0, hasSalesman: c.hasSalesman, priceAdjust: c.priceAdjust,
     style: { ...c.style, margin: costFactor }, pricing: c.pricing,
-    overrides: { ...o, laborCost: t.laborCents / 100, costFactor, priceMethod: 'cost_factor', pricePerFoot: undefined },
+    // The ± dollar adjustment is applied below, after the minimum job price.
+    overrides: { ...o, laborCost: t.laborCents / 100, costFactor, priceMethod: 'cost_factor', pricePerFoot: undefined, priceAdjustmentCents: undefined },
   })
   const manual = p.priceMethod === 'manual'
   // The price before the whole dollar rule, lifted to the minimum job price; then rounded down (pricingEngine.ts).
@@ -699,11 +705,13 @@ function price(c: WorkCommon, type: 'move' | 'repair', acc: Acc, t: { materialCe
   const minimumApplied = !manual && minimumCents > 0 && unroundedCents < minimumCents
   if (minimumApplied) unroundedCents = minimumCents
   if (manual && minimumCents > 0 && unroundedCents < minimumCents) acc.warnings.push(`The price typed by hand is under the minimum job price (${usd(minimumCents / 100)}).`)
-  const { cents: priceCents, roundingCents } = wholeDollarCents(unroundedCents, roundsToWholeDollar(o))
-  // Commission on the price before rounding: the cents come out of profit only.
+  // Commission on the price before the ± dollar adjustment and the rounding: both come out of profit only.
   const commissionCents = Math.round(unroundedCents * p.commissionPct)
+  const adj = adjustedPrice(unroundedCents, o, costCents + commissionCents)
+  const { priceCents, roundingCents } = adj
   const grossMarginCents = priceCents - costCents - commissionCents
   const warnings = [...acc.warnings]
+  if (adj.refused) warnings.push(refusedNote(adjustmentOf(o)))
   if (acc.missingRates.length) warnings.unshift(`No rate per ${[...new Set(acc.missingRates)].join(', per ')} is set, so that cost is $0. Set it in Settings → Pricing or Settings → Moves and Repairs, or switch this quote to Hourly crew.`)
   if (acc.missingParts.size) warnings.push(`${acc.missingParts.size} part${acc.missingParts.size === 1 ? ' is' : 's are'} not in Inventory, so a built in cost was used: ${[...acc.missingParts].join('; ')}.`)
   const pullSheet: LineItem[] = []
@@ -714,7 +722,7 @@ function price(c: WorkCommon, type: 'move' | 'repair', acc: Acc, t: { materialCe
   }
   return {
     type, lines: acc.lines, ...t, costCents, costFactor, targetMarginPct: Math.round((1 - costFactor) * 10000) / 100, marginFrom,
-    basePriceCents: Math.round(p.basePrice * 100), priceCents, roundingCents, commissionCents, grossMarginCents, gmPct: priceCents > 0 ? grossMarginCents / priceCents : 0,
+    basePriceCents: Math.round(p.basePrice * 100), priceCents, roundingCents, listCents: adj.listCents, adjustmentCents: adj.adjustmentCents, adjustmentRefused: adj.refused, commissionCents, grossMarginCents, gmPct: priceCents > 0 ? grossMarginCents / priceCents : 0,
     minimumApplied, minimumCents, manual, pullSheet, warnings, description, crew, needs811: newPosts, sections, footage, manHours,
   }
 }
@@ -823,6 +831,8 @@ export interface SavedWork {
     priceCents: number
     /** Cents rounded off to the whole dollar (none on a quote that keeps its cents, or saved before the rule). */
     roundingCents?: number
+    /** The ± dollar adjustment applied (cents, out of profit). */
+    adjustmentCents?: number
     commissionCents: number
     grossMarginCents: number
     minimumApplied: boolean
@@ -846,7 +856,7 @@ export function toSavedWork(r: WorkResult, inputs: { move?: MoveInputs; repair?:
     priced: {
       lines: r.lines.map(({ parts, ...l }) => { void parts; return l }),
       materialCents: r.materialCents, laborCents: r.laborCents, disposalCents: r.disposalCents, costCents: r.costCents,
-      costFactor: r.costFactor, targetMarginPct: r.targetMarginPct, priceCents: r.priceCents, roundingCents: r.roundingCents, commissionCents: r.commissionCents,
+      costFactor: r.costFactor, targetMarginPct: r.targetMarginPct, priceCents: r.priceCents, roundingCents: r.roundingCents, ...(r.adjustmentCents ? { adjustmentCents: r.adjustmentCents } : {}), commissionCents: r.commissionCents,
       grossMarginCents: r.grossMarginCents, minimumApplied: r.minimumApplied, minimumCents: r.minimumCents, ...(r.wood ? { wood: r.wood } : {}),
     },
     description: r.description, crew: r.crew, needs811: r.needs811, warnings: r.warnings, ...extra,

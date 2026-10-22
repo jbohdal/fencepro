@@ -24,7 +24,8 @@ import { restoreCosts } from './costRedact.js'
 type Json = any
 
 /** The price choices a limited login may set on a quote; every other choice stays as saved. */
-const PRICE_CHOICES = ['laborMode', 'subUnit', 'priceMethod', 'pricePerFoot', 'finalPrice'] as const
+// The ± dollar adjustment is a price choice like the slider: the engine never lets it take the price under cost.
+const PRICE_CHOICES = ['laborMode', 'subUnit', 'priceMethod', 'pricePerFoot', 'finalPrice', 'priceAdjustmentCents', 'showDiscountOnProposal'] as const
 /** The cost choices kept from the saved quote. */
 const COST_CHOICES = ['subRate', 'laborCost', 'costFactor', 'commissionPct', 'commissionMode'] as const
 
@@ -128,11 +129,14 @@ export async function withServerCosts(accountId: string, body: Json, existing: J
         const p = priced.get(optKey(o))
         const own = o.fenceStyle === req.fenceStyle && !job.work
         const next: Json = { ...o }
-        if (p) { next.snapshot = p.snapshot; next.finalPrice = p.finalPrice; next.perFoot = p.perFoot; next.sections = p.sections }
-        else delete next.snapshot
+        if (p) {
+          next.snapshot = p.snapshot; next.finalPrice = p.finalPrice; next.perFoot = p.perFoot; next.sections = p.sections
+          if (p.adjustmentCents) next.adjustmentCents = p.adjustmentCents; else delete next.adjustmentCents
+        } else { delete next.snapshot; delete next.adjustmentCents }
         // The quote's own option keeps the quote's price (QuoteBuilder's buildProposal does the same).
         if (own && t.price > 0) {
           next.finalPrice = t.price; next.perFoot = feet > 0 ? Math.round((t.price / feet) * 100) / 100 : 0
+          if (t.adjustmentCents) next.adjustmentCents = t.adjustmentCents; else delete next.adjustmentCents
           if (next.snapshot) next.snapshot = { ...next.snapshot, roundingCents: t.roundingCents }
         }
         return next
@@ -141,6 +145,9 @@ export async function withServerCosts(accountId: string, body: Json, existing: J
     // Priced to the whole dollar unless this quote keeps its cents: the deposit follows (lib/paymentMath.ts).
     if (req.overrides.wholeDollar === false) delete out.proposal.wholeDollar
     else out.proposal.wholeDollar = true
+    // The list price, Discount line and final show only when the quote says so and an option has a reduction.
+    if (job.pricing?.showDiscountOnProposal === true && out.proposal.options.some((o: Json) => Number(o.adjustmentCents) < 0)) out.proposal.showDiscount = true
+    else delete out.proposal.showDiscount
   }
   return out
 }

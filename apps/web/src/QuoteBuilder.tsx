@@ -38,7 +38,7 @@ import { listStylePhotos } from './stylePhotosApi'
 import { useBackLayer, useLeaveWarning, BackClose, navigate } from './nav'
 import PercentField from './PercentField'
 import { targetMarginPct, overheadPctOf } from './configStore'
-import DollarPickets from './DollarPickets'
+import DollarPickets, { splitDollars } from './DollarPickets'
 import { businessDate } from './businessDate'
 import { isQuotable } from './styleAvailability'
 import { calculateQuote as calcNewFence } from './quoteCalc'
@@ -50,12 +50,13 @@ import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepa
 import { workOption, buildWorkProposal } from './proposal'
 import { signedInRole, can } from './permissions'
 import { useServerQuoteView, viewCalc, viewWork, viewTiers, viewCompare, viewProposalOptions } from './quoteViewApi'
-import { minimumPrice, wholeDollarRecord, type QuoteJobRequest } from './quoteJob'
+import { minimumPrice, wholeDollarRecord, adjustmentRecord, isNewMin, type QuoteJobRequest } from './quoteJob'
 import { bakedBackdrop } from './aerialBake'
 // A signed quote's lock: the same rules the server checks every save with.
 import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../portal/src/server/lib/quoteLock'
 import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, type ChangeOrderPrefill } from './ChangeOrders'
 import { changeOrderDraft } from './changeOrderDraft'
+import { SignedDocumentLinks } from './SignedDocuments'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
 /** "2026-10-19" → "Oct 19, 2026" */
@@ -478,6 +479,11 @@ export default function QuoteBuilder({
   const [perFootStr, setPerFootStr]     = useState(initPricing.pricePerFoot != null ? String(initPricing.pricePerFoot) : '')
   const [factorStr, setFactorStr]       = useState(initPricing.costFactor != null ? String(initPricing.costFactor) : '')
   const [finalPriceStr, setFinalPriceStr] = useState(initPricing.finalPrice != null ? String(initPricing.finalPrice) : '')
+  // The ± dollar adjustment (whole dollars, "-30" = $30 off), after the slider; and how the proposal shows it.
+  const [adjDollarsStr, setAdjDollarsStr] = useState(typeof initPricing.priceAdjustmentCents === 'number' && initPricing.priceAdjustmentCents !== 0 ? String(Math.round(initPricing.priceAdjustmentCents / 100)) : '')
+  const [showDiscount, setShowDiscount] = useState(initPricing.showDiscountOnProposal === true)
+  // The Final price field while it is being typed in (else it shows the price).
+  const [finalTyped, setFinalTyped] = useState<string | null>(null)
   // Bumps when Inventory changes so material costs are re-read while the builder is open.
   const [invTick, setInvTick]           = useState(0)
   useEffect(() => {
@@ -540,7 +546,7 @@ export default function QuoteBuilder({
   // Back, the close button and closing the tab ask before it is dropped.
   const workRef = useRef('')
   workRef.current = JSON.stringify([customerName, styleId, runs, entry, yard, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, adjLaborHrs, priceAdjust, hasSalesman,
-    laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, offer, tierPrefs, voiceNotes, jobType, move, repair, offerNewFence, offerMoveAsIs])
+    laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, adjDollarsStr, showDiscount, offer, tierPrefs, voiceNotes, jobType, move, repair, offerNewFence, offerMoveAsIs])
   const startWork = useRef<string | null>(null)
   useEffect(() => { const t = setTimeout(() => { startWork.current = workRef.current }, 400); return () => clearTimeout(t) }, [])
   const dirty = () => startWork.current !== null && workRef.current !== startWork.current
@@ -574,6 +580,8 @@ export default function QuoteBuilder({
   // customer saw or signed them; a sent one that is changed here is priced to the whole dollar like any new price.
   const [keptCents] = useState(() => !!init?.id && keepsCents(init as any))
   const keepCents = keptCents && (signedQuote || !dirty())
+  // Whole dollars only: "-30", "−30" or "30".
+  const adjWantedCents = (() => { const n = parseFloat(adjDollarsStr.replace(/[−–]/g, '-').replace(/[$,\s]/g, '')); return Number.isFinite(n) ? Math.round(n) * 100 : 0 })()
 
   // Everything about sections, the 6 ft / 8 ft choice per run, the pull sheet,
   // labor, cost and price comes out of quoteCalc, driven by Settings, the
@@ -588,6 +596,8 @@ export default function QuoteBuilder({
     costFactor: priceMethod === 'cost_factor' ? numOrUndef(factorStr) : undefined,
     finalPrice: numOrUndef(finalPriceStr),
     wholeDollar: keepCents ? false : undefined,
+    priceAdjustmentCents: adjWantedCents || undefined,
+    showDiscountOnProposal: adjWantedCents && showDiscount ? true : undefined,
   }
   // Section width decides where a gate "near the house" sits: one section in.
   // (gateSlide.ts layoutPanelFt: the crew packet and the saved quote's drawing use the same rule.)
@@ -703,8 +713,8 @@ export default function QuoteBuilder({
   const repairCheck = internal ? repairCheckLocal : sv?.repairCheck ?? null
   const matchWarning = jobType !== 'new' && style ? matchRisk(style) : null
   // A new fence under the minimum job price, when Settings say the minimum applies to new fences too.
-  const newMin = !internal ? !!sv?.newMin : jobType === 'new' && mr.minimumAppliesToNew && priced.priceMethod !== 'manual' && priced.price > 0 && Math.round(priced.priceBeforeRounding * 100) < mr.minimumJobCents
-  const minimum = minimumPrice(mr.minimumJobCents, pricingOverrides)
+  const newMin = !internal ? !!sv?.newMin : isNewMin(jobType, mr, priced)
+  const minimum = minimumPrice(mr.minimumJobCents, pricingOverrides, Math.round((priced.totalCOGS * 100) + mr.minimumJobCents * priced.commissionPct))
   const adjustedMH  = work ? work.manHours : priced.manHours
   const laborCost   = work ? work.laborCents / 100 : priced.laborCost
   const tearOutCost = work ? work.disposalCents / 100 : priced.tearOutCost
@@ -715,6 +725,10 @@ export default function QuoteBuilder({
   const commAmt     = work ? work.commissionCents / 100 : newMin ? Math.round(mr.minimumJobCents * priced.commissionPct) / 100 : priced.commissionAmt
   const grossMargin = work ? work.grossMarginCents / 100 : newMin ? Math.round((adjPrice - totalCOGS - commAmt) * 100) / 100 : priced.grossMargin
   const gmPct       = work ? work.gmPct : newMin ? (adjPrice > 0 ? grossMargin / adjPrice : 0) : priced.gmPct
+  // The ± dollar adjustment: the price without it (the proposal's list price), the amount applied, a reduction refused (under cost).
+  const listPrice   = !internal ? (sv?.listPrice ?? adjPrice) : work ? work.listCents / 100 : newMin ? minimum.listPrice : priced.listPrice
+  const adjApplied  = !internal ? (sv?.adjustmentCents ?? 0) : work ? work.adjustmentCents : newMin ? minimum.adjustmentCents : priced.adjustmentCents
+  const adjRefused  = !internal ? !!sv?.adjustmentRefused : work ? work.adjustmentRefused : newMin ? minimum.adjustmentRefused : priced.adjustmentRefused
   // The pull sheet: a move or repair lists only the NEW material.
   const materialItems: LineItem[] = work ? work.pullSheet : newFenceItems
   const materialCost = work ? work.materialCents / 100 : newFenceMaterial
@@ -859,10 +873,10 @@ export default function QuoteBuilder({
       else if (jobType === 'move') {
         if (moveAsIs && offerMoveAsIs) {
           options.push(workOption(`Move as is: ${Math.round(moveIn.oldFt)} ft of your fence on the new line`, style.name, moveAsIs, toSavedWork(moveAsIs, { move: moveIn }), runSecs))
-          options.push({ ...workOption('Move plus new fence for the extra length', style.name, work, savedWork, runSecs), finalPrice: adjPrice })
-        } else options.push({ ...workOption('Move your fence to the new line', style.name, work, savedWork, runSecs), finalPrice: adjPrice })
+          options.push({ ...workOption('Move plus new fence for the extra length', style.name, work, savedWork, runSecs), finalPrice: adjPrice, adjustmentCents: adjApplied || undefined })
+        } else options.push({ ...workOption('Move your fence to the new line', style.name, work, savedWork, runSecs), finalPrice: adjPrice, adjustmentCents: adjApplied || undefined })
       } else {
-        options.push({ ...workOption('Repair', style.name, work, savedWork, runSecs), finalPrice: adjPrice })
+        options.push({ ...workOption('Repair', style.name, work, savedWork, runSecs), finalPrice: adjPrice, adjustmentCents: adjApplied || undefined })
         if (offerNewFence && repairCheck?.nf) {
           const o = priceOption({ ...calcInput, runs: repairCheck.runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0 }, style)
           options.push({ ...o, label: `New fence instead: ${o.label}`, snapshot: { ...o.snapshot, work: null } })
@@ -872,7 +886,7 @@ export default function QuoteBuilder({
         kind: jobType as 'move' | 'repair', description: work.description, options, company,
         customer: { name: data.customerName, address: data.customerAddress }, planSvg: workPlan, warranty, settings: cfg.proposal ?? {},
         footageFt: jobType === 'move' ? work.footage : 0,
-        gatesText: jobType === 'move' ? workGatesText(effWalk, effDbl) : '', photoIds, wholeDollar: !keepCents,
+        gatesText: jobType === 'move' ? workGatesText(effWalk, effDbl) : '', photoIds, wholeDollar: !keepCents, showDiscount: showDiscount && adjApplied < 0,
       })
     })() : undefined
     const quote: SavedQuote = {
@@ -916,7 +930,7 @@ export default function QuoteBuilder({
       notes: data.notes,
       leadTemp: data.leadTemp ?? 0,
       // The Target Margin it was priced at is kept, so this quote's price never moves when Settings change.
-      pricing: cleanOverrides({ ...pricingOverrides, ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow, ...wholeDollarRecord(pricingOverrides, roundingCents) }),
+      pricing: cleanOverrides({ ...pricingOverrides, ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow, ...wholeDollarRecord(pricingOverrides, roundingCents), ...adjustmentRecord(pricingOverrides, adjApplied) }),
       work: savedWork,
       // A Salesman's or Installer's save: the server works out the costs from these inputs.
       ...(internal ? {} : { priceRequest }),
@@ -926,6 +940,8 @@ export default function QuoteBuilder({
         styles: internal ? [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)] : [],
         ownPrice: adjPrice,
         ownRoundingCents: roundingCents,
+        ownAdjustmentCents: adjApplied,
+        showDiscount: showDiscount && adjApplied < 0,
         wholeDollar: !keepCents,
         company: { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' },
         customer: { name: data.customerName, address: data.customerAddress },
@@ -974,6 +990,7 @@ export default function QuoteBuilder({
             <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
             {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>Signed: the price is locked. Changes to the fence go on a change order.</p>}
+            {signedQuote && init?.id && <SignedDocumentLinks quoteId={init.id} />}
             {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({fmt(init!.finalPrice)} then, {fmt(adjPrice)} now).</p>}
           </div>
           <div className="flex items-center gap-3">
@@ -1489,7 +1506,7 @@ export default function QuoteBuilder({
               )}
 
               {work && internal && <WorkBreakdown work={work} />}
-              {internal && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} roundingCents={roundingCents} />}
+              {internal && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} roundingCents={roundingCents} adjustmentCents={adjApplied} />}
 
               {quoteWarnings.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
@@ -1648,6 +1665,71 @@ export default function QuoteBuilder({
                   <span>-20%</span><span>0%</span><span>+20%</span>
                 </div>
               </div>
+
+              {/* ± dollars after the slider (Jonathan, Oct 22 2026): out of profit, never overhead or commission; frozen with the quote. */}
+              {adjPrice > 0 && (signedQuote ? (adjApplied !== 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4 text-sm" data-price-adjustment-locked>
+                  <p className="text-gray-700">Signed with a {adjApplied < 0 ? 'discount' : 'price adjustment'} of <b className="tabular-nums">{adjApplied < 0 ? '−' : '+'}{fmt(Math.abs(adjApplied) / 100)}</b> (list {fmt(listPrice)}).</p>
+                </div>
+              )) : (
+                <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3" data-price-adjustment>
+                  <p className="text-xs text-gray-500">Dollar adjustment <span className="text-gray-400">(after the slider, whole dollars)</span></p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="text-xs text-gray-400 mb-1 block">Final price ($)</span>
+                      <input type="text" inputMode="numeric" autoComplete="off" data-adjust-final
+                        className="w-full border border-gray-300 rounded-lg px-3 h-11 text-base tabular-nums focus:outline-none focus:ring-2 focus:ring-orange-400"
+                        value={finalTyped ?? String(Math.round(adjPrice))}
+                        onFocus={e => { setFinalTyped(String(Math.round(adjPrice))); e.currentTarget.select() }}
+                        onBlur={() => setFinalTyped(null)}
+                        onChange={e => {
+                          const v = e.target.value
+                          setFinalTyped(v)
+                          const n = parseFloat(v.replace(/[$,\s]/g, ''))
+                          if (!Number.isFinite(n) || !(n > 0)) return
+                          // The adjustment is what takes the list price to the price typed (whole dollars).
+                          const d = Math.round(n) - Math.round(listPrice)
+                          setAdjDollarsStr(d === 0 ? '' : String(d))
+                        }} />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs text-gray-400 mb-1 block">± dollars</span>
+                      <span className="flex gap-1">
+                        <button type="button" className="btn btn-secondary shrink-0 w-11 h-11 px-0 text-lg" aria-label="Switch between taking off and adding on" data-adjust-sign
+                          onClick={() => setAdjDollarsStr(v => { const t = v.trim(); if (!t) return '-'; return t.startsWith('-') || t.startsWith('−') ? t.slice(1) : '-' + t })}>±</button>
+                        <input type="text" inputMode="numeric" autoComplete="off" placeholder="−30" data-adjust-dollars
+                          className="min-w-0 w-full border border-gray-300 rounded-lg px-3 h-11 text-base tabular-nums focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          value={adjDollarsStr} onChange={e => setAdjDollarsStr(e.target.value.replace(/[^0-9\-−]/g, ''))} />
+                      </span>
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-gray-800">
+                    <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={showDiscount} onChange={e => setShowDiscount(e.target.checked)} data-adjust-show-discount />
+                    Show as discount on the proposal
+                  </label>
+                  {adjRefused && <p className="text-xs font-semibold text-red-700" data-adjust-refused>Taking {fmt(Math.abs(adjWantedCents) / 100)} off would put the price under cost, so it is not applied.</p>}
+                  {adjApplied !== 0 && (() => {
+                    const profitOf = (price: number, rounding: number, adj: number) => splitDollars({ price, materials: materialCost, labor: laborCost + tearOutCost, commission: commAmt, overheadPct: overheadNow, roundingCents: rounding, adjustmentCents: adj }).find(x => x.part === 'profit')!.dollars
+                    const netAfter = profitOf(adjPrice, roundingCents, adjApplied)
+                    const netBefore = profitOf(listPrice, roundingCents, 0)
+                    const optionCount = jobType === 'new' ? new Set([style?.name, ...offer, ...tiers.filter(t => !t.off && t.style).map(t => t.style!.name)].filter(Boolean)).size : (work ? 1 : 0)
+                    return (
+                      <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 space-y-1 text-sm" data-adjust-summary>
+                        <div className="flex justify-between"><span className="text-gray-600">Price before adjustment</span><span className="tabular-nums" data-adjust-list>{fmt(listPrice)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-600">{adjApplied < 0 ? 'Discount' : 'Adjustment'} <span className="text-xs text-gray-400">(out of profit)</span></span><span className={`tabular-nums font-semibold ${adjApplied < 0 ? 'text-red-600' : 'text-green-700'}`} data-adjust-amount>{adjApplied < 0 ? '−' : '+'}{fmt(Math.abs(adjApplied) / 100)}</span></div>
+                        <div className="flex justify-between font-semibold"><span>Final price</span><span className="tabular-nums" data-adjust-final-price>{fmt(adjPrice)}</span></div>
+                        {internal && <>
+                          <div className="flex justify-between border-t border-gray-200 pt-1 mt-1"><span className="text-gray-600">Margin after</span><span className={`tabular-nums font-semibold ${gmColor}`} data-adjust-margin>{(gmPct * 100).toFixed(1)}%</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">Net profit after</span><span className={`tabular-nums font-semibold ${netAfter < 0 ? 'text-red-700' : 'text-gray-900'}`} data-adjust-profit>{fmt(netAfter)}</span></div>
+                          <p className="text-xs text-gray-500" data-adjust-gave>{adjApplied < 0 ? `You give up ${fmt(netBefore - netAfter)} of profit.` : `${fmt(netAfter - netBefore)} more profit.`} Overhead and commission stay on {fmt(listPrice)}.</p>
+                        </>}
+                        {optionCount > 1 && <p className="text-xs font-semibold text-amber-800" data-adjust-every-option>{adjApplied < 0 ? '−' : '+'}{fmt(Math.abs(adjApplied) / 100)} on every option on the proposal.</p>}
+                        <p className="text-xs text-gray-500" data-adjust-customer-sees>{showDiscount && adjApplied < 0 ? 'The customer sees the list price, the discount and the final price.' : 'The customer sees the final price only.'}</p>
+                      </div>
+                    )
+                  })()}
+                </div>
+              ))}
 
               {jobType === 'new' && style && sections > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4" data-compare>

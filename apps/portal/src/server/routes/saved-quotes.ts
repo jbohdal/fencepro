@@ -41,6 +41,8 @@ import { markEverSold } from '../lib/everSold.js'
 import { scheduleAfterSigning } from '../lib/contractBilling.js'
 import { makePreviewToken } from '../lib/proposalViews.js'
 import { stampQuoteWarranties } from '../lib/warranties.js'
+import { clientIpOf } from '../lib/staffDevices.js'
+import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 
 const router = Router()
 
@@ -583,8 +585,8 @@ router.get('/share/:token', async (req: any, res) => {
 /** What a customer's browser gets: the quote without costs, margin, the
  *  pull sheet or the internal pricing choices. */
 function forCustomer<T extends Record<string, any>>(q: T) {
-  const { materialCost, laborCost, tearOutCost, totalCOGS, gmPct, pullSheet, pricing, ownerId, adjLaborHrs, work, ...rest } = q
-  void materialCost; void laborCost; void tearOutCost; void totalCOGS; void gmPct; void pullSheet; void pricing; void ownerId; void adjLaborHrs
+  const { materialCost, laborCost, tearOutCost, totalCOGS, gmPct, pullSheet, pricing, ownerId, adjLaborHrs, work, acceptedIp, acceptedUserAgent, ...rest } = q
+  void materialCost; void laborCost; void tearOutCost; void totalCOGS; void gmPct; void pullSheet; void pricing; void ownerId; void adjLaborHrs; void acceptedIp; void acceptedUserAgent
   const proposal = rest.proposal && typeof rest.proposal === 'object' && Array.isArray((rest.proposal as any).options)
     ? { ...(rest.proposal as any), options: (rest.proposal as any).options.map(({ snapshot, ...o }: any) => { void snapshot; return o }) }
     : rest.proposal
@@ -623,6 +625,9 @@ router.post('/share/:token/accept', async (req: any, res) => {
         acceptedAt: new Date(),
         acceptedBy: data.name,
         acceptedSignature: data.signature || null,
+        // Where it was signed from (lib/signedDocuments.ts): the client's IP (trust proxy 1) and browser.
+        acceptedIp: plainIp(clientIpOf(req)),
+        acceptedUserAgent: String(req.headers['user-agent'] ?? '').slice(0, 500) || null,
       },
     })
     await markEverSold(q.accountId, q.id)
@@ -631,6 +636,8 @@ router.post('/share/:token/accept', async (req: any, res) => {
     // Job costing: the quoted cost, saved once at signing.
     await snapshotAfterSigning(updated.accountId, updated.id, 'share')
     await scheduleAfterSigning(updated.accountId, updated.id, 'accepted', { userId: null, name: `${data.name} (customer, quote link)` })
+    // The signed contract, stored once (when the quote has a proposal to build it from).
+    await fileSignedContract(updated.id).catch(err => console.error('[saved-quotes] signed contract file:', err))
     res.json({ success: true, data: forCustomer(updated) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }

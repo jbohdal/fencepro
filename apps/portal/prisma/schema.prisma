@@ -1772,6 +1772,11 @@ model SavedQuote {
   acceptedAt        DateTime?
   acceptedBy        String? // typed name or display name from the accept form
   acceptedSignature String? // base64 data URL of the signature image, if any
+  // Where it was signed from (Oct 22 2026 on): the client's IP as the server saw
+  // it (req.ip, trust proxy 1: the address Tailscale Funnel received the request
+  // from) and its browser. Null on acceptances before then.
+  acceptedIp        String?
+  acceptedUserAgent String?
   // The first time this quote was Sold or accepted. Set once, never cleared
   // (lib/everSold.ts): a sold quote stays locked even if later marked Lost.
   soldAt            DateTime?
@@ -2779,6 +2784,43 @@ model ChangeOrder {
   @@index([accountId, quoteId])
   @@index([deletedAt])
   @@index([shareToken])
+}
+
+/// A signed record (Oct 22 2026): the PDF of a contract or change order made
+/// the moment it was signed (or later by scripts/signed-contracts-backfill.ts
+/// from the frozen proposal and the stored signature), kept in the upload
+/// folder at `fileKey` and never made again (lib/signedDocuments.ts). Shown in
+/// Documents on the customer page, the quote and the job, and to the customer
+/// in the portal through its PortalFile. `sourceKey` ("contract:<quoteId>",
+/// "change-order:<changeOrderId>") is unique: a repeat accept or a retry never
+/// makes two.
+model SignedDocument {
+  id              String   @id @default(uuid())
+  accountId       String
+  sourceKey       String   @unique
+  /// contract | change_order
+  kind            String
+  quoteId         String
+  changeOrderId   String?
+  /// The job the quote became, when there was one (a job made later is found by its quote).
+  jobId           String?
+  /// The customer's copy in their files and portal (null while the quote has no customer).
+  portalFileId    String?
+  fileKey         String
+  fileSizeBytes   Int
+  /// SHA-256 of the PDF as it was stored.
+  sha256          String
+  signedAt        DateTime
+  signedBy        String
+  signedIp        String?
+  signedUserAgent String?
+  /// signing | backfill
+  madeBy          String   @default("signing")
+  createdAt       DateTime @default(now())
+
+  @@index([accountId, quoteId])
+  @@index([jobId])
+  @@index([portalFileId])
 }
 
 /// Job costing, the "Quoted cost": what a sold quote was priced at, frozen the

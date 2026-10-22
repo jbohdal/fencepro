@@ -21,11 +21,13 @@ export interface DollarSplit {
   price: number; materials: number; labor: number; commission: number; overheadPct: number
   /** Cents the price was rounded down by to the whole dollar: out of profit, never overhead. */
   roundingCents?: number
+  /** The ± dollar adjustment in the price (cents, −3000 = $30 off): out of profit, never overhead. */
+  adjustmentCents?: number
 }
 
-/** Dollars and share of the price for each part; profit is what is left. Overhead is on the price before rounding to the whole dollar. */
-export function splitDollars({ price, materials, labor, commission, overheadPct, roundingCents }: DollarSplit) {
-  const overhead = (price + (roundingCents ?? 0) / 100) * (overheadPct / 100)
+/** Dollars and share of the price for each part; profit is what is left. Overhead is on the price before the ± dollar adjustment and the rounding. */
+export function splitDollars({ price, materials, labor, commission, overheadPct, roundingCents, adjustmentCents }: DollarSplit) {
+  const overhead = (price + (roundingCents ?? 0) / 100 - (adjustmentCents ?? 0) / 100) * (overheadPct / 100)
   const profit = price - materials - labor - commission - overhead
   const parts: Array<{ part: Part; dollars: number }> = [
     { part: 'materials', dollars: materials },

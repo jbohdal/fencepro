@@ -860,13 +860,28 @@ function PapersPage({ accent }: { accent: string }) {
   if (papers === null) return <p className="text-sm text-gray-500">Loading…</p>
   if (papers === 'error') return <EmptyState emoji="⚠️" title="Could not load your contract" body="Check your connection and try again." />
   const day = (d: string) => (d ? new Date(`${d.slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '')
+  const signed = papers.signed ?? []
+  // A contract with its signed copy stored shows once, as signed (above).
+  const contracts = papers.contracts.filter(c => !c.stored)
   return (
     <div className="space-y-5" data-portal-papers>
       <h1 className="text-2xl font-bold text-gray-900">Contract &amp; Warranty</h1>
-      {papers.contracts.length === 0 && papers.certificates.length === 0 && (
+      {signed.length === 0 && contracts.length === 0 && papers.certificates.length === 0 && (
         <EmptyState emoji="📄" title="Nothing here yet" body="Your signed contract shows here once you sign, and your warranty certificate once your fence is installed and walked through." />
       )}
-      {papers.contracts.map(c => (
+      {/* The signed PDFs as they were signed (stored at signing): contracts and change orders. */}
+      {signed.map(d => (
+        <a key={d.id} href={fileHref(d.url)} target="_blank" rel="noreferrer" data-portal-signed-doc={d.id} data-portal-signed-kind={d.kind}
+          className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-3 hover:shadow-md transition-all">
+          <span className="text-xl">✍️</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-gray-900 break-words">{d.kind === 'contract' ? 'Signed contract' : `Signed ${d.title.toLowerCase()}`}{d.detail ? `: ${d.detail}` : ''}</p>
+            <p className="text-xs text-gray-500">Signed {d.signedOn} by {d.signedBy}</p>
+          </div>
+          <span className="text-xs font-semibold shrink-0" style={{ color: accent }}>PDF</span>
+        </a>
+      ))}
+      {contracts.map(c => (
         <a key={c.quoteId} href={portalApiHref(c.url)} target="_blank" rel="noreferrer" data-portal-contract={c.quoteId}
           className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-3 hover:shadow-md transition-all">
           <span className="text-xl">✍️</span>

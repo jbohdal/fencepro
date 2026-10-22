@@ -364,6 +364,11 @@ Status key:
 * Customer portal answers only from allow-lists on the server: photos marked Customer, their site plan, Billing (schedule, invoices, payments, receipts, balance), their signed contract and warranty certificate, their documents, messages with the office, project status. Never pull sheets, materials, costs, internal notes, internal or crew photos, crew packet, follow ups or call logs (tested on every portal route). **DEV**
 * Phone numbers show as (352) 671 8083 everywhere in the staff app and portal; tap to call (starts "How'd it go?" for a customer with a card). **DEV**
 
+## 9q. Signed contracts in Documents; Final price / ± dollars on the quote (Oct 22)
+
+* The moment a customer signs a proposal or a change order, the signed PDF is made and stored (built only from what was frozen at sending and the signature): its last page says who signed, the date and time (Florida time), the IP address and what was accepted. It shows under Documents at the top of the customer's Files, on the quote, on the job and in the portal's Contract & Warranty. A repeat signing never makes two. scripts/signed-contracts-backfill.ts makes the missing ones for quotes signed before ("IP address: not recorded at the time"); report first, --apply after OK. **DEV**
+* Quote price step: under the margin slider, "Final price ($)" and "± dollars" (they stay in step). It comes out of profit only (overhead and commission stay on the price before it), is applied before the whole-dollar rounding (a typed $8,914 stays $8,914), and is refused if it would go under cost. Shown: price before, Discount, final, margin and net profit after, "You give up $X of profit". "Show as discount on the proposal": ticked = list price, Discount line, final; unticked = final only. The same amount comes off every option on the proposal. Carried into the contract and the payment schedule (deposit from the final). **DEV**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)
