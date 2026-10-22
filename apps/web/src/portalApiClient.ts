@@ -116,16 +116,29 @@ export async function fetchCompany(): Promise<PortalCompany | null> {
   } catch { return null }
 }
 
-// ── Quotes, projects, invoices (null: could not load) ──
+// ── Quotes, projects, billing, papers (null: could not load) ──
 
+/** A quote as the customer was sent it: the fence's plain name, the price, the proposal link; nothing of the office's. */
 export interface PortalQuote {
-  id: string; fenceStyle: string; date: string; status: 'SENT' | 'SOLD' | 'LOST'
+  id: string; style: string; date: string; status: 'SENT' | 'SOLD' | 'LOST'
   priceCents: number
-  layout: any; runs: number[]
   shareToken: string | null
+  hasPlan: boolean
+  hasContract: boolean
 }
-export interface PortalProject { id: string; fenceStyle: string; status: string; scheduledDate: string; crewAssigned: string; customerAddress: string }
+export interface PortalProject { id: string; style: string; status: string; scheduledDate: string; address: string }
 export interface PortalInvoice { id: string; invoiceNumber: string; title: string; status: string; dueDate: string; issuedDate: string; totalCents: number; amountPaidCents: number; balanceDueCents: number }
+/** A job's payment schedule: the contract, each invoice with what is paid and due, each payment with its receipt. */
+export interface PortalBilling {
+  jobId: string; style: string
+  signedCents: number; changeOrderCents: number; otherChangesCents: number; contractCents: number; paidCents: number; balanceCents: number
+  invoices: Array<{ id: string; label: string; amountCents: number; paidCents: number; balanceCents: number; due: string; number: string | null }>
+  payments: Array<{ id: string; amountCents: number; paidOn: string; paidOnText: string; method: string; receipt: { number: number; link: string; pdf: string } | null }>
+}
+export interface PortalPapers {
+  contracts: Array<{ quoteId: string; style: string; signedOn: string; url: string }>
+  certificates: Array<{ jobId: string; style: string; completedOn: string; url: string }>
+}
 
 async function list<T>(p: string): Promise<T[] | null> {
   try {
@@ -136,11 +149,24 @@ async function list<T>(p: string): Promise<T[] | null> {
 export const listPortalQuotes = () => list<PortalQuote>('/quotes')
 export const listPortalProjects = () => list<PortalProject>('/projects')
 export const listPortalInvoices = () => list<PortalInvoice>('/invoices')
+export const listPortalBilling = () => list<PortalBilling>('/billing')
+
+export async function fetchPortalPapers(): Promise<PortalPapers | null> {
+  try {
+    const r = await call('GET', '/papers')
+    return r.json?.success ? (r.json.data as PortalPapers) : null
+  } catch { return null }
+}
+
+/** One of the portal API's own addresses (a site plan, a contract, a certificate: `site-plans/<id>.svg`) for an image or a link. */
+export function portalApiHref(rel: string): string {
+  return `${apiRoot()}/${rel}`
+}
 
 // ── Photos and documents ──
 
-export interface PortalPhotoRow { id: string; fileUrl: string; name: string; size: number; mimeType: string; caption?: string | null; source: string; uploadedAt: string }
-export interface PortalFileRow { id: string; fileUrl: string; name: string; size: number; mimeType: string; fileKind: string; source: string; label?: string | null; uploadedAt: string; uploadedBy: string }
+export interface PortalPhotoRow { id: string; fileUrl: string; name: string; mimeType: string; caption?: string | null; uploadedAt: string }
+export interface PortalFileRow { id: string; fileUrl: string; name: string; size: number; mimeType: string; label?: string | null; uploadedAt: string; fromYou: boolean }
 export interface PortalMediaRow { id: string; kind: 'photo' | 'video'; caption: string; category: string; takenAt: string; url: string; originalUrl: string; previewUrl: string | null; thumbUrl: string | null }
 
 /** The id an upload is saved under: the same file again saves once. */

@@ -13,6 +13,7 @@
  * which Jonathan sends himself.
  */
 
+import { formatPhone } from './phoneFormat'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCustomers, getCustomerById } from './customerStore'
@@ -295,7 +296,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                     {customerMatches.map(c => (
                       <button key={c.id} onClick={() => { setCustomerId(c.id); setAddress(c.serviceAddress || '') }} className="w-full text-left px-3 py-2 hover:bg-orange-50">
                         <span className="text-sm font-semibold text-gray-900">{c.firstName} {c.lastName}</span>
-                        <span className="block text-xs text-gray-500">{[c.phone, c.serviceAddress].filter(Boolean).join(' · ')}</span>
+                        <span className="block text-xs text-gray-500">{[formatPhone(c.phone), c.serviceAddress].filter(Boolean).join(' · ')}</span>
                       </button>
                     ))}
                   </div>
@@ -304,7 +305,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                 <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
                   <div>
                     <p className="text-sm font-bold text-gray-900" data-booking-customer>{customer.firstName} {customer.lastName}</p>
-                    <p className="text-xs text-gray-500">{customer.phone}</p>
+                    <p className="text-xs text-gray-500">{formatPhone(customer.phone)}</p>
                   </div>
                   {!existing && !req.customerId && <button onClick={() => { setCustomerId(''); setAddress('') }} className="text-xs text-orange-600">Change</button>}
                 </div>

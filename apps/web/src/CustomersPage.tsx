@@ -6,18 +6,20 @@ import { getConfig } from './configStore'
 import { sourcePicker, tagPicker, sourceLabel, tagLabel, getOptions, useOptions } from './optionListsStore'
 import { wordToSave } from './optionListModel'
 import { Phone, MessageSquare, Navigation, FilePlus2, CalendarPlus, Pencil } from 'lucide-react'
-import { telHref } from './phoneFormat'
+import { telHref, formatPhone } from './phoneFormat'
+import PhoneLink from './PhoneLink'
 import { smsLink } from './appointmentLogic'
 import { startTouch } from './followUpStore'
 import { openBooking } from './BookingDialog'
 import { NextAppointmentBadge, CustomerAppointmentsTab } from './AppointmentWidgets'
 import {
   getInvoicesForCustomer, createInvoice, recordPayment,
-  getPaymentsForCustomer, getBillingSummary, getPullSheetsForCustomer,
+  getPaymentsForCustomer, getBillingSummary,
   nextInvoiceNumber,
   type Invoice, type Payment,
 } from './billingStore'
 import PaymentsPanel from './Payments'
+import CustomerPullSheetsTab from './CustomerPullSheets'
 import { toast } from './toast'
 import CustomerPhotosTab from './CustomerPhotosTab'
 import CustomerFilesTab from './CustomerFilesTab'
@@ -32,8 +34,6 @@ import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity, getCustomers, getArchivedCustomers, upsertCustomer, bulkImportCustomers } from './customerStore'
 import { archiveRecord, unarchiveRecord, deleteRecord } from './recordArchive'
 import { getQuotes } from './quoteStore'
-import RunSpacingTable from './RunSpacingTable'
-import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { getJobs, getArchivedJobs } from './jobStore'
 import { stageOf, stageName, stageColor, OPS_STAGES_UPDATED_EVENT } from './opsStagesStore'
 import { getPipeline, getArchivedCards } from './pipelineStore'
@@ -697,73 +697,7 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
   )
 }
 
-// ── Customer Pull Sheets Tab ─────────────────────────────────────────────────
-
-function CustomerPullSheetsTab({ customerId }: { customerId: string }) {
-  const pullSheets = getPullSheetsForCustomer(customerId)
-  const [viewingId, setViewingId] = useState<string | null>(null)
-  const viewing = pullSheets.find(ps => ps.id === viewingId)
-
-  const fmtD = (n: number) => '$' + n.toFixed(2)
-
-  return (
-    <div className="space-y-4">
-      {pullSheets.length === 0 ? (
-        <div className="text-center py-8 text-gray-400">
-          <p className="font-medium">No pull sheets linked</p>
-          <p className="text-sm mt-1">Pull sheets will appear here automatically when quotes are created for this customer.</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-2xl border border-gray-200 divide-y divide-gray-50">
-          {pullSheets.map(ps => (
-            <div key={ps.id} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer" onClick={() => setViewingId(ps.id === viewingId ? null : ps.id)}>
-              <div>
-                <p className="text-sm font-medium text-gray-900">{ps.quoteName}</p>
-                <p className="text-xs text-gray-500">v{ps.versionNumber} · {new Date(ps.linkedAt).toLocaleDateString()}{ps.jobName ? ` · Job: ${ps.jobName}` : ''}</p>
-              </div>
-              <span className="text-xs text-gray-400">{ps.versionSnapshot?.length || 0} items</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Pull Sheet Viewer */}
-      {viewing && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <div className="flex justify-between mb-3">
-            <h3 className="font-semibold text-gray-900">{viewing.quoteName} — Pull Sheet v{viewing.versionNumber}</h3>
-            <button onClick={() => setViewingId(null)} className="text-xs text-gray-400">Close</button>
-          </div>
-          {(() => {
-            const q = getQuotes().find(x => x.id === viewing.quoteId)
-            return q && q.runs?.length ? (
-              <div className="mb-4 space-y-3">
-                {quoteHasPlan(q) && <QuotePlan quote={q} style={getConfig().fenceStyles.find(s => s.name === q.fenceStyle)} />}
-                <div>
-                  <p className="text-xs font-semibold text-gray-600 mb-1">Runs and post spacing</p>
-                  <RunSpacingTable quote={q} />
-                </div>
-              </div>
-            ) : null
-          })()}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr><th className="text-left px-3 py-2 text-xs text-gray-500">#</th><th className="text-left px-3 py-2 text-xs text-gray-500">Material</th><th className="text-right px-3 py-2 text-xs text-gray-500">Qty</th><th className="text-right px-3 py-2 text-xs text-gray-500">Unit Cost</th><th className="text-right px-3 py-2 text-xs text-gray-500">Total</th></tr>
-              </thead>
-              <tbody>
-                {(viewing.versionSnapshot || []).map((li: any, i: number) => (
-                  <tr key={i} className="border-b border-gray-50"><td className="px-3 py-1.5 text-gray-400">{i + 1}</td><td className="px-3 py-1.5">{li.item}</td><td className="px-3 py-1.5 text-right">{li.qty}</td><td className="px-3 py-1.5 text-right">{fmtD(li.unitCost)}</td><td className="px-3 py-1.5 text-right font-medium">{fmtD(li.total)}</td></tr>
-                ))}
-              </tbody>
-              <tfoot><tr className="font-semibold"><td colSpan={4} className="px-3 py-2 text-right">Total</td><td className="px-3 py-2 text-right">{fmtD((viewing.versionSnapshot || []).reduce((s: number, li: any) => s + li.total, 0))}</td></tr></tfoot>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+// ── Customer Pull Sheets Tab: CustomerPullSheets.tsx (read from the server) ──
 
 // ── Customer Job Costing Tab ──────────────────────────────────────────────────
 
@@ -1031,7 +965,7 @@ function CustomerDetail({
                 )}
               </div>
               <div className="flex items-center gap-3 mt-1 flex-wrap">
-                {customer.phone && <span className="text-sm text-gray-500 break-all">📞 {customer.phone}</span>}
+                {customer.phone && <span className="text-sm text-gray-500">📞 <PhoneLink phone={customer.phone} customerId={customer.id} name={`${customer.firstName} ${customer.lastName}`.trim()} data-customer-header-phone /></span>}
                 {customer.email && <span className="text-sm text-gray-500 break-all">✉️ {customer.email}</span>}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2"><PipelineStageSelect customerId={customer.id} /><NextAppointmentBadge customerId={customer.id} /></div>
@@ -1121,7 +1055,7 @@ function CustomerDetail({
               {[
                 { label: 'Service Address', value: customer.serviceAddress },
                 customer.billingDifferent ? { label: 'Billing Address', value: customer.billingAddress } : null,
-                { label: 'Phone',       value: customer.phone },
+                { label: 'Phone',       value: customer.phone, node: customer.phone ? <PhoneLink phone={customer.phone} customerId={customer.id} name={`${customer.firstName} ${customer.lastName}`.trim()} data-customer-phone /> : null },
                 { label: 'Email',       value: customer.email },
                 { label: 'Lead Source', value: sourceLabel(customer.leadSource) },
                 { label: 'Sales Rep',   value: customer.salesRep },
@@ -1130,7 +1064,7 @@ function CustomerDetail({
               ].filter(Boolean).map((row: any) => row?.value ? (
                 <div key={row.label} className="flex gap-4">
                   <span className="text-xs text-gray-400 w-28 sm:w-32 shrink-0 pt-0.5">{row.label}</span>
-                  <span className="text-sm text-gray-800 min-w-0 [overflow-wrap:anywhere]">{row.value}</span>
+                  <span className="text-sm text-gray-800 min-w-0 [overflow-wrap:anywhere]">{row.node ?? row.value}</span>
                 </div>
               ) : null)}
             </div>
@@ -1711,7 +1645,7 @@ export default function CustomersPage({ onNewQuote }: {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{c.firstName} {c.lastName}</p>
-                    <p className="text-xs text-gray-400 truncate">{c.phone}</p>
+                    <p className="text-xs text-gray-400 truncate">{formatPhone(c.phone)}</p>
                   </div>
                   {revenue > 0 && <span className="text-xs font-semibold text-green-600 shrink-0">{fmt(revenue)}</span>}
                 </div>

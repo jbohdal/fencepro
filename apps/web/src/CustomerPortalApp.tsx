@@ -8,30 +8,35 @@
  *   /#/portal/dashboard          — overview
  *   /#/portal/quotes             — list of quotes
  *   /#/portal/change-orders      — change orders: approve and sign the sent ones
- *   /#/portal/projects           — list of jobs
- *   /#/portal/invoices           — invoices + balance
+ *   /#/portal/projects           — list of jobs (status and install date)
+ *   /#/portal/invoices           — billing: payment schedule, invoices, payments, receipts, balance
+ *   /#/portal/papers             — the signed contract and the warranty certificate
  *   /#/portal/documents          — file list + upload
  *   /#/portal/photos             — photo grid
  *   /#/portal/messages           — two-way messaging
  *   /#/portal/account            — settings
  *
  * Every page reads from the server (/api/portal/*, scoped on the server to the
- * signed in customer). The sign in is an httpOnly cookie the page never sees;
+ * signed in customer). What the server sends a customer is an explicit list
+ * (lib/portalCustomer.ts): their photos, their site plan, billing, the signed
+ * contract and warranty certificate, their quotes, change orders, documents
+ * and messages; never a pull sheet, material list, cost, internal note,
+ * internal or crew photo, crew packet, follow up or call log. The sign in is an httpOnly cookie the page never sees;
  * nothing is kept in the browser (portalApiClient.ts).
  * The portal has its own visual language (white/accent, top nav, no FencePro branding).
  */
 
 import { styleLabel } from './fenceCatalog'
 import { publicDoorUrl } from './publicDoor'
-import QuotePlan, { quoteHasPlan } from './QuotePlan'
+import { formatPhone } from './phoneFormat'
 import { useEffect, useRef, useState } from 'react'
 import { SignaturePad } from './SignaturePad'
 import {
   fetchMe, login, verifyAndActivate, logout, resendPortalInvite, changePassword, fetchCompany,
-  listPortalQuotes, listPortalProjects, listPortalInvoices, listPortalChangeOrders, signPortalChangeOrder,
+  listPortalQuotes, listPortalProjects, listPortalInvoices, listPortalBilling, fetchPortalPapers, portalApiHref, listPortalChangeOrders, signPortalChangeOrder,
   listPortalDocuments, uploadPortalDocument, listPortalPhotos, uploadPortalPhoto, listPortalMedia,
   listPortalMessages, sendPortalMessage, fileHref, PORTAL_SIGNED_OUT_EVENT,
-  type PortalUser as PortalAccount, type PortalCompany, type PortalQuote, type PortalProject, type PortalInvoice,
+  type PortalUser as PortalAccount, type PortalCompany, type PortalQuote, type PortalProject, type PortalInvoice, type PortalBilling, type PortalPapers,
   type PortalChangeOrder, type PortalFileRow, type PortalPhotoRow, type PortalMediaRow, type PortalMessage,
 } from './portalApiClient'
 
@@ -136,6 +141,7 @@ export default function CustomerPortalApp({ route }: { route: string }) {
         {route.startsWith('change-orders') && <ChangeOrdersPage session={session} accent={accent} />}
         {route.startsWith('projects') && <ProjectsPage session={session} customer={customer} accent={accent} />}
         {route.startsWith('invoices') && <InvoicesPage session={session} customer={customer} accent={accent} />}
+        {route.startsWith('papers') && <PapersPage accent={accent} />}
         {route.startsWith('documents') && <DocumentsPage session={session} customer={customer} accent={accent} />}
         {route.startsWith('photos') && <PhotosPage session={session} customer={customer} accent={accent} company={company} />}
         {route.startsWith('messages') && <MessagesPage session={session} customer={customer} accent={accent} />}
@@ -146,8 +152,8 @@ export default function CustomerPortalApp({ route }: { route: string }) {
           <span>© {new Date().getFullYear()} {company.name || 'Getter Done Fence'}</span>
           <span>
             {company.portal?.supportEmail && <a href={`mailto:${company.portal.supportEmail}`} className="hover:underline">{company.portal.supportEmail}</a>}
-            {company.portal?.supportPhone && <span className="ml-3">{company.portal.supportPhone}</span>}
-            {(!company.portal?.supportEmail && !company.portal?.supportPhone) && company.phone && <span>{company.phone}</span>}
+            {company.portal?.supportPhone && <span className="ml-3">{formatPhone(company.portal.supportPhone)}</span>}
+            {(!company.portal?.supportEmail && !company.portal?.supportPhone) && company.phone && <span>{formatPhone(company.phone)}</span>}
           </span>
         </div>
       </footer>
@@ -164,7 +170,8 @@ function TopNav({ session, company, accent, onSignedOut }: { session: PortalAcco
     ['quotes', 'My Quotes'],
     ['change-orders', 'Change Orders'],
     ['projects', 'My Projects'],
-    ['invoices', 'Invoices'],
+    ['invoices', 'Billing'],
+    ['papers', 'Contract & Warranty'],
     ['documents', 'Documents'],
     ['photos', 'Photos'],
     ['messages', 'Messages'],
@@ -426,13 +433,15 @@ function DashboardPage({ session, customer, accent }: { session: PortalAccount; 
   const [jobRows] = useServerList(listPortalProjects)
   const [quoteRows] = useServerList(listPortalQuotes)
   const [invoiceRows] = useServerList(listPortalInvoices)
+  const [billingRows] = useServerList(listPortalBilling)
   const jobs = Array.isArray(jobRows) ? jobRows : []
   const quotes = Array.isArray(quoteRows) ? quoteRows : []
   const invoices = Array.isArray(invoiceRows) ? invoiceRows : []
+  const billing = Array.isArray(billingRows) ? billingRows : []
 
   const activeJob = jobs.find(j => j.status !== 'completed' && j.status !== 'paid')
   const pendingQuotes = quotes.filter(q => q.status === 'SENT')
-  const outstanding = invoices.reduce((s, i) => s + (i.balanceDueCents || 0), 0)
+  const outstanding = invoices.reduce((s, i) => s + (i.balanceDueCents || 0), 0) + billing.reduce((s, b) => s + Math.max(0, b.balanceCents), 0)
 
   return (
     <div className="space-y-6">
@@ -446,10 +455,9 @@ function DashboardPage({ session, customer, accent }: { session: PortalAccount; 
         {activeJob && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
             <p className="text-xs font-bold" style={{ color: accent }}>Active Project</p>
-            <p className="text-lg font-bold text-gray-900 mt-1">{styleLabel(activeJob.fenceStyle) || 'Project'}</p>
+            <p className="text-lg font-bold text-gray-900 mt-1">{activeJob.style || 'Project'}</p>
             <p className="text-sm text-gray-500 mt-1">{friendlyStage(activeJob.status)}</p>
             {activeJob.scheduledDate && <p className="text-xs text-gray-500 mt-2">📅 Scheduled {activeJob.scheduledDate}</p>}
-            {activeJob.crewAssigned && <p className="text-xs text-gray-500">👷 Crew: {activeJob.crewAssigned}</p>}
             <a href="#/portal/projects" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>View Project →</a>
           </div>
         )}
@@ -457,7 +465,7 @@ function DashboardPage({ session, customer, accent }: { session: PortalAccount; 
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
             <p className="text-xs font-bold" style={{ color: accent }}>Quotes Awaiting Review</p>
             <p className="text-3xl font-black text-gray-900 mt-1">{pendingQuotes.length}</p>
-            <p className="text-sm text-gray-500 mt-1">{styleLabel(pendingQuotes[0].fenceStyle) || ''} · {money(pendingQuotes[0].priceCents)}</p>
+            <p className="text-sm text-gray-500 mt-1">{pendingQuotes[0].style || ''} · {money(pendingQuotes[0].priceCents)}</p>
             <a href="#/portal/quotes" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>Review and Accept →</a>
           </div>
         )}
@@ -466,14 +474,14 @@ function DashboardPage({ session, customer, accent }: { session: PortalAccount; 
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
             <p className="text-xs font-bold" style={{ color: accent }}>Balance Due</p>
             <p className="text-3xl font-black text-gray-900 mt-1">{money(outstanding)}</p>
-            <a href="#/portal/invoices" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>View Invoices →</a>
+            <a href="#/portal/invoices" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>View Billing →</a>
           </div>
         )}
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <QuickLink href="#/portal/quotes" label="My Quotes" icon="📋" accent={accent} />
-        <QuickLink href="#/portal/invoices" label="Pay Invoice" icon="💳" accent={accent} />
+        <QuickLink href="#/portal/invoices" label="Billing" icon="💳" accent={accent} />
         <QuickLink href="#/portal/documents" label="Upload Document" icon="📄" accent={accent} />
         <QuickLink href="#/portal/messages" label="Contact Us" icon="💬" accent={accent} />
       </div>
@@ -512,7 +520,7 @@ function QuotesPage({ accent }: { session: PortalAccount; customer: PortalAccoun
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-xs text-gray-400">Quote #{q.id.slice(-6).toUpperCase()}</p>
-                  <p className="font-semibold text-gray-900 truncate">{styleLabel(q.fenceStyle)}</p>
+                  <p className="font-semibold text-gray-900 truncate">{q.style}</p>
                   <p className="text-xs text-gray-500">{q.date}</p>
                 </div>
                 <div className="text-right shrink-0">
@@ -521,11 +529,14 @@ function QuotesPage({ accent }: { session: PortalAccount; customer: PortalAccoun
                 </div>
                 <QuoteViewButton shareToken={q.shareToken} accent={accent} />
               </div>
-              {quoteHasPlan(q) && (
+              {q.hasPlan && (
                 <details className="mt-3" data-portal-plan>
                   <summary className="text-sm font-semibold cursor-pointer" style={{ color: accent }}>See the site plan</summary>
-                  <div className="mt-2"><QuotePlan quote={{ layout: q.layout, runs: q.runs, fenceStyle: q.fenceStyle }} /></div>
+                  <img src={portalApiHref(`site-plans/${encodeURIComponent(q.id)}.svg`)} alt={`Site plan for ${q.style}`} className="mt-2 w-full max-h-[70vh] object-contain bg-white border border-gray-100 rounded-xl" loading="lazy" data-portal-plan-img />
                 </details>
+              )}
+              {q.hasContract && (
+                <a href={portalApiHref(`contracts/${encodeURIComponent(q.id)}.pdf`)} target="_blank" rel="noreferrer" className="inline-block mt-3 text-sm font-semibold" style={{ color: accent }} data-portal-contract-link>Your signed contract (PDF)</a>
               )}
               </div>
             )
@@ -678,14 +689,13 @@ function ProjectsPage({ accent }: { session: PortalAccount; customer: PortalAcco
           <div key={j.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm" data-portal-project={j.id}>
             <div className="flex items-start justify-between mb-4">
               <div>
-                <p className="font-bold text-gray-900 text-lg">{styleLabel(j.fenceStyle) || 'Project'}</p>
-                <p className="text-xs text-gray-500">{j.customerAddress || ''}</p>
+                <p className="font-bold text-gray-900 text-lg">{j.style || 'Project'}</p>
+                <p className="text-xs text-gray-500">{j.address || ''}</p>
                 <p className="text-sm mt-1 font-medium" style={{ color: accent }}>{friendlyStage(j.status)}</p>
               </div>
               {j.scheduledDate && (
                 <div className="text-right text-xs text-gray-500">
                   <p className="font-bold text-gray-900">📅 {j.scheduledDate}</p>
-                  {j.crewAssigned && <p>Crew: {j.crewAssigned}</p>}
                 </div>
               )}
             </div>
@@ -724,35 +734,104 @@ function mapStatusToMilestone(status: string | undefined): number {
   }
 }
 
-// ─────── Invoices ───────
+// ─────── Billing: payment schedule, invoices, payments, receipts, balance ───────
 
 function InvoicesPage({ accent }: { session: PortalAccount; customer: PortalAccount['customer']; accent: string }) {
-  const [rows] = useServerList(listPortalInvoices)
-  if (rows === null) return <p className="text-sm text-gray-500">Loading…</p>
-  if (rows === 'error') return <EmptyState emoji="⚠️" title="Could not load your invoices" body="Check your connection and try again." />
-  const invoices: PortalInvoice[] = rows
-  const outstanding = invoices.reduce((s, i) => s + (i.balanceDueCents || 0), 0)
+  const [rows] = useServerList(listPortalBilling)
+  const [oldRows] = useServerList(listPortalInvoices)
+  if (rows === null || oldRows === null) return <p className="text-sm text-gray-500">Loading…</p>
+  if (rows === 'error' || oldRows === 'error') return <EmptyState emoji="⚠️" title="Could not load your billing" body="Check your connection and try again." />
+  const schedules: PortalBilling[] = rows
+  const invoices: PortalInvoice[] = oldRows
+  const outstanding = schedules.reduce((s, b) => s + Math.max(0, b.balanceCents), 0) + invoices.reduce((s, i) => s + (i.balanceDueCents || 0), 0)
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Invoices &amp; Payments</h1>
+    <div className="space-y-5" data-portal-billing>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-2xl font-bold text-gray-900">Billing</h1>
         <div className="text-right">
-          <p className="text-xs text-gray-500 font-bold">Total Outstanding</p>
-          <p className="text-2xl font-black" style={{ color: outstanding > 0 ? accent : '#10b981' }}>{money(outstanding)}</p>
+          <p className="text-xs text-gray-500 font-bold">Balance</p>
+          <p className="text-2xl font-black" style={{ color: outstanding > 0 ? accent : '#10b981' }} data-portal-balance>{money(outstanding)}</p>
         </div>
       </div>
-      {invoices.length === 0 ? (
-        <EmptyState emoji="🧾" title="No invoices yet" body="Invoices will appear here once sent." />
-      ) : (
-        <div className="space-y-2">
+      {schedules.length === 0 && invoices.length === 0 && (
+        <EmptyState emoji="🧾" title="No billing yet" body="Once you sign, your payment schedule, payments and receipts show here." />
+      )}
+      {schedules.map(b => (
+        <section key={b.jobId} className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 min-w-0" data-portal-schedule={b.jobId}>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <p className="text-xs text-gray-400">Payment schedule</p>
+              <p className="font-semibold text-gray-900 break-words">{b.style || 'Your fence'}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-gray-500">Balance</p>
+              <p className="text-xl font-bold text-gray-900 tabular-nums">{money(b.balanceCents)}</p>
+            </div>
+          </div>
+          <table className="w-full text-sm">
+            <tbody>
+              <tr><td className="py-1 text-gray-600">Contract as signed</td><td className="py-1 text-right tabular-nums">{money(b.signedCents)}</td></tr>
+              {b.changeOrderCents !== 0 && <tr><td className="py-1 text-gray-600">Change orders</td><td className="py-1 text-right tabular-nums">{signedMoney(b.changeOrderCents)}</td></tr>}
+              {b.otherChangesCents !== 0 && <tr><td className="py-1 text-gray-600">Other changes</td><td className="py-1 text-right tabular-nums">{signedMoney(b.otherChangesCents)}</td></tr>}
+              <tr className="font-semibold"><td className="py-1">Contract total</td><td className="py-1 text-right tabular-nums">{money(b.contractCents)}</td></tr>
+              <tr><td className="py-1 text-gray-600">Paid</td><td className="py-1 text-right tabular-nums">{money(b.paidCents)}</td></tr>
+            </tbody>
+          </table>
+          <div>
+            <h2 className="text-sm font-bold text-gray-700 mb-2">Invoices</h2>
+            <div className="space-y-2">
+              {b.invoices.map(i => {
+                const status = i.balanceCents <= 0 ? 'Paid' : i.paidCents > 0 ? 'Part paid' : 'Due'
+                const statusBg = status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                return (
+                  <div key={i.id} className="border border-gray-100 rounded-xl px-3 py-2 flex items-center gap-3" data-portal-invoice={i.id}>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900 break-words">{i.label}{i.number ? ` (#${i.number})` : ''}</p>
+                      {i.due && <p className="text-xs text-gray-500">{i.due}</p>}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-gray-900 tabular-nums">{money(i.amountCents)}</p>
+                      <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBg}`}>{status}{status === 'Part paid' ? `: ${money(i.balanceCents)} left` : ''}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-gray-700 mb-2">Payments</h2>
+            {b.payments.length === 0 ? <p className="text-sm text-gray-500">No payments yet.</p> : (
+              <div className="space-y-2">
+                {b.payments.map(p => (
+                  <div key={p.id} className="border border-gray-100 rounded-xl px-3 py-2 flex items-center gap-3 flex-wrap" data-portal-payment={p.id}>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900">{money(p.amountCents)} · {p.method}</p>
+                      <p className="text-xs text-gray-500">{p.paidOnText}</p>
+                    </div>
+                    {p.receipt && (
+                      <span className="flex gap-3 text-sm font-semibold shrink-0">
+                        <a href={publicDoorUrl(p.receipt.link)} target="_blank" rel="noreferrer" style={{ color: accent }} data-portal-receipt={p.receipt.number}>Receipt {p.receipt.number}</a>
+                        <a href={publicDoorUrl(p.receipt.pdf)} target="_blank" rel="noreferrer" style={{ color: accent }}>PDF</a>
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      ))}
+      {invoices.length > 0 && (
+        <section className="space-y-2">
+          {schedules.length > 0 && <h2 className="text-lg font-semibold text-gray-900">Other invoices</h2>}
           {invoices.map(i => {
             const status = i.balanceDueCents <= 0 ? 'Paid' : new Date(i.dueDate) < new Date() ? 'Overdue' : 'Due'
             const statusBg = status === 'Paid' ? 'bg-green-100 text-green-700' : status === 'Overdue' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
             return (
               <div key={i.id} className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-4" data-portal-invoice={i.id}>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900">#{i.invoiceNumber || i.id.slice(-6).toUpperCase()}</p>
+                  <p className="font-semibold text-gray-900">#{i.invoiceNumber || i.id.slice(-6).toUpperCase()}{i.title ? ` · ${i.title}` : ''}</p>
                   <p className="text-xs text-gray-500">Due {i.dueDate}</p>
                 </div>
                 <div className="text-right">
@@ -762,8 +841,53 @@ function InvoicesPage({ accent }: { session: PortalAccount; customer: PortalAcco
               </div>
             )
           })}
-        </div>
+        </section>
       )}
+    </div>
+  )
+}
+
+/** A change to the contract: +$450 or −$75. */
+function signedMoney(cents: number): string {
+  return (cents < 0 ? '−' : '+') + money(Math.abs(cents))
+}
+
+// ─────── The signed contract and the warranty certificate ───────
+
+function PapersPage({ accent }: { accent: string }) {
+  const [papers, setPapers] = useState<PortalPapers | null | 'error'>(null)
+  useEffect(() => { fetchPortalPapers().then(p => setPapers(p ?? 'error')) }, [])
+  if (papers === null) return <p className="text-sm text-gray-500">Loading…</p>
+  if (papers === 'error') return <EmptyState emoji="⚠️" title="Could not load your contract" body="Check your connection and try again." />
+  const day = (d: string) => (d ? new Date(`${d.slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '')
+  return (
+    <div className="space-y-5" data-portal-papers>
+      <h1 className="text-2xl font-bold text-gray-900">Contract &amp; Warranty</h1>
+      {papers.contracts.length === 0 && papers.certificates.length === 0 && (
+        <EmptyState emoji="📄" title="Nothing here yet" body="Your signed contract shows here once you sign, and your warranty certificate once your fence is installed and walked through." />
+      )}
+      {papers.contracts.map(c => (
+        <a key={c.quoteId} href={portalApiHref(c.url)} target="_blank" rel="noreferrer" data-portal-contract={c.quoteId}
+          className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-3 hover:shadow-md transition-all">
+          <span className="text-xl">✍️</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-gray-900 break-words">Signed contract: {c.style}</p>
+            <p className="text-xs text-gray-500">Signed {day(c.signedOn)}</p>
+          </div>
+          <span className="text-xs font-semibold shrink-0" style={{ color: accent }}>PDF</span>
+        </a>
+      ))}
+      {papers.certificates.map(c => (
+        <a key={c.jobId} href={portalApiHref(c.url)} target="_blank" rel="noreferrer" data-portal-certificate={c.jobId}
+          className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-3 hover:shadow-md transition-all">
+          <span className="text-xl">🛡️</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-gray-900 break-words">Warranty certificate: {c.style}</p>
+            <p className="text-xs text-gray-500">Completed {day(c.completedOn)}</p>
+          </div>
+          <span className="text-xs font-semibold shrink-0" style={{ color: accent }}>PDF</span>
+        </a>
+      ))}
     </div>
   )
 }
@@ -835,7 +959,7 @@ function DocumentsPage({ accent }: { session: PortalAccount; customer: PortalAcc
               <span className="text-xl">📄</span>
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-gray-900 truncate">{f.label ? `${f.label} — ` : ''}{f.name}</p>
-                <p className="text-xs text-gray-500">{new Date(f.uploadedAt).toLocaleDateString()} · {f.source === 'portal_customer' ? 'You' : (f.uploadedBy || 'company')}</p>
+                <p className="text-xs text-gray-500">{new Date(f.uploadedAt).toLocaleDateString()} · {f.fromYou ? 'You' : 'From us'}</p>
               </div>
               <span className="text-xs text-gray-400">{(f.size / 1024).toFixed(1)} KB</span>
             </a>
@@ -1030,7 +1154,7 @@ function AccountPage({ session, customer, accent }: { session: PortalAccount; cu
         <div className="space-y-1 text-sm">
           <p><span className="text-gray-500">Name:</span> {customer?.firstName ?? session.firstName} {customer?.lastName ?? session.lastName}</p>
           <p><span className="text-gray-500">Email:</span> {session.email}</p>
-          <p><span className="text-gray-500">Phone:</span> {customer?.phone || '—'}</p>
+          <p><span className="text-gray-500">Phone:</span> {customer?.phone ? formatPhone(customer.phone) : '—'}</p>
           <p><span className="text-gray-500">Service Address:</span> {customer?.serviceAddress || '—'}</p>
         </div>
         <p className="text-xs text-gray-400 mt-3">To update your info, send us a message.</p>

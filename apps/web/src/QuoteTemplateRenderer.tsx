@@ -7,6 +7,7 @@
  *   - PDF export (via window.print on the rendered HTML)
  */
 
+import { formatPhone } from './phoneFormat'
 import { signedOptionWarranty } from './warranties'
 import { styleLabel } from './fenceCatalog'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
@@ -297,7 +298,7 @@ function PremiumTemplate({ quote, template, interactive, onAccept, accepted, exp
             <p style={{ color: template.accentColor, letterSpacing: 5, fontSize: 11, textTransform: 'uppercase', fontWeight: 700, marginBottom: 10 }}>Thank You</p>
             <p style={{ color: '#374151', fontSize: 14, lineHeight: 1.6 }}>We appreciate the opportunity to earn your business.</p>
             <p style={{ color: '#9ca3af', fontSize: 12, marginTop: 16 }}>
-              {[company.name, company.phone, company.email].filter(Boolean).join(' · ')}
+              {[company.name, formatPhone(company.phone), company.email].filter(Boolean).join(' · ')}
             </p>
           </section>
         )}
@@ -391,7 +392,7 @@ function ModernTemplate({ quote, template, interactive, onAccept, accepted, expi
           <div style={{ height: 1, background: '#374151', margin: '20px 0' }} />
           <div style={{ fontSize: 12, color: '#d1d5db' }}>
             <p style={{ marginBottom: 6 }}><strong style={{ color: '#fff' }}>{company.name}</strong></p>
-            {company.phone && <p>{company.phone}</p>}
+            {company.phone && <p>{formatPhone(company.phone)}</p>}
             {company.email && <p>{company.email}</p>}
           </div>
         </aside>
@@ -434,7 +435,7 @@ function ClassicTemplate({ quote, template, interactive, onAccept, accepted, exp
           <p style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Licensed &amp; Insured Fence Contractors</p>
         </div>
         <div style={{ textAlign: 'right', fontSize: 11, color: '#374151', lineHeight: 1.6 }}>
-          {company.phone && <div>{company.phone}</div>}
+          {company.phone && <div>{formatPhone(company.phone)}</div>}
           {company.email && <div>{company.email}</div>}
           {company.address && <div>{company.address}</div>}
         </div>

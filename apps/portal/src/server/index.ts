@@ -46,6 +46,7 @@ import { startMediaWorker } from './lib/media.js'
 import { startVoiceWorker } from './lib/voiceTranscribe.js'
 import savedJobRoutes from './routes/saved-jobs.js'
 import jobCostingRoutes from './routes/job-costing.js'
+import pullSheetRoutes from './routes/pull-sheets.js'
 import warrantyRoutes from './routes/warranties.js'
 import { ensureWarrantiesAll } from './lib/warranties.js'
 import changeOrderRoutes from './routes/change-orders.js'
@@ -262,6 +263,7 @@ app.use('/p/portal', portalPublicPage)     // The customer portal's page through
 app.use('/p', publicProposal)
 app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff after install (lib/jobCosting.ts)
+app.use('/api/pull-sheets', pullSheetRoutes)  // A customer's pull sheets from their quotes and jobs (lib/customerPullSheets.ts)
 app.use('/api/warranties', warrantyRoutes)  // A job's warranty, service call coverage, the signed contract PDF (lib/warranties.ts)
 app.use('/api/change-orders', changeOrderRoutes)  // Change orders on signed quotes (lib/changeOrders.ts)
 app.use('/api/payments', paymentRoutes)  // Payment schedules, payments and receipts (lib/contractBilling.ts)

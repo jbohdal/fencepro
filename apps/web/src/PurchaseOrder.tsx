@@ -1,4 +1,5 @@
 import type { SavedQuote } from './QuotesPage'
+import { formatPhone } from './phoneFormat'
 import { styleLabel } from './fenceCatalog'
 import { businessDate } from './businessDate'
 
@@ -92,7 +93,7 @@ export function generatePO(quote: SavedQuote, vendor?: string, notes?: string) {
     <div class="company-name">${esc(co.name || 'Getter Done Fence')}</div>
     <div class="company-info">
       ${co.address ? esc(co.address) + '<br>' : ''}${co.city ? esc(co.city) + ', ' : ''}${esc(co.state)} ${esc(co.zip)}
-      ${co.phone ? '<br>' + esc(co.phone) : ''}
+      ${co.phone ? '<br>' + esc(formatPhone(co.phone)) : ''}
       ${co.email ? ' · ' + esc(co.email) : ''}
     </div>
   </div>

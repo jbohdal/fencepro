@@ -1,4 +1,6 @@
 import type { QuoteProposal } from './proposal'
+import { formatPhone } from './phoneFormat'
+import PhoneLink from './PhoneLink'
 import { sourceLabel } from './optionListsStore'
 import type { QuoteJobRequest } from './quoteJob'
 import { styleLabel } from './fenceCatalog'
@@ -352,7 +354,7 @@ function QuoteDrawer({
             <p className="text-xs font-semibold text-gray-500">Customer</p>
             {[
               { label: 'Name',        value: quote.customerName },
-              { label: 'Phone',       value: quote.customerPhone },
+              { label: 'Phone',       value: quote.customerPhone, node: quote.customerPhone ? <PhoneLink phone={quote.customerPhone} customerId={quote.customerId ?? null} name={quote.customerName} /> : null },
               { label: 'Email',       value: quote.customerEmail },
               { label: 'Address',     value: quote.customerAddress },
               { label: 'Lead Source', value: sourceLabel(quote.leadSource) },
@@ -360,7 +362,7 @@ function QuoteDrawer({
             ].filter(r => r.value).map(r => (
               <div key={r.label} className="flex gap-3">
                 <span className="text-xs text-gray-400 w-24 shrink-0">{r.label}</span>
-                <span className="text-sm text-gray-800">{r.value}</span>
+                <span className="text-sm text-gray-800">{r.node ?? r.value}</span>
               </div>
             ))}
           </div>
@@ -624,7 +626,7 @@ export default function QuotesPage({
                 >
                   <td className="px-5 py-3" data-label="Customer">
                     <p className="font-semibold text-gray-900">{q.customerName}</p>
-                    {q.customerPhone && <p className="text-xs text-gray-400">{q.customerPhone}</p>}
+                    {q.customerPhone && <p className="text-xs text-gray-400">{formatPhone(q.customerPhone)}</p>}
                   </td>
                   <td className="px-4 py-3 text-gray-700" data-label="Style">{styleLabel(q.fenceStyle)}</td>
                   <td className="px-4 py-3 text-right text-gray-600" data-label="Sections">{q.sections}</td>

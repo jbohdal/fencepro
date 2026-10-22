@@ -13,6 +13,7 @@
  * unchanged. The original JobsPage.tsx remains importable as a fallback.
  */
 
+import PhoneLink from './PhoneLink'
 import { AUTOMATIC_SOURCES, sourceFor } from './optionListsStore'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -1077,7 +1078,7 @@ function PipelineListView({
                     <p className="text-xs text-gray-400">{(l.address || '').split(',').slice(-2)[0]?.trim() || l.address || '—'}</p>
                   </td>
                   <td className="px-3 py-2 text-xs">
-                    <a href={`tel:${l.phone}`} className="text-blue-600 hover:underline">{l.phone || '—'}</a>
+                    {l.phone ? <PhoneLink phone={l.phone} cardId={l.id} name={`${l.firstName} ${l.lastName}`.trim()} data-list-phone /> : '—'}
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-600">{styleLabel(l.fenceType) || '—'}</td>
                   <td className="px-3 py-2">

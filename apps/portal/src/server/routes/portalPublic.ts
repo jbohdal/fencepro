@@ -32,7 +32,9 @@ import { PUBLIC_PORTAL_API } from '../lib/portalSession.js'
 /** What a customer's portal calls (routes/portal.ts), and nothing else. */
 export const CUSTOMER_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['POST', /^\/(login|logout|activate|resend-invite)$/],
-  ['GET', /^\/(me|company|quotes|projects|invoices|change-orders|photos|documents|media|messages)$/],
+  ['GET', /^\/(me|company|quotes|projects|billing|invoices|papers|change-orders|photos|documents|media|messages)$/],
+  ['GET', /^\/site-plans\/[^/]+\.svg$/],
+  ['GET', /^\/(contracts|certificates)\/[^/]+\.pdf$/],
   ['POST', /^\/me\/password$/],
   ['POST', /^\/change-orders\/[^/]+\/sign$/],
   ['POST', /^\/(photos|documents|messages)$/],

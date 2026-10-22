@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { formatPhone } from './phoneFormat'
 import { Camera, ChevronLeft } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
@@ -258,7 +259,7 @@ function SaveModal({
                   {filtered.map(c => (
                     <div key={c.id} onClick={() => handleSelectCustomer(c)} data-customer-option={c.id} className="px-3 py-2.5 hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0">
                       <p className="text-sm font-medium text-gray-900">{c.firstName} {c.lastName}</p>
-                      <p className="text-xs text-gray-400">{c.phone} {c.email && `· ${c.email}`}</p>
+                      <p className="text-xs text-gray-400">{formatPhone(c.phone)} {c.email && `· ${c.email}`}</p>
                     </div>
                   ))}
                 </div>
@@ -267,7 +268,7 @@ function SaveModal({
                 <div className="mt-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2.5 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{selectedCustomer.firstName} {selectedCustomer.lastName}</p>
-                    <p className="text-xs text-gray-500">{selectedCustomer.phone} · {selectedCustomer.serviceAddress}</p>
+                    <p className="text-xs text-gray-500">{formatPhone(selectedCustomer.phone)} · {selectedCustomer.serviceAddress}</p>
                   </div>
                   <button onClick={() => { setSelectedCustomer(null); setSearch('') }} data-clear-customer className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
                 </div>
@@ -306,7 +307,7 @@ function SaveModal({
                   <p className="text-xs text-amber-800">Already on file with this phone or email. Save makes a new customer unless you pick one.</p>
                   {matches.slice(0, 3).map(c => (
                     <div key={c.id} className="flex items-center justify-between gap-2">
-                      <span className="text-sm text-gray-800 min-w-0 truncate">{`${c.firstName} ${c.lastName}`.trim()}{c.phone ? ` · ${c.phone}` : ''}</span>
+                      <span className="text-sm text-gray-800 min-w-0 truncate">{`${c.firstName} ${c.lastName}`.trim()}{c.phone ? ` · ${formatPhone(c.phone)}` : ''}</span>
                       <button type="button" onClick={() => { handleSelectCustomer(c); setMode('search') }} data-use-customer={c.id}
                         className="shrink-0 min-h-[40px] px-3 rounded-lg border border-amber-300 text-xs font-semibold text-amber-900 hover:bg-amber-100">
                         Use {c.firstName || 'this customer'}

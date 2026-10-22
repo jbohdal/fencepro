@@ -2,6 +2,7 @@
  * Vendors Page — master list of vendors, vendor detail panel, bill + payment management.
  */
 
+import { formatPhone } from './phoneFormat'
 import { useState, useMemo, useRef } from 'react'
 import { getJobs } from './jobStore'
 import {
@@ -157,7 +158,7 @@ function VendorDetail({ vendor, onReload, onEdit, onDelete }: {
           <h2 className="text-xl font-bold text-gray-900">{vendor.name}</h2>
           <p className="text-xs text-gray-500 mt-1">
             {vendor.contactName && `${vendor.contactName} · `}
-            {vendor.phone && `${vendor.phone} · `}
+            {vendor.phone && `${formatPhone(vendor.phone)} · `}
             {vendor.email}
           </p>
           <p className="text-xs text-gray-400 mt-0.5">
@@ -298,7 +299,7 @@ function VendorInfo({ vendor }: { vendor: VendorContact }) {
   return (
     <div>
       {row('Contact', vendor.contactName)}
-      {row('Phone', vendor.phone)}
+      {row('Phone', vendor.phone ? formatPhone(vendor.phone) : vendor.phone)}
       {row('Email', vendor.email)}
       {row('Address', [vendor.address, vendor.city, vendor.state, vendor.zip].filter(Boolean).join(', '))}
       {row('Payment Terms', TERMS_LABELS[vendor.paymentTerms])}

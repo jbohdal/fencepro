@@ -10,11 +10,20 @@
  *   GET  /me             — who is signed in, with their name, phone and address from the CRM
  *   POST /me/password    — change the password (ends the other sessions)
  *   GET  /company        — the company's name, phone and portal colors (no sign in needed)
- *   GET  /quotes         — the customer's sent, sold and lost quotes (price, never a cost)
- *   GET  /projects       — the customer's jobs (status, install date, crew)
- *   GET  /invoices       — the customer's sent invoices
+ *   GET  /quotes         — the customer's sent, sold and lost quotes (plain style, price, proposal link; never a cost)
+ *   GET  /site-plans/:quoteId.svg — the site plan drawn on that quote's proposal (an image)
+ *   GET  /projects       — the customer's jobs (status, install date)
+ *   GET  /billing        — the payment schedule of each job: invoices, payments, receipt links, balance
+ *   GET  /invoices       — the customer's sent invoices typed in Billing (before payment schedules)
+ *   GET  /papers         — the signed contracts and warranty certificates
+ *   GET  /contracts/:quoteId.pdf   — a signed contract (lib/contractPdf.ts)
+ *   GET  /certificates/:jobId.pdf  — a warranty certificate (lib/walkthroughCertificate.ts)
  *   GET  /change-orders  — the customer's own change orders (sent, approved, void ones they were shown)
  *   POST /change-orders/:id/sign — approve and sign one ({ name, signature }), lib/changeOrders.ts
+ *
+ * What a portal login may see is an explicit list (lib/portalCustomer.ts, and
+ * the serialize* functions below): never a pull sheet, material list, cost,
+ * internal note, internal or crew photo, crew packet, follow up or call log.
  *
  * Sign in: a server side session in an httpOnly cookie (lib/portalSession.ts).
  * Nothing about the sign in, and no business data, is kept in the browser's
@@ -68,6 +77,9 @@ async function softDeletePortalItem(model: 'portalPhoto' | 'portalFile', entityT
   })
 }
 import { changeOrdersForContact, signByCustomer, customerView } from '../lib/changeOrders.js'
+import { quotesOf, jobsOf, quoteRowOf, planOf, isSigned, papersOf, billingOf } from '../lib/portalCustomer.js'
+import { contractForQuote, CONTRACT_SELECT } from '../lib/contractPdf.js'
+import { plainStyleName } from '../lib/estimates.js'
 import { signSchema as coSignSchema } from './changeOrderPublic.js'
 
 // File storage helpers
@@ -543,31 +555,36 @@ router.get('/company', async (req, res) => {
 // Every query is filtered by the session's customer and that customer's
 // company. Prices the customer was given, never a cost or margin.
 
-const QUOTE_STATUSES_SHOWN = ['SENT', 'SOLD', 'LOST'] as const
+const QUOTE_STATUSES_SHOWN: readonly string[] = ['SENT', 'SOLD', 'LOST']
 
 router.get('/quotes', requirePortalAuth, async (req: PortalAuthRequest, res) => {
   try {
     const c = await contactOf(req.portalAccount!.crmCustomerId)
     if (!c?.accountId) { res.json({ success: true, data: [] }); return }
+    const rows = (await quotesOf(c)).filter(q => QUOTE_STATUSES_SHOWN.includes(q.status))
     const now = Date.now()
-    const rows = await prisma.savedQuote.findMany({
-      where: { accountId: c.accountId, crmContactId: c.id, deletedAt: null, archivedAt: null, status: { in: [...QUOTE_STATUSES_SHOWN] as any } },
-      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-      select: { id: true, fenceStyle: true, date: true, finalPrice: true, status: true, layout: true, runs: true, shareToken: true, shareDisabledAt: true, shareExpiresAt: true },
-    })
-    res.json({
-      success: true,
-      data: rows.map(q => ({
-        id: q.id, fenceStyle: q.fenceStyle, date: q.date, status: q.status,
-        priceCents: Math.round((q.finalPrice || 0) * 100),
-        layout: q.layout ?? null, runs: Array.isArray(q.runs) ? q.runs : [],
-        // The customer's own quote link, when the office made one and it still works.
-        shareToken: q.shareToken && !q.shareDisabledAt && (!q.shareExpiresAt || q.shareExpiresAt.getTime() > now) ? q.shareToken : null,
-      })),
-    })
+    res.json({ success: true, data: await Promise.all(rows.map(q => quoteRowOf(q, now))) })
   } catch (err) {
     console.error('[portal-quotes]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// The site plan on one of the customer's own quotes, as the proposal showed it: an image (no script can run in it).
+router.get('/site-plans/:quoteId.svg', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const c = await contactOf(req.portalAccount!.crmCustomerId)
+    const q = c?.accountId ? (await quotesOf(c)).find(x => x.id === String(req.params.quoteId) && QUOTE_STATUSES_SHOWN.includes(x.status)) : null
+    const svg = q ? planOf(q) : ''
+    if (!svg) { res.status(404).json({ success: false, error: 'NOT_FOUND' }); return }
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8')
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src data:; style-src 'unsafe-inline'")
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Cache-Control', 'private, no-store')
+    res.send(svg)
+  } catch (err) {
+    console.error('[portal-site-plan]', err)
+    res.status(500).json({ success: false, error: 'FAILED' })
   }
 })
 
@@ -575,21 +592,29 @@ router.get('/projects', requirePortalAuth, async (req: PortalAuthRequest, res) =
   try {
     const c = await contactOf(req.portalAccount!.crmCustomerId)
     if (!c?.accountId) { res.json({ success: true, data: [] }); return }
-    const quotes = await prisma.savedQuote.findMany({ where: { accountId: c.accountId, crmContactId: c.id, deletedAt: null }, select: { id: true } })
-    const jobs = await prisma.savedJob.findMany({
-      where: { accountId: c.accountId, deletedAt: null, archivedAt: null, OR: [{ crmContactId: c.id }, ...(quotes.length ? [{ quoteId: { in: quotes.map(q => q.id) } }] : [])] },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, fenceStyle: true, status: true, scheduledDate: true, crewAssigned: true, customerAddress: true },
-    })
-    res.json({ success: true, data: jobs })
+    const jobs = await jobsOf(c)
+    // The job's status and install date for the customer: never the crew, notes or anything of the office's.
+    res.json({ success: true, data: await Promise.all(jobs.map(async j => ({ id: j.id, style: await plainStyleName(j.fenceStyle), status: j.status, scheduledDate: j.scheduledDate, address: j.customerAddress }))) })
   } catch (err) {
     console.error('[portal-projects]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })
   }
 })
 
+router.get('/billing', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const c = await contactOf(req.portalAccount!.crmCustomerId)
+    res.json({ success: true, data: c?.accountId ? await billingOf(c) : [] })
+  } catch (err) {
+    console.error('[portal-billing]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
 const int = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 0)
 
+// Invoices typed in Billing before payment schedules (BusinessState.invoices). One taken into a
+// payment schedule (ContractInvoice.legacyId) shows there instead, never twice.
 router.get('/invoices', requirePortalAuth, async (req: PortalAuthRequest, res) => {
   try {
     const c = await contactOf(req.portalAccount!.crmCustomerId)
@@ -597,9 +622,10 @@ router.get('/invoices', requirePortalAuth, async (req: PortalAuthRequest, res) =
     const b = await prisma.businessState.findUnique({ where: { accountId: c.accountId }, select: { invoices: true } })
     const all = Array.isArray(b?.invoices) ? (b!.invoices as any[]) : []
     const mine = all.filter(i => i && i.customerId === c.id && i.status !== 'draft' && i.status !== 'void')
+    const adopted = mine.length ? new Set((await prisma.contractInvoice.findMany({ where: { accountId: c.accountId, legacyId: { in: mine.map(i => String(i.id)) } }, select: { legacyId: true } })).map(x => x.legacyId)) : new Set()
     res.json({
       success: true,
-      data: mine.map(i => ({
+      data: mine.filter(i => !adopted.has(String(i.id))).map(i => ({
         id: str(i.id), invoiceNumber: str(i.invoiceNumber), title: str(i.title), status: str(i.status),
         dueDate: str(i.dueDate), issuedDate: str(i.issuedDate),
         totalCents: int(i.totalCents), amountPaidCents: int(i.amountPaidCents), balanceDueCents: int(i.balanceDueCents),
@@ -608,6 +634,54 @@ router.get('/invoices', requirePortalAuth, async (req: PortalAuthRequest, res) =
   } catch (err) {
     console.error('[portal-invoices]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// ── The signed contract and the warranty certificate ──
+
+router.get('/papers', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const c = await contactOf(req.portalAccount!.crmCustomerId)
+    res.json({ success: true, data: c?.accountId ? await papersOf(c) : { contracts: [], certificates: [] } })
+  } catch (err) {
+    console.error('[portal-papers]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+const pdfHeaders = (res: Response, name: string) => {
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `inline; filename="${name}"`)
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+}
+
+router.get('/contracts/:quoteId.pdf', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const c = await contactOf(req.portalAccount!.crmCustomerId)
+    // Only one of the customer's own signed quotes; anyone else's is "not found".
+    const q = c?.accountId ? await prisma.savedQuote.findFirst({ where: { id: String(req.params.quoteId), accountId: c.accountId, crmContactId: c.id, deletedAt: null, archivedAt: null }, select: CONTRACT_SELECT }) : null
+    const pdf = q && isSigned(q) ? await contractForQuote(q) : null
+    if (!pdf) { res.status(404).json({ success: false, error: 'NOT_FOUND' }); return }
+    pdfHeaders(res, 'Signed contract.pdf')
+    res.end(pdf)
+  } catch (err) {
+    console.error('[portal-contract]', err)
+    res.status(500).json({ success: false, error: 'FAILED' })
+  }
+})
+
+router.get('/certificates/:jobId.pdf', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const c = await contactOf(req.portalAccount!.crmCustomerId)
+    const job = c?.accountId ? (await jobsOf(c)).find(j => j.id === String(req.params.jobId)) : null
+    const w = job ? await prisma.walkthrough.findUnique({ where: { jobId: job.id }, select: { status: true, certificatePath: true } }) : null
+    if (!w || w.status !== 'completed' || !w.certificatePath || !fs.existsSync(w.certificatePath)) { res.status(404).json({ success: false, error: 'NOT_FOUND' }); return }
+    pdfHeaders(res, 'Warranty certificate.pdf')
+    res.end(fs.readFileSync(w.certificatePath))
+  } catch (err) {
+    console.error('[portal-certificate]', err)
+    res.status(500).json({ success: false, error: 'FAILED' })
   }
 })
 
@@ -750,7 +824,7 @@ router.post('/photos', requirePortalAuth, photoUpload.single('file'), async (req
     // The screen's own id for this photo: sent twice, it is saved once.
     const rid = requestIdOf(req)
     const again = rid ? await prisma.portalPhoto.findUnique({ where: { id: rid } }) : null
-    if (again && again.crmCustomerId === customerId && !again.deletedAt) { res.json({ success: true, data: serializePhoto(again) }); return }
+    if (again && again.crmCustomerId === customerId && !again.deletedAt) { res.json({ success: true, data: customerPhoto(again) }); return }
     const { fileKey, fileUrl } = storeUploadFile(file.buffer, file.originalname, customerId)
     const photo = await prisma.portalPhoto.create({
       data: {
@@ -779,7 +853,7 @@ router.post('/photos', requirePortalAuth, photoUpload.single('file'), async (req
         type: 'info',
       })
     } catch {}
-    res.json({ success: true, data: serializePhoto(photo) })
+    res.json({ success: true, data: customerPhoto(photo) })
   } catch (err: any) {
     console.error('[portal-photo-upload]', err)
     if (err?.code === 'LIMIT_FILE_SIZE') {
@@ -790,15 +864,17 @@ router.post('/photos', requirePortalAuth, photoUpload.single('file'), async (req
   }
 })
 
-// Customer lists their own photos
+// Customer lists the photos they uploaded (of their yard, their survey). The office's own photos
+// (uploaded on the customer page, or from CompanyCam) are not shown: what the office shares with
+// the customer is a photo it marked Customer (GET /media).
 router.get('/photos', requirePortalAuth, async (req: PortalAuthRequest, res) => {
   try {
     const customerId = req.portalAccount!.crmCustomerId
     const photos = await prisma.portalPhoto.findMany({
-      where: { crmCustomerId: customerId, deletedAt: null, isVisibleToCustomer: true },
+      where: { crmCustomerId: customerId, deletedAt: null, isVisibleToCustomer: true, source: 'portal_customer' },
       orderBy: { createdAt: 'desc' },
     })
-    res.json({ success: true, data: photos.map(serializePhoto) })
+    res.json({ success: true, data: photos.map(customerPhoto) })
   } catch (err) {
     console.error('[portal-photos-list]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })
@@ -907,6 +983,11 @@ function fileLink(p: { fileKey: string; fileUrl: string | null }): string {
   return signedFileUrl(p.fileKey)
 }
 
+/** A photo as the customer sees it: the picture and its caption, never who at the office uploaded it. */
+function customerPhoto(p: any) {
+  return { id: p.id, customerId: p.crmCustomerId, fileKey: p.fileKey, fileUrl: fileLink(p), name: p.originalFilename, mimeType: p.mimeType, caption: p.caption ?? null, uploadedAt: p.createdAt }
+}
+
 function serializePhoto(p: any) {
   return {
     id: p.id, customerId: p.crmCustomerId,
@@ -938,7 +1019,7 @@ router.post('/documents', requirePortalAuth, docUpload.single('file'), async (re
     // The screen's own id for this doc: sent twice, it is saved once.
     const rid = requestIdOf(req)
     const again = rid ? await prisma.portalFile.findUnique({ where: { id: rid } }) : null
-    if (again && again.crmCustomerId === customerId && !again.deletedAt) { res.json({ success: true, data: serializeFile(again) }); return }
+    if (again && again.crmCustomerId === customerId && !again.deletedAt) { res.json({ success: true, data: customerFile(again) }); return }
     const { fileKey, fileUrl } = storeUploadFile(file.buffer, file.originalname, customerId)
     const fileKind = /^image\//i.test(file.mimetype) ? 'photo' : 'document'
     const doc = await prisma.portalFile.create({
@@ -968,7 +1049,7 @@ router.post('/documents', requirePortalAuth, docUpload.single('file'), async (re
         type: 'info',
       })
     } catch {}
-    res.json({ success: true, data: serializeFile(doc) })
+    res.json({ success: true, data: customerFile(doc) })
   } catch (err: any) {
     console.error('[portal-doc-upload]', err)
     if (err?.code === 'LIMIT_FILE_SIZE') {
@@ -986,7 +1067,7 @@ router.get('/documents', requirePortalAuth, async (req: PortalAuthRequest, res) 
       where: { crmCustomerId: customerId, deletedAt: null, isVisibleToCustomer: true },
       orderBy: { createdAt: 'desc' },
     })
-    res.json({ success: true, data: files.map(serializeFile) })
+    res.json({ success: true, data: files.map(customerFile) })
   } catch (err) {
     console.error('[portal-docs-list]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })
@@ -1060,6 +1141,14 @@ router.delete('/documents/:id', requireStaffCan('ops.delete'), async (req, res) 
   }
 })
 
+/** A document as the customer sees it: the file, its label and whether they sent it; never who at the office did. */
+function customerFile(f: any) {
+  return {
+    id: f.id, customerId: f.crmCustomerId, fileKey: f.fileKey, fileUrl: fileLink(f), name: f.originalFilename, size: f.fileSizeBytes, mimeType: f.mimeType,
+    label: f.label ?? null, uploadedAt: f.createdAt, fromYou: f.source === 'portal_customer',
+  }
+}
+
 function serializeFile(f: any) {
   return {
     id: f.id, customerId: f.crmCustomerId,
@@ -1117,7 +1206,7 @@ router.post('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) 
     // The screen's own id for this msg: sent twice, it is saved once.
     const rid = requestIdOf(req)
     const again = rid ? await prisma.portalMessage.findUnique({ where: { id: rid } }) : null
-    if (again && again.crmCustomerId === customerId) { res.json({ success: true, data: serializeMessage(again) }); return }
+    if (again && again.crmCustomerId === customerId) { res.json({ success: true, data: customerMessage(again) }); return }
     const msg = await prisma.portalMessage.create({
       data: {
         ...(rid && !again ? { id: rid } : {}),
@@ -1142,7 +1231,7 @@ router.post('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) 
         type: 'info',
       })
     } catch {}
-    res.json({ success: true, data: serializeMessage(msg) })
+    res.json({ success: true, data: customerMessage(msg) })
   } catch (err: any) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[portal-message-send]', err)
@@ -1164,7 +1253,7 @@ router.get('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) =
       data: { isReadByCustomer: true, readByCustomerAt: now },
     })
     const unreadByCustomer = messages.filter(m => m.senderType === 'staff' && !m.isReadByCustomer).length
-    res.json({ success: true, data: { messages: messages.map(serializeMessage), unreadByCustomer } })
+    res.json({ success: true, data: { messages: messages.map(customerMessage), unreadByCustomer } })
   } catch (err) {
     console.error('[portal-messages-list]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })
@@ -1279,6 +1368,11 @@ router.get('/messages/inbox', requireStaffSyncKey, async (_req, res) => {
     res.status(500).json({ success: false, error: 'INBOX_FAILED' })
   }
 })
+
+/** A message as the customer sees it: who wrote it (them or the company), the words and when; never the staff member's login. */
+function customerMessage(m: any) {
+  return { id: m.id, customerId: m.crmCustomerId, senderType: m.senderType, body: m.body, createdAt: m.createdAt }
+}
 
 function serializeMessage(m: any) {
   return {

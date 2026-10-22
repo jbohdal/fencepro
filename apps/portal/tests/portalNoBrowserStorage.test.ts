@@ -55,9 +55,10 @@ const rel = (f: string) => path.relative(SRC, f)
 describe('the customer portal keeps nothing in the browser', () => {
   const files = graph(path.join(SRC, 'CustomerPortalApp.tsx'))
 
-  test('it loads its pages, its server client and the drawing code, nothing of the office', () => {
+  // The site plan is the image the server sends (GET /site-plans/<quote>.svg): the drawing code is not loaded any more.
+  test('it loads its pages and its server client, nothing of the office', () => {
     const names = files.map(rel)
-    expect(names).toEqual(expect.arrayContaining(['CustomerPortalApp.tsx', 'portalApiClient.ts', 'SignaturePad.tsx', 'QuotePlan.tsx']))
+    expect(names).toEqual(expect.arrayContaining(['CustomerPortalApp.tsx', 'portalApiClient.ts', 'SignaturePad.tsx']))
     for (const office of ['crmAuth.ts', 'portalStaffApi.ts', 'customerStore.ts', 'quoteStore.ts', 'jobStore.ts', 'configStore.ts', 'outbox.ts', 'App.tsx', 'businessStateStore.ts', 'billingStore.ts']) {
       expect(names, office).not.toContain(office)
     }

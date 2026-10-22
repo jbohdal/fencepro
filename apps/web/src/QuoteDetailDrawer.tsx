@@ -7,6 +7,7 @@
  *   - Quotes list (any row)
  */
 
+import { formatPhone } from './phoneFormat'
 import { can } from './permissions'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
@@ -143,7 +144,7 @@ export default function QuoteDetailDrawer({
             <div className="bg-gray-50 rounded-xl p-4 text-sm">
               <p className="font-semibold text-gray-900">{quote.customerName}</p>
               <p className="text-gray-500">{quote.customerAddress || '—'}</p>
-              <p className="text-gray-500">{[quote.customerPhone, quote.customerEmail].filter(Boolean).join(' · ')}</p>
+              <p className="text-gray-500">{[formatPhone(quote.customerPhone), quote.customerEmail].filter(Boolean).join(' · ')}</p>
             </div>
           </section>
 

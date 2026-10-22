@@ -4,6 +4,7 @@
  * Invite team members, manage roles, view sessions, activity log.
  */
 
+import { formatPhone } from './phoneFormat'
 import { useState, useEffect, useCallback } from 'react'
 import { authFetch } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
@@ -123,7 +124,7 @@ export default function TeamManagementPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">{user.firstName} {user.lastName}</p>
-                      <p className="text-xs text-gray-500">{user.email}{user.phone ? ` · ${user.phone}` : ''}</p>
+                      <p className="text-xs text-gray-500">{user.email}{user.phone ? ` · ${formatPhone(user.phone)}` : ''}</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 lg:gap-3">

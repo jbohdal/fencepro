@@ -1,4 +1,6 @@
 import { useState, useRef } from 'react'
+import { formatPhone } from './phoneFormat'
+import PhoneLink from './PhoneLink'
 import { styleLabel } from './fenceCatalog'
 import { sourcePicker, sourceLabel } from './optionListsStore'
 import { upsertCustomer, logCustomerActivity, findPossibleMatches, type Customer } from './customerStore'
@@ -196,7 +198,7 @@ export function QuickAddModal({
               <p className="text-xs text-amber-800">Already on file with this phone or email. Add Lead makes a new customer unless you pick one.</p>
               {matches.slice(0, 3).map(c => (
                 <div key={c.id} className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-gray-800 min-w-0 truncate">{`${c.firstName} ${c.lastName}`.trim()}{c.phone ? ` · ${c.phone}` : ''}</span>
+                  <span className="text-sm text-gray-800 min-w-0 truncate">{`${c.firstName} ${c.lastName}`.trim()}{c.phone ? ` · ${formatPhone(c.phone)}` : ''}</span>
                   <button type="button" onClick={() => setPicked(c)} data-use-customer={c.id}
                     className="shrink-0 min-h-[40px] px-3 rounded-lg border border-amber-300 text-xs font-semibold text-amber-900 hover:bg-amber-100">
                     Use {c.firstName || 'this customer'}
@@ -399,14 +401,14 @@ export function LeadDrawer({
             ) : (
               <div className="space-y-1.5">
                 {[
-                  { label: 'Phone',   value: lead.phone },
+                  { label: 'Phone',   value: lead.phone, node: lead.phone ? <PhoneLink phone={lead.phone} cardId={lead.id} name={`${lead.firstName} ${lead.lastName}`.trim()} /> : null },
                   { label: 'Email',   value: lead.email },
                   { label: 'Address', value: lead.address },
                   { label: 'Source',  value: sourceLabel(lead.leadSource) },
                 ].filter(r => r.value).map(r => (
                   <div key={r.label} className="flex gap-3">
                     <span className="text-xs text-gray-400 w-16 shrink-0">{r.label}</span>
-                    <span className="text-sm text-gray-800">{r.value}</span>
+                    <span className="text-sm text-gray-800">{r.node ?? r.value}</span>
                   </div>
                 ))}
               </div>

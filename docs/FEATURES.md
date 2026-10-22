@@ -358,6 +358,12 @@ Status key:
 * Chai Gray: black rivets, "Rivet, Black" $0.36 in Inventory; its cost review cleared. **LIVE** (Oct 21)
 * Kristi Murphy: contract $8,914.00 by a logged −$0.27 adjustment; deposit INV-1001 $4,457.00 paid; receipt 1006. **LIVE** (Oct 21)
 
+## 9p. Pull sheets tab, portal shows only what customers should see, phone numbers (Oct 22)
+
+* Customer page → Pullsheets lists every quote's and job's pull sheet by customer id, newest first (style, footage, Draft/Sent/Signed/Sold/Lost, date); a sold job shows the sheet frozen at signing, a note when an approved change order changed the work, and the Final takeoff beside it once done. Owner and office see costs; salesmen and installers get quantities only from the server. Print/PDF and Share to crew (install packet link). Old hand-linked entries still show. (The tab had read only an old side list in Settings.) **DEV**
+* Customer portal answers only from allow-lists on the server: photos marked Customer, their site plan, Billing (schedule, invoices, payments, receipts, balance), their signed contract and warranty certificate, their documents, messages with the office, project status. Never pull sheets, materials, costs, internal notes, internal or crew photos, crew packet, follow ups or call logs (tested on every portal route). **DEV**
+* Phone numbers show as (352) 671 8083 everywhere in the staff app and portal; tap to call (starts "How'd it go?" for a customer with a card). **DEV**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)

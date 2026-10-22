@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import PhoneLink from './PhoneLink'
 import { can } from './permissions'
 import { styleLabel } from './fenceCatalog'
 import L from 'leaflet'
@@ -944,7 +945,7 @@ function JobDetailPanel({
       {/* Contact */}
       {(job.customerPhone || job.customerEmail) && (
         <div className="flex items-center gap-3 mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
-          {job.customerPhone && <span>{job.customerPhone}</span>}
+          {job.customerPhone && <PhoneLink phone={job.customerPhone} customerId={job.customerId ?? null} name={job.customerName} />}
           {job.customerEmail && <span>{job.customerEmail}</span>}
         </div>
       )}

@@ -5,6 +5,8 @@
  * All data fetched from /api/ez-budget/ endpoints
  */
 
+import { formatPhone } from './phoneFormat'
+import PhoneLink from './PhoneLink'
 import { useState, useEffect, useCallback } from 'react'
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
@@ -324,7 +326,7 @@ function QuotesTab() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-medium text-gray-900">{q.customerName || 'Unknown'}</p>
-                        <p className="text-xs text-gray-400">{q.customerEmail || ''}{q.customerPhone ? ` • ${q.customerPhone}` : ''}</p>
+                        <p className="text-xs text-gray-400">{q.customerEmail || ''}{q.customerPhone ? ` • ${formatPhone(q.customerPhone)}` : ''}</p>
                       </div>
                       <div className="text-right">
                         <p className="font-semibold text-gray-900">{cents(q.totalCents)}</p>
@@ -353,7 +355,7 @@ function QuotesTab() {
               <div className="text-sm space-y-1.5">
                 <p><span className="text-gray-500">Customer:</span> {selected.customerName}</p>
                 {selected.customerEmail && <p><span className="text-gray-500">Email:</span> {selected.customerEmail}</p>}
-                {selected.customerPhone && <p><span className="text-gray-500">Phone:</span> {selected.customerPhone}</p>}
+                {selected.customerPhone && <p><span className="text-gray-500">Phone:</span> <PhoneLink phone={selected.customerPhone} /></p>}
                 {selected.customerAddress && <p><span className="text-gray-500">Address:</span> {selected.customerAddress}</p>}
                 {selected.material && <p><span className="text-gray-500">Material:</span> {selected.material}</p>}
                 {selected.style && <p><span className="text-gray-500">Style:</span> {selected.style}</p>}

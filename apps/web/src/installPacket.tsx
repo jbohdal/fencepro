@@ -118,13 +118,27 @@ export function packetUrl(token: string): string {
   return hostname.endsWith('.ts.net') ? `${protocol}//${hostname}:8443/p/i/${token}` : `${origin}/p/i/${token}`
 }
 
-interface Packet { id: string; token: string; disabledAt: string | null; locateTicket: string | null; locateDate: string | null; sentAt: string }
+export interface Packet { id: string; token: string; disabledAt: string | null; locateTicket: string | null; locateDate: string | null; sentAt: string }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T | null> {
   const r = await fetchWithAuth(`${API}${path}`, { ...init, headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) } }).catch(() => null)
   if (!r?.ok) return null
   const j = await r.json().catch(() => null)
   return (j?.data ?? null) as T | null
+}
+
+/**
+ * Make (or refresh) a sold job's install packet: the snapshot drawn here from
+ * the job, its quote and its photos, sent to the server. The packet, or null
+ * when it could not be made. Used by "Send install packet" on the job and
+ * "Share to crew" on a customer's pull sheet.
+ */
+export async function sendInstallPacket(jobId: string, job: { fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number }, quote: SavedQuote | undefined): Promise<Packet | null> {
+  const media = await listMedia({ jobId })
+  // The aerial photo, turned as saved with the quote, under the plan (when it was on).
+  const photo = await bakedBackdrop(quote?.layout?.yard ?? null)
+  const snapshot = buildPacketSnapshot(job, quote, media, photo)
+  return call<Packet>('', { method: 'POST', body: JSON.stringify({ jobId, snapshot }) })
 }
 
 /** On a sold job: send the packet, then open, copy, text, email or turn it off. */
@@ -135,11 +149,7 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
 
   async function send() {
     setBusy(true)
-    const media = await listMedia({ jobId })
-    // The aerial photo, turned as saved with the quote, under the plan (when it was on).
-    const photo = await bakedBackdrop(quote?.layout?.yard ?? null)
-    const snapshot = buildPacketSnapshot(job, quote, media, photo)
-    const p = await call<Packet>('', { method: 'POST', body: JSON.stringify({ jobId, snapshot }) })
+    const p = await sendInstallPacket(jobId, job, quote)
     setBusy(false)
     if (!p) { toast.error('Could not make the install packet. Try again.'); return }
     setPacket(p)
