@@ -242,12 +242,15 @@ export async function acceptInvite(token: string, email: string, password: strin
   return { user: data.data.user }
 }
 
+/** Asks for a reset email. Throws when nothing can be sent (no email on the server). */
 export async function forgotPassword(email: string): Promise<void> {
-  await fetch(`${AUTH_API}/forgot-password`, {
+  const res = await fetch(`${AUTH_API}/forgot-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   })
+  const data = await res.json().catch(() => null)
+  if (data && data.success === false) throw new Error(data.error || 'The reset email could not be sent.')
 }
 
 export async function resetPassword(token: string, email: string, password: string): Promise<void> {

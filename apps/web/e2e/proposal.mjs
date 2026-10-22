@@ -176,7 +176,8 @@ try {
   // ── Back in the app: the quote shows the customer's choice ──
   await d.page.goto(`${APP}/?customer=${sold.crmContactId}`); await d.page.waitForSelector('[data-global-appointment]'); await sleep(1200)
   await d.page.locator('button.capitalize', { hasText: /^quotes/i }).first().click(); await sleep(500)
-  await d.page.locator(`text=$${Math.round(sold.finalPrice).toLocaleString('en-US')}`).first().click(); await sleep(800)
+  // The quote row's price, not the job's "Change order ($…)" button that shows the same amount.
+  await d.page.locator(`text=$${Math.round(sold.finalPrice).toLocaleString('en-US')}`).filter({ hasNotText: /Change order/i }).first().click(); await sleep(800)
   const chosenText = (await d.page.locator('[data-proposal-chosen]').textContent().catch(() => '')) || ''
   check('the saved quote shows who accepted which option', chosenText.includes('Accepted by Shawn Collins') && chosenText.includes(sixOpt.label), chosenText)
   check('and Text it / Email it / Open buttons, with the link date', await d.page.locator('[data-proposal-text]').count() === 1 && await d.page.locator('[data-proposal-open]').count() === 1 && /Link works until/.test(await d.page.locator('[data-link-state]').textContent()))

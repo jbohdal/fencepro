@@ -262,7 +262,8 @@ function LoginPage({ company, accent, offline, onSignedIn }: { company: PortalCo
     if (!email) { setErr('Enter your email first.'); return }
     try {
       const r = await resendPortalInvite(email)
-      if (r.ok) setErr('If an account exists for that email, a fresh activation link has been sent.')
+      if (r.ok && (r.status === 'not_configured' || r.status === 'failed')) setErr(r.message || 'Not sent. Please call or text us for a new link.')
+      else if (r.ok) setErr('If an account exists for that email, a fresh activation link has been sent.')
       else if (r.error === 'RATE_LIMITED') setErr('Too many resend requests — please wait an hour and try again.')
       else setErr('Could not resend activation email — please contact us.')
     } catch { setErr('Could not resend. Please contact us.') }
@@ -367,7 +368,8 @@ function ActivatePage({ company, accent, onActivated }: { company: PortalCompany
       const email = prompt('Enter your email to get a fresh activation link:')
       if (!email) return
       const r = await resendPortalInvite(email.trim())
-      if (r.ok) { setResent(true); setErr('If an account exists for that email, a fresh link has been sent.') }
+      if (r.ok && (r.status === 'not_configured' || r.status === 'failed')) setErr(r.message || 'Not sent. Please contact us directly for a new link.')
+      else if (r.ok) { setResent(true); setErr('If an account exists for that email, a fresh link has been sent.') }
       else if (r.error === 'RATE_LIMITED') setErr('Too many resend requests — please wait an hour and try again.')
       else setErr('Could not send a new link — please contact us directly.')
     } catch {

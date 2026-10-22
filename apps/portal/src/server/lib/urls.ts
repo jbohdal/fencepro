@@ -81,7 +81,7 @@ export function validateProductionEnv(): { critical: string[]; warnings: string[
   }
 
   if (!process.env.SENDGRID_API_KEY && !(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)) {
-    warnings.push('No email backend configured (SENDGRID_API_KEY or SMTP_HOST/SMTP_USER/SMTP_PASS). Invite, activation, password-reset, and notification emails will silently log to console instead of being delivered.')
+    warnings.push('No email backend configured (SENDGRID_API_KEY or SMTP_HOST/SMTP_USER/SMTP_PASS). Invite, activation, password-reset, receipt and notification emails are not sent; each screen says "not sent". Set up email: GO_LIVE.md, Email.')
   }
 
   if (process.env.NODE_ENV === 'production') {
@@ -115,7 +115,7 @@ export function printEnvValidation(): void {
   // try/catch and fired-and-forgot — we MUST NOT block startup on email.
   if (critical.length > 0) {
     const adminEmail = process.env.ADMIN_ALERT_EMAIL || process.env.SMTP_FROM_EMAIL
-    if (adminEmail && process.env.SENDGRID_API_KEY) {
+    if (adminEmail && (process.env.SENDGRID_API_KEY || (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS))) {
       // Lazy-load to avoid pulling email service when env validation fails before setup
       import('./emailService.js').then(({ sendEmail, buildEmailHtml }) => {
         sendEmail({

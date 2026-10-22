@@ -56,7 +56,10 @@ export interface InviteResult {
   status: PortalStatus
   expiresAt: string
   activationUrl: string
+  /** True only when a mail server took the email. */
   emailSent: boolean
+  /** No email on the server: nothing was sent. */
+  emailNotSetUp?: boolean
   emailError?: string
 }
 

@@ -15,7 +15,7 @@ import { auditLog } from '../middleware/audit.js'
 import { str } from '../lib/helpers.js'
 import { getAllAdapters, getAdapter, COMING_SOON, BUILT_IN } from '../integrations/registry.js'
 import { calendarStatus } from '../lib/calendarSync/index.js'
-import { isEmailServiceConfigured } from '../lib/emailService.js'
+import { emailSetup, sendTestEmail } from '../lib/emailService.js'
 import { plainZod } from '../lib/plainZod.js'
 
 const router = Router()
@@ -149,9 +149,13 @@ router.get('/', requireAuth, async (req, res) => {
       if (b.slug === 'google_calendar') {
         connected = !!cal?.connected
         setupNote = connected ? 'Managed in Settings > Google Calendar.' : cal && !cal.configured ? 'Google is not set up on this server yet. See Settings > Google Calendar.' : 'Connect it in Settings > Google Calendar.'
-      } else if (b.slug === 'sendgrid') {
-        connected = !!process.env.SENDGRID_API_KEY
-        setupNote = connected ? 'Email is sent through SendGrid. The key is kept in the server\u2019s settings file.' : isEmailServiceConfigured() ? 'Email is sent through the mail server in the server\u2019s settings file, not SendGrid.' : 'Not set up: add SENDGRID_API_KEY to the server\u2019s settings file.'
+      } else if (b.slug === 'email') {
+        const e = emailSetup()
+        connected = e.configured
+        setupNote = e.provider === 'smtp' ? `Sent through ${e.host} (port ${e.port}) from ${e.fromName} <${e.fromEmail}>.`
+          : e.provider === 'sendgrid' ? `Sent through SendGrid from ${e.fromName} <${e.fromEmail || 'no sender address set'}>.`
+          : 'Not set up: nothing is emailed, and each screen says "not sent". Add the mail server settings to the server\u2019s settings file (GO_LIVE.md, Email).'
+        return { ...b, configFields: [], isActive: connected, status: connected ? 'connected' : 'disconnected', comingSoon: false, builtIn: true, setupNote, email: e }
       }
       return { ...b, configFields: [], isActive: connected, status: connected ? 'connected' : 'disconnected', comingSoon: false, builtIn: true, setupNote }
     })
@@ -160,6 +164,23 @@ router.get('/', requireAuth, async (req, res) => {
   } catch {
     res.status(500).json({ success: false, error: 'Failed to load integrations' })
   }
+})
+
+// Email: is it set up (provider, from address; never the password), and a test to the signed in person.
+router.get('/email', requireAuth, (req, res) => {
+  if (req.user!.role !== 'admin') { res.status(403).json({ success: false, error: 'Admin required' }); return }
+  res.json({ success: true, data: emailSetup() })
+})
+
+router.post('/email/test', requireAuth, async (req, res) => {
+  if (req.user!.role !== 'admin') { res.status(403).json({ success: false, error: 'Admin required' }); return }
+  const u = req.user as unknown as { sub?: string; userId?: string; email?: string }
+  const id = u.sub || u.userId
+  const me = id ? await prisma.crmUser.findUnique({ where: { id }, select: { email: true } }).catch(() => null) : null
+  const to = me?.email || u.email
+  if (!to) { res.status(400).json({ success: false, error: 'Your login has no email address to send the test to.' }); return }
+  const r = await sendTestEmail(to)
+  res.json({ success: true, data: { to, sent: r.success, ...(r.notConfigured ? { notConfigured: true } : {}), ...(r.success ? {} : { error: r.error }), message: r.success ? `Test email sent to ${to}. Check that inbox (and spam).` : `Not sent: ${r.error}` } })
 })
 
 // Connect an integration

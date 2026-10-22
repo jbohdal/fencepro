@@ -739,7 +739,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /**
  * Email the receipt link to `to` (the customer's saved email, or what was
- * typed on the receipt screen). Only through the server's email settings
+ * typed on the receipt screen), with the receipt PDF attached. Only through the server's email settings
  * (empty on the dev copy: it says "not set up" and nothing goes out). The
  * result is kept on the receipt.
  */
@@ -756,13 +756,16 @@ export async function emailReceipt(accountId: string, receiptId: string, to: str
   if (!isEmailServiceConfigured()) {
     status = 'not_configured'
   } else {
+    // The receipt PDF goes along with the link (the link alone when the PDF cannot be made).
+    const pdf = await receiptPdfOf(r).catch((e) => { console.warn('[receipt email] PDF not attached:', (e as Error).message); return null })
     const out = await sendEmail({
       to: addr,
+      ...(pdf ? { attachments: [{ filename: `receipt-${r.number}.pdf`, content: pdf, contentType: 'application/pdf' }] } : {}),
       subject: `${s.company.name}: ${receiptName(r.number)}, ${moneyText(s.amountCents)} received`,
       body: buildEmailHtml(`<p>Hi ${s.customerName.split(' ')[0] || 'there'},</p><p>Thank you! We received ${moneyText(s.amountCents)} (${s.methodText}) for ${s.forText.toLowerCase()}.${s.paidInFull ? ' Your contract is paid in full.' : ` Balance remaining: ${moneyText(Math.max(0, s.balanceCents))}.`}</p><p>Your receipt: <a href="${link}">${link}</a></p><p>${s.company.name}${s.company.phone ? ` · ${s.company.phone}` : ''}</p>`),
     })
-    status = out.success ? 'sent' : 'failed'
-    error = out.error
+    status = out.success ? 'sent' : out.notConfigured ? 'not_configured' : 'failed'
+    if (!out.success && !out.notConfigured) error = out.error
   }
   await prisma.receipt.update({ where: { id: r.id }, data: { emailTo: addr, emailStatus: status, ...(status === 'sent' ? { emailedAt: new Date() } : {}) } })
   await prisma.billingLog.create({ data: { accountId, jobId: r.jobId, paymentId: r.paymentId, kind: 'email', text: `${receiptName(r.number)} email to ${addr}: ${status === 'sent' ? 'sent' : status === 'not_configured' ? 'not sent, email is not set up on this server' : `failed (${error ?? 'unknown'})`}`, byName: by.name, byUserId: by.userId } })

@@ -51,7 +51,7 @@ import { hashPassword, verifyPassword } from '../lib/auth.js'
 import { requirePortalAuth, startPortalSession, clearPortalCookie, endPortalSessionOf, revokePortalSessions, portalIdentityOf, type PortalIdentity } from '../lib/portalSession.js'
 import { signedFileUrl, checkFileSig, isPublicFileKey } from '../lib/portalFiles.js'
 import { resolveIntakeAccountId } from '../lib/intake.js'
-import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
+import { sendEmail, applyMergeTags, buildEmailHtml, isEmailServiceConfigured } from '../lib/emailService.js'
 import { createNotification } from '../lib/notificationService.js'
 import { portalPageUrl } from '../lib/urls.js'
 import { isStaffRequest } from '../lib/secrets.js'
@@ -170,7 +170,7 @@ function logActivation(tokenHash: string, result: string, extra: Record<string, 
     Object.keys(extra).length ? extra : '')
 }
 
-async function sendInviteEmail(email: string, firstName: string | null, rawToken: string, expiresAt: Date): Promise<{ sent: boolean; error?: string }> {
+async function sendInviteEmail(email: string, firstName: string | null, rawToken: string, expiresAt: Date): Promise<{ sent: boolean; notSetUp?: boolean; error?: string }> {
   const link = buildActivationUrl(rawToken)
   const mergeData = {
     customer_first_name: firstName || 'there',
@@ -190,7 +190,8 @@ async function sendInviteEmail(email: string, firstName: string | null, rawToken
   // an SSL error on `urlNNNN.www.systemssyndicate.com` if link branding isn't
   // perfectly provisioned. See lib/urls.ts and emailService.ts comments.
   const r = await sendEmail({ to: email, subject, body, disableClickTracking: true })
-  return { sent: r.success, error: r.error }
+  if (!r.success) console.warn(`[portal-invite] email to ${email} not sent: ${r.error}`)
+  return { sent: r.success, ...(r.notConfigured ? { notSetUp: true } : {}), ...(r.success ? {} : { error: r.error }) }
 }
 
 // ── POST /api/portal/invite ──
@@ -255,7 +256,9 @@ router.post('/invite', requireStaffSyncKey, async (req, res) => {
         status: account.status,
         expiresAt,
         activationUrl: buildActivationUrl(rawToken),
+        // Only true when a mail server took it. Not set up: the screen says not sent and opens the staff's own email.
         emailSent: emailResult.sent,
+        ...(emailResult.notSetUp ? { emailNotSetUp: true } : {}),
         emailError: emailResult.error,
       },
     })
@@ -281,6 +284,8 @@ const resendLimiter = rateLimit({
 router.post('/resend-invite', resendLimiter, async (req, res) => {
   try {
     const { email } = z.object({ email: z.string().email() }).parse(req.body)
+    // No email on this server: say so to everyone, and keep the current link working (no new token).
+    if (!isEmailServiceConfigured()) { res.json({ success: true, data: { status: 'not_configured', message: 'Not sent: email is not set up yet. Call or text us for a new link.' } }); return }
     const account = await prisma.portalAccount.findUnique({ where: { email: email.toLowerCase() } })
     // Always return success to avoid leaking whether the email exists
     if (!account) { res.json({ success: true, data: { status: 'sent' } }); return }
@@ -307,8 +312,8 @@ router.post('/resend-invite', resendLimiter, async (req, res) => {
     await prisma.portalInvite.create({
       data: { accountId: account.id, email: account.email, sentAt: now, expiresAt },
     })
-    await sendInviteEmail(account.email, account.firstName, rawToken, expiresAt)
-    res.json({ success: true, data: { status: 'sent' } })
+    const mail = await sendInviteEmail(account.email, account.firstName, rawToken, expiresAt)
+    res.json({ success: true, data: mail.sent ? { status: 'sent' } : { status: 'failed', message: 'The email did not go. Call or text us for a new link.' } })
   } catch (err: any) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[portal-resend-invite]', err)
@@ -389,13 +394,14 @@ router.post('/activate', async (req, res) => {
     // Brief welcome confirmation
     try {
       const link = portalPageUrl('#/portal/login')
-      await sendEmail({
+      const mail = await sendEmail({
         to: updated.email,
         subject: `Your ${companyName()} portal is now active`,
         body: buildEmailHtml(`<p>Hi ${updated.firstName || 'there'},</p>
 <p>Your portal account is now active. You can log in any time at <a href="${link}">${link}</a>.</p>
 <p>— ${companyName()}</p>`),
       })
+      if (!mail.success) console.warn(`[portal-activate] welcome email not sent: ${mail.error}`)
     } catch { /* non-fatal */ }
 
     // Signed in: the session cookie (no token in the answer, nothing for the page to keep).
@@ -1348,7 +1354,7 @@ router.post('/customer/:customerId/messages', requireStaffSyncKey, async (req, r
     try {
       const account = await prisma.portalAccount.findFirst({ where: { crmCustomerId: customerId, status: 'active' } })
       if (account?.email) {
-        await sendEmail({
+        const mail = await sendEmail({
           to: account.email,
           subject: `New message from ${companyName()}`,
           body: buildEmailHtml(`<p>Hi ${account.firstName || 'there'},</p>
@@ -1356,6 +1362,7 @@ router.post('/customer/:customerId/messages', requireStaffSyncKey, async (req, r
 <p><a href="${portalPageUrl('#/portal/messages')}">Open Messages</a></p>
 <p>— ${companyName()}</p>`),
         })
+        if (!mail.success) console.warn(`[portal-messages] new message email not sent: ${mail.error}`)
       }
     } catch {}
     res.json({ success: true, data: serializeMessage(msg) })

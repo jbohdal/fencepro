@@ -62,7 +62,7 @@ export default function TeamManagementPage() {
   // Deleting a login asks for its full name to be typed (ConfirmByTyping), as deleting a customer does.
   const [deletingUser, setDeletingUser] = useState<TeamUser | null>(null)
   // The link from the last invite resent, to copy and text when the email is slow.
-  const [resent, setResent] = useState<{ email: string; url: string } | null>(null)
+  const [resent, setResent] = useState<InviteOutcome | null>(null)
 
   const loadUsers = useCallback(() => {
     setLoading(true)
@@ -94,7 +94,7 @@ export default function TeamManagementPage() {
         </button>
       </div>
 
-      {resent && <InviteLink email={resent.email} url={resent.url} onDone={() => setResent(null)} />}
+      {resent && <InviteLink invite={resent} onDone={() => setResent(null)} />}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit overflow-x-auto">
@@ -144,8 +144,8 @@ export default function TeamManagementPage() {
                       {user.status === 'invited' && (
                         <button onClick={async () => {
                           try {
-                            const d = await api<{ email: string; inviteUrl?: string }>(`/invite/${user.id}/resend`, { method: 'POST' })
-                            if (d?.inviteUrl) setResent({ email: user.email, url: d.inviteUrl })
+                            const d = await api<InviteAnswer>(`/invite/${user.id}/resend`, { method: 'POST' })
+                            if (d?.inviteUrl) setResent(outcomeOf(d, user.email))
                           } catch (err: any) { alert(plainText(err)) }
                           loadUsers()
                         }} className="text-xs text-orange-600 hover:text-orange-800 px-2 py-1" data-resend-invite>Resend</button>
@@ -237,7 +237,17 @@ export default function TeamManagementPage() {
 
 // ── The invite link, to copy and text ──
 
-function InviteLink({ email, url, onDone }: { email: string; url: string; onDone: () => void }) {
+/** The server's answer to an invite or a resend: the link, and whether a mail server took the email. */
+interface InviteAnswer { email: string; inviteUrl?: string; emailSent?: boolean; emailNotSetUp?: boolean; emailError?: string }
+interface InviteOutcome { email: string; url: string; emailSent: boolean; notSent?: string }
+
+function outcomeOf(d: InviteAnswer, email: string): InviteOutcome {
+  const sent = d.emailSent === true
+  return { email: d.email || email, url: d.inviteUrl || '', emailSent: sent, ...(sent ? {} : { notSent: d.emailNotSetUp ? 'email is not set up' : (d.emailError || 'the email did not go') }) }
+}
+
+function InviteLink({ invite, onDone }: { invite: InviteOutcome; onDone: () => void }) {
+  const { email, url } = invite
   const [copied, setCopied] = useState(false)
   // The whole text to send: the Tailscale steps first (without Tailscale the link says "This site can't be reached"), then the link.
   const message = inviteStepsText(url, 72)
@@ -245,9 +255,14 @@ function InviteLink({ email, url, onDone }: { email: string; url: string; onDone
     try { await navigator.clipboard.writeText(message); setCopied(true) } catch { setCopied(false) }
   }
   return (
-    <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-2" data-invite-link>
-      <p className="text-sm text-green-900 font-medium">Invite sent to {email}.</p>
-      <p className="text-xs text-green-900">If the email does not show up, copy this and text it. Tailscale must be on before the link opens.</p>
+    <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-2" data-invite-link data-invite-email-sent={invite.emailSent ? 'yes' : 'no'}>
+      {invite.emailSent ? <>
+        <p className="text-sm text-green-900 font-medium">Invite emailed to {email}.</p>
+        <p className="text-xs text-green-900">If the email does not show up, copy this and text it. Tailscale must be on before the link opens.</p>
+      </> : <>
+        <p className="text-sm text-amber-800 font-medium" data-invite-not-sent>Not sent: {invite.notSent}. Nothing went to {email}.</p>
+        <p className="text-xs text-green-900">Copy this and text it (or email it yourself). Tailscale must be on before the link opens.</p>
+      </>}
       <div className="text-xs text-green-950 bg-white border border-green-200 rounded-lg px-3 py-2 space-y-1 break-words" data-invite-steps>
         {INVITE_STEP_1_LINES.map((l, i) => <p key={i} className={i === 0 ? 'font-semibold' : ''}>{l}</p>)}
         <p className="font-semibold pt-1">Step 2: Open this link, choose a password (8 characters or more), and you are signed in. It works for 72 hours, once:</p>
@@ -272,14 +287,14 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
   const [role, setRole] = useState('office_staff')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [sent, setSent] = useState<{ email: string; url: string } | null>(null)
+  const [sent, setSent] = useState<InviteOutcome | null>(null)
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true); setError('')
     try {
-      const d = await api<{ email: string; inviteUrl?: string }>('/invite', { method: 'POST', body: JSON.stringify({ firstName, lastName, email, phone: phone || undefined, role }) })
-      if (d?.inviteUrl) setSent({ email: d.email || email, url: d.inviteUrl })
+      const d = await api<InviteAnswer>('/invite', { method: 'POST', body: JSON.stringify({ firstName, lastName, email, phone: phone || undefined, role }) })
+      if (d?.inviteUrl) setSent(outcomeOf(d, email))
       else onInvited()
     } catch (err: any) { setError(plainText(err)) }
     setSaving(false)
@@ -288,8 +303,8 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
   if (sent) return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[480px] p-6 mx-4 space-y-4 modal-responsive">
-        <h2 className="font-bold text-gray-900 text-lg">Invite sent</h2>
-        <InviteLink email={sent.email} url={sent.url} onDone={onInvited} />
+        <h2 className="font-bold text-gray-900 text-lg">{sent.emailSent ? 'Invite sent' : 'Login made, invite not emailed'}</h2>
+        <InviteLink invite={sent} onDone={onInvited} />
       </div>
     </div>
   )
@@ -354,7 +369,7 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
           </button>
         </div>
 
-        <p className="text-xs text-gray-400 text-center">An email is sent with the Tailscale steps and a link to set their password; the same steps and link are shown here to copy. Invite expires in 72 hours.</p>
+        <p className="text-xs text-gray-400 text-center">When email is set up, an email goes with the Tailscale steps and a link to set their password; the same steps and link are shown here to copy either way. Invite expires in 72 hours.</p>
       </form>
     </div>
   )

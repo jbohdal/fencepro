@@ -110,7 +110,8 @@ export async function recordDailySnapshot(): Promise<{ snapshot: Awaited<ReturnT
         <ul>${Object.entries(counts).map(([k, v]) => `<li>${k}: ${v}</li>`).join('')}</ul>
       `),
       disableClickTracking: true,
-    }).catch((err) => console.warn('[data-integrity] alert email failed:', (err as Error).message))
+    }).then((r) => { if (!r.success) console.warn('[data-integrity] alert email not sent:', r.error) })
+      .catch((err) => console.warn('[data-integrity] alert email failed:', (err as Error).message))
   }
 
   console.log(`[data-integrity] snapshot recorded for ${today.toISOString().slice(0, 10)} — ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(', ')}`)
@@ -141,7 +142,8 @@ export async function checkBackupStaleness(): Promise<void> {
         <p>If the manual run fails, check disk space and pg_dump is installed.</p>
       `),
       disableClickTracking: true,
-    }).catch(() => {})
+    }).then((r) => { if (!r.success) console.warn('[data-integrity] stale backup email not sent:', r.error) })
+      .catch(() => {})
   }
 }
 

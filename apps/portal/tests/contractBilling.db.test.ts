@@ -13,7 +13,9 @@
  *   and contract adjustment are logged; a Salesman may not edit amounts, may
  *   record a payment (it waits to be confirmed; confirming leaves the receipt
  *   as it was); voiding a payment voids its receipt.
- * - The receipt link /p/r/<token> and its PDF, with no sign in.
+ * - The receipt link /p/r/<token> and its PDF, with no sign in. Emailing it:
+ *   with no email settings it says not set up and nothing is sent; with a
+ *   mail server (a fake one on this machine) it is sent with the PDF attached.
  * - The one-time step for invoices typed in Billing, on a copy of Kristi
  *   Murphy's: her hand-made $4,457.00 deposit stays $4,457.00 with her check
  *   applied, the Final is the contract less that, never paid in full; a -27
@@ -308,6 +310,33 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
     // Email: the dev copy has no email settings, so it says so and sends nothing.
     const em = await call(owner, 'POST', `/api/payments/${a.id}/email`, { to: 'e2e-pay@example.invalid', link: `http://localhost:4001/p/r/${rec.token}` })
     expect(em.json.data.status).toBe('not_configured')
+    expect((await prisma.receipt.findUnique({ where: { id: rec.id } }))!.emailedAt).toBeNull()
+    // With a mail server (a fake one on this machine, kept in memory): sent, with the receipt PDF attached.
+    {
+      const { SMTPServer } = await import('smtp-server')
+      const mail = await import('../src/server/lib/emailService.js')
+      const got: string[] = []
+      const srv = new SMTPServer({ logger: false, onAuth(_a, _s, cb) { cb(null, { user: 'office' }) }, onData(stream, _s, cb) { const c: Buffer[] = []; stream.on('data', (b: Buffer) => c.push(b)); stream.on('end', () => { got.push(Buffer.concat(c).toString('utf8')); cb() }) } })
+      await new Promise<void>(r => srv.listen(0, '127.0.0.1', () => r()))
+      const keys = ['SENDGRID_API_KEY', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM_EMAIL'] as const
+      const before = Object.fromEntries(keys.map(k => [k, process.env[k]]))
+      Object.assign(process.env, { SENDGRID_API_KEY: '', SMTP_HOST: '127.0.0.1', SMTP_PORT: String((srv.server.address() as AddressInfo).port), SMTP_SECURE: 'false', SMTP_USER: 'office@gdfence.test', SMTP_PASS: 'x', SMTP_FROM_EMAIL: '' })
+      mail.setEmailTestTlsOptions({ rejectUnauthorized: false }) // the fake server's own certificate
+      try {
+        const sent = await call(owner, 'POST', `/api/payments/${a.id}/email`, { to: 'e2e-pay@example.invalid', link: `http://localhost:4001/p/r/${rec.token}` })
+        expect(sent.json.data.status).toBe('sent')
+        expect(got).toHaveLength(1)
+        expect(got[0]).toMatch(/^To: e2e-pay@example\.invalid/m)
+        expect(got[0]).toMatch(new RegExp(`filename=receipt-${rec.number}\\.pdf`))
+        expect(got[0]).toContain(`/p/r/${rec.token}`)
+        expect((await prisma.receipt.findUnique({ where: { id: rec.id } }))!.emailedAt).not.toBeNull()
+      } finally {
+        mail.closeEmailTransport()
+        mail.setEmailTestTlsOptions(null)
+        for (const k of keys) { if (before[k] === undefined) delete process.env[k]; else process.env[k] = before[k] }
+        await new Promise<void>(r => srv.close(() => r()))
+      }
+    }
     // Void: Salesman no; owner yes, the receipt says VOID.
     expect((await call(sales, 'POST', `/api/payments/${a.id}/void`, { reason: 'x' })).status).toBe(403)
     expect((await call(owner, 'POST', `/api/payments/${a.id}/void`, { reason: '' })).status).toBe(400)

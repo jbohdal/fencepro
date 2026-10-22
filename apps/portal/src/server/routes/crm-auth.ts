@@ -13,7 +13,7 @@ import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { deleteLogin } from '../lib/loginDelete.js'
 import { withLock } from '../lib/once.js'
-import { sendEmail, applyMergeTags, buildEmailHtml } from '../lib/emailService.js'
+import { sendEmail, applyMergeTags, buildEmailHtml, isEmailServiceConfigured, EMAIL_NOT_SET_UP, type EmailResult } from '../lib/emailService.js'
 import { buildFrontendUrl } from '../lib/urls.js'
 import { audit } from '../lib/auditLog.js'
 import { resolveSecret } from '../lib/secrets.js'
@@ -22,6 +22,12 @@ import { can, refuse } from '../lib/permissions.js'
 import { inviteStepsHtml } from '../lib/inviteSteps.js'
 
 const router = Router()
+
+/** What an invite answer says about its email: sent, or not sent and why. */
+function emailOutcome(r: EmailResult): { emailSent: boolean; emailNotSetUp?: true; emailError?: string } {
+  if (r.success) return { emailSent: true }
+  return r.notConfigured ? { emailSent: false, emailNotSetUp: true, emailError: EMAIL_NOT_SET_UP } : { emailSent: false, emailError: r.error || 'The email did not go.' }
+}
 
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 const JWT_REFRESH_SECRET = resolveSecret('JWT_REFRESH_SECRET', 'dev-crm-refresh-secret-change-me')
@@ -362,7 +368,7 @@ router.post('/invite', async (req, res) => {
     const companyName = process.env.COMPANY_NAME || 'Getter Done Fence'
     const inviterName = `${payloadFirstName(payload)}`.trim() || 'A teammate'
     const roleLabel = data.role.replace(/_/g, ' ')
-    await sendEmail({
+    const mail = await sendEmail({
       to: email,
       subject: `You've been invited to join ${companyName} on EZ Biz`,
       body: buildEmailHtml(`
@@ -380,7 +386,8 @@ router.post('/invite', async (req, res) => {
 
     await audit(req, 'invite_sent', 'CrmUser', user.id, { newValues: { email, role: data.role, firstName: data.firstName, lastName: data.lastName } })
     // The link goes back to the owner or admin too, to text it when the email is slow or lands in spam.
-    res.status(201).json({ success: true, data: { id: user.id, email, status: 'invited', role: data.role, inviteUrl, expiresInHours: INVITE_EXPIRY_HOURS } })
+    // emailSent is only true when a mail server took it; otherwise the screen says not sent (and why).
+    res.status(201).json({ success: true, data: { id: user.id, email, status: 'invited', role: data.role, inviteUrl, expiresInHours: INVITE_EXPIRY_HOURS, ...emailOutcome(mail) } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[CRM Auth] Invite error:', err)
@@ -422,7 +429,7 @@ router.post('/invite/:userId/resend', async (req, res) => {
     const companyName = process.env.COMPANY_NAME || 'Getter Done Fence'
     const inviterName = `${payloadFirstName(payload)}`.trim()
     const roleLabel = (user.role || '').replace(/_/g, ' ')
-    await sendEmail({
+    const mail = await sendEmail({
       to: user.email,
       subject: `Reissued: your invitation to ${companyName} on EZ Biz`,
       body: buildEmailHtml(`
@@ -433,9 +440,9 @@ router.post('/invite/:userId/resend', async (req, res) => {
       `),
       disableClickTracking: true,
     })
-    console.log(`[CRM Auth] ✉️  Resent invite to ${user.email}`)
+    console.log(`[CRM Auth] Invite reissued for ${user.email}: ${mail.success ? 'emailed' : `not emailed (${mail.error})`}`)
 
-    res.json({ success: true, data: { id: user.id, email: user.email, inviteUrl, expiresInHours: INVITE_EXPIRY_HOURS } })
+    res.json({ success: true, data: { id: user.id, email: user.email, inviteUrl, expiresInHours: INVITE_EXPIRY_HOURS, ...emailOutcome(mail) } })
   } catch (err) {
     console.error('[CRM Auth] resend error:', err)
     res.status(500).json({ success: false, error: 'Failed to resend invite' })
@@ -453,6 +460,8 @@ router.post('/invites/resend-all-pending', async (req, res) => {
   try {
     const payload = verifyAccess(auth.slice(7))
     if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
+    // Without email nothing would reach anyone, and new tokens would break links already texted.
+    if (!isEmailServiceConfigured()) { res.status(409).json({ success: false, error: `Not sent: ${EMAIL_NOT_SET_UP}. Use Resend on each person to get a link to text.` }); return }
     const pending = await prisma.crmUser.findMany({ where: { status: 'invited' } })
     let sent = 0, failed = 0
     for (const user of pending) {
@@ -468,7 +477,7 @@ router.post('/invites/resend-all-pending', async (req, res) => {
         })
         const inviteUrl = buildFrontendUrl(`/accept-invite?token=${rawToken}&email=${encodeURIComponent(user.email)}`)
         const companyName = process.env.COMPANY_NAME || 'Getter Done Fence'
-        await sendEmail({
+        const mail = await sendEmail({
           to: user.email,
           subject: `Reissued: your invitation to ${companyName} on EZ Biz`,
           body: buildEmailHtml(`
@@ -479,6 +488,7 @@ router.post('/invites/resend-all-pending', async (req, res) => {
           `),
           disableClickTracking: true,
         })
+        if (!mail.success) throw new Error(mail.error || 'not sent')
         console.log(`[CRM Auth] ✉️  Reissued invite to ${user.email}`)
         sent++
       } catch (err) {
@@ -573,6 +583,11 @@ router.post('/accept-invite', async (req, res) => {
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = z.object({ email: z.string().email() }).parse(req.body)
+    // No email on this server: say so to everyone (it does not tell whether the account exists).
+    if (!isEmailServiceConfigured()) {
+      res.status(503).json({ success: false, notConfigured: true, error: 'Not sent: email is not set up on this server yet. Ask the owner to reset your password from Team.' })
+      return
+    }
     const user = await prisma.crmUser.findUnique({ where: { email: email.toLowerCase() } })
 
     // Always return success to prevent email enumeration
@@ -593,7 +608,7 @@ router.post('/forgot-password', async (req, res) => {
     })
 
     const resetUrl = buildFrontendUrl(`/reset-password?token=${rawToken}&email=${encodeURIComponent(email)}`)
-    await sendEmail({
+    const mail = await sendEmail({
       to: email,
       subject: 'Password Reset',
       body: buildEmailHtml(`
@@ -605,6 +620,8 @@ router.post('/forgot-password', async (req, res) => {
       `),
       disableClickTracking: true,
     })
+    // The answer stays the same (no telling whether the account exists); the failure is in the log.
+    if (!mail.success) console.warn(`[CRM Auth] Password reset email for ${email} not sent: ${mail.error}`)
 
     res.json({ success: true, data: { message: 'If an account exists, a reset link has been sent.' } })
   } catch {

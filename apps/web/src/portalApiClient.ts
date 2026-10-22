@@ -88,10 +88,11 @@ export async function logout(): Promise<void> {
   try { await call('POST', '/logout', {}) } catch { /* the cookie runs out by itself */ }
 }
 
-export async function resendPortalInvite(email: string): Promise<{ ok: boolean; error?: string }> {
+/** status: sent, already_active, not_configured (no email on the server: nothing sent) or failed. */
+export async function resendPortalInvite(email: string): Promise<{ ok: boolean; status?: string; message?: string; error?: string }> {
   try {
     const r = await call('POST', '/resend-invite', { email })
-    return r.json?.success ? { ok: true } : { ok: false, error: r.json?.error || failed(r) }
+    return r.json?.success ? { ok: true, status: r.json?.data?.status, message: r.json?.data?.message } : { ok: false, error: r.json?.error || failed(r) }
   } catch { return { ok: false, error: 'NETWORK' } }
 }
 

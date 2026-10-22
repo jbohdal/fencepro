@@ -28,8 +28,55 @@ interface IntegrationCard {
   slug: string; name: string; category: string; description: string
   capabilities: string[]; configFields: any[]; isActive: boolean
   status: string; connectedAt?: string; lastSyncedAt?: string; comingSoon?: boolean
-  /** Built in (Google Calendar, SendGrid): set up elsewhere; setupNote says where. */
+  /** Built in (Google Calendar, email): set up elsewhere; setupNote says where. */
   builtIn?: boolean; setupNote?: string
+  /** The email card: what the server sends with (never the password). */
+  email?: EmailSetup
+}
+
+interface EmailSetup {
+  configured: boolean; provider: 'smtp' | 'sendgrid' | null
+  fromName: string; fromEmail: string; replyTo: string
+  host?: string; port?: number; mode?: 'tls' | 'starttls'; user?: string
+}
+
+/** Email: set up or not, through what, from which address, and a test sent to the signed in person. */
+function EmailCard({ email }: { email: EmailSetup }) {
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ sent: boolean; message: string } | null>(null)
+  async function test() {
+    setBusy(true); setResult(null)
+    try {
+      const r = await api('/email/test', { method: 'POST', body: '{}' })
+      setResult({ sent: !!r.sent, message: r.message })
+    } catch (err: any) { setResult({ sent: false, message: plainText(err) }) }
+    setBusy(false)
+  }
+  return (
+    <div className="space-y-2 mb-3" data-email-setup={email.configured ? 'yes' : 'no'}>
+      <dl className="text-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+        <dt className="text-gray-500">Set up</dt>
+        <dd className={email.configured ? 'text-green-700 font-medium' : 'text-amber-700 font-medium'} data-email-configured>{email.configured ? 'Yes' : 'No: nothing is emailed'}</dd>
+        {email.configured && <>
+          <dt className="text-gray-500">Through</dt>
+          <dd className="text-gray-800 break-words" data-email-provider>{email.provider === 'sendgrid' ? 'SendGrid' : `Mail server ${email.host}, port ${email.port} (${email.mode === 'tls' ? 'TLS' : 'STARTTLS'})`}</dd>
+          {email.user && <><dt className="text-gray-500">Signed in as</dt><dd className="text-gray-800 break-words">{email.user}</dd></>}
+          <dt className="text-gray-500">From</dt>
+          <dd className="text-gray-800 break-words" data-email-from>{email.fromName} &lt;{email.fromEmail || 'no address set'}&gt;</dd>
+          {email.replyTo && <><dt className="text-gray-500">Replies to</dt><dd className="text-gray-800 break-words">{email.replyTo}</dd></>}
+        </>}
+      </dl>
+      <button type="button" onClick={test} disabled={busy} data-email-test
+        className="text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 disabled:opacity-50">
+        {busy ? 'Sending...' : 'Send a test email to me'}
+      </button>
+      {result && (
+        <p className={`text-xs rounded-lg p-2 break-words ${result.sent ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`} data-email-test-result={result.sent ? 'sent' : 'not-sent'}>
+          {result.message}
+        </p>
+      )}
+    </div>
+  )
 }
 
 export default function IntegrationsPage() {
@@ -118,7 +165,7 @@ export default function IntegrationsPage() {
                             {integ.slug === 'twilio' ? '📱' : integ.slug === 'openweathermap' ? '🌤' : integ.slug === 'zapier' ? '⚡' :
                              integ.slug === 'quickbooks' ? '📒' : integ.slug === 'stripe' ? '💳' : integ.slug === 'google_calendar' ? '📅' :
                              integ.slug === 'companycam' ? '📸' : integ.slug === 'connecteam' ? '👷' : integ.slug === 'google_maps' ? '🗺' :
-                             integ.slug === 'sendgrid' ? '📧' : '🔌'}
+                             integ.slug === 'email' ? '📧' : '🔌'}
                           </div>
                           <div className="flex-1">
                             <h3 className="font-semibold text-gray-900">{integ.name}</h3>
@@ -133,6 +180,7 @@ export default function IntegrationsPage() {
                           </div>
                         )}
                         {integ.builtIn && integ.setupNote && <p className="text-xs text-gray-500 mb-3">{integ.setupNote}</p>}
+                        {integ.slug === 'email' && integ.email && <EmailCard email={integ.email} />}
 
                         {integ.isActive && (
                           <div className="flex items-center gap-2 mb-3" data-integration-status={integ.slug}>

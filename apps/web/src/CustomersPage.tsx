@@ -1828,13 +1828,13 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
       toast.success('Portal invite sent', `Email delivered to ${customer.email}. Link also copied to clipboard.`)
       logCustomerActivity(customer.id, `Portal invite emailed to ${customer.email}`, { actor: 'user', kind: 'info' })
     } else {
-      // Email service not configured on the backend — hand off to the staff's email client
-      // Extract raw token from the URL and open mailto
+      // Not sent by the server (email not set up, or the mail server refused it): hand off to the staff's email client.
       const tok = (data.activationUrl.match(/token=([a-f0-9]+)/i) || [])[1]
       if (tok) composeFallbackMailto(tok)
-      toast.warning('Email service offline — using your email client',
-        'The server could not send directly. Your email client opened with the invite prefilled. Click Send there.')
-      logCustomerActivity(customer.id, `Portal invite opened in email client (server send disabled)`, { actor: 'user', kind: 'info' })
+      const why = data.emailNotSetUp ? 'email is not set up' : (data.emailError || 'the email did not go')
+      toast.warning(`Not sent: ${why}`,
+        'Your email client opened with the invite filled in. Click Send there. The link is also copied to text it.')
+      logCustomerActivity(customer.id, `Portal invite not sent by the server (${why}); opened in your email client`, { actor: 'user', kind: 'info' })
     }
     await loadAccountsSoon()
     setBump(b => b + 1)
@@ -1844,8 +1844,12 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
     setBusy(true)
     const r = await resendPortalInvite(customer.email)
     setBusy(false)
-    if (r.ok) {
-      toast.success('New invite requested', 'Customer will receive a fresh activation link.')
+    if (r.ok && r.status === 'not_configured') {
+      toast.warning('Not sent: email is not set up', 'Nothing went to the customer. Use Copy Link and text or email it yourself.')
+    } else if (r.ok && r.status === 'failed') {
+      toast.error('Not sent', 'The email did not go. Use Copy Link and text or email it yourself.')
+    } else if (r.ok) {
+      toast.success('New invite sent', 'The customer gets a fresh activation link by email.')
       await loadAccountsSoon()
       setBump(b => b + 1)
     } else if (r.error === 'RATE_LIMITED') {
@@ -1879,7 +1883,7 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
       ? `Last login ${new Date(status.lastLogin).toLocaleDateString()}.`
       : `Activated. Customer can sign in anytime.`
   } else if (status.state === 'invited') {
-    stateIcon = '✉'; stateLabel = 'Invite Sent'; chipClass = 'bg-blue-100 text-blue-700'
+    stateIcon = '✉'; stateLabel = 'Invited'; chipClass = 'bg-blue-100 text-blue-700'
     bodyText = status.invitedAt
       ? `Invited ${new Date(status.invitedAt).toLocaleDateString()}. Customer hasn't activated yet.`
       : `Customer hasn't activated yet.`

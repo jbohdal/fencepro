@@ -69,8 +69,9 @@ was made with `openssl rand -hex 48`, a different value for each.
 | `EZ_QUOTE_ALLOWED_ORIGINS` | Where the widget is hosted, comma separated: `https://gdfencepro.com,https://www.gdfencepro.com,https://quote.gdfencepro.com` | Browsers on your website cannot post quotes |
 | `RETELL_API_KEY` | Empty for now. The Retell API key that carries the webhook badge | Phone calls are refused (intake stays off) |
 
-Optional: SendGrid or SMTP for email, Twilio for text messages, Google keys
-for calendar and maps.
+Optional: email (section 18: Google Workspace or SendGrid), Twilio for text
+messages, Google keys for calendar and maps. Without email settings nothing is
+emailed and every screen says "not sent".
 
 After changing the file: `pm2 restart ezbiz --update-env`
 
@@ -583,3 +584,84 @@ transaction, prints each feedback with the path of its screenshot file
 (`<UPLOAD_DIR>/feedback/<company>/<id>.jpg`, open it to see the screen), and
 prints no settings or secrets. Run from the working folder it reads the dev
 copy instead.
+
+
+## 18. Email
+
+The app emails sign-in invites, customer portal invites, password reset
+links, receipts (with the receipt PDF attached), portal message notices and
+alerts to the owner. Until email is set up **nothing is sent**, and each
+screen says so ("Not sent: email is not set up"), with the link to copy and
+text instead. (Before Oct 22, 2026 the server only wrote these to its log and
+reported them as sent: the portal invites of Oct 21 never went out. Send
+them again once email works.)
+
+### Google Workspace (gdfencepro.com)
+
+1. Pick the mailbox the app sends as, for example `office@gdfencepro.com`
+   (it must be a real mailbox; replies go to it unless `SMTP_REPLY_TO` says
+   otherwise).
+2. Signed in to Google as that mailbox, turn on 2-Step Verification:
+   **myaccount.google.com > Security > 2-Step Verification > Get started**.
+   If it cannot be turned on, the Workspace admin must allow it:
+   **admin.google.com > Security > Authentication > 2-step verification >
+   Allow users to turn on 2-Step Verification**.
+3. Make an App Password: go to **myaccount.google.com/apppasswords** (or
+   **myaccount.google.com > Security > 2-Step Verification > App passwords**
+   at the bottom), type the name `EZ Biz`, press **Create**. Google shows a
+   16 letter password once; copy it without the spaces. It stops working if
+   that account's normal password is changed (make a new one then). If the
+   App passwords page is missing, 2-Step Verification is not on yet, or the
+   account uses only security keys or Advanced Protection.
+4. Put these in `~/ezbiz/apps/portal/.env` (the live settings file only;
+   never in the working folder in Downloads):
+
+   ```bash
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=465                 # TLS from the start. 587 also works (STARTTLS)
+   SMTP_USER=office@gdfencepro.com
+   SMTP_PASS=abcdefghijklmnop    # the App Password, not the normal password
+   SMTP_FROM="Getter Done Fence Pros"   # the name people see
+   SMTP_FROM_EMAIL=office@gdfencepro.com # the mailbox, or an alias Gmail lets it send as
+   SMTP_REPLY_TO=                # optional: where replies go
+   ```
+
+   `SMTP_FROM_EMAIL` may be left empty: mail then comes from `SMTP_USER`. An
+   alias (say `jobs@gdfencepro.com`) works only once it is added in that
+   mailbox's Gmail under **Settings > Accounts > Send mail as**; otherwise
+   Gmail sends it from the mailbox address anyway. `SMTP_FROM` is a name now;
+   if it still holds an old address such as `noreply@fencepro.com`, the
+   company name is used instead.
+5. Restart: `pm2 restart ezbiz --update-env` (or `bash ~/ezbiz/deploy/mac/update.sh`).
+6. Check: **Admin > Integrations**, card **Email**: "Set up: Yes", the server
+   and the from address (the password is never shown). Press **Send a test
+   email to me**: it goes to your own login's address and shows "Test email
+   sent" or the exact reason it did not go (wrong App Password, port blocked,
+   server not found). `curl -s localhost:4000/api/health` also shows
+   `"email":{"status":"ok"}`.
+
+Google's limits for a paid Workspace account (Google's "Gmail sending limits
+in Google Workspace" page, checked Oct 22, 2026): 2,000 messages a day per
+mailbox (500 on a trial), 10,000 recipients a day, rolling 24 hours, and at
+most 100 recipients per message sent through SMTP. Over the limit Google
+stops that mailbox from sending for up to 24 hours. The app sends one
+recipient per message, far below that.
+
+SPF and DKIM for gdfencepro.com (what keeps the mail out of spam) are DNS
+records at the website company that holds the domain. Ask them to make sure
+SPF includes `include:_spf.google.com` and that Google's DKIM key from
+**admin.google.com > Apps > Google Workspace > Gmail > Authenticate email**
+is published and turned on. Nothing in this app or on this Mac changes DNS.
+
+### SendGrid instead
+
+`SENDGRID_API_KEY=<key>` plus `SMTP_FROM_EMAIL=<an address verified as a
+sender, or on a domain authenticated in SendGrid>` and `SMTP_FROM` for the
+name. When a SendGrid key is set it is used instead of the mail server
+settings. Restart and test the same way.
+
+### The working folder
+
+The dev copy keeps all of these empty (section 15): its database holds real
+customers' addresses. The tests start their own fake mail server on the
+Mac itself and never send real mail.

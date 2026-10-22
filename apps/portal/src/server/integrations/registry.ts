@@ -18,7 +18,7 @@ import zapierAdapter from './adapters/zapier/index.js'
 // integrations UI as "Coming Soon". To enable any of them, import the adapter and
 // call registerAdapter() with it, and remove its entry from COMING_SOON.
 //
-// Google Calendar and SendGrid are built in (BUILT_IN below): they are set up
+// Google Calendar and email are built in (BUILT_IN below): they are set up
 // elsewhere, and the list shows whether they are working.
 
 const adapters = new Map<string, IntegrationAdapter>()
@@ -61,11 +61,11 @@ const COMING_SOON: Partial<IntegrationAdapter>[] = [
  * Built in: working parts of the app that are set up somewhere else, not with
  * a Connect form. The list route works out whether each is connected.
  *   google_calendar: Settings > Google Calendar (lib/calendarSync)
- *   sendgrid: email, sent with SENDGRID_API_KEY in the server's settings file (lib/emailService.ts)
+ *   email: the app's email, through SMTP (SMTP_HOST/SMTP_USER/SMTP_PASS, e.g. Google Workspace) or SENDGRID_API_KEY in the server's settings file (lib/emailService.ts)
  */
 const BUILT_IN: Partial<IntegrationAdapter>[] = [
   { slug: 'google_calendar', name: 'Google Calendar', category: 'Scheduling', description: 'Installs and appointments go to the company calendar on Google.', capabilities: ['push_events'] },
-  { slug: 'sendgrid', name: 'SendGrid', category: 'Communication', description: 'Sends the app\u2019s email: sign-in invites, password resets and notices.', capabilities: ['send_email'] },
+  { slug: 'email', name: 'Email', category: 'Communication', description: 'Sends the app\u2019s email: sign-in and portal invites, password resets, receipts and notices. Through a mail server (Google Workspace) or SendGrid.', capabilities: ['send_email'] },
 ]
 
 export { COMING_SOON, BUILT_IN }

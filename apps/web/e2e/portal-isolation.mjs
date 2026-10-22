@@ -8,8 +8,8 @@
 // The office (API, as the owner) makes customers A and B, each with a sent
 // quote, a sold quote and its job, a sent change order, a document and a reply
 // from the office, and invites both to the portal (the dev copy sends no
-// email: with no email settings the server only logs it, and the invite
-// answers with the link). Then, each in their own browser
+// email: with no email settings nothing is sent, the invite answers "not
+// sent, email is not set up" and gives the link). Then, each in their own browser
 // (A: a 390 x 844 WebKit phone; B: desktop Chromium), the customer sets a
 // password on the link, uploads a photo and sends a message. Checked:
 //   - the sign in is a cookie the page cannot read (HttpOnly, SameSite=Strict,
@@ -79,6 +79,7 @@ async function office(w) {
   w.rawToken = ((inv.json.data?.activationUrl || '').match(/token=([0-9a-f]{64})/) || [])[1]
   check(`office: customer ${w.n} with quotes, job, change order, document, message and invite`, [c, q1, q2, j].every(r => r.status < 300) && sent.status === 200 && !!w.staffDoc && !!w.staffMsg && !!w.rawToken && inv.status === 200,
     [c, q1, q2, j, sent, doc, msg, inv].map(r => r.status).join(','))
+  check(`office: customer ${w.n}'s invite says not sent (dev: email not set up), never a fake "sent"`, inv.json.data?.emailSent === false && inv.json.data?.emailNotSetUp === true, JSON.stringify({ emailSent: inv.json.data?.emailSent, emailNotSetUp: inv.json.data?.emailNotSetUp }))
 }
 
 /** What the browser keeps: storage (must be empty) and the cookie (must be httpOnly). */

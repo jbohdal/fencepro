@@ -70,6 +70,7 @@ import adminAuditRoutes from './routes/admin-audit.js'
 import { promises as fsp } from 'fs'
 import path from 'path'
 import { startDataIntegrityCron } from './lib/dataIntegrityCron.js'
+import { isEmailServiceConfigured } from './lib/emailService.js'
 import { startScheduledDeletions } from './lib/scheduledDeletions.js'
 import { startDoorWatch } from './lib/doorWatch.js'
 import { startMediaShrink } from './lib/mediaShrink.js'
@@ -347,7 +348,7 @@ app.get('/api/health', async (_req, res) => {
     out.storage = { status: 'unknown' }
   }
   // Email
-  out.email = { status: process.env.SENDGRID_API_KEY ? 'ok' : 'not_configured' }
+  out.email = { status: isEmailServiceConfigured() ? 'ok' : 'not_configured' }
   // Version (from package.json best-effort)
   try {
     out.version = (await import('../../package.json', { with: { type: 'json' } })).default.version
