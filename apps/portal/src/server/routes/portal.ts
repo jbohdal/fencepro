@@ -59,6 +59,8 @@ import { plainZod } from '../lib/plainZod.js'
 import { requireStaffCan } from '../lib/permissions.js'
 import { verifyStaffBearer } from '../lib/secrets.js'
 import { emptySnapshot, logDeletion } from '../lib/deletion.js'
+import { portalRequests } from '../lib/serviceTickets.js'
+import { takeOneFile, receiveCustomerFile } from './servicePhotosPublic.js'
 
 /** Soft delete a customer's portal photo or file and log it; false when it is not this company's (or already gone). */
 async function softDeletePortalItem(model: 'portalPhoto' | 'portalFile', entityType: 'photo' | 'file', id: string, staff: { sub?: string; crmAccountId?: string | null } | null): Promise<boolean> {
@@ -646,6 +648,39 @@ router.get('/papers', requirePortalAuth, async (req: PortalAuthRequest, res) => 
   } catch (err) {
     console.error('[portal-papers]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// ── Warranty and service requests (lib/serviceTickets.ts portalRequests: its own field list) ──
+
+router.get('/service-requests', requirePortalAuth, async (req: PortalAuthRequest, res) => {
+  try {
+    const c = await contactOf(req.portalAccount!.crmCustomerId)
+    if (!c?.accountId) { res.json({ success: true, data: [] }); return }
+    const jobs = await jobsOf(c)
+    res.json({ success: true, data: await portalRequests(c, jobs.map(j => j.id)) })
+  } catch (err) {
+    console.error('[portal-service-requests]', err)
+    res.status(500).json({ success: false, error: 'LIST_FAILED' })
+  }
+})
+
+// The customer adds photos or a short video to their open request: Internal on the request, as from the photo link.
+router.post('/service-requests/:id/photos', requirePortalAuth, takeOneFile, async (req: PortalAuthRequest, res) => {
+  const file = (req as any).file as Express.Multer.File | undefined
+  try {
+    const c = await contactOf(req.portalAccount!.crmCustomerId)
+    const jobs = c?.accountId ? await jobsOf(c) : []
+    const t = c?.accountId ? await prisma.serviceTicket.findFirst({ where: { id: String(req.params.id), accountId: c.accountId, deletedAt: null, OR: [{ crmContactId: c.id }, ...(jobs.length ? [{ jobId: { in: jobs.map(j => j.id) } }] : [])] } }) : null
+    if (!t) { if (file) fs.rm(file.path, { force: true }, () => {}); res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'That request was not found.' }); return }
+    if (t.stage === 'closed' || t.stage === 'fixed') { if (file) fs.rm(file.path, { force: true }, () => {}); res.status(409).json({ success: false, error: 'CLOSED', message: 'This request is finished. Send us a message if something is still wrong.' }); return }
+    const out = await receiveCustomerFile(t, file, { via: 'portal', cid: requestIdOf(req) ?? (typeof req.body?.clientId === 'string' ? req.body.clientId : null), caption: typeof req.body?.caption === 'string' ? req.body.caption : '' })
+    if (out.error) { res.status(out.status).json({ success: false, error: 'REFUSED', message: out.error }); return }
+    res.json({ success: true, data: { received: true } })
+  } catch (err) {
+    if (file) fs.rm(file.path, { force: true }, () => {})
+    console.error('[portal-service-photo]', err)
+    res.status(500).json({ success: false, error: 'UPLOAD_FAILED', message: 'The upload failed. Please try again.' })
   }
 })
 

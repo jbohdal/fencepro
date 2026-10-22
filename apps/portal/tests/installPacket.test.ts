@@ -1,4 +1,4 @@
-/** Install packet links: open until turned off, or 30 days after the job is complete. */
+/** Install packet links: open until turned off, or 30 days after the job is complete (longer while covered warranty work is open). */
 
 import { describe, test, expect } from 'vitest'
 import { packetClosed } from '../src/server/routes/installPacket.js'
@@ -13,6 +13,11 @@ describe('install packet links', () => {
     expect(packetClosed({ disabledAt: null }, { completedDate: '2026-10-22' }, now)).toBeNull()
     expect(packetClosed({ disabledAt: null }, { completedDate: '2026-10-20' }, now)).toBe('expired')
     expect(packetClosed({ disabledAt: null }, { completedDate: new Date(now - 31 * day).toISOString() }, now)).toBe('expired')
+  })
+  test('covered warranty work still to do keeps a finished job\'s packet open (not one turned off)', () => {
+    expect(packetClosed({ disabledAt: null }, { completedDate: '2024-03-10' }, now, 1)).toBeNull()
+    expect(packetClosed({ disabledAt: null }, { completedDate: '2024-03-10' }, now, 0)).toBe('expired')
+    expect(packetClosed({ disabledAt: new Date() }, { completedDate: '2024-03-10' }, now, 1)).toBe('off')
   })
   test('turned off, or the job is gone', () => {
     expect(packetClosed({ disabledAt: new Date() }, { completedDate: null }, now)).toBe('off')

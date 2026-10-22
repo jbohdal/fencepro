@@ -10,6 +10,7 @@
  *     and end, and whether each service call on the job is covered.
  */
 
+import { Prisma } from '@prisma/client'
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { lockAccountState } from './lockState.js'
@@ -115,10 +116,19 @@ export async function quoteWarranty(q: QuoteRow | null, fenceStyle: string, conf
  * the warranty update the customer acknowledged since (lib/warrantyUpdates.ts),
  * with the day they did.
  */
-export async function effectiveQuoteWarranty(q: QuoteRow | null, fenceStyle: string, config?: unknown): Promise<{ warranty: OptionWarranty | null; from: 'option' | 'proposal' | 'settings' | 'update' | null; update: { at: Date; by: string; how: string; previous: OptionWarranty | null } | null }> {
+export async function effectiveQuoteWarranty(q: QuoteRow | null, fenceStyle: string, config?: unknown): Promise<{ warranty: OptionWarranty | null; from: 'option' | 'proposal' | 'settings' | 'update' | 'change_order' | null; update: { at: Date; by: string; how: string; previous: OptionWarranty | null } | null; changeOrder?: { number: number; at: Date } | null }> {
   const base = await quoteWarranty(q, fenceStyle, config)
   const signed = !!q && (q.status === 'SOLD' || !!q.acceptedAt || !!q.soldAt)
   const acked = q && signed ? await acknowledgedUpdate(q) : null
+  // An approved change order that switched the install (no dig <-> dig set) changed the warranty on the
+  // contract (lib/changeOrders.ts): the newest one counts, unless a warranty update was acknowledged after it.
+  const co = q && signed ? await prisma.changeOrder.findFirst({
+    where: { accountId: q.accountId, quoteId: q.id, status: 'approved', deletedAt: null, warrantyAfter: { not: Prisma.AnyNull } },
+    orderBy: [{ approvedAt: 'desc' }, { number: 'desc' }], select: { number: true, approvedAt: true, warrantyAfter: true },
+  }).catch(() => null) : null
+  if (co?.warrantyAfter && co.approvedAt && (!acked || acked.at < co.approvedAt)) {
+    return { warranty: co.warrantyAfter as unknown as OptionWarranty, from: 'change_order', update: null, changeOrder: { number: co.number, at: co.approvedAt } }
+  }
   if (!acked) return { ...base, update: null }
   return { warranty: acked.warranty, from: 'update', update: { at: acked.at, by: acked.by, how: acked.how, previous: acked.previous ?? base.warranty } }
 }
@@ -139,7 +149,9 @@ export interface JobWarranty {
   quoteId: string | null
   warranty: OptionWarranty | null
   /** option: the signed option's own warranty; proposal: the one block of words an older proposal had; settings: no proposal, today's Settings for the style; update: a warranty update the customer acknowledged. */
-  from: 'option' | 'proposal' | 'settings' | 'update' | null
+  from: 'option' | 'proposal' | 'settings' | 'update' | 'change_order' | null
+  /** The approved change order that switched it (no dig <-> dig set): its number and the day it was approved. */
+  changeOrder?: { number: number; day: string } | null
   /** The warranty update it came from: when the customer acknowledged it (YYYY-MM-DD in Ocala), who, how, and the warranty before. */
   updated: { day: string; by: string; how: string; previousName: string | null } | null
   signed: boolean
@@ -162,7 +174,7 @@ export async function jobWarranty(accountId: string, jobId: string): Promise<Job
     select: { id: true, accountId: true, proposal: true, chosenOption: true, fenceStyle: true, status: true, acceptedAt: true, soldAt: true, work: true },
   }) : null
   const m = await pricingModule()
-  const { warranty, from, update } = await effectiveQuoteWarranty(q, job.fenceStyle, await configOf(accountId))
+  const { warranty, from, update, changeOrder } = await effectiveQuoteWarranty(q, job.fenceStyle, await configOf(accountId))
   const start = await installDateOf(job)
   const period = m.warrantyPeriod(warranty, start)
   const appts = await prisma.appointment.findMany({
@@ -177,7 +189,7 @@ export async function jobWarranty(accountId: string, jobId: string): Promise<Job
     return { id: a.id, type: a.type, status: a.status, day, notes: a.notes, coverage: m.serviceCoverage(warranty, start, day, override) as Coverage, override }
   })
   return {
-    jobId: job.id, quoteId: q?.id ?? null, warranty, from,
+    jobId: job.id, quoteId: q?.id ?? null, warranty, from, changeOrder: changeOrder ? { number: changeOrder.number, day: nyDay(changeOrder.at) } : null,
     updated: update ? { day: nyDay(update.at), by: update.by, how: update.how, previousName: update.previous?.name ?? null } : null,
     signed: !!q && (q.status === 'SOLD' || !!q.acceptedAt || !!q.soldAt),
     start: period.start, end: period.end, endText: period.endText,

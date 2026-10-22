@@ -31,10 +31,10 @@ describe('the role table', () => {
     for (const a of ACTIONS) expect(can('manager', a)).toBe(!['users.manage', 'system', 'records.delete', 'lists.change', 'billing.amounts'].includes(a))
   })
 
-  test('salesman: quotes and recording payments among the guarded actions, no costs; crew: none; office: operations and costs', () => {
+  test('salesman: quotes and recording payments among the guarded actions, no costs; crew: none; office: operations, costs and warranty decisions', () => {
     expect(ACTIONS.filter(a => can('sales_rep', a)).sort()).toEqual(['payments.record', 'quotes.change', 'records.archive'])
     expect(ACTIONS.filter(a => can('field_crew', a))).toEqual([])
-    expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'costs.view', 'inventory.stock', 'invoices.manage', 'ops.delete', 'packets.change', 'payments.record', 'permits.change', 'quotes.change', 'records.archive', 'schedule.change'])
+    expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'costs.view', 'inventory.stock', 'invoices.manage', 'ops.delete', 'packets.change', 'payments.record', 'permits.change', 'quotes.change', 'records.archive', 'schedule.change', 'service.decide'])
     for (const r of ['sales_rep', 'field_crew', 'office_staff']) {
       for (const a of ['settings.change', 'lists.change', 'prices.change', 'users.manage', 'records.delete', 'automations.change', 'system'] as Action[]) expect(can(r, a)).toBe(false)
     }

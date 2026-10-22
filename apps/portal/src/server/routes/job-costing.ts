@@ -31,7 +31,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { clientIdSchema } from '../lib/clientId.js'
 import {
-  startTakeoff, mutateTakeoff, takeoffView, linesOf, laborOf, quotedCostFor, actualNow, jobComparison, reportJobs, financeLabor,
+  startTakeoff, mutateTakeoff, takeoffView, linesOf, laborOf, quotedNow, actualNow, jobComparison, reportJobs, financeLabor,
 } from '../lib/jobCosting.js'
 import { qty, type TakeoffLine } from '../lib/jobCostingMath.js'
 
@@ -199,7 +199,7 @@ router.post('/takeoff/:id/approve', requireCan('costs.view'), async (req: any, r
     const t0 = await prisma.jobTakeoff.findUnique({ where: { id } })
     if (!t0 || t0.accountId !== accountId) { res.status(404).json({ success: false, error: 'Takeoff not found' }); return }
     if (t0.status === 'approved') { res.json({ success: true, data: await view(id) }); return }
-    const quoted = await quotedCostFor(accountId, t0.quoteId)
+    const quoted = await quotedNow(accountId, t0.quoteId)
     const actual = await actualNow(accountId, t0, quoted, b.otherLaborCostCents, true)
     await mutateTakeoff(accountId, id, async (t, tx) => {
       if (t.status === 'approved') return

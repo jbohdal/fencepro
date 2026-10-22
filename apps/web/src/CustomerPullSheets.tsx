@@ -24,15 +24,19 @@ import { toast } from './toast'
 import RunSpacingTable from './RunSpacingTable'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { sendInstallPacket, packetUrl } from './installPacket'
+import { refreshChangeOrders, quoteWithChanges, CO_EVENT } from './ChangeOrders'
 
 const API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/pull-sheets'
 
 interface Line { item: string; qty: number; moneyOnly?: boolean; unitCostCents?: number; totalCostCents?: number }
+interface LineChange { item: string; was: number; now: number }
 interface TakeoffLine { item: string; plannedQty: number; usedQty: number; shopReturnQty: number; vendorReturnQty: number; extra: boolean; note: string; unitCostCents?: number; totalCostCents?: number }
 export interface PullSheetEntry {
   id: string; kind: 'quote' | 'job' | 'hand'; quoteId: string | null; jobId: string | null
   style: string; footageFt: number; sections: number; status: string; archived: boolean; date: string; source: string
   lines: Line[]; totalCostCents?: number; changeNote: string | null; packetToken: string | null
+  /** Revised by approved change orders (from the yard drawing): this revision, what it changed, and every revision newest first. */
+  revision?: number; changes?: LineChange[]; revisions?: Array<{ rev: number; title: string; date: string; source: string; lines: Line[]; totalCostCents?: number; changes: LineChange[] }>
   finalTakeoff: null | { status: 'submitted' | 'approved'; installDate: string; submittedBy: string | null; approvedBy: string | null; lines: TakeoffLine[]; materialCostCents?: number; costFrozen?: boolean }
 }
 
@@ -98,8 +102,21 @@ export default function CustomerPullSheetsTab({ customerId }: { customerId: stri
 function PullSheetView({ entry: e, costs, customerId, onChanged, onClose }: { entry: PullSheetEntry; costs: boolean; customerId: string; onChanged: () => void; onClose: () => void }) {
   const [busy, setBusy] = useState<'' | 'pdf' | 'crew'>('')
   const [crewUrl, setCrewUrl] = useState(e.packetToken ? packetUrl(e.packetToken) : '')
-  const q = e.quoteId ? getQuotes().find(x => x.id === e.quoteId) : undefined
+  const signedQ = e.quoteId ? getQuotes().find(x => x.id === e.quoteId) : undefined
+  // Revised by a change order: the plan and runs of the work now (ChangeOrders.tsx quoteWithChanges).
+  const [coTick, setCoTick] = useState(0)
+  useEffect(() => {
+    if (!e.revision || !e.quoteId) return
+    const h = () => setCoTick(t => t + 1)
+    window.addEventListener(CO_EVENT, h)
+    void refreshChangeOrders(e.quoteId)
+    return () => window.removeEventListener(CO_EVENT, h)
+  }, [e.revision, e.quoteId])
+  void coTick
+  const q = signedQ && e.revision ? quoteWithChanges(signedQ) : signedQ
   const lines = costs ? e.lines : e.lines.filter(l => !l.moneyOnly)
+  const changedBy = new Map((e.changes ?? []).map(c => [c.item, c]))
+  const removed = (e.changes ?? []).filter(c => c.now === 0)
 
   async function pdf() {
     setBusy('pdf')
@@ -172,7 +189,7 @@ function PullSheetView({ entry: e, costs, customerId, onChanged, onClose }: { en
       ) : null}
       <div className={e.finalTakeoff ? 'grid gap-4 xl:grid-cols-2' : ''}>
         <section>
-          <h4 className="text-sm font-semibold text-gray-800 mb-1">{e.kind === 'job' ? 'Pull sheet as signed' : 'Pull sheet'}</h4>
+          <h4 className="text-sm font-semibold text-gray-800 mb-1" data-pull-sheet-rev={e.revision ?? 1}>{e.kind === 'job' ? (e.revision ? `Pull sheet rev ${e.revision} (changes marked)` : 'Pull sheet as signed') : 'Pull sheet'}</h4>
           {lines.length === 0 ? <p className="text-sm text-gray-500">No pull sheet lines.</p> : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm" data-pull-sheet-lines>
@@ -186,8 +203,8 @@ function PullSheetView({ entry: e, costs, customerId, onChanged, onClose }: { en
                 </thead>
                 <tbody>
                   {lines.map((l, i) => (
-                    <tr key={i} className="border-b border-gray-50">
-                      <td className="px-2 py-1.5 [overflow-wrap:anywhere]">{l.item}{l.moneyOnly && <span className="text-xs text-gray-500"> (money only, not pulled)</span>}</td>
+                    <tr key={i} className={`border-b border-gray-50 ${changedBy.has(l.item) ? 'bg-amber-50' : ''}`} {...(changedBy.has(l.item) ? { 'data-pull-sheet-changed': l.item } : {})}>
+                      <td className="px-2 py-1.5 [overflow-wrap:anywhere]">{l.item}{l.moneyOnly && <span className="text-xs text-gray-500"> (money only, not pulled)</span>}{changedBy.has(l.item) && <span className="text-xs font-semibold text-amber-900"> {changedBy.get(l.item)!.was ? `(was ${qtyText(changedBy.get(l.item)!.was)})` : '(new)'}</span>}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{qtyText(l.qty)}</td>
                       {costs && <td className="px-2 py-1.5 text-right tabular-nums">{usd(l.unitCostCents)}</td>}
                       {costs && <td className="px-2 py-1.5 text-right tabular-nums font-medium">{usd(l.totalCostCents)}</td>}
@@ -197,6 +214,20 @@ function PullSheetView({ entry: e, costs, customerId, onChanged, onClose }: { en
                 {costs && <tfoot><tr className="font-semibold"><td colSpan={3} className="px-2 py-2 text-right">Total</td><td className="px-2 py-2 text-right tabular-nums" data-pull-sheet-total>{usd(e.totalCostCents)}</td></tr></tfoot>}
               </table>
             </div>
+          )}
+          {removed.length > 0 && <p className="text-xs text-amber-900 mt-1" data-pull-sheet-removed>Taken off by the change: {removed.map(c => `${c.item} (was ${qtyText(c.was)})`).join(', ')}.</p>}
+          {e.revisions && e.revisions.length > 1 && (
+            <details className="mt-2" data-pull-sheet-history>
+              <summary className="text-xs font-semibold text-gray-700 min-h-[44px] flex items-center cursor-pointer">Earlier revisions ({e.revisions.length - 1})</summary>
+              <div className="space-y-3 mt-1">
+                {e.revisions.slice(1).map(r => (
+                  <div key={r.rev} className="border border-gray-100 rounded-lg p-2" data-pull-sheet-old-rev={r.rev}>
+                    <p className="text-xs font-semibold text-gray-700">{r.title} · {dayText(r.date)}</p>
+                    <ul className="text-xs text-gray-600 mt-1">{(costs ? r.lines : r.lines.filter(l => !l.moneyOnly)).map((l, i) => <li key={i}>{qtyText(l.qty)} × {l.item}</li>)}</ul>
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
         </section>
         {e.finalTakeoff && (

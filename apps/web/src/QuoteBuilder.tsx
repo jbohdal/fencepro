@@ -54,7 +54,7 @@ import { minimumPrice, wholeDollarRecord, adjustmentRecord, isNewMin, type Quote
 import { bakedBackdrop } from './aerialBake'
 // A signed quote's lock: the same rules the server checks every save with.
 import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../portal/src/server/lib/quoteLock'
-import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, type ChangeOrderPrefill } from './ChangeOrders'
+import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, type ChangeOrderPrefill } from './ChangeOrders'
 import { changeOrderDraft } from './changeOrderDraft'
 import { SignedDocumentLinks } from './SignedDocuments'
 
@@ -964,7 +964,8 @@ export default function QuoteBuilder({
       })
       for (const k of ['pricing', 'work', 'proposal'] as const) if (choicesNow[k] !== openChoices.current![k]) changed.push(k)
       if (changed.filter(k => k !== 'status').length) { setPending({ quote, kind: 'locked' }); return }
-      onSave(keepPrices(init, { ...quote, date: init.date }))
+      // The quote as signed is what is saved (the builder may show the work as changed by approved change orders).
+      onSave(keepPrices(signedQuoteOf(init), { ...quote, date: init.date }))
       return
     }
     if (init?.id && sentPricesChanged) { setPending({ quote, kind: 'sent' }); return }
@@ -974,10 +975,13 @@ export default function QuoteBuilder({
   /** The change order, filled in from what was changed here, priced at today's costs. */
   function startChangeOrder() {
     if (!init || !pending) return
-    setCoPrefill(changeOrderDraft({
+    const draft = changeOrderDraft({
       signed: init, current: calcInput, signedOverrides: openOverrides.current, styles: FENCE_STYLES,
       priceNow: adjPrice, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
-    }))
+    })
+    // A new fence: the new work goes with it (the server prices it and keeps it, so the pull sheet, packet,
+    // site plan, crew days and job costing follow once it is approved).
+    setCoPrefill(jobType === 'new' && style ? { ...draft, work: { request: priceRequest as unknown as Record<string, unknown>, layout: pending.quote.layout ?? null, planSvg: pending.quote.proposal?.planSvg ?? null } } : draft)
   }
 
   return (
@@ -1875,10 +1879,10 @@ export default function QuoteBuilder({
             {pending.kind === 'locked' ? (
               <>
                 <p className="text-base font-bold text-gray-900" data-quote-lock-message>{LOCKED_MESSAGE}</p>
-                <p className="text-sm text-gray-600">The customer signed at {fmt(init!.finalPrice)}. That price, the fence and the pull sheet stay as signed. A change order adds the changes, priced at today's costs.</p>
+                <p className="text-sm text-gray-600">The customer signed at {fmt(signedQuoteOf(init!).finalPrice)}. That price, the fence and the pull sheet stay as signed. A change order adds the changes, priced at today's costs.</p>
                 <div className="flex flex-col gap-2">
                   <button type="button" className="btn btn-primary min-h-[48px]" onClick={startChangeOrder} data-quote-lock-co>Make a change order</button>
-                  <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave(keepPrices(init!, { ...q, date: init!.date })) }} data-quote-lock-keep>Save notes and customer details only</button>
+                  <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave(keepPrices(signedQuoteOf(init!), { ...q, date: init!.date })) }} data-quote-lock-keep>Save notes and customer details only</button>
                   <button type="button" className="min-h-[44px] text-sm text-gray-600" onClick={() => setPending(null)} data-quote-lock-cancel>Back to the quote</button>
                 </div>
               </>
@@ -1902,7 +1906,7 @@ export default function QuoteBuilder({
           customerName={init.customerName}
           existingCount={getOrdersForQuote(init.id).length}
           prefill={coPrefill}
-          onSaved={() => { const q = pending.quote; setCoPrefill(null); setPending(null); onSave(keepPrices(init, { ...q, date: init.date })) }}
+          onSaved={() => { const q = pending.quote; setCoPrefill(null); setPending(null); onSave(keepPrices(signedQuoteOf(init), { ...q, date: init.date })) }}
           onClose={() => setCoPrefill(null)}
         />
       )}

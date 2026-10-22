@@ -12,11 +12,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, User, ClipboardList, Wrench, LayoutGrid, CalendarPlus, FilePlus2, UserPlus, type LucideIcon } from 'lucide-react'
 import { getCustomers, getArchivedCustomers, type Customer } from './customerStore'
 import { openBooking } from './BookingDialog'
+import { useBadges, badgeFor, badgeWords } from './serviceStore'
 
 interface QuoteLike { id: string; customerId?: string; customerName: string; customerAddress?: string; fenceStyle: string; finalPrice: number; status: string; date: string }
 interface JobLike { id: string; customerId?: string; customerName: string; customerAddress?: string; fenceStyle?: string; status: string; contractValue: number; scheduledDate?: string; completedDate?: string }
 
-type Hit = { group: string; icon: LucideIcon; label: string; sub: string; run: () => void; customer?: Customer }
+type Hit = { group: string; icon: LucideIcon; label: string; sub: string; run: () => void; customer?: Customer; badge?: string }
 
 const money = (n: number) => '$' + Math.round(n || 0).toLocaleString('en-US')
 const digits = (s: string) => (s || '').replace(/\D/g, '')
@@ -34,6 +35,8 @@ export default function GlobalSearch({ onClose, quotes, jobs, pages, openCustome
 }) {
   const [q, setQ] = useState('')
   const [at, setAt] = useState(0)
+  // Past customers: "Past customer · <warranty> · installed <date>" on their result.
+  const badgesVersion = useBadges()
   const input = useRef<HTMLInputElement | null>(null)
   useEffect(() => { input.current?.focus() }, [])
 
@@ -54,7 +57,7 @@ export default function GlobalSearch({ onClose, quotes, jobs, pages, openCustome
       return name.includes(text) || (c.serviceAddress || '').toLowerCase().includes(text) || (c.email || '').toLowerCase().includes(text) ||
         (num.length >= 3 && digits(c.phone).includes(num))
     }).slice(0, 8)
-    for (const c of customers) out.push({ group: 'Customers', icon: User, label: `${c.firstName} ${c.lastName}`.trim(), sub: [archivedIds.has(c.id) ? 'Archived' : '', formatPhone(c.phone), c.serviceAddress].filter(Boolean).join(' · '), run: done(() => openCustomer(c.id)), ...(archivedIds.has(c.id) ? {} : { customer: c }) })
+    for (const c of customers) out.push({ group: 'Customers', icon: User, label: `${c.firstName} ${c.lastName}`.trim(), sub: [archivedIds.has(c.id) ? 'Archived' : '', formatPhone(c.phone), c.serviceAddress].filter(Boolean).join(' · '), badge: badgeFor(c.id) ? badgeWords(badgeFor(c.id)!) : undefined, run: done(() => openCustomer(c.id)), ...(archivedIds.has(c.id) ? {} : { customer: c }) })
     for (const x of quotes.filter(x => x.customerName.toLowerCase().includes(text) || (x.customerAddress || '').toLowerCase().includes(text) || (x.fenceStyle.toLowerCase().includes(text) || styleLabel(x.fenceStyle).toLowerCase().includes(text))).slice(0, 5))
       out.push({ group: 'Quotes', icon: ClipboardList, label: x.customerName, sub: [styleLabel(x.fenceStyle), money(x.finalPrice), x.status.charAt(0) + x.status.slice(1).toLowerCase(), x.date].filter(Boolean).join(' · '), run: done(() => openQuote(x)) })
     for (const j of jobs.filter(j => j.customerName.toLowerCase().includes(text) || (j.customerAddress || '').toLowerCase().includes(text)).slice(0, 5))
@@ -62,7 +65,7 @@ export default function GlobalSearch({ onClose, quotes, jobs, pages, openCustome
     for (const p of pages.filter(p => p.toLowerCase().includes(text)).slice(0, 4))
       out.push({ group: 'Pages', icon: LayoutGrid, label: p, sub: 'Go to page', run: done(() => goTo(p)) })
     return out.length ? out : []
-  }, [q, quotes, jobs, pages])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, quotes, jobs, pages, badgesVersion])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setAt(0) }, [q])
 
@@ -99,6 +102,7 @@ export default function GlobalSearch({ onClose, quotes, jobs, pages, openCustome
                   <span className="min-w-0">
                     <span className="block text-[15px] font-semibold text-gray-900 truncate">{h.label}</span>
                     <span className="block text-sm text-gray-600 truncate">{h.sub}</span>
+                    {h.badge && <span className="block text-xs font-semibold text-purple-800 truncate" data-search-past-customer>{h.badge}</span>}
                   </span>
                 </button>
                 {h.customer && (

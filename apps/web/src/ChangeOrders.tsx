@@ -7,6 +7,16 @@
  * (draft, sent, approved, void) and a version. Approved ones are added to the
  * job's contract value by the server. A Salesman makes and sends them; the
  * owner and office approve (prices only: a change order holds no cost).
+ *
+ * Oct 22 2026 (Jonathan): easy to find ("Change order" on the job page, the
+ * pipeline card window and the customer page: from the yard drawing, or typed
+ * lines), signed by the customer on this phone in person, in the portal or on
+ * their link, or "approved verbally" by the owner or office with a reason
+ * (the customer's copy stays unsigned until they sign). Once approved,
+ * everything follows on the server: contract revision, payment schedule,
+ * pull sheet revision, install packet, job costing, crew days, warranty,
+ * history. A change from the yard drawing sends the new work; the server
+ * prices it and keeps it (lib/changeOrderWork.ts).
  */
 import { useEffect, useRef, useState } from 'react'
 import { useBackLayer } from './nav'
@@ -19,6 +29,8 @@ import { getQuotes } from './quoteStore'
 import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { wholeDollarCents } from './pricingEngine'
+import { SignaturePad } from './SignaturePad'
+import type { SavedQuote } from './QuotesPage'
 
 /* ───────── types ───────── */
 
@@ -41,6 +53,24 @@ export interface ChangeOrderScope {
   toStyle?: string
 }
 
+/** The work after the change (quantities only, never a cost), from the yard drawing. */
+export interface ChangeOrderWork {
+  fenceStyle: string
+  runs: number[]
+  runRails?: Array<'auto' | '6ft' | '8ft'>
+  corners: number
+  ends: number
+  walkGates: number
+  dblGates: number
+  tearOutSections: number
+  tearOutGates: number
+  sections: number
+  footage: number
+  layout: SavedQuote['layout'] | null
+  planSvg: string | null
+  pullSheet: Array<{ item: string; qty: number }>
+}
+
 export interface ChangeOrder {
   id: string
   quoteId: string
@@ -55,14 +85,33 @@ export interface ChangeOrder {
   approvedAt: string | null
   approvedBy: string | null
   voidedAt: string | null
-  /** Signed by the customer (customer portal or the change order's link). */
+  /** Signed by the customer (customer portal, the change order's link, or in person on a staff phone). */
   signedBy?: string | null
   signedAt?: string | null
-  signedVia?: 'portal' | 'link' | null
+  signedVia?: 'portal' | 'link' | 'in_person' | null
+  /** Approved verbally by the owner or office: who, when, why. */
+  verbalBy?: string | null
+  verbalAt?: string | null
+  verbalReason?: string | null
+  /** The contract revision it made when approved (rev 1 = as signed). */
+  contractRev?: number | null
+  /** The work after it (a change from the yard drawing). */
+  work?: ChangeOrderWork | null
+  warrantyBefore?: { name: string; text: string } | null
+  warrantyAfter?: { name: string; text: string } | null
+  /** Owner and office only: what it does to the quoted cost, in cents. */
+  costDelta?: { materialCents: number; laborCents: number; tearOutCents: number; totalCents: number } | null
   /** A customer link was made for it. */
   hasLink?: boolean
   version: number
   createdAt: string
+}
+
+/** The yard drawing's new work: the quote builder's inputs (the server prices them), the drawing and its plan. */
+export interface ChangeOrderWorkInput {
+  request: Record<string, unknown>
+  layout?: SavedQuote['layout'] | null
+  planSvg?: string | null
 }
 
 /** A change order filled in from what was changed on a signed quote. */
@@ -70,6 +119,7 @@ export interface ChangeOrderPrefill {
   reason: string
   lines: ChangeOrderLine[]
   scope: ChangeOrderScope | null
+  work?: ChangeOrderWorkInput | null
 }
 
 export const CO_EVENT = 'ezbiz:changeorders:updated'
@@ -78,6 +128,7 @@ const STATUS_WORDS: Record<ChangeOrderStatus, string> = { draft: 'Draft', sent: 
 export const money = (cents: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100)
 const signed = (cents: number) => `${cents >= 0 ? '+' : '−'}${money(Math.abs(cents))}`
+const shortDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
 /* ───────── the server's copy ───────── */
 
@@ -113,19 +164,75 @@ export function getApprovedCOTotal(quoteId: string): number {
   return getOrdersForQuote(quoteId).filter(co => co.status === 'approved').reduce((s, co) => s + co.totalCents, 0) / 100
 }
 
-/** Make one. `approved`: the customer agreed now (owner and office only). */
-export async function createChangeOrder(input: { quoteId: string; reason: string; lines: ChangeOrderLine[]; scope: ChangeOrderScope | null; approved: boolean }): Promise<ChangeOrder | null> {
-  const r = await sendJson('POST', '/api/change-orders', { id: newId(), quoteId: input.quoteId, reason: input.reason, lines: input.lines, scope: input.scope ?? undefined, status: input.approved ? 'approved' : 'draft' })
+/** Still waiting for the customer's own signature: sent, or approved verbally by the office. */
+export const awaitingSignature = (co: ChangeOrder) => co.status === 'sent' || (co.status === 'approved' && !co.signedAt)
+
+/** The contract revision now: 1 as signed, then the newest approved change order's. */
+export function contractRevOf(orders: ChangeOrder[]): number {
+  return Math.max(1, ...orders.filter(o => o.status === 'approved').map(o => o.contractRev ?? 1))
+}
+
+/* ───────── the work now ───────── */
+
+/** Overlaid quotes and the signed quote they came from (the signed one is what a save keeps). */
+const signedOf = new WeakMap<object, SavedQuote>()
+
+/**
+ * The signed quote with the work as it is now: the newest approved change
+ * order's drawing, runs, gates, sections and pull sheet (quantities), and the
+ * contract price. The quote builder opens it for the next change (so a change
+ * is priced from the work now), and the install packet and site plan are made
+ * from it. The signed quote itself never changes (signedQuoteOf).
+ */
+export function quoteWithChanges(quote: SavedQuote, orders: ChangeOrder[] = getOrdersForQuote(quote.id)): SavedQuote {
+  const approved = orders.filter(o => o.quoteId === quote.id && o.status === 'approved')
+  const withWork = approved.filter(o => o.work).sort((a, b) => (a.approvedAt ?? '').localeCompare(b.approvedAt ?? '') || a.number - b.number)
+  const w = withWork[withWork.length - 1]?.work
+  if (!w && !approved.length) return quote
+  const total = approved.reduce((s, o) => s + o.totalCents, 0)
+  const out: SavedQuote = {
+    ...quote,
+    finalPrice: Math.round((quote.finalPrice * 100) + total) / 100,
+    ...(w ? {
+      fenceStyle: w.fenceStyle || quote.fenceStyle, runs: w.runs, runRails: w.runRails, corners: w.corners, ends: w.ends,
+      walkGates: w.walkGates, dblGates: w.dblGates, tearOutSections: w.tearOutSections, tearOutGates: w.tearOutGates, sections: w.sections,
+      layout: w.layout ?? quote.layout, pullSheet: w.pullSheet.map(l => ({ item: l.item, qty: l.qty, unitCost: 0, total: 0 })) as SavedQuote['pullSheet'],
+      proposal: quote.proposal ? { ...quote.proposal, ...(w.planSvg ? { planSvg: w.planSvg } : {}) } : quote.proposal,
+    } : {}),
+  }
+  signedOf.set(out, signedQuoteOf(quote))
+  return out
+}
+
+/** The quote as signed, for a quote that may be the work now (quoteWithChanges). */
+export function signedQuoteOf<T extends object>(q: T): T {
+  return (signedOf.get(q) as T | undefined) ?? q
+}
+
+/* ───────── calls ───────── */
+
+/** After an approval: the server's word when the scheduled install no longer fits. */
+function warnSchedule(json: any) {
+  if (typeof json?.scheduleWarning === 'string' && json.scheduleWarning) toast.warning('Check the schedule', json.scheduleWarning)
+}
+
+/** Make one. `verbalReason`: approved now, verbally (owner and office only). */
+export async function createChangeOrder(input: { quoteId: string; reason: string; lines: ChangeOrderLine[]; scope: ChangeOrderScope | null; verbalReason?: string | null; work?: ChangeOrderWorkInput | null }): Promise<ChangeOrder | null> {
+  const approved = !!input.verbalReason?.trim()
+  const r = await sendJson('POST', '/api/change-orders', {
+    id: newId(), quoteId: input.quoteId, reason: input.reason, lines: input.lines, scope: input.scope ?? undefined,
+    status: approved ? 'approved' : 'draft', ...(approved ? { verbalReason: input.verbalReason!.trim() } : {}), ...(input.work ? { work: input.work } : {}),
+  })
   if (!r.result.ok) { toast.error('Change order not saved', r.json?.error || 'Check the signal and try again.'); return null }
   const row = r.json.data as ChangeOrder
   put(row)
-  if (row.status === 'approved') void refreshJobs()
+  if (row.status === 'approved') { void refreshJobs(); warnSchedule(r.json) }
   return row
 }
 
-/** Send, approve or void one (built on the version on screen). */
-export async function setChangeOrderStatus(co: ChangeOrder, status: ChangeOrderStatus): Promise<ChangeOrder | null> {
-  const r = await sendJson('PATCH', `/api/change-orders/${encodeURIComponent(co.id)}`, { baseVersion: co.version, status })
+/** Send, approve (verbally, with a reason) or void one (built on the version on screen). */
+export async function setChangeOrderStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string): Promise<ChangeOrder | null> {
+  const r = await sendJson('PATCH', `/api/change-orders/${encodeURIComponent(co.id)}`, { baseVersion: co.version, status, ...(verbalReason ? { verbalReason } : {}) })
   if (!r.result.ok) {
     if (r.status === 409 && r.json?.code === 'STALE_VERSION' && r.json?.data) { put(r.json.data as ChangeOrder); toast.warning('Changed on another phone', 'This change order was changed somewhere else. It shows as it is now; try again.'); return null }
     toast.error('Change order not saved', r.json?.error || 'Check the signal and try again.')
@@ -133,7 +240,18 @@ export async function setChangeOrderStatus(co: ChangeOrder, status: ChangeOrderS
   }
   const row = r.json.data as ChangeOrder
   put(row)
-  if (status === 'approved' || co.status === 'approved') void refreshJobs()
+  if (status === 'approved' || co.status === 'approved') { void refreshJobs(); warnSchedule(r.json) }
+  return row
+}
+
+/** The customer signs on this phone, in person. */
+export async function signInPerson(co: ChangeOrder, name: string, signature: string): Promise<ChangeOrder | null> {
+  const r = await sendJson('POST', `/api/change-orders/${encodeURIComponent(co.id)}/sign`, { name, signature })
+  if (!r.result.ok) { toast.error('Signature not saved', r.json?.error || 'Check the signal and try again.'); return null }
+  const row = r.json.data as ChangeOrder
+  put(row)
+  void refreshJobs()
+  warnSchedule(r.json)
   return row
 }
 
@@ -162,6 +280,19 @@ export function useChangeOrders(quoteId: string): { orders: ChangeOrder[]; loade
     return () => window.removeEventListener(CO_EVENT, on)
   }, [quoteId])
   return { orders, loaded }
+}
+
+/* ───────── Approved verbally: the reason ───────── */
+
+function VerbalReason({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block text-xs text-gray-700 font-semibold" data-co-verbal>
+      Why approve it without the customer's signature?
+      <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 min-h-[44px] text-sm font-normal" maxLength={500} value={value} onChange={e => onChange(e.target.value)}
+        placeholder="e.g. Customer agreed on the phone" data-co-verbal-reason />
+      <span className="block font-normal text-gray-500 mt-1">Counts as approved now: the contract, schedule and pull sheet follow. The customer's copy says "Not signed by you yet" until they sign.</span>
+    </label>
+  )
 }
 
 /* ───────── Make a change order ───────── */
@@ -193,6 +324,7 @@ export function QuickChangeOrderModal({
     prefill?.lines.length ? prefill.lines.map(toEdit) : [{ id: newId(), description: '', amount: '', credit: false }])
   const [reason, setReason] = useState(prefill?.reason ?? '')
   const [busy, setBusy] = useState(false)
+  const [verbal, setVerbal] = useState<string | null>(null)
   const approver = can('billing.change')
 
   const update = (id: string, patch: Partial<EditLine>) => setItems(prev => prev.map(i => (i.id === id ? { ...i, ...patch } : i)))
@@ -201,15 +333,15 @@ export function QuickChangeOrderModal({
 
   // Tapped twice before the window closes: saved once.
   const savedOnce = useRef(false)
-  async function save(approved: boolean) {
+  async function save(verbalReason: string | null) {
     if (!canSave || savedOnce.current) return
     savedOnce.current = true
     setBusy(true)
     const lines = items.filter(i => i.description.trim() || centsOf(i) !== 0).map(i => ({ id: i.id, description: i.description.trim(), amountCents: centsOf(i) }))
-    const co = await createChangeOrder({ quoteId, reason: reason.trim(), lines, scope: prefill?.scope ?? null, approved })
+    const co = await createChangeOrder({ quoteId, reason: reason.trim(), lines, scope: prefill?.scope ?? null, verbalReason, work: prefill?.work ?? null })
     setBusy(false)
     if (!co) { savedOnce.current = false; return }
-    toast.success(`Change order #${co.number} saved`, approved ? `Approved: the contract value is ${signed(co.totalCents)}.` : 'Saved as a draft. Approve it when the customer agrees.')
+    toast.success(`Change order CO-${co.number} saved`, verbalReason ? `Approved verbally: contract rev ${co.contractRev ?? ''}, ${signed(co.totalCents)}. The customer can still sign it.` : 'Saved as a draft. The customer signs it on this phone, their link or the portal.')
     onSaved(co)
   }
 
@@ -218,13 +350,14 @@ export function QuickChangeOrderModal({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[600px] max-h-[90vh] overflow-y-auto mx-3 lg:mx-0" onClick={e => e.stopPropagation()}>
         <div className="px-4 md:px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
-            <h2 className="font-bold text-gray-900">Change order #{existingCount + 1}</h2>
+            <h2 className="font-bold text-gray-900">Change order CO-{existingCount + 1}</h2>
             <p className="text-xs text-gray-500 mt-0.5">{customerName}{prefill ? ' · filled in from your changes, priced at today\'s costs' : ''}</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
         <div className="px-4 md:px-6 py-5 space-y-4">
+          {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.</p>}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs text-gray-600 font-semibold">Lines</label>
@@ -270,20 +403,63 @@ export function QuickChangeOrderModal({
             <span className="text-sm font-semibold text-gray-700">Change to the contract</span>
             <span className={`text-xl font-bold ${total >= 0 ? 'text-green-700' : 'text-red-600'}`} data-co-total>{signed(total)}</span>
           </div>
+          {verbal !== null && <VerbalReason value={verbal} onChange={setVerbal} />}
         </div>
 
         <div className="px-4 md:px-6 py-4 border-t border-gray-200 flex flex-wrap items-center justify-end gap-2">
           <button onClick={onClose} className="px-4 min-h-[44px] text-sm text-gray-600 hover:text-gray-800">Cancel</button>
-          <button onClick={() => void save(false)} disabled={!canSave}
+          <button onClick={() => void save(null)} disabled={!canSave}
             className="bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold px-5 min-h-[44px] rounded-xl text-sm" data-co-save-draft>
-            Save draft
+            Save (customer signs next)
           </button>
-          {approver && (
-            <button onClick={() => void save(true)} disabled={!canSave} className="btn btn-primary min-h-[44px]" data-co-save-approved>
-              Customer agreed: approve
-            </button>
-          )}
+          {approver && (verbal === null
+            ? <button onClick={() => setVerbal('')} disabled={!canSave} className="btn btn-secondary min-h-[44px]" data-co-save-approved>Approved verbally…</button>
+            : <button onClick={() => void save(verbal.trim())} disabled={!canSave || verbal.trim().length < 3} className="btn btn-primary min-h-[44px]" data-co-save-verbal>Save as approved verbally</button>)}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/* ───────── The customer signs on this phone ───────── */
+
+function SignInPersonSheet({ co, customerName, onDone, onClose }: { co: ChangeOrder; customerName: string; onDone: () => void; onClose: () => void }) {
+  useBackLayer(onClose, { key: 'co-sign-in-person' })
+  const [name, setName] = useState(customerName)
+  const [ink, setInk] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function sign() {
+    if (!name.trim()) { setError('Type the customer\'s name.'); return }
+    if (!ink) { setError('The customer signs in the box.'); return }
+    setBusy(true); setError('')
+    const row = await signInPerson(co, name.trim(), ink)
+    setBusy(false)
+    if (!row) return
+    toast.success(`Change order CO-${row.number} signed`, `Signed by ${row.signedBy}. Contract rev ${row.contractRev ?? ''}.`)
+    onDone()
+  }
+  return (
+    <div className="fixed inset-0 z-[85] flex items-end md:items-center justify-center bg-black/50" onClick={onClose} data-co-sign-sheet>
+      <div className="bg-white w-full md:max-w-[560px] rounded-t-2xl md:rounded-2xl max-h-[94vh] overflow-y-auto p-4 space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="font-bold text-gray-900">Change order CO-{co.number}: customer signs</h2>
+            <p className="text-xs text-gray-500">Hand the phone to the customer.</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 text-xl">×</button>
+        </div>
+        <table className="w-full text-sm"><tbody>
+          {co.lines.map(l => <tr key={l.id} className="border-b border-gray-100"><td className="py-2 pr-2 text-gray-800">{l.description || 'Change'}</td><td className="py-2 text-right font-semibold whitespace-nowrap">{signed(l.amountCents)}</td></tr>)}
+          <tr><td className="pt-2 font-bold">{co.totalCents < 0 ? 'Total credit' : 'Total'}</td><td className="pt-2 text-right font-black text-lg whitespace-nowrap" data-co-sign-total>{signed(co.totalCents)}</td></tr>
+        </tbody></table>
+        {co.warrantyAfter && <p className="text-xs text-amber-900 bg-amber-50 rounded-lg px-3 py-2" data-co-sign-warranty>Warranty changes{co.warrantyBefore?.name ? ` from ${co.warrantyBefore.name}` : ''} to <b>{co.warrantyAfter.name}</b>: {co.warrantyAfter.text}</p>}
+        <label className="block text-sm text-gray-700">Customer's name
+          <input value={name} onChange={e => setName(e.target.value)} autoComplete="off" maxLength={200} className="mt-1 w-full h-12 border border-gray-300 rounded-lg px-3 text-base" data-co-sign-name />
+        </label>
+        <SignaturePad onChange={setInk} />
+        {error && <p className="text-sm text-red-700" role="alert">{error}</p>}
+        <button type="button" onClick={() => void sign()} disabled={busy} className="btn btn-primary w-full min-h-[52px]" data-co-sign-submit>{busy ? 'Saving…' : 'Approve and sign'}</button>
       </div>
     </div>
   )
@@ -302,7 +478,7 @@ function SendToCustomer({ co, quoteId }: { co: ChangeOrder; quoteId: string }) {
   const company = cfg.company?.name || 'Getter Done Fence'
   const q = getQuotes().find(x => x.id === quoteId)
   const first = (q?.customerName || '').split(' ')[0] || 'there'
-  const message = (u: string) => `Hi ${first}, here is change order #${co.number} from ${company} (${signed(co.totalCents)}). You can approve and sign it on your phone: ${u}`
+  const message = (u: string) => `Hi ${first}, here is change order CO-${co.number} from ${company} (${signed(co.totalCents)}). You can ${co.status === 'approved' ? 'sign' : 'approve and sign'} it on your phone: ${u}`
   async function go(kind: 'text' | 'email' | 'copy') {
     setBusy(true)
     const u = await changeOrderLink(co)
@@ -310,12 +486,12 @@ function SendToCustomer({ co, quoteId }: { co: ChangeOrder; quoteId: string }) {
     setBusy(false)
     if (!u) return
     if (kind === 'text') window.location.href = smsLink(q?.customerPhone || '', message(u))
-    if (kind === 'email') window.location.href = `mailto:${encodeURIComponent(q?.customerEmail || '')}?subject=${encodeURIComponent(`Change order #${co.number} from ${company}`)}&body=${encodeURIComponent(message(u))}`
+    if (kind === 'email') window.location.href = `mailto:${encodeURIComponent(q?.customerEmail || '')}?subject=${encodeURIComponent(`Change order CO-${co.number} from ${company}`)}&body=${encodeURIComponent(message(u))}`
     if (kind === 'copy') { await navigator.clipboard?.writeText(u).catch(() => {}); toast.success('Link copied') }
   }
   return (
     <div className="mt-2 space-y-1" data-co-customer-send>
-      <p className="text-xs text-gray-500">The customer approves and signs on their link or in the customer portal{co.status === 'draft' ? '; sending it marks it Sent' : ''}.</p>
+      <p className="text-xs text-gray-500">The customer signs on this phone, on their link, or in the customer portal{co.status === 'draft' ? '; sending the link marks it Sent' : ''}.</p>
       {!cfg.proposal?.publicLinks && <p className="text-[11px] text-amber-800">Links open only on your own phones and computers until outside access is on (Settings → Proposals).</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={busy} onClick={() => void go('text')} className="text-xs border border-gray-300 text-gray-700 font-semibold px-3 min-h-[44px] rounded-lg" data-co-text>Text the link</button>
@@ -326,20 +502,26 @@ function SendToCustomer({ co, quoteId }: { co: ChangeOrder; quoteId: string }) {
   )
 }
 
+const VIA_WORDS: Record<string, string> = { portal: ', in the customer portal', link: ', on their link', in_person: ', in person' }
+
 export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: { quoteId: string; originalPrice: number; customerName?: string }) {
   const { orders, loaded } = useChangeOrders(quoteId)
   const [showModal, setShowModal] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  const [signing, setSigning] = useState<ChangeOrder | null>(null)
+  const [verbalFor, setVerbalFor] = useState<{ id: string; reason: string } | null>(null)
   const approver = can('billing.change')
   const maker = can('quotes.change')
+  const costs = can('costs.view')
 
   const originalCents = Math.round(originalPrice * 100)
   const approvedCents = orders.filter(o => o.status === 'approved').reduce((s, o) => s + o.totalCents, 0)
 
-  async function setStatus(co: ChangeOrder, status: ChangeOrderStatus) {
+  async function setStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string) {
     setBusy(co.id)
-    await setChangeOrderStatus(co, status)
+    const row = await setChangeOrderStatus(co, status, verbalReason)
     setBusy(null)
+    if (row && status === 'approved') { setVerbalFor(null); toast.success(`Change order CO-${row.number} approved verbally`, `Contract rev ${row.contractRev ?? ''}. The customer can still sign it.`) }
   }
 
   const STATUS_COLORS: Record<ChangeOrderStatus, string> = {
@@ -372,7 +554,7 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: 
           </div>
         )}
         <div className="border-t border-gray-700 mt-2 pt-2 flex items-center justify-between">
-          <span className="text-white text-xs font-semibold">Contract value</span>
+          <span className="text-white text-xs font-semibold">Contract value <span className="font-normal text-gray-400" data-co-contract-rev>(rev {contractRevOf(orders)})</span></span>
           <span className="text-orange-400 font-bold text-lg" data-co-contract>{money(originalCents + approvedCents)}</span>
         </div>
       </div>
@@ -384,9 +566,10 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: 
           {orders.map(co => (
             <div key={co.id} className="border border-gray-200 rounded-xl p-3" data-co-row={co.number} data-co-status={co.status}>
               <div className="flex items-center justify-between mb-1.5 gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-gray-800">CO #{co.number}</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-gray-800">CO-{co.number}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[co.status]}`}>{STATUS_WORDS[co.status]}</span>
+                  {co.contractRev && co.status === 'approved' && <span className="text-[11px] text-gray-500" data-co-rev>Contract rev {co.contractRev}</span>}
                 </div>
                 <span className={`text-sm font-bold ${co.totalCents >= 0 ? 'text-green-700' : 'text-red-600'}`}>{signed(co.totalCents)}</span>
               </div>
@@ -397,25 +580,45 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: 
                 </div>
               ))}
               {co.reason && <p className="text-xs text-gray-500 mt-1 italic">{co.reason}</p>}
+              {co.work && <p className="text-xs text-gray-600 mt-1" data-co-work>New drawing: {co.work.footage} ft, {co.work.sections} sections{co.work.walkGates ? `, ${co.work.walkGates} walk gate${co.work.walkGates > 1 ? 's' : ''}` : ''}{co.work.dblGates ? `, ${co.work.dblGates} double gate${co.work.dblGates > 1 ? 's' : ''}` : ''}.</p>}
+              {co.warrantyAfter && <p className="text-xs text-amber-900 mt-1" data-co-warranty>Warranty changes{co.warrantyBefore?.name ? ` from ${co.warrantyBefore.name}` : ''} to {co.warrantyAfter.name}.</p>}
+              {costs && co.costDelta && <p className="text-xs text-gray-500 mt-1" data-co-cost>Quoted cost {signed(co.costDelta.totalCents)} (materials {signed(co.costDelta.materialCents)}, labor {signed(co.costDelta.laborCents)}).</p>}
               <p className="text-xs text-gray-400 mt-1">
-                {co.createdBy ? `By ${co.createdBy}` : ''}{co.approvedBy && !co.signedAt ? ` · approved by ${co.approvedBy}` : ''}
+                {co.createdBy ? `By ${co.createdBy}` : ''}{co.approvedBy && !co.signedAt && !co.verbalAt ? ` · approved by ${co.approvedBy}` : ''}
               </p>
-              {co.signedAt && (
-                <p className="text-xs text-green-800 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 mt-1.5" data-co-customer-signed>
-                  Signed by the customer on {new Date(co.signedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{co.signedBy ? ` (${co.signedBy})` : ''}{co.signedVia === 'portal' ? ', in the customer portal' : co.signedVia === 'link' ? ', on their link' : ''}.
+              {co.verbalAt && (
+                <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 mt-1.5" data-co-verbal-note>
+                  Approved verbally by {co.verbalBy} on {shortDay(co.verbalAt)}: {co.verbalReason}.{co.signedAt ? '' : ' Not signed by the customer yet.'}
                 </p>
               )}
-              {(co.status === 'draft' || co.status === 'sent') && maker && <SendToCustomer co={co} quoteId={quoteId} />}
+              {co.signedAt && (
+                <p className="text-xs text-green-800 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 mt-1.5" data-co-customer-signed>
+                  Signed by the customer on {shortDay(co.signedAt)}{co.signedBy ? ` (${co.signedBy})` : ''}{VIA_WORDS[co.signedVia ?? ''] ?? ''}.
+                </p>
+              )}
+              {(co.status === 'draft' || awaitingSignature(co)) && maker && <SendToCustomer co={co} quoteId={quoteId} />}
+              {verbalFor?.id === co.id && (
+                <div className="mt-2 space-y-2">
+                  <VerbalReason value={verbalFor.reason} onChange={v => setVerbalFor({ id: co.id, reason: v })} />
+                  <div className="flex gap-2">
+                    <button disabled={busy === co.id || verbalFor.reason.trim().length < 3} onClick={() => void setStatus(co, 'approved', verbalFor.reason.trim())} className="text-xs bg-green-600 text-white font-semibold px-3 min-h-[44px] rounded-lg disabled:opacity-50" data-co-verbal-save>Approve verbally</button>
+                    <button onClick={() => setVerbalFor(null)} className="text-xs text-gray-600 px-3 min-h-[44px]">Cancel</button>
+                  </div>
+                </div>
+              )}
               {co.status !== 'void' && (
                 <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-gray-100">
+                  {(co.status === 'draft' || awaitingSignature(co)) && maker && (
+                    <button disabled={busy === co.id} onClick={() => setSigning(co)} className="text-xs bg-orange-500 hover:bg-orange-600 text-white font-semibold px-3 min-h-[44px] rounded-lg" data-co-sign-here>Customer signs on this phone</button>
+                  )}
                   {co.status === 'draft' && maker && (
                     <button disabled={busy === co.id} onClick={() => void setStatus(co, 'sent')} className="text-xs border border-blue-300 text-blue-700 font-semibold px-3 min-h-[44px] rounded-lg" data-co-send>Mark sent</button>
                   )}
-                  {(co.status === 'draft' || co.status === 'sent') && approver && (
-                    <button disabled={busy === co.id} onClick={() => void setStatus(co, 'approved')} className="text-xs bg-green-600 hover:bg-green-700 text-white font-semibold px-3 min-h-[44px] rounded-lg" data-co-approve>Approve</button>
+                  {(co.status === 'draft' || co.status === 'sent') && approver && verbalFor?.id !== co.id && (
+                    <button disabled={busy === co.id} onClick={() => setVerbalFor({ id: co.id, reason: '' })} className="text-xs border border-green-600 text-green-700 font-semibold px-3 min-h-[44px] rounded-lg" data-co-approve>Approved verbally…</button>
                   )}
                   {((co.status !== 'approved' && maker) || (co.status === 'approved' && approver)) && (
-                    <button disabled={busy === co.id} onClick={() => { if (window.confirm(`Void change order #${co.number}?${co.status === 'approved' ? ' It comes off the contract value.' : ''}`)) void setStatus(co, 'void') }}
+                    <button disabled={busy === co.id} onClick={() => { if (window.confirm(`Void change order CO-${co.number}?${co.status === 'approved' ? ' It comes off the contract value.' : ''}`)) void setStatus(co, 'void') }}
                       className="text-xs border border-gray-300 text-gray-600 hover:text-gray-800 font-semibold px-3 min-h-[44px] rounded-lg" data-co-void>Void</button>
                   )}
                 </div>
@@ -434,6 +637,129 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: 
           onClose={() => setShowModal(false)}
         />
       )}
+      {signing && <SignInPersonSheet co={signing} customerName={customerName || getQuotes().find(q => q.id === quoteId)?.customerName || ''} onDone={() => setSigning(null)} onClose={() => setSigning(null)} />}
+    </div>
+  )
+}
+
+/* ───────── "Change order": easy to find ───────── */
+
+/** Is this quote signed (a change order can be made on it)? */
+export const isSignedForChange = (q: { status?: string; acceptedAt?: string | null; soldAt?: string | null } | null | undefined) =>
+  !!q && (q.status === 'SOLD' || !!q.acceptedAt || !!q.soldAt)
+
+/**
+ * Open the signed quote in the quote builder with the work as it is now, to
+ * change the yard drawing (footage, gates, style, height). Saving the change
+ * makes the change order, filled in and priced (QuoteBuilder).
+ */
+export async function openChangeFromDrawing(quote: SavedQuote): Promise<void> {
+  await refreshChangeOrders(quote.id)
+  window.dispatchEvent(new CustomEvent('ezbiz:open-quote', { detail: { id: quote.id, quote: quoteWithChanges(quote) } }))
+}
+
+/**
+ * The "Change order" button for a signed job (the job page, the pipeline card
+ * window, the customer page): change the yard drawing, or type the change
+ * (add an item, credit an item, a custom line with a price).
+ */
+export function ChangeOrderButton({ quoteId, customerName, className = '', label = 'Change order', onOpened }: { quoteId: string; customerName: string; className?: string; label?: string; onOpened?: () => void }) {
+  const [menu, setMenu] = useState(false)
+  const [typing, setTyping] = useState(false)
+  const quote = getQuotes().find(q => q.id === quoteId)
+  if (!can('quotes.change') || !quote || !isSignedForChange(quote)) return null
+  const drawing = !(quote.work && (quote.work.type === 'move' || quote.work.type === 'repair'))
+  return (
+    <>
+      <button type="button" onClick={() => setMenu(true)} className={className || 'btn btn-secondary'} data-co-button={quoteId}>{label}</button>
+      {menu && <ChangeOrderMenu customerName={customerName} drawing={drawing} onClose={() => setMenu(false)}
+        onDrawing={() => { setMenu(false); onOpened?.(); void openChangeFromDrawing(quote) }}
+        onLines={() => { setMenu(false); void refreshChangeOrders(quoteId).then(() => setTyping(true)) }} />}
+      {typing && <QuickChangeOrderModal quoteId={quoteId} customerName={customerName} existingCount={getOrdersForQuote(quoteId).length} onSaved={() => setTyping(false)} onClose={() => setTyping(false)} />}
+    </>
+  )
+}
+
+function ChangeOrderMenu({ customerName, drawing, onClose, onDrawing, onLines }: { customerName: string; drawing: boolean; onClose: () => void; onDrawing: () => void; onLines: () => void }) {
+  useBackLayer(onClose, { key: 'co-menu' })
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end md:items-center justify-center bg-black/40" onClick={onClose} data-co-menu>
+      <div className="bg-white w-full md:max-w-[440px] rounded-t-2xl md:rounded-2xl p-4 space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-2">
+          <div><h2 className="font-bold text-gray-900">Change order</h2><p className="text-xs text-gray-500">{customerName}</p></div>
+          <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 text-xl">×</button>
+        </div>
+        {drawing && (
+          <button type="button" onClick={onDrawing} className="w-full text-left rounded-xl border border-gray-200 p-3 min-h-[56px] hover:bg-gray-50" data-co-from-drawing-start>
+            <span className="block font-semibold text-gray-900">Change the yard drawing</span>
+            <span className="block text-xs text-gray-600">Add or remove footage or gates, change the style or height. Priced for you; the pull sheet, packet and site plan follow.</span>
+          </button>
+        )}
+        <button type="button" onClick={onLines} className="w-full text-left rounded-xl border border-gray-200 p-3 min-h-[56px] hover:bg-gray-50" data-co-from-lines>
+          <span className="block font-semibold text-gray-900">Type the change</span>
+          <span className="block text-xs text-gray-600">Add an item, credit an item, or a custom line with a price.</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ───────── The job's history ───────── */
+
+interface TimelineItem { at: string; kind: string; title: string; detail: string; by: string }
+
+/** The job's timeline: the contract as signed, change orders, the payment schedule following, pull sheet revisions; and a schedule warning. */
+export function JobTimeline({ jobId }: { jobId: string }) {
+  const [data, setData] = useState<{ items: TimelineItem[]; scheduleWarning: string | null; contractRev: number } | null>(null)
+  const [all, setAll] = useState(false)
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    let live = true
+    sendJson('GET', `/api/change-orders/timeline?jobId=${encodeURIComponent(jobId)}`).then(r => { if (live && r.result.ok) setData(r.json.data) })
+    return () => { live = false }
+  }, [jobId, n])
+  useEffect(() => {
+    const h = () => setN(x => x + 1)
+    window.addEventListener(CO_EVENT, h)
+    return () => window.removeEventListener(CO_EVENT, h)
+  }, [])
+  if (!data) return <p className="text-xs text-gray-500">Loading the job history…</p>
+  const items = all ? data.items : data.items.slice(0, 8)
+  return (
+    <div className="space-y-2" data-job-timeline>
+      {data.scheduleWarning && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-job-schedule-warning>{data.scheduleWarning}</p>}
+      <p className="text-xs text-gray-600">Contract rev {data.contractRev}</p>
+      {items.length === 0 ? <p className="text-xs text-gray-500">Nothing yet.</p> : (
+        <ul className="space-y-1.5">
+          {items.map((it, i) => (
+            <li key={i} className="text-xs" data-job-timeline-item={it.kind}>
+              <span className="text-gray-500">{shortDay(it.at)}</span> <span className="text-gray-900 font-medium">{it.title}</span>
+              {it.detail && <span className="text-gray-600"> {it.detail}</span>}{it.by && !it.title.includes(it.by) && <span className="text-gray-400"> · {it.by}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {data.items.length > 8 && <button type="button" className="text-xs text-orange-600 font-semibold min-h-[44px]" onClick={() => setAll(x => !x)}>{all ? 'Show less' : `Show all ${data.items.length}`}</button>}
+    </div>
+  )
+}
+
+/** "Change order" for each of a customer's signed quotes (the customer page). */
+export function CustomerChangeOrderButtons({ customerId, customerName }: { customerId: string; customerName: string }) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const h = () => setTick(t => t + 1)
+    window.addEventListener('fencepro:quotes:updated', h)
+    return () => window.removeEventListener('fencepro:quotes:updated', h)
+  }, [])
+  const signedQuotes = getQuotes().filter(q => q.customerId === customerId && isSignedForChange(q))
+  if (!signedQuotes.length || !can('quotes.change')) return null
+  return (
+    <div className="flex flex-wrap gap-2" data-customer-change-orders>
+      {signedQuotes.map(q => (
+        <ChangeOrderButton key={q.id} quoteId={q.id} customerName={customerName} className="btn btn-secondary"
+          label={signedQuotes.length > 1 ? `Change order (${money(Math.round(q.finalPrice * 100))} quote)` : 'Change order'} />
+      ))}
     </div>
   )
 }

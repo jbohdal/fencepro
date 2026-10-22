@@ -23,6 +23,7 @@ import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { getConfig } from './configStore'
 import { toast } from './toast'
 import type { SavedQuote } from './QuotesPage'
+import { refreshChangeOrders, quoteWithChanges, signedQuoteOf } from './ChangeOrders'
 
 const API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/install-packets'
 
@@ -118,7 +119,7 @@ export function packetUrl(token: string): string {
   return hostname.endsWith('.ts.net') ? `${protocol}//${hostname}:8443/p/i/${token}` : `${origin}/p/i/${token}`
 }
 
-export interface Packet { id: string; token: string; disabledAt: string | null; locateTicket: string | null; locateDate: string | null; sentAt: string }
+export interface Packet { id: string; token: string; disabledAt: string | null; locateTicket: string | null; locateDate: string | null; sentAt: string; changedBy?: { number: number; what: string } | null }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T | null> {
   const r = await fetchWithAuth(`${API}${path}`, { ...init, headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) } }).catch(() => null)
@@ -133,7 +134,11 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T | null> 
  * when it could not be made. Used by "Send install packet" on the job and
  * "Share to crew" on a customer's pull sheet.
  */
-export async function sendInstallPacket(jobId: string, job: { fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number }, quote: SavedQuote | undefined): Promise<Packet | null> {
+export async function sendInstallPacket(jobId: string, job: { fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number }, signedQuote: SavedQuote | undefined): Promise<Packet | null> {
+  // The work now: an approved change order from the yard drawing changes the plan, runs, gates and pull sheet (ChangeOrders.tsx).
+  let quote = signedQuote
+  if (quote) { await refreshChangeOrders(quote.id); quote = quoteWithChanges(signedQuoteOf(quote)) }
+  if (quote && (quote.walkGates !== signedQuote?.walkGates || quote.dblGates !== signedQuote?.dblGates)) job = { ...job, walkGates: quote.walkGates, dblGates: quote.dblGates }
   const media = await listMedia({ jobId })
   // The aerial photo, turned as saved with the quote, under the plan (when it was on).
   const photo = await bakedBackdrop(quote?.layout?.yard ?? null)
@@ -166,6 +171,7 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
   return (
     <div className="space-y-2" data-install-packet>
       <p className="text-xs text-gray-600">A private link for the crew: plan with post spacing, counts, gates, pull sheet, photos and notes. No prices. It closes 30 days after the job is marked complete.</p>
+      {live && packet?.changedBy && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-packet-outdated>Change order CO-{packet.changedBy.number} changed the work ({packet.changedBy.what}) after this packet was sent. The crew's link already shows the new pull sheet; update the packet for the new site plan.</p>}
       <button type="button" className="btn btn-primary w-full" disabled={busy} onClick={send} data-packet-send>
         <Send size={16} aria-hidden="true" /> {live ? 'Update the install packet' : 'Send install packet'}
       </button>

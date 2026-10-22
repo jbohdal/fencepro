@@ -81,7 +81,10 @@ import { FollowUpPromptHost } from './FollowUpPrompt'
 import { startFollowUps } from './followUpStore'
 import { startPayments } from './paymentsStore'
 import { BookingHost, openBooking } from './BookingDialog'
+import { ServiceHost } from './ServiceRequests'
+import ServicePage from './ServicePage'
 import GlobalSearch from './GlobalSearch'
+import { isSignedForChange, quoteWithChanges, signedQuoteOf, refreshChangeOrders } from './ChangeOrders'
 import { DashboardAppointments } from './AppointmentWidgets'
 import { businessDate } from './businessDate'
 
@@ -118,6 +121,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Operations',  icon: Wrench, roles: ['owner', 'admin', 'ops_manager', 'shop'] },
       { name: 'Schedule',    icon: CalendarClock, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
+      { name: 'Service',     icon: ShieldCheck, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
       { name: 'Dispatch',    icon: MapPin, roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Site Plans',   icon: Map, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
       { name: 'Inventory',   icon: Package, roles: ['owner', 'admin', 'ops_manager', 'shop'] },
@@ -662,12 +666,18 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   }
 
   function handleOpenQuote(q: SavedQuote) {
+    // A signed quote opens with the work as approved change orders made it (ChangeOrders.tsx quoteWithChanges),
+    // so the next change is priced from the work now; saving keeps the signed quote as signed.
+    if (isSignedForChange(q) && signedQuoteOf(q) === q) {
+      void refreshChangeOrders(q.id).then(() => { setEditingQuote(quoteWithChanges(q)); setShowQuote(true) })
+      return
+    }
     setEditingQuote(q)
     setShowQuote(true)
   }
 
   /** A new quote for a customer: from their page, or from an appointment closed out "Ready to quote" (with its property and measurements). */
-  function openQuoteFor(c: { id: string; firstName: string; lastName: string; phone?: string; email?: string; serviceAddress?: string; leadSource?: string; salesRep?: string }, extra: { address?: string; notes?: string } = {}) {
+  function openQuoteFor(c: { id: string; firstName: string; lastName: string; phone?: string; email?: string; serviceAddress?: string; leadSource?: string; salesRep?: string }, extra: { address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string } } = {}) {
     setEditingQuote({
       id: undefined as unknown as string,
       customerId: c.id,
@@ -677,26 +687,36 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       customerAddress: extra.address || c.serviceAddress || '',
       leadSource: c.leadSource || '',
       salesRep: c.salesRep || '',
-      fenceStyle: '', runs: [], corners: 0, ends: 0,
+      fenceStyle: extra.repair?.fenceStyle || '', runs: [], corners: 0, ends: 0,
       walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0,
       adjLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
       sections: 0, materialCost: 0, laborCost: 0, tearOutCost: 0,
       totalCOGS: 0, finalPrice: 0, gmPct: 0, pullSheet: [],
       status: 'DRAFT', date: businessDate(new Date()),
       notes: extra.notes || '', leadTemp: 0,
+      // A repair (a not covered service request): the quote builder opens in repair mode (moveRepair.ts) with the Repair price list.
+      ...(extra.repair ? { work: { type: 'repair', repair: { what: extra.repair.what, items: {}, newPostCaps: false, gateKind: 'walk' } } } : {}),
     } as SavedQuote)
     setShowQuote(true)
   }
 
-  // An appointment closed out "Ready to quote" opens the quote builder, filled in.
+  // An appointment closed out "Ready to quote" opens the quote builder, filled in;
+  // a not covered service request opens it in repair mode on the customer's fence.
   useEffect(() => {
     const h = (e: Event) => {
-      const d = (e as CustomEvent<{ customerId: string; address?: string; notes?: string }>).detail
+      const d = (e as CustomEvent<{ customerId: string; address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string } }>).detail
       const c = d?.customerId ? getCustomers().find(x => x.id === d.customerId) : null
-      if (c) openQuoteFor(c, { address: d.address, notes: d.notes })
+      if (c) openQuoteFor(c, { address: d.address, notes: d.notes, repair: d.repair })
+    }
+    const open = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string; quote?: SavedQuote }>).detail?.id
+      // A change order from the yard drawing sends the quote with the work now (ChangeOrders.tsx openChangeFromDrawing).
+      const found = (e as CustomEvent<{ id: string; quote?: SavedQuote }>).detail?.quote ?? (id ? (getQuoteById(id) ?? quotes.find(x => x.id === id)) : null)
+      if (found) handleOpenQuote(found as SavedQuote)
     }
     window.addEventListener('ezbiz:new-quote', h)
-    return () => window.removeEventListener('ezbiz:new-quote', h)
+    window.addEventListener('ezbiz:open-quote', open)
+    return () => { window.removeEventListener('ezbiz:new-quote', h); window.removeEventListener('ezbiz:open-quote', open) }
   })
 
   function handleMapQuoteData(data: MapFenceData) {
@@ -768,6 +788,10 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // Archived jobs and quotes still count in the KPIs and reports (only deleted ones do not).
   const reportJobs   = [...jobs, ...getArchivedJobs()]
   const reportQuotes = [...quotes, ...(getArchivedQuotes() as SavedQuote[])]
+  // Reports count a sold quote at its contract: the signed price plus its approved change orders (the job's
+  // changeOrderTotal, kept by the server). Only for Reports: the quotes themselves stay as signed.
+  const coByQuote = new globalThis.Map<string, number>(reportJobs.filter(j => j.quoteId && j.changeOrderTotal).map(j => [j.quoteId!, j.changeOrderTotal] as [string, number]))
+  const revenueQuotes = reportQuotes.map(q => (q.status === 'SOLD' && coByQuote.get(q.id) ? { ...q, finalPrice: Math.round((q.finalPrice + coByQuote.get(q.id)!) * 100) / 100 } : q))
   const ytdRevenue   = installedRevenueForYear(reportJobs, thisYear)
   const openSold     = soldNotInstalled(jobs)
   const monthQuotes  = reportQuotes.filter(q => {
@@ -1083,11 +1107,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Jobs'           && <OperationsBoard />}
           {active === 'Staging'        && <OperationsBoard />}
           {active === 'Schedule'  && <SchedulePage />}
+          {active === 'Service'   && <ServicePage />}
           {active === 'Appointments' && <AppointmentsPage />}
           {active === 'Today'     && <TodayScreen />}
           {active === 'Follow ups' && <FollowUpsPage />}
           {active === 'Dispatch'  && <DispatchPage />}
-          {active === 'Reports'   && <ReportsPage quotes={reportQuotes} />}
+          {active === 'Reports'   && <ReportsPage quotes={revenueQuotes} />}
           {active === 'Site Plans' && <SitePlansPage />}
 
           {active === 'Dashboard' && (
@@ -1235,6 +1260,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         />
       )}
 
+      {/* Warranty and service requests: the request form and a ticket's window, opened from anywhere (ServiceRequests.tsx). Before the booking dialog, which opens over it. */}
+      <ServiceHost />
       {/* ═══ BOOKING DIALOG (opened from anywhere with openBooking) ═══ */}
       <BookingHost />
       {/* "How'd it go?" after a Call or Text tap, and Log a call */}

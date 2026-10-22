@@ -16,6 +16,8 @@ import { useFollowUpList, useFollowUpBoard, startTouch, openLogCall, pendingFor,
 import { agoWords } from './proposalOpened'
 import { OUTCOME_LABEL } from './followUpRules'
 import { TextTemplatesSheet, dayLabel, kindWord } from './FollowUpPrompt'
+import { ServiceNeedsYou } from './ServiceRequests'
+import { useOpenTickets } from './serviceStore'
 
 const fmtUSD = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(cents / 100)
 
@@ -24,6 +26,7 @@ export default function FollowUpsPage() {
   const [rep, setRep] = useState('')
   const { list, loading, offline, reload } = useFollowUpList(rep)
   const [texting, setTexting] = useState<ListRow | null>(null)
+  const tickets = useOpenTickets()
 
   const total = list ? list.overdue.length + list.dueToday.length : 0
   return (
@@ -53,6 +56,7 @@ export default function FollowUpsPage() {
       {list && total === 0 && list.upcoming.length === 0 && list.notSet.length === 0 && !list.opened24h?.length && (
         <p className="panel p-6 text-center text-gray-600" data-follow-ups-empty>Nobody to call. New follow ups appear here as cards move and calls are answered.</p>
       )}
+      <ServiceNeedsYou title="Service requests waiting" list={tickets} />
       {list && <Section title="Opened in the last 24h" tone="purple" rows={list.opened24h ?? []} id="opened-24h" onText={setTexting} note="The customer opened the proposal. A good time to call." />}
       {list && <Section title="Overdue" tone="red" rows={list.overdue} id="overdue" onText={setTexting} />}
       {list && <Section title="Due today" tone="orange" rows={list.dueToday} id="today" onText={setTexting} />}

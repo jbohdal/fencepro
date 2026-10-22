@@ -24,18 +24,25 @@ export type Action =
   | 'payments.record'
   /** Change an invoice's amount or the contract amount: owner and admin only. */
   | 'billing.amounts'
+  /**
+   * Warranty and service requests (Oct 22, 2026): decide covered or not
+   * covered with a reason, enter covered work's cost, close a request. Owner
+   * and office (manager and admin too); anyone on staff can make a request,
+   * ask for photos and book the visit.
+   */
+  | 'service.decide'
 
 const FULL: Action[] = [
   'settings.change', 'prices.change', 'automations.change', 'records.archive', 'ops.delete',
   'schedule.change', 'billing.change', 'finance.change', 'quotes.change', 'permits.change',
-  'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'invoices.manage', 'payments.record',
+  'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'invoices.manage', 'payments.record', 'service.decide',
 ]
 
 export const ALLOWED: Record<CrmRole, ReadonlySet<Action>> = {
   super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   manager: new Set(FULL),
-  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage', 'payments.record']),
+  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage', 'payments.record', 'service.decide']),
   sales_rep: new Set(['quotes.change', 'records.archive', 'payments.record']),
   field_crew: new Set([]),
 }
@@ -63,6 +70,7 @@ export const REFUSAL: Record<Action, string> = {
   'invoices.manage': 'Only the owner and the office can see vendor invoices. Ask Jonathan.',
   'payments.record': 'Your role cannot record payments. Ask Jonathan.',
   'billing.amounts': 'Only the owner or an admin can change an invoice amount or the contract amount.',
+  'service.decide': 'Only the owner and the office decide warranty coverage. Ask Jonathan.',
 }
 
 export function roleCan(role: string | null | undefined, action: Action): boolean {

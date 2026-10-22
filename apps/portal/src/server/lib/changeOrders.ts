@@ -29,6 +29,7 @@
 import crypto from 'crypto'
 import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
+import { priceWork, costDeltaOf, workNow, scopeOf, workChangeable, approvedInOrder, currentWorkRow, daysFor, type StoredWork, type WorkInput } from './changeOrderWork.js'
 
 export type ChangeOrderStatus = 'draft' | 'sent' | 'approved' | 'void'
 export const CO_STATUSES: readonly ChangeOrderStatus[] = ['draft', 'sent', 'approved', 'void']
@@ -52,13 +53,36 @@ export const totalOf = (lines: ChangeOrderLine[]) => lines.reduce((s, l) => s + 
  */
 export const wholeDollarLine = (l: ChangeOrderLine): ChangeOrderLine => ({ ...l, amountCents: Math.floor(Math.round(l.amountCents) / 100) * 100 })
 
-/** What every phone gets: prices only (a change order has no cost in it). */
+/** A warranty as kept on a change order: its name and words. */
+const warrantyOf = (w: unknown) => (w && typeof w === 'object' ? { name: String((w as any).name ?? ''), text: String((w as any).text ?? '') } : null)
+
+/**
+ * The new work for every phone: quantities only (the pull sheet without a
+ * cost), the yard as drawn and its plan, so the install packet and the site
+ * plan follow it. Never a cost.
+ */
+export function workView(w: unknown) {
+  if (!w || typeof w !== 'object') return null
+  const x = w as StoredWork
+  return {
+    fenceStyle: x.fenceStyle, runs: x.runs, runRails: x.runRails, corners: x.corners, ends: x.ends, walkGates: x.walkGates, dblGates: x.dblGates,
+    tearOutSections: x.tearOutSections, tearOutGates: x.tearOutGates, sections: x.sections, footage: x.footage, layout: x.layout ?? null, planSvg: x.planSvg ?? null,
+    pullSheet: (Array.isArray(x.pullSheet) ? x.pullSheet : []).filter(l => !l.moneyOnly).map(l => ({ item: l.item, qty: l.qty })),
+  }
+}
+
+/** Signed by the customer, or still waiting for their signature (sent, or approved verbally by the office). */
+export const needsSignature = (r: { status: string; signedAt: Date | null }) => r.status === 'sent' || (r.status === 'approved' && !r.signedAt)
+
+/** What every phone gets: prices only (a change order has no cost in it; costDelta is added for owner and office by the route). */
 export function view(r: Row) {
   return {
     id: r.id, quoteId: r.quoteId, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason,
     lines: linesOf(r), totalCents: r.totalCents, scope: r.scope ?? null, createdBy: r.createdBy,
     sentAt: r.sentAt, approvedAt: r.approvedAt, approvedBy: r.approvedBy, voidedAt: r.voidedAt,
     signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null, signedVia: r.signedVia ?? null, hasLink: !!r.shareToken,
+    verbalBy: r.verbalBy ?? null, verbalAt: r.verbalAt ?? null, verbalReason: r.verbalReason ?? null, contractRev: r.contractRev ?? null,
+    work: workView(r.work), warrantyBefore: warrantyOf(r.warrantyBefore), warrantyAfter: warrantyOf(r.warrantyAfter),
     version: r.version, createdAt: r.createdAt, updatedAt: r.updatedAt,
   }
 }
@@ -68,6 +92,9 @@ export function customerView(r: Row, q?: { fenceStyle?: string | null; finalPric
   return {
     id: r.id, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason, lines: linesOf(r), totalCents: r.totalCents,
     sentAt: r.sentAt, approvedAt: r.approvedAt, voidedAt: r.voidedAt, signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null,
+    // Approved verbally with the office: it is part of the contract, and still waits for the customer's own signature.
+    needsSignature: needsSignature(r), contractRev: r.contractRev ?? null,
+    warrantyBefore: warrantyOf(r.warrantyBefore), warrantyAfter: warrantyOf(r.warrantyAfter),
     quote: q ? { fenceStyle: q.fenceStyle ?? '', priceCents: Math.round((q.finalPrice ?? 0) * 100) } : null,
   }
 }
@@ -108,13 +135,19 @@ export async function byLink(token: string): Promise<Row | null> {
   return prisma.changeOrder.findFirst({ where: { shareToken: token } }).catch(() => null)
 }
 
-export interface CustomerSignature { name: string; signature: string; ip: string | null; userAgent: string | null; via: 'portal' | 'link' }
+export interface CustomerSignature { name: string; signature: string; ip: string | null; userAgent: string | null; via: 'portal' | 'link' | 'in_person'; witness?: string | null }
 
 /**
- * The customer approves and signs a sent change order: approved (as the office
+ * The customer approves and signs a change order: approved (as the office
  * approves one: applyToJob puts its total on the job's contract value), with
  * the typed name, the signature, the time, IP and browser. The same signature
  * sent again (the answer was lost) stands; a different one is refused.
+ *
+ * Sent ones are signed on the link or in the portal; in person (the office's
+ * phone handed to the customer) a draft can be signed too. One approved
+ * verbally by the office is signed the same way: it stays approved (approved
+ * at, by, the contract revision as they were) and gets the customer's
+ * signature.
  */
 export async function signByCustomer(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean }> {
   const out = await signIn(accountId, id, s)
@@ -129,21 +162,24 @@ async function signIn(accountId: string, id: string, s: CustomerSignature): Prom
     await tx.$queryRaw`SELECT id FROM "ChangeOrder" WHERE id = ${id} FOR UPDATE`
     const cur = await tx.changeOrder.findUnique({ where: { id } })
     if (!cur || cur.accountId !== accountId) throw err(404, 'This change order is not available.')
-    if (cur.status === 'approved' && cur.signedBy === s.name && cur.signedVia === s.via) return { row: cur, again: true }
-    if (cur.status === 'approved') throw err(409, 'This change order is already approved.')
+    if (cur.status === 'approved' && cur.signedAt && cur.signedBy === s.name && cur.signedVia === s.via) return { row: cur, again: true }
+    if (cur.status === 'approved' && cur.signedAt) throw err(409, 'This change order is already approved.')
     if (cur.status === 'void') throw err(409, 'This change order was cancelled. Please call us.')
-    if (cur.status !== 'sent') throw err(409, 'This change order is not ready to sign yet. Please call us.')
+    const verbal = cur.status === 'approved' // approved verbally: signed now, everything else as it was
+    if (!verbal && cur.status !== 'sent' && !(cur.status === 'draft' && s.via === 'in_person')) throw err(409, 'This change order is not ready to sign yet. Please call us.')
     const now = new Date()
+    const signed = { signedBy: s.name, signature: s.signature, signedAt: now, signedIp: s.ip?.slice(0, 100) ?? null, signedUserAgent: s.userAgent?.slice(0, 500) ?? null, signedVia: s.via }
     const row = await tx.changeOrder.update({
       where: { id },
-      data: {
-        status: 'approved', approvedAt: now, approvedBy: `${s.name} (customer)`,
-        signedBy: s.name, signature: s.signature, signedAt: now, signedIp: s.ip?.slice(0, 100) ?? null, signedUserAgent: s.userAgent?.slice(0, 500) ?? null, signedVia: s.via,
-        version: cur.version + 1,
-      },
+      data: verbal
+        ? { ...signed, version: cur.version + 1 }
+        : {
+          status: 'approved', approvedAt: now, approvedBy: s.via === 'in_person' && s.witness ? `${s.name} (customer, in person with ${s.witness})` : `${s.name} (customer)`,
+          ...signed, version: cur.version + 1,
+        },
     })
-    await applyToJob(accountId, cur.quoteId, tx)
-    return { row, again: false }
+    if (!verbal) await applyToJob(accountId, cur.quoteId, tx, { id, by: s.name })
+    return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, again: false }
   }, { timeout: 15_000 })
 }
 
@@ -166,16 +202,39 @@ export async function approvedTotalCents(accountId: string, quoteId: string, tx:
  * the approved change orders (contract value = quote price + approved total).
  * Returns the job's id, or null when the quote has no job yet.
  */
-export async function applyToJob(accountId: string, quoteId: string, tx: any = prisma): Promise<string | null> {
+export async function applyToJob(accountId: string, quoteId: string, tx: any = prisma, changed: { id: string; by?: string } | null = null): Promise<string | null> {
+  const rows = await tx.changeOrder.findMany({ where: { accountId, quoteId, deletedAt: null } })
+  // Contract revisions: rev 1 is the contract as signed; each change order gets the next one when it is approved, and keeps it.
+  let rev = Math.max(1, ...rows.map((r: Row) => r.contractRev ?? 0))
+  for (const r of approvedInOrder(rows as Row[])) if (!r.contractRev) { rev++; await tx.changeOrder.update({ where: { id: r.id }, data: { contractRev: rev } }); r.contractRev = rev }
   const job = await tx.savedJob.findFirst({ where: { accountId, quoteId, deletedAt: null, archivedAt: null } })
   if (!job) return null
   const cents = await approvedTotalCents(accountId, quoteId, tx)
   const quoteCents = Math.round((job.quotePrice || 0) * 100)
   const adj = await adjustmentsOf(tx, accountId, [job.id])
-  await tx.savedJob.update({ where: { id: job.id }, data: { changeOrderTotal: cents / 100, contractValue: (quoteCents + cents + adj) / 100 } })
-  // The job's payment schedule: its Final follows the change orders, logged (lib/contractBilling.ts).
+  const contract = (quoteCents + cents + adj) / 100
+  const data: Record<string, unknown> = { changeOrderTotal: cents / 100, contractValue: contract }
+  // The work: the newest approved change order that changed it, else the quote as signed. The job's scope
+  // and crew days follow (about 15 sections a day; days typed by hand move by the same difference).
+  if (rows.some((r: Row) => r.work)) {
+    const cur = currentWorkRow(rows as Row[])
+    const q = cur ? null : await tx.savedQuote.findFirst({ where: { id: quoteId, accountId } })
+    const w = cur ? cur.work as unknown as StoredWork : q ? { fenceStyle: q.fenceStyle, sections: q.sections, footage: (Array.isArray(q.runs) ? q.runs as number[] : []).reduce((s, f) => s + (Number(f) > 0 ? Number(f) : 0), 0), walkGates: q.walkGates, dblGates: q.dblGates, tearOutSections: q.tearOutSections } : null
+    if (w) {
+      const oldAuto = daysFor(job.sections), newAuto = daysFor(w.sections)
+      Object.assign(data, {
+        fenceStyle: w.fenceStyle || job.fenceStyle, sections: w.sections, totalFeet: Math.round(w.footage), walkGates: w.walkGates, dblGates: w.dblGates, tearOutSections: w.tearOutSections,
+        estimatedDays: !job.estimatedDays || job.estimatedDays === oldAuto ? newAuto : Math.max(1, job.estimatedDays + newAuto - oldAuto),
+      })
+      await tx.scheduledGridJob.updateMany({ where: { accountId, stagingJobId: job.id, deletedAt: null }, data: { sections: w.sections } })
+    }
+  }
+  await tx.savedJob.update({ where: { id: job.id }, data })
+  await tx.scheduledGridJob.updateMany({ where: { accountId, stagingJobId: job.id, deletedAt: null }, data: { jobPrice: contract } })
+  // The job's payment schedule: its Final follows the change orders, logged (lib/contractBilling.ts); after the
+  // Final is paid, an increase is its own invoice (lib/contractBilling.ts billChangeOrderIn).
   const { finalFollowsChangeOrders } = await import('./contractBilling.js')
-  await finalFollowsChangeOrders(tx, accountId, job.id)
+  await finalFollowsChangeOrders(tx, accountId, job.id, { userId: null, name: changed?.by || 'Change order' }, changed?.id ?? null)
   return job.id
 }
 
@@ -259,9 +318,47 @@ export interface NewChangeOrder {
   scope: unknown
   status: 'draft' | 'approved'
   by: string
+  /** From the yard drawing: the work after the change, priced on the server. */
+  work?: WorkInput | null
+  /** Approved at once, verbally (owner and office): why. */
+  verbalReason?: string | null
 }
 
-/** Make one on a signed quote. Approved at once ("the customer agreed on site") updates the job too. */
+/** The verbal approval's reason: required, kept short. */
+function verbalReasonOf(r: string | null | undefined): string {
+  const t = (r ?? '').trim()
+  if (t.length < 3) throw err(400, 'Say why it is approved without the customer\'s signature (for example: "Customer agreed on the phone").')
+  return t.slice(0, 500)
+}
+
+/**
+ * The work after the change, its cost difference and the warranty switch,
+ * worked out before the change order is saved (lib/changeOrderWork.ts).
+ */
+async function workPart(accountId: string, quoteId: string, input: WorkInput): Promise<Record<string, unknown>> {
+  const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } })
+  if (!q) throw err(404, 'Quote not found')
+  if (!workChangeable(q)) return {}
+  const after = await priceWork(accountId, q, input)
+  const before = (await workNow(accountId, quoteId)).work
+  const out: Record<string, unknown> = { work: after, costDelta: await costDeltaOf(accountId, q, before, after), scope: scopeOf(before, after) }
+  // No dig <-> dig set: the warranty that goes with the install changes too, and the customer signs the new words.
+  const styleBefore = String(before?.fenceStyle ?? q.fenceStyle)
+  if (after.fenceStyle && after.fenceStyle !== styleBefore) {
+    const { pricingModule } = await import('./estimates.js')
+    const { effectiveQuoteWarranty } = await import('./warranties.js')
+    const m = await pricingModule()
+    const b = await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } })
+    const was = m.styleWarranty(b?.config ?? null, styleBefore, null), now = m.styleWarranty(b?.config ?? null, after.fenceStyle, null)
+    if (now && (!was || was.id !== now.id)) {
+      const current = (await effectiveQuoteWarranty(q as any, q.fenceStyle, b?.config ?? null)).warranty ?? was
+      if (!current || current.name !== now.name || current.text !== now.text) { out.warrantyBefore = current ?? null; out.warrantyAfter = now }
+    }
+  }
+  return out
+}
+
+/** Make one on a signed quote. Approved at once (verbally, with a reason) updates the job too. */
 export async function createChangeOrder(accountId: string, c: NewChangeOrder): Promise<Row> {
   if (!(await quoteIsSigned(accountId, c.quoteId))) throw err(409, 'Change orders are for signed quotes. This one is not signed: edit the quote instead.')
   if (c.id) {
@@ -270,20 +367,24 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
   }
   const lines = c.lines.map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
   if (!lines.length) throw err(400, 'Add at least one line with a description or an amount.')
+  const verbal = c.status === 'approved' ? verbalReasonOf(c.verbalReason) : null
+  const extra = c.work ? await workPart(accountId, c.quoteId, c.work) : {}
   for (let attempt = 0; ; attempt++) {
     try {
       return await prisma.$transaction(async tx => {
         const number = await nextNumber(accountId, c.quoteId, tx)
+        const now = new Date()
         const row = await tx.changeOrder.create({
           data: {
             ...(c.id ? { id: c.id } : {}), accountId, quoteId: c.quoteId, number, status: c.status, reason: c.reason,
             lines: lines as any, totalCents: totalOf(lines), scope: (c.scope ?? undefined) as any, createdBy: c.by,
-            ...(c.status === 'approved' ? { approvedAt: new Date(), approvedBy: c.by } : {}),
+            ...(extra as any),
+            ...(verbal ? { approvedAt: now, approvedBy: c.by, verbalBy: c.by, verbalAt: now, verbalReason: verbal } : {}),
           },
         })
-        if (c.status === 'approved') await applyToJob(accountId, c.quoteId, tx)
-        return row
-      })
+        if (c.status === 'approved') await applyToJob(accountId, c.quoteId, tx, { id: row.id, by: c.by })
+        return (await tx.changeOrder.findUnique({ where: { id: row.id } })) ?? row
+      }, { timeout: 20_000 })
     } catch (e) {
       // Two made at the same moment took the same number: try the next one.
       if ((e as any)?.code === 'P2002' && attempt < 3) {
@@ -295,12 +396,13 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
   }
 }
 
-export interface ChangeOrderEdit { reason?: string; lines?: ChangeOrderLine[]; status?: ChangeOrderStatus }
+export interface ChangeOrderEdit { reason?: string; lines?: ChangeOrderLine[]; status?: ChangeOrderStatus; verbalReason?: string }
 
 /**
  * Change one, built on `baseVersion` (refused as stale otherwise). Lines and
  * the reason change while it is a draft or sent; approved and void are final
- * (an approved one can still be voided).
+ * (an approved one can still be voided). The office approves one verbally,
+ * with a reason (the customer's own signature comes later).
  */
 export async function editChangeOrder(accountId: string, id: string, baseVersion: number, edit: ChangeOrderEdit, by: string): Promise<{ row: Row; stale: boolean }> {
   return prisma.$transaction(async tx => {
@@ -326,11 +428,11 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
       if (to === 'draft') throw err(409, 'A change order goes from draft to sent to approved.')
       data.status = to
       if (to === 'sent') data.sentAt = new Date()
-      if (to === 'approved') { data.approvedAt = new Date(); data.approvedBy = by }
+      if (to === 'approved') { const now = new Date(); Object.assign(data, { approvedAt: now, approvedBy: by, verbalBy: by, verbalAt: now, verbalReason: verbalReasonOf(edit.verbalReason) }) }
       if (to === 'void') data.voidedAt = new Date()
     }
     const row = await tx.changeOrder.update({ where: { id }, data: data as any })
-    if (cur.status === 'approved' || row.status === 'approved') await applyToJob(accountId, cur.quoteId, tx)
-    return { row, stale: false }
+    if (cur.status === 'approved' || row.status === 'approved') await applyToJob(accountId, cur.quoteId, tx, { id, by })
+    return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, stale: false }
   }, { timeout: 15_000 })
 }

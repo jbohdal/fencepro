@@ -16,13 +16,14 @@ import FinalWalkthroughPanel from './FinalWalkthrough'
 import JobTakeoffPanel from './JobTakeoff'
 import JobQuotedVsActual from './JobQuotedVsActual'
 import JobWarranty from './JobWarranty'
+import { ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
 import SignedDocuments from './SignedDocuments'
 import PaymentsPanel from './Payments'
 import { useState, useEffect } from 'react'
 import { getJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
 import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, pickable, useOpsStages } from './opsStagesStore'
-import { ChangeOrderPanel } from './ChangeOrders'
+import { ChangeOrderPanel, ChangeOrderButton, JobTimeline } from './ChangeOrders'
 import { can } from './permissions'
 import { archiveRecord, deleteRecord } from './recordArchive'
 
@@ -123,7 +124,11 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           <h2 className="text-lg font-bold text-gray-900">{job.customerName}</h2>
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold text-white" style={{ backgroundColor: stage?.color ?? '#9ca3af' }} data-ops-stage-pill={job.opsStage}>{stage?.name ?? job.opsStageLabel}</span>
         </div>
-        <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl">×</button>
+        <div className="flex items-center gap-1">
+          {/* Change order on a signed job: the yard drawing or typed lines (ChangeOrders.tsx). */}
+          {isJobSource && job.rawJob?.quoteId && <ChangeOrderButton quoteId={job.rawJob.quoteId} customerName={job.customerName} className="btn btn-secondary btn-sm min-h-[48px]" />}
+          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl">×</button>
+        </div>
       </div>
 
       {/* Content */}
@@ -172,6 +177,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {isJobSource && <JobQuotedVsActual jobId={job.id} />}
         {/* The payment schedule from the contract, Payment received and receipts (Payments.tsx). */}
         {isJobSource && <Section title="Payments"><PaymentsPanel jobId={job.id} /></Section>}
+        {/* Warranty and service requests on this fence (ServiceRequests.tsx). */}
+        {isJobSource && <Section title="Warranty and service"><div className="space-y-2" data-job-service><ServiceRequestButton jobId={job.id} /><ServiceTicketList jobId={job.id} title="Requests on this job" /></div></Section>}
         {/* The warranty it was signed with, its dates, and whether service calls on it are covered. */}
         {isJobSource && job.rawJob && <JobWarranty job={job.rawJob} />}
         {/* The signed contract and signed change orders of this job, as stored at signing (SignedDocuments.tsx). */}
@@ -240,6 +247,9 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
             <ChangeOrderPanel quoteId={job.rawJob.quoteId} originalPrice={job.rawJob.quotePrice || 0} customerName={job.customerName} />
           </Section>
         )}
+
+        {/* The job's history: contract, change orders, payment schedule, pull sheet revisions; a schedule warning (ChangeOrders.tsx). */}
+        {isJobSource && <Section title="Job history"><JobTimeline jobId={job.id} /></Section>}
 
         {/* Notes */}
         <Section title="Notes">

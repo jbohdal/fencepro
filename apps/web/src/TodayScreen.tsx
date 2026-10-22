@@ -23,6 +23,8 @@ import { openBooking } from './BookingDialog'
 import { toast } from './toast'
 import { useBackLayer } from './nav'
 import TasksList from './TasksList'
+import { ServiceNeedsYou } from './ServiceRequests'
+import { useOpenTickets } from './serviceStore'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
 const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
@@ -49,6 +51,7 @@ export function startQuote(a: Appointment) {
 
 export default function TodayScreen() {
   const list = useAppointmentList()
+  const tickets = useOpenTickets()
   const settings = getAppointmentSettings()
   const [person, setPerson] = useState(defaultPerson(settings))
   const [closing, setClosing] = useState<Appointment | null>(null)
@@ -80,6 +83,9 @@ export default function TodayScreen() {
       )}
 
       <TasksList />
+
+      {/* Warranty and service requests that need someone (ServiceRequests.tsx). */}
+      <ServiceNeedsYou list={tickets} />
 
       {todays.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 divide-y divide-gray-100">

@@ -31,6 +31,9 @@ import { serveSignedMedia } from './media.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireCan } from '../lib/permissions.js'
 import { plainStyleName } from '../lib/estimates.js'
+import { packetChange, packetWithChange, sheetChanges } from '../lib/changeOrderWork.js'
+import { coveredWorkOn } from '../lib/serviceTickets.js'
+import { issueLabel } from '../lib/serviceTicketModel.js'
 
 /** 3527894314 → (352) 789-4314; anything else as typed. */
 function phone(p: string): string {
@@ -44,11 +47,15 @@ export const packetStaff = Router()
 const DAYS_AFTER_COMPLETE = 30
 const CREW_CATEGORIES = ['Progress', 'Completed'] as const
 
-/** Why a packet link no longer works, or null. */
-export function packetClosed(p: { disabledAt: Date | null }, job: { completedDate: string | null; archivedAt?: Date | null; deletedAt?: Date | null } | null, now = Date.now()): 'off' | 'expired' | 'gone' | null {
+/**
+ * Why a packet link no longer works, or null. `openWork`: covered warranty
+ * work still to do on the job (lib/serviceTickets.ts coveredWorkOn) keeps a
+ * finished job's packet open for the crew.
+ */
+export function packetClosed(p: { disabledAt: Date | null }, job: { completedDate: string | null; archivedAt?: Date | null; deletedAt?: Date | null } | null, now = Date.now(), openWork = 0): 'off' | 'expired' | 'gone' | null {
   if (p.disabledAt) return 'off'
   if (!job || job.archivedAt || job.deletedAt) return 'gone'
-  if (job.completedDate) {
+  if (job.completedDate && openWork === 0) {
     const done = new Date(job.completedDate.length <= 10 ? `${job.completedDate}T23:59:59` : job.completedDate).getTime()
     if (Number.isFinite(done) && now > done + DAYS_AFTER_COMPLETE * 86_400_000) return 'expired'
   }
@@ -100,7 +107,10 @@ packetStaff.use(requireUser, requireAccount)
 
 packetStaff.get('/', async (req: any, res) => {
   const p = await prisma.installPacket.findFirst({ where: { accountId: req.user.crmAccountId, jobId: String(req.query.jobId || '') } })
-  res.json({ success: true, data: p ? { id: p.id, token: p.token, disabledAt: p.disabledAt, locateTicket: p.locateTicket, locateDate: p.locateDate, sentAt: p.sentAt } : null })
+  // Changed since it was sent: the change order that changed the work (send the packet again for the new site plan).
+  const job = p ? await prisma.savedJob.findUnique({ where: { id: p.jobId }, select: { quoteId: true } }) : null
+  const co = p ? await packetChange(p.accountId, job?.quoteId, p.sentAt).catch(() => null) : null
+  res.json({ success: true, data: p ? { id: p.id, token: p.token, disabledAt: p.disabledAt, locateTicket: p.locateTicket, locateDate: p.locateDate, sentAt: p.sentAt, changedBy: co ? { number: co.number, what: co.what } : null } : null })
 })
 
 // Send (or refresh) a job's packet. A packet that was turned off gets a new link.
@@ -137,7 +147,9 @@ async function load(token: string) {
   const p = await prisma.installPacket.findUnique({ where: { token } }).catch(() => null)
   if (!p) return null
   const job = await prisma.savedJob.findUnique({ where: { id: p.jobId } }).catch(() => null)
-  return { p, job }
+  // Covered warranty work on the job: a $0 work order on the packet.
+  const work = job ? await coveredWorkOn(job.id) : []
+  return { p, job, work }
 }
 
 function headers(res: any, nonce: string) {
@@ -157,15 +169,18 @@ packetPublic.get('/:token', async (req, res) => {
   const nonce = crypto.randomBytes(16).toString('base64')
   headers(res, nonce)
   const found = await load(String(req.params.token))
-  const closed = found ? packetClosed(found.p, found.job) : 'gone'
+  const closed = found ? packetClosed(found.p, found.job, Date.now(), found.work.length) : 'gone'
   if (!found || closed) {
     const snap = (found?.p.snapshot ?? {}) as Snapshot
     res.status(found ? 410 : 404).type('html').send(page('Install packet', `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(snap.companyName || 'Getter Done Fence')}</p></div></header>
       <main class="wrap"><section><h1>This install packet is not active</h1><p>${closed === 'expired' ? 'Packets close 30 days after the job is complete.' : closed === 'off' ? 'This link was turned off. Ask the office for a new one.' : 'Ask the office for a current link.'}</p>${snap.companyPhone ? `<p>Office: <a href="tel:${esc(snap.companyPhone.replace(/[^\d+]/g, ''))}"><b>${esc(phone(snap.companyPhone))}</b></a></p>` : ''}</section></main>`, nonce))
     return
   }
-  const { p, job } = found
-  const s = p.snapshot as Snapshot
+  const { p, job, work } = found
+  // An approved change order changed the work after this packet was sent: the work as it is now, what changed marked.
+  const coChange = await packetChange(p.accountId, job!.quoteId, p.sentAt).catch(() => null)
+  const s = packetWithChange(p.snapshot as Snapshot, coChange)
+  const coLines = coChange ? sheetChanges((p.snapshot as Snapshot).pullSheet ?? [], s.pullSheet ?? []) : []
   // The fence's plain name (packets made before plain names carry the style's code).
   const styleText = await plainStyleName(s.style ?? job!.fenceStyle)
   // Crew and Customer photos and video, plus what the crew added from here.
@@ -189,8 +204,10 @@ packetPublic.get('/:token', async (req, res) => {
     <h1>${esc(job_.customerName)}</h1>
     <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
     <p class="facts">Install: ${esc(job_.scheduledDate || 'not scheduled yet')}${job_.crewAssigned ? ` · Crew: ${esc(job_.crewAssigned)}` : ''}</p>
+    ${coChange ? `<section class="notes" data-packet-change-order><h2>Changed: change order CO-${coChange.number}</h2><p><b>${esc(coChange.what)}</b> (approved ${esc(coChange.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${coChange.rev ? `, contract rev ${coChange.rev}` : ''}). The fence, runs and pull sheet below are the new ones.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(l.item)}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
     ${s.notes ? `<section class="notes"><h2>Gate codes and notes</h2><p>${esc(s.notes).replace(/\n/g, '<br>')}</p></section>` : ''}
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
+    ${await workOrders(work)}
     ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
     <section><h2>811 locate</h2>${s.work?.needs811 ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
       <div class="row"><label class="field">Ticket number<input id="ticket" value="${esc(p.locateTicket ?? '')}" maxlength="60" inputmode="numeric"></label>
@@ -258,6 +275,31 @@ packetPublic.get('/:token', async (req, res) => {
   res.type('html').send(page(`Install packet: ${job_.customerName}`, body, nonce, script))
 })
 
+/**
+ * Covered warranty work: a $0 work order per ticket (the issue, the office's
+ * notes, the visit day, the customer's photos). No charge to the customer;
+ * the crew enters hours and materials with the office when it is fixed.
+ */
+async function workOrders(work: Awaited<ReturnType<typeof coveredWorkOn>>): Promise<string> {
+  if (!work.length) return ''
+  const fix = (u: string | null) => (u ? u.replace(/^\/api\/media\/f\//, 'm/') : null)
+  const parts: string[] = []
+  for (const t of work) {
+    const appt = t.appointmentId ? await prisma.appointment.findFirst({ where: { id: t.appointmentId, deletedAt: null, status: { not: 'cancelled' } }, select: { startAt: true, assignedTo: true } }) : null
+    const media = (await prisma.mediaItem.findMany({ where: { serviceTicketId: t.id, deletedAt: null }, orderBy: { takenAt: 'asc' } })).map(m => serializeMedia(m, 3 * 86_400_000))
+    const visit = appt?.startAt ? appt.startAt.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'not booked yet'
+    parts.push(`<section class="notes" data-packet-warranty-work="${esc(t.id)}"><h2>Warranty work order: $0, no charge to the customer</h2>
+      <p><b>${esc(issueLabel(t.issue))}</b>${t.warrantyName ? ` · Covered by the ${esc(t.warrantyName)}` : ''}</p>
+      <p>Visit: ${esc(visit)}${appt?.assignedTo ? ` · ${esc(appt.assignedTo)}` : ''}</p>
+      ${t.notes ? `<p>${esc(t.notes).replace(/\n/g, '<br>')}</p>` : ''}
+      ${media.length ? `<div class="media">${media.map(m => m.kind === 'video'
+        ? `<figure><video src="${esc(fix(m.previewUrl ?? m.url))}" controls playsinline preload="none"></video><figcaption>From the customer</figcaption></figure>`
+        : `<figure><a href="${esc(fix(m.url))}"><img src="${esc(fix(m.thumbUrl ?? m.url))}" alt="The customer's photo" loading="lazy"></a><figcaption>From the customer${m.caption ? `: ${esc(m.caption)}` : ''}</figcaption></figure>`).join('')}</div>` : ''}
+      <p class="small">Take Completed photos below when it is fixed, and tell the office your hours and the materials used.</p></section>`)
+  }
+  return parts.join('')
+}
+
 function rank(m: { kind: string; category: string; markupUrl: string | null }): number {
   if (m.kind === 'video' && m.category === 'Site walk') return 0
   if (m.markupUrl) return 1
@@ -266,7 +308,7 @@ function rank(m: { kind: string; category: string; markupUrl: string | null }): 
 
 packetPublic.post('/:token/locate', express.json({ limit: '8kb' }), async (req, res) => {
   const found = await load(String(req.params.token))
-  if (!found || packetClosed(found.p, found.job)) { res.status(410).json({ success: false, error: 'This packet is not active.' }); return }
+  if (!found || packetClosed(found.p, found.job, Date.now(), found.work.length)) { res.status(410).json({ success: false, error: 'This packet is not active.' }); return }
   const b = z.object({ ticket: z.string().max(60), date: z.string().max(20) }).safeParse(req.body)
   if (!b.success) { res.status(400).json({ success: false, error: 'Check the ticket and date.' }); return }
   await prisma.installPacket.update({ where: { id: found.p.id }, data: { locateTicket: b.data.ticket.trim() || null, locateDate: b.data.date.trim() || null } })
@@ -283,7 +325,7 @@ packetPublic.post('/:token/media', crewUpload.single('file'), async (req: any, r
   const file = req.file
   const drop = () => { if (file) fs.rm(file.path, { force: true }, () => {}) }
   const found = await load(String(req.params.token))
-  if (!found || packetClosed(found.p, found.job)) { drop(); res.status(410).json({ success: false, error: 'This packet is not active.' }); return }
+  if (!found || packetClosed(found.p, found.job, Date.now(), found.work.length)) { drop(); res.status(410).json({ success: false, error: 'This packet is not active.' }); return }
   if (!file || !OK_TYPES.test(file.mimetype)) { drop(); res.status(400).json({ success: false, error: 'Send a photo or video.' }); return }
   const category = CREW_CATEGORIES.includes(req.body?.category) ? req.body.category : 'Progress'
   // Sent again after the signal dropped: the first one stands.

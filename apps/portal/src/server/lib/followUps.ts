@@ -572,6 +572,9 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
         items.push({ at: u.acknowledgedAt.toISOString(), kind: 'warranty_update', title: u.acknowledgedHow === 'accepted' ? `Proposal accepted on the warranty update by ${u.acknowledgedBy}` : `Warranty update acknowledged by ${u.acknowledgedBy}`, detail: u.warrantyName ? `${u.warrantyName}.` : '', by: '' })
       }
     }
+    // Change orders (lib/changeOrderHistory.ts): made, sent, approved verbally, signed, approved, voided.
+    const { changeOrderItems } = await import('./changeOrderHistory.js')
+    items.push(...await changeOrderItems(accountId, quotes.map(q => q.id)))
   }
   // Emails and prepared texts sent by automations for this card.
   if (cardId) {

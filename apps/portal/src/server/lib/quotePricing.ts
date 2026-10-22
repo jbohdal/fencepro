@@ -31,7 +31,7 @@ const COST_CHOICES = ['subRate', 'laborCost', 'costFactor', 'commissionPct', 'co
 
 const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
 
-async function dataFor(accountId: string) {
+export async function dataFor(accountId: string) {
   const [b, inv] = await Promise.all([
     prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
     prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } }),

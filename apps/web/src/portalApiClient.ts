@@ -207,6 +207,28 @@ export const uploadPortalDocument = (file: File, label?: string) => upload<Porta
 export const listPortalPhotos = () => list<PortalPhotoRow>('/photos')
 export const listPortalDocuments = () => list<PortalFileRow>('/documents')
 
+// ── Warranty and service requests ──
+
+/** A request as the customer sees it (the server's own field list: lib/serviceTickets.ts portalRequests). */
+export interface PortalServiceRequest {
+  id: string; issue: string; status: string; open: boolean; madeOn: string; visitOn: string | null; photosSent: number; canAddPhotos: boolean
+  /** Only when the office chose to show it. */
+  decision: { covered: boolean; reason: string } | null
+}
+export const listPortalServiceRequests = () => list<PortalServiceRequest>('/service-requests')
+
+/** A photo or short video for an open request. `error` is said in plain words. */
+export async function uploadServiceRequestPhoto(requestId: string, file: File): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const fd = new FormData()
+    fd.append('clientId', fileRequestId(`service-${requestId}`, file))
+    fd.append('file', file)
+    const r = await call('POST', `/service-requests/${encodeURIComponent(requestId)}/photos`, fd)
+    if (r.json?.success) return { ok: true }
+    return { ok: false, error: (r.json?.message as string) || (r.status === 413 ? 'That file is too large. Photos up to 25 MB, videos up to 300 MB.' : 'The upload failed. Please try again.') }
+  } catch { return { ok: false, error: 'No connection. Please try again.' } }
+}
+
 /** Photos and video the company shared with this customer (marked Customer). */
 export async function listPortalMedia(): Promise<PortalMediaRow[] | null> {
   const rows = await list<PortalMediaRow>('/media')
@@ -241,6 +263,13 @@ export interface PortalChangeOrder {
   lines: Array<{ id: string; description: string; amountCents: number }>; totalCents: number
   sentAt: string | null; approvedAt: string | null; voidedAt: string | null; signedBy: string | null; signedAt: string | null
   quote: { fenceStyle: string; priceCents: number } | null
+  /** Waiting for this customer's signature: sent, or approved verbally with the office (not signed by them yet). */
+  needsSignature?: boolean
+  /** The contract revision it made (rev 1 = as signed). */
+  contractRev?: number | null
+  /** The warranty it changes the contract to (the install changed), and the one before. */
+  warrantyBefore?: { name: string; text: string } | null
+  warrantyAfter?: { name: string; text: string } | null
 }
 
 /** This customer's change orders: sent (to sign), approved and void (history). null: could not load. */

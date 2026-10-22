@@ -92,7 +92,7 @@ try {
   const q1 = await owner('POST', '/api/saved-quotes', { ...q, id: W.draft, date: '2026-10-21', runs: [60, 36], sections: 13, finalPrice: 3100, status: 'DRAFT', pullSheet: sheet() })
   const q2 = await owner('POST', '/api/saved-quotes', { ...q, id: W.sold, date: '2026-10-22', runs: [96], sections: 12, finalPrice: 4100, status: 'SOLD', pullSheet: sheet() })
   const j = await owner('POST', '/api/saved-jobs', { id: W.jobId, quoteId: W.sold, crmContactId: W.contactId, customerName: `E2E ${W.last}`, customerAddress: '18 Pull Sheet Ln', fenceStyle: "WV-ND 6'x6' Privacy", sections: 12, quotePrice: 4100, contractValue: 4100, status: 'scheduled', scheduledDate: '2026-11-05' })
-  const co = await owner('POST', '/api/change-orders', { quoteId: W.sold, reason: `Add 16 ft ${stamp}`, lines: [{ id: 'l1', description: '16 ft more fence', amountCents: 64000 }], scope: { footageFt: 16, sections: 2, walkGates: 1 }, status: 'approved' })
+  const co = await owner('POST', '/api/change-orders', { quoteId: W.sold, reason: `Add 16 ft ${stamp}`, lines: [{ id: 'l1', description: '16 ft more fence', amountCents: 64000 }], scope: { footageFt: 16, sections: 2, walkGates: 1 }, status: 'approved', verbalReason: 'Customer agreed on site' })
   const t = await owner('POST', '/api/job-costing/takeoff', { id: W.takeoff, jobId: W.jobId })
   const sub = await owner('POST', `/api/job-costing/takeoff/${W.takeoff}/submit?jobId=${W.jobId}`, {})
   const accountId = sql(`SELECT "accountId" FROM "CrmContact" WHERE id = '${W.contactId}'`)
@@ -116,7 +116,7 @@ try {
   const job = entries.find(e => e.kind === 'job')
   check('owner (API): costs on; the job\'s lines have unit costs and totals in cents', o.json.data?.quantitiesOnly === false && job?.lines?.[0]?.unitCostCents === 1357 && job?.totalCostCents === 47257, JSON.stringify(job?.lines?.[0]))
   check('owner (API): the plain style name, footage and statuses', !/WV-ND/.test(job?.style) && job?.footageFt === 96 && entries.map(e => e.status).join() === 'Sold,Draft,Linked by hand', `${job?.style} ${job?.footageFt} ${entries.map(e => e.status)}`)
-  check('owner (API): the change order note and the Final takeoff (sent)', /Change order #1/.test(job?.changeNote || '') && /\+16 ft/.test(job?.changeNote || '') && job?.finalTakeoff?.status === 'submitted' && job.finalTakeoff.lines.length === 2, job?.changeNote)
+  check('owner (API): the change order note and the Final takeoff (sent)', /Change order CO-1/.test(job?.changeNote || '') && /\+16 ft/.test(job?.changeNote || '') && job?.finalTakeoff?.status === 'submitted' && job.finalTakeoff.lines.length === 2, job?.changeNote)
   const s = await call(SALES, 'GET', `/api/pull-sheets/customer/${W.contactId}`)
   const costField = /"(unitCost|unitCostCents|totalCostCents|totalCostCents|materialCostCents|totalCost|cost)"\s*:/
   check('Salesman (API): the same entries, quantities only (no cost field, no cost value)', s.status === 200 && s.json.data?.quantitiesOnly === true && s.json.data.entries.length === 3 && !costField.test(s.text) && !COSTS.some(v => s.text.includes(v)) && s.json.data.entries[0].lines[0].qty === 13,

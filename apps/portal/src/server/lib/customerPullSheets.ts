@@ -22,8 +22,9 @@
 import prisma from './prisma.js'
 import { plainStyleName } from './estimates.js'
 import { toCents, qty } from './jobCostingMath.js'
-import { quotedCostFor, actualFor, linesOf as takeoffLinesOf } from './jobCosting.js'
+import { quotedCostFor, quotedNow, actualFor, linesOf as takeoffLinesOf } from './jobCosting.js'
 import { linesOf as coLinesOf } from './changeOrders.js'
+import { approvedInOrder, sheetChanges, type LineChange, type StoredWork } from './changeOrderWork.js'
 
 export type PullSheetStatus = 'Draft' | 'Sent' | 'Signed' | 'Sold' | 'Lost' | 'Linked by hand'
 
@@ -48,6 +49,17 @@ export interface TakeoffLineOut {
   totalCostCents?: number
 }
 
+export interface PullSheetRevision {
+  rev: number
+  /** "Rev 2: change order CO-1" */
+  title: string
+  date: string
+  source: string
+  lines: PullSheetLine[]
+  totalCostCents?: number
+  changes: LineChange[]
+}
+
 export interface PullSheetEntry {
   /** q_<quote id>, j_<job id> or h_<old list id>. */
   id: string
@@ -67,6 +79,12 @@ export interface PullSheetEntry {
   totalCostCents?: number
   /** Approved change orders that changed the work after signing. */
   changeNote: string | null
+  /** The pull sheet's revision (the contract revision of the change order it is from; 1 = as signed). Jobs only. */
+  revision?: number
+  /** What the newest revision changed, line by line (highlighted for the crew). */
+  changes?: LineChange[]
+  /** Every revision, newest first (the current one first), each with its lines and what it changed. */
+  revisions?: PullSheetRevision[]
   finalTakeoff: null | {
     status: 'submitted' | 'approved'
     installDate: string
@@ -112,8 +130,15 @@ function statusOfQuote(q: { status: string; acceptedAt: Date | null; soldAt: Dat
   return 'Draft'
 }
 
-/** "Change order #2 (approved October 21, 2026): +20 ft, +1 walk gate." for each approved change order on the quote. */
-export function changeNoteOf(rows: Array<{ number: number; approvedAt: Date | null; reason: string; scope: unknown; lines: unknown }>): string | null {
+type CoForNote = { number: number; approvedAt: Date | null; reason: string; scope: unknown; lines: unknown; work?: unknown; contractRev?: number | null }
+
+/**
+ * "Change order CO-2 (approved October 21, 2026): +20 ft, +1 walk gate." for
+ * each approved change order on the quote, then what the pull sheet is: the
+ * newest revision with the changes highlighted (a change made from the yard
+ * drawing), or as signed (typed lines only change the price).
+ */
+export function changeNoteOf(rows: CoForNote[]): string | null {
   if (!rows.length) return null
   const parts = rows.map(r => {
     const s = (r.scope && typeof r.scope === 'object' ? r.scope : null) as Record<string, unknown> | null
@@ -127,9 +152,14 @@ export function changeNoteOf(rows: Array<{ number: number; approvedAt: Date | nu
       if (s.toStyle && s.toStyle !== s.fromStyle) bits.push(`style changed to ${String(s.toStyle)}`)
     }
     const what = bits.length ? bits.join(', ') : (r.reason || coLinesOf(r).map(l => l.description).filter(Boolean).join(', ') || 'see the change order')
-    return `Change order #${r.number}${r.approvedAt ? ` (approved ${words(day(r.approvedAt))})` : ''}: ${what}.`
+    return `Change order CO-${r.number}${r.approvedAt ? ` (approved ${words(day(r.approvedAt))})` : ''}: ${what}.`
   })
-  return `${parts.join(' ')} This pull sheet is as signed and does not include ${rows.length === 1 ? 'that change' : 'those changes'}.`
+  const withWork = rows.filter(r => r.work && typeof r.work === 'object')
+  const priceOnly = rows.filter(r => !(r.work && typeof r.work === 'object'))
+  if (!withWork.length) return `${parts.join(' ')} This pull sheet is as signed and does not include ${rows.length === 1 ? 'that change' : 'those changes'}.`
+  const last = withWork[withWork.length - 1]
+  const tail = priceOnly.length ? ` ${priceOnly.map(r => `CO-${r.number}`).join(', ')} changed the price only (typed lines), not the materials.` : ''
+  return `${parts.join(' ')} This is pull sheet rev ${last.contractRev ?? withWork.length + 1}, from change order CO-${last.number}; what changed is marked, and the earlier revisions are kept below.${tail}`
 }
 
 /**
@@ -178,7 +208,7 @@ export async function customerPullSheets(accountId: string, contactId: string): 
       id: `q_${q.id}`, kind: 'quote', quoteId: q.id, jobId: null, style: await plain(q.fenceStyle), footageFt: footageOf(q.runs), sections: q.sections,
       status, archived: !!q.archivedAt, date: (signed ? day(q.acceptedAt ?? q.soldAt) : '') || q.date || day(q.createdAt),
       source: signed ? 'As signed' : 'As saved on the quote', lines, totalCostCents: sumCost(lines),
-      changeNote: signed ? changeNoteOf(cos.filter(c => c.quoteId === q.id)) : null, finalTakeoff: null, packetToken: null,
+      changeNote: signed ? changeNoteOf(approvedInOrder(cos.filter(c => c.quoteId === q.id))) : null, finalTakeoff: null, packetToken: null,
     })
   }
 
@@ -201,10 +231,26 @@ export async function customerPullSheets(accountId: string, contactId: string): 
       if (fromOption && fromOption.length) { lines = fromOption; source = 'As signed: the option the customer chose' }
       else { lines = sheet; source = q ? 'As signed on the quote' : 'No quote on this job' }
     }
+    // Revisions: rev 1 as signed, then each approved change order that changed the work (from the yard
+    // drawing), its pull sheet as priced on the server, with what changed marked. The old ones are kept.
+    const changed = j.quoteId ? approvedInOrder(cos.filter(c => c.quoteId === j.quoteId)).filter(c => c.work && typeof c.work === 'object') : []
+    let revisions: PullSheetRevision[] | undefined
+    if (changed.length) {
+      revisions = [{ rev: 1, title: 'Rev 1: as signed', date: (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt), source, lines, totalCostCents: sumCost(lines), changes: [] }]
+      let prev = lines
+      for (const c of changed) {
+        const l = linesFromSheet((c.work as unknown as StoredWork).pullSheet)
+        const rev = c.contractRev ?? revisions.length + 1
+        revisions.push({ rev, title: `Rev ${rev}: change order CO-${c.number}`, date: day(c.approvedAt), source: `Change order CO-${c.number} (approved ${words(day(c.approvedAt))})`, lines: l, totalCostCents: sumCost(l), changes: sheetChanges(prev, l) })
+        prev = l
+      }
+      revisions.reverse()
+      lines = revisions[0].lines; source = `Rev ${revisions[0].rev}: ${revisions[0].source}`
+    }
     const t = takeoffs.find(x => x.jobId === j.id) ?? null
     let finalTakeoff: PullSheetEntry['finalTakeoff'] = null
     if (t) {
-      const actual = await actualFor(accountId, t, quoted).catch(() => null)
+      const actual = await actualFor(accountId, t, changed.length ? await quotedNow(accountId, j.quoteId, quoted) : quoted).catch(() => null)
       const costOf = new Map((actual?.lines ?? []).map(l => [l.lineId, l]))
       finalTakeoff = {
         status: t.status as 'submitted' | 'approved', installDate: t.installDate, submittedBy: t.submittedBy, approvedBy: t.approvedBy,
@@ -221,10 +267,12 @@ export async function customerPullSheets(accountId: string, contactId: string): 
     const status: PullSheetStatus = q ? (q.acceptedAt ? 'Signed' : 'Sold') : 'Sold'
     out.push({
       id: `j_${j.id}`, kind: 'job', quoteId: j.quoteId, jobId: j.id, style: await plain(q?.fenceStyle || j.fenceStyle),
-      footageFt: q ? footageOf(q.runs) : j.totalFeet, sections: q?.sections || j.sections,
-      status, archived: !!(j.archivedAt || q?.archivedAt), date: (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt) || day(j.createdAt),
+      footageFt: changed.length ? Math.round((changed[changed.length - 1].work as unknown as StoredWork).footage) : q ? footageOf(q.runs) : j.totalFeet,
+      sections: changed.length ? (changed[changed.length - 1].work as unknown as StoredWork).sections : q?.sections || j.sections,
+      status, archived: !!(j.archivedAt || q?.archivedAt), date: (revisions && revisions[0].date) || (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt) || day(j.createdAt),
       source, lines, totalCostCents: sumCost(lines),
-      changeNote: j.quoteId ? changeNoteOf(cos.filter(c => c.quoteId === j.quoteId)) : null,
+      changeNote: j.quoteId ? changeNoteOf(approvedInOrder(cos.filter(c => c.quoteId === j.quoteId))) : null,
+      ...(revisions ? { revision: revisions[0].rev, changes: revisions[0].changes, revisions } : {}),
       finalTakeoff, packetToken: packets.find(p => p.jobId === j.id)?.token ?? null,
     })
   }
@@ -252,6 +300,7 @@ export function quantitiesOnly(entries: PullSheetEntry[]): PullSheetEntry[] {
     ...e,
     totalCostCents: undefined,
     lines: e.lines.filter(l => !l.moneyOnly).map(l => ({ item: l.item, qty: l.qty })),
+    ...(e.revisions ? { revisions: e.revisions.map(r => ({ rev: r.rev, title: r.title, date: r.date, source: r.source, changes: r.changes, lines: r.lines.filter(l => !l.moneyOnly).map(l => ({ item: l.item, qty: l.qty })) })) } : {}),
     finalTakeoff: e.finalTakeoff ? {
       status: e.finalTakeoff.status, installDate: e.finalTakeoff.installDate, submittedBy: e.finalTakeoff.submittedBy, approvedBy: e.finalTakeoff.approvedBy,
       lines: e.finalTakeoff.lines.map(l => ({ item: l.item, plannedQty: l.plannedQty, usedQty: l.usedQty, shopReturnQty: l.shopReturnQty, vendorReturnQty: l.vendorReturnQty, extra: l.extra, note: l.note })),

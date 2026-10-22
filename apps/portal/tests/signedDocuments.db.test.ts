@@ -202,12 +202,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed documents (dev database)'
     const signed = (await prisma.changeOrder.findUnique({ where: { id: co.id } }))!
     const pdf = fs.readFileSync(path.resolve(UPLOAD, docs[0].fileKey))
     const all = pdfText(pdf), last = lastPageText(pdf)
-    expect(all).toContain('Change Order #1')
+    expect(all).toContain('Change Order CO-1')
     expect(all).toContain('Add 10 ft of fence')
     expect(last).toContain('Signed by Pat E2E Signer')
     expect(last).toContain('IP address 203.0.113.9')
     expect(last).toContain(`Date and time ${whenSigned(signed.signedAt!)}`)
-    expect(last).toContain('Accepted Change order #1: total $450.00')
+    expect(last).toContain('Accepted Change order CO-1: total $450.00')
     expect((await prisma.portalFile.findUnique({ where: { id: docs[0].portalFileId! } }))?.crmCustomerId).toBe(contactId)
   })
 
@@ -216,7 +216,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed documents (dev database)'
     const byQuote = (await (await staff(`/api/signed-documents?quoteId=${quoteId}`)).json()).data
     const byJob = (await (await staff(`/api/signed-documents?jobId=${jobId}`)).json()).data
     expect(byCustomer.map((d: any) => d.kind).sort()).toEqual(['change_order', 'contract', 'contract'])
-    expect(byQuote.map((d: any) => d.title).sort()).toEqual(['Change order #1', 'Contract'])
+    expect(byQuote.map((d: any) => d.title).sort()).toEqual(['Change order CO-1', 'Contract'])
     expect(byJob.map((d: any) => d.id).sort()).toEqual(byQuote.map((d: any) => d.id).sort())
     const c = byQuote.find((d: any) => d.kind === 'contract')
     expect(c).toMatchObject({ signedBy: 'Pat E2E Signer', quoteId, jobId, inPortal: true, detail: 'Better at $10,000.00' })

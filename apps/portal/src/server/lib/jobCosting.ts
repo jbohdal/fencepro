@@ -19,6 +19,7 @@ import prisma from './prisma.js'
 import { markSignedNow } from './everSold.js'
 import { serializeMedia } from './media.js'
 import { landedCostOn, jobLotInvoiceLines } from './priceHistory.js'
+import { currentWorkRow, type StoredWork } from './changeOrderWork.js'
 import {
   quotedCostOf, linesFromQuoted, laborFromQuoted, actualCostOf, subPaidOf, jobLotUnitCosts, compare, partsOf, subRateFor, toCents, findItemId, qty,
   type QuotedCost, type TakeoffLine, type TakeoffLabor, type ActualCost, type UnitCost, type ReportJob, type TakeoffStatus, type PricingSettings,
@@ -93,6 +94,42 @@ export async function quotedCostFor(accountId: string, quoteId: string | null | 
   return r ? quotedOf(r) : null
 }
 
+/**
+ * The quoted cost with the approved change orders on it (Oct 22 2026): the
+ * cost frozen at signing plus each change order's cost difference (the new
+ * work priced on the server when it was made, lib/changeOrderWork.ts), the
+ * price plus the change orders, and the pull sheet lines of the work now (the
+ * newest change order that changed the work). A change order typed as lines
+ * only has no cost difference and changes the price only. Null as before when
+ * there is no quoted cost.
+ */
+export async function quotedNow(accountId: string, quoteId: string | null | undefined, base?: QuotedCost | null): Promise<QuotedCost | null> {
+  const quoted = base === undefined ? await quotedCostFor(accountId, quoteId) : base
+  if (!quoted || !quoteId) return quoted
+  const rows = await prisma.changeOrder.findMany({ where: { accountId, quoteId, status: 'approved', deletedAt: null } })
+  if (!rows.length) return quoted
+  const d = { materialCents: 0, laborCents: 0, tearOutCents: 0, totalCents: 0 }
+  for (const r of rows) {
+    const c = (r.costDelta ?? null) as any
+    if (c && typeof c === 'object') for (const k of Object.keys(d) as Array<keyof typeof d>) d[k] += Math.round(Number(c[k]) || 0)
+  }
+  const out: QuotedCost = {
+    ...quoted, priceCents: quoted.priceCents + rows.reduce((s, r) => s + r.totalCents, 0),
+    materialCents: quoted.materialCents + d.materialCents, laborCents: quoted.laborCents + d.laborCents, tearOutCents: quoted.tearOutCents + d.tearOutCents, totalCents: quoted.totalCents + d.totalCents,
+  }
+  const cur = currentWorkRow(rows)
+  if (cur) {
+    const s = await settingsOf(accountId)
+    const w = cur.work as unknown as StoredWork
+    out.lines = (w.pullSheet ?? []).map((l, i) => ({ l, i })).filter(({ l }) => l && typeof l.item === 'string' && l.item.trim()).map(({ l, i }) => {
+      const unit = toCents(l.unitCost)
+      return { key: `q${i}`, part: String(l.item), inventoryItemId: findItemId(s.items, String(l.item)), qty: qty(l.qty), unitCostCents: unit, totalCostCents: typeof l.total === 'number' ? toCents(l.total) : Math.round(qty(l.qty) * unit) }
+    })
+    out.sections = w.sections; out.footage = Math.round(w.footage); out.fenceStyle = w.fenceStyle || out.fenceStyle
+  }
+  return out
+}
+
 // ── The takeoff ───────────────────────────────────────────────────────────────
 
 export const linesOf = (t: { lines: unknown }) => (Array.isArray(t.lines) ? t.lines : []) as TakeoffLine[]
@@ -121,7 +158,8 @@ export async function startTakeoff(accountId: string, jobId: string, by: string,
   const job = await jobOf(accountId, jobId)
   const taken = await prisma.jobTakeoff.findUnique({ where: { id }, select: { id: true } })
   if (taken) throw err(409, 'Invalid id')
-  const quoted = await quotedCostFor(accountId, job.quoteId)
+  // The pull sheet of the work now: as signed, or the newest change order's (quotedNow).
+  const quoted = await quotedNow(accountId, job.quoteId)
   let lines: TakeoffLine[]
   let labor: TakeoffLabor
   if (quoted) {
@@ -224,7 +262,7 @@ export async function actualFor(accountId: string, t: TakeoffRow, quoted: Quoted
 /** Quoted vs actual for one job (owner and office only). */
 export async function jobComparison(accountId: string, jobId: string) {
   const job = await jobOf(accountId, jobId)
-  const quoted = await quotedCostFor(accountId, job.quoteId)
+  const quoted = await quotedNow(accountId, job.quoteId)
   const t = await prisma.jobTakeoff.findUnique({ where: { jobId } })
   const takeoff = t && t.accountId === accountId ? t : null
   const actual = takeoff ? await actualFor(accountId, takeoff, quoted) : null
@@ -251,11 +289,14 @@ export async function reportJobs(accountId: string, from?: string, to?: string):
   ])
   const tByJob = new Map(takeoffs.map(t => [t.jobId, t]))
   const qByQuote = new Map(quotedRows.map(q => [q.quoteId, quotedOf(q)]))
+  // Quotes with approved change orders: their quoted cost and price include them (quotedNow).
+  const withChanges = new Set((await prisma.changeOrder.findMany({ where: { accountId, status: 'approved', deletedAt: null }, select: { quoteId: true } })).map(r => r.quoteId))
   const out: ReportJob[] = []
   for (const j of jobs) {
     const t = tByJob.get(j.id) ?? null
     if (!t && !(DONE as readonly string[]).includes(j.status)) continue
-    const quoted = j.quoteId ? qByQuote.get(j.quoteId) ?? null : null
+    const signedCost = j.quoteId ? qByQuote.get(j.quoteId) ?? null : null
+    const quoted = signedCost && withChanges.has(j.quoteId!) ? await quotedNow(accountId, j.quoteId, signedCost) : signedCost
     const day = t?.installDate || j.completedDate || j.scheduledDate || j.updatedAt.toISOString().slice(0, 10)
     const month = day.slice(0, 7)
     if (from && month < from.slice(0, 7)) continue

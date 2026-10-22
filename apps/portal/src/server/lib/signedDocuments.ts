@@ -167,7 +167,7 @@ export async function fileSignedChangeOrder(changeOrderId: string, madeBy: MadeB
   if (!co || !co.signedAt || !co.signedBy || !co.signature || co.status === 'draft') return null
   const q = await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId: co.accountId }, select: { id: true, customerName: true, customerAddress: true, finalPrice: true, crmContactId: true, proposal: true } })
   if (!q) return null
-  const label = `Signed change order #${co.number}`
+  const label = `Signed change order CO-${co.number}`
   const fileName = `Signed change order ${co.number} - ${safeName(q.customerName)}.pdf`
   const have = await prisma.signedDocument.findUnique({ where: { sourceKey: changeOrderKey(co.id) } })
   if (have) return { doc: await complete(have, q.crmContactId, label, fileName), made: false }
@@ -179,6 +179,7 @@ export async function fileSignedChangeOrder(changeOrderId: string, madeBy: MadeB
     company: { name: String(p.name || cfg.name || 'Getter Done Fence'), phone: String(p.phone || cfg.phone || ''), email: String(p.email || cfg.email || '') },
     number: co.number, customerName: q.customerName, address: q.customerAddress || '', reason: co.reason, lines: linesOf(co), totalCents: co.totalCents,
     originalCents: Math.round((q.finalPrice || 0) * 100), signedBy: co.signedBy, signedVia: co.signedVia, signature: pngOf(co.signature),
+    contractRev: co.contractRev ?? null, warrantyBefore: (co.warrantyBefore as any) ?? null, warrantyAfter: (co.warrantyAfter as any) ?? null,
     record: { at: co.signedAt, ip, accepted: changeOrderAcceptedText(co.number, co.totalCents) },
   })
   const out = await store({
@@ -194,9 +195,9 @@ export async function fileSignedChangeOrder(changeOrderId: string, madeBy: MadeB
 export interface SignedDocumentView {
   id: string
   kind: SignedKind
-  /** "Contract" or "Change order #2". */
+  /** "Contract" or "Change order CO-2". */
   title: string
-  /** What was signed: "Better: White vinyl privacy at $10,000.00", "Change order #2: total $450.00". */
+  /** What was signed: "Better: White vinyl privacy at $10,000.00", "Change order CO-2: total $450.00". */
   detail: string
   signedAt: string
   /** "October 22, 2026" (Florida time). */
@@ -230,7 +231,7 @@ async function views(all: Doc[]): Promise<SignedDocumentView[]> {
     const f = r.portalFileId ? files.find(x => x.id === r.portalFileId) : null
     return {
       id: r.id, kind: r.kind as SignedKind,
-      title: r.kind === 'contract' ? 'Contract' : `Change order #${co?.number ?? ''}`.trim(),
+      title: r.kind === 'contract' ? 'Contract' : `Change order CO-${co?.number ?? ''}`.trim(),
       detail: r.kind === 'contract' ? (q ? acceptedOptionText(q) : '') : co ? changeOrderAcceptedText(co.number, co.totalCents) : '',
       signedAt: r.signedAt.toISOString(), signedOn: dayWords(r.signedAt), signedBy: r.signedBy,
       quoteId: r.quoteId, jobId: r.jobId, changeOrderId: r.changeOrderId,

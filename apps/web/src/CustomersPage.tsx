@@ -53,6 +53,8 @@ import { can } from './permissions'
 import PopMenu, { PopItem } from './PopMenu'
 import ConfirmByTyping from './ConfirmByTyping'
 import PossibleMatch from './PossibleMatch'
+import { CustomerChangeOrderButtons } from './ChangeOrders'
+import { PastCustomerBadge, ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
 
 /** Open a customer's page (a possible match, or the one this customer was merged into). */
 const openCustomerPage = (id: string) => navigate(`/customers/${encodeURIComponent(id)}`)
@@ -968,6 +970,7 @@ function CustomerDetail({
                 {customer.phone && <span className="text-sm text-gray-500">📞 <PhoneLink phone={customer.phone} customerId={customer.id} name={`${customer.firstName} ${customer.lastName}`.trim()} data-customer-header-phone /></span>}
                 {customer.email && <span className="text-sm text-gray-500 break-all">✉️ {customer.email}</span>}
               </div>
+              <div className="mt-1 empty:hidden"><PastCustomerBadge customerId={customer.id} /></div>
               <div className="mt-2 flex flex-wrap items-center gap-2"><PipelineStageSelect customerId={customer.id} /><NextAppointmentBadge customerId={customer.id} /></div>
               <TextConsent customerId={customer.id} />
               {/* One tap to reach the customer or the property */}
@@ -1012,6 +1015,10 @@ function CustomerDetail({
         <ArchivedOfCustomer customerId={customer.id} customerArchived={archived} />
         {/* A website or phone lead's possible match (Merge, Not the same person), "Merged into", and Undo merge. */}
         <div className="mt-4 empty:hidden"><PossibleMatch customerId={customer.id} history onOpenCustomer={openCustomerPage} onMerged={openCustomerPage} /></div>
+        {/* Warranty and service requests on their fence (ServiceRequests.tsx). */}
+        <div className="mt-4 space-y-2 max-w-xl empty:hidden" data-customer-service><ServiceRequestButton customerId={customer.id} /><ServiceTicketList customerId={customer.id} /></div>
+        {/* A change order on a signed job: the yard drawing or typed lines (ChangeOrders.tsx). */}
+        <div className="mt-4 empty:hidden"><CustomerChangeOrderButtons customerId={customer.id} customerName={`${customer.firstName} ${customer.lastName}`.trim()} /></div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4 mt-5">
           {[

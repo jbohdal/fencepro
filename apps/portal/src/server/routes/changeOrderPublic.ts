@@ -17,8 +17,8 @@ import crypto from 'crypto'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { plainZod } from '../lib/plainZod.js'
-import { byLink, linesOf, signByCustomer } from '../lib/changeOrders.js'
-import { CSS, esc } from './proposal.js'
+import { byLink, linesOf, signByCustomer, needsSignature } from '../lib/changeOrders.js'
+import { CSS, esc, safeSvg } from './proposal.js'
 
 export const changeOrderPublic = Router()
 
@@ -60,20 +60,26 @@ changeOrderPublic.get('/:token', async (req, res) => {
     return
   }
   const lines = linesOf(co)
-  const signed = co.status === 'approved'
+  const toSign = needsSignature(co)
+  // Approved verbally with the office: part of the contract, still "not signed by you yet" with the Sign button.
+  const verbal = co.status === 'approved' && !co.signedAt
+  const wb = co.warrantyBefore as any, wa = co.warrantyAfter as any
+  const warranty = wa ? `<section data-co-warranty><h2>Your warranty changes</h2><p>${wb?.name ? `From <b>${esc(wb.name)}</b> to ` : 'To '}<b>${esc(wa.name)}</b>, because the way the fence is installed changes.</p><p class="small">${esc(String(wa.text ?? '')).replace(/\n/g, '<br>')}</p></section>` : ''
+  const work = co.work as any
+  const plan = work?.planSvg && safeSvg(work.planSvg) ? `<section><h2>The new layout</h2><div class="plan">${safeSvg(work.planSvg)}</div></section>` : ''
   const state = co.status === 'void'
     ? `<section class="void"><h2>Cancelled</h2><p>This change order was cancelled and is not part of your contract. ${call}</p></section>`
-    : signed
-      ? `<section class="done" data-co-signed><h2>Approved</h2><p>${co.signedBy ? `Approved and signed by ${esc(co.signedBy)} on ${esc(day(co.signedAt ?? co.approvedAt ?? new Date()))}.` : `Approved on ${esc(day(co.approvedAt ?? new Date()))}.`}</p><p>Thank you. It is added to your contract.</p></section>`
-      : `<section id="accept"><h2>Approve and sign</h2>
+    : !toSign
+      ? `<section class="done" data-co-signed><h2>Approved</h2><p>${co.signedBy ? `Approved and signed by ${esc(co.signedBy)} on ${esc(day(co.signedAt ?? co.approvedAt ?? new Date()))}.` : `Approved on ${esc(day(co.approvedAt ?? new Date()))}.`}</p><p>Thank you. It is added to your contract${co.contractRev ? ` (contract rev ${co.contractRev})` : ''}.</p></section>`
+      : `<section id="accept">${verbal ? `<p class="facts" data-co-not-signed><b>Not signed by you yet.</b> You approved this change with us${co.verbalAt ? ` on ${esc(day(co.verbalAt))}` : ''}; please sign it for your records.</p>` : ''}<h2>${verbal ? 'Sign' : 'Approve and sign'}</h2>
         <p class="small">If this change looks right, type your name and sign with your finger. It is added to your contract.</p>
         <label class="field">Your name<input id="name" autocomplete="name" maxlength="200" value="${esc(q.customerName || '')}"></label>
         <div class="sigwrap"><canvas id="sig" width="600" height="200" aria-label="Sign here"></canvas><button type="button" id="clear" class="link">Clear</button></div>
         <p id="err" class="err" role="alert"></p>
-        <button type="button" id="go" class="btn">Approve and sign</button>
+        <button type="button" id="go" class="btn">${verbal ? 'Sign' : 'Approve and sign'}</button>
       </section>`
   const body = `${top}<main class="wrap">
-    <p class="small upper">Change order #${co.number}</p>
+    <p class="small upper">Change order CO-${co.number}${co.contractRev ? ` · Contract rev ${co.contractRev}` : ''}</p>
     <h1>${esc(q.customerName)}</h1>
     <p class="small">${esc(q.customerAddress || '')}</p>
     ${co.reason ? `<p class="facts">${esc(co.reason)}</p>` : ''}
@@ -82,11 +88,13 @@ changeOrderPublic.get('/:token', async (req, res) => {
       <tr class="total"><td>${co.totalCents < 0 ? 'Total credit' : 'Total'}</td><td class="amt" data-co-total>${usd(co.totalCents)}</td></tr>
     </tbody></table>
     <p class="small">The original price was ${usd(Math.round((q.finalPrice || 0) * 100))}. This change ${co.totalCents < 0 ? 'takes off' : 'adds'} ${usd(Math.abs(co.totalCents))}.</p></section>
+    ${warranty}
+    ${plan}
     ${state}
     <p class="small foot">Questions? ${call}</p>
   </main>`
   // The proposal's finger signature pad (routes/proposal.ts).
-  const script = co.status !== 'sent' ? '' : `
+  const script = !toSign ? '' : `
   (function(){
     var c=document.getElementById('sig'),x=c.getContext('2d'),down=false,inked=false;
     x.lineWidth=3;x.lineCap='round';x.strokeStyle='#1C1030';
@@ -106,7 +114,7 @@ changeOrderPublic.get('/:token', async (req, res) => {
         .catch(function(){err.textContent='No connection. Please try again.';go.disabled=false;go.textContent='Approve and sign'});
     });
   })();`
-  res.type('html').send(page(`Change order #${co.number}: ${q.customerName}`, body, nonce, script))
+  res.type('html').send(page(`Change order CO-${co.number}: ${q.customerName}`, body, nonce, script))
 })
 
 export const signSchema = z.object({

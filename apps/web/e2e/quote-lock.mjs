@@ -8,8 +8,8 @@
 //      in WebKit), adds 10 ft, saves: "This quote is signed. Make a change
 //      order instead." and "Make a change order". The change order opens filled
 //      in ("Add 10 ft of fence") at the price the quote builder shows for the
-//      change; approved (computer: in the window; phone: saved as a draft, then
-//      approved on the job page), the job page's contract value includes it. The
+//      change; approved verbally with a reason (computer: in the window; phone:
+//      saved as a draft, then on the job page), the job page's contract value includes it. The
 //      quote's own price never moved.
 //   2. Sent: with one Inventory cost raised on dev (put back after), opening a
 //      Sent quote and saving asks "Prices changed since this was sent (was $X,
@@ -136,7 +136,10 @@ try {
     // Whole dollars (Oct 21 2026): each side priced to the whole dollar, so the cents never go on the customer.
     check('computer: priced by the quote builder\'s own math (the change\'s price difference, in whole dollars)', total === whole(p1) - whole(p0) && total % 100 === 0, `${total} vs ${whole(p1) - whole(p0)}`)
     await shot(page, 'dev-change-order.png')
+    // Approved by the owner without the customer's signature: "Approved verbally", with a reason (Oct 22 2026).
     await page.locator('[data-co-save-approved]').click()
+    await page.locator('[data-co-verbal-reason]').fill('Customer agreed on site')
+    await page.locator('[data-co-save-verbal]').click()
     await sleep(2500)
     const cos = (await call('GET', `/api/change-orders?quoteId=${signedId}`)).json.data ?? []
     check('computer: one change order, approved, saved on the server in cents', cos.length === 1 && cos[0].status === 'approved' && cos[0].totalCents === total && cos[0].scope?.footageFt === 10, JSON.stringify(cos.map(x => [x.status, x.totalCents, x.scope])))
@@ -177,6 +180,8 @@ try {
     await page.goto(`${APP}/operations?job=${jobId}`)
     await page.waitForSelector('[data-co-row="2"]', { timeout: 30000 }); await sleep(800)
     await page.locator('[data-co-row="2"] [data-co-approve]').click()
+    await page.locator('[data-co-row="2"] [data-co-verbal-reason]').fill('Customer agreed on the phone')
+    await page.locator('[data-co-row="2"] [data-co-verbal-save]').click()
     await sleep(2500)
     job = (await jobOf())
     check('phone: approved on the job page, the contract value includes it', Math.round(job.contractValue * 100) === Math.round(before * 100) + total, `${job.contractValue}`)

@@ -1,7 +1,9 @@
 /**
  * The top of the Schedule screen: one day at a time, the installs on the
  * schedule and that day's appointments (estimates, call backs, contract
- * signings), so the phone's Schedule tab answers "what is on today".
+ * signings, service visits), so the phone's Schedule tab answers "what is
+ * on today". A visit booked for a warranty or service request shows the
+ * request (tap it to open the request).
  */
 
 import { useEffect, useState } from 'react'
@@ -11,6 +13,8 @@ import { getCustomerById } from './customerStore'
 import { businessDate } from './businessDate'
 import { navigate, pagePath } from './nav'
 import type { ScheduledJob, Crew } from './SchedulePage'
+import { useOpenTickets } from './serviceStore'
+import { openTicket } from './ServiceRequests'
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
 const dayLabel = (ymd: string) => {
@@ -39,6 +43,8 @@ export default function ScheduleDay({ jobs, crews }: { jobs: ScheduledJob[]; cre
     .filter(a => a.startAt && businessDate(a.startAt) === day && a.status !== 'cancelled')
     .sort((a, b) => (a.startAt! < b.startAt! ? -1 : 1))
   const crewOf = (id: string) => crews.find(c => c.id === id)
+  const tickets = useOpenTickets()
+  const ticketOf = (apptId: string) => (tickets ?? []).find(t => t.appointmentId === apptId) ?? null
 
   return (
     <section className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3" data-schedule-day={day}>
@@ -76,15 +82,17 @@ export default function ScheduleDay({ jobs, crews }: { jobs: ScheduledJob[]; cre
           <ul className="divide-y divide-gray-100" data-day-appts={appts.length}>
             {appts.map(a => {
               const c = getCustomerById(a.crmContactId)
+              const t = ticketOf(a.id)
               return (
-                <li key={a.id}>
-                  <button type="button" className="w-full py-2 flex items-center gap-3 text-left" onClick={() => navigate(`${pagePath('Appointments')}?appt=${a.id}`)}>
+                <li key={a.id} className="flex items-center gap-2">
+                  <button type="button" className="flex-1 min-w-0 py-2 flex items-center gap-3 text-left" onClick={() => navigate(`${pagePath('Appointments')}?appt=${a.id}`)}>
                     <span className="w-16 shrink-0 text-sm font-semibold tabular-nums text-gray-900">{a.allDay ? 'All day' : time(a.startAt!)}</span>
                     <span className="flex-1 min-w-0">
                       <span className="block text-sm font-semibold text-gray-900 truncate">{c ? `${c.firstName} ${c.lastName}`.trim() : 'Customer'}</span>
                       <span className="block text-xs text-gray-600 truncate">{TYPE_LABELS[a.type] ?? a.type}{a.address ? ` · ${a.address}` : ''}</span>
                     </span>
                   </button>
+                  {t && <button type="button" className="shrink-0 text-[11px] font-bold px-2 py-1 rounded-full bg-purple-100 text-purple-800 min-h-[36px]" onClick={() => openTicket(t.id)} data-day-service-ticket={t.id}>{t.issueLabel}{t.decision ? ` · ${t.decision === 'covered' ? 'Covered' : 'Not covered'}` : ''}</button>}
                 </li>
               )
             })}

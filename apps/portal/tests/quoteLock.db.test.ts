@@ -227,7 +227,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     expect(sent.status).toBe(200)
     // Built on an old version: refused with the current copy.
     expect((await call(owner, 'PATCH', `/api/change-orders/${coId}`, { baseVersion: 1, status: 'approved' })).status).toBe(409)
-    const ok = await call(owner, 'PATCH', `/api/change-orders/${coId}`, { baseVersion: 2, status: 'approved' })
+    // Approved by the office (verbally): a reason is required.
+    expect((await call(owner, 'PATCH', `/api/change-orders/${coId}`, { baseVersion: 2, status: 'approved' })).status).toBe(400)
+    const ok = await call(owner, 'PATCH', `/api/change-orders/${coId}`, { baseVersion: 2, status: 'approved', verbalReason: 'Customer agreed on site' })
     expect(ok.status).toBe(200)
     expect(ok.json.data.approvedBy).toBeTruthy()
     let j = await prisma.savedJob.findUnique({ where: { id: job.id } })
@@ -239,7 +241,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     j = await prisma.savedJob.findUnique({ where: { id: job.id } })
     expect([j!.notes, j!.contractValue]).toEqual(['crew note', 1635])
     // Approved at once (agreed on site), a credit: 1635.00 - 100.00.
-    const credit = await call(owner, 'POST', '/api/change-orders', { quoteId: q.id, status: 'approved', lines: [{ id: 'c1', description: 'Credit: no tear out', amountCents: -10_000 }] })
+    const credit = await call(owner, 'POST', '/api/change-orders', { quoteId: q.id, status: 'approved', verbalReason: 'Customer agreed on site', lines: [{ id: 'c1', description: 'Credit: no tear out', amountCents: -10_000 }] })
     expect([credit.status, credit.json.data.number]).toEqual([201, 2])
     expect((await prisma.savedJob.findUnique({ where: { id: job.id } }))!.contractValue).toBe(1535)
     // Voided: off again.

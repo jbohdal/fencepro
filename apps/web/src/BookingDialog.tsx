@@ -212,7 +212,8 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
     const body = {
       type, assignedTo: person, address, lat: pos?.lat ?? null, lng: pos?.lng ?? null, notes,
       startAt: startAt?.toISOString() ?? null, endAt: endAt?.toISOString() ?? null, allDay,
-      jobId: type === 'install' && jobId ? jobId : null, quoteId: existing?.quoteId ?? req.quoteId ?? null,
+      // An install, or a service or warranty visit opened from a job (a service request): on that job.
+      jobId: (type === 'install' || ((type === 'service' || type === 'warranty') && !!req.jobId)) && jobId ? jobId : null, quoteId: existing?.quoteId ?? req.quoteId ?? null,
     }
     const saved = existing
       ? await updateAppointment(existing.id, body, timeChanged ? reason || 'Rescheduled' : undefined)

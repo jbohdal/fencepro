@@ -1,0 +1,261 @@
+/**
+ * Once a change order is approved, everything follows (Jonathan, Oct 22 2026;
+ * dev database, DEV_DB=1; refuses any other). On a signed test job:
+ *
+ * - From the yard drawing, +12 ft and a walk gate: the server prices the new
+ *   work (pull sheet, costs, sections); the customer signs on the office's
+ *   phone (in person): contract rev 2, change order CO-1; the job's contract
+ *   value, sections, feet, gates and crew days; a warning when the scheduled
+ *   install no longer fits; the payment schedule's Final; pull sheet rev 2 with
+ *   what changed, rev 1 kept; the crew's install packet shows the change; the
+ *   quoted cost includes it; the signed PDF is stored; the customer history and
+ *   the job timeline say "Change order CO-1 approved: +$450 (added 12 ft and a
+ *   walk gate), by ...".
+ * - Approved verbally (owner or office, a reason required): it counts (rev 3),
+ *   the customer's copy says "not signed by you yet" until they sign on their
+ *   link; the signed PDF only then. Switching no dig to dig set changes the
+ *   contract's warranty, with the new words on the change order.
+ * - After the deposit and Final are paid: an increase is its own invoice
+ *   "Change order CO-n" (the paid Final unchanged); a credit is a credit on the
+ *   balance (no paid invoice cut).
+ * - Reports and pipeline value read the job's contract (web code: App.tsx,
+ *   pipelineValue.ts) from changeOrderTotal, checked here on the job.
+ *
+ * Writes only inside beforeAll, test and afterAll; removes what it made.
+ */
+
+import 'dotenv/config'
+import express from 'express'
+import fs from 'fs'
+import path from 'path'
+import jwt from 'jsonwebtoken'
+import type { AddressInfo } from 'net'
+import { describe, test, expect, beforeAll, afterAll } from 'vitest'
+
+const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
+describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follows (dev database)', { timeout: 90_000 }, async () => {
+  const { default: prisma } = await import('../src/server/lib/prisma.js')
+  const { default: savedJobs } = await import('../src/server/routes/saved-jobs.js')
+  const { default: changeOrders } = await import('../src/server/routes/change-orders.js')
+  const { default: payments } = await import('../src/server/routes/payments.js')
+  const { default: pullSheets } = await import('../src/server/routes/pull-sheets.js')
+  const { default: jobCosting } = await import('../src/server/routes/job-costing.js')
+  const { default: warranties } = await import('../src/server/routes/warranties.js')
+  const { default: followUps } = await import('../src/server/routes/follow-ups.js')
+  const { packetStaff, packetPublic } = await import('../src/server/routes/installPacket.js')
+  const { changeOrderPublic } = await import('../src/server/routes/changeOrderPublic.js')
+  const { changeOrdersForContact } = await import('../src/server/lib/changeOrders.js')
+  const { snapshotQuotedCost } = await import('../src/server/lib/jobCosting.js')
+  const { resolveSecret } = await import('../src/server/lib/secrets.js')
+  const billing = await import('../src/server/lib/contractBilling.js')
+  const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
+
+  const ND = "WV-ND 6'x8' Privacy", DS = "WV-DS 6'x8' Privacy"
+  const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+  const made = { contacts: [] as string[], quotes: [] as string[], jobs: [] as string[] }
+  let accountId = '', owner = '', sales = '', base = ''
+  let server: ReturnType<express.Express['listen']>
+  const call = (who: string, method: string, p: string, body?: unknown) => fetch(base + p, { method, headers: { ...(who ? { Authorization: `Bearer ${who}` } : {}), 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+    .then(async r => { const t = await r.text(); let json: any = null; try { json = JSON.parse(t) } catch { /* html */ } return { status: r.status, json, text: t } })
+  let n = 0
+  const request = (ft: number, walk: number, style = ND) => ({ fenceStyle: style, runs: [{ ft, rail: 'auto' }], corners: 0, ends: 2, walkGates: walk, dblGates: 0, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, overrides: {}, jobType: 'new' })
+
+  /** A signed quote (112 ft, no gate, $6,000) with its quoted cost and its job, scheduled for one day. */
+  async function signedJob() {
+    const c = await prisma.crmContact.create({ data: { accountId, firstName: 'E2E CO', lastName: `Flow ${Date.now().toString(36)}${n++}`, phone: '3525550133' } as any })
+    made.contacts.push(c.id)
+    const q = await prisma.savedQuote.create({
+      data: {
+        accountId, crmContactId: c.id, customerName: `E2E CO ${c.lastName}`, customerAddress: '3 Change Rd, Ocala FL', fenceStyle: ND, runs: [112], sections: 14, corners: 0, ends: 2,
+        materialCost: 3000, laborCost: 1500, totalCOGS: 4500, finalPrice: 6000, gmPct: 0.25,
+        pullSheet: [{ item: 'Vinyl panel', qty: 14, unitCost: 100, total: 1400 }], status: 'SOLD', soldAt: new Date(),
+      } as any,
+    })
+    made.quotes.push(q.id)
+    await snapshotQuotedCost(accountId, q.id, 'app')
+    const r = await call(owner, 'POST', '/api/saved-jobs', { quoteId: q.id, crmContactId: c.id, customerName: q.customerName, customerAddress: q.customerAddress, fenceStyle: ND, quotePrice: 6000, contractValue: 6000, status: 'scheduled', sections: 14, totalFeet: 112, scheduledDate: '2026-11-02', scheduledEndDate: '2026-11-02', estimatedDays: 1, crewAssigned: `E2E crew ${n}` })
+    expect(r.status).toBe(201)
+    made.jobs.push(r.json.data.id)
+    return { contactId: c.id, quoteId: q.id, jobId: r.json.data.id as string }
+  }
+
+  beforeAll(async () => {
+    const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
+    accountId = user.crmAccountId!
+    await billing.schedulesFrom(accountId)
+    owner = jwt.sign({ sub: user.id, email: user.email, role: 'super_admin', crmAccountId: accountId }, secret, { expiresIn: '10m' })
+    sales = jwt.sign({ sub: user.id, email: user.email, role: 'sales_rep', crmAccountId: accountId }, secret, { expiresIn: '10m' })
+    const app = express()
+    app.use(express.json({ limit: '10mb' }))
+    app.use('/api/saved-jobs', savedJobs)
+    app.use('/api/change-orders', changeOrders)
+    app.use('/api/payments', payments)
+    app.use('/api/pull-sheets', pullSheets)
+    app.use('/api/job-costing', jobCosting)
+    app.use('/api/warranties', warranties)
+    app.use('/api/follow-ups', followUps)
+    app.use('/api/install-packets', packetStaff)
+    app.use('/p/i', packetPublic)
+    app.use('/p/co', changeOrderPublic)
+    server = app.listen(0)
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  })
+
+  afterAll(async () => {
+    const jobs = made.jobs
+    const docs = await prisma.signedDocument.findMany({ where: { quoteId: { in: made.quotes } } })
+    const receipts = await prisma.receipt.findMany({ where: { jobId: { in: jobs } } })
+    const fileIds = [...docs.map(d => d.portalFileId), ...receipts.map(r => r.portalFileId)].filter((x): x is string => !!x)
+    const files = await prisma.portalFile.findMany({ where: { id: { in: fileIds } } })
+    for (const k of [...files.map(f => f.fileKey), ...docs.map(d => d.fileKey)]) { try { fs.unlinkSync(path.resolve(process.env.UPLOAD_DIR || './uploads', k)) } catch { /* not written */ } }
+    await prisma.portalFile.deleteMany({ where: { id: { in: fileIds } } })
+    await prisma.signedDocument.deleteMany({ where: { quoteId: { in: made.quotes } } })
+    const pays = await prisma.contractPayment.findMany({ where: { jobId: { in: jobs } } })
+    await prisma.receipt.deleteMany({ where: { jobId: { in: jobs } } })
+    await prisma.paymentApplication.deleteMany({ where: { paymentId: { in: pays.map(p => p.id) } } })
+    await prisma.contractPayment.deleteMany({ where: { jobId: { in: jobs } } })
+    await prisma.contractInvoice.deleteMany({ where: { jobId: { in: jobs } } })
+    await prisma.billingLog.deleteMany({ where: { jobId: { in: jobs } } })
+    await prisma.paymentSchedule.deleteMany({ where: { jobId: { in: jobs } } })
+    await prisma.installPacket.deleteMany({ where: { jobId: { in: jobs } } })
+    const cos = await prisma.changeOrder.findMany({ where: { quoteId: { in: made.quotes } }, select: { id: true } })
+    await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: [...jobs, ...cos.map(c => c.id), ...pays.map(p => p.id)] } } })
+    await prisma.changeOrder.deleteMany({ where: { quoteId: { in: made.quotes } } })
+    await prisma.jobChecklistItem.deleteMany({ where: { jobId: { in: jobs } } }).catch(() => {})
+    await prisma.automationEvent.deleteMany({ where: { entityId: { in: jobs } } as any }).catch(() => {})
+    await prisma.savedJob.deleteMany({ where: { id: { in: jobs } } })
+    await prisma.jobQuotedCost.deleteMany({ where: { quoteId: { in: made.quotes } } })
+    await prisma.savedQuote.deleteMany({ where: { id: { in: made.quotes } } })
+    await prisma.crmContact.deleteMany({ where: { id: { in: made.contacts } } })
+    await prisma.receiptNumberBlock.deleteMany({ where: { accountId, createdAt: { gte: new Date(Date.now() - 3600_000) } } })
+    server?.close()
+  })
+
+  test('from the yard drawing, +12 ft and a walk gate, signed in person: everything follows', async () => {
+    const { contactId, quoteId, jobId } = await signedJob()
+    const packet = await call(owner, 'POST', '/api/install-packets', { jobId, snapshot: { style: ND, pullSheet: [{ item: 'Vinyl panel', qty: 14 }] } })
+    expect(packet.status).toBe(200)
+
+    const co = await call(owner, 'POST', '/api/change-orders', {
+      jobId, reason: 'Add 12 ft and a walk gate',
+      lines: [{ id: 'l1', description: 'Add 12 ft of fence', amountCents: 30000 }, { id: 'l2', description: 'Add 1 walk gate', amountCents: 15000 }],
+      work: { request: request(124, 1), layout: { yard: null, runSections: [16] }, planSvg: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>' },
+    })
+    expect(co.status).toBe(201)
+    expect(co.json.data).toMatchObject({ number: 1, status: 'draft', scope: { footageFt: 12, walkGates: 1 } })
+    expect(co.json.data.work).toMatchObject({ footage: 124, walkGates: 1, sections: 16 })
+    expect(co.json.data.work.pullSheet.some((l: any) => 'unitCost' in l)).toBe(false) // quantities only on every phone
+    expect(co.json.data.costDelta.totalCents).toBeGreaterThan(0)
+    // A Salesman's phone never gets the cost difference.
+    const asSales = await call(sales, 'GET', `/api/change-orders?jobId=${jobId}`)
+    expect(JSON.stringify(asSales.json)).not.toMatch(/costDelta|unitCost/)
+
+    // The customer signs on the office's phone.
+    const signed = await call(owner, 'POST', `/api/change-orders/${co.json.data.id}/sign`, { name: 'Pat Customer', signature: SIG })
+    expect(signed.status).toBe(200)
+    expect(signed.json.data).toMatchObject({ status: 'approved', contractRev: 2, signedVia: 'in_person', signedBy: 'Pat Customer' })
+    expect(signed.json.scheduleWarning).toMatch(/needs 2 crew days now and is booked for 1/)
+
+    // Contract value and the job's scope and crew days.
+    const job = (await prisma.savedJob.findUnique({ where: { id: jobId } }))!
+    expect([job.contractValue, job.changeOrderTotal, job.sections, job.totalFeet, job.walkGates, job.estimatedDays]).toEqual([6450, 450, 16, 124, 1, 2])
+    // Payment schedule: the Final follows, logged.
+    const s = (await call(owner, 'GET', `/api/payments/job/${jobId}`)).json.data.schedule
+    expect(s.contractCents).toBe(645000)
+    expect(s.invoices.find((i: any) => i.kind === 'final').amountCents).toBe(345000)
+    expect(s.log.some((l: any) => /Final \$3,000\.00 → \$3,450\.00/.test(l.text))).toBe(true)
+    // Pull sheet rev 2 for the crew, what changed marked, rev 1 kept.
+    const sheets = (await call(owner, 'GET', `/api/pull-sheets/customer/${contactId}`)).json.data.entries
+    const e = sheets.find((x: any) => x.kind === 'job')
+    expect(e.revision).toBe(2)
+    expect(e.revisions.map((r: any) => r.rev)).toEqual([2, 1])
+    expect(e.revisions[1].lines).toEqual([expect.objectContaining({ item: 'Vinyl panel', qty: 14 })])
+    expect(e.changes).toContainEqual({ item: 'Vinyl panel', was: 14, now: 0 })
+    expect(e.changes.some((c: any) => /Gate, Latch/.test(c.item) && c.now === 1)).toBe(true)
+    expect([e.footageFt, e.sections]).toEqual([124, 16])
+    expect(e.changeNote).toMatch(/This is pull sheet rev 2, from change order CO-1/)
+    // Install packet: the crew's link shows the change; the office sees it is out of date.
+    const staff = (await call(owner, 'GET', `/api/install-packets?jobId=${jobId}`)).json.data
+    expect(staff.changedBy).toEqual({ number: 1, what: 'added 12 ft and a walk gate' })
+    const page = await call('', 'GET', `/p/i/${staff.token}`)
+    expect(page.text).toContain('data-packet-change-order')
+    expect(page.text).toContain('Vinyl panel</b>: 14 → 0')
+    expect(page.text).toContain('124 ft')
+    // Job costing: the quoted cost includes the change order's cost difference, the price its total.
+    const signedCost = (await prisma.jobQuotedCost.findUnique({ where: { accountId_quoteId: { accountId, quoteId } } }))!
+    const jc = (await call(owner, 'GET', `/api/job-costing/job/${jobId}`)).json.data
+    expect(jc.comparison.quoted.totalCents).toBe(signedCost.totalCents + co.json.data.costDelta.totalCents)
+    expect(jc.comparison.quoted.priceCents).toBe(645000)
+    // The signed PDF, stored once.
+    expect(await prisma.signedDocument.count({ where: { changeOrderId: co.json.data.id } })).toBe(1)
+    // Customer history and the job timeline.
+    const hist = (await call(owner, 'GET', `/api/follow-ups/history?customerId=${contactId}`)).json.data.map((x: any) => x.title)
+    expect(hist).toContainEqual(expect.stringMatching(/^Change order CO-1 approved: \+\$450 \(added 12 ft and a walk gate\), by Pat Customer \(signed\), [A-Z][a-z]{2} \d+$/))
+    const tl = (await call(owner, 'GET', `/api/change-orders/timeline?jobId=${jobId}`)).json.data
+    expect(tl.contractRev).toBe(2)
+    expect(tl.scheduleWarning).toMatch(/no longer fits/)
+    expect(tl.items.map((i: any) => i.title)).toEqual(expect.arrayContaining(['Pull sheet rev 2 for the crew (change order CO-1)', 'Contract rev 1 signed: $6,000.00']))
+  })
+
+  test('approved verbally (reason required): it counts; the customer copy is not signed until they sign; dig set switches the warranty', async () => {
+    const { contactId, jobId } = await signedJob()
+    const before = (await call(owner, 'GET', `/api/warranties/job/${jobId}`)).json.data.warranty.name
+    const lines = [{ id: 'd1', description: 'Change to dig set', amountCents: -20000 }]
+    const work = { request: request(112, 0, DS) }
+    expect((await call(owner, 'POST', '/api/change-orders', { jobId, lines, work, status: 'approved' })).status).toBe(400)
+    expect((await call(sales, 'POST', '/api/change-orders', { jobId, lines, work, status: 'approved', verbalReason: 'Agreed' })).status).toBe(403)
+    const co = await call(owner, 'POST', '/api/change-orders', { jobId, lines, work, status: 'approved', verbalReason: 'Customer agreed on the phone' })
+    expect(co.status).toBe(201)
+    expect(co.json.data).toMatchObject({ status: 'approved', contractRev: 2, verbalReason: 'Customer agreed on the phone', signedAt: null })
+    expect(co.json.data.warrantyBefore.name).toBe(before)
+    expect(co.json.data.warrantyAfter.name).not.toBe(before)
+    // It counts for the job: contract value and the warranty on the contract.
+    expect((await prisma.savedJob.findUnique({ where: { id: jobId } }))!.contractValue).toBe(5800)
+    const w = (await call(owner, 'GET', `/api/warranties/job/${jobId}`)).json.data
+    expect([w.warranty.name, w.from, w.changeOrder?.number]).toEqual([co.json.data.warrantyAfter.name, 'change_order', 1])
+    // The customer's copy: not signed by them yet, with the Sign button; no signed PDF yet.
+    const mine = (await changeOrdersForContact(contactId)).find((c: any) => c.id === co.json.data.id)!
+    expect([mine.status, mine.needsSignature, mine.contractRev]).toEqual(['approved', true, 2])
+    expect(await prisma.signedDocument.count({ where: { changeOrderId: co.json.data.id } })).toBe(0)
+    const link = await call(owner, 'POST', `/api/change-orders/${co.json.data.id}/link`, {})
+    const page = await call('', 'GET', `/p/co/${link.json.data.token}`)
+    expect(page.text).toContain('data-co-not-signed')
+    expect(page.text).toContain('data-co-warranty')
+    expect(page.text).toContain('Contract rev 2')
+    const sign = await call('', 'POST', `/p/co/${link.json.data.token}/sign`, { name: 'Pat Customer', signature: SIG })
+    expect(sign.json.data.status).toBe('approved')
+    const row = (await prisma.changeOrder.findUnique({ where: { id: co.json.data.id } }))!
+    expect([row.contractRev, row.signedVia, row.signedBy, row.verbalBy !== null]).toEqual([2, 'link', 'Pat Customer', true])
+    expect(await prisma.signedDocument.count({ where: { changeOrderId: co.json.data.id } })).toBe(1)
+    expect((await changeOrdersForContact(contactId)).find((c: any) => c.id === co.json.data.id)!.needsSignature).toBe(false)
+    // The contract value did not move again on signing.
+    expect((await prisma.savedJob.findUnique({ where: { id: jobId } }))!.contractValue).toBe(5800)
+  })
+
+  test('after the deposit and Final are paid: an increase is its own invoice; a credit is a credit on the balance', async () => {
+    const { jobId } = await signedJob()
+    const s0 = (await call(owner, 'GET', `/api/payments/job/${jobId}`)).json.data.schedule
+    const pid = `e2eco${Date.now().toString(36)}`
+    expect((await call(owner, 'POST', '/api/payments', { id: pid, jobId, amountCents: s0.contractCents, method: 'check', checkNumber: '77' })).status).toBe(201)
+    const up = await call(owner, 'POST', '/api/change-orders', { jobId, lines: [{ id: 'u1', description: 'Add a post', amountCents: 20000 }], status: 'approved', verbalReason: 'Agreed on site' })
+    expect(up.status).toBe(201)
+    let s = (await call(owner, 'GET', `/api/payments/job/${jobId}`)).json.data.schedule
+    const fin = s.invoices.find((i: any) => i.kind === 'final')
+    expect([fin.amountCents, fin.paidCents]).toEqual([300000, 300000])
+    expect(s.invoices.find((i: any) => i.kind === 'change_order')).toMatchObject({ label: 'Change order CO-1', amountCents: 20000, originalCents: 20000, paidCents: 0 })
+    expect([s.contractCents, s.balanceCents]).toEqual([620000, 20000])
+    // The next payment pays that invoice.
+    expect((await call(owner, 'POST', '/api/payments', { id: `${pid}b`, jobId, amountCents: 20000, method: 'cash' })).status).toBe(201)
+    s = (await call(owner, 'GET', `/api/payments/job/${jobId}`)).json.data.schedule
+    expect(s.invoices.find((i: any) => i.kind === 'change_order').paidCents).toBe(20000)
+    const receipt = s.payments.find((p: any) => p.id === `${pid}b`).receipt
+    expect(receipt.says.forText).toBe('Change order CO-1')
+    // A credit after everything is paid: the paid invoices stay; the balance shows a credit due back.
+    const credit = await call(owner, 'POST', '/api/change-orders', { jobId, lines: [{ id: 'c1', description: 'Credit: one less post', amountCents: -50000 }], status: 'approved', verbalReason: 'Agreed on site' })
+    expect(credit.status).toBe(201)
+    s = (await call(owner, 'GET', `/api/payments/job/${jobId}`)).json.data.schedule
+    expect(s.invoices.find((i: any) => i.kind === 'final').amountCents).toBe(300000)
+    expect(s.invoices.find((i: any) => i.kind === 'change_order').amountCents).toBe(20000)
+    expect([s.contractCents, s.balanceCents, s.creditCents]).toEqual([570000, -50000, 50000])
+  })
+})

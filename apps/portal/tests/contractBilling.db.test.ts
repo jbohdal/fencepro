@@ -190,37 +190,39 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
   })
 
   test('a login keeps its set aside numbers: 10 sign ins make no new numbers; an online receipt takes the next number in sequence', async () => {
-    // Numbers left set aside for this login by earlier runs on the dev copy would be handed back first.
-    await prisma.receiptNumberBlock.deleteMany({ where: { accountId, userId: ownerId } })
-    const first = await billing.reserveReceiptNumbers(accountId, ownerId, 5)
+    // A login of its own: other test files record payments on the company at the same moment, so the
+    // company's numbers are checked for order and no repeats, not exact values.
+    const me = `e2e-receipt-owner-${Date.now().toString(36)}`
+    const mine0 = jwt.sign({ sub: me, email: 'e2e-receipts@example.invalid', role: 'super_admin', crmAccountId: accountId }, secret, { expiresIn: '10m' })
+    const first = await billing.reserveReceiptNumbers(accountId, me, 5)
     expect(first.numbers).toHaveLength(5)
     for (let i = 0; i < 10; i++) {
-      const again = await billing.reserveReceiptNumbers(accountId, ownerId, 5)
+      const again = await billing.reserveReceiptNumbers(accountId, me, 5)
       expect(again.made).toBe(0)
       expect(again.numbers).toEqual(first.numbers)
     }
-    // Online: the next company number, not one set aside.
-    const next = (await prisma.receiptCounter.findUnique({ where: { accountId } }))!.next
+    // Online: a new company number, after the set aside ones, never one of them.
     const { jobId } = await soldJob(1000)
-    const online = await pay(owner, jobId, 1000)
-    expect(online.r.json.data.receipt.number).toBe(next)
-    expect(first.numbers).not.toContain(next)
+    const online = (await pay(mine0, jobId, 1000)).r.json.data.receipt.number
+    expect(online).toBeGreaterThan(Math.max(...first.numbers))
     // No signal: one set aside is used as is; the next top up fills the set back with exactly one new number.
-    const mine = first.numbers[0]
-    const c = await pay(owner, jobId, 1000, { receiptNumber: mine })
-    expect(c.r.json.data.receipt.number).toBe(mine)
-    const refill = await billing.reserveReceiptNumbers(accountId, ownerId, 5)
+    const used = first.numbers[0]
+    const c = await pay(mine0, jobId, 1000, { receiptNumber: used })
+    expect(c.r.json.data.receipt.number).toBe(used)
+    const refill = await billing.reserveReceiptNumbers(accountId, me, 5)
     expect(refill.made).toBe(1)
     expect(refill.numbers.slice(0, 4)).toEqual(first.numbers.slice(1))
-    expect(refill.numbers[4]).toBe(next + 1)
-    // The same number twice (two phones of one login): the second gets the next company number, never a repeat.
-    const d = await pay(owner, jobId, 1000, { receiptNumber: mine })
-    expect(d.r.json.data.receipt.number).toBe(next + 2)
-    // Not this login's: refused as a number, the next one given.
-    const e = await pay(owner, jobId, 1000, { receiptNumber: 1 })
-    expect(e.r.json.data.receipt.number).toBe(next + 3)
-    const f = await pay(sales, jobId, 1000, { receiptNumber: refill.numbers[1] })
-    expect(f.r.json.data.receipt.number).toBe(refill.numbers[1]) // the Salesman token here is the same login (role only differs)
+    expect(refill.numbers[4]).toBeGreaterThan(online)
+    // The same number twice (two phones of one login): the second gets a new company number, never a repeat.
+    const d = (await pay(mine0, jobId, 1000, { receiptNumber: used })).r.json.data.receipt.number
+    expect(d).toBeGreaterThan(refill.numbers[4])
+    // Not this login's: refused as a number, a new one given.
+    const e = (await pay(mine0, jobId, 1000, { receiptNumber: 1 })).r.json.data.receipt.number
+    expect(e).toBeGreaterThan(d)
+    const all = [online, used, d, e]
+    expect(new Set(all).size).toBe(all.length)
+    expect(await prisma.receipt.count({ where: { accountId, number: { in: all } } })).toBe(all.length)
+    await prisma.receiptNumberBlock.deleteMany({ where: { accountId, userId: me } })
   })
 
   test('other logins at the same moment never share a number; numbers unused 30 days go back to the same login only', async () => {
@@ -245,7 +247,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
 
   test('an approved change order moves the Final, logged; owner amount edit and adjustment are logged; a Salesman may not', async () => {
     const { jobId, quoteId } = await soldJob(5000)
-    const co = await call(owner, 'POST', '/api/change-orders', { quoteId, reason: 'Add a gate', lines: [{ id: 'l1', description: 'Walk gate', amountCents: 50000 }], status: 'approved' })
+    const co = await call(owner, 'POST', '/api/change-orders', { quoteId, reason: 'Add a gate', lines: [{ id: 'l1', description: 'Walk gate', amountCents: 50000 }], status: 'approved', verbalReason: 'Customer agreed on site' })
     expect(co.status).toBeLessThan(300)
     let s = await view(jobId)
     expect(s.contractCents).toBe(550000)

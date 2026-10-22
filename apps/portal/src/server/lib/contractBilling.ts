@@ -240,17 +240,37 @@ export async function settleIn(tx: any, accountId: string, jobId: string, why: s
   const invoices = await tx.contractInvoice.findMany({ where: { scheduleId: schedule.id } })
   const final = invoices.find((i: any) => i.key === 'final')
   const others = invoices.filter((i: any) => i.key !== 'final' && !i.voidedAt).map((i: any) => i.amountCents)
+  const payments = await tx.contractPayment.findMany({ where: { accountId, jobId } })
   if (final) {
-    const to = finalOf(contractCents, others)
+    // A paid invoice is never cut below what was paid on it: a credit after it was paid is a credit on the
+    // balance (paid over the contract, owed back to the customer), not a smaller paid invoice (Oct 22 2026).
+    const before = applyPayments(
+      invoices.map((i: any) => ({ id: i.id, amountCents: i.amountCents, sortOrder: i.sortOrder, createdAt: i.createdAt, voided: !!i.voidedAt })),
+      payments.map((p: any) => ({ id: p.id, amountCents: p.amountCents, paidOn: p.paidOn, createdAt: p.createdAt, voided: !!p.voidedAt })),
+    )
+    const paidOnFinal = Math.min(final.amountCents, before.paidByInvoice.get(final.id) ?? 0)
+    const to = Math.max(finalOf(contractCents, others), paidOnFinal)
     if (to !== final.amountCents) {
       await tx.contractInvoice.update({ where: { id: final.id }, data: { amountCents: to } })
       await log(tx, accountId, jobId, { kind: 'final_follows', invoiceId: final.id, fromCents: final.amountCents, toCents: to, by, text: `Final ${moneyText(final.amountCents)} → ${moneyText(to)}: ${why}` })
       final.amountCents = to
     }
+    // Invoices over the contract now (a credit after the Final was paid): a change order invoice not paid yet
+    // comes down first (newest first, never below what was paid on it); what is left is a credit on the balance.
+    let excess = invoices.filter((i: any) => !i.voidedAt).reduce((s: number, i: any) => s + i.amountCents, 0) - contractCents
+    const coInvoices = invoices.filter((i: any) => i.kind === 'change_order' && !i.voidedAt).sort((x: any, y: any) => y.sortOrder - x.sortOrder)
+    for (const inv of coInvoices) {
+      if (excess <= 0) break
+      const cut = Math.min(excess, inv.amountCents - Math.min(inv.amountCents, before.paidByInvoice.get(inv.id) ?? 0))
+      if (cut <= 0) continue
+      await tx.contractInvoice.update({ where: { id: inv.id }, data: { amountCents: inv.amountCents - cut } })
+      await log(tx, accountId, jobId, { kind: 'final_follows', invoiceId: inv.id, fromCents: inv.amountCents, toCents: inv.amountCents - cut, by, text: `${inv.label} ${moneyText(inv.amountCents)} → ${moneyText(inv.amountCents - cut)}: ${why}` })
+      inv.amountCents -= cut
+      excess -= cut
+    }
   }
   await tx.contractInvoice.updateMany({ where: { scheduleId: schedule.id, NOT: { contractCents } }, data: { contractCents } })
   // The applications, rebuilt from the payments as they are now.
-  const payments = await tx.contractPayment.findMany({ where: { accountId, jobId } })
   const a = applyPayments(
     invoices.map((i: any) => ({ id: i.id, amountCents: i.amountCents, sortOrder: i.sortOrder, createdAt: i.createdAt, voided: !!i.voidedAt })),
     payments.map((p: any) => ({ id: p.id, amountCents: p.amountCents, paidOn: p.paidOn, createdAt: p.createdAt, voided: !!p.voidedAt })),
@@ -267,15 +287,59 @@ export async function settleIn(tx: any, accountId: string, jobId: string, why: s
   })
 }
 
-/** A change order on the job's quote was approved or voided: the Final follows (lib/changeOrders.ts applyToJob). */
-export async function finalFollowsChangeOrders(tx: any, accountId: string, jobId: string, by: Actor = { userId: null, name: 'Change order' }): Promise<void> {
+/**
+ * A change order on the job's quote was approved or voided: the Final follows
+ * (lib/changeOrders.ts applyToJob). `changedId`: the change order that moved,
+ * billed on its own when the Final is already paid (billChangeOrderIn).
+ */
+export async function finalFollowsChangeOrders(tx: any, accountId: string, jobId: string, by: Actor = { userId: null, name: 'Change order' }, changedId: string | null = null): Promise<void> {
   // Called outside a transaction (the old change order list): one of its own, so the job's lock holds.
-  if (typeof tx.$transaction === 'function') { await tx.$transaction((t: any) => finalFollowsChangeOrders(t, accountId, jobId, by), { timeout: 20_000 }); return }
+  if (typeof tx.$transaction === 'function') { await tx.$transaction((t: any) => finalFollowsChangeOrders(t, accountId, jobId, by, changedId), { timeout: 20_000 }); return }
   const schedule = await tx.paymentSchedule.findUnique({ where: { accountId_jobId: { accountId, jobId } } })
   if (!schedule) return
   await lockJob(tx, jobId)
+  if (changedId) await billChangeOrderIn(tx, accountId, jobId, schedule, changedId, by)
   const co = schedule.quoteId ? await approvedTotalCents(accountId, schedule.quoteId, tx) : 0
   await settleIn(tx, accountId, jobId, `approved change orders now ${moneyText(co)}`, by)
+}
+
+/**
+ * After the Final is paid in full, an approved change order that adds money is
+ * an invoice of its own, "Change order CO-n", for its amount (the paid Final
+ * stays as it was). Voiding the change order voids that invoice. Before the
+ * Final is paid the Final simply follows the contract (settleIn).
+ */
+export async function billChangeOrderIn(tx: any, accountId: string, jobId: string, schedule: any, changeOrderId: string, by: Actor): Promise<void> {
+  const co = await tx.changeOrder.findUnique({ where: { id: changeOrderId } })
+  if (!co || co.accountId !== accountId || co.quoteId !== schedule.quoteId) return
+  const key = `co-${co.id}`
+  const have = await tx.contractInvoice.findUnique({ where: { scheduleId_key: { scheduleId: schedule.id, key } } })
+  if (co.status !== 'approved' || co.deletedAt) {
+    if (have && !have.voidedAt) {
+      await tx.contractInvoice.update({ where: { id: have.id }, data: { voidedAt: new Date() } })
+      await log(tx, accountId, jobId, { kind: 'change_order_invoice_void', invoiceId: have.id, fromCents: have.amountCents, toCents: 0, by, text: `${have.label} ${moneyText(have.amountCents)} voided: the change order was voided.` })
+    }
+    return
+  }
+  if (have || co.totalCents <= 0) return
+  const invoices = await tx.contractInvoice.findMany({ where: { scheduleId: schedule.id } })
+  const final = invoices.find((i: any) => i.key === 'final')
+  if (!final || final.voidedAt || final.amountCents <= 0) return
+  const payments = await tx.contractPayment.findMany({ where: { accountId, jobId } })
+  const a = applyPayments(
+    invoices.map((i: any) => ({ id: i.id, amountCents: i.amountCents, sortOrder: i.sortOrder, createdAt: i.createdAt, voided: !!i.voidedAt })),
+    payments.map((p: any) => ({ id: p.id, amountCents: p.amountCents, paidOn: p.paidOn, createdAt: p.createdAt, voided: !!p.voidedAt })),
+  )
+  if ((a.paidByInvoice.get(final.id) ?? 0) < final.amountCents) return
+  const { contractCents } = await contractParts(tx, accountId, schedule)
+  const label = `Change order CO-${co.number}`
+  const inv = await tx.contractInvoice.create({
+    data: {
+      accountId, scheduleId: schedule.id, jobId, quoteId: schedule.quoteId, crmContactId: schedule.crmContactId, key, kind: 'change_order', label,
+      sortOrder: 100 + co.number, originalCents: co.totalCents, amountCents: co.totalCents, contractCents, dueOn: 'date', dueDate: ocalaDay(),
+    },
+  })
+  await log(tx, accountId, jobId, { kind: 'change_order_invoice', invoiceId: inv.id, fromCents: null, toCents: co.totalCents, by, text: `${label} invoice ${moneyText(co.totalCents)}: the Final was already paid, so the change order is billed on its own.` })
 }
 
 // ── Receipt numbers ─────────────────────────────────────────────────────────
@@ -639,7 +703,8 @@ export async function scheduleView(accountId: string, jobId: string): Promise<an
     customerName: job?.customerName || [contact?.firstName, contact?.lastName].filter(Boolean).join(' '),
     address: job?.customerAddress ?? '', phone: contact?.phone || job?.customerPhone || '', email: contact?.email || job?.customerEmail || '',
     fenceStyle: job?.fenceStyle ?? '', completedDate: job?.completedDate ?? null, depositPct: schedule.depositPct, source: schedule.source, warrantyName,
-    ...parts, paidCents: paid, balanceCents: parts.contractCents - paid, creditCents: a.creditCents,
+    // Paid over the contract (a credit change order after the Final was paid): owed back to the customer.
+    ...parts, paidCents: paid, balanceCents: parts.contractCents - paid, creditCents: Math.max(a.creditCents, paid - parts.contractCents),
     invoices: invoices.filter(i => !i.voidedAt).map(i => {
       const p = a.paidByInvoice.get(i.id) ?? 0
       return { id: i.id, key: i.key, kind: i.kind, label: i.label, amountCents: i.amountCents, originalCents: i.originalCents, contractCents: i.contractCents, paidCents: p, balanceCents: i.amountCents - p, dueOn: i.dueOn, dueDate: i.dueDate, legacyNumber: i.legacyNumber }

@@ -21,7 +21,9 @@ interface ServiceCall { id: string; type: string; status: string; day: string; n
 interface JobWarrantyView {
   jobId: string; quoteId: string | null
   warranty: { id: string | null; name: string; text: string; term: 'lifetime' | 'years' | 'unknown'; years?: number } | null
-  from: 'option' | 'proposal' | 'settings' | 'update' | null
+  from: 'option' | 'proposal' | 'settings' | 'update' | 'change_order' | null
+  /** The approved change order that switched it (no dig <-> dig set). */
+  changeOrder?: { number: number; day: string } | null
   updated: { day: string; by: string; how: string; previousName: string | null } | null
   signed: boolean; start: string | null; end: string | null; endText: string; contract: boolean
   serviceCalls: ServiceCall[]
@@ -92,7 +94,9 @@ export default function JobWarranty({ job }: { job: Job }) {
             </div>
             {w.from === 'update' && w.updated
               ? <p className="text-xs text-green-800 mt-1" data-job-warranty-updated>Warranty updated on {dayText(w.updated.day)}: {w.updated.how === 'accepted' ? 'signed on the warranty update link' : 'acknowledged'} by {w.updated.by}.{w.updated.previousName && w.updated.previousName !== wr.name ? ` Was ${w.updated.previousName}.` : ''} The price and the signed contract are unchanged.</p>
-              : <p className="text-xs text-gray-500 mt-1">{w.from ? FROM[w.from] : ''}</p>}
+              : w.from === 'change_order' && w.changeOrder
+                ? <p className="text-xs text-amber-900 mt-1" data-job-warranty-change-order>Changed by change order CO-{w.changeOrder.number} on {dayText(w.changeOrder.day)}: the install changed, so the warranty on the contract changed with it.</p>
+                : <p className="text-xs text-gray-500 mt-1">{w.from && w.from !== 'change_order' ? FROM[w.from] : ''}</p>}
             <button type="button" className="text-sm text-purple-700 underline min-h-[48px]" onClick={() => setShowText(s => !s)} data-job-warranty-toggle>{showText ? 'Hide the words' : 'Show the words'}</button>
             {showText && <p className="text-sm text-gray-700 whitespace-pre-line border-l-2 border-purple-200 pl-3" data-job-warranty-text>{wr.text}</p>}
           </>

@@ -35,9 +35,9 @@ import {
   fetchMe, login, verifyAndActivate, logout, resendPortalInvite, changePassword, fetchCompany,
   listPortalQuotes, listPortalProjects, listPortalInvoices, listPortalBilling, fetchPortalPapers, portalApiHref, listPortalChangeOrders, signPortalChangeOrder,
   listPortalDocuments, uploadPortalDocument, listPortalPhotos, uploadPortalPhoto, listPortalMedia,
-  listPortalMessages, sendPortalMessage, fileHref, PORTAL_SIGNED_OUT_EVENT,
+  listPortalMessages, sendPortalMessage, fileHref, PORTAL_SIGNED_OUT_EVENT, listPortalServiceRequests, uploadServiceRequestPhoto,
   type PortalUser as PortalAccount, type PortalCompany, type PortalQuote, type PortalProject, type PortalInvoice, type PortalBilling, type PortalPapers,
-  type PortalChangeOrder, type PortalFileRow, type PortalPhotoRow, type PortalMediaRow, type PortalMessage,
+  type PortalChangeOrder, type PortalFileRow, type PortalPhotoRow, type PortalMediaRow, type PortalMessage, type PortalServiceRequest,
 } from './portalApiClient'
 
 const DEFAULT_COMPANY: PortalCompany = { name: 'Getter Done Fence', phone: '', email: '', portal: { accentColor: '', supportEmail: '', supportPhone: '', welcomeMessage: '' } }
@@ -144,6 +144,7 @@ export default function CustomerPortalApp({ route }: { route: string }) {
         {route.startsWith('papers') && <PapersPage accent={accent} />}
         {route.startsWith('documents') && <DocumentsPage session={session} customer={customer} accent={accent} />}
         {route.startsWith('photos') && <PhotosPage session={session} customer={customer} accent={accent} company={company} />}
+        {route.startsWith('service') && <ServiceRequestsPage accent={accent} company={company} />}
         {route.startsWith('messages') && <MessagesPage session={session} customer={customer} accent={accent} />}
         {route.startsWith('account') && <AccountPage session={session} customer={customer} accent={accent} />}
       </main>
@@ -174,6 +175,7 @@ function TopNav({ session, company, accent, onSignedOut }: { session: PortalAcco
     ['papers', 'Contract & Warranty'],
     ['documents', 'Documents'],
     ['photos', 'Photos'],
+    ['service', 'Service Requests'],
     ['messages', 'Messages'],
     ['account', 'Account'],
   ] as const
@@ -470,6 +472,7 @@ function DashboardPage({ session, customer, accent }: { session: PortalAccount; 
           </div>
         )}
         <ChangeOrdersToSign accent={accent} />
+        <OpenServiceRequest accent={accent} />
         {outstanding > 0 && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
             <p className="text-xs font-bold" style={{ color: accent }}>Balance Due</p>
@@ -569,7 +572,7 @@ const coDay = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'l
 /** The dashboard's card: change orders waiting for the customer's signature. */
 function ChangeOrdersToSign({ accent }: { accent: string }) {
   const [n, setN] = useState(0)
-  useEffect(() => { listPortalChangeOrders().then(r => setN((r ?? []).filter(c => c.status === 'sent').length)) }, [])
+  useEffect(() => { listPortalChangeOrders().then(r => setN((r ?? []).filter(c => c.needsSignature ?? c.status === 'sent').length)) }, [])
   if (!n) return null
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm" data-portal-co-waiting>
@@ -586,8 +589,10 @@ function ChangeOrdersPage({ session, accent }: { session: PortalAccount; accent:
   useEffect(() => { void load() }, [])
   if (rows === null) return <p className="text-sm text-gray-500">Loading…</p>
   if (rows === 'error') return <EmptyState emoji="⚠️" title="Could not load your change orders" body="Check your connection and try again." />
-  const open = rows.filter(r => r.status === 'sent')
-  const history = rows.filter(r => r.status !== 'sent')
+  // To sign: sent, or approved verbally with the office and not signed by the customer yet.
+  const toSign = (r: PortalChangeOrder) => r.needsSignature ?? r.status === 'sent'
+  const open = rows.filter(toSign)
+  const history = rows.filter(r => !toSign(r))
   const defaultName = `${session.firstName ?? ''} ${session.lastName ?? ''}`.trim()
   return (
     <div className="space-y-5" data-portal-change-orders>
@@ -618,12 +623,14 @@ function ChangeOrderCard({ co, accent, defaultName, onSigned }: { co: PortalChan
     if (!r.ok) { setError(r.error || 'Could not sign. Please try again.'); return }
     onSigned()
   }
-  const badge = co.status === 'approved' ? ['Approved', 'bg-green-100 text-green-700'] : co.status === 'void' ? ['Cancelled', 'bg-gray-100 text-gray-600'] : ['Waiting for your signature', 'bg-orange-100 text-orange-700']
+  const toSign = co.needsSignature ?? co.status === 'sent'
+  const verbal = co.status === 'approved' && toSign
+  const badge = verbal ? ['Not signed by you yet', 'bg-orange-100 text-orange-700'] : co.status === 'approved' ? ['Approved', 'bg-green-100 text-green-700'] : co.status === 'void' ? ['Cancelled', 'bg-gray-100 text-gray-600'] : ['Waiting for your signature', 'bg-orange-100 text-orange-700']
   return (
     <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3 min-w-0" data-portal-co={co.id} data-portal-co-status={co.status}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs text-gray-400">Change order #{co.number}{co.quote?.fenceStyle ? ` · ${styleLabel(co.quote.fenceStyle)}` : ''}</p>
+          <p className="text-xs text-gray-400">Change order CO-{co.number}{co.contractRev && co.status === 'approved' ? ` · Contract rev ${co.contractRev}` : ''}{co.quote?.fenceStyle ? ` · ${styleLabel(co.quote.fenceStyle)}` : ''}</p>
           {co.reason && <p className="font-semibold text-gray-900 break-words">{co.reason}</p>}
         </div>
         <span className={`shrink-0 inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${badge[1]}`}>{badge[0]}</span>
@@ -643,15 +650,22 @@ function ChangeOrderCard({ co, accent, defaultName, onSigned }: { co: PortalChan
         </tbody>
       </table>
       {co.quote && <p className="text-xs text-gray-500">The original price was {coMoney(co.quote.priceCents)}. This change {co.totalCents < 0 ? 'takes off' : 'adds'} {coMoney(Math.abs(co.totalCents))}.</p>}
-      {co.status === 'approved' && (
+      {co.warrantyAfter && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-900" data-portal-co-warranty>
+          <p className="font-semibold">Your warranty changes{co.warrantyBefore?.name ? ` from ${co.warrantyBefore.name}` : ''} to {co.warrantyAfter.name}</p>
+          <p className="text-xs mt-1 whitespace-pre-line">{co.warrantyAfter.text}</p>
+        </div>
+      )}
+      {verbal && <p className="rounded-lg bg-orange-50 border border-orange-200 px-3 py-2 text-sm text-orange-900" data-portal-co-not-signed>Not signed by you yet. You approved this change with us{co.approvedAt ? ` on ${coDay(co.approvedAt)}` : ''}; please sign it below for your records.</p>}
+      {co.status === 'approved' && !verbal && (
         <p className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-900" data-portal-co-signed>
           {co.signedBy && co.signedAt ? `Approved and signed by ${co.signedBy} on ${coDay(co.signedAt)}.` : co.approvedAt ? `Approved on ${coDay(co.approvedAt)}.` : 'Approved.'}
         </p>
       )}
       {co.status === 'void' && <p className="text-sm text-gray-600">This change order was cancelled and is not part of your contract.</p>}
-      {co.status === 'sent' && (
+      {toSign && co.status !== 'void' && (
         <div className="space-y-3 pt-1" data-portal-co-sign>
-          <p className="text-sm font-semibold text-gray-900">Approve and sign</p>
+          <p className="text-sm font-semibold text-gray-900">{verbal ? 'Sign' : 'Approve and sign'}</p>
           <p className="text-xs text-gray-500">If this change looks right, type your name and sign with your finger. It is added to your contract.</p>
           <label className="block text-sm text-gray-700">Your name
             <input value={name} onChange={e => setName(e.target.value)} autoComplete="name" maxLength={200}
@@ -661,7 +675,7 @@ function ChangeOrderCard({ co, accent, defaultName, onSigned }: { co: PortalChan
           {error && <p className="text-sm text-red-700" role="alert">{error}</p>}
           <button type="button" onClick={sign} disabled={busy} className="w-full min-h-[52px] rounded-xl text-white font-bold disabled:opacity-60"
             style={{ backgroundColor: accent }} data-portal-co-approve>
-            {busy ? 'Sending…' : 'Approve and sign'}
+            {busy ? 'Sending…' : verbal ? 'Sign' : 'Approve and sign'}
           </button>
         </div>
       )}
@@ -1065,6 +1079,89 @@ function PhotosPage({ accent, company }: { session: PortalAccount; customer: Por
           <button onClick={() => setLightboxIdx(null)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center absolute top-4 right-4 text-white text-3xl">×</button>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─────── Warranty and service requests ───────
+
+function dayText(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric' })
+}
+
+/** The dashboard card: the customer's open request and where it is. */
+function OpenServiceRequest({ accent }: { accent: string }) {
+  const [rows] = useServerList(listPortalServiceRequests)
+  const open = Array.isArray(rows) ? rows.filter(r => r.open) : []
+  if (!open.length) return null
+  const r = open[0]
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm" data-portal-service-card={r.id}>
+      <p className="text-xs font-bold" style={{ color: accent }}>Your service request</p>
+      <p className="text-lg font-bold text-gray-900 mt-1">{r.issue}</p>
+      <p className="text-sm text-gray-600 mt-1">{r.status}{r.visitOn ? ` · visit ${dayText(r.visitOn)}` : ''}</p>
+      <a href="#/portal/service" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>{r.canAddPhotos ? 'See it or add photos →' : 'See it →'}</a>
+    </div>
+  )
+}
+
+/**
+ * The customer's warranty and service requests: the issue, the status in
+ * plain words, the visit day, the photos sent, and Add photos while it is
+ * open. The covered or not covered decision only when the office shared it.
+ */
+function ServiceRequestsPage({ accent, company }: { accent: string; company: PortalCompany }) {
+  const [rows, reload] = useServerList(listPortalServiceRequests)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [note, setNote] = useState<{ id: string; ok: boolean; text: string } | null>(null)
+
+  async function add(r: PortalServiceRequest, e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (!files.length) return
+    setBusy(r.id); setNote(null)
+    let ok = 0, last = ''
+    for (const f of files) {
+      const out = await uploadServiceRequestPhoto(r.id, f)
+      if (out.ok) ok++; else last = out.error || 'The upload failed.'
+    }
+    setBusy(null)
+    setNote({ id: r.id, ok: !last, text: last ? `${ok ? `${ok} sent. ` : ''}${last}` : `${ok} sent. Thank you, we will take a look.` })
+    reload()
+  }
+
+  return (
+    <div className="space-y-5" data-portal-service>
+      <h1 className="text-2xl font-bold text-gray-900">Service Requests</h1>
+      {rows === null ? <p className="text-sm text-gray-400 text-center py-10">Loading…</p>
+        : rows === 'error' ? <p className="text-sm text-red-700">Could not load your requests. Check your connection and try again.</p>
+        : rows.length === 0 ? <EmptyState emoji="🛠" title="No service requests" body={`Something wrong with your fence? Call us${company.phone ? ` at ${formatPhone(company.phone)}` : ''} or send us a message, and we will open one.`} />
+        : rows.map(r => (
+          <div key={r.id} className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm space-y-2" data-portal-service-request={r.id} data-open={r.open ? '1' : '0'}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-lg font-bold text-gray-900">{r.issue}</p>
+                <p className="text-xs text-gray-500">Opened {dayText(r.madeOn)}</p>
+              </div>
+              <span className="text-xs font-bold px-2 py-1 rounded-full" style={{ backgroundColor: `${accent}14`, color: accent }} data-portal-service-status>{r.status}</span>
+            </div>
+            {r.visitOn && <p className="text-sm text-gray-700">Visit scheduled: {dayText(r.visitOn)}</p>}
+            {r.decision && (
+              <p className={`text-sm rounded-xl px-3 py-2 ${r.decision.covered ? 'bg-green-50 text-green-900' : 'bg-gray-100 text-gray-800'}`} data-portal-service-decision={r.decision.covered ? 'covered' : 'not_covered'}>
+                {r.decision.covered ? 'Covered by your warranty: no charge.' : 'Not covered by the warranty.'}{r.decision.reason ? ` ${r.decision.reason}` : ''}
+              </p>
+            )}
+            <p className="text-sm text-gray-600" data-portal-service-photos={r.photosSent}>{r.photosSent ? `${r.photosSent} photo${r.photosSent === 1 ? '' : 's'} or video${r.photosSent === 1 ? '' : 's'} sent` : 'No photos sent yet'}</p>
+            {r.canAddPhotos && (
+              <label className="inline-block text-white text-sm font-semibold px-4 py-3 rounded-lg cursor-pointer hover:opacity-90" style={{ backgroundColor: accent }} data-portal-service-add>
+                {busy === r.id ? 'Sending…' : '+ Add photos or a short video'}
+                <input type="file" multiple accept="image/*,video/*" className="hidden" onChange={e => add(r, e)} disabled={busy === r.id} />
+              </label>
+            )}
+            {note?.id === r.id && <p className={`text-sm ${note.ok ? 'text-green-700' : 'text-red-700'}`} role="status">{note.text}</p>}
+          </div>
+        ))}
     </div>
   )
 }

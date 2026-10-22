@@ -31,6 +31,14 @@ export interface QuoteForValue {
 export interface JobForValue {
   quoteId: string
   completedDate?: string | null
+  /** Approved change orders on the job's quote, in dollars (the server keeps it): a sold card is worth its contract. */
+  changeOrderTotal?: number
+}
+
+/** A sold quote's value: the signed price plus the approved change orders on its job. */
+function soldValue(q: QuoteForValue, jobs: JobForValue[]): number {
+  const co = q.status === 'SOLD' ? jobs.find(j => j.quoteId === q.id)?.changeOrderTotal ?? 0 : 0
+  return Math.round(((q.finalPrice || 0) + co) * 100) / 100
 }
 
 const latest = <T extends { date: string }>(list: T[]): T | undefined =>
@@ -59,7 +67,7 @@ export function relevantQuote(lead: LeadForValue, quotes: QuoteForValue[], jobs:
 
 export function leadValue(lead: LeadForValue, quotes: QuoteForValue[], jobs: JobForValue[], stages: PipelineStageDef[]): number {
   const q = relevantQuote(lead, quotes, jobs, stages)
-  if (q) return q.finalPrice || 0
+  if (q) return soldValue(q, jobs)
   return lead.quotePrice || lead.jobValue || 0
 }
 
@@ -94,7 +102,7 @@ export function pipelineMetrics(leads: LeadForValue[], quotes: QuoteForValue[], 
       sold += v; soldCount++
       const q = relevantQuote(l, quotes, jobs, stages)
       if (q && (q.date || '') >= since) soldInPeriod++
-      if (q && q.status === 'SOLD' && (q.date || '').slice(0, 4) === year) soldThisYear += q.finalPrice || 0
+      if (q && q.status === 'SOLD' && (q.date || '').slice(0, 4) === year) soldThisYear += soldValue(q, jobs)
     } else if (isOpenStage(stages, l.stage)) {
       openCount++
       pipelineValue += v

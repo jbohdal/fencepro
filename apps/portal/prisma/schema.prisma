@@ -2302,6 +2302,8 @@ model MediaItem {
   source      String    @default("staff")
   /// Made smaller after its job was Complete long enough (lib/mediaShrink.ts).
   shrunkAt    DateTime?
+  /// A warranty or service request's photos (ServiceTicket): from the customer's link or portal, Internal.
+  serviceTicketId String?
   deletedAt   DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -2309,6 +2311,7 @@ model MediaItem {
   @@index([accountId, quoteKey])
   @@index([accountId, jobId])
   @@index([accountId, customerId])
+  @@index([serviceTicketId])
 }
 
 // A resumable upload in progress: bytes arrive in chunks, so a big video
@@ -2772,8 +2775,27 @@ model ChangeOrder {
   signedAt        DateTime?
   signedIp        String?
   signedUserAgent String?
-  /// portal | link
+  /// portal | link | in_person
   signedVia       String?
+  /// The work after this change, from the yard drawing, priced on the server
+  /// (lib/changeOrderWork.ts): the quote's fields as they become (style, runs,
+  /// layout, gates, sections, pull sheet with costs, costs) and the inputs it
+  /// was priced from. Null: typed lines only (the work as before).
+  work           Json?
+  /// What the change does to the quoted cost, in cents (owner and office only):
+  /// { materialCents, laborCents, tearOutCents, totalCents }. Null: not known (typed lines).
+  costDelta      Json?
+  /// The contract's warranty before and after, when the change switches it
+  /// (no dig <-> dig set): { id, name, text, term, years }. Null: unchanged.
+  warrantyBefore Json?
+  warrantyAfter  Json?
+  /// Approved verbally by the owner or office: who, when and why. It counts as
+  /// approved for the job; the customer's copy stays "not signed by you yet".
+  verbalBy       String?
+  verbalAt       DateTime?
+  verbalReason   String?
+  /// The contract revision it made when approved (rev 1 is the contract as signed).
+  contractRev    Int?
   version    Int       @default(1)
   /// Deleted (owner or admin): in Settings > Deleted Records until restored (lib/deletion.ts). archivedAt is the everyday Archive.
   deletedAt DateTime?
@@ -3384,4 +3406,101 @@ model BillingLog {
   job SavedJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([accountId, jobId])
+}
+
+// ── Warranty and service requests (lib/serviceTickets.ts, Oct 22 2026) ──
+//
+// A past customer calls about their fence: a ticket on the job, with the
+// issue, the job's warranty as it was when the request was made, a hint from
+// the warranty rules (lib/serviceTicketModel.ts), photos from the customer
+// (a no login link, /p/s/<link>, or the portal), the office's covered or not
+// covered decision with a reason, the service appointment that books it, and
+// for covered work, what fixing it cost (ServiceWorkCost).
+
+model ServiceTicket {
+  id                String    @id @default(uuid())
+  accountId         String
+  jobId             String
+  crmContactId      String?
+  quoteId           String?
+  /// leaning_post | damaged_section | gate | storm_tree | other
+  issue             String
+  notes             String    @default("")
+  /// new | photos_requested | photos_received | scheduled | fixed | closed
+  stage             String    @default("new")
+  /// The job's warranty when the request was made.
+  warrantyId        String?
+  warrantyName      String    @default("")
+  warrantyText      String    @default("")
+  /// lifetime | years | unknown | none
+  warrantyTerm      String    @default("none")
+  warrantyYears     Int?
+  installDate       String?
+  warrantyEnd       String?
+  /// likely_covered | likely_not_covered | needs_look, and why (serviceTicketModel.ts HINT_RULES)
+  hint              String    @default("needs_look")
+  hintWhy           String    @default("")
+  /// covered | not_covered; null until the owner or office decide.
+  decision          String?
+  decisionReason    String    @default("")
+  decisionBy        String?
+  decisionAt        DateTime?
+  /// The customer portal shows the decision and its reason only when this is on.
+  decisionShared    Boolean   @default(false)
+  /// The service appointment that books the visit.
+  appointmentId     String?
+  /// A not covered ticket's repair quote (the first repair quote for the customer after the ticket).
+  repairQuoteId     String?
+  /// The no login photo link, /p/s/<uploadToken>, open until uploadExpiresAt (14 days from the last "Ask for photos").
+  uploadToken       String?   @unique
+  uploadExpiresAt   DateTime?
+  photosRequestedAt DateTime?
+  photosReceivedAt  DateTime?
+  scheduledAt       DateTime?
+  fixedAt           DateTime?
+  closedAt          DateTime?
+  /// [{ at, by, kind, text }] oldest first: made, photos asked, photos in, decided, booked, fixed, closed.
+  history           Json      @default("[]")
+  createdBy         String    @default("")
+  createdById       String?
+  version           Int       @default(1)
+  deletedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([accountId, stage])
+  @@index([jobId])
+  @@index([crmContactId])
+}
+
+/// What covered warranty work cost: crew hours and materials entered when the
+/// ticket is Fixed, costed like job costing (the hourly rate saved when the job
+/// was signed, else Settings' rate that day; each part's landed cost on the day
+/// fixed). Frozen as entered: a later rate change never rewrites it.
+model ServiceWorkCost {
+  id              String   @id @default(uuid())
+  accountId       String
+  ticketId        String   @unique
+  jobId           String
+  /// YYYY-MM-DD
+  fixedOn         String
+  /// The job's style and who installed it (SavedJob.crewAssigned), for the report.
+  fenceStyle      String   @default("")
+  installer       String   @default("")
+  warrantyName    String   @default("")
+  /// [{ name, hours }]
+  crew            Json     @default("[]")
+  hours           Float    @default(0)
+  hourlyCostCents Int      @default(0)
+  hourlySource    String   @default("")
+  laborCents      Int      @default(0)
+  /// [{ inventoryItemId, part, qty, unitCents, totalCents, source }]
+  materials       Json     @default("[]")
+  materialCents   Int      @default(0)
+  totalCents      Int      @default(0)
+  enteredBy       String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([accountId, fixedOn])
 }

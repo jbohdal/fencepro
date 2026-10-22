@@ -42,6 +42,8 @@ import { openedBadgeText } from './proposalOpened'
 import { OUTCOME_LABEL, LOST_REASON_LABEL } from './followUpRules'
 import { DateChips, TextTemplatesSheet, dayLabel, kindWord } from './FollowUpPrompt'
 import PaymentsPanel from './Payments'
+import { ChangeOrderButton, isSignedForChange } from './ChangeOrders'
+import { PastCustomerBadge, ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
 
 const fmtUSD = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const STATUS: Record<string, string> = { DRAFT: 'bg-gray-100 text-gray-700', SENT: 'bg-blue-100 text-blue-800', SOLD: 'bg-green-100 text-green-800', LOST: 'bg-red-100 text-red-800' }
@@ -125,6 +127,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
             <h2 className="text-xl font-bold text-gray-900 truncate">{name}</h2>
             <p className="text-sm text-gray-600 truncate">{[stageName(lead.stage), address].filter(Boolean).join(' · ')}</p>
             {phone && <a href={telHref(phone)} onClick={startCall} className="flex w-fit items-center text-sm font-medium text-blue-600 hover:underline" data-card-window-phone>{formatPhone(phone)}</a>}
+            <div className="mt-1 empty:hidden"><PastCustomerBadge customerId={lead.customerId} /></div>
             <SaveStatus keys={lead.customerId ? [`customer:${lead.customerId}`] : []} also={op => cardChange(lead.id)(op) || (!!lead.customerId && noteChangeFor(lead.customerId)(op))} className="mt-1" />
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="btn btn-quiet btn-icon shrink-0"><X size={22} aria-hidden="true" /></button>
@@ -136,6 +139,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
           <button type="button" onClick={startQuote} className="btn btn-primary w-full h-14 text-lg" data-card-new-quote>
             <FilePlus2 size={22} aria-hidden="true" /> New quote
           </button>
+          {lead.customerId && <div className="space-y-2 empty:hidden" data-card-service><ServiceRequestButton customerId={lead.customerId} /><ServiceTicketList customerId={lead.customerId} /></div>}
           <div className="grid grid-cols-4 gap-2">
             <a href={phone ? telHref(phone) : undefined} onClick={startCall} className={`${action} ${phone ? '' : off}`} data-card-call><Phone size={20} aria-hidden="true" />Call</a>
             <a href={phone ? smsLink(phone, '') : undefined} onClick={startText} className={`${action} ${phone ? '' : off}`} data-card-text><MessageSquare size={20} aria-hidden="true" />Text</a>
@@ -199,6 +203,12 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
                 ))}
               </ul>
             )}
+            {/* A change order on a signed quote: the yard drawing or typed lines (ChangeOrders.tsx). */}
+            {quotes.filter(isSignedForChange).map(q => (
+              <div key={`co-${q.id}`} className="px-4 pb-3" data-card-change-order>
+                <ChangeOrderButton quoteId={q.id} customerName={name} className="btn btn-secondary w-full" label={quotes.filter(isSignedForChange).length > 1 ? `Change order (${fmtUSD(q.finalPrice || 0)} quote)` : 'Change order'} />
+              </div>
+            ))}
           </section>
 
           {/* Payments on a sold deal: the schedule and "Payment received" (Payments.tsx). */}

@@ -22,8 +22,8 @@ describe('customer pull sheets', () => {
 
   test('an approved change order that changed the work is named, with what it changed', () => {
     const note = changeNoteOf([{ number: 2, approvedAt: new Date('2026-10-21T15:00:00Z'), reason: 'Add a gate', scope: { footageFt: 20, walkGates: 1, dblGates: 0, sections: 3 }, lines: [] }])
-    expect(note).toBe('Change order #2 (approved October 21, 2026): +20 ft, +3 sections, +1 walk gate. This pull sheet is as signed and does not include that change.')
-    expect(changeNoteOf([{ number: 1, approvedAt: null, reason: '', scope: null, lines: [{ id: 'a', description: 'Remove 8 ft', amountCents: -40000 }] }])).toMatch(/^Change order #1: Remove 8 ft\./)
+    expect(note).toBe('Change order CO-2 (approved October 21, 2026): +20 ft, +3 sections, +1 walk gate. This pull sheet is as signed and does not include that change.')
+    expect(changeNoteOf([{ number: 1, approvedAt: null, reason: '', scope: null, lines: [{ id: 'a', description: 'Remove 8 ft', amountCents: -40000 }] }])).toMatch(/^Change order CO-1: Remove 8 ft\./)
     expect(changeNoteOf([])).toBeNull()
   })
 

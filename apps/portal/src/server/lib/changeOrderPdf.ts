@@ -30,13 +30,18 @@ export interface ChangeOrderPdfInput {
   originalCents: number
   signedBy: string
   signedVia: string | null
+  /** The contract revision it made (rev 1 is the contract as signed). */
+  contractRev?: number | null
+  /** The warranty it changes the contract to (no dig <-> dig set), and the one before. */
+  warrantyBefore?: { name: string; text: string } | null
+  warrantyAfter?: { name: string; text: string } | null
   signature: Buffer | null
   record: SignedRecord
 }
 
-/** "Change order #2: total $450.00" (a credit: "total credit -$75.00"). */
+/** "Change order CO-2: total $450.00" (a credit: "total credit -$75.00"). */
 export function changeOrderAcceptedText(number: number, totalCents: number): string {
-  return `Change order #${number}: ${totalCents < 0 ? 'total credit' : 'total'} ${usd(totalCents)}`
+  return `Change order CO-${number}: ${totalCents < 0 ? 'total credit' : 'total'} ${usd(totalCents)}`
 }
 
 export function changeOrderPdf(c: ChangeOrderPdfInput): Promise<Buffer> {
@@ -55,7 +60,8 @@ export function changeOrderPdf(c: ChangeOrderPdfInput): Promise<Buffer> {
     doc.font('Helvetica-Bold').fontSize(18).fillColor(PURPLE).text(c.company.name, L + 68, 46)
     doc.font('Helvetica').fontSize(10).fillColor(GRAY).text([phoneText(c.company.phone), c.company.email].filter(Boolean).join('  ·  '), L + 68, 68)
     doc.moveTo(L, 108).lineTo(L + W, 108).lineWidth(2).strokeColor(PURPLE).stroke().lineWidth(1)
-    doc.font('Helvetica-Bold').fontSize(24).fillColor(INK).text(`Change Order #${c.number}`, L, 124, { width: W, align: 'center' })
+    doc.font('Helvetica-Bold').fontSize(24).fillColor(INK).text(`Change Order CO-${c.number}`, L, 124, { width: W, align: 'center' })
+    if (c.contractRev) doc.font('Helvetica').fontSize(11).fillColor(GRAY).text(`Contract rev ${c.contractRev}`, L, doc.y + 2, { width: W, align: 'center' })
     doc.moveDown(0.8)
     const facts: Array<[string, string]> = [['Customer', c.customerName], ['Property', c.address || 'Not given']]
     for (const [k, v] of facts) {
@@ -86,12 +92,19 @@ export function changeOrderPdf(c: ChangeOrderPdfInput): Promise<Buffer> {
     doc.font('Helvetica').fontSize(10).fillColor(GRAY).text(
       `The original price was ${usd(c.originalCents)}. This change ${c.totalCents < 0 ? 'takes off' : 'adds'} ${usd(Math.abs(c.totalCents))}. It is added to the contract.`, L, doc.y, { width: W })
 
+    if (c.warrantyAfter) {
+      heading('Your warranty changes')
+      doc.font('Helvetica').fontSize(10).fillColor(INK).text(`${c.warrantyBefore?.name ? `From ${c.warrantyBefore.name} to ` : 'To '}${c.warrantyAfter.name}, because the way the fence is installed changes.`, L, doc.y, { width: W })
+      doc.moveDown(0.3)
+      doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(c.warrantyAfter.text, L, doc.y, { width: W })
+    }
+
     heading('Signed', 240)
     const sy = doc.y
     if (c.signature) { try { doc.image(c.signature, L, sy, { fit: [240, 70] }) } catch { /* unreadable ink */ } }
     doc.moveTo(L, sy + 76).lineTo(L + 260, sy + 76).strokeColor(INK).stroke()
     doc.font('Helvetica-Bold').fontSize(11).fillColor(INK).text(c.signedBy, L, sy + 82, { width: W })
-    doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(`Approved and signed ${c.signedVia === 'portal' ? 'in the customer portal' : 'on the change order link'}`, L, doc.y, { width: W })
+    doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(`Approved and signed ${c.signedVia === 'portal' ? 'in the customer portal' : c.signedVia === 'in_person' ? 'in person' : 'on the change order link'}`, L, doc.y, { width: W })
     drawSignedRecord(doc, L, W, c.signedBy, c.record)
     doc.moveDown(1.5)
     doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(`Thank you for choosing ${c.company.name}.${c.company.phone ? ` Questions: ${phoneText(c.company.phone)}.` : ''}`, L, doc.y, { width: W, align: 'center' })

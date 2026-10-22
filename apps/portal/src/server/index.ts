@@ -109,6 +109,8 @@ import { ensureStagingSheetRemovedAll } from './lib/stagingSheetCleanup.js'
 import { ensureNoOrphanPendingCallsAll } from './lib/loginDelete.js'
 import paymentRoutes from './routes/payments.js'
 import { receiptPublic } from './routes/receiptPublic.js'
+import { servicePhotosPublic } from './routes/servicePhotosPublic.js'
+import serviceTicketRoutes from './routes/serviceTickets.js'
 import { portalPublicApi, portalPublicPage } from './routes/portalPublic.js'
 import { adoptHandMadeBillingAll } from './lib/billingAdoption.js'
 
@@ -259,6 +261,7 @@ app.use('/p/w', walkthroughPublic)
 app.use('/p/co', changeOrderPublic)  // A change order's customer link (routes/changeOrderPublic.ts)
 app.use('/p/wu', warrantyUpdatePublic)  // A warranty update's customer link (routes/warrantyUpdatePublic.ts)
 app.use('/p/r', receiptPublic)  // A payment receipt's customer link and PDF (routes/receiptPublic.ts)
+app.use('/p/s', servicePhotosPublic)  // A service request's no login photo link (routes/servicePhotosPublic.ts)
 app.use('/p/portal/api', portalPublicApi)  // The customer portal's API through the public door: customer routes only (routes/portalPublic.ts)
 app.use('/p/portal', portalPublicPage)     // The customer portal's page through the public door
 app.use('/p', publicProposal)
@@ -266,6 +269,7 @@ app.use('/api/saved-jobs', savedJobRoutes)
 app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff after install (lib/jobCosting.ts)
 app.use('/api/pull-sheets', pullSheetRoutes)  // A customer's pull sheets from their quotes and jobs (lib/customerPullSheets.ts)
 app.use('/api/warranties', warrantyRoutes)  // A job's warranty, service call coverage, the signed contract PDF (lib/warranties.ts)
+app.use('/api/service-tickets', serviceTicketRoutes)  // Warranty and service requests (lib/serviceTickets.ts)
 app.use('/api/signed-documents', signedDocumentRoutes)  // Stored signed contract and change order PDFs (lib/signedDocuments.ts)
 app.use('/api/change-orders', changeOrderRoutes)  // Change orders on signed quotes (lib/changeOrders.ts)
 app.use('/api/payments', paymentRoutes)  // Payment schedules, payments and receipts (lib/contractBilling.ts)
