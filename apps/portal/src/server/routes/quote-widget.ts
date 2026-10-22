@@ -36,6 +36,7 @@ import { recordWebsiteTextConsent } from '../lib/textConsent.js'
 import { audit } from '../lib/auditLog.js'
 import { locate } from '../lib/appointments.js'
 import { suggest } from '../lib/addressIndex.js'
+import { tiles } from './aerialTiles.js'
 import { plainZod } from '../lib/plainZod.js'
 import {
   widgetSettingsOf, priceDrawing, optionView, submitDrawnQuote, readDraft, saveDraft, newDraftId, DRAFT_ID, DRAFT_DAYS, DrawingProblem,
@@ -120,7 +121,10 @@ api.get('/place', readLimiter, async (req, res) => {
 // Address suggestions as the customer types (Marion County's property list, then the Census lookup).
 api.get('/suggest', readLimiter, async (req, res) => {
   const q = String(req.query.q || '').slice(0, 200).trim()
-  res.json({ success: true, data: q.length < 3 ? [] : (await suggest(q, 5)).map(s => ({ formatted: s.formatted, line1: s.line1, city: s.city, state: s.state, zip: s.zip, lat: s.lat, lng: s.lng, source: s.source })) })
+  const list = q.length < 3 ? [] : await suggest(q, 5)
+  // One or two addresses left: the first one's photo starts now (NAIP takes about 20 seconds the first time; routes/aerialTiles.ts).
+  if (list.length >= 1 && list.length <= 2 && Number.isFinite(list[0].lat) && Number.isFinite(list[0].lng)) tiles.warm(list[0].lat, list[0].lng)
+  res.json({ success: true, data: list.map(s => ({ formatted: s.formatted, line1: s.line1, city: s.city, state: s.state, zip: s.zip, lat: s.lat, lng: s.lng, source: s.source })) })
 })
 
 // ── Drafts ───────────────────────────────────────────────────────────────────

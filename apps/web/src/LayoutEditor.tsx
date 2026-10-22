@@ -11,6 +11,8 @@ import SitePlan, { type PlanPin } from './SitePlan'
 import { centeredVertices, buildPlan, returnHouseEnd, setHouseMeets, clearHouseMeets, canMoveHouse } from './sitePlanGeometry'
 import { freezeDrawing, placeNewSide, keepClear, setCornerAngle, cornerAngleAt, incomingSide, setTee, resetDrawing, isEdited } from './yardDrawing'
 import { bakePhoto, loadImage } from './aerialBake'
+import { again, prefetchAerial } from './aerialTiles'
+import { AerialCredit } from './freeMap'
 import { photoBackdrop, photoView, withPhotoView, lineUpRotation, normDeg, stepDeg, turnAbout, planMiddle, FRAME_PX } from './sitePlanPhoto'
 
 // The website quote's drawing tool (Leaflet), loaded only when Draw on photo is opened.
@@ -111,7 +113,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     // Every tile of it (each is tried twice; the photo service sometimes drops one).
     let live = true
     const urls = backdrop?.tiles?.map(t => t.href) ?? [photo]
-    Promise.all(urls.map(u => loadImage(u, 45_000).then(i => i ?? loadImage(`${u}&again=1`, 45_000)))).then(imgs => {
+    Promise.all(urls.map(u => loadImage(u, 70_000).then(i => i ?? loadImage(again(u, 1), 70_000)))).then(imgs => {
       if (!live) return
       if (imgs.some(Boolean)) setPhotoReady(photo)
       else setAerialMsg('The aerial photo did not load. Try again in a minute.')
@@ -326,6 +328,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     setAerialMsg('Finding the address…')
     const at = await lookupPosition(aerialAddress.trim()).catch(() => null)
     if (!at) { setAerialMsg('That address was not found. Check it, or add the city and ZIP.'); return }
+    prefetchAerial(at.lat, at.lng, { w: 800, h: 800 })
     setAerialMsg('')
     // Enough photo around the point for the whole yard, with room to drag.
     const pts = centeredVertices(layout!)
@@ -424,7 +427,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           onGateDistanceTap={locked ? undefined : (id, which) => { setOpen(id); setPad({ sideId: id, field: which === 'before' ? 'gateBefore' : 'gateAfter' }) }}
         />
         {photo && photoReady !== photo && !aerialMsg && (
-          <p className="absolute inset-x-0 top-8 mx-auto w-fit bg-white/90 rounded-lg px-3 py-1.5 text-sm text-gray-700 shadow">Loading the aerial photo. It can take 20 seconds.</p>
+          <p className="absolute inset-x-0 top-8 mx-auto w-fit bg-white/90 rounded-lg px-3 py-1.5 text-sm text-gray-700 shadow">Loading the aerial photo…</p>
         )}
       </div>
       {planNotes.map((n, k) => <p key={k} className="text-sm text-amber-900 bg-amber-50 rounded-lg px-3 py-2" data-plan-note>{n}</p>)}
@@ -506,7 +509,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
         )}
         {aerialMsg && <p className="w-full text-sm text-amber-800">{aerialMsg}</p>}
       </div>
-      {aerialOn && <p className="text-xs text-gray-500 -mt-1">Aerial photo: USGS National Map (NAIP), public domain.</p>}
+      {aerialOn && <AerialCredit className="text-xs text-gray-500 -mt-1" prefix="Aerial photo" />}
       </div>
 
       <div className="space-y-3" data-layout-sides-col>

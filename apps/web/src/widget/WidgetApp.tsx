@@ -3,7 +3,8 @@
  * Jonathan calls it the EZ Budget). No sign in, $0 to run:
  *
  *   1 Address   the county's property list suggests it as it is typed; the
- *               USGS aerial photo opens on the house right away
+ *               aerial photo (Esri, or USGS NAIP) starts loading the moment
+ *               an address is picked, and opens on the house
  *   2 Draw      tap the fence on the photo (DrawMap.tsx); lengths are true
  *               ground distance, any side can be typed; gates on a side
  *   3 Fence     material (with a picture), color, height
@@ -24,6 +25,8 @@ import DrawMap from './DrawMap'
 import { totalFt, toYardLayout, type LatLng, type WidgetDrawing } from '../widgetDraw'
 import { photoBackdrop } from '../sitePlanPhoto'
 import { bakePhoto } from '../aerialBake'
+import { aerialConfig, prefetchAerial } from '../aerialTiles'
+import { AerialCredit } from '../freeMap'
 import { TEXT_CONSENT_WORDING, TEXT_CONSENT_TERMS_URL } from '../../../portal/src/server/lib/textConsentModel'
 
 /** The end of the checkbox words, shown as the link to the terms. */
@@ -112,6 +115,7 @@ export default function WidgetApp() {
 
   // Settings, materials, and a draft to pick up again (?draft= first, else the cookie).
   useEffect(() => {
+    void aerialConfig()  // which photo source comes first, known before an address is picked
     getJson<{ materials: Material[]; onHold?: { label: string; message: string; phone: string } | null; settings?: { showPriceBeforeContact?: boolean } }>(`${API}/config`)
       .then(j => { setMaterials(j.materials); setOnHold(j.onHold ?? null); setPriceFirst(!!j.settings?.showPriceBeforeContact) })
       .catch(e => setLoadError(String(e.message || e)))
@@ -179,6 +183,8 @@ export default function WidgetApp() {
   }, [at?.lat, at?.lng])  // eslint-disable-line react-hooks/exhaustive-deps
 
   function goTo(p: LatLng, source: string, addr: string) {
+    // The photo starts now: the soft tiles first, then the sharp ones for the drawing view.
+    prefetchAerial(p.lat, p.lng, { w: Math.min(window.innerWidth, 560), h: Math.min(Math.max(window.innerHeight * 0.58, 320), 560) })
     setAt(p); setAtSource(source)
     setDrawing(d => (d && d.address === addr ? { ...d, at: p } : { v: 1, address: addr, at: p, runs: [] }))
     setPlaceMsg(''); setStep(1)
@@ -292,6 +298,7 @@ export default function WidgetApp() {
               {sugg.map(s => (
                 <li key={s.formatted}>
                   <button type="button" className="w-full text-left px-4 min-h-[52px] py-2" data-w-suggestion
+                    onPointerDown={() => { if (Number.isFinite(s.lat) && Number.isFinite(s.lng)) prefetchAerial(s.lat, s.lng, { w: Math.min(window.innerWidth, 560), h: Math.min(Math.max(window.innerHeight * 0.58, 320), 560) }) }}
                     onClick={() => { typedAddress.current = false; setAddress(s.formatted); setSugg([]); setNoSugg(false); if (Number.isFinite(s.lat) && Number.isFinite(s.lng)) goTo({ lat: s.lat, lng: s.lng }, s.source || '', s.formatted) }}>
                     <span className="block font-medium text-gray-900">{s.line1}</span>
                     <span className="block text-xs text-gray-500">{s.city}, FL {s.zip}</span>
@@ -310,7 +317,7 @@ export default function WidgetApp() {
         <section className="space-y-3" data-w-step="draw">
           <DrawMap at={at} drawing={drawing} onChange={setDrawing} snap={snap} onSnap={setSnap} parcel={parcel}
             houseAt={atSource === 'county' ? at : null} onActiveChange={setStillDrawing} />
-          <p className="text-xs text-gray-500">Photo: USGS National Map (NAIP), public domain. Lot lines: Marion County, shown as a guide.</p>
+          <AerialCredit className="text-xs text-gray-500" extra="Lot lines: Marion County, shown as a guide." />
           <button type="button" className="btn btn-primary btn-lg w-full" disabled={!drawn} onClick={() => setStep(2)} data-w-next>
             {stillDrawing ? 'Tap Done when the fence is drawn' : runsDrawn.length ? `Next: the fence (${feet.toLocaleString('en-US')} ft)` : 'Draw the fence first'}
           </button>

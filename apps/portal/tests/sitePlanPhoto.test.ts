@@ -16,7 +16,16 @@ import {
   photoView, withPhotoView, planShift, planMiddle, photoBackdrop, gpsToPlan, headingOnPhoto, groundToFrame,
   FRAME_PX, PHOTO_PAD, MERCATOR_M_PER_PX_Z0, photoTiles,
 } from '../../web/src/sitePlanPhoto'
-import { naipTileUrl, NAIP_EXPORT, NAIP_MAX_NATIVE_ZOOM } from '../../web/src/sitePlanGeometry'
+import { naipTileUrl, NAIP_MAX_NATIVE_ZOOM } from '../../web/src/sitePlanGeometry'
+
+/** Our own tile address (/p/tiles/<source>/z/x/y.jpg): its zoom and tile, and the tile's Mercator box. */
+const SHARP = /^\/p\/tiles\/aerial\/(\d+)\/(\d+)\/(\d+)\.jpg$/
+function tileOf(href: string) {
+  const m = SHARP.exec(href)!
+  const [z, x, y] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  const world = 2 * Math.PI * 6378137, span = world / 2 ** z, x0 = -world / 2 + x * span, y1 = world / 2 - y * span
+  return { z, x, y, bbox: [x0, y1 - span, x0 + span, y1] }
+}
 
 const OCALA = { lat: 29.19, lng: -82.14 }
 const ft = (n: number) => n * 12
@@ -66,9 +75,9 @@ describe('true ground scale of the photo', () => {
     expect(bd.sizePx).toBe(FRAME_PX)
     expect(bd.imagePx).toBe(FRAME_PX * PHOTO_PAD)
     // Asked for as zoom-19 map tiles (the photo's real resolution), never more.
-    const sharp = bd.tiles!.filter(t => t.href.startsWith(NAIP_EXPORT)), soft = bd.tiles!.filter(t => !t.href.startsWith(NAIP_EXPORT))
+    const sharp = bd.tiles!.filter(t => SHARP.test(t.href)), soft = bd.tiles!.filter(t => !SHARP.test(t.href))
     expect(sharp.length).toBeGreaterThan(4)
-    expect(sharp.every(t => t.href.includes('size=256%2C256'))).toBe(true)
+    expect(sharp.every(t => tileOf(t.href).z === 19)).toBe(true)
     // Under them, the soft zoom-16 tiles (drawn first), only seen where a sharp tile is missing.
     expect(soft.length).toBeGreaterThan(0)
     expect(soft.every(t => /USGSImageryOnly\/MapServer\/tile\/16\//.test(t.href))).toBe(true)
@@ -83,14 +92,12 @@ describe('true ground scale of the photo', () => {
 })
 
 describe('one photo source, never enlarged', () => {
-  test('the quote photo and the map tiles: the same NAIP service, the same closest zoom (19)', () => {
+  test('the quote photo and the map tiles: the same photo (our /p/tiles), the same closest zoom (19)', () => {
     expect(NAIP_MAX_NATIVE_ZOOM).toBe(19)
-    // A zoom-19 tile is 256 px of 0.2986 Mercator meters: the service's own pixel (0.3 m).
-    const t = new URL(naipTileUrl(19, 142518, 217669))
-    expect(t.origin + t.pathname).toBe(NAIP_EXPORT)
-    const [x0, y0, x1, y1] = t.searchParams.get('bbox')!.split(',').map(Number)
+    // A zoom-19 tile is 256 px of 0.2986 Mercator meters: NAIP's own pixel (0.3 m).
+    expect(naipTileUrl(19, 142518, 217669)).toBe('/p/tiles/aerial/19/142518/217669.jpg')
+    const [x0, y0, x1, y1] = tileOf(naipTileUrl(19, 142518, 217669)).bbox
     expect(x1 - x0).toBeCloseTo(76.437, 2); expect(y1 - y0).toBeCloseTo(76.437, 2)
-    expect(t.searchParams.get('size')).toBe('256,256')
     // Ocala's tile at zoom 19 has Ocala in it.
     const lng = (x0 / 6378137) * 180 / Math.PI
     expect(lng).toBeCloseTo(-82.14, 2)
@@ -99,8 +106,7 @@ describe('one photo source, never enlarged', () => {
       const f = photoGroundFtPerPx(OCALA.lat, OCALA.lng, halfM, 1200)
       const tiles = photoTiles(OCALA.lat, OCALA.lng, halfM, f)
       for (const tl of tiles) {
-        const u = new URL(tl.href)
-        const [bx0, , bx1] = u.searchParams.get('bbox')!.split(',').map(Number)
+        const [bx0, , bx1] = tileOf(tl.href).bbox
         expect(Math.log2(MERCATOR_M_PER_PX_Z0 / ((bx1 - bx0) / 256))).toBeCloseTo(NAIP_MAX_NATIVE_ZOOM, 9)
         // A tile's ground width over its drawn width is the drawing's scale.
         expect(((bx1 - bx0) * Math.cos(OCALA.lat * Math.PI / 180) / 0.3048) / tl.size).toBeCloseTo(f, 9)
@@ -113,7 +119,7 @@ describe('one photo source, never enlarged', () => {
       const world = 2 * Math.PI * 6378137, tileM = world / 2 ** 19
       const c = toMercator(OCALA.lat, OCALA.lng)
       const hold = tiles.find(t => t.x <= 0 && t.x + t.size > 0 && t.y <= 0 && t.y + t.size > 0)!
-      const hb = new URL(hold.href).searchParams.get('bbox')!.split(',').map(Number)
+      const hb = tileOf(hold.href).bbox
       expect(-hold.x / hold.size).toBeCloseTo((c.x - hb[0]) / tileM, 6)
       expect(-hold.y / hold.size).toBeCloseTo((hb[3] - c.y) / tileM, 6)
     }
@@ -245,7 +251,7 @@ describe('the drawing kept for the proposal and crew packet', () => {
     const l = withPhotoView(onPhoto(backyard()), { rotDeg: -15 })
     const svg = renderToStaticMarkup(createElement(SitePlan, { layout: l, result: deriveLayout(l), aerial: photoBackdrop(l) }))
     expect(svg).toContain('transform="translate(400 400) rotate(-15)"')
-    expect((svg.match(/<image href="https:\/\/(imagery|basemap)\.nationalmap\.gov/g) ?? []).length).toBe(photoBackdrop(l)!.tiles!.length)
+    expect((svg.match(/<image href="(\/p\/tiles\/aerial\/|https:\/\/basemap\.nationalmap\.gov)/g) ?? []).length).toBe(photoBackdrop(l)!.tiles!.length)
     const plain = renderToStaticMarkup(createElement(SitePlan, { layout: backyard(), result: deriveLayout(backyard()) }))
     expect(plain).not.toContain('data-plan-north')
     expect(plain).not.toContain('data-photo-rotation')

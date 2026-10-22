@@ -18,6 +18,7 @@
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, chromium } from 'playwright'
+import { SHARP_TILES, tileBox } from './photoTiles.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -63,9 +64,8 @@ const desktopBrowser = CDP ? await chromium.launch() : browser.browserType() ===
 let painter = null
 const photoUrls = []
 async function stub(ctx) {
-  await ctx.route(/USGSNAIPPlus\/ImageServer\/exportImage/, async r => {
-    const q = new URL(r.request().url()).searchParams
-    const bbox = q.get('bbox').split(',').map(Number), size = Number(q.get('size').split(',')[0])
+  await ctx.route(SHARP_TILES, async r => {
+    const { bbox, size } = tileBox(r.request().url())
     const b64 = await painter.evaluate(({ bbox, size, HOUSE, MERC0, COS }) => {
       const [x0, y0, x1, y1] = bbox
       const cv = document.createElement('canvas'); cv.width = size; cv.height = size
@@ -89,7 +89,7 @@ async function stub(ctx) {
     }, { bbox, size, HOUSE, MERC0, COS }).catch(e => { console.log('PAINT', String(e).slice(0, 300)); return '' })
     return r.fulfill({ status: 200, contentType: 'image/jpeg', headers: { 'Access-Control-Allow-Origin': '*' }, body: Buffer.from(b64, 'base64') })
   })
-  ctx.on('request', r => { if (/USGSNAIPPlus\/ImageServer\/exportImage/.test(r.url()) && !photoUrls.includes(r.url())) photoUrls.push(r.url()) })
+  ctx.on('request', r => { if (SHARP_TILES.test(r.url()) && !photoUrls.includes(r.url())) photoUrls.push(r.url()) })
   await ctx.route(/\/geo\/lookup/, r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { ...OCALA, source: 'e2e' } }) }))
 }
 async function signIn(ctx) {
@@ -196,7 +196,9 @@ try {
   // True scale: the 143 ft back is 143 ft of the photo's ground (from the photo's own bounds).
   const scale = await page.locator(svgSel).evaluate((svg, COS) => {
     // A tile's ground width (from its own Mercator box) over the drawing units between it and the next tile.
-    const tiles = [...svg.querySelectorAll('[data-plan-photo] image')].filter(i => /exportImage/.test(i.getAttribute('href'))).map(i => ({ x: i.x.baseVal.value, y: i.y.baseVal.value, bbox: new URL(i.getAttribute('href')).searchParams.get('bbox').split(',').map(Number) }))
+    const W = 2 * Math.PI * 6378137
+    const box = h => { const [z, x, y] = /\/p\/tiles\/\w+\/(\d+)\/(\d+)\/(\d+)\.jpg/.exec(h).slice(1).map(Number); const s = W / 2 ** z; return [-W / 2 + x * s, W / 2 - (y + 1) * s, -W / 2 + (x + 1) * s, W / 2 - y * s] }
+    const tiles = [...svg.querySelectorAll('[data-plan-photo] image')].filter(i => /\/p\/tiles\//.test(i.getAttribute('href'))).map(i => ({ x: i.x.baseVal.value, y: i.y.baseVal.value, bbox: box(i.getAttribute('href')) }))
     const a = tiles[0], b = tiles.find(t => Math.abs(t.y - a.y) < 0.01 && t.x > a.x + 1)
     const ftPerPx = ((a.bbox[2] - a.bbox[0]) * COS / 0.3048) / (b.x - a.x)
     const back = [...svg.querySelectorAll('line[stroke="#5E28A1"]')].map(l => ({ dx: l.x2.baseVal.value - l.x1.baseVal.value, dy: l.y2.baseVal.value - l.y1.baseVal.value }))
@@ -345,8 +347,7 @@ try {
   // Site Plans (Operations > Site Plans) uses the same aerial source and closest zoom as the quote drawing.
   // Every photo request so far came from the quote drawing.
   const quoteUrls = [...photoUrls]
-  const quotePhoto = new URL(quoteUrls[0])
-  const zoomOf = u => { const q = new URL(u).searchParams; const b = q.get('bbox').split(',').map(Number); return Math.log2(156543.03392 / ((b[2] - b[0]) / Number(q.get('size').split(',')[0]))) }
+  const zoomOf = u => tileBox(u).z
   const quoteZoom = Math.max(...quoteUrls.map(zoomOf))
   const before = photoUrls.length
   const sp = await d.newPage()
@@ -355,11 +356,13 @@ try {
   await sp.locator('button:has-text("New")').first().click(); await sp.waitForSelector('[data-site-plan-map]'); await sleep(3000)
   const mapEl = sp.locator('[data-site-plan-map]')
   const spSource = await mapEl.getAttribute('data-aerial-source'), spZoom = Number(await mapEl.getAttribute('data-aerial-max-native-zoom'))
-  const tileUrls = photoUrls.slice(before).filter(u => /size=256%2C256/.test(u))
-  check('Site Plans asks the same photo service as the quote drawing', tileUrls.length > 0 && spSource === quotePhoto.origin + quotePhoto.pathname && tileUrls.every(u => u.startsWith(spSource)), `${tileUrls.length} tiles from ${spSource}`)
-  check('the same closest zoom: Site Plans stops at 19, the quote photo is zoom-19 tiles', spZoom === 19 && Math.abs(quoteZoom - 19) < 1e-6 && quoteUrls.every(u => /size=256%2C256/.test(u)) && Math.abs(Math.max(...tileUrls.map(zoomOf)) - 19) < 1e-6,
-    `map ${spZoom}, quote tiles ${quoteZoom.toFixed(3)}, ${quoteUrls.length} quote tiles`)
-  for (let k = 0; k < 4; k++) { await sp.locator('.leaflet-control-zoom-in').click().catch(() => {}); await sleep(400) }
+  const tileUrls = photoUrls.slice(before)
+  // Both from our own server's photo (Esri first when it has a key, else NAIP): the quote drawing asks the server to pick, the map picks per tile.
+  check('Site Plans asks the same photo as the quote drawing (our /p/tiles)', tileUrls.length > 0 && ['naip', 'esri'].includes(spSource) && tileUrls.every(u => new URL(u).pathname.startsWith(`/p/tiles/${spSource}/`)) && quoteUrls.every(u => new URL(u).pathname.startsWith('/p/tiles/aerial/')), `${tileUrls.length} tiles from ${spSource}`)
+  check('the same closest zoom: Site Plans stops at 19, the quote photo is zoom-19 tiles', spZoom === 19 && quoteZoom === 19 && Math.max(...tileUrls.map(zoomOf)) === 19,
+    `map ${spZoom}, quote tiles ${quoteZoom}, ${quoteUrls.length} quote tiles`)
+  // Zoom in as far as it goes, and once more (greyed out at the limit, still tapped): only then does it say so.
+  for (let k = 0; k < 4; k++) { await sp.locator('.leaflet-control-zoom-in').click({ force: true }).catch(() => {}); await sleep(400) }
   check('at the closest zoom: "Sharpest photo available here", and no further zoom', await sp.locator('[data-aerial-limit]').isVisible() && (await sp.locator('[data-aerial-limit]').textContent()) === 'Sharpest photo available here'
     && await sp.locator('.leaflet-control-zoom-in.leaflet-disabled').count() === 1)
   await sp.close()

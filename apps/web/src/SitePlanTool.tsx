@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import L from 'leaflet'
 import { createFreeMap, centeredIcon, BaseToggle, type BaseKind, type FreeMap } from './freeMap'
+import { prefetchAerial } from './aerialTiles'
 import AddressAutocomplete from './AddressAutocomplete'
 import { lookupPosition } from './appointmentsStore'
 import { distanceFeet } from './geoUtils'
@@ -151,11 +152,12 @@ function AddressInput({ onSelect }: { onSelect: (addr: string, loc: LatLng) => v
   async function find(address: string, known?: { lat?: number; lng?: number }) {
     const a = address.trim()
     if (!a) return
-    if (known?.lat != null && known?.lng != null) { onSelect(a, { lat: known.lat, lng: known.lng }); return }
+    // The photo starts at once, before the map moves there.
+    if (known?.lat != null && known?.lng != null) { prefetchAerial(known.lat, known.lng, { w: 1000, h: 700 }); onSelect(a, { lat: known.lat, lng: known.lng }); return }
     setBusy(true)
     try {
       const p = await lookupPosition(a)
-      if (p) onSelect(a, { lat: p.lat, lng: p.lng })
+      if (p) { prefetchAerial(p.lat, p.lng, { w: 1000, h: 700 }); onSelect(a, { lat: p.lat, lng: p.lng }) }
       else toast.error('Address not found', 'Pick a suggestion, or pan the map to the property.')
     } finally { setBusy(false) }
   }
@@ -229,7 +231,7 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!mapDivRef.current || freeRef.current) return
     // No double-click zoom: a double-click finishes the line being drawn.
-    const fm = createFreeMap(mapDivRef.current, { center: [center.lat, center.lng], zoom: 19, base: 'aerial', doubleClickZoom: false })
+    const fm = createFreeMap(mapDivRef.current, { center: [center.lat, center.lng], zoom: 19, base: 'aerial', doubleClickZoom: false, loadingText: 'Loading the aerial photo…' })
     freeRef.current = fm
     objectsLayerRef.current = L.layerGroup().addTo(fm.map)
 

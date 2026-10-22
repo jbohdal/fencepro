@@ -46,7 +46,7 @@ for (const [engineName, engine] of [['webkit', webkit], ['chromium', chromium]])
   for (const width of [360, 390]) {
     const browser = await engine.launch()
     const ctx = await browser.newContext({ viewport: { width, height: 800 }, hasTouch: true, isMobile: engineName === 'chromium' })
-    await ctx.route(/USGSNAIPPlus|USGSImageryOnly/, r => r.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#6b8f4e"/></svg>' }))
+    await ctx.route(/USGSNAIPPlus|USGSImageryOnly|\/p\/tiles\/(naip|esri|aerial)\//, r => r.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#6b8f4e"/></svg>' }))
     await ctx.route(/gis\.ocalafl\.org/, r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"features":[]}' }))
     const page = await ctx.newPage()
     const at = `${engineName} ${width}px`

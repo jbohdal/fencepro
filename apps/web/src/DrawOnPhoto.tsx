@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react'
 import DrawMap from './widget/DrawMap'
 import { lookupPosition } from './appointmentsStore'
+import { prefetchAerial } from './aerialTiles'
 import { drawingProblem, toYardLayout, totalFt, type LatLng, type WidgetDrawing } from './widgetDraw'
 import type { YardLayout } from './yardLayout'
 
@@ -32,6 +33,7 @@ export default function DrawOnPhoto({ address, onUse, onClose }: {
     lookupPosition(address.trim()).then(p => {
       if (!live) return
       if (!p) { setMsg('That address was not found. Check it, or add the city and ZIP.'); return }
+      prefetchAerial(p.lat, p.lng, { w: 900, h: 600 })
       setAt({ lat: p.lat, lng: p.lng })
       setDrawing({ v: 1, address: address.trim(), at: { lat: p.lat, lng: p.lng }, runs: [] })
       setMsg('')

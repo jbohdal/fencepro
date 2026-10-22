@@ -15,6 +15,7 @@
  */
 
 import { deriveLayout, formatFtIn, sidePieces, type GateHinge, type GateSwing, type HouseRect, type LayoutResult, type PlanPoint, type SidePiece, type YardLayout, type YardSide } from './yardLayout'
+import { autoTile } from './aerialTiles'
 import {
   chainEnds, chainVertices, cornerAngles, houseCorners, houseFitted, houseRectOf, houseTouching, norm180, norm360, segmentsMeet, sideCrossings, specFromVertices, teeAnchor,
   type ChainSpec, type CornerAngle, type SideCrossing, type SideEnds,
@@ -754,7 +755,7 @@ function gateOf(s: YardSide, finishes: { start: string; end: string }, ga: PlanP
 /** Pixels across the aerial photo (it is square). */
 export const AERIAL_PX = 800
 
-/** The one aerial photo source, for the quote drawing and every map: USGS NAIP Plus, as a picture of any box. */
+/** USGS NAIP Plus, as a picture of any box (the server asks it: lib/aerialTiles.ts; the browser asks /p/tiles). */
 export const NAIP_EXPORT = 'https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage'
 /**
  * The closest map zoom where a pixel is still a real photo pixel: the service's
@@ -771,15 +772,13 @@ export function usgsBackupTileUrl(z: number, x: number, y: number): string {
 }
 export const USGS_BACKUP_MAX_ZOOM = 16
 
-/** One 256 px map tile of that photo (Web Mercator tile x, y at zoom z). */
+/**
+ * One 256 px map tile of the yard photo (Web Mercator tile x, y at zoom z),
+ * from our own server (aerialTiles.ts): Esri World Imagery when the server has
+ * a key, else (or when Esri is slow) USGS NAIP, kept on the server.
+ */
 export function naipTileUrl(z: number, x: number, y: number): string {
-  const world = 2 * Math.PI * 6378137, half = world / 2, span = world / 2 ** z
-  const x0 = -half + x * span, y1 = half - y * span
-  const q = new URLSearchParams({
-    bbox: `${x0},${y1 - span},${x0 + span},${y1}`,
-    bboxSR: '3857', imageSR: '3857', size: '256,256', format: 'jpg', f: 'image',
-  })
-  return `${NAIP_EXPORT}?${q}`
+  return autoTile(z, x, y)
 }
 
 /**

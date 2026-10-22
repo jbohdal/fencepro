@@ -93,6 +93,7 @@ import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
 import deletedRecordRoutes from './routes/deleted-records.js'
 import customerMatchRoutes from './routes/customer-matches.js'
 import quoteWidget from './routes/quote-widget.js'
+import aerialTiles from './routes/aerialTiles.js'
 import systemRoutes from './routes/system.js'
 import cronRoutes from './routes/cron.js'
 import portalRoutes from './routes/portal.js'
@@ -255,6 +256,7 @@ app.use('/api/media', mediaRoutes)
 app.use('/api/install-packets', packetStaff)
 // Crew install packets and customer proposals: the paths meant for the public door.
 app.use('/p/quote', quoteWidget)
+app.use('/p/tiles', aerialTiles)  // The aerial photo tiles for every map and the website quote (routes/aerialTiles.ts)
 app.use('/p/i', packetPublic)
 app.use('/api/walkthroughs', walkthroughStaff)
 app.use('/p/w', walkthroughPublic)

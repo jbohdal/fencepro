@@ -43,7 +43,7 @@ try {
   const cfg = await (await fetch(`${API}/p/quote/api/config`)).json()
   const staff = await browser.newContext({ viewport: { width: 1280, height: 950 } })
   await staff.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
-  await staff.route(/USGSNAIPPlus|USGSImageryOnly/, r => r.abort())
+  await staff.route(/USGSNAIPPlus|USGSImageryOnly|\/p\/tiles\/(naip|esri|aerial)\//, r => r.abort())
   const page = await staff.newPage()
   const seen = new Set()
   for (const m of cfg.materials) {

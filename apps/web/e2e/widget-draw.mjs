@@ -22,6 +22,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import './sharedLock.mjs' // writes a pipeline card: takes turns with the other tests that change shared data
 import { webkit, chromium } from 'playwright'
+import { PHOTO_TILES, tileBox } from './photoTiles.mjs'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
@@ -76,15 +77,8 @@ const made = { contact: null, quote: null, card: null, draft: null, snapshot: nu
 
 /** The made-up yard photo for any tile asked for: grass, the house, a driveway. */
 async function stub(ctx) {
-  await ctx.route(/USGSNAIPPlus\/ImageServer\/exportImage|USGSImageryOnly\/MapServer\/tile/, async r => {
-    const u = new URL(r.request().url())
-    let bbox, size
-    if (/exportImage/.test(u.pathname)) { bbox = u.searchParams.get('bbox').split(',').map(Number); size = Number((u.searchParams.get('size') || '256,256').split(',')[0]) }
-    else {
-      const [z, y, x] = u.pathname.split('/').slice(-3).map(Number)
-      const world = 2 * Math.PI * R, span = world / 2 ** z
-      bbox = [-world / 2 + x * span, world / 2 - (y + 1) * span, -world / 2 + (x + 1) * span, world / 2 - y * span]; size = 256
-    }
+  await ctx.route(PHOTO_TILES, async r => {
+    const { bbox, size } = tileBox(r.request().url())
     const c = merc(CENTER.lat, CENTER.lng), cos = Math.cos(CENTER.lat * Math.PI / 180)
     const b64 = await painter.evaluate(({ bbox, size, c, cos, HOUSE }) => {
       const [x0, y0, x1, y1] = bbox
@@ -111,7 +105,8 @@ async function stub(ctx) {
     return r.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ features: [{ attributes: { parcel: 'E2E' }, geometry: { rings: [ring] } }] }) })
   })
   // The https stand in for the public door.
-  if (!WIDGET.startsWith(APP)) await ctx.route(`${WIDGET}/**`, async r => r.fulfill({ response: await r.fetch({ url: r.request().url().replace(WIDGET, APP) }) }))
+  // (The photo tiles stay with the made-up yard above.)
+  if (!WIDGET.startsWith(APP)) await ctx.route(`${WIDGET}/**`, async r => PHOTO_TILES.test(r.request().url()) ? r.fallback() : r.fulfill({ response: await r.fetch({ url: r.request().url().replace(WIDGET, APP) }) }))
   await ctx.route(HOST, r => r.fulfill({ contentType: 'text/html', body: host() }))
 }
 
@@ -174,7 +169,7 @@ try {
   const view = (await w.locator('[data-w-map]').getAttribute('data-w-view')).split(',').map(Number)
   check('the photo opens on the house at the sharpest zoom (19), centered on it', view[2] === 19 && Math.abs(view[0] - CENTER.lat) < 1e-5 && Math.abs(view[1] - CENTER.lng) < 1e-5, view.join())
   const tileSrc = await w.locator('[data-w-map] .leaflet-tile').first().getAttribute('src')
-  check('the photo is the same free USGS NAIP photo as the quote drawing', /USGSNAIPPlus\/ImageServer\/exportImage/.test(tileSrc) || (await w.locator('[data-w-map] img[src*="USGSNAIPPlus"]').count()) > 0)
+  check('the photo comes from our own server, the same photo as the quote drawing', (await w.locator('[data-w-map] img[src*="/p/tiles/"]').count()) > 0, tileSrc)
   check('the county\'s lot lines show, faintly', (await w.locator('[data-w-map] path.leaflet-interactive, [data-w-map] svg.leaflet-zoom-animated path').count()) >= 1)
   check('it says what to do: tap where the fence starts', /Tap where your fence starts/.test(await w.locator('[data-w-draw-help]').textContent()))
   await shot(page, `dev-widget-2-photo${IFRAME ? '-iframe' : ''}.png`)

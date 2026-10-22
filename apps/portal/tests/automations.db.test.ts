@@ -364,10 +364,19 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
 
   test('dry run shows what would happen and changes nothing', async () => {
     const card = await addCard('Signed Contract')
-    const count = async () => [
-      await prisma.task.count(), await prisma.notification.count(), await prisma.automationRun.count(), await prisma.automationEvent.count(),
-      await prisma.automationEffect.count(), (await prisma.pipelineState.findUnique({ where: { accountId } }))!.version, await prisma.permit.count(),
-    ]
+    // Only what this card could have caused: other test files write to the same dev copy at the same time.
+    const since = new Date()
+    const count = async () => {
+      const runs = (await prisma.automationRun.findMany({ where: { entityId: card }, select: { id: true } })).map((x: any) => x.id)
+      const lead = ((await prisma.pipelineState.findUnique({ where: { accountId } }))!.leads as any[]).find(l => l.id === card)
+      return [
+        await prisma.task.count({ where: { title: { startsWith: 'Order materials for Testy' }, createdAt: { gte: since } } }),
+        await prisma.notification.count({ where: { title: { contains: 'Testy' }, createdAt: { gte: since } } }),
+        runs.length, await prisma.automationEvent.count({ where: { entityId: card } }),
+        await prisma.automationEffect.count({ where: { runId: { in: runs } } }), lead?.stage, JSON.stringify(lead),
+        await prisma.permit.count({ where: { createdAt: { gte: since } } }),
+      ]
+    }
     const before = await count()
     const r = await call('POST', '/api/automations/rules/test', { entityId: card, rule: {
       board: 'sales', trigger: { type: 'card_entered', stage: 'Signed Contract', settleMinutes: 2, onlyWhileInStage: false },

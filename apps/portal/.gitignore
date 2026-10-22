@@ -1,3 +1,5 @@
 
 # Marion County address list, downloaded by the server (lib/addressIndex.ts)
 data/addresses/
+
+data/aerial-cache/

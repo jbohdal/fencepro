@@ -5,6 +5,7 @@ import type { LatLng } from './geoUtils'
 import AddressAutocomplete from './AddressAutocomplete'
 import { lookupPosition } from './appointmentsStore'
 import { createFreeMap, centeredIcon, aboveIcon, BaseToggle, type BaseKind, type FreeMap } from './freeMap'
+import { prefetchAerial } from './aerialTiles'
 
 /* ───────── types ───────── */
 
@@ -36,11 +37,12 @@ function AddressSearch({ onPlaceSelected }: { onPlaceSelected: (place: { address
     const a = address.trim()
     if (!a) return
     setMissed('')
-    if (known?.lat != null && known?.lng != null) { onPlaceSelected({ address: a, location: { lat: known.lat, lng: known.lng } }); return }
+    // The photo starts at once, before the map moves there.
+    if (known?.lat != null && known?.lng != null) { prefetchAerial(known.lat, known.lng, { w: 1000, h: 700 }); onPlaceSelected({ address: a, location: { lat: known.lat, lng: known.lng } }); return }
     setBusy(true)
     try {
       const p = await lookupPosition(a)
-      if (p) onPlaceSelected({ address: a, location: { lat: p.lat, lng: p.lng } })
+      if (p) { prefetchAerial(p.lat, p.lng, { w: 1000, h: 700 }); onPlaceSelected({ address: a, location: { lat: p.lat, lng: p.lng } }) }
       else setMissed('Address not found. Pick a suggestion, or pan the map to the property.')
     } finally { setBusy(false) }
   }
@@ -164,7 +166,7 @@ function FenceMapCanvas({
   // Initialize map
   useEffect(() => {
     if (!mapRef.current || freeRef.current) return
-    const fm = createFreeMap(mapRef.current, { center: [center.lat, center.lng], zoom: 19, base: 'aerial' })
+    const fm = createFreeMap(mapRef.current, { center: [center.lat, center.lng], zoom: 19, base: 'aerial', loadingText: 'Loading the aerial photo…' })
     freeRef.current = fm
     fenceLayerRef.current = L.layerGroup().addTo(fm.map)
 
@@ -285,7 +287,7 @@ function FenceMapCanvas({
 
       <p className="text-xs text-gray-400 mt-2">
         Tap the map to place fence points. Each segment = one run. Orange dots = end posts. Yellow = corner posts. Drag to adjust.
-        Aerial photos are USGS NAIP (free), the same as the quote drawing; the map stops at their sharpest zoom. Measurements stay exact.
+        Aerial photos are Esri World Imagery when set up (else USGS NAIP, free), the same as the quote drawing; the map stops at their sharpest zoom. Measurements stay exact.
       </p>
     </div>
   )

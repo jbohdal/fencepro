@@ -1,7 +1,8 @@
 /**
- * Draw the fence on the aerial photo (the website quote, step 2). The USGS
- * NAIP photo (the same free photo as the quote drawing and Site Plans) opens
- * on the house with the county's lot lines; one finger pans, two pinch zoom.
+ * Draw the fence on the aerial photo (the website quote, step 2). The photo
+ * (freeMap.tsx: Esri World Imagery, or USGS NAIP; the same photo as the quote
+ * drawing and Site Plans) opens on the house with the county's lot lines; one
+ * finger pans, two pinch zoom.
  *
  *   tap                a point (the fence starts there, then each corner)
  *   press and hold     a magnifier under the finger; the point goes where it is let go
@@ -18,8 +19,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
-import { createFreeMap, naipLayer, USGS_TILES, type FreeMap } from '../freeMap'
-import { USGS_BACKUP_MAX_ZOOM } from '../sitePlanGeometry'
+import { createFreeMap, aerialLayer, USGS_TILES, type FreeMap } from '../freeMap'
+import { LOW_MAX_ZOOM } from '../aerialTiles'
 import {
   fitRun, groundFt, nearHouse, ringHeadings, runSides, sideCount, sideEnds, sideLength, snapAngle, snapToPoint, totalFt,
   gateStartInOf, DOUBLE_GATE_FT, WALK_GATE_FT, type LatLng, type WidgetDrawing, type WidgetGate, type WidgetRun,
@@ -669,10 +670,8 @@ function Loupe({ at, zoom, drawing, boxW }: { at: { x: number; y: number; p: Lat
   useEffect(() => {
     if (!el.current) return
     const m = L.map(el.current, { zoomControl: false, attributionControl: false, dragging: false, touchZoom: false, scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false, zoomAnimation: false, fadeAnimation: false, maxZoom: 22 })
-    L.tileLayer(USGS_TILES, { maxNativeZoom: USGS_BACKUP_MAX_ZOOM, maxZoom: 22 }).addTo(m)
-    const sharp = naipLayer()
-    sharp.options.maxZoom = 22
-    sharp.addTo(m)
+    L.tileLayer(USGS_TILES, { maxNativeZoom: LOW_MAX_ZOOM, maxZoom: 22 }).addTo(m)
+    aerialLayer(22).addTo(m)
     m.setView([at.p.lat, at.p.lng], Math.min(21, zoom + 2), { animate: false })
     map.current = m
     m.on('move zoom', () => setTick(t => t + 1))

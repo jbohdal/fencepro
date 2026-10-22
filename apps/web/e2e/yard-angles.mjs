@@ -60,7 +60,7 @@ const GREEN_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD
 const browser = CDP ? await chromium.connectOverCDP(CDP) : await ENGINE.launch()
 const desktopBrowser = CDP ? await chromium.launch() : browser.browserType() === chromium ? browser : await chromium.launch()
 async function stub(ctx) {
-  await ctx.route(/USGSNAIPPlus\/ImageServer\/exportImage|USGSImageryOnly\/MapServer\/tile|gis\.ocalafl\.org/, r =>
+  await ctx.route(/USGSNAIPPlus\/ImageServer\/exportImage|USGSImageryOnly\/MapServer\/tile|\/p\/tiles\/(naip|esri|aerial)\/|gis\.ocalafl\.org/, r =>
     /gis\.ocalafl/.test(r.request().url())
       ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ features: [] }) })
       : r.fulfill({ status: 200, contentType: 'image/png', headers: { 'Access-Control-Allow-Origin': '*' }, body: GREEN_PNG }))

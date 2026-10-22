@@ -8,6 +8,7 @@
  */
 
 import { photoBackdrop, normDeg, type AerialBackdrop } from './sitePlanPhoto'
+import { again } from './aerialTiles'
 import type { YardLayout } from './yardLayout'
 
 /** Pixels across the baked photo (the drawing is 800 units; this keeps the saved drawing small). */
@@ -19,13 +20,13 @@ const cache = new Map<string, Promise<string | null>>()
 
 /** A picture, tried twice (the photo service sometimes drops a request). */
 async function loadTwice(src: string, timeoutMs: number): Promise<HTMLImageElement | null> {
-  return (await loadImage(src, timeoutMs)) ?? (await loadImage(`${src}&again=1`, timeoutMs))
+  return (await loadImage(src, timeoutMs)) ?? (await loadImage(again(src, 1), timeoutMs))
 }
 
 export function loadImage(src: string, timeoutMs: number): Promise<HTMLImageElement | null> {
   return new Promise(resolve => {
     const img = new Image()
-    // The photo service allows this, so the canvas can be read back.
+    // Our own server (or the USGS soft tiles, which allow it), so the canvas can be read back.
     img.crossOrigin = 'anonymous'
     const t = setTimeout(() => resolve(null), timeoutMs)
     img.onload = () => { clearTimeout(t); resolve(img) }
@@ -42,7 +43,7 @@ export function bakePhoto(b: AerialBackdrop, outPx = BAKED_PX): Promise<string |
   if (hit) return hit
   const job = (async () => {
     const tiles = b.tiles ?? [{ href: b.href, x: -(b.imagePx ?? b.sizePx) / 2, y: -(b.imagePx ?? b.sizePx) / 2, size: b.imagePx ?? b.sizePx }]
-    const imgs = await Promise.all(tiles.map(t => loadTwice(t.href, 30_000)))
+    const imgs = await Promise.all(tiles.map(t => loadTwice(t.href, 70_000)))
     if (!imgs.some(Boolean)) return null
     const canvas = document.createElement('canvas')
     canvas.width = outPx; canvas.height = outPx

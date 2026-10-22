@@ -19,6 +19,11 @@ export default defineConfig(({ mode }) => ({
         target: `http://localhost:${loadEnv(mode, process.cwd(), 'VITE_').VITE_API_PORT || '4000'}`,
         changeOrigin: true,
       },
+      // The aerial photo tiles (routes/aerialTiles.ts).
+      '/p/tiles': {
+        target: `http://localhost:${loadEnv(mode, process.cwd(), 'VITE_').VITE_API_PORT || '4000'}`,
+        changeOrigin: true,
+      },
     },
   },
 }))
