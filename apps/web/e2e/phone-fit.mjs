@@ -14,6 +14,11 @@
 // Pipeline, a card window, a customer, each quote step (Customer, Yard, Style,
 // Price, with the bar at the bottom), Follow ups, every Inventory tab, every
 // Settings tab, Schedule and a job. Then the customer again as a salesman.
+// First the screens with a map (Dispatch, the Appointments map, a new site plan):
+// the side menu (More), the notifications and messages dropdowns, the search
+// dialog and the screen's own dialogs must each be on top of the map, checked at
+// nine points where they overlap it (see overlayOverMap); on Dispatch also the
+// legend and zoom buttons over the map, and no pin labelled "?".
 // On each it fails on:
 //   - the page scrolling sideways (document.scrollingElement.scrollWidth > innerWidth)
 //   - a visible button or link partly off the screen sideways (a box that
@@ -120,7 +125,8 @@ function audit({ scope, bars, scroll }) {
     return { r, cx: cx0, cy: cy0, hBox, cutBy, outOfView }
   }
   const hit = (el, x, y) => { const h = document.elementFromPoint(x, y); return !h || el === h || el.contains(h) || (h.closest('label') && h.closest('label').contains(el)) ? null : h }
-  const els = [...root.querySelectorAll('button, a[href], [role="button"], summary')].filter(shown)
+  // Map pins are left out: on a map, two yards close together overlap by nature.
+  const els = [...root.querySelectorAll('button, a[href], [role="button"], summary')].filter(el => shown(el) && !el.closest('.leaflet-marker-pane'))
   out.count = els.length
   const desc = h => h ? `${h.tagName.toLowerCase()}${h.closest('[data-tabbar]') ? ' (tab bar)' : h.closest('[data-customer-actions]') ? ' (customer action bar)' : h.closest('[data-quote-bar]') ? ' (quote bar)' : ''} "${(h.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 30)}"` : ''
   for (const el of els) {
@@ -459,6 +465,114 @@ async function popups(s, screen, opts = {}) {
   return opened
 }
 
+// ── Maps never cover a menu, sheet, dialog or dropdown ──
+// A Leaflet map draws with z-index up to 1000 inside; layers.css shuts every map
+// in its own layer so it stays under the page's overlays. Checked by looking at
+// several points where the overlay and the map overlap: the overlay must be what
+// is there. While checking, every part of the map takes taps (tiles normally let
+// taps through, which would hide a map drawn on top).
+function overlayOverMap({ overlays, map }) {
+  const vis = e => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e); return r.width > 2 && r.height > 2 && cs.visibility !== 'hidden' && cs.display !== 'none' && r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight }
+  const m = [...document.querySelectorAll(map)].find(vis)
+  if (!m) return { error: `no map (${map})` }
+  const els = overlays.flatMap(sel => [...document.querySelectorAll(sel)].filter(vis))
+  if (!els.length) return { error: `no overlay (${overlays.join(', ')})` }
+  const mr = m.getBoundingClientRect()
+  const cut = r => ({ left: Math.max(r.left, mr.left, 0), right: Math.min(r.right, mr.right, innerWidth), top: Math.max(r.top, mr.top, 0), bottom: Math.min(r.bottom, mr.bottom, innerHeight) })
+  const area = els.map(e => cut(e.getBoundingClientRect())).find(a => a.right - a.left > 8 && a.bottom - a.top > 8)
+  if (!area) return { error: 'the overlay does not reach over the map here' }
+  const style = document.createElement('style')
+  style.textContent = '.leaflet-container, .leaflet-container * { pointer-events: auto !important; }'
+  document.head.appendChild(style)
+  const bad = []
+  let n = 0
+  for (const fx of [0.15, 0.5, 0.85]) for (const fy of [0.15, 0.5, 0.85]) {
+    const x = area.left + (area.right - area.left) * fx, y = area.top + (area.bottom - area.top) * fy
+    const h = document.elementFromPoint(x, y)
+    n++
+    if (!h || !els.some(e => e === h || e.contains(h))) bad.push(`${Math.round(x)},${Math.round(y)} shows ${h ? (h.closest('.leaflet-container') ? 'the map (' + (h.className?.baseVal ?? h.className) + ')' : h.tagName.toLowerCase()) : 'nothing'}`.slice(0, 90))
+  }
+  style.remove()
+  return { n, bad }
+}
+
+async function overMap(s, screen, what, overlays, map = '.leaflet-container') {
+  await sleep(400)
+  const r = await s.page.evaluate(overlayOverMap, { overlays, map })
+  check(`${s.name} ${s.width}: ${screen}: ${what} is on top of the map${r.n ? ` (${r.n} points)` : ''}`, !r.error && r.bad.length === 0, r.error || r.bad.slice(0, 4).join(' | '))
+}
+
+const closeAll = async s => {
+  for (let i = 0; i < 3; i++) {
+    const open = await s.page.evaluate(() => !!document.querySelector('.mobile-nav-drawer.open, [data-popup]:not([data-popup="nav-drawer"]), [data-global-search]'))
+    if (!open) return
+    await s.page.keyboard.press('Escape').catch(() => {}); await sleep(300)
+    const x = s.page.locator('.mobile-nav-drawer.open [aria-label="Close menu"]')
+    if (await x.count()) await tapOn(s, x)
+    const back = s.page.locator('[data-popup-backdrop]')
+    if (await back.count()) await back.first().click({ position: { x: 5, y: 5 } }).catch(() => {})
+    await sleep(300)
+  }
+}
+
+// On a screen showing a map: the side menu (More), the header's dropdowns, the
+// search dialog, and the screen's own sheets and dialogs over the map.
+async function mapOverlays(s, screen) {
+  await tapOn(s, s.page.locator('[data-tabbar] [data-popup-trigger="nav-drawer"]'))
+  await overMap(s, screen, 'the side menu (More)', ['.mobile-nav-drawer.open'])
+  if (screen === 'Dispatch' && SHOTS && s.name === 'webkit') await s.page.screenshot({ path: path.join(SHOTS, `dispatch-menu-${TAG}.png`) })
+  await closeAll(s)
+  for (const name of ['notifications', 'messages']) {
+    const trig = s.page.locator(`[data-popup-trigger="${name}"]:visible`).first()
+    if (!(await trig.count())) { check(`${s.name} ${s.width}: ${screen}: the ${name} dropdown is there`, false); continue }
+    await tapOn(s, trig)
+    await overMap(s, screen, `the ${name} dropdown`, [`[data-popup="${name}"]`, '[data-popup-backdrop]'])
+    await closeAll(s)
+  }
+  await tapOn(s, s.page.locator('[data-header-search]:visible').first())
+  await overMap(s, screen, 'the search dialog', ['div:has(> [data-global-search])'])
+  await closeAll(s)
+}
+
+async function mapScreens(s) {
+  if (want('dispatch')) {
+    await go(s, '/dispatch', '[data-dispatch-map] .leaflet-container')
+    await mapOverlays(s, 'Dispatch')
+    // The legend and the zoom buttons sit over the map (inside its layer).
+    await overMap(s, 'Dispatch', 'the legend button', ['[data-dispatch-legend-toggle]'])
+    await overMap(s, 'Dispatch', 'the zoom buttons', ['.leaflet-control-zoom'], '[data-dispatch-map] .leaflet-container')
+    const t = s.page.locator('[data-dispatch-legend-toggle]')
+    if ((await t.getAttribute('aria-expanded')) !== 'true') await tapOn(s, t)
+    await overMap(s, 'Dispatch', 'the open legend', ['[data-dispatch-legend-body]'])
+    const pins = await s.page.evaluate(() => [...document.querySelectorAll('[data-dispatch-pin]')].map(p => p.getAttribute('data-label')))
+    check(`${s.name} ${s.width}: Dispatch: pins have a label, none "?" (${pins.length} pins)`, pins.every(l => l && l !== '?'), pins.filter(l => !l || l === '?').length + ' bad')
+    if (SHOTS && s.name === 'webkit') await s.page.screenshot({ path: path.join(SHOTS, `dispatch-pins-${TAG}.png`) })
+    await tapOn(s, t) // fold the legend: open, it covers part of the map on purpose
+    await judge(s, 'Dispatch')
+  }
+  if (want('appointments-map')) {
+    await go(s, '/appointments', '[data-view="map"]')
+    await tapOn(s, s.page.locator('[data-view="map"]'))
+    await s.page.waitForSelector('[data-day-map] .leaflet-container', { timeout: 20000 }).catch(() => {})
+    await s.page.locator('[data-day-map]').scrollIntoViewIfNeeded().catch(() => {})
+    await mapOverlays(s, 'Appointments map')
+  }
+  if (want('site-plan-map')) {
+    // Each dialog over the map, from a freshly loaded Site Plans page and a new tool.
+    // Closing a dialog there goes Back, which can leave the page; so each starts over.
+    for (const [btn, what] of [['Open', 'the saved plans dialog'], ['Save', 'the save dialog']]) {
+      await go(s, '/site-plans')
+      await tapOn(s, s.page.locator('button:has-text("Create New Site Plan")').first())
+      await s.page.waitForSelector('[data-site-plan-map].leaflet-container', { timeout: 30000 }).catch(() => {})
+      await tapOn(s, s.page.locator(`[data-site-plan-tool] button:text-is("${btn}")`).first())
+      await overMap(s, 'Site plan', what, ['[data-site-plan-tool] > div.fixed.inset-0'], '[data-site-plan-map]')
+      const back = s.page.locator('[data-site-plan-tool] > div.fixed.inset-0').last()
+      if (await back.count()) await back.click({ position: { x: 3, y: 3 }, timeout: 3000 }).catch(() => {})
+      await sleep(800)
+    }
+  }
+}
+
 async function customerScreen(s, who) {
   await go(s, `/customers/${made.contactId}`, '[data-customer-tab]')
   await shot(s, who === 'owner' ? 'customer' : 'customer-salesman')
@@ -515,6 +629,7 @@ async function customerScreen(s, who) {
 }
 
 async function ownerScreens(s) {
+  await mapScreens(s)
   if (want('today')) {
     await go(s, '/today'); await shot(s, 'today'); await judge(s, 'Today')
     await popups(s, 'Today', { header: true, min: 3, need: ['messages', 'notifications', 'nav-drawer'],

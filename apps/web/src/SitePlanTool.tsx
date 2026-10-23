@@ -726,7 +726,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
         </div>
 
         {/* ── Map canvas ── */}
-        <div className="order-1 md:order-2 flex-1 min-h-[45vh] md:min-h-0 relative">
+        <div className="order-1 md:order-2 flex-1 min-h-[45vh] md:min-h-0 relative map-layer">
           <div ref={mapDivRef} className="w-full h-full z-0" data-map data-site-plan-map />
 
           <BaseToggle base={base} onChange={setBase} className="absolute top-3 left-14" />

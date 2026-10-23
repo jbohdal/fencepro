@@ -422,7 +422,7 @@ export default function DrawMap({ at, drawing, onChange, snap, onSnap, parcel, h
     <div className="space-y-2" data-w-draw>
       {/* Two lines kept for the help, so the photo never moves under the finger when it changes. */}
       <p className="text-base font-semibold text-gray-900 min-h-[3rem] leading-6 line-clamp-2" data-w-draw-help>{hint || help}</p>
-      <div ref={wrapRef} className="relative rounded-xl overflow-hidden border border-gray-300 select-none" style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}
+      <div ref={wrapRef} className="relative map-layer rounded-xl overflow-hidden border border-gray-300 select-none" style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}
         data-w-map data-w-view={viewAttr} data-w-mode={mode}>
         <div ref={mapEl} className="w-full h-[58vh] min-h-[320px] max-h-[560px] bg-gray-200" />
         {ready && view && (

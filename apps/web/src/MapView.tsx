@@ -8,6 +8,8 @@
 import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+// Every map sits in its own layer, under the page's menus and dialogs (layers.css).
+import './layers.css'
 
 export interface MapPoint {
   id: string

@@ -772,6 +772,61 @@ function mergeItems(items: LineItem[]): LineItem[] {
   return out
 }
 
+// ── Change order pick list ───────────────────────────────────────────────────
+
+/**
+ * A change order line picked from a list (Jonathan, Oct 22 2026: "a pick list
+ * from the catalog and the Repair price list for change order lines"), priced
+ * for the job's style with the Repair price list's own math:
+ *
+ *   repair item   priceRepair with that one item × the quantity (its kits,
+ *                 labor = the install rate × the item's multiplier, Settings →
+ *                 Moves and Repairs)
+ *   pullPost      pull an old post and haul it away: the pull labor and
+ *                 disposal per post for the job's install method (Settings →
+ *                 Moves and Repairs)
+ *   part          an Inventory item: quantity × its Inventory cost, as a
+ *                 repair prices the parts it uses (no labor)
+ *
+ * then priced as a repair is: cost ÷ (1 − Target Margin), Target Margin =
+ * Overhead % + Repair Profit % when Repair Profit % is set, else the style's;
+ * commission and the whole dollar rule as on a repair quote; a wood style's
+ * material and labor × the Wood factor (woodWork). Never the minimum job price
+ * (the job is already sold) and never the quote's typed price, flat labor or
+ * slider: a line is priced on its own, at Settings today.
+ */
+export type PickRepairKey = RepairItemKey | 'pullPost'
+export const PICK_REPAIR_KEYS: PickRepairKey[] = [...REPAIR_ITEMS, 'pullPost']
+export const PICK_LABEL: Record<PickRepairKey, string> = { ...REPAIR_LABEL, pullPost: 'Pull an old post and haul it away' }
+export type ChangeOrderPick =
+  | { kind: 'repair'; key: PickRepairKey; gateKind?: 'walk' | 'double' }
+  | { kind: 'part'; part: string }
+
+export function priceChangeOrderPick(c: WorkCommon, pick: ChangeOrderPick, qty: number): WorkResult {
+  const n = Math.max(1, Math.round(Number(qty) || 1))
+  const cc: WorkCommon = { ...c, settings: { ...c.settings, minimumJobCents: 0 }, overrides: {}, extraLaborHrs: 0, priceAdjust: 0 }
+  if (pick.kind === 'repair' && pick.key !== 'pullPost') {
+    return priceRepair(cc, { what: 'other', items: { [pick.key]: n }, postType: postTypeOf(cc.style), newPostCaps: false, gateKind: pick.gateKind === 'double' ? 'double' : 'walk', debrisCleared: true })
+  }
+  if (cc.style.woodBase) return woodWork(cc, w => pickInner(w, pick, n))
+  return pickInner(cc, pick, n)
+}
+
+function pickInner(c: WorkCommon, pick: ChangeOrderPick, n: number): WorkResult {
+  const acc: Acc = { lines: [], warnings: [], missingRates: [], missingParts: new Set(), pull: new Map() }
+  if (pick.kind === 'repair') {
+    const type = postTypeOf(c.style)
+    pullPosts(acc, c.settings, n, type, 'pullPost:')
+    return finish(c, 'repair', acc, null, `${n === 1 ? 'Pull an old post' : `Pull ${n} old posts`} and haul ${n === 1 ? 'it' : 'them'} away.`, [], false, 0, 0, 0)
+  }
+  const unit = inventoryCost(pick.part)
+  if (unit === undefined) acc.warnings.push(`"${pick.part}" is not in Inventory, so it has no cost: type the amount.`)
+  const u = unit ?? 0
+  const cents = Math.round(n * u * 100)
+  line(acc, { key: 'part', label: 'Part', kind: 'material', cents, math: `${n} × ${usd(u)} (Inventory)`, parts: [{ item: pick.part, qty: n, unitCost: u, total: cents / 100, costSource: unit === undefined ? 'builtin' : 'inventory' }] })
+  return finish(c, 'repair', acc, null, `${n} × ${pick.part.replace(/^\*+/, '')}`, [], false, 0, 0, 0)
+}
+
 // ── Checks ───────────────────────────────────────────────────────────────────
 
 /**

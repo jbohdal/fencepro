@@ -34,14 +34,40 @@ import { priceWork, costDeltaOf, workNow, scopeOf, workChangeable, approvedInOrd
 export type ChangeOrderStatus = 'draft' | 'sent' | 'approved' | 'void'
 export const CO_STATUSES: readonly ChangeOrderStatus[] = ['draft', 'sent', 'approved', 'void']
 
-export interface ChangeOrderLine { id: string; description: string; amountCents: number }
+/**
+ * A line: what changes and its amount. A line picked from the pick list
+ * (lib/changeOrderPicks.ts, Oct 22 2026) also keeps its quantity and where it
+ * came from, for history: "repair:<key>[:walk|double]" (the Repair price list)
+ * or "catalog:<Inventory item id>", the job's style it was priced for and the
+ * price the list gave (its amount may have been changed by hand since).
+ */
+export interface ChangeOrderLine { id: string; description: string; amountCents: number; qty?: number; source?: LineSource | null }
+export interface LineSource { kind: 'repair' | 'catalog'; ref: string; label: string; fenceStyle?: string; listCents?: number }
 
 type Row = NonNullable<Awaited<ReturnType<typeof prisma.changeOrder.findUnique>>>
 
 const err = (status: number, message: string) => Object.assign(new Error(message), { status })
 
+function sourceOf(s: any): LineSource | null {
+  if (!s || typeof s !== 'object' || (s.kind !== 'repair' && s.kind !== 'catalog') || typeof s.ref !== 'string' || !s.ref) return null
+  return {
+    kind: s.kind, ref: s.ref.slice(0, 200), label: String(s.label ?? '').slice(0, 300),
+    ...(typeof s.fenceStyle === 'string' && s.fenceStyle ? { fenceStyle: s.fenceStyle.slice(0, 200) } : {}),
+    ...(Number.isInteger(s.listCents) ? { listCents: s.listCents } : {}),
+  }
+}
+
 export const linesOf = (r: { lines: unknown }): ChangeOrderLine[] =>
-  (Array.isArray(r.lines) ? r.lines : []).map((l: any) => ({ id: String(l?.id ?? ''), description: String(l?.description ?? ''), amountCents: Math.round(Number(l?.amountCents) || 0) }))
+  (Array.isArray(r.lines) ? r.lines : []).map((l: any) => {
+    const qty = Number(l?.qty), source = sourceOf(l?.source)
+    return {
+      id: String(l?.id ?? ''), description: String(l?.description ?? ''), amountCents: Math.round(Number(l?.amountCents) || 0),
+      ...(Number.isInteger(qty) && qty > 0 ? { qty } : {}), ...(source ? { source } : {}),
+    }
+  })
+
+/** A line as the customer sees it: what changes, how many and the amount (never where it was picked from). */
+const customerLine = ({ source, ...l }: ChangeOrderLine) => { void source; return l }
 
 export const totalOf = (lines: ChangeOrderLine[]) => lines.reduce((s, l) => s + l.amountCents, 0)
 
@@ -90,7 +116,7 @@ export function view(r: Row) {
 /** What the customer sees: the lines, amounts and total; never who made it, a cost, the IP or the signature image. */
 export function customerView(r: Row, q?: { fenceStyle?: string | null; finalPrice?: number | null; customerName?: string | null } | null) {
   return {
-    id: r.id, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason, lines: linesOf(r), totalCents: r.totalCents,
+    id: r.id, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason, lines: linesOf(r).map(customerLine), totalCents: r.totalCents,
     sentAt: r.sentAt, approvedAt: r.approvedAt, voidedAt: r.voidedAt, signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null,
     // Approved verbally with the office: it is part of the contract, and still waits for the customer's own signature.
     needsSignature: needsSignature(r), contractRev: r.contractRev ?? null,
@@ -365,7 +391,7 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
     const same = await prisma.changeOrder.findUnique({ where: { id: c.id } })
     if (same) { if (same.accountId !== accountId) throw err(409, 'Invalid id'); return same } // sent twice: the first one stands
   }
-  const lines = c.lines.map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
+  const lines = linesOf({ lines: c.lines }).map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
   if (!lines.length) throw err(400, 'Add at least one line with a description or an amount.')
   const verbal = c.status === 'approved' ? verbalReasonOf(c.verbalReason) : null
   const extra = c.work ? await workPart(accountId, c.quoteId, c.work) : {}
@@ -415,7 +441,7 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
     if (edit.lines !== undefined || edit.reason !== undefined) {
       if (!open) throw err(409, cur.status === 'approved' ? 'This change order is approved. Void it and make a new one to change it.' : 'This change order is void.')
       if (edit.lines !== undefined) {
-        const lines = edit.lines.map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
+        const lines = linesOf({ lines: edit.lines }).map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
         if (!lines.length) throw err(400, 'Add at least one line with a description or an amount.')
         data.lines = lines; data.totalCents = totalOf(lines)
       }

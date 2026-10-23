@@ -244,7 +244,7 @@ function FenceMapCanvas({
 
   return (
     <div>
-      <div className="relative">
+      <div className="relative map-layer">
         <div ref={mapRef} className="w-full h-[60vh] min-h-[320px] sm:h-[480px] rounded-xl border border-gray-200 z-0" data-map data-map-quote-map />
 
         {/* Controls */}

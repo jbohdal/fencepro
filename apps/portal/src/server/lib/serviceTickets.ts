@@ -14,7 +14,8 @@
  *   photo link          /p/s/<link>, no login, 14 days from the last "Ask for
  *                       photos"; what arrives (or comes in through the portal)
  *                       lands on the ticket as Internal, moves it to Photos
- *                       received and tells Jonathan (bell and push)
+ *                       received and tells Jonathan and the customer's
+ *                       card owner (bell and push; cardOwnerOf)
  *   decision            covered or not covered with a reason (owner and office);
  *                       covered work's cost entered at Fixed (ServiceWorkCost)
  *   report              tickets by month, covered vs not, cost of covered work
@@ -32,7 +33,7 @@ import { acknowledgedUpdate } from './warrantyUpdates.js'
 import { serializeMedia } from './media.js'
 import { landedCostOn } from './priceHistory.js'
 import { toCents, qty } from './jobCostingMath.js'
-import { pushDeliveryAllowed } from './followUps.js'
+import { pushDeliveryAllowed, peopleOf } from './followUps.js'
 import { describeTextConsent, asTextConsent } from './textConsentModel.js'
 import {
   hintFor, hintsFor, warrantyKindOf, issueLabel, stageLabel, stageForCustomer, isOpenStage, HINT_LABEL, PHOTO_LINK_DAYS, serviceReport,
@@ -393,8 +394,8 @@ export function customerFileCount(ticketId: string): Promise<number> {
 
 /**
  * A photo or video from the customer landed on the ticket (Internal): the
- * ticket moves to Photos received, and Jonathan is told once per "Ask for
- * photos" (the bell, and a push on the live install).
+ * ticket moves to Photos received, and Jonathan and the customer's card owner
+ * are told once per "Ask for photos" (the bell, and a push on the live install).
  */
 export async function photoArrived(t: TicketRow, via: 'link' | 'portal'): Promise<TicketRow> {
   const first = t.stage === 'new' || t.stage === 'photos_requested'
@@ -404,33 +405,66 @@ export async function photoArrived(t: TicketRow, via: 'link' | 'portal'): Promis
   return fresh
 }
 
+type Recipient = { id: string; email: string; name: string }
+
 /** The owner (Jonathan): the company's first owner login. */
-async function ownerOf(accountId: string) {
-  return prisma.crmUser.findFirst({ where: { crmAccountId: accountId, role: 'super_admin' as any }, orderBy: { createdAt: 'asc' }, select: { id: true, email: true, firstName: true } })
+async function ownerOf(accountId: string): Promise<Recipient | null> {
+  const u = await prisma.crmUser.findFirst({ where: { crmAccountId: accountId, role: 'super_admin' as any }, orderBy: { createdAt: 'asc' }, select: { id: true, email: true, firstName: true } })
+  return u ? { id: u.id, email: u.email, name: u.firstName || u.email } : null
 }
 
-export async function photosPush(t: TicketRow, deps: { send?: (accountId: string, msg: { title: string; body: string; url: string; tag: string }, userIds: string[]) => Promise<unknown>; allowed?: boolean } = {}): Promise<{ made: boolean; delivered: boolean }> {
+/**
+ * The customer's card owner (Jonathan, Oct 22 2026: "photos push goes to me
+ * and to the customer's card owner"). The customer's pipeline card (an open
+ * one first, then the one moved last: proposalViews.ts cardForContact) names
+ * its salesman by name only (lead.assignedRep), so that name is matched to a
+ * login only exactly: the login's full name ("First Last"), case and spaces
+ * aside; a first name alone or a near miss is never a match. A card with no
+ * salesman (or one no login matches) belongs to the login its follow ups are
+ * kept for (CardFollowUp.ownerUserId, a login id). Otherwise nobody.
+ */
+export async function cardOwnerOf(accountId: string, customerId: string | null): Promise<Recipient | null> {
+  if (!customerId) return null
+  const { cardForContact } = await import('./proposalViews.js')
+  const card = await cardForContact(accountId, customerId)
+  if (!card) return null
+  const { people } = await peopleOf(accountId)
+  const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+  const rep = norm(card.assignedRep)
+  const named = rep ? people.filter(p => norm(p.name) === rep) : []
+  // Two logins with the same full name: no guess between them.
+  if (named.length === 1) return { id: named[0].id, email: named[0].email, name: named[0].name }
+  const row = await prisma.cardFollowUp.findUnique({ where: { accountId_cardId: { accountId, cardId: String(card.id) } }, select: { ownerUserId: true } }).catch(() => null)
+  const p = row?.ownerUserId ? people.find(x => x.id === row.ownerUserId) : null
+  return p ? { id: p.id, email: p.email, name: p.name } : null
+}
+
+export async function photosPush(t: TicketRow, deps: { send?: (accountId: string, msg: { title: string; body: string; url: string; tag: string }, userIds: string[]) => Promise<unknown>; allowed?: boolean } = {}): Promise<{ made: boolean; delivered: boolean; to?: string[] }> {
   const key = `service-photos:${t.id}:${t.photosRequestedAt?.getTime() ?? 0}`
   if (await prisma.automationEffect.findUnique({ where: { key }, select: { key: true } })) return { made: false, delivered: false }
-  const owner = await ownerOf(t.accountId)
-  if (!owner) return { made: false, delivered: false }
-  const job = await prisma.savedJob.findUnique({ where: { id: t.jobId }, select: { customerName: true } })
+  const job = await prisma.savedJob.findUnique({ where: { id: t.jobId }, select: { customerName: true, crmContactId: true } })
+  // Jonathan and the customer's card owner; once each (the card owner may be Jonathan).
+  const people = [await ownerOf(t.accountId), await cardOwnerOf(t.accountId, t.crmContactId ?? job?.crmContactId ?? null)]
+  const to: Recipient[] = []
+  for (const p of people) if (p && !to.some(x => x.id === p.id)) to.push(p)
+  if (!to.length) return { made: false, delivered: false }
   const title = `Photos in: ${job?.customerName || 'a customer'}`
   const body = `${issueLabel(t.issue)}. ${t.warrantyName || 'No warranty on file'}. Decide covered or not covered.`
   const url = `/service?ticket=${t.id}`
   try {
     await prisma.$transaction(async tx => {
-      await tx.automationEffect.create({ data: { key, runId: 'service-photos', status: 'done', result: { ticketId: t.id, to: owner.id } as any } })
-      await tx.notification.create({ data: { recipientId: owner.email, title, body, type: 'info', link: url, jobId: t.jobId } })
+      await tx.automationEffect.create({ data: { key, runId: 'service-photos', status: 'done', result: { ticketId: t.id, to: to.map(p => p.id) } as any } })
+      for (const p of to) await tx.notification.create({ data: { recipientId: p.email, title, body, type: 'info', link: url, jobId: t.jobId } })
     })
   } catch { return { made: false, delivered: false } } // already told for this request
+  const ids = to.map(p => p.id)
   if (!(deps.allowed ?? pushDeliveryAllowed())) {
-    console.log(`[service] dev copy: push not delivered to ${owner.firstName || owner.email}: ${title}. ${body}`)
-    return { made: true, delivered: false }
+    console.log(`[service] dev copy: push not delivered to ${to.map(p => p.name).join(' and ')}: ${title}. ${body}`)
+    return { made: true, delivered: false, to: ids }
   }
   const send = deps.send ?? (async (a, msg, userIds) => (await import('./automations/push.js')).sendPush(a, msg, { userIds }))
-  await send(t.accountId, { title, body, url, tag: `service-${t.id}` }, [owner.id])
-  return { made: true, delivered: true }
+  await send(t.accountId, { title, body, url, tag: `service-${t.id}` }, ids)
+  return { made: true, delivered: true, to: ids }
 }
 
 // ── The customer portal ──────────────────────────────────────────────────────

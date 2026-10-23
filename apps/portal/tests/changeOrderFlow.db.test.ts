@@ -197,6 +197,65 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     expect(tl.items.map((i: any) => i.title)).toEqual(expect.arrayContaining(['Pull sheet rev 2 for the crew (change order CO-1)', 'Contract rev 1 signed: $6,000.00']))
   })
 
+  test('picked lines: the Repair price list and the catalog priced for the job\'s style (prices only), quantity and source kept, never shown to the customer', async () => {
+    const { contactId, quoteId, jobId } = await signedJob()
+    const { pricingModule } = await import('../src/server/lib/estimates.js')
+    const { dataFor } = await import('../src/server/lib/quotePricing.js')
+    const m = await pricingModule() as any
+    // A Salesman gets the list: prices only, no cost anywhere.
+    const list = await call(sales, 'GET', `/api/change-orders/pick-list?jobId=${jobId}`)
+    expect(list.status).toBe(200)
+    expect(list.json.data).toMatchObject({ fenceStyle: ND, noStyle: false })
+    const items = list.json.data.items as any[]
+    for (const i of items) expect(Object.keys(i).sort()).toEqual(['detail', 'group', 'label', 'source', 'unitCents', 'warnings'])
+    expect(items.map(i => i.source)).toEqual(expect.arrayContaining(['repair:resetPost', 'repair:replacePost', 'repair:repairSection', 'repair:replaceSection', 'repair:rehangGate:walk', 'repair:rehangGate:double', 'repair:replaceGate:walk', 'repair:replaceGate:double', 'repair:haulDebris', 'repair:pullPost']))
+    expect(items.every(i => Number.isInteger(i.unitCents) && i.unitCents % 100 === 0)).toBe(true)
+    const part = items.find(i => i.group === 'catalog' && i.unitCents > 0)
+    expect(part).toBeTruthy()
+    expect(JSON.stringify(list.json)).not.toMatch(/unitCost|costCents|materialCents|laborCents|costFactor|margin/i)
+
+    // A repair item at a quantity: exactly a repair quote of that item for the style, without the minimum job price.
+    const data = await dataFor(accountId)
+    const cfg = { ...(data.config as any), moveRepair: { ...((data.config as any)?.moveRepair ?? {}), minimumJobCents: 0 } }
+    const repairQuote = m.quoteJobFor({ ...data, config: cfg }, {
+      fenceStyle: ND, runs: [], corners: 0, ends: 0, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, overrides: {},
+      jobType: 'repair', repair: { what: 'other', items: { replacePost: 2 }, postType: 'nd', newPostCaps: false, gateKind: 'walk', debrisCleared: true },
+    })
+    const two = await call(sales, 'GET', `/api/change-orders/pick-price?quoteId=${quoteId}&source=repair:replacePost&qty=2`)
+    expect(two.status).toBe(200)
+    expect(two.json.data).toMatchObject({ priceCents: Math.round(repairQuote.totals.price * 100), qty: 2, label: 'Replace a post', fenceStyle: ND })
+    expect((await call(sales, 'GET', `/api/change-orders/pick-price?quoteId=${quoteId}&source=repair:nope&qty=1`)).status).toBe(404)
+    expect((await call(sales, 'GET', `/api/change-orders/pick-price?quoteId=${quoteId}&source=repair:resetPost&qty=0`)).status).toBe(400)
+    const partTwo = (await call(sales, 'GET', `/api/change-orders/pick-price?quoteId=${quoteId}&source=${encodeURIComponent(part.source)}&qty=2`)).json.data
+    expect(partTwo.priceCents % 100).toBe(0)
+
+    // Saved with its quantity and source; a credit too; a custom line beside them.
+    const co = await call(sales, 'POST', '/api/change-orders', {
+      jobId, reason: 'Picked lines',
+      lines: [
+        { id: 'pick-1', description: '2 × Replace a post', amountCents: two.json.data.priceCents, qty: 2, source: { kind: 'repair', ref: 'repair:replacePost', label: 'Replace a post', fenceStyle: ND, listCents: two.json.data.priceCents } },
+        { id: 'pick-2', description: part.label, amountCents: -part.unitCents - 50, qty: 1, source: { kind: 'catalog', ref: part.source, label: part.label, fenceStyle: ND, listCents: part.unitCents } },
+        { id: 'custom', description: 'Haul the old gate', amountCents: 4000 },
+      ],
+    })
+    expect(co.status).toBe(201)
+    const lines = co.json.data.lines
+    expect(lines[0]).toMatchObject({ qty: 2, source: { kind: 'repair', ref: 'repair:replacePost', fenceStyle: ND } })
+    // Whole dollars as every line (a credit to the larger whole dollar credit).
+    expect(lines[1]).toMatchObject({ amountCents: -part.unitCents - 100, qty: 1, source: { kind: 'catalog', ref: part.source } })
+    expect(lines[2]).toEqual({ id: 'custom', description: 'Haul the old gate', amountCents: 4000 })
+    expect(co.json.data.totalCents).toBe(two.json.data.priceCents - part.unitCents - 100 + 4000)
+    // Edited (a sent one): the source stays.
+    const ed = await call(sales, 'PATCH', `/api/change-orders/${co.json.data.id}`, { baseVersion: co.json.data.version, lines: [{ ...lines[0], amountCents: lines[0].amountCents + 100 }, lines[2]] })
+    expect(ed.status).toBe(200)
+    expect(ed.json.data.lines[0].source.ref).toBe('repair:replacePost')
+    await call(sales, 'PATCH', `/api/change-orders/${co.json.data.id}`, { baseVersion: ed.json.data.version, status: 'sent' })
+    // The customer sees the words, quantity and amount, never where it was picked from.
+    const theirs = (await changeOrdersForContact(contactId)).find(x => x.id === co.json.data.id)!
+    expect(theirs.lines[0]).toEqual({ id: 'pick-1', description: '2 × Replace a post', amountCents: lines[0].amountCents + 100, qty: 2 })
+    expect(JSON.stringify(theirs)).not.toContain('repair:replacePost')
+  })
+
   test('approved verbally (reason required): it counts; the customer copy is not signed until they sign; dig set switches the warranty', async () => {
     const { contactId, jobId } = await signedJob()
     const before = (await call(owner, 'GET', `/api/warranties/job/${jobId}`)).json.data.warranty.name

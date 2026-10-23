@@ -158,15 +158,15 @@ export default function PopMenu({
       {open && createPortal(
         <div onClick={stop} onPointerDown={stop} onMouseDown={stop} onTouchStart={stop} onDragStart={stop}>
           <BackClose onClose={close} name="popup" />
-          {phone && <div ref={back} className="fixed inset-0 z-[1000] bg-black/30" onClick={close} aria-hidden="true" data-popup-backdrop />}
+          {phone && <div ref={back} className="fixed inset-0 z-(--z-popover) bg-black/30" onClick={close} aria-hidden="true" data-popup-backdrop />}
           <div
             ref={pop}
             role={kind} aria-label={title}
             data-popup={name ?? ''}
             style={style}
             className={phone
-              ? 'fixed z-[1001] bg-white rounded-t-2xl border-t border-gray-200 shadow-2xl overflow-y-auto overscroll-contain'
-              : 'fixed z-[1001] bg-white rounded-xl border border-gray-200 shadow-xl overflow-y-auto overscroll-contain'}
+              ? 'fixed z-[calc(var(--z-popover)+1)] bg-white rounded-t-2xl border-t border-gray-200 shadow-2xl overflow-y-auto overscroll-contain'
+              : 'fixed z-[calc(var(--z-popover)+1)] bg-white rounded-xl border border-gray-200 shadow-xl overflow-y-auto overscroll-contain'}
           >
             {phone && (
               <div className="sticky top-0 bg-white flex items-center justify-between gap-2 px-4 pt-3 pb-2 border-b border-gray-100">

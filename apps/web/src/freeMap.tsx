@@ -15,6 +15,8 @@
 import { useEffect, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+// Every map sits in its own layer, under the page's menus and dialogs (layers.css).
+import './layers.css'
 import { aerialConfig, again, esriTile, naipTile, AERIAL_MAX_ZOOM, LOW_MAX_ZOOM, LOW_TILES, NAIP_CREDIT } from './aerialTiles'
 
 export type BaseKind = 'aerial' | 'street'
@@ -228,7 +230,7 @@ export function aboveIcon(content: HTMLElement, gap = 0): L.DivIcon {
 /** Aerial / Street switch drawn over a map. */
 export function BaseToggle({ base, onChange, className = '' }: { base: BaseKind; onChange: (b: BaseKind) => void; className?: string }) {
   return (
-    <div className={`z-[500] inline-flex rounded-lg shadow-md overflow-hidden border border-gray-300 bg-white ${className}`} data-map-base-toggle>
+    <div className={`z-(--z-map-ui) inline-flex rounded-lg shadow-md overflow-hidden border border-gray-300 bg-white ${className}`} data-map-base-toggle>
       {(['aerial', 'street'] as BaseKind[]).map(k => (
         <button key={k} type="button" onClick={() => onChange(k)} data-map-base={k} aria-pressed={base === k}
           className={`min-h-[40px] px-3 text-xs font-semibold ${base === k ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-50'}`}>

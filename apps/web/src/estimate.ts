@@ -17,6 +17,7 @@ import { priceQuoteJob, quoteView, savedWorkOf, type QuoteJob, type QuoteJobRequ
 import { widgetCatalog, widgetOptions, widgetStyles, priceForStyle, type WidgetCatalog, type WidgetPick, type WidgetPriced } from './widgetPricing'
 import type { YardLayout } from './yardLayout'
 import type { TierSet } from './tiers'
+import { pickList, pickPrice, type PickInput, type PickList } from './changeOrderPicks'
 export { importedOldPrice, keepsCents } from './pricingEngine'
 
 export { NOT_QUOTABLE_MESSAGE }
@@ -135,6 +136,20 @@ export function quoteJobFor(data: EstimateData, req: QuoteJobRequest, overheadPc
   return priceQuoteJob(cfg, req, typeof overheadPct === 'number' && Number.isFinite(overheadPct) ? overheadPct : estimateOverheadPct(cfg))
 }
 export { quoteView, savedWorkOf }
+
+/** The change order pick list for a job's style (changeOrderPicks.ts), at Settings today: prices only. */
+export function changeOrderPicksFor(data: EstimateData, input: PickInput): PickList {
+  useData(data)
+  const cfg = estimateConfig(data.config)
+  return pickList(cfg, data.inventory as never, input, estimateOverheadPct(cfg))
+}
+
+/** One change order pick at a quantity (changeOrderPicks.ts). */
+export function changeOrderPickPriceFor(data: EstimateData, input: PickInput, source: string, qty: number) {
+  useData(data)
+  const cfg = estimateConfig(data.config)
+  return pickPrice(cfg, data.inventory as never, input, estimateOverheadPct(cfg), source, qty)
+}
 
 // ── The website quote (EZ Budget, /p/quote): drawn on the photo ──────────────
 export { toYardLayout, drawingProblem, totalFt as drawingTotalFt, runSides as drawingRunSides, joinRuns as drawingJoinRuns } from './widgetDraw'

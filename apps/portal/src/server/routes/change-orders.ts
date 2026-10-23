@@ -7,6 +7,8 @@
  *   POST  /:id/link              the customer's link token (/p/co/<token>), made once; the app sends it from the phone
  *   POST  /:id/sign              the customer signs on this phone, in person { name, signature }
  *   GET   /timeline?jobId=       the job's timeline (contract, change orders, billing lines, pull sheet revisions) and a schedule warning
+ *   GET   /pick-list?quoteId= | ?jobId=   the Repair price list and the Inventory catalog priced for the job's style (prices only)
+ *   GET   /pick-price?quoteId=&source=&qty=   one picked item at a quantity
  *
  * Approving (at once, or a sent one) is "approved verbally" with a reason:
  * the customer's copy stays "not signed by you yet" until they sign. A change
@@ -33,6 +35,7 @@ import { hidesCosts } from '../lib/costRedact.js'
 import { scheduleFit } from '../lib/changeOrderWork.js'
 import { jobTimeline } from '../lib/changeOrderHistory.js'
 import { signSchema } from './changeOrderPublic.js'
+import { pickListFor, pickPriceFor } from '../lib/changeOrderPicks.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -41,6 +44,12 @@ const lineSchema = z.object({
   id: z.string().min(1).max(64),
   description: z.string().max(500),
   amountCents: z.number().int().min(-100_000_000).max(100_000_000),
+  // Picked from the pick list: how many, and where it came from (kept for history).
+  qty: z.number().int().min(1).max(10_000).optional(),
+  source: z.object({
+    kind: z.enum(['repair', 'catalog']), ref: z.string().min(1).max(200), label: z.string().max(300).default(''),
+    fenceStyle: z.string().max(200).optional(), listCents: z.number().int().min(-100_000_000).max(100_000_000).optional(),
+  }).strict().optional().nullable(),
 })
 const createSchema = z.object({
   id: z.string().min(8).max(64).optional(),
@@ -148,6 +157,32 @@ router.post('/:id/sign', requireCan('quotes.change'), async (req: any, res) => {
     if (!again) await audit(req, 'update', 'ChangeOrder', row.id, { oldValues: view(cur), newValues: { ...view(row), signedInPersonWith: witness } })
     res.json({ success: true, data: viewFor(req)(row), scheduleWarning: await warningFor(accountId, row.quoteId) })
   } catch (e) { fail(res, e, 'save the signature') }
+})
+
+/** The quote asked about: ?quoteId=, else the job's (?jobId=). */
+async function quoteAsked(req: any): Promise<string | null> {
+  if (typeof req.query.quoteId === 'string' && req.query.quoteId) return req.query.quoteId
+  if (typeof req.query.jobId === 'string' && req.query.jobId) return quoteOfJob(req.user.crmAccountId, req.query.jobId)
+  return null
+}
+
+router.get('/pick-list', requireCan('quotes.change'), async (req: any, res) => {
+  try {
+    const quoteId = await quoteAsked(req)
+    if (!quoteId) { res.status(400).json({ success: false, error: 'Which quote? This job has no quote.' }); return }
+    res.json({ success: true, data: await pickListFor(req.user.crmAccountId, quoteId) })
+  } catch (e) { fail(res, e, 'load the price list') }
+})
+
+router.get('/pick-price', requireCan('quotes.change'), async (req: any, res) => {
+  try {
+    const quoteId = await quoteAsked(req)
+    if (!quoteId) { res.status(400).json({ success: false, error: 'Which quote? This job has no quote.' }); return }
+    const source = String(req.query.source ?? '')
+    const qty = Number(req.query.qty ?? 1)
+    if (!source || source.length > 250 || !Number.isInteger(qty) || qty < 1 || qty > 10_000) { res.status(400).json({ success: false, error: 'Pick an item and a quantity from 1 to 10,000.' }); return }
+    res.json({ success: true, data: await pickPriceFor(req.user.crmAccountId, quoteId, source, qty) })
+  } catch (e) { fail(res, e, 'price the item') }
 })
 
 router.get('/timeline', async (req: any, res) => {

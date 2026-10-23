@@ -381,7 +381,15 @@ Status key:
 
 ## 9t. Email that really sends (Oct 22)
 
-* Found on live: no email was ever sent (SMTP settings empty, and the SMTP code was a stub that pretended to succeed): portal invites, password resets, receipts and alerts were only logged. Now: SMTP through nodemailer (Google Workspace with an App Password; 465 TLS or 587 STARTTLS), SendGrid as the alternative, receipts attach their PDF. With no email set up every screen says "Not sent: email is not set up" instead of "sent". Admin → Integrations → Email shows the setup and "Send a test email to me". GO_LIVE.md section 18 has the steps. **DEV**
+* Found on live: no email was ever sent (SMTP settings empty, and the SMTP code was a stub that pretended to succeed): portal invites, password resets, receipts and alerts were only logged. Now: SMTP through nodemailer (Google Workspace with an App Password; 465 TLS or 587 STARTTLS), SendGrid as the alternative, receipts attach their PDF. With no email set up every screen says "Not sent: email is not set up" instead of "sent". Admin → Integrations → Email shows the setup and "Send a test email to me". GO_LIVE.md section 18 has the steps. **LIVE**
+
+## 9u. Maps under menus, Dispatch pins, change order pick list, service push to the card owner (Oct 22)
+
+* One shared rule (layers.css): every map is its own layer at the bottom of the page, so side menus, dropdowns, sheets, dialogs and toasts always sit above maps (Dispatch and the website quote map had been drawing over the menu on phones). Checked on every map screen in the phone fit test. **DEV**
+* Dispatch pins: color = the job's Operations stage color from Settings, ring = the crew's color, label = crew initials (or the customer's initials when no crew), legend on the map (folded on a phone). Every pin had shown "?" because jobs carry no crew or install date (those live on the Schedule board and are not copied back to the job). **DEV**
+* Change orders: "Pick from price list" (Repair price list and Catalog), priced like a repair quote for the job's style (out of the Repair profit, whole dollars), plus custom lines. **DEV**
+* Service requests: the "photos received" push goes to Jonathan and the customer's card owner. **DEV**
+* Esri World Imagery is on for live: a sharp yard photo in about 0.4 to 0.6 s on 4G (was 20 to 50 s). **LIVE** (Oct 22)
 
 ## 10. Reliability (top priority)
 

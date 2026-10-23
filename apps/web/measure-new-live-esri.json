@@ -1,0 +1,123 @@
+[
+ {
+  "label": "new-live-esri",
+  "net": "4g",
+  "run": 1,
+  "addr": "2100 SW 27th Ave, Ocala",
+  "pageMs": 642,
+  "suggestMs": 791,
+  "firstTileMs": 293,
+  "sharpMs": 496,
+  "overlayGoneMs": 496,
+  "overlaySeen": true,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 18,
+  "bytes": 410556,
+  "imageryRequests": 11,
+  "imageryBytes": 166675,
+  "sharpTileReqs": 9,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 305,
+  "sharpWaitMax": 388,
+  "sharpTransferMedian": 28,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 177,
+    "wait": 173
+   },
+   {
+    "path": "config",
+    "ms": 179,
+    "wait": 175
+   },
+   {
+    "path": "suggest",
+    "ms": 361,
+    "wait": 360
+   }
+  ],
+  "marks": [
+   {
+    "t": 89,
+    "loaded": 0,
+    "of": 6
+   },
+   {
+    "t": 293,
+    "loaded": 4,
+    "of": 6
+   },
+   {
+    "t": 394,
+    "loaded": 5,
+    "of": 6
+   },
+   {
+    "t": 496,
+    "loaded": 6,
+    "of": 6
+   }
+  ]
+ },
+ {
+  "label": "new-live-esri",
+  "net": "4g",
+  "run": 1,
+  "addr": "3001 SW College Rd, Ocala",
+  "pageMs": 638,
+  "suggestMs": 786,
+  "firstTileMs": 295,
+  "sharpMs": 396,
+  "overlayGoneMs": 396,
+  "overlaySeen": false,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 19,
+  "bytes": 413358,
+  "imageryRequests": 12,
+  "imageryBytes": 169509,
+  "sharpTileReqs": 9,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 230,
+  "sharpWaitMax": 334,
+  "sharpTransferMedian": 24,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 176,
+    "wait": 176
+   },
+   {
+    "path": "config",
+    "ms": 177,
+    "wait": 177
+   },
+   {
+    "path": "suggest",
+    "ms": 176,
+    "wait": 173
+   }
+  ],
+  "marks": [
+   {
+    "t": 91,
+    "loaded": 0,
+    "of": 9
+   },
+   {
+    "t": 295,
+    "loaded": 5,
+    "of": 9
+   },
+   {
+    "t": 396,
+    "loaded": 9,
+    "of": 9
+   }
+  ]
+ }
+]

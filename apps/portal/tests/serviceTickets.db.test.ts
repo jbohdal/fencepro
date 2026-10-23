@@ -42,6 +42,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty and service requests (d
 
   const stamp = `${Date.now().toString(36)}${crypto.randomBytes(2).toString('hex')}`
   let accountId = '', contactId = '', jobId = '', oldJobId = '', base = '', portalCookie = '', ownerEmail = ''
+  const extraEmails: string[] = []
   const tokens: Record<string, string> = {}
   const made = { portal: '', packet: '', quote: '', appt: '' }
   let server: ReturnType<express.Express['listen']>
@@ -99,7 +100,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty and service requests (d
     await prisma.mediaItem.deleteMany({ where: { accountId } })
     const tickets = await prisma.serviceTicket.findMany({ where: { accountId }, select: { id: true } })
     for (const t of tickets) await prisma.automationEffect.deleteMany({ where: { key: { startsWith: `service-photos:${t.id}:` } } })
-    await prisma.notification.deleteMany({ where: { recipientId: ownerEmail } })
+    await prisma.notification.deleteMany({ where: { recipientId: { in: [ownerEmail, ...extraEmails] } } })
+    await prisma.cardFollowUp.deleteMany({ where: { accountId } })
+    await prisma.pipelineState.deleteMany({ where: { accountId } })
     await prisma.serviceWorkCost.deleteMany({ where: { accountId } })
     await prisma.serviceTicket.deleteMany({ where: { accountId } })
     await prisma.installPacket.deleteMany({ where: { accountId } })
@@ -205,12 +208,50 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty and service requests (d
     const sent: any[] = []
     const fresh = { ...row, photosRequestedAt: new Date(row.photosRequestedAt!.getTime() + 1) }
     const first = await photosPush(fresh, { allowed: true, send: async (a, msg, ids) => { sent.push({ a, msg, ids }) } })
-    expect(first).toEqual({ made: true, delivered: true })
+    expect(first).toMatchObject({ made: true, delivered: true })
     expect(await photosPush(fresh, { allowed: true, send: async (a, msg, ids) => { sent.push({ a, msg, ids }) } })).toEqual({ made: false, delivered: false })
     expect(sent).toHaveLength(1)
     expect(sent[0].msg.url).toBe(`/service?ticket=${ticketId}`)
     const owner = await prisma.crmUser.findFirst({ where: { email: ownerEmail } })
     expect(sent[0].ids).toEqual([owner!.id])
+  })
+
+  test('the push also goes to the customer\'s card owner: the salesman by exact full name, else the follow ups owner; never twice', async () => {
+    const rep = await prisma.crmUser.create({ data: { email: `e2e-service-rep-${stamp}@example.com`, firstName: 'Sam', lastName: 'Seller', role: 'sales_rep', status: 'active', crmAccountId: accountId, passwordHash: 'x' } as any })
+    const other = await prisma.crmUser.create({ data: { email: `e2e-service-other-${stamp}@example.com`, firstName: 'Olive', lastName: 'Office', role: 'office_staff', status: 'active', crmAccountId: accountId, passwordHash: 'x' } as any })
+    extraEmails.push(rep.email, other.email)
+    const owner = (await prisma.crmUser.findFirst({ where: { email: ownerEmail } }))!
+    const card = { id: `card-${stamp}`, customerId: contactId, firstName: 'Pat', lastName: 'Service', stage: 'sold', assignedRep: '  sam   SELLER ' }
+    await prisma.pipelineState.create({ data: { accountId, leads: [card] as any, stages: [] as any } as any })
+    const row = (await prisma.serviceTicket.findUnique({ where: { id: ticketId } }))!
+    let n = 10
+    const push = async () => {
+      const sent: any[] = []
+      const r = await photosPush({ ...row, photosRequestedAt: new Date(row.photosRequestedAt!.getTime() + n++) }, { allowed: true, send: async (_a, msg, ids) => { sent.push({ msg, ids }) } })
+      return { r, ids: sent[0]?.ids ?? [] }
+    }
+    const cardOwner = async () => (await import('../src/server/lib/serviceTickets.js')).cardOwnerOf(accountId, contactId)
+    // The salesman named on the card (full name, case and spaces aside): Jonathan and Sam, a bell each.
+    expect((await cardOwner())?.id).toBe(rep.id)
+    const a = await push()
+    expect(a.r).toMatchObject({ made: true, delivered: true })
+    expect(a.ids).toEqual([owner.id, rep.id])
+    const bells = await prisma.notification.findMany({ where: { recipientId: rep.email } })
+    expect(bells).toHaveLength(1)
+    expect(bells[0].link).toBe(`/service?ticket=${ticketId}`)
+    // A first name alone is not a match (no guessing); with no follow ups owner nobody else is told.
+    await prisma.pipelineState.update({ where: { accountId }, data: { leads: [{ ...card, assignedRep: 'Sam' }] as any } })
+    expect(await cardOwner()).toBeNull()
+    expect((await push()).ids).toEqual([owner.id])
+    // No salesman on the card: the login its follow ups belong to (a login id).
+    await prisma.pipelineState.update({ where: { accountId }, data: { leads: [{ ...card, assignedRep: '' }] as any } })
+    await prisma.cardFollowUp.create({ data: { accountId, cardId: card.id, stage: 'sold', stageSince: '2026-10-01', ownerUserId: other.id } as any })
+    expect((await push()).ids).toEqual([owner.id, other.id])
+    // The card is Jonathan's own: told once, one bell.
+    await prisma.pipelineState.update({ where: { accountId }, data: { leads: [{ ...card, assignedRep: 'E2E Owner' }] as any } })
+    const before = await prisma.notification.count({ where: { recipientId: ownerEmail } })
+    expect((await push()).ids).toEqual([owner.id])
+    expect(await prisma.notification.count({ where: { recipientId: ownerEmail } })).toBe(before + 1)
   })
 
   test('an expired link stops taking photos', async () => {
@@ -248,6 +289,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty and service requests (d
     expect(customerRoute('POST', `/service-requests/${ticketId}/photos`)).toBe(true)
     expect(customerRoute('POST', `/service-requests/${ticketId}/decision`)).toBe(false)
     // Shared: the decision and its reason show.
+    await call('super_admin', 'POST', `/api/service-tickets/${ticketId}/decision`, { decision: 'covered', reason: 'Covered under your Lifetime warranty.', shared: true })
+    expect((await get()).json.data[0].decision).toEqual({ covered: true, reason: 'Covered under your Lifetime warranty.' })
+    // "Show the customer" ticked off again: hidden again.
+    await call('super_admin', 'POST', `/api/service-tickets/${ticketId}/decision`, { decision: 'covered', reason: 'Covered under your Lifetime warranty.', shared: false })
+    expect((await get()).json.data[0].decision).toBeNull()
     await call('super_admin', 'POST', `/api/service-tickets/${ticketId}/decision`, { decision: 'covered', reason: 'Covered under your Lifetime warranty.', shared: true })
     expect((await get()).json.data[0].decision).toEqual({ covered: true, reason: 'Covered under your Lifetime warranty.' })
     // A photo from the portal: Internal on the request; without the portal's write header it is refused.

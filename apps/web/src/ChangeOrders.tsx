@@ -39,7 +39,14 @@ export interface ChangeOrderLine {
   description: string
   /** Positive adds to the contract, negative is a credit. */
   amountCents: number
+  /** Picked from the pick list: how many. */
+  qty?: number
+  /** Picked from the pick list: where it came from (kept for history). */
+  source?: ChangeOrderLineSource | null
 }
+
+/** "repair:<key>[:walk|double]" (the Repair price list) or "catalog:<Inventory item id>", the style it was priced for and the price the list gave. */
+export interface ChangeOrderLineSource { kind: 'repair' | 'catalog'; ref: string; label: string; fenceStyle?: string; listCents?: number }
 
 export type ChangeOrderStatus = 'draft' | 'sent' | 'approved' | 'void'
 
@@ -297,8 +304,96 @@ function VerbalReason({ value, onChange }: { value: string; onChange: (v: string
 
 /* ───────── Make a change order ───────── */
 
-interface EditLine { id: string; description: string; amount: string; credit: boolean }
-const toEdit = (l: ChangeOrderLine): EditLine => ({ id: l.id, description: l.description, amount: l.amountCents ? (Math.abs(l.amountCents) / 100).toFixed(l.amountCents % 100 ? 2 : 0) : '', credit: l.amountCents < 0 })
+interface EditLine {
+  id: string; description: string; amount: string; credit: boolean
+  /** Picked from the pick list: the quantity, the source, the words it was given (changed by hand: kept on a new quantity) and a price being worked out. */
+  qty?: number; qtyText?: string; source?: ChangeOrderLineSource | null; auto?: string; pricing?: boolean
+}
+const toEdit = (l: ChangeOrderLine): EditLine => ({ id: l.id, description: l.description, amount: l.amountCents ? (Math.abs(l.amountCents) / 100).toFixed(l.amountCents % 100 ? 2 : 0) : '', credit: l.amountCents < 0, ...(l.qty ? { qty: l.qty } : {}), ...(l.source ? { source: l.source } : {}) })
+const pickWords = (label: string, qty: number) => (qty > 1 ? `${qty} × ${label}` : label)
+
+/* ───────── The pick list: the Repair price list and the catalog ───────── */
+
+interface PickItem { source: string; group: 'repair' | 'catalog'; label: string; detail: string; unitCents: number; warnings: string[] }
+interface PickList { fenceStyle: string; styleLabel: string; noStyle: boolean; items: PickItem[] }
+
+/** One picked item at a quantity, priced on the server for the job's style. */
+async function pickPrice(quoteId: string, source: string, qty: number): Promise<{ priceCents: number; label: string; qty: number; fenceStyle: string; warnings: string[] } | null> {
+  const r = await sendJson('GET', `/api/change-orders/pick-price?quoteId=${encodeURIComponent(quoteId)}&source=${encodeURIComponent(source)}&qty=${qty}`)
+  if (!r.result.ok || !r.json?.data) { toast.error('Not priced', r.json?.error || 'Check the signal and try again.'); return null }
+  return r.json.data
+}
+
+const SHOWN = 60
+
+/**
+ * Search the Repair price list (priced for the job's style, as a repair quote
+ * prices it) and the catalog (Inventory items, priced as a repair prices its
+ * parts). Prices only. Tapping an item adds it as a line.
+ */
+function PickSheet({ quoteId, onPick, onClose }: { quoteId: string; onPick: (item: PickItem, list: PickList) => void; onClose: () => void }) {
+  useBackLayer(onClose, { key: 'co-pick-sheet' })
+  const [list, setList] = useState<PickList | null>(null)
+  const [error, setError] = useState('')
+  const [group, setGroup] = useState<'repair' | 'catalog'>('repair')
+  const [q, setQ] = useState('')
+  useEffect(() => {
+    let live = true
+    void sendJson('GET', `/api/change-orders/pick-list?quoteId=${encodeURIComponent(quoteId)}`).then(r => {
+      if (!live) return
+      if (r.result.ok && r.json?.data) setList(r.json.data as PickList)
+      else setError(r.json?.error || 'The price list did not load. Check the signal and try again.')
+    })
+    return () => { live = false }
+  }, [quoteId])
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+  // A search looks in both lists; with no search, the list picked.
+  const found = (list?.items ?? []).filter(i => (words.length ? true : i.group === group) && words.every(w => `${i.label} ${i.detail}`.toLowerCase().includes(w)))
+  const shown = found.slice(0, SHOWN)
+  return (
+    <div className="fixed inset-0 z-[85] flex items-end md:items-center justify-center bg-black/50" onClick={onClose} data-co-pick-sheet>
+      <div className="bg-white w-full md:max-w-[560px] rounded-t-2xl md:rounded-2xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="p-4 pb-2 space-y-2 border-b border-gray-100">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="font-bold text-gray-900">Pick from the price list</h2>
+              <p className="text-xs text-gray-500">{list ? (list.noStyle ? `The job's style (${list.styleLabel}) is not in Settings, so nothing can be priced from it. Type a custom line instead.` : `Priced for ${list.styleLabel}, at today's Settings. You can change the amount after.`) : ' '}</p>
+            </div>
+            <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 text-xl">×</button>
+          </div>
+          <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Search, e.g. gate, post, hinge" autoComplete="off"
+            className="w-full h-12 border border-gray-300 rounded-lg px-3 text-base" data-co-pick-search />
+          {!words.length && (
+            <div className="grid grid-cols-2 gap-2" role="tablist">
+              {(['repair', 'catalog'] as const).map(g => (
+                <button key={g} type="button" role="tab" aria-selected={group === g} onClick={() => setGroup(g)}
+                  className={`min-h-[44px] rounded-lg text-sm font-semibold border ${group === g ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-700'}`} data-co-pick-group={g}>
+                  {g === 'repair' ? 'Repair price list' : 'Catalog'}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="overflow-y-auto p-2 flex-1" data-co-pick-results>
+          {error && <p className="text-sm text-red-700 p-2" role="alert">{error}</p>}
+          {!list && !error && <p className="text-sm text-gray-500 p-2">Loading the price list…</p>}
+          {list && !shown.length && !list.noStyle && <p className="text-sm text-gray-500 p-2">Nothing matches. Try another word, or type a custom line.</p>}
+          {shown.map(i => (
+            <button key={i.source} type="button" onClick={() => onPick(i, list!)} className="w-full text-left rounded-xl px-3 py-2 min-h-[52px] hover:bg-gray-50 active:bg-gray-100 flex items-center justify-between gap-3" data-co-pick-item={i.source}>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-gray-900">{i.label}</span>
+                <span className="block text-xs text-gray-500 truncate">{words.length ? `${i.group === 'repair' ? 'Repair price list' : 'Catalog'}${i.detail ? ` · ${i.detail}` : ''}` : i.detail}</span>
+                {i.warnings.length > 0 && <span className="block text-[11px] text-amber-800">{i.warnings[0]}</span>}
+              </span>
+              <span className="text-sm font-semibold text-gray-900 shrink-0" data-co-pick-price>{money(i.unitCents)}</span>
+            </button>
+          ))}
+          {found.length > SHOWN && <p className="text-xs text-gray-500 p-2">Showing {SHOWN} of {found.length}. Type more of the name to narrow it.</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
 /** A line in whole dollars (Oct 21 2026): rounded down, a credit to the larger whole dollar, so the cents never go on the customer. */
 const centsOf = (l: EditLine) => { const n = Math.round((parseFloat(l.amount) || 0) * 100); return wholeDollarCents(l.credit ? -Math.abs(n) : Math.abs(n)).cents }
 const hasCents = (l: EditLine) => Math.round((parseFloat(l.amount) || 0) * 100) % 100 !== 0
@@ -325,11 +420,37 @@ export function QuickChangeOrderModal({
   const [reason, setReason] = useState(prefill?.reason ?? '')
   const [busy, setBusy] = useState(false)
   const [verbal, setVerbal] = useState<string | null>(null)
+  const [picking, setPicking] = useState(false)
   const approver = can('billing.change')
 
   const update = (id: string, patch: Partial<EditLine>) => setItems(prev => prev.map(i => (i.id === id ? { ...i, ...patch } : i)))
+
+  /** A picked item becomes a line: quantity 1, its words and its price (all can be changed); an empty first line is replaced. */
+  function addPicked(p: PickItem, list: PickList) {
+    setPicking(false)
+    const line: EditLine = {
+      id: newId(), description: p.label, auto: p.label, amount: String(Math.round(p.unitCents) / 100), credit: false, qty: 1,
+      source: { kind: p.group, ref: p.source, label: p.label, fenceStyle: list.fenceStyle, listCents: p.unitCents },
+    }
+    setItems(prev => [...prev.filter(i => i.description.trim() || i.amount.trim() || i.source), line])
+  }
+
+  /** A new quantity on a picked line: priced again on the server (the words follow unless they were changed by hand). */
+  async function setQty(item: EditLine, raw: string) {
+    const qty = Math.max(1, Math.min(10_000, Math.round(Number(raw) || 1)))
+    if (!item.source || qty === item.qty) return
+    update(item.id, { qty, pricing: true })
+    const r = await pickPrice(quoteId, item.source.ref, qty)
+    setItems(prev => prev.map(i => {
+      if (i.id !== item.id) return i
+      if (!r || i.qty !== qty) return { ...i, pricing: false }
+      const words = pickWords(r.label, qty)
+      const keepWords = i.auto !== undefined && i.description !== i.auto
+      return { ...i, pricing: false, amount: String(Math.round(r.priceCents) / 100), description: keepWords ? i.description : words, auto: keepWords ? i.auto : words, source: { ...i.source!, listCents: r.priceCents, fenceStyle: r.fenceStyle } }
+    }))
+  }
   const total = items.reduce((s, i) => s + centsOf(i), 0)
-  const canSave = items.some(i => i.description.trim() && centsOf(i) !== 0) && !busy
+  const canSave = items.some(i => i.description.trim() && centsOf(i) !== 0) && !busy && !items.some(i => i.pricing)
 
   // Tapped twice before the window closes: saved once.
   const savedOnce = useRef(false)
@@ -337,7 +458,9 @@ export function QuickChangeOrderModal({
     if (!canSave || savedOnce.current) return
     savedOnce.current = true
     setBusy(true)
-    const lines = items.filter(i => i.description.trim() || centsOf(i) !== 0).map(i => ({ id: i.id, description: i.description.trim(), amountCents: centsOf(i) }))
+    const lines: ChangeOrderLine[] = items.filter(i => i.description.trim() || centsOf(i) !== 0).map(i => ({
+      id: i.id, description: i.description.trim(), amountCents: centsOf(i), ...(i.source ? { qty: i.qty ?? 1, source: i.source } : {}),
+    }))
     const co = await createChangeOrder({ quoteId, reason: reason.trim(), lines, scope: prefill?.scope ?? null, verbalReason, work: prefill?.work ?? null })
     setBusy(false)
     if (!co) { savedOnce.current = false; return }
@@ -359,9 +482,12 @@ export function QuickChangeOrderModal({
         <div className="px-4 md:px-6 py-5 space-y-4">
           {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.</p>}
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
               <label className="text-xs text-gray-600 font-semibold">Lines</label>
-              <button onClick={() => setItems(p => [...p, { id: newId(), description: '', amount: '', credit: false }])} className="text-sm text-orange-600 font-semibold min-h-[44px] px-2" data-co-add-line>+ Add line</button>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => setPicking(true)} className="text-sm border border-orange-300 text-orange-700 font-semibold min-h-[44px] px-3 rounded-lg" data-co-pick-open>Pick from price list</button>
+                <button type="button" onClick={() => setItems(p => [...p, { id: newId(), description: '', amount: '', credit: false }])} className="text-sm text-orange-600 font-semibold min-h-[44px] px-2" data-co-add-line>+ Custom line</button>
+              </div>
             </div>
             <div className="space-y-3">
               {items.map(item => (
@@ -373,6 +499,17 @@ export function QuickChangeOrderModal({
                     onChange={e => update(item.id, { description: e.target.value })}
                     data-co-line-description
                   />
+                  {item.source && (
+                    <div className="flex items-center gap-2 text-xs text-gray-600" data-co-line-source={item.source.ref}>
+                      <label className="flex items-center gap-1 font-semibold text-gray-700">Qty
+                        <input type="number" inputMode="numeric" min={1} max={10000} step={1} value={item.qtyText ?? String(item.qty ?? 1)}
+                          onChange={e => { const t = e.target.value; update(item.id, { qtyText: t }); if (/^\d+$/.test(t) && Number(t) >= 1) void setQty(item, t) }}
+                          onBlur={() => update(item.id, { qtyText: undefined })}
+                          className="w-20 border border-gray-300 rounded-lg px-2 min-h-[44px] text-sm text-right font-normal" data-co-line-qty />
+                      </label>
+                      <span className="min-w-0">{item.pricing ? 'Pricing…' : `${item.source.kind === 'repair' ? 'Repair price list' : 'Catalog'}${typeof item.source.listCents === 'number' ? `: ${money(item.source.listCents)}` : ''}`}</span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <select className="border border-gray-300 rounded-lg px-2 py-2 text-sm min-h-[44px]" value={item.credit ? 'credit' : 'add'} onChange={e => update(item.id, { credit: e.target.value === 'credit' })} data-co-line-kind>
                       <option value="add">Add</option>
@@ -416,6 +553,8 @@ export function QuickChangeOrderModal({
             ? <button onClick={() => setVerbal('')} disabled={!canSave} className="btn btn-secondary min-h-[44px]" data-co-save-approved>Approved verbally…</button>
             : <button onClick={() => void save(verbal.trim())} disabled={!canSave || verbal.trim().length < 3} className="btn btn-primary min-h-[44px]" data-co-save-verbal>Save as approved verbally</button>)}
         </div>
+        {/* Inside the window (its clicks stop here), so closing the list never closes the change order. */}
+        {picking && <PickSheet quoteId={quoteId} onPick={addPicked} onClose={() => setPicking(false)} />}
       </div>
     </div>
   )
@@ -697,7 +836,7 @@ function ChangeOrderMenu({ customerName, drawing, onClose, onDrawing, onLines }:
         )}
         <button type="button" onClick={onLines} className="w-full text-left rounded-xl border border-gray-200 p-3 min-h-[56px] hover:bg-gray-50" data-co-from-lines>
           <span className="block font-semibold text-gray-900">Type the change</span>
-          <span className="block text-xs text-gray-600">Add an item, credit an item, or a custom line with a price.</span>
+          <span className="block text-xs text-gray-600">Pick from the Repair price list or the catalog (add or credit), or type a custom line with a price.</span>
         </button>
       </div>
     </div>

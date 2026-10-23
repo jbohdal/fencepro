@@ -72,7 +72,7 @@ export function ToastContainer() {
 
   return (
     // At the bottom, above the phone's tab bar and the quote's Save bar: never over a name or its save status at the top.
-    <div className="fixed z-[100] flex flex-col-reverse gap-2 pointer-events-none inset-x-3 bottom-[calc(108px+env(safe-area-inset-bottom))] md:inset-x-auto md:right-4 md:bottom-4 md:max-w-sm">
+    <div className="fixed z-(--z-toast) flex flex-col-reverse gap-2 pointer-events-none inset-x-3 bottom-[calc(108px+env(safe-area-inset-bottom))] md:inset-x-auto md:right-4 md:bottom-4 md:max-w-sm">
       {msgs.map(m => (
         <div key={m.id}
           className={`${styles[m.kind]} rounded-xl shadow-lg px-4 py-3 flex items-start gap-3 pointer-events-auto animate-in slide-in-from-bottom`}>

@@ -4,6 +4,8 @@ import { can } from './permissions'
 import { styleLabel } from './fenceCatalog'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+// Every map sits in its own layer, under the page's menus and dialogs (layers.css).
+import './layers.css'
 import { lookupPosition } from './appointmentsStore'
 import { distanceMiles } from './geoUtils'
 import {
@@ -11,10 +13,10 @@ import {
   updateJob,
   MATERIALS_STATUS_CONFIG,
   type Job,
-  type JobStatus,
 } from './jobStore'
-import { loadSchedule as storeLoadSchedule } from './scheduleStore'
+import { loadSchedule as storeLoadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
 import { stageOf, stageInfo, useOpsStages } from './opsStagesStore'
+import { dispatchCrews, findCrew, pinLook, pinElement, crewInitials, type DispatchCrew } from './dispatchPins'
 
 /* ═══════════════════════════════════════════════
    DISPATCH COMMAND CENTER
@@ -23,12 +25,7 @@ import { stageOf, stageInfo, useOpsStages } from './opsStagesStore'
 
 // ── Types ────────────────────────────────────────
 
-interface Crew {
-  id: string
-  name: string
-  color: string     // tailwind bg class
-  hexColor: string  // hex for map markers
-}
+type Crew = DispatchCrew
 
 interface TimeBlock {
   job: Job
@@ -47,21 +44,6 @@ const HOUR_LABELS = HOURS.map(h => {
   return h > 12 ? `${h - 12} PM` : `${h} AM`
 })
 
-const DEFAULT_CREWS: Crew[] = [
-  { id: 'crew1', name: 'Crew 1', color: 'bg-blue-500', hexColor: '#3B82F6' },
-  { id: 'crew2', name: 'Crew 2', color: 'bg-purple-500', hexColor: '#8B5CF6' },
-]
-
-const STATUS_PIN_COLORS: Record<string, string> = {
-  staging: '#F59E0B',      // amber — not yet scheduled
-  scheduled: '#3B82F6',    // blue — confirmed
-  in_progress: '#F97316',  // orange — crew on site
-  completed: '#9CA3AF',    // gray
-  on_hold: '#EF4444',      // red
-}
-
-const UNASSIGNED_COLOR = '#EF4444'
-
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
@@ -73,31 +55,10 @@ function addDays(d: Date, n: number): Date {
   return result
 }
 
-function loadCrews(): Crew[] {
+/** Schedule's crews (Schedule > crews), plus crew names typed on jobs that are not in that list. */
+function loadCrews(jobs: Job[]): Crew[] {
   const { settings } = storeLoadSchedule()
-  if (settings?.crews?.length) {
-    return settings.crews.map(c => ({
-      ...c,
-      hexColor: (c as any).hexColor || crewColorToHex(c.color),
-    })) as Crew[]
-  }
-  return DEFAULT_CREWS
-}
-
-function crewColorToHex(twClass: string): string {
-  const map: Record<string, string> = {
-    'bg-blue-500': '#3B82F6',
-    'bg-purple-500': '#8B5CF6',
-    'bg-green-500': '#22C55E',
-    'bg-orange-500': '#F97316',
-    'bg-pink-500': '#EC4899',
-    'bg-teal-500': '#14B8A6',
-    'bg-red-500': '#EF4444',
-    'bg-indigo-500': '#6366F1',
-    'bg-yellow-500': '#EAB308',
-    'bg-cyan-500': '#06B6D4',
-  }
-  return map[twClass] || '#3B82F6'
+  return dispatchCrews((settings?.crews ?? []) as Array<{ id: string; name: string; color?: string; hexColor?: string }>, jobs.map(j => j.crewAssigned))
 }
 
 // ── Geocode helper ───────────────────────────────
@@ -121,32 +82,23 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lng: numb
   return null
 }
 
-// ── Pin SVG builder ──────────────────────────────
-
-function createPinContent(color: string, label: string, isSelected: boolean): HTMLElement {
-  const wrapper = document.createElement('div')
-  wrapper.style.position = 'relative'
-  wrapper.style.cursor = 'pointer'
-  wrapper.style.transition = 'transform 0.15s'
-  if (isSelected) wrapper.style.transform = 'scale(1.3)'
-
-  wrapper.innerHTML = `
-    <svg width="32" height="42" viewBox="0 0 32 42" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M16 0C7.16 0 0 7.16 0 16c0 12 16 26 16 26s16-14 16-26C32 7.16 24.84 0 16 0z" fill="${color}" stroke="${isSelected ? '#111' : '#fff'}" stroke-width="2"/>
-      <circle cx="16" cy="16" r="8" fill="white"/>
-      <text x="16" y="20" text-anchor="middle" font-size="10" font-weight="bold" fill="${color}">${label}</text>
-    </svg>
-  `
-  return wrapper
-}
-
 // ═══ MAIN COMPONENT ══════════════════════════════
 
 export default function DispatchPage() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<ViewMode>('day')
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [crews] = useState<Crew[]>(loadCrews)
+  const [jobs, setJobs] = useState<Job[]>(getJobs)
+  // Schedule's crew list, kept current (a crew added or recolored on Schedule shows here).
+  const [scheduleRev, setScheduleRev] = useState(0)
+  useEffect(() => {
+    const h = () => setScheduleRev(r => r + 1)
+    window.addEventListener(SCHEDULE_UPDATED_EVENT, h)
+    return () => window.removeEventListener(SCHEDULE_UPDATED_EVENT, h)
+  }, [])
+  const crews = useMemo(() => loadCrews(jobs), [jobs, scheduleRev])
+  // Settings > Operations Stages: the pins' colors, kept current.
+  const opsStages = useOpsStages()
+  const [legendOpen, setLegendOpen] = useState(() => typeof window === 'undefined' || !window.matchMedia?.('(max-width: 767px)').matches)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const [mapReady, setMapReady] = useState(false)
   const [geocodedJobs, setGeocodedJobs] = useState<Map<string, { lat: number; lng: number }>>(new Map())
@@ -176,7 +128,10 @@ export default function DispatchPage() {
   // ── Load jobs ──────────────────────────────────
 
   useEffect(() => {
-    setJobs(getJobs())
+    // Jobs loaded or changed elsewhere (another screen, another device) show without a reload.
+    const h = () => setJobs(getJobs())
+    window.addEventListener('fencepro:jobs:updated', h)
+    return () => window.removeEventListener('fencepro:jobs:updated', h)
   }, [])
 
   // Jobs for the current view (scheduled on visible dates + unassigned)
@@ -278,14 +233,13 @@ export default function DispatchPage() {
       bounds.extend([coords.lat, coords.lng])
 
       const isSelected = job.id === selectedJobId
-      const isUnassigned = !job.crewAssigned || !job.scheduledDate
-      const crew = crews.find(c => c.id === job.crewAssigned)
-      const pinColor = isUnassigned
-        ? UNASSIGNED_COLOR
-        : (crew?.hexColor || STATUS_PIN_COLORS[job.status] || '#3B82F6')
-      const pinLabel = isUnassigned ? '?' : (crew?.name?.replace('Crew ', '') || '')
-
-      const icon = L.divIcon({ className: '', html: createPinContent(pinColor, pinLabel, isSelected), iconSize: [32, 42], iconAnchor: [16, 42] })
+      const stage = stageInfo(stageOf(job))
+      const crew = findCrew(crews, job.crewAssigned)
+      const look = pinLook(stage?.color ?? '#9CA3AF', crew, job.customerName)
+      const html = pinElement(look, isSelected, {
+        'dispatch-pin': job.id, stage: stage?.id ?? '', crew: crew?.id ?? '', label: look.label, fill: look.fill, ring: look.ring,
+      })
+      const icon = L.divIcon({ className: '', html, iconSize: [34, 44], iconAnchor: [17, 44] })
       const existing = existingMarkers.get(job.id)
       if (existing) {
         existing.setLatLng([coords.lat, coords.lng])
@@ -298,7 +252,7 @@ export default function DispatchPage() {
     }
 
     if (hasMarkers) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 })
-  }, [mapReady, scheduledJobs, unassignedJobs, selectedJobId, getJobCoords, crews])
+  }, [mapReady, scheduledJobs, unassignedJobs, selectedJobId, getJobCoords, crews, opsStages])
 
   // ── Pan to selected job ────────────────────────
 
@@ -321,13 +275,13 @@ export default function DispatchPage() {
 
     for (const crew of crews) {
       const crewJobs = scheduledJobs
-        .filter(j => j.crewAssigned === crew.id)
+        .filter(j => findCrew(crews, j.crewAssigned)?.id === crew.id)
         .sort((a, b) => (a.scheduledDate + (a.notes || '')).localeCompare(b.scheduledDate + (b.notes || '')))
 
       const coords = crewJobs.map(j => getJobCoords(j)).filter(Boolean) as { lat: number; lng: number }[]
       if (coords.length < 2) continue
 
-      const line = L.polyline(coords.map(c => [c.lat, c.lng] as [number, number]), { color: crew.hexColor, opacity: 0.6, weight: 3 }).addTo(mapRef.current)
+      const line = L.polyline(coords.map(c => [c.lat, c.lng] as [number, number]), { color: crew.hex, opacity: 0.6, weight: 3 }).addTo(mapRef.current)
       routeLinesRef.current.push(line)
     }
   }, [mapReady, scheduledJobs, crews, getJobCoords])
@@ -343,7 +297,7 @@ export default function DispatchPage() {
 
       for (const crew of crews) {
         const crewJobs = scheduledJobs
-          .filter(j => j.scheduledDate === ds && j.crewAssigned === crew.id)
+          .filter(j => j.scheduledDate === ds && findCrew(crews, j.crewAssigned)?.id === crew.id)
           .sort((a, b) => a.customerName.localeCompare(b.customerName))
 
         const blocks: TimeBlock[] = []
@@ -478,19 +432,6 @@ export default function DispatchPage() {
               </button>
             ))}
           </div>
-          {/* Crew legend */}
-          <div className="flex items-center gap-3 flex-wrap lg:ml-4">
-            {crews.map(c => (
-              <div key={c.id} className="flex items-center gap-1.5">
-                <div className={`w-3 h-3 rounded-full ${c.color}`} />
-                <span className="text-xs text-gray-600">{c.name}</span>
-              </div>
-            ))}
-            <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-red-500" />
-              <span className="text-xs text-gray-600">Unassigned</span>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -498,13 +439,14 @@ export default function DispatchPage() {
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
 
         {/* ═══ LEFT: MAP ═══ */}
-        <div className="w-full h-64 lg:h-auto lg:w-1/2 border-b lg:border-b-0 lg:border-r border-gray-200 relative shrink-0">
+        <div className="w-full h-64 lg:h-auto lg:w-1/2 border-b lg:border-b-0 lg:border-r border-gray-200 map-layer shrink-0" data-dispatch-map>
           <div ref={mapContainerRef} className="absolute inset-0" />
           {!mapReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
               <p className="text-gray-400 text-sm">Loading map...</p>
             </div>
           )}
+          {mapReady && <MapLegend jobs={[...scheduledJobs, ...unassignedJobs]} crews={crews} open={legendOpen} onToggle={() => setLegendOpen(o => !o)} />}
         </div>
 
         {/* ═══ RIGHT: TIMELINE + SIDEBAR ═══ */}
@@ -603,6 +545,58 @@ export default function DispatchPage() {
 
 // ═══ SUB-COMPONENTS ══════════════════════════════
 
+// What the pins mean: fill = Operations stage (Settings), ring and letters = crew.
+// Lists the stages and crews of the jobs on the map. Top right, clear of the zoom
+// buttons; folded on a phone until tapped.
+function MapLegend({ jobs, crews, open, onToggle }: { jobs: Job[]; crews: Crew[]; open: boolean; onToggle: () => void }) {
+  const stages = useOpsStages()
+  const seen = new Map<string, number>()
+  const crewSeen = new Map<string, number>()
+  let noCrew = 0
+  for (const j of jobs) {
+    const id = stageOf(j)
+    seen.set(id, (seen.get(id) || 0) + 1)
+    const c = findCrew(crews, j.crewAssigned)
+    if (c) crewSeen.set(c.id, (crewSeen.get(c.id) || 0) + 1); else noCrew++
+  }
+  const stageRows = stages.filter(st => seen.has(st.id))
+  const crewRows = crews.filter(c => crewSeen.has(c.id) || !c.fromJob)
+  return (
+    <div className="absolute right-2 top-2 z-(--z-map-ui) max-w-[calc(100%-4rem)] text-[11px] flex flex-col items-end" data-dispatch-legend>
+      <button type="button" onClick={onToggle} aria-expanded={open} data-dispatch-legend-toggle
+        className="bg-white/95 backdrop-blur shadow-md border border-gray-200 rounded-lg px-3 min-h-[36px] font-semibold text-gray-800">
+        {open ? 'Hide legend' : 'Legend'}
+      </button>
+      {open && (
+        <div className="mt-1 bg-white/95 backdrop-blur shadow-lg border border-gray-200 rounded-lg p-2 max-h-40 lg:max-h-72 overflow-y-auto w-56" data-dispatch-legend-body>
+          <p className="font-semibold text-gray-500 mb-1">Pin color: stage</p>
+          {stageRows.length === 0 && <p className="text-gray-500">No jobs on the map</p>}
+          {stageRows.map(st => (
+            <p key={st.id} className="flex items-center gap-1.5 leading-5" data-legend-stage={st.id}>
+              <span className="w-3 h-3 rounded-full shrink-0 border border-white shadow" style={{ backgroundColor: st.color }} />
+              <span className="truncate text-gray-800">{st.name}</span>
+              <span className="ml-auto text-gray-500 tabular-nums">{seen.get(st.id)}</span>
+            </p>
+          ))}
+          <p className="font-semibold text-gray-500 mt-2 mb-1">Ring and letters: crew</p>
+          {crewRows.map(c => (
+            <p key={c.id} className="flex items-center gap-1.5 leading-5" data-legend-crew={c.id}>
+              <span className="w-5 h-5 rounded-full shrink-0 bg-white grid place-items-center text-[7px] font-extrabold text-gray-800" style={{ border: `2.5px solid ${c.hex}` }}>{crewInitials(c.name)}</span>
+              <span className="truncate text-gray-800">{c.name}</span>
+              <span className="ml-auto text-gray-500 tabular-nums">{crewSeen.get(c.id) || 0}</span>
+            </p>
+          ))}
+          <p className="flex items-center gap-1.5 leading-5" data-legend-crew="">
+            <span className="w-4 h-4 rounded-full shrink-0 bg-white border-2 border-dashed border-gray-500" />
+            <span className="text-gray-800">No crew yet (customer's initials)</span>
+            <span className="ml-auto text-gray-500 tabular-nums">{noCrew}</span>
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StatCard({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${highlight ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'}`}>
@@ -668,7 +662,7 @@ function DayTimeline({
           >
             {/* Crew label */}
             <div className="w-28 shrink-0 flex items-center gap-2 px-3 border-r border-gray-200">
-              <div className={`w-3 h-3 rounded-full shrink-0 ${crew.color}`} />
+              <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: crew.hex }} />
               <span className="text-xs font-semibold text-gray-700 truncate">{crew.name}</span>
             </div>
 
@@ -717,7 +711,7 @@ function DayTimeline({
                       style={{
                         left,
                         width: Math.max(width, 60),
-                        backgroundColor: crew.hexColor + (isSelected ? 'FF' : 'E6'),
+                        backgroundColor: crew.hex + (isSelected ? 'FF' : 'E6'),
                       }}
                     >
                       <p className="text-white text-xs font-semibold truncate leading-tight">
@@ -789,7 +783,7 @@ function WeekTimeline({
       {crews.map(crew => (
         <div key={crew.id} className="flex border-b border-gray-100">
           <div className="w-28 shrink-0 flex items-center gap-2 px-3 border-r border-gray-200 py-2">
-            <div className={`w-3 h-3 rounded-full shrink-0 ${crew.color}`} />
+            <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: crew.hex }} />
             <span className="text-xs font-semibold text-gray-700 truncate">{crew.name}</span>
           </div>
           {dates.map(d => {
@@ -813,7 +807,7 @@ function WeekTimeline({
                       className={`rounded-md px-1.5 py-1 mb-0.5 cursor-pointer text-white text-[10px] truncate transition-all ${
                         isSelected ? 'ring-2 ring-orange-500 shadow-md' : 'hover:shadow-sm'
                       }`}
-                      style={{ backgroundColor: crew.hexColor + (isSelected ? 'FF' : 'CC') }}
+                      style={{ backgroundColor: crew.hex + (isSelected ? 'FF' : 'CC') }}
                     >
                       <span className="font-semibold">{block.job.customerName}</span>
                       <br />
@@ -849,6 +843,7 @@ function JobDetailPanel({
 }) {
   useOpsStages()
   const stage = stageInfo(stageOf(job))
+  const crewId = findCrew(crews, job.crewAssigned)?.id ?? ''
   const matCfg = MATERIALS_STATUS_CONFIG[job.materialsStatus]
 
   return (
@@ -921,7 +916,7 @@ function JobDetailPanel({
         <div className="flex-1">
           <label className="text-[10px] text-gray-400 font-semibold block mb-0.5">Crew</label>
           <select
-            value={job.crewAssigned}
+            value={crewId}
             onChange={e => onReassign(job.id, e.target.value)}
             className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-orange-400"
           >

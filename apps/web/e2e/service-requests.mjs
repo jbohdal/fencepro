@@ -9,7 +9,8 @@
 //      the text opens in the phone's own texting app (an sms: link) with the
 //      words and the no login link; the ticket at Photos requested.
 //   4. The link in a fresh browser with no login: a photo sent; the ticket at
-//      Photos received with the photo (Internal), and Jonathan's bell.
+//      Photos received with the photo (Internal), and the bell for Jonathan and
+//      the customer's card owner (the Salesman named on the card).
 //   5. Covered, with a reason shown to the customer; the crew packet's $0 work order.
 //   6. The visit booked (a Service appointment): Scheduled; the schedule shows it.
 //   7. Fixed with crew hours and a part (costed); Closed.
@@ -59,7 +60,7 @@ const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: pa
 const stamp = Date.now().toString(36).slice(-6)
 const WHO = `Service ${NAME} ${stamp}`
 const PHONE = '3525550159'
-const contactId = crypto.randomUUID(), cardId = crypto.randomUUID(), quoteId = crypto.randomUUID()
+const contactId = crypto.randomUUID(), cardId = crypto.randomUUID(), quoteId = crypto.randomUUID(), repId = crypto.randomUUID()
 const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 let jobId = null, ticketId = null, notId = null, repairId = null
 
@@ -67,7 +68,11 @@ const browser = CDP ? await chromium.connectOverCDP(CDP) : await webkit.launch()
 const desk = await chromium.launch()
 try {
   // ── Setup: a customer with a card, a quote sold, its job, installed Jun 15, 2026 (vinyl no dig: Lifetime) ──
-  const c = await call('POST', '/api/crm-contacts', { id: contactId, firstName: 'E2E', lastName: WHO, phone: PHONE, serviceAddress: '9 Warranty Ln, Ocala, FL 34470', leadSource: 'Other', lead: { id: cardId, customerId: contactId, firstName: 'E2E', lastName: WHO, phone: PHONE, stage: 'Signed Contract', leadSource: 'Other', quoteId, createdAt: today, lastMoved: today }, leadBefore: null })
+  // The card's owner: a throwaway Salesman login, named on the card by its full name (the card keeps a name only).
+  const accountOf = JSON.parse(Buffer.from(OWNER.split('.')[1], 'base64url').toString()).crmAccountId
+  if (!uuid(repId) || !/^[0-9a-z-]+$/i.test(String(accountOf))) throw new Error('bad ids')
+  sql(`INSERT INTO "CrmUser" (id, email, "firstName", "lastName", role, status, "crmAccountId", "updatedAt") VALUES ('${repId}', 'e2e-card-owner-${stamp}@example.invalid', 'E2E', 'Card ${stamp}', 'sales_rep', 'active', '${accountOf}', now())`)
+  const c = await call('POST', '/api/crm-contacts', { id: contactId, firstName: 'E2E', lastName: WHO, phone: PHONE, serviceAddress: '9 Warranty Ln, Ocala, FL 34470', leadSource: 'Other', lead: { id: cardId, customerId: contactId, firstName: 'E2E', lastName: WHO, phone: PHONE, stage: 'Signed Contract', leadSource: 'Other', quoteId, createdAt: today, lastMoved: today, assignedRep: `E2E Card ${stamp}` }, leadBefore: null })
   const q = await call('POST', '/api/saved-quotes', {
     id: quoteId, crmContactId: contactId, customerName: `E2E ${WHO}`, customerPhone: PHONE, customerAddress: '9 Warranty Ln, Ocala, FL 34470',
     fenceStyle: "WV-ND 6'x8' Privacy", runs: [120], sections: 15, ends: 2, walkGates: 1, materialCost: 3000, laborCost: 1500, totalCOGS: 4500, finalPrice: 6800, gmPct: 0.34,
@@ -170,7 +175,10 @@ try {
   await W().waitFor({ timeout: 20000 })
   check('the ticket: Photos received, with the photo', await until(async () => (await stageOf()) === 'photos_received' && await W().locator('[data-ticket-photos="1"]').isVisible(), 20000))
   check('the photo is Internal, from the customer, on the job too', sql(`SELECT visibility || '/' || source || '/' || "jobId" FROM "MediaItem" WHERE "serviceTicketId" = '${ticketId}'`) === `internal/customer/${jobId}`)
-  check('Jonathan is told (bell; the push in the dev copy is logged, not sent)', sql(`SELECT count(*) FROM "Notification" WHERE link = '/service?ticket=${ticketId}'`) === '1')
+  const told = sql(`SELECT string_agg("recipientId", ',' ORDER BY "recipientId") FROM "Notification" WHERE link = '/service?ticket=${ticketId}'`).split(',')
+  const ownerEmail = sql(`SELECT email FROM "CrmUser" WHERE "crmAccountId" = '${accountOf}' AND role = 'super_admin' ORDER BY "createdAt" LIMIT 1`)
+  check('Jonathan and the customer\'s card owner are told, once each (bell; the push in the dev copy is logged, not sent)', told.length === 2 && told.includes(ownerEmail) && told.includes(`e2e-card-owner-${stamp}@example.invalid`), told.join(' '))
+  check('the push went to both logins', sql(`SELECT result->>'to' FROM "AutomationEffect" WHERE key LIKE 'service-photos:${ticketId}:%'`).includes(repId))
 
   // 5. Covered, shared with the customer; the crew packet.
   await tap(W().locator('[data-decide="covered"]'))
@@ -320,6 +328,7 @@ try {
     if (mine.length) await call('PATCH', '/api/pipeline', { upsert: [], remove: mine, baseVersion: pl.data.version })
     await call('DELETE', `/api/crm-contacts/${contactId}`)
     sql(`DELETE FROM "CrmContact" WHERE id = '${contactId}'`)
+    if (uuid(repId)) sql(`DELETE FROM "CrmUser" WHERE id = '${repId}' AND email LIKE 'e2e-card-owner-%@example.invalid'`)
     await call('DELETE', '/api/follow-ups/pending').catch(() => {})
     check('cleaned up (tickets, photos, costs, visits, packet, quotes, job, customer, card)', sql(`SELECT count(*) FROM "ServiceTicket" WHERE id IN (${tl})`) === '0' && sql(`SELECT count(*) FROM "SavedJob" WHERE id = ${jl}`) === '0' && sql(`SELECT count(*) FROM "CrmContact" WHERE id = '${contactId}'`) === '0' && sql(`SELECT count(*) FROM "CrmAppointment" WHERE "crmContactId" = '${contactId}'`) === '0')
   } catch (e) { check('cleaned up', false, String(e?.message || e).slice(0, 200)) }

@@ -1,0 +1,51 @@
+/* ═══════════════════════════════════════════════
+   LAYERS: what sits on top of what, defined once.
+
+   map < page < sticky header < tab bar < drawer / sheet < dialog
+       < full screen tool < toast < banner < dropdown / popover < confirm
+
+   The rule that keeps maps under everything: a Leaflet map draws its tiles,
+   pins and buttons with z-index 400 to 1000 (leaflet.css). Left alone those
+   numbers compete with the whole page, so a map rose over the side menu
+   (z 50) on a phone. Every map is shut in its own stacking context here, at
+   the map layer: whatever z-index a pane or control has inside, the map as a
+   whole sits at layer 0 of the page, and every menu, sheet, dialog, dropdown
+   and toast is above it. Inside the map nothing changes: zoom buttons, draw
+   tools and the loupe still sit over the tiles.
+
+   Overlays use these with Tailwind's variable form, e.g. z-(--z-drawer).
+   ═══════════════════════════════════════════════ */
+:root {
+  --z-map: 0;          /* every map (the rule below) */
+  --z-map-ui: 500;     /* buttons and panels drawn over a map, inside its box (.map-layer) */
+  --z-raised: 10;      /* a card lifted in the page */
+  --z-sticky: 30;      /* sticky headers, floating action buttons, bottom action bars */
+  --z-tabbar: 40;      /* the phone tab bar; the side menu's dimmed backdrop */
+  --z-drawer: 50;      /* the side menu (More), side panels */
+  --z-sheet: 50;       /* bottom sheets and plain dialogs */
+  --z-dialog: 60;      /* a dialog opened over a sheet or another dialog */
+  --z-screen: 90;      /* full screen tools: receipt, markup, camera */
+  --z-toast: 100;
+  --z-banner: 200;     /* the "can't reach the server" bar */
+  --z-popover: 1000;   /* dropdowns and popup menus, opened from anywhere (also from inside a dialog) */
+  --z-confirm: 1100;   /* type-to-confirm, address suggestions */
+}
+
+/* In the components layer, so a utility on the same element (absolute, z-0) still wins. */
+@layer components {
+/* Every Leaflet map, wherever it is (Dispatch, Appointments, booking, Site
+   Plans, Smart Schedule, Map Quote, the website widget and its loupe). */
+.leaflet-container {
+  isolation: isolate;
+  z-index: var(--z-map);
+}
+
+/* A map's wrapper that also holds buttons or panels over the map: the same
+   shut-in box, so those (at --z-map-ui) stay over the map but under the page's
+   menus and dialogs. */
+.map-layer {
+  position: relative;
+  isolation: isolate;
+  z-index: var(--z-map);
+}
+}

@@ -1,0 +1,638 @@
+[
+ {
+  "label": "after-live-esri",
+  "net": "4g",
+  "run": 1,
+  "addr": "201 SE 3rd St, Ocala",
+  "pageMs": 709,
+  "suggestMs": 1291,
+  "firstTileMs": 511,
+  "sharpMs": 613,
+  "overlayGoneMs": 613,
+  "overlaySeen": true,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 18,
+  "bytes": 410747,
+  "imageryRequests": 11,
+  "imageryBytes": 166852,
+  "sharpTileReqs": 9,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 386,
+  "sharpWaitMax": 440,
+  "sharpTransferMedian": 82,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "config",
+    "ms": 174,
+    "wait": 174
+   },
+   {
+    "path": "draft",
+    "ms": 175,
+    "wait": 175
+   },
+   {
+    "path": "suggest",
+    "ms": 815,
+    "wait": 814
+   }
+  ],
+  "marks": [
+   {
+    "t": 104,
+    "loaded": 0,
+    "of": 9
+   },
+   {
+    "t": 511,
+    "loaded": 4,
+    "of": 9
+   },
+   {
+    "t": 613,
+    "loaded": 9,
+    "of": 9
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "4g",
+  "run": 1,
+  "addr": "110 SE Watula Ave",
+  "pageMs": 637,
+  "suggestMs": 787,
+  "firstTileMs": 286,
+  "sharpMs": 387,
+  "overlayGoneMs": 387,
+  "overlaySeen": false,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 16,
+  "bytes": 399045,
+  "imageryRequests": 9,
+  "imageryBytes": 155194,
+  "sharpTileReqs": 6,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 196,
+  "sharpWaitMax": 244,
+  "sharpTransferMedian": 43,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 174,
+    "wait": 173
+   },
+   {
+    "path": "config",
+    "ms": 176,
+    "wait": 174
+   },
+   {
+    "path": "suggest",
+    "ms": 174,
+    "wait": 173
+   }
+  ],
+  "marks": [
+   {
+    "t": 82,
+    "loaded": 0,
+    "of": 6
+   },
+   {
+    "t": 286,
+    "loaded": 5,
+    "of": 6
+   },
+   {
+    "t": 387,
+    "loaded": 6,
+    "of": 6
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "4g",
+  "run": 1,
+  "addr": "1720 SE 16th Ave, Ocala",
+  "pageMs": 625,
+  "suggestMs": 785,
+  "firstTileMs": 380,
+  "sharpMs": 380,
+  "overlayGoneMs": 380,
+  "overlaySeen": false,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 16,
+  "bytes": 388675,
+  "imageryRequests": 9,
+  "imageryBytes": 144242,
+  "sharpTileReqs": 6,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 258,
+  "sharpWaitMax": 269,
+  "sharpTransferMedian": 91,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 175,
+    "wait": 175
+   },
+   {
+    "path": "config",
+    "ms": 176,
+    "wait": 176
+   },
+   {
+    "path": "suggest",
+    "ms": 177,
+    "wait": 175
+   }
+  ],
+  "marks": [
+   {
+    "t": 78,
+    "loaded": 0,
+    "of": 6
+   },
+   {
+    "t": 380,
+    "loaded": 6,
+    "of": 6
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "4g",
+  "run": 2,
+  "addr": "201 SE 3rd St, Ocala",
+  "pageMs": 628,
+  "suggestMs": 782,
+  "firstTileMs": 382,
+  "sharpMs": 382,
+  "overlayGoneMs": 382,
+  "overlaySeen": true,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 18,
+  "bytes": 410706,
+  "imageryRequests": 11,
+  "imageryBytes": 166830,
+  "sharpTileReqs": 9,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 178,
+  "sharpWaitMax": 188,
+  "sharpTransferMedian": 114,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 175,
+    "wait": 175
+   },
+   {
+    "path": "config",
+    "ms": 177,
+    "wait": 176
+   },
+   {
+    "path": "suggest",
+    "ms": 312,
+    "wait": 310
+   }
+  ],
+  "marks": [
+   {
+    "t": 75,
+    "loaded": 0,
+    "of": 9
+   },
+   {
+    "t": 382,
+    "loaded": 9,
+    "of": 9
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "4g",
+  "run": 2,
+  "addr": "110 SE Watula Ave",
+  "pageMs": 630,
+  "suggestMs": 788,
+  "firstTileMs": 289,
+  "sharpMs": 289,
+  "overlayGoneMs": 289,
+  "overlaySeen": false,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 16,
+  "bytes": 398969,
+  "imageryRequests": 9,
+  "imageryBytes": 155072,
+  "sharpTileReqs": 6,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 176,
+  "sharpWaitMax": 178,
+  "sharpTransferMedian": 85,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 173,
+    "wait": 172
+   },
+   {
+    "path": "config",
+    "ms": 175,
+    "wait": 175
+   },
+   {
+    "path": "suggest",
+    "ms": 174,
+    "wait": 173
+   }
+  ],
+  "marks": [
+   {
+    "t": 81,
+    "loaded": 0,
+    "of": 6
+   },
+   {
+    "t": 289,
+    "loaded": 6,
+    "of": 6
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "4g",
+  "run": 2,
+  "addr": "1720 SE 16th Ave, Ocala",
+  "pageMs": 603,
+  "suggestMs": 786,
+  "firstTileMs": 289,
+  "sharpMs": 289,
+  "overlayGoneMs": 289,
+  "overlaySeen": false,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 16,
+  "bytes": 388589,
+  "imageryRequests": 9,
+  "imageryBytes": 144156,
+  "sharpTileReqs": 6,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 180,
+  "sharpWaitMax": 182,
+  "sharpTransferMedian": 68,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 178,
+    "wait": 177
+   },
+   {
+    "path": "config",
+    "ms": 179,
+    "wait": 178
+   },
+   {
+    "path": "suggest",
+    "ms": 172,
+    "wait": 171
+   }
+  ],
+  "marks": [
+   {
+    "t": 87,
+    "loaded": 0,
+    "of": 6
+   },
+   {
+    "t": 289,
+    "loaded": 6,
+    "of": 6
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "wifi",
+  "run": 1,
+  "addr": "201 SE 3rd St, Ocala",
+  "pageMs": 140,
+  "suggestMs": 786,
+  "firstTileMs": 87,
+  "sharpMs": 496,
+  "overlayGoneMs": 496,
+  "overlaySeen": true,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 18,
+  "bytes": 410697,
+  "imageryRequests": 11,
+  "imageryBytes": 166798,
+  "sharpTileReqs": 9,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 55,
+  "sharpWaitMax": 383,
+  "sharpTransferMedian": 2,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 4,
+    "wait": 3
+   },
+   {
+    "path": "config",
+    "ms": 15,
+    "wait": 15
+   },
+   {
+    "path": "suggest",
+    "ms": 386,
+    "wait": 384
+   }
+  ],
+  "marks": [
+   {
+    "t": 87,
+    "loaded": 6,
+    "of": 9
+   },
+   {
+    "t": 189,
+    "loaded": 8,
+    "of": 9
+   },
+   {
+    "t": 496,
+    "loaded": 9,
+    "of": 9
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "wifi",
+  "run": 1,
+  "addr": "110 SE Watula Ave",
+  "pageMs": 148,
+  "suggestMs": 279,
+  "firstTileMs": 88,
+  "sharpMs": 393,
+  "overlayGoneMs": 393,
+  "overlaySeen": false,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 16,
+  "bytes": 398943,
+  "imageryRequests": 9,
+  "imageryBytes": 155096,
+  "sharpTileReqs": 6,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 56,
+  "sharpWaitMax": 317,
+  "sharpTransferMedian": 1,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 9,
+    "wait": 8
+   },
+   {
+    "path": "config",
+    "ms": 17,
+    "wait": 16
+   },
+   {
+    "path": "suggest",
+    "ms": 11,
+    "wait": 10
+   }
+  ],
+  "marks": [
+   {
+    "t": 88,
+    "loaded": 5,
+    "of": 6
+   },
+   {
+    "t": 393,
+    "loaded": 6,
+    "of": 6
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "wifi",
+  "run": 1,
+  "addr": "1720 SE 16th Ave, Ocala",
+  "pageMs": 135,
+  "suggestMs": 279,
+  "firstTileMs": 100,
+  "sharpMs": 100,
+  "overlayGoneMs": 100,
+  "overlaySeen": false,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 16,
+  "bytes": 388574,
+  "imageryRequests": 9,
+  "imageryBytes": 144164,
+  "sharpTileReqs": 6,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 54,
+  "sharpWaitMax": 56,
+  "sharpTransferMedian": 1,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 8,
+    "wait": 8
+   },
+   {
+    "path": "config",
+    "ms": 16,
+    "wait": 13
+   },
+   {
+    "path": "suggest",
+    "ms": 16,
+    "wait": 13
+   }
+  ],
+  "marks": [
+   {
+    "t": 100,
+    "loaded": 6,
+    "of": 6
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "wifi",
+  "run": 2,
+  "addr": "201 SE 3rd St, Ocala",
+  "pageMs": 154,
+  "suggestMs": 785,
+  "firstTileMs": 90,
+  "sharpMs": 90,
+  "overlayGoneMs": 90,
+  "overlaySeen": false,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 18,
+  "bytes": 410694,
+  "imageryRequests": 11,
+  "imageryBytes": 166822,
+  "sharpTileReqs": 9,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 54,
+  "sharpWaitMax": 58,
+  "sharpTransferMedian": 1,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 3,
+    "wait": 3
+   },
+   {
+    "path": "config",
+    "ms": 19,
+    "wait": 19
+   },
+   {
+    "path": "suggest",
+    "ms": 178,
+    "wait": 176
+   }
+  ],
+  "marks": [
+   {
+    "t": 90,
+    "loaded": 9,
+    "of": 9
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "wifi",
+  "run": 2,
+  "addr": "110 SE Watula Ave",
+  "pageMs": 143,
+  "suggestMs": 279,
+  "firstTileMs": 88,
+  "sharpMs": 88,
+  "overlayGoneMs": 88,
+  "overlaySeen": false,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 16,
+  "bytes": 398966,
+  "imageryRequests": 9,
+  "imageryBytes": 155096,
+  "sharpTileReqs": 6,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 47,
+  "sharpWaitMax": 51,
+  "sharpTransferMedian": 1,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 7,
+    "wait": 7
+   },
+   {
+    "path": "config",
+    "ms": 16,
+    "wait": 15
+   },
+   {
+    "path": "suggest",
+    "ms": 13,
+    "wait": 12
+   }
+  ],
+  "marks": [
+   {
+    "t": 88,
+    "loaded": 6,
+    "of": 6
+   }
+  ]
+ },
+ {
+  "label": "after-live-esri",
+  "net": "wifi",
+  "run": 2,
+  "addr": "1720 SE 16th Ave, Ocala",
+  "pageMs": 139,
+  "suggestMs": 279,
+  "firstTileMs": 87,
+  "sharpMs": 190,
+  "overlayGoneMs": 190,
+  "overlaySeen": false,
+  "sharpestShownEarly": false,
+  "sharpTimedOut": false,
+  "requests": 16,
+  "bytes": 388592,
+  "imageryRequests": 9,
+  "imageryBytes": 144182,
+  "sharpTileReqs": 6,
+  "sharpFailed": 0,
+  "sharpWaitMedian": 52,
+  "sharpWaitMax": 59,
+  "sharpTransferMedian": 1,
+  "cacheHits": 0,
+  "api": [
+   {
+    "path": "draft",
+    "ms": 7,
+    "wait": 6
+   },
+   {
+    "path": "config",
+    "ms": 19,
+    "wait": 18
+   },
+   {
+    "path": "suggest",
+    "ms": 14,
+    "wait": 14
+   }
+  ],
+  "marks": [
+   {
+    "t": 87,
+    "loaded": 5,
+    "of": 6
+   },
+   {
+    "t": 190,
+    "loaded": 6,
+    "of": 6
+   }
+  ]
+ }
+]

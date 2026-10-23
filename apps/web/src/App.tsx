@@ -416,7 +416,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
   return (
     <>
       {notLoaded.length > 0 && (
-        <div className="fixed top-0 inset-x-0 z-[200] bg-red-600 text-white text-sm px-4 py-2 flex items-center justify-center gap-3 flex-wrap">
+        <div className="fixed top-0 inset-x-0 z-(--z-banner) bg-red-600 text-white text-sm px-4 py-2 flex items-center justify-center gap-3 flex-wrap">
           <span>
             <strong>{notLoaded.join(', ')} did not load.</strong> Usually that is weak signal. Tap Try again when you have signal; changes to those are not shown until they load.
           </span>
@@ -1268,7 +1268,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       <FollowUpPromptHost />
 
       {/* ═══ PHONE TAB BAR ═══ */}
-      <nav data-tabbar aria-label="Main" className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-white border-t border-gray-200 grid grid-cols-6 pb-[env(safe-area-inset-bottom)]">
+      <nav data-tabbar aria-label="Main" className="md:hidden fixed inset-x-0 bottom-0 z-(--z-tabbar) bg-white border-t border-gray-200 grid grid-cols-6 pb-[env(safe-area-inset-bottom)]">
         {([['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Follow ups', PhoneCall, 'Follow ups'], ['Customers', Users, 'Customers'], ['Schedule', CalendarDays, role !== 'salesman' && ALL_NAV_ITEMS.find(i => i.name === 'Schedule')?.roles.includes(role) ? 'Schedule' : 'Appointments']] as const).map(([label, Icon, page]) => (
           <button key={label} onClick={() => setActive(page)} aria-current={active === page ? 'page' : undefined}
             className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${active === page ? 'text-orange-500' : 'text-gray-500'}`}>

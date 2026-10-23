@@ -31,7 +31,7 @@ export default function ConfirmByTyping({ title, name, body, action = 'Delete', 
     return () => document.removeEventListener('keydown', key)
   }, [onCancel])
   return (
-    <div className="fixed inset-0 z-[1100] bg-black/40 flex items-end sm:items-center justify-center sm:p-4" onClick={onCancel} data-confirm-typing>
+    <div className="fixed inset-0 z-(--z-confirm) bg-black/40 flex items-end sm:items-center justify-center sm:p-4" onClick={onCancel} data-confirm-typing>
       <BackClose onClose={onCancel} name="confirm-delete" />
       <form role="alertdialog" aria-labelledby="confirm-typing-title" onClick={e => e.stopPropagation()}
         onSubmit={e => { e.preventDefault(); if (ok) onConfirm() }}

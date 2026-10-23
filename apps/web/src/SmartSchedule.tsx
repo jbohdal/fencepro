@@ -510,7 +510,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* ── RIGHT: Map ── */}
-        <div className="order-1 md:order-2 h-[45vh] md:h-auto shrink-0 md:shrink md:flex-1 relative">
+        <div className="order-1 md:order-2 h-[45vh] md:h-auto shrink-0 md:shrink md:flex-1 relative map-layer">
           <div ref={mapRef} className="w-full h-full z-0" data-map data-smart-schedule-map />
 
           {/* Legend */}

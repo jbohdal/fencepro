@@ -30,6 +30,10 @@
 //      from the customer page, approved verbally: its own invoice "Change order
 //      CO-3", the paid Final unchanged; then a credit after it is all paid
 //      (API): a credit on the balance, no paid invoice cut.
+//   4. "Type the change" → "Pick from price list" on the phone: "Replace a
+//      post" from the Repair price list (quantity 2, priced again as a repair
+//      quote prices 2), a catalog item as a credit, and a custom line; saved
+//      with each picked line's quantity and source.
 // Removes everything it made.
 import './devOnly.mjs'
 import './sharedLock.mjs'
@@ -271,6 +275,55 @@ try {
   check('a credit after it is paid: the open CO-3 invoice comes off first, the rest is a credit due back; the paid Final not cut',
     credit.status === 201 && s4.invoices.find(i => i.kind === 'final').amountCents === s2.invoices.find(i => i.kind === 'final').amountCents && s4.invoices.find(i => i.kind === 'change_order').amountCents === 0 && s4.balanceCents === -30000 && s4.creditCents === 30000,
     `${s4.balanceCents} ${s4.creditCents}`)
+
+  // ── 4. Picked from the price list on the phone: a Repair price list item (2 of them) and a catalog item as a credit ──
+  const list = (await call('GET', `/api/change-orders/pick-list?quoteId=${quoteId}`)).json.data
+  const rp = list.items.find(i => i.source === 'repair:replacePost')
+  const part = list.items.filter(i => i.group === 'catalog' && i.unitCents > 0 && /^[A-Za-z0-9 ,'"-]+$/.test(i.label)).sort((a, b) => b.label.length - a.label.length)[0]
+  const rp2 = (await call('GET', `/api/change-orders/pick-price?quoteId=${quoteId}&source=repair:replacePost&qty=2`)).json.data
+  check('pick list (API): the Repair price list priced for the job\'s style, and the catalog', list.fenceStyle === template.fenceStyle && rp?.unitCents > 0 && !!part && rp2?.priceCents > 0, `${list.items.length} items, ${rp?.unitCents} ${part?.label} ${rp2?.priceCents}`)
+  await open(`${APP}/operations?job=${jobId}`)
+  await page.waitForSelector('[data-co-panel]', { timeout: 40000 }); await sleep(800)
+  await tap(page.locator(`[data-co-button="${quoteId}"]`).first())
+  await tap(page.locator('[data-co-from-lines]'))
+  await page.waitForSelector('[data-co-modal]', { timeout: 10000 })
+  await tap(page.locator('[data-co-pick-open]'))
+  await page.waitForSelector('[data-co-pick-item="repair:replacePost"]', { timeout: 20000 })
+  check('phone: the pick list opens over the change order and fits the screen', (await page.locator('[data-co-pick-sheet]').isVisible()) && await fits())
+  check('the Repair price list shows the price for one', cents(await page.locator('[data-co-pick-item="repair:replacePost"] [data-co-pick-price]').innerText()) === rp.unitCents)
+  await shot(page, '7-pick-repair')
+  await page.locator('[data-co-pick-search]').fill('replace post')
+  await tap(page.locator('[data-co-pick-item="repair:replacePost"]'))
+  const rpLine = page.locator('[data-co-line]').filter({ has: page.locator('[data-co-line-source="repair:replacePost"]') })
+  await rpLine.waitFor({ timeout: 10000 })
+  check('picked: a line with its words and price (the empty line replaced)', (await page.locator('[data-co-line]').count()) === 1 && (await rpLine.locator('[data-co-line-description]').inputValue()) === 'Replace a post' && Math.round(parseFloat(await rpLine.locator('[data-co-line-amount]').inputValue()) * 100) === rp.unitCents)
+  await rpLine.locator('[data-co-line-qty]').fill('2')
+  const repriced = await until(async () => Math.round(parseFloat(await rpLine.locator('[data-co-line-amount]').inputValue()) * 100) === rp2.priceCents && (await rpLine.locator('[data-co-line-description]').inputValue()) === '2 × Replace a post', 15000)
+  check('quantity 2: priced again as the repair quote prices 2', !!repriced, await rpLine.locator('[data-co-line-amount]').inputValue())
+  await tap(page.locator('[data-co-pick-open]'))
+  await tap(page.locator('[data-co-pick-group="catalog"]'))
+  await page.locator('[data-co-pick-search]').fill(part.label)
+  await page.waitForSelector(`[data-co-pick-item="${part.source}"]`, { timeout: 10000 })
+  await shot(page, '8-pick-catalog')
+  await tap(page.locator(`[data-co-pick-item="${part.source}"]`))
+  const partLine = page.locator('[data-co-line]').filter({ has: page.locator(`[data-co-line-source="${part.source}"]`) })
+  await partLine.waitFor({ timeout: 10000 })
+  await partLine.locator('[data-co-line-kind]').selectOption('credit')
+  await page.locator('[data-co-add-line]').scrollIntoViewIfNeeded()
+  await tap(page.locator('[data-co-add-line]'))
+  await page.locator('[data-co-line-description]').last().fill('Custom: move the gate stop')
+  await page.locator('[data-co-line-amount]').last().fill('40')
+  const pickTotal = rp2.priceCents - part.unitCents + 4000
+  check('the total: 2 posts, the part credited, the custom line', cents(await page.locator('[data-co-total]').innerText()) === pickTotal, await page.locator('[data-co-total]').innerText())
+  check('phone: the change order with picked lines fits the screen', await fits())
+  await shot(page, '9-picked-lines')
+  await tap(page.locator('[data-co-save-draft]'))
+  const co5 = await until(async () => ((await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data ?? []).find(x => x.number === 5), 15000)
+  const l5 = co5?.lines ?? []
+  check('saved: each picked line keeps its quantity and source (history); the custom line stays plain',
+    co5?.totalCents === pickTotal && l5[0]?.qty === 2 && l5[0]?.source?.ref === 'repair:replacePost' && l5[0]?.source?.fenceStyle === template.fenceStyle && l5[0]?.amountCents === rp2.priceCents
+      && l5[1]?.source?.ref === part.source && l5[1]?.source?.kind === 'catalog' && l5[1]?.amountCents === -part.unitCents && l5[2]?.description === 'Custom: move the gate stop' && !l5[2]?.source,
+    JSON.stringify(l5.map(l => [l.description, l.qty, l.amountCents, l.source?.ref])))
   check('no page errors', errors.length === 0, errors.join(' | '))
 } catch (e) {
   check('ran to the end', false, String(e?.stack || e).slice(0, 400))
