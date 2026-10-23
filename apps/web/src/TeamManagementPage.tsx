@@ -132,7 +132,8 @@ export default function TeamManagementPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">{user.firstName} {user.lastName}</p>
-                      <p className="text-xs text-gray-500">{user.email}{user.phone ? ` · ${formatPhone(user.phone)}` : ''}</p>
+                      <p className="text-xs text-gray-500">{user.email}</p>
+                      <p className="text-xs text-gray-500" data-direct-phone={user.id}>{user.phone ? <>Direct phone {formatPhone(user.phone)}</> : <span className="text-amber-700">No Direct phone: appointment texts give the company number</span>}</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 lg:gap-3">
@@ -148,7 +149,7 @@ export default function TeamManagementPage() {
                       </span>
                     )}
                     <div className="flex gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition">
-                      <button onClick={() => setEditingUser(user)} className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1">Edit</button>
+                      <button onClick={() => setEditingUser(user)} data-edit-user={user.id} className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1">Edit</button>
                       {user.status === 'invited' && (
                         <button onClick={async () => {
                           try {
@@ -353,9 +354,10 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
         </div>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Phone (optional)</label>
-          <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none" placeholder="352-555-0100" />
+          <label className="block text-xs text-gray-500 mb-1">Direct phone (optional)</label>
+          <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} onBlur={() => setPhone(formatPhone(phone))}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none" placeholder="(352) 555 0100" />
+          <p className="text-xs text-gray-400 mt-0.5">Their own cell. Appointment texts give it to customers as {'{rep_phone}'}.</p>
         </div>
 
         <div>
@@ -395,7 +397,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
   useBackLayer(onClose, { key: 'edit-user-modal' })
   const [firstName, setFirstName] = useState(user.firstName)
   const [lastName, setLastName] = useState(user.lastName)
-  const [phone, setPhone] = useState(user.phone || '')
+  const [phone, setPhone] = useState(formatPhone(user.phone || ''))
   const [role, setRole] = useState(user.role)
   const [status, setStatus] = useState(user.status)
   const [saving, setSaving] = useState(false)
@@ -406,7 +408,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
     try {
       await api(`/users/${user.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ firstName, lastName, phone: phone || undefined, role, status }),
+        body: JSON.stringify({ firstName, lastName, phone: phone.trim(), role, status }),
       })
       onSaved()
     } catch (err: any) { setError(plainText(err)) }
@@ -443,9 +445,10 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
         </div>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Phone</label>
-          <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          <label className="block text-xs text-gray-500 mb-1">Direct phone</label>
+          <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} onBlur={() => setPhone(formatPhone(phone))} data-edit-direct-phone
+            placeholder="(352) 555 0100" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          <p className="text-xs text-gray-400 mt-0.5">Their own cell. Appointment texts give it to customers as {'{rep_phone}'}; empty, they give the company number. Each person can also set their own under My profile.</p>
         </div>
 
         <div>
@@ -471,7 +474,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
 
         <div className="flex gap-2 pt-2">
           <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
-          <button onClick={handleSave} disabled={saving}
+          <button onClick={handleSave} disabled={saving} data-save-user
             className="btn btn-primary flex-1 disabled:opacity-40">
             {saving ? 'Saving...' : 'Save Changes'}
           </button>

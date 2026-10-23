@@ -356,6 +356,9 @@ model Appointment {
   lng          Float?
   /// A name from the team list in Settings.
   assignedTo   String    @default("")
+  /// The login that name is (CrmUser.id), matched on save by full name exactly (lib/appointmentRep.ts);
+  /// null when no single login has that name. Its Direct phone is {rep_phone} in the appointment texts.
+  assignedToUserId String?
   notes        String    @default("")
   /// ready_to_quote | needs_follow_up | not_interested | no_show | imported
   outcome      String?

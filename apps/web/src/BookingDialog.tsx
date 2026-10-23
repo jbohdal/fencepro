@@ -24,13 +24,14 @@ import {
 } from './appointmentsStore'
 import {
   APPOINTMENT_TYPES, TYPE_LABELS, TYPE_COLORS, TYPE_SHORT, defaultPerson, floridaDate, floridaHM, floridaTime, minutesOf,
-  overlapWarnings, isOpen, addDays, confirmationText, smsLink, mailtoLink, buildIcs, longWhen, weekdayOf,
+  overlapWarnings, isOpen, addDays, smsLink, mailtoLink, buildIcs, longWhen, weekdayOf,
   type Appointment, type AppointmentType,
 } from './appointmentLogic'
 import {
   dayInput, bestTimes, timeGrid, warningsFor, timeline, otherDays, parseTypedTime, clock, clockAmPm, differentStreets,
 } from './bookingPlanner'
 import AddressAutocomplete from './AddressAutocomplete'
+import { confirmationSms, confirmationBody, confirmationSubject, icsDescription, repWarning, type MessageContext } from './appointmentMessages'
 import { applyBooking } from './appointmentPipeline'
 import MapView, { type MapPoint } from './MapView'
 import { useBackLayer } from './nav'
@@ -81,7 +82,10 @@ function useAppointments() {
 function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => void }) {
   useBackLayer(onClose, { key: 'booking-dialog' })
   const settings = getAppointmentSettings()
-  const company = getConfig().company
+  const config = getConfig()
+  const company = config.company
+  // The words: Settings > Messages (saved templates over the defaults).
+  const msg: MessageContext = { company, templates: config.appointmentMessages }
   const existing = req.appointmentId ? getAppointment(req.appointmentId) : null
   const all = useAppointments()
 
@@ -231,7 +235,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   }
 
   function downloadIcs(a: Appointment) {
-    const blob = new Blob([buildIcs(a, company)], { type: 'text/calendar;charset=utf-8' })
+    const blob = new Blob([buildIcs(a, company, icsDescription(a, msg))], { type: 'text/calendar;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url; link.download = `${TYPE_SHORT[a.type]}-${floridaDate(a.startAt!)}.ics`; link.click()
@@ -275,15 +279,18 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
               <div className="rounded-xl border border-gray-200 p-4 space-y-3">
                 <p className="text-sm font-semibold text-gray-900">Send confirmation</p>
                 <p className="text-xs text-gray-500">Nothing is sent automatically. These open on your phone or computer, ready to send.</p>
-                <p className="text-sm bg-gray-50 rounded-lg p-3 text-gray-700">{confirmationText(booked, company)}</p>
+                {repWarning(booked, company) && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" data-rep-phone-warning>⚠ {repWarning(booked, company)}</p>
+                )}
+                <p className="text-sm bg-gray-50 rounded-lg p-3 text-gray-700 whitespace-pre-wrap" data-confirmation-text>{confirmationSms(booked, msg)}</p>
                 <div className="flex flex-wrap gap-2">
-                  {booked.customerPhone && <a href={smsLink(booked.customerPhone, confirmationText(booked, company))} className="px-3 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold">Text it</a>}
-                  {booked.customerEmail && <a href={mailtoLink(booked.customerEmail, `Your ${TYPE_SHORT[booked.type].toLowerCase()} with ${company.name || 'Getter Done Fence'}`, confirmationText(booked, company))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700">Email it</a>}
-                  <button onClick={() => downloadIcs(booked)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700">Calendar invite (.ics)</button>
+                  {booked.customerPhone && <a href={smsLink(booked.customerPhone, confirmationSms(booked, msg))} data-text-it className="px-3 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold">Text it</a>}
+                  {booked.customerEmail && <a href={mailtoLink(booked.customerEmail, confirmationSubject(booked, msg), confirmationBody(booked, msg))} data-email-it className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700">Email it</a>}
+                  <button onClick={() => downloadIcs(booked)} data-ics-invite className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700">Calendar invite (.ics)</button>
                 </div>
               </div>
             )}
-            <div className="flex justify-end"><button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold">Done</button></div>
+            <div className="flex justify-end"><button onClick={onClose} data-booked-done className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold">Done</button></div>
           </div>
         ) : (
           <div className="p-5 grid gap-5 lg:grid-cols-2">

@@ -38,6 +38,7 @@ const TeamManagementPage = lazy(() => import('./TeamManagementPage'))
 const BillingPage = lazy(() => import('./BillingPage'))
 import LoginPage from './LoginPage'
 import ChangePasswordPage from './ChangePasswordPage'
+import MyProfileDialog from './MyProfileDialog'
 const PLStatementPage = lazy(() => import('./PLStatementPage'))
 const BalanceSheetPage = lazy(() => import('./BalanceSheetPage'))
 const VendorsPage = lazy(() => import('./VendorsPage'))
@@ -533,6 +534,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const [showMapQuote, setShowMapQuote] = useState(false)
   const [showSitePlan, setShowSitePlan] = useState(false)
   const [showSmartSchedule, setShowSmartSchedule] = useState(false)
+  const [showMyProfile, setShowMyProfile] = useState(false)
   const [searchOpen, setSearchOpen]     = useState(false)
   const [searchQuery, setSearchQuery]   = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -890,7 +892,10 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               </select> : <p className="text-[#CFC4E2] text-xs" data-role-label>{ROLE_LABELS[role]}</p>}
             </div>
           </div>
-          <button onClick={onChangePassword} className="mt-2 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
+          <button onClick={() => { setMobileMenuOpen(false); setShowMyProfile(true) }} data-my-profile-open className="mt-2 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
+            My profile (Direct phone)
+          </button>
+          <button onClick={onChangePassword} className="mt-1 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
             Change password
           </button>
           <button onClick={onLogout} data-sign-out className="mt-1 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
@@ -985,7 +990,10 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           )}
           {!sidebarCollapsed && (
             <>
-              <button onClick={onChangePassword} className="mt-2 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
+              <button onClick={() => setShowMyProfile(true)} data-my-profile-open className="mt-2 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
+                My profile (Direct phone)
+              </button>
+              <button onClick={onChangePassword} className="mt-1 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
                 Change password
               </button>
               <button onClick={onLogout} data-sign-out className="mt-1 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
@@ -1273,6 +1281,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           <span className="grid place-items-center h-8 w-14 rounded-full"><Menu size={22} aria-hidden="true" /></span>More
         </button>
       </nav>
+
+      {/* ═══ MY PROFILE (Direct phone) ═══ */}
+      {showMyProfile && <MyProfileDialog onClose={() => setShowMyProfile(false)} />}
 
       {/* ═══ SMART SCHEDULE ═══ */}
       {showSmartSchedule && (

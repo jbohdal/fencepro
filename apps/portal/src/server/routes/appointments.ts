@@ -33,6 +33,7 @@ import {
 } from '../lib/appointments.js'
 import { plainZod } from '../lib/plainZod.js'
 import { suggest } from '../lib/addressIndex.js'
+import { withReps, assignedUserIdFor } from '../lib/appointmentRep.js'
 
 const router = Router()
 
@@ -91,6 +92,8 @@ const patchSchema = z.object(fields).partial().extend({
 })
 
 const dateOrNull = (s: string | null | undefined) => (s ? new Date(s) : null)
+/** An appointment as the browser gets it, with the login it is with (`rep`: whose Direct phone the texts give). */
+const one = async (accountId: string, a: any) => (await withReps(accountId, [toClient(a)]))[0]
 const actor = (req: any) => req.user?.name || req.user?.email || 'staff'
 
 /** Fill a missing position from the address, without holding up the save for long. */
@@ -143,13 +146,13 @@ router.get('/', requireUser, async (req: any, res) => {
     ]
   }
   const rows = await prisma.appointment.findMany({ where: { ...where, deletedAt: null }, include: { contact: { select: contactSelect } }, orderBy: [{ startAt: 'asc' }, { createdAt: 'asc' }] })
-  res.json({ success: true, data: rows.map(toClient) })
+  res.json({ success: true, data: await withReps(req.user.crmAccountId, rows.map(toClient)) })
 })
 
 router.get('/:id', requireUser, async (req: any, res) => {
   const a = await prisma.appointment.findFirst({ where: { id: String(req.params.id), accountId: req.user.crmAccountId, deletedAt: null }, include: { contact: { select: contactSelect } } })
   if (!a) { res.status(404).json({ success: false, error: 'Appointment not found' }); return }
-  res.json({ success: true, data: toClient(a), version: a.version })
+  res.json({ success: true, data: await one(req.user.crmAccountId, a), version: a.version })
 })
 
 async function bookByStaff(req: any, res: any) {
@@ -161,7 +164,7 @@ async function bookByStaff(req: any, res: any) {
     // Sent again because the phone did not hear the answer: the first one stands.
     if (d.id) {
       const already = await prisma.appointment.findFirst({ where: { id: d.id, accountId }, include: { contact: { select: contactSelect } } })
-      if (already) { res.status(200).json({ success: true, data: toClient(already), version: already.version }); return }
+      if (already) { res.status(200).json({ success: true, data: await one(accountId, already), version: already.version }); return }
     }
     const start = dateOrNull(d.startAt)
     const allDay = d.allDay ?? d.type === 'install'
@@ -171,21 +174,21 @@ async function bookByStaff(req: any, res: any) {
       accountId, crmContactId: contact.id, type: d.type, status: d.status ?? 'scheduled',
       startAt: start, endAt: end, allDay,
       address: d.address ?? contact.serviceAddress ?? '', lat: d.lat ?? null, lng: d.lng ?? null,
-      assignedTo: d.assignedTo ?? '', notes: d.notes ?? '', quoteId: d.quoteId ?? null, jobId: d.jobId ?? null,
+      assignedTo: d.assignedTo ?? '', assignedToUserId: await assignedUserIdFor(accountId, d.assignedTo), notes: d.notes ?? '', quoteId: d.quoteId ?? null, jobId: d.jobId ?? null,
       outcome: d.outcome ?? null, outcomeNotes: d.outcomeNotes ?? '', measuredFeet: d.measuredFeet ?? null, nextStep: d.nextStep ?? '',
       source: 'manual', createdBy: actor(req),
       history: [{ at: new Date().toISOString(), by: actor(req), kind: 'booked', to: { startAt: start?.toISOString() ?? null, endAt: end?.toISOString() ?? null } }],
     })
     const a = await prisma.appointment.create({ data, include: { contact: { select: contactSelect } } })
     await audit(req, 'create', 'Appointment', a.id, { newValues: { type: a.type, startAt: a.startAt, assignedTo: a.assignedTo } })
-    res.status(201).json({ success: true, data: toClient(a), version: a.version })
+    res.status(201).json({ success: true, data: await one(accountId, a), version: a.version })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     if ((err as any)?.code === 'P2002') {
       // The same booking arrived twice at once: the first one is the booking.
       const id = typeof req.body?.id === 'string' ? req.body.id : null
       const row = id ? await prisma.appointment.findFirst({ where: { id, accountId: req.user.crmAccountId }, include: { contact: { select: contactSelect } } }).catch(() => null) : null
-      if (row) { res.status(200).json({ success: true, data: toClient(row), version: row.version }); return }
+      if (row) { res.status(200).json({ success: true, data: await one(req.user.crmAccountId, row), version: row.version }); return }
       res.status(409).json({ success: false, error: 'That appointment already exists' }); return
     }
     console.error('[appointments] create error:', err)
@@ -199,7 +202,7 @@ router.patch('/:id', requireUser, async (req: any, res) => {
     const accountId = req.user.crmAccountId
     const cur = await prisma.appointment.findFirst({ where: { id: String(req.params.id), accountId, deletedAt: null }, include: { contact: { select: contactSelect } } })
     if (!cur) { res.status(404).json({ success: false, error: 'Appointment not found' }); return }
-    if (cur.version !== baseVersion) { refuseStale(res, toClient(cur), cur.version); return }
+    if (cur.version !== baseVersion) { refuseStale(res, await one(accountId, cur), cur.version); return }
 
     const data: any = { ...d }
     if ('startAt' in d) data.startAt = dateOrNull(d.startAt)
@@ -223,17 +226,19 @@ router.patch('/:id', requireUser, async (req: any, res) => {
       if (d.status === 'completed' || d.status === 'no_show') data.completedAt = new Date()
     }
     if (d.status === 'on_my_way' && !cur.startedAt) data.startedAt = new Date()
+    // Another person: the login it is with is matched again.
+    if ('assignedTo' in d && d.assignedTo !== cur.assignedTo) data.assignedToUserId = await assignedUserIdFor(accountId, d.assignedTo)
     if ('address' in d && d.address !== cur.address && !('lat' in d)) { data.lat = null; data.lng = null; await withPosition(accountId, data) }
     data.history = history
 
     const done = await prisma.appointment.updateMany({ where: { id: cur.id, version: baseVersion }, data: { ...data, version: { increment: 1 } } })
     if (done.count === 0) {
       const now2 = await prisma.appointment.findUnique({ where: { id: cur.id }, include: { contact: { select: contactSelect } } })
-      refuseStale(res, now2 ? toClient(now2) : null, now2?.version ?? 0); return
+      refuseStale(res, now2 ? await one(accountId, now2) : null, now2?.version ?? 0); return
     }
     const a = (await prisma.appointment.findUnique({ where: { id: cur.id }, include: { contact: { select: contactSelect } } }))!
     await audit(req, 'update', 'Appointment', a.id, { newValues: { ...d, reason } })
-    res.json({ success: true, data: toClient(a), version: a.version })
+    res.json({ success: true, data: await one(accountId, a), version: a.version })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[appointments] update error:', err)

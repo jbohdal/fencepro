@@ -230,7 +230,8 @@ async function phone(browser) {
   if (SHOTS) await s.page.screenshot({ path: `${SHOTS}/phone-today.png` })
   check('phone: Today shows the next appointment as a big card', nextName === made.customerName, nextName)
   check('phone: Text "On my way" is a prefilled text from the phone, Navigate is Google Maps directions',
-    /^sms:\d+\?body=Hi%20/.test(sms || '') && decodeURIComponent(sms).includes("I'm on my way") && (navUrl || '').startsWith('https://www.google.com/maps/dir/?api=1&destination='), decodeURIComponent((sms || '').split('body=')[1] || ''))
+    // The text starts with the company name and ends with the STOP line (appointmentMessages.ts, Settings > Messages).
+    /^sms:\d+\?body=Getter%20Done%20Fence%3A%20Hi%20/.test(sms || '') && decodeURIComponent(sms).includes("I'm on my way") && decodeURIComponent(sms).endsWith('Reply STOP to opt out.') && (navUrl || '').startsWith('https://www.google.com/maps/dir/?api=1&destination='), decodeURIComponent((sms || '').split('body=')[1] || ''))
   await s.page.locator('[data-complete]').click()
   await s.page.locator('[data-outcome="ready_to_quote"]').click()
   await s.page.locator('[data-feet]').fill('180')

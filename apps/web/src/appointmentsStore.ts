@@ -152,6 +152,8 @@ export async function updateAppointment(id: string, changes: AppointmentChanges,
   const cur = getAppointment(id)
   if (!cur) return null
   const local: Appointment = { ...cur, ...changes } as Appointment
+  // Another person: whose phone the texts give is the server's to say again (appointmentMessages.ts).
+  if ('assignedTo' in changes && changes.assignedTo !== cur.assignedTo) { local.rep = undefined; local.assignedToUserId = null }
   put(local)
   await enqueue<ApptChange>({ key: apptKey(id), kind: 'appointment.update', payload: { id, changes, reason, local }, label: `${cur.customerName || 'Appointment'}, appointment changes`, coalesce: false })
   return settle(id)

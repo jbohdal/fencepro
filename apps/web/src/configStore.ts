@@ -188,8 +188,11 @@ export interface AppConfig {
   quoteWidget?: { showPriceBeforeContact?: boolean }
   /** Named warranties and which one each kind of install gets (Settings → Warranties, warranties.ts). Missing: the starting ones. */
   warranties?: WarrantySettings
+  /** Appointment confirmation, email subject, "On my way" and calendar invite wording (Settings → Messages, appointmentMessages.ts). Only the changed ones; missing: the defaults. */
+  appointmentMessages?: SavedMessageTemplates
 }
 import type { WarrantySettings } from './warranties'
+import type { SavedMessageTemplates } from './appointmentMessages'
 
 // Defaults live in configDefaults.ts (pure: the server's estimates use them too).
 

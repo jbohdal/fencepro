@@ -29,6 +29,8 @@ export interface CrmUser {
   email: string
   firstName: string
   lastName: string
+  /** Direct phone (10 digits): {rep_phone} in appointment texts. */
+  phone?: string | null
   role: string
   status: string
   mustChangePassword: boolean
@@ -114,6 +116,13 @@ export async function login(email: string, password: string): Promise<{ user: Cr
   if (!data.success) throw new Error(data.error || 'Login failed')
   signedInUser = data.data.user
   return { user: data.data.user }
+}
+
+/** Save my own Direct phone ('' clears it). The server checks it is 10 digits. */
+export async function saveMyPhone(phone: string): Promise<string | null> {
+  const data = await authFetch<{ phone: string | null }>(`${AUTH_API}/me`, { method: 'PATCH', body: JSON.stringify({ phone }) })
+  if (signedInUser) signedInUser = { ...signedInUser, phone: data.phone }
+  return data.phone
 }
 
 export async function fetchCurrentUser(): Promise<CrmUser | null> {

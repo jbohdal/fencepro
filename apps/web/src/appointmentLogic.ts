@@ -70,6 +70,10 @@ export interface Appointment {
   lat: number | null
   lng: number | null
   assignedTo: string
+  /** The login assignedTo was matched to when saved (server, lib/appointmentRep.ts). */
+  assignedToUserId?: string | null
+  /** That login, with its Direct phone: {rep_phone} in the texts (appointmentMessages.ts). Null: no login matched; missing: not from the server yet. */
+  rep?: { userId: string; firstName: string; lastName: string; phone: string | null } | null
   notes: string
   outcome: AppointmentOutcome | null
   outcomeNotes: string
@@ -239,24 +243,13 @@ export function nextFor(customerId: string, list: Appointment[], now: Date = new
 }
 
 /* ── Confirmations Jonathan sends himself ────────────────────────────────── */
+// The words are templates (Settings > Messages): appointmentMessages.ts.
 
-const firstName = (full: string) => (full || '').trim().split(/\s+/)[0] || 'there'
 const digits = (p: string) => (p || '').replace(/\D/g, '')
-
-export function confirmationText(a: Pick<Appointment, 'customerName' | 'startAt' | 'allDay' | 'address' | 'type' | 'assignedTo'>, company: { name: string; phone: string }): string {
-  const what = a.type === 'estimate' ? 'your fence estimate' : `your ${TYPE_SHORT[a.type as AppointmentType]?.toLowerCase() || 'appointment'}`
-  return `Hi ${firstName(a.customerName)}, this is ${firstName(a.assignedTo) === 'there' ? 'the team' : firstName(a.assignedTo)} with ${company.name || 'Getter Done Fence'}. ` +
-    `You're all set for ${what} on ${longWhen(a)}${a.address ? ` at ${a.address}` : ''}. ` +
-    `If anything changes, call or text ${company.phone || 'us'}.`
-}
 
 export const smsLink = (phone: string, body: string) => `sms:${digits(phone)}?body=${encodeURIComponent(body)}`
 export const mailtoLink = (email: string, subject: string, body: string) =>
   `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-
-export function onMyWayText(customerName: string, minutes: number, company: { name: string }, person = 'Jonathan'): string {
-  return `Hi ${firstName(customerName)}, this is ${firstName(person)} with ${company.name || 'Getter Done Fence'}, I'm on my way and should be there in about ${Math.max(1, Math.round(minutes))} minutes.`
-}
 
 /** Directions from wherever the phone is. No key needed. */
 export function directionsUrl(a: Pick<Appointment, 'address' | 'lat' | 'lng'>): string {
@@ -273,8 +266,8 @@ export function routeUrl(stops: Array<Pick<Appointment, 'address' | 'lat' | 'lng
 const icsText = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n')
 const icsStamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
 
-/** A calendar invite the customer can add with one tap. */
-export function buildIcs(a: Pick<Appointment, 'id' | 'startAt' | 'endAt' | 'allDay' | 'address' | 'type'>, company: { name: string; phone: string }, now: Date = new Date()): string {
+/** A calendar invite the customer can add with one tap. `description`: the filled template (appointmentMessages.ts icsDescription). */
+export function buildIcs(a: Pick<Appointment, 'id' | 'startAt' | 'endAt' | 'allDay' | 'address' | 'type'>, company: { name: string; phone: string }, description: string, now: Date = new Date()): string {
   const start = new Date(a.startAt!)
   const end = a.endAt ? new Date(a.endAt) : new Date(start.getTime() + 3_600_000)
   const when = a.allDay
@@ -285,7 +278,7 @@ export function buildIcs(a: Pick<Appointment, 'id' | 'startAt' | 'endAt' | 'allD
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//EZ Biz//Appointments//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     'BEGIN:VEVENT', `UID:${a.id}@ezbiz`, `DTSTAMP:${icsStamp(now)}`, ...when,
     `SUMMARY:${icsText(title)}`, `LOCATION:${icsText(a.address || '')}`,
-    `DESCRIPTION:${icsText(`Questions or changes: ${company.phone || ''}`)}`,
+    `DESCRIPTION:${icsText(description)}`,
     'END:VEVENT', 'END:VCALENDAR', '',
   ].join('\r\n')
 }

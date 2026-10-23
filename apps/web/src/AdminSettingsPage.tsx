@@ -28,12 +28,13 @@ import VinylColorsSettings from './VinylColorsSettings'
 import TallVinylPrices from './TallVinylPrices'
 import MoveRepairSettings from './MoveRepairSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
+import AppointmentMessagesSettings from './AppointmentMessagesSettings'
 import FollowUpSettings from './FollowUpSettings'
 import SettingsChangeLog from './SettingsChangeLog'
 import DeletedRecords from './DeletedRecords'
 import { signedInRole, roleCan } from './permissions'
 
-type AdminTab = 'company' | 'pricing' | 'price_list' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'proposals' | 'warranties' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups' | 'change_log' | 'deleted'
+type AdminTab = 'company' | 'pricing' | 'price_list' | 'styles' | 'leads' | 'tags' | 'pipeline' | 'ops_stages' | 'email_templates' | 'contract_templates' | 'portal_quote' | 'optimizer' | 'calendar' | 'appointments' | 'messages' | 'proposals' | 'warranties' | 'tiers' | 'voice' | 'walkthrough' | 'moves' | 'follow_ups' | 'change_log' | 'deleted'
 
 export const SETTINGS_UPDATED_EVENT = 'fencepro:settings:updated'
 
@@ -506,6 +507,7 @@ const TABS: { key: AdminTab; label: string }[] = [
   { key: 'tiers',              label: 'Good Better Best' },
   { key: 'voice',              label: 'Voice' },
   { key: 'appointments',       label: 'Appointments' },
+  { key: 'messages',           label: 'Messages' },
   { key: 'follow_ups',         label: 'Follow ups' },
   { key: 'walkthrough',        label: 'Final Walkthrough' },
   { key: 'calendar',           label: 'Google Calendar' },
@@ -559,8 +561,8 @@ export default function AdminSettingsPage() {
     if (next) setConfig(next)
     const config_ = next ?? config
     try {
-      // The Appointments tab saves on its own; keep what it saved.
-      saveConfig({ ...config_, appointments: getConfig().appointments })
+      // The Appointments and Messages tabs save on their own; keep what they saved.
+      saveConfig({ ...config_, appointments: getConfig().appointments, appointmentMessages: getConfig().appointmentMessages })
       // Read back: plain names and what the choice tree says are worked out on read.
       if (next) setConfig(getConfig())
       setSaved(true)
@@ -628,6 +630,7 @@ export default function AdminSettingsPage() {
           {tab === 'voice' && <VoiceSettings config={config} onChange={handleChange} />}
           {tab === 'calendar' && <CalendarSyncSettings />}
           {tab === 'appointments' && <AppointmentSettingsTab />}
+          {tab === 'messages' && <AppointmentMessagesSettings />}
           {tab === 'follow_ups' && <FollowUpSettings />}
           {tab === 'walkthrough' && <WalkthroughSettings config={config} onChange={handleChange} />}
           {tab === 'change_log' && signedInRole() === 'super_admin' && <SettingsChangeLog />}

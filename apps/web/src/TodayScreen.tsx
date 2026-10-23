@@ -16,7 +16,7 @@ import { getQuotesForCustomer } from './quoteStore'
 import { uploadStaffPhotoForCustomer } from './portalStaffApi'
 import {
   TYPE_SHORT, TYPE_COLORS, STATUS_LABELS, OUTCOME_LABELS, floridaDate, isOpen, needsOutcome, statusForOutcome, defaultPerson,
-  directionsUrl, onMyWayText, smsLink, driveMinutes, type Appointment, type AppointmentOutcome,
+  directionsUrl, smsLink, driveMinutes, type Appointment, type AppointmentOutcome,
 } from './appointmentLogic'
 import { applyOutcome } from './appointmentPipeline'
 import { openBooking } from './BookingDialog'
@@ -25,6 +25,7 @@ import { useBackLayer } from './nav'
 import TasksList from './TasksList'
 import { ServiceNeedsYou } from './ServiceRequests'
 import { useOpenTickets } from './serviceStore'
+import { onMyWaySms } from './appointmentMessages'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
 const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
@@ -130,7 +131,8 @@ export default function TodayScreen() {
 }
 
 function NextCard({ a, onComplete }: { a: Appointment; onComplete: () => void }) {
-  const company = getConfig().company
+  const config = getConfig()
+  const company = config.company
   const settings = getAppointmentSettings()
   const [eta, setEta] = useState(20)
   const quote = getQuotesForCustomer(a.crmContactId).filter(q => q.status !== 'LOST').sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0]
@@ -166,7 +168,7 @@ function NextCard({ a, onComplete }: { a: Appointment; onComplete: () => void })
         <a href={directionsUrl(a)} target="_blank" rel="noreferrer" className="py-3 rounded-xl text-center font-semibold bg-blue-600 text-white">🧭 Navigate</a>
       </div>
       <div className="flex items-center gap-2">
-        <a href={a.customerPhone ? smsLink(a.customerPhone, onMyWayText(a.customerName, eta, company, a.assignedTo)) : undefined} onClick={onMyWay}
+        <a href={a.customerPhone ? smsLink(a.customerPhone, onMyWaySms(a, eta, { company, templates: config.appointmentMessages })) : undefined} onClick={onMyWay}
           className={`flex-1 py-3 rounded-xl text-center font-semibold ${a.customerPhone ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-400'}`} data-on-my-way>💬 Text "On my way"</a>
         <label className="text-xs text-gray-500 flex items-center gap-1"><input type="number" min={1} max={180} value={eta} onChange={e => setEta(Number(e.target.value) || 1)} className="w-14 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900" />min</label>
       </div>

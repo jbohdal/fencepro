@@ -23,6 +23,7 @@ import { inviteStepsHtml } from '../lib/inviteSteps.js'
 import { startStaffSession, endStaffSessionOf, cookieOnly, sessionEndsAt, staffCookieOf, cookieHash, STAFF_WRITE_HEADER } from '../lib/staffSession.js'
 import { sessionRefusal } from '../lib/sessionGuard.js'
 import { verifyStaffBearer } from '../lib/secrets.js'
+import { normalizeDirectPhone } from '../lib/appointmentRep.js'
 
 const router = Router()
 
@@ -315,6 +316,7 @@ router.get('/me', async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        phone: user.phone,
         role: user.role,
         status: user.status,
         mustChangePassword: user.mustChangePassword,
@@ -326,6 +328,31 @@ router.get('/me', async (req, res) => {
     })
   } catch {
     res.status(401).json({ success: false, error: 'Invalid token' })
+  }
+})
+
+// ── My profile: each person sets their own Direct phone ──
+//
+// The Direct phone (CrmUser.phone) is {rep_phone} in the appointment texts
+// (lib/appointmentRep.ts). The owner and admin set anyone's in Settings > Team
+// (PATCH /users/:id); here each person sets their own.
+router.patch('/me', async (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
+  let payload: any
+  try { payload = verifyAccess(auth.slice(7)) } catch { res.status(401).json({ success: false, error: 'Invalid token' }); return }
+  try {
+    const body = z.object({ phone: z.string().max(40) }).strict().parse(req.body)
+    const phone = normalizeDirectPhone(body.phone)
+    if (!phone.ok) { res.status(400).json({ success: false, error: phone.error }); return }
+    const user = await prisma.crmUser.findUnique({ where: { id: payload.sub }, select: { id: true, status: true, phone: true } })
+    if (!user || user.status === 'deactivated') { res.status(401).json({ success: false, error: 'Account not found' }); return }
+    const saved = await prisma.crmUser.update({ where: { id: user.id }, data: { phone: phone.value }, select: { id: true, phone: true } })
+    await audit(req, 'update', 'CrmUser', user.id, { oldValues: { phone: user.phone }, newValues: { phone: saved.phone } }).catch(() => {})
+    res.json({ success: true, data: saved })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    res.status(500).json({ success: false, error: 'Could not save your phone' })
   }
 })
 
@@ -410,6 +437,8 @@ router.post('/invite', async (req, res) => {
 
     const data = inviteSchema.parse(req.body)
     const email = data.email.toLowerCase()
+    const invitePhone = normalizeDirectPhone(data.phone)
+    if (!invitePhone.ok) { res.status(400).json({ success: false, error: invitePhone.error }); return }
 
     // Check if user exists
     const existing = await prisma.crmUser.findUnique({ where: { email } })
@@ -438,7 +467,7 @@ router.post('/invite', async (req, res) => {
         email,
         firstName: data.firstName,
         lastName: data.lastName,
-        phone: data.phone,
+        phone: invitePhone.value,
         role: data.role as any,
         status: 'invited',
         invitedById: payload.sub,
@@ -885,10 +914,19 @@ router.patch('/users/:id', async (req, res) => {
     }).parse(req.body)
 
     const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+    // A login of the caller's own company only.
+    const me = await prisma.crmUser.findUnique({ where: { id: payload.sub }, select: { crmAccountId: true } })
+    const target = await prisma.crmUser.findUnique({ where: { id: userId }, select: { role: true, crmAccountId: true } })
+    if (!target || !me?.crmAccountId || target.crmAccountId !== me.crmAccountId) { res.status(404).json({ success: false, error: 'Login not found' }); return }
     // Only the owner makes an owner, or changes one.
     if (payload.role !== 'super_admin') {
-      const target = await prisma.crmUser.findUnique({ where: { id: userId }, select: { role: true } })
-      if (data.role === 'super_admin' || target?.role === 'super_admin') { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Only the owner can change an owner login.' }); return }
+      if (data.role === 'super_admin' || target.role === 'super_admin') { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Only the owner can change an owner login.' }); return }
+    }
+    // The Direct phone: 10 digits, or empty to clear it.
+    if (data.phone !== undefined) {
+      const p = normalizeDirectPhone(data.phone)
+      if (!p.ok) { res.status(400).json({ success: false, error: p.error }); return }
+      ;(data as any).phone = p.value
     }
     if (userId === payload.sub && ((data.role && data.role !== payload.role) || (data.status && data.status !== 'active'))) {
       res.status(400).json({ success: false, error: 'You cannot change your own role or switch off your own login.' }); return

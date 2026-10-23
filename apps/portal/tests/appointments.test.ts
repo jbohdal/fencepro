@@ -7,7 +7,7 @@ import { START_PIPELINE_STAGES } from '../../web/src/pipelineStageModel'
 import { describe, test, expect } from 'vitest'
 import {
   overlapWarnings, stageAfterBooking, stageAfterOutcome, statusForOutcome, needsOutcome, nextFor, isOpen,
-  floridaTime, floridaDate, floridaHM, confirmationText, onMyWayText, smsLink, buildIcs, routeUrl, directionsUrl,
+  floridaTime, floridaDate, floridaHM, smsLink, buildIcs, routeUrl, directionsUrl,
   APPOINTMENT_TYPES as WEB_TYPES, APPOINTMENT_STATUSES as WEB_STATUSES,
   APPOINTMENT_OUTCOMES as WEB_OUTCOMES, type Appointment,
 } from '../../web/src/appointmentLogic'
@@ -130,16 +130,13 @@ describe('call back times said on the phone', () => {
 
 describe('what Jonathan sends himself', () => {
   const company = { name: 'Getter Done Fence', phone: '(352) 789-4314' }
-  test('the confirmation has the day, time, address and phone', () => {
-    const t = confirmationText(appt(), company)
-    expect(t).toBe('Hi Pat, this is Jonathan with Getter Done Fence. You\'re all set for your fence estimate on Tuesday, October 20 at 10:00 AM at 1 Main St, Belleview, FL. If anything changes, call or text (352) 789-4314.')
+  // The words are templates now: appointmentMessages.test.ts.
+  test('the text opens the phone\'s own texting app', () => {
     expect(smsLink('(352) 555-0123', 'hi there')).toBe('sms:3525550123?body=hi%20there')
   })
-  test('the on my way text', () => {
-    expect(onMyWayText('Pat Lee', 17.4, company)).toBe('Hi Pat, this is Jonathan with Getter Done Fence, I\'m on my way and should be there in about 17 minutes.')
-  })
   test('the calendar invite is a valid event in UTC', () => {
-    const ics = buildIcs(appt(), company, new Date('2026-10-14T12:00:00Z'))
+    const ics = buildIcs(appt(), company, 'Questions or changes: call or text Pat at (352) 844 2677.', new Date('2026-10-14T12:00:00Z'))
+    expect(ics).toContain('DESCRIPTION:Questions or changes: call or text Pat at (352) 844 2677.')
     expect(ics).toContain('DTSTART:20261020T140000Z')
     expect(ics).toContain('DTEND:20261020T150000Z')
     expect(ics).toContain('LOCATION:1 Main St\\, Belleview\\, FL')
