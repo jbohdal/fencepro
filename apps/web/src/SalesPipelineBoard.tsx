@@ -95,6 +95,9 @@ const VIEW_KEY = 'fencepro_pipeline_view' as const   // 'board' | 'list'
 const SORT_KEY = 'fencepro_pipeline_sort_v2' as const   // SortMode
 const ANALYTICS_KEY = 'fencepro_pipeline_analytics_open' as const
 
+/** Rows the list view draws at first, and per "Show more". */
+const LIST_PAGE = 200
+
 type SortMode = 'manual' | 'newest' | 'oldest' | 'value_desc' | 'value_asc' | 'days_in_stage'
 type ViewMode = 'board' | 'list'
 
@@ -104,13 +107,17 @@ const SORT_LABELS: Record<SortMode, string> = {
 }
 const SORT_MODES = Object.keys(SORT_LABELS) as SortMode[]
 
-// Finished stages (Settings > Pipeline Stages) start as narrow strips until this device says otherwise.
-const collapsedByDefault = (): Record<string, boolean> => Object.fromEntries(getPipelineStages().filter(s => s.finished).map(s => [s.id, true]))
+// Finished stages (Settings > Pipeline Stages) start as narrow strips until this device says otherwise;
+// on a phone so do the Lost or dead ones (No Answer, Lost Sale: the biggest columns).
+const collapsedByDefault = (): Record<string, boolean> => Object.fromEntries(getPipelineStages()
+  .filter(s => s.finished || (isMobileViewport() && s.group === 'dead')).map(s => [s.id, true]))
 
+/** This device's folded columns; a stage it has no choice for yet takes the default. */
 function readCollapsed(): Record<string, boolean> {
   try {
     const raw = readPref(COLLAPSE_KEY)
-    return raw ? JSON.parse(raw) : collapsedByDefault()
+    const saved = raw ? JSON.parse(raw) : null
+    return saved && typeof saved === 'object' ? { ...collapsedByDefault(), ...saved } : collapsedByDefault()
   } catch { return collapsedByDefault() }
 }
 
@@ -269,10 +276,16 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     setLeads(nextLeads)
   }
 
+  /* ── board columns ── */
+  // Settings > Pipeline Stages in board order (Selling, Sold, Lost or dead last); a hidden
+  // stage only while cards are in it, and a column for any card whose stage is not in the list.
+  const boardCols = useMemo(() => boardColumns(stageList, leads.map(l => l.stage)), [stageList, leads])
+  // Worked out once per board, not inside the sort: that recount of every card on
+  // every comparison was seconds of work on a phone with ~2,800 cards.
+  const columnIndex = useMemo(() => new Map(boardCols.map((c, i) => [c.id, i])), [boardCols])
   /** A stage's place on the board (for sorting the list view by stage). */
   function columnOrder(stage: string): number {
-    const i = boardColumns(stageList, leads.map(l => l.stage)).findIndex(c => c.id === stage)
-    return i < 0 ? 999 : i
+    return columnIndex.get(stage) ?? 999
   }
 
   /* ── filters / search ── */
@@ -333,16 +346,21 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     openBooking({ customerId: l.customerId, type: 'estimate', onBooked: then })
   }
 
-  /* ── board columns ── */
-  // Settings > Pipeline Stages in board order (Selling, Sold, Lost or dead last); a hidden
-  // stage only while cards are in it, and a column for any card whose stage is not in the list.
-  const boardCols = useMemo(() => boardColumns(stageList, leads.map(l => l.stage)), [stageList, leads])
   const columnStages = boardCols.map(c => c.id)
+  // Each column's cards, sorted, and its total: once per change, not on every draw.
+  const byColumn = useMemo(() => {
+    const items = new Map<string, PipelineLead[]>(boardCols.map(c => [c.id, []]))
+    for (const l of filteredLeads) items.get(l.stage)?.push(l)
+    const totals = new Map<string, number>()
+    for (const l of leads) totals.set(l.stage, (totals.get(l.stage) ?? 0) + valueOf(l))
+    for (const [k, list] of items) items.set(k, sortLeads(list))
+    return { items, totals }
+  }, [boardCols, filteredLeads, leads, values, sortMode, columnIndex])  // eslint-disable-line react-hooks/exhaustive-deps
   const columns: KanbanColumn<PipelineLead>[] = boardCols.map(col => ({
     key: col.id,
     label: col.name,
-    items: sortLeads(filteredLeads.filter(l => l.stage === col.id)),
-    total: leads.reduce((sum, l) => l.stage === col.id ? sum + valueOf(l) : sum, 0),
+    items: byColumn.items.get(col.id) ?? [],
+    total: byColumn.totals.get(col.id) ?? 0,
     colorHex: col.color,
     icon: stageHasRole(col.id, 'signed') ? '🏆' : col.group === 'dead' ? '✕' : undefined,
     emptyLabel: 'No deals in this stage',
@@ -1039,6 +1057,9 @@ function PipelineListView({
   }, [leads, sortCol, sortDir])
 
   const allChecked = rows.length > 0 && rows.every(r => bulkSelected.has(r.id))
+  // Drawn a page at a time: thousands of rows at once freeze a phone.
+  const [limit, setLimit] = useState(LIST_PAGE)
+  const shown = rows.length > limit ? rows.slice(0, limit) : rows
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -1061,7 +1082,7 @@ function PipelineListView({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {rows.map(l => {
+            {shown.map(l => {
               const days = daysInStage(l)
               return (
                 <tr key={l.id} className="hover:bg-gray-50 cursor-pointer"
@@ -1100,7 +1121,7 @@ function PipelineListView({
 
         {/* Mobile stacked card list */}
         <div className="md:hidden divide-y divide-gray-100">
-          {rows.map(l => (
+          {shown.map(l => (
             <button key={l.id} onClick={() => onRowClick(l)} className="w-full text-left px-3 py-3 hover:bg-gray-50">
               <div className="flex items-center justify-between">
                 <p className="font-semibold text-sm text-gray-900">{l.firstName} {l.lastName}</p>
@@ -1114,6 +1135,11 @@ function PipelineListView({
           ))}
           {rows.length === 0 && <div className="px-6 py-12 text-center text-gray-400 text-sm">No leads match your filters</div>}
         </div>
+        {rows.length > shown.length && (
+          <button data-list-more onClick={() => setLimit(n => n + LIST_PAGE)} className="w-full px-4 py-3 text-sm font-semibold text-orange-700 hover:bg-orange-50 border-t border-gray-100">
+            Show {Math.min(LIST_PAGE, rows.length - shown.length)} more ({shown.length} of {rows.length})
+          </button>
+        )}
       </div>
 
       {bulkSelected.size > 0 && (

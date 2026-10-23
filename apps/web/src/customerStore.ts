@@ -20,8 +20,7 @@ import { addCardWithCustomer, pipelineSavedElsewhere } from './pipelineStore'
 import {
   listContacts,
   type CrmContactRecord,
-  type CrmContactPayload,
-} from './crmContactsApi'
+  type CrmContactPayload, lastListServerTime } from './crmContactsApi'
 import { cloudStorage } from './cloudStorage'
 import { businessDate } from './businessDate'
 
@@ -118,6 +117,8 @@ export function initCustomers(): Promise<void> {
     if (!records) return
     cache = records.map(fromApi)
     hydrated = true
+    // The next refresh asks only for what changed after this read.
+    lastSync = lastListServerTime() ?? lastSync
     void loadArchivedCustomers()
     // Customers added or changed on this phone and not on the server yet.
     reapply('customer.')

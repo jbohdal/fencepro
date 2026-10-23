@@ -1,7 +1,7 @@
 import MediaGallery from './MediaGallery'
 import { usePipelineStages, stageName as pipelineStageName, roleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { getConfig } from './configStore'
 import { sourcePicker, tagPicker, sourceLabel, tagLabel, getOptions, useOptions } from './optionListsStore'
 import { wordToSave } from './optionListModel'
@@ -1259,6 +1259,9 @@ function CustomerDetail({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+/** Customers the list draws at first and per "Show more". */
+const CUSTOMER_LIST_PAGE = 100
+
 export default function CustomersPage({ onNewQuote }: {
   onNewQuote?: (customer?: Customer) => void
 }) {
@@ -1387,6 +1390,17 @@ export default function CustomersPage({ onNewQuote }: {
       (q.length > 2 && (c.tags || []).some(t => t.toLowerCase().includes(q) || tagLabel(t).toLowerCase().includes(q)))
     )
   })
+
+  // Sold revenue per customer, worked out once per quote list (not one search of every quote per row).
+  const soldRevenue = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const q of quotes) if (q.customerId && q.status === 'SOLD') m.set(q.customerId, (m.get(q.customerId) ?? 0) + q.price)
+    return m
+  }, [quotes])
+  // The list draws a page at a time: ~5,400 rows at once cost a phone seconds.
+  const [listLimit, setListLimit] = useState(CUSTOMER_LIST_PAGE)
+  useEffect(() => { setListLimit(CUSTOMER_LIST_PAGE) }, [search, listFilter])
+  const listed = filtered.length > listLimit ? filtered.slice(0, listLimit) : filtered
 
   const archivedSelected = customers.some(c => c.id === selectedId) ? null : getArchivedCustomers().find(c => c.id === selectedId) ?? null
   const selected = customers.find(c => c.id === selectedId) ?? archivedSelected
@@ -1641,8 +1655,8 @@ export default function CustomersPage({ onNewQuote }: {
           {filtered.length === 0 && (
             <div className="text-center py-12 text-gray-400 text-sm">No customers found</div>
           )}
-          {filtered.map(c => {
-            const revenue = quotes.filter(q => q.customerId === c.id && q.status === 'SOLD').reduce((s, q) => s + q.price, 0)
+          {listed.map(c => {
+            const revenue = soldRevenue.get(c.id) ?? 0
             const isSelected = selectedId === c.id && mode !== 'new'
             return (
               <div
@@ -1671,6 +1685,12 @@ export default function CustomersPage({ onNewQuote }: {
               </div>
             )
           })}
+          {filtered.length > listed.length && (
+            <button type="button" data-customer-list-more onClick={() => setListLimit(n => n + CUSTOMER_LIST_PAGE)}
+              className="w-full px-4 py-3 text-sm font-semibold text-orange-700 hover:bg-orange-50">
+              Show {Math.min(CUSTOMER_LIST_PAGE, filtered.length - listed.length)} more <span className="font-normal text-gray-400">({listed.length} of {filtered.length}; search finds them all)</span>
+            </button>
+          )}
         </div>
 
         <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400" data-customer-count={filtered.length}>

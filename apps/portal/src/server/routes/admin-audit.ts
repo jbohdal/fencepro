@@ -13,6 +13,7 @@ import { Router } from 'express'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { resolveSecret } from '../lib/secrets.js'
+import { timingSummary } from '../lib/requestTiming.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -31,6 +32,12 @@ function requireAdmin(req: any, res: any, next: any) {
 }
 
 router.use(requireAdmin)
+
+// ── How long the server takes to answer, per kind of request (lib/requestTiming.ts) ──
+router.get('/request-timing', (req: any, res) => {
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '50'), 10) || 50, 1), 500)
+  res.json({ success: true, data: timingSummary(limit) })
+})
 
 // ── List audit log ──
 router.get('/audit-log', async (req: any, res) => {

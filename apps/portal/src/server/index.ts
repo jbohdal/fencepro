@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import compression from 'compression'
+import { requestTiming, startTimingSummaryLog } from './lib/requestTiming.js'
 import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
@@ -134,6 +135,11 @@ app.use(helmet({
   contentSecurityPolicy: false, // Disabled for now: app uses inline styles + CDN sources; tighten later.
 }))
 app.disable('x-powered-by')
+
+// How long each request takes: one [slow] log line for anything over a second,
+// counts per kind at /api/admin/request-timing, an hourly [timing] line (lib/requestTiming.ts).
+app.use(requestTiming)
+startTimingSummaryLog()
 
 // ── Public intake, mounted before the app wide CORS and JSON parser ──
 // The website quote widget lives on another domain and brings its own origin

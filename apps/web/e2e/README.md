@@ -67,6 +67,48 @@ back until the next command, so each tap releases it at once; and the
 Simulator's keys reach the page but insert no text, so a field left empty is
 set the way the keyboard leaves it (the run prints which).
 
+## Heavy runs and business hours (`run-heavy.sh`)
+
+The live app runs on the same Mac. Jonathan's rule: **no heavy test runs
+between 07:00 and 18:00 local** (he is using the live app then) unless he asks.
+A full regression, the Android emulator and the iOS simulator count as heavy.
+
+```bash
+bash apps/web/e2e/run-heavy.sh --check                 # allowed now? (exit 0 yes, 3 no)
+E2E_ACCESS_TOKEN=<dev token> bash apps/web/e2e/run-heavy.sh all          # every suite on the dev copy, one at a time
+E2E_ACCESS_TOKEN=<dev token> bash apps/web/e2e/run-heavy.sh suites kanban-drag card-phone follow-ups
+CDP_URL=http://localhost:9333 bash apps/web/e2e/run-heavy.sh -- node apps/web/e2e/field.mjs   # an emulator run
+```
+
+- Refuses to start between 07:00 and 18:00 unless `FORCE_BUSINESS_HOURS=1`
+  (only when Jonathan asked), and refuses port 4000 or a Tailscale address.
+- Runs at low priority (`nice -n 15`, `taskpolicy -b`: the live server goes first).
+- Shuts down the Android emulator, every booted iOS simulator and the
+  Playwright browsers it left when it ends, also after a failure or Ctrl-C
+  (`KEEP_DEVICES=1` keeps them).
+- `all` leaves out the helpers, the read only live and public site checks, and
+  `two-browser-sync` / `intake` (those need an empty database, see below);
+  `SKIP="a b"` leaves out more. One log per suite in `LOGS` (default
+  `~/Downloads/ezbiz-e2e-<date-time>`), `PAUSE` seconds between suites (20).
+- `devOnly.mjs` (imported by every test) also refuses the Android emulator
+  (`CDP_URL`) and the iOS simulator (`iphone-safari.mjs` with Safari) in
+  business hours, however they are started. Small targeted runs in Chromium or
+  WebKit are not affected (still run them with `nice -n 15`).
+
+## Phone load times (`perf-phone.mjs`)
+
+Read only: it opens screens and measures, and stops every request that is not
+a GET. Time to usable for start (signed in, page load to the tab bar),
+Pipeline, the Customers list, a customer page, Follow ups and the quote
+builder; bytes downloaded at start; DOM nodes and JS heap on the board; long
+tasks (Chromium).
+
+```bash
+TARGET=live THROTTLE=1 node e2e/perf-phone.mjs     # live (localhost:4000, the 3 hour read only session), phone CPU 4x slower + 4G
+TARGET=live ENGINE=webkit node e2e/perf-phone.mjs  # live in WebKit at iPhone size
+TARGET=dev E2E_ACCESS_TOKEN=<dev token> THROTTLE=1 RUNS=3 OUT=after.json node e2e/perf-phone.mjs
+```
+
 ## Running them
 
 1. A local Postgres with an empty database, and the server pointed at it:

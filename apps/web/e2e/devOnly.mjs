@@ -32,3 +32,20 @@ if (problems.length) {
   console.error(`Refusing to run: the browser tests write test data and run against the dev copy only (http://localhost:4001). ${problems.join('; ')}.`)
   process.exit(2)
 }
+
+// Business hours (Jonathan's rule): the Android emulator (CDP_URL) and the iOS
+// simulator (iphone-safari.mjs with Safari) are heavy for the Mac that runs the
+// live app. Between 07:00 and 18:00 they need FORCE_BUSINESS_HOURS=1 (only when
+// Jonathan asks); full regressions go through run-heavy.sh, which checks the
+// same hours and shuts the devices down at the end. Small targeted runs in a
+// desktop or WebKit browser are not affected.
+export function heavyDeviceProblem(env = process.env, script = process.argv[1] || '', now = new Date()) {
+  const simulator = /iphone-safari\.mjs$/.test(script) && (env.DRIVER || 'safari') === 'safari'
+  const emulator = !!env.CDP_URL
+  if (!simulator && !emulator) return null
+  const h = now.getHours()
+  if (h < 7 || h >= 18 || env.FORCE_BUSINESS_HOURS === '1') return null
+  return `${emulator ? 'the Android emulator (CDP_URL)' : 'the iOS simulator'} is a heavy run, and it is ${String(h).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}, inside business hours (07:00-18:00). Run it after 18:00 (bash e2e/run-heavy.sh -- node ${script.split('/').pop()}), or set FORCE_BUSINESS_HOURS=1 only if Jonathan asked`
+}
+const heavy = heavyDeviceProblem()
+if (heavy) { console.error(`Refusing to run: ${heavy}.`); process.exit(3) }

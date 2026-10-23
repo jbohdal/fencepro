@@ -91,7 +91,7 @@ export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmC
   updatedAt: string
 }
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
+async function call<T>(method: string, path: string, body?: unknown): Promise<{ ok: boolean; data?: T; error?: string; serverTime?: string }> {
   const token = isSignedIn()
   if (!token) return { ok: false, error: 'Not authenticated' }
   try {
@@ -107,14 +107,23 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
     if (!res.ok || json?.success === false) {
       return { ok: false, error: plainError(res.status, json?.error).message }
     }
-    return { ok: true, data: json.data as T }
+    return { ok: true, data: json.data as T, serverTime: typeof json?.serverTime === 'string' ? json.serverTime : undefined }
   } catch (err) {
     return { ok: false, error: plainThrown(err).message }
   }
 }
 
+/**
+ * The server's clock when the last whole list was read: the stores ask for
+ * "changed since then" next, instead of the whole list again (which, read
+ * again on the first refresh, cost a phone ~0.5 MB and a full redraw).
+ */
+let listedAt: string | null = null
+export function lastListServerTime(): string | null { return listedAt }
+
 export async function listSavedQuotes(): Promise<SavedQuoteRecord[] | null> {
   const r = await call<SavedQuoteRecord[]>('GET', '/')
+  if (r.ok && r.serverTime) listedAt = r.serverTime
   if (!r.ok) {
     toast.error('Could not load quotes from cloud', r.error || plainError(0).message)
     return null

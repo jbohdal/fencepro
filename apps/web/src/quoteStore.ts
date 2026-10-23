@@ -14,8 +14,7 @@
 import {
   listSavedQuotes,
   type SavedQuoteRecord,
-  type SavedQuotePayload,
-} from './savedQuotesApi'
+  type SavedQuotePayload, lastListServerTime } from './savedQuotesApi'
 import type { SavedQuote } from './QuotesPage'
 import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, pendingFor, type Op } from './outbox'
@@ -141,6 +140,8 @@ export function initQuotes(): Promise<void> {
     if (!records) return
     cache = records.map(fromApi)
     hydrated = true
+    // The next refresh asks only for what changed after this read.
+    lastSync = lastListServerTime() ?? lastSync
     void loadArchivedQuotes()
     // Quotes saved on this phone and not on the server yet.
     reapply('quote.')

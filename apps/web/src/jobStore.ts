@@ -8,8 +8,7 @@ import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
 import { getQuoteById } from './quoteStore'
 import {
   listSavedJobs,
-  type SavedJobRecord,
-} from './savedJobsApi'
+  type SavedJobRecord, lastListServerTime } from './savedJobsApi'
 import { businessDate } from './businessDate'
 import { getFirstOpsStage, reconcileStage, stageOf, nextOpsStage, stageFields } from './opsStagesStore'
 
@@ -219,6 +218,8 @@ export function initJobs(): Promise<void> {
     if (!records) return
     cache = records.map(fromApi)
     hydrated = true
+    // The next refresh asks only for what changed after this read.
+    lastSync = lastListServerTime() ?? lastSync
     void loadArchivedJobs()
     // Jobs made or changed on this phone and not on the server yet.
     reapply('job.')

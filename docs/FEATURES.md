@@ -435,6 +435,12 @@ Every list that Settings owns has one source, and every screen reads that source
 * Found and fixed when the check was built: the Good / Better / Best tier color names and the website quote's color names were their own list of four; both now read the color names from Settings.
 * Allowed, each with its reason in the test: pricing, takeoff and seed rules keyed by a style's permanent internal name; the Inventory > Fill in to do list of styles; the website catalog reading old style codes; MyBudgetQuote's own source words; starter automations pointing at a start stage's permanent id. Follow up: QuotePlan.tsx falls back to the default style list for a saved quote's panel width when its caller passes no style.
 
+## 9z. Phone speed (Oct 23)
+
+* Measured on live at iPhone size, 4G and a phone-speed processor: the Pipeline took 24 to 26 s to draw (8 to 10 freezes of 3 to 4 s: the sort recounted all 2,780 cards on every comparison and every card's value searched every quote); the Customers list drew all 5,412 rows. Now: column order worked out once, values from one index, 50 cards a column with "Show 50 more" (counts and totals still cover every card), No Answer and Lost Sale folded on phones, Customers 100 at a time, and refreshes ask only for what changed. Same data on dev: Pipeline 0.51 s, Customers 0.16 s. **DEV**
+* The server answered every screen in under 0.3 s; a log line now marks any request over 1 s, with counts per route for the owner. The live server was being restarted by pm2 for going over 512 MB (7 times on Oct 23, mid request): the limit is now 2 GB (the Mac has 32 GB). **DEV**
+* Heavy test runs (full suites, emulator, simulator) refuse to start between 7 am and 6 pm unless asked, run at low priority, and shut emulators and simulators down at the end (apps/web/e2e/run-heavy.sh). **DEV**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)

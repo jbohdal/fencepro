@@ -21,6 +21,7 @@ import { pipelineChangeRefusal, refuse, removedIds, roleOf, requireCan } from '.
 import { DeleteError, deleteRecord, logRemovedCards, removedIdsAmong, setArchived } from '../lib/deletion.js'
 import { loadPipelineStages } from '../lib/pipelineStages.js'
 import { stageById } from '../lib/pipelineStageModel.js'
+import { boardPages, columnPage, findCard, loadBoard, loadValueInputs, searchCards } from '../lib/pipelinePages.js'
 
 const router = Router()
 
@@ -112,6 +113,37 @@ router.get('/', async (req: any, res) => {
     console.error('[pipeline] get error:', err)
     res.status(500).json({ success: false, error: 'Failed to load pipeline' })
   }
+})
+
+// ── The board a page at a time (read only; lib/pipelinePages.ts) ──
+// Saves still go through PUT / PATCH below on the one board record, so every
+// answer carries the board's version.
+async function pagedRead(req: any, res: any, what: string, answer: (b: Awaited<ReturnType<typeof loadBoard>>) => Promise<unknown> | unknown) {
+  try {
+    const board = await loadBoard(req.user.crmAccountId)
+    res.json({ success: true, version: board.version, data: await answer(board) })
+  } catch (err) {
+    console.error(`[pipeline] ${what} error:`, err)
+    res.status(500).json({ success: false, error: 'Failed to load pipeline' })
+  }
+}
+// Every column: count, total, the first ?per= cards (50) in board order; ?q= searches.
+router.get('/board', (req: any, res) => pagedRead(req, res, 'board', async b => {
+  const { quotes, jobs } = await loadValueInputs(req.user.crmAccountId)
+  return { columns: boardPages(b.leads, b.stages, quotes, jobs, { per: req.query.per, q: req.query.q }), cards: b.leads.length }
+}))
+// One column from ?offset= (?limit= cards, 50; ?q= searches).
+router.get('/column/:stage', (req: any, res) => pagedRead(req, res, 'column', b =>
+  columnPage(b.leads, String(req.params.stage), { offset: req.query.offset, limit: req.query.limit, q: req.query.q })))
+// Cards matching ?q= (name, phone, address) in every column.
+router.get('/search', (req: any, res) => pagedRead(req, res, 'search', b => searchCards(b.leads, req.query.q, req.query.limit)))
+// One card by id (a link to a card), on the board or archived.
+router.get('/cards/:id', async (req: any, res) => {
+  const board = await loadBoard(req.user.crmAccountId).catch(() => null)
+  if (!board) { res.status(500).json({ success: false, error: 'Failed to load pipeline' }); return }
+  const hit = findCard(board.leads, board.archived, String(req.params.id))
+  if (!hit) { res.status(404).json({ success: false, error: 'That card is not on the board' }); return }
+  res.json({ success: true, version: board.version, data: hit })
 })
 
 router.put('/', async (req: any, res) => {

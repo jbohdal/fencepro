@@ -9,6 +9,11 @@
  *     its top and bottom, faster the closer the card is to the edge.
  *   - A card can be dropped anywhere on a column: its header, its cards, the
  *     empty space under them, or its collapsed strip.
+ *   - A column draws its first `pageSize` cards (50) and a "Show more" button
+ *     for the next ones; its count and total in the header are for all of
+ *     them. A card dropped below the drawn ones lands after the last one drawn,
+ *     and the column draws down to it, so it never disappears under the button.
+ *     (Thousands of cards drawn at once, each one draggable, froze a phone.)
  *
  * The board only reports the drop. What a drop means (stage change, order,
  * confirmation) is up to the page that owns the data.
@@ -58,7 +63,11 @@ interface Props<T> {
   onDrop: (item: T, columnKey: string, pointerIndex: number) => void
   /** DOM id for a column, so the page can scroll to it. */
   columnDomId?: (key: string) => string
+  /** Cards a column draws at first and per "Show more" (default 50). */
+  pageSize?: number
 }
+
+export const KANBAN_PAGE = 50
 
 type Target = { col: string; pointerIndex: number; landing: number | null }
 
@@ -98,13 +107,15 @@ function locate<T>(
 }
 
 export default function KanbanBoard<T>({
-  columns, getId, canDrag, renderCard, collapsed, onToggle, landingIndex, onDrop, columnDomId,
+  columns, getId, canDrag, renderCard, collapsed, onToggle, landingIndex, onDrop, columnDomId, pageSize = KANBAN_PAGE,
 }: Props<T>) {
   const boardRef = useRef<HTMLDivElement | null>(null)
   const [active, setActive] = useState<T | null>(null)
   const [target, setTarget] = useState<Target | null>(null)
   const targetRef = useRef<Target | null>(null)
   const pointer = useRef<{ x: number; y: number } | null>(null)
+  // Cards drawn per column (pageSize until "Show more").
+  const [limits, setLimits] = useState<Record<string, number>>({})
 
   // The newest props, for the drag loop below, which outlives a render.
   const latest = useRef({ columns, collapsed, landingIndex, getId })
@@ -174,7 +185,12 @@ export default function KanbanBoard<T>({
     // Read the target once more: the last frame may be older than the release.
     const t = item ? findTarget(item) : null
     setActive(null); setTarget(null); targetRef.current = null; pointer.current = null
-    if (drop && item && t && t.landing !== null) onDrop(item, t.col, t.pointerIndex)
+    if (drop && item && t && t.landing !== null) {
+      // A card let go just below the drawn ones: draw the column down to it.
+      // (Sorted columns may place it further down; it is then under "Show more".)
+      setLimits(l => { const cur = l[t.col] ?? pageSize; return t.landing === cur ? { ...l, [t.col]: cur + 1 } : l })
+      onDrop(item, t.col, t.pointerIndex)
+    }
   }
 
   // dnd-kit scrolls the scroll containers around whatever the card is "over",
@@ -208,6 +224,9 @@ export default function KanbanBoard<T>({
             renderCard={renderCard}
             activeId={activeId}
             target={target && target.col === col.key ? target : null}
+            limit={limits[col.key] ?? pageSize}
+            onMore={() => setLimits(l => ({ ...l, [col.key]: (l[col.key] ?? pageSize) + pageSize }))}
+            pageSize={pageSize}
           />
         ))}
       </div>
@@ -219,7 +238,7 @@ export default function KanbanBoard<T>({
 }
 
 function Column<T>({
-  col, domId, isCollapsed, onToggle, getId, canDrag, renderCard, activeId, target,
+  col, domId, isCollapsed, onToggle, getId, canDrag, renderCard, activeId, target, limit, onMore, pageSize,
 }: {
   col: KanbanColumn<T>
   domId?: string
@@ -231,6 +250,10 @@ function Column<T>({
   activeId: string | null
   /** Set while a card is held over this column. */
   target: Target | null
+  /** Cards drawn, and "Show more". */
+  limit: number
+  onMore: () => void
+  pageSize: number
 }) {
   const { setNodeRef } = useDroppable({ id: col.key, disabled: col.acceptsDrop === false })
   const hot = !!target && target.landing !== null
@@ -255,7 +278,10 @@ function Column<T>({
     )
   }
 
-  const others = activeId ? col.items.filter(i => getId(i) !== activeId) : col.items
+  // The cards drawn: the first `limit`, and the one being held wherever it is.
+  const drawn = col.items.length > limit ? col.items.filter((it, i) => i < limit || getId(it) === activeId) : col.items
+  const hidden = col.items.length - drawn.length
+  const others = activeId ? drawn.filter(i => getId(i) !== activeId) : drawn
   const placeholderBefore = hot ? (others[target!.landing!] ? getId(others[target!.landing!]) : null) : undefined
   const placeholder = <div key="__placeholder" data-kanban-placeholder className="h-24 rounded-xl border-2 border-dashed border-orange-400 bg-orange-50 flex items-center justify-center text-xs font-semibold text-orange-600">Drop here</div>
 
@@ -284,7 +310,7 @@ function Column<T>({
       </button>
       <div data-kanban-scroll className="kanban-col-scroll flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-2">
         <div ref={setNodeRef} className="min-h-full space-y-2 pt-2 pb-20 md:pb-2">
-          {col.items.map(item => {
+          {drawn.map(item => {
             const id = getId(item)
             return [
               placeholderBefore === id && placeholder,
@@ -294,6 +320,16 @@ function Column<T>({
             ]
           })}
           {placeholderBefore === null && placeholder}
+          {hidden > 0 && (
+            <button
+              type="button"
+              data-kanban-more={col.key}
+              onClick={onMore}
+              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Show {Math.min(pageSize, hidden)} more <span className="text-gray-400 font-normal">({drawn.length} of {count})</span>
+            </button>
+          )}
           {count === 0 && !hot && (
             <div className="border-2 border-dashed border-gray-200 rounded-xl px-4 py-6 text-center text-xs text-gray-400">{col.emptyLabel}</div>
           )}

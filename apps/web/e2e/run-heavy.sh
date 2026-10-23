@@ -1,0 +1,104 @@
+#!/bin/bash
+# Heavy browser test runs, made safe for the live app on this Mac.
+#
+# Jonathan's rule: no heavy test runs between 7 am and 6 pm local time (he is
+# using the live app on this Mac then) unless he asks. This wrapper:
+#   - refuses to start between 07:00 and 18:00 local, unless FORCE_BUSINESS_HOURS=1;
+#   - refuses APP_URL / API_URL on port 4000 or a Tailscale address (live);
+#   - runs everything at low priority: nice -n 15 and taskpolicy -b (macOS
+#     background: low CPU and disk priority, the live server goes first);
+#   - shuts down the Android emulator and every booted iOS simulator at the
+#     end (also after a failure or Ctrl-C), and the Playwright browsers it left.
+#
+# Usage (from anywhere):
+#   bash apps/web/e2e/run-heavy.sh all                   every suite on the dev copy, one at a time (log per suite)
+#   bash apps/web/e2e/run-heavy.sh suites a b c          those suites (a.mjs, b.mjs, c.mjs), one at a time
+#   bash apps/web/e2e/run-heavy.sh -- <command ...>      any other heavy command (an emulator run, a long loop)
+#
+# Settings (environment):
+#   APP_URL, API_URL           default http://localhost:4001 (the dev copy)
+#   E2E_ACCESS_TOKEN / E2E_STAFF_COOKIE   the dev sign in (required by the suites)
+#   LOGS=<folder>              where the logs go (default ~/Downloads/ezbiz-e2e-<date-time>)
+#   PAUSE=<seconds>            pause between suites (default 20): the server settles
+#   SKIP="a b"                 suites to leave out of `all`
+#   FORCE_BUSINESS_HOURS=1     run between 07:00 and 18:00 anyway (only when Jonathan asks)
+#   KEEP_DEVICES=1             leave the emulator and simulators running at the end
+#
+# The check alone (exit 0 = allowed now):  bash apps/web/e2e/run-heavy.sh --check
+
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOUR=$((10#$(date +%H)))
+
+business_hours() { [ "$HOUR" -ge 7 ] && [ "$HOUR" -lt 18 ]; }
+
+if business_hours && [ "${FORCE_BUSINESS_HOURS:-}" != "1" ]; then
+  echo "Refusing: it is $(date +%H:%M), inside business hours (07:00-18:00). Jonathan is using the live app on this Mac."
+  echo "Run this after 18:00, or with FORCE_BUSINESS_HOURS=1 only if Jonathan asked for it now."
+  exit 3
+fi
+[ "${1:-}" = "--check" ] && { echo "Allowed now ($(date +%H:%M))."; exit 0; }
+
+export APP_URL="${APP_URL:-http://localhost:4001}" API_URL="${API_URL:-http://localhost:4001}"
+for u in "$APP_URL" "$API_URL" "${CDP_URL:-}"; do
+  case "$u" in
+    *:4000|*:4000/*|*.ts.net*|*//100.*) echo "Refusing: $u is the live server. Heavy runs are for the dev copy (port 4001)."; exit 2 ;;
+  esac
+done
+
+LOW=(nice -n 15)
+command -v taskpolicy >/dev/null 2>&1 && LOW=(nice -n 15 taskpolicy -b)
+
+cleanup() {
+  [ "${KEEP_DEVICES:-}" = "1" ] && return
+  # The Android emulator(s): asked to close, then stopped if still there.
+  local adb="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
+  command -v adb >/dev/null 2>&1 && adb="adb"
+  if [ -x "$adb" ] || command -v "$adb" >/dev/null 2>&1; then
+    for d in $("$adb" devices 2>/dev/null | awk '/^emulator-/{print $1}'); do "$adb" -s "$d" emu kill >/dev/null 2>&1; done
+  fi
+  pkill -f 'qemu-system-.*-avd' >/dev/null 2>&1
+  # Every booted iOS simulator, and the Simulator app.
+  command -v xcrun >/dev/null 2>&1 && xcrun simctl shutdown all >/dev/null 2>&1
+  pkill -x Simulator >/dev/null 2>&1
+  # Playwright browsers this run left behind (only Playwright's own builds).
+  pkill -f 'ms-playwright/.*(chrome|headless_shell|webkit|Playwright)' >/dev/null 2>&1
+  echo "Emulator, simulators and test browsers shut down."
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+# Suites: every test script, not the shared helpers, the read only live checks
+# or the public site checks (those have their own rules, see README.md).
+NOT_SUITES=" lib devOnly photoTiles signal sharedLock live-readonly perf-phone godaddy-embed real-site-embed widget-draw-public iphone-safari two-browser-sync intake "
+all_suites() {
+  for f in "$HERE"/*.mjs; do
+    n="$(basename "$f" .mjs)"
+    case "$NOT_SUITES ${SKIP:-} " in *" $n "*) continue ;; esac
+    echo "$n"
+  done
+}
+
+run_suites() {
+  local logs="${LOGS:-$HOME/Downloads/ezbiz-e2e-$(date +%Y-%m-%d-%H%M)}"
+  mkdir -p "$logs"
+  local pass=0 fail=0 failed=()
+  cd "$HERE" || exit 2
+  for n in "$@"; do
+    [ -f "$n.mjs" ] || { echo "No suite $n.mjs"; fail=$((fail+1)); failed+=("$n (missing)"); continue; }
+    echo "=== $n  ($(date +%H:%M:%S))"
+    if "${LOW[@]}" node "$n.mjs" > "$logs/$n.log" 2>&1; then pass=$((pass+1)); echo "    ok"
+    else fail=$((fail+1)); failed+=("$n"); echo "    FAILED (exit $?): $logs/$n.log"; grep -E '^FAIL' "$logs/$n.log" | head -5 | sed 's/^/      /'; fi
+    sleep "${PAUSE:-20}"
+  done
+  echo
+  echo "Suites passed: $pass, failed: $fail. Logs: $logs"
+  [ "$fail" -eq 0 ] || { printf '  failed: %s\n' "${failed[@]}"; return 1; }
+}
+
+case "${1:-}" in
+  all) shift; S=(); while IFS= read -r n; do S+=("$n"); done < <(all_suites); run_suites "${S[@]}" ;;
+  suites) shift; [ "$#" -gt 0 ] || { echo "Name the suites."; exit 2; }; run_suites "$@" ;;
+  --) shift; [ "$#" -gt 0 ] || { echo "Give the command after --."; exit 2; }; "${LOW[@]}" "$@" ;;
+  *) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac
