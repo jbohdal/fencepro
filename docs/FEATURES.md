@@ -385,10 +385,10 @@ Status key:
 
 ## 9u. Maps under menus, Dispatch pins, change order pick list, service push to the card owner (Oct 22)
 
-* One shared rule (layers.css): every map is its own layer at the bottom of the page, so side menus, dropdowns, sheets, dialogs and toasts always sit above maps (Dispatch and the website quote map had been drawing over the menu on phones). Checked on every map screen in the phone fit test. **DEV**
-* Dispatch pins: color = the job's Operations stage color from Settings, ring = the crew's color, label = crew initials (or the customer's initials when no crew), legend on the map (folded on a phone). Every pin had shown "?" because jobs carry no crew or install date (those live on the Schedule board and are not copied back to the job). **DEV**
-* Change orders: "Pick from price list" (Repair price list and Catalog), priced like a repair quote for the job's style (out of the Repair profit, whole dollars), plus custom lines. **DEV**
-* Service requests: the "photos received" push goes to Jonathan and the customer's card owner. **DEV**
+* One shared rule (layers.css): every map is its own layer at the bottom of the page, so side menus, dropdowns, sheets, dialogs and toasts always sit above maps (Dispatch and the website quote map had been drawing over the menu on phones). Checked on every map screen in the phone fit test. **LIVE**
+* Dispatch pins: color = the job's Operations stage color from Settings, ring = the crew's color, label = crew initials (or the customer's initials when no crew), legend on the map (folded on a phone). Every pin had shown "?" because jobs carry no crew or install date (those live on the Schedule board and are not copied back to the job). **LIVE**
+* Change orders: "Pick from price list" (Repair price list and Catalog), priced like a repair quote for the job's style (out of the Repair profit, whole dollars), plus custom lines. **LIVE**
+* Service requests: the "photos received" push goes to Jonathan and the customer's card owner. **LIVE**
 * Esri World Imagery is on for live: a sharp yard photo in about 0.4 to 0.6 s on 4G (was 20 to 50 s). **LIVE** (Oct 22)
 
 ## 9v. Staff sign in by cookie; business data out of the browser (Oct 22) **DEV**
@@ -401,6 +401,10 @@ Status key:
 * Removed from the browser: the Settings copy (12 screens now read Settings from the server), the budget copy, who was signed in, the last email, the old one-time moves, dead CompanyCam and customer-notes code. Old browser data is deleted on load without uploading. A guard test fails on any new browser storage outside the allow-list (board choices, the encrypted queues, the move-over keys until stage D). **DEV**
 * Read only checker on the Mac: `scripts/readonly-session.ts` makes a 3 hour read only sign in shown in Team; works only on the Mac itself; `e2e/live-readonly.mjs` uses it. **DEV**
 * Team > Active Sessions shows how each device is signed in, when it ends, and "This device". **DEV**
+
+## 9w. MyBudgetQuote history import (Oct 23)
+
+* scripts/mybudgetquote-import.ts: dry run by default (report to ~/Downloads), --apply (guarded, backup first), idempotent on the old tool ids. Matches existing customers only on exact phone or email, never by name, and never changes their details (adds a pinned "MyBudgetQuote history" note, the old ids, the tag). New customers get a card only for First Contact and non-dropoff No Answer rows; older dropoffs are customers only, tagged "MyBudgetQuote dropoff" (searchable). No card where the customer already has an open card, a sold or a paid job. Nothing is sent; no follow ups, automations or texting consent. A row matching two customers is skipped and listed. Settings → Deleted Records → Imports → Undo import removes the whole import in one step (and can be restored). The customer page shows a "MyBudgetQuote history" card with the old estimate and flags. **DEV** (not run on live yet)
 
 ## 10. Reliability (top priority)
 

@@ -34,6 +34,7 @@ import { DeleteError, deleteRecord, emptySnapshot, logDeletion, labelOf, setArch
 import { addressParts } from '../lib/addressIndex.js'
 import { onCardMoves } from '../lib/followUps.js'
 import { recordTextConsent, textConsentHistory } from '../lib/textConsent.js'
+import { importHistory } from '../lib/customerImport.js'
 
 const router = Router()
 
@@ -434,6 +435,18 @@ router.post('/:id/text-consent', requireAccount, async (req: any, res) => {
 })
 
 // List notes for a contact.
+// What an import brought for this customer (the old system's fields, lib/customerImport.ts): the customer page's "MyBudgetQuote history".
+router.get('/:id/import-history', requireAccount, async (req: any, res) => {
+  try {
+    const contact = await loadContactInAccount(req, res)
+    if (!contact) return
+    res.json({ success: true, data: await importHistory(req.user.crmAccountId, contact.id) })
+  } catch (err) {
+    console.error('[crm-contacts] import history error:', err)
+    res.status(500).json({ success: false, error: 'Could not load the import history' })
+  }
+})
+
 router.get('/:id/notes', requireAccount, async (req: any, res) => {
   try {
     const contact = await loadContactInAccount(req, res)

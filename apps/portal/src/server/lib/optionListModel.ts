@@ -51,7 +51,7 @@ export const ONE_LABEL: Record<OptionListKind, string> = { leadSources: 'lead so
 /** The words the app saves on its own. */
 export const BUILT_IN_OPTIONS: Record<OptionListKind, string[]> = {
   leadSources: ['Website Quote', 'Phone (AI receptionist)', 'Website chat'],
-  customerTags: ['Imported', 'JobNimbus', 'From schedule'],
+  customerTags: ['Imported', 'JobNimbus', 'From schedule', 'MyBudgetQuote import', 'MyBudgetQuote dropoff'],
 }
 
 const lc = (s: string) => s.trim().toLowerCase()

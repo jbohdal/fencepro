@@ -1553,6 +1553,61 @@ model CrmContact {
   @@index([jobStatus])
 }
 
+// ── Customer imports (lib/customerImport.ts) ──
+//
+// One run of an import script that wrote (scripts/mybudgetquote-import.ts
+// --apply) is one ImportBatch. It lists every record the run made (customers,
+// notes, cards, possible matches) and every tag it put on a customer already
+// on file, so Settings > Deleted Records > Undo import takes them all back in
+// one step (logged in DeletionLog, and restorable from there).
+model ImportBatch {
+  id         String    @id @default(uuid())
+  accountId  String
+  /// mybudgetquote
+  source     String
+  /// What a person reads: "MyBudgetQuote import, 2,736 rows"
+  label      String
+  fileName   String    @default("")
+  createdAt  DateTime  @default(now())
+  /// Who ran it (the script's name, or a login's name)
+  createdBy  String    @default("")
+  /// { newCustomers, matched, cards: { stage: n }, noCard, ... }
+  counts     Json      @default("{}")
+  /// { contacts: [ids], notes: [ids], cards: [ids], possibleMatches: [ids], tagged: [{ id, tag, updatedAtBefore, updatedAtAfter }] }
+  records    Json      @default("{}")
+  undoneAt   DateTime?
+  undoneById String?
+  /// The DeletionLog row the undo wrote (Restore there puts the import back).
+  undoLogId  String?
+
+  @@index([accountId, source])
+}
+
+/// One row of an imported file, on the customer it went to: everything the
+/// old system knew (data, as the file had it, money in cents) and the row's
+/// key in that system (sourceKey: MyBudgetQuote old_tool_ids), so a second
+/// run makes nothing new. undoneAt: its batch was undone (the key is free again).
+model CustomerImportRow {
+  id           String    @id @default(uuid())
+  accountId    String
+  batchId      String
+  crmContactId String
+  source       String
+  sourceKey    String
+  /// true: it went to a customer already on file (matchedBy: phone | email | phone and email)
+  matched      Boolean   @default(false)
+  matchedBy    String?
+  /// Card made for it (pipeline card id), or null and why not in data.cardWhy
+  cardId       String?
+  data         Json
+  createdAt    DateTime  @default(now())
+  undoneAt     DateTime?
+
+  @@index([accountId, source, sourceKey])
+  @@index([crmContactId])
+  @@index([batchId])
+}
+
 // ── Possible matches and merges (lib/customerMerge.ts) ──
 //
 // A website or phone lead always makes a new customer (never attached to one

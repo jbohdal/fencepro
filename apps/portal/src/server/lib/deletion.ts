@@ -46,7 +46,7 @@ export const SOFT_MODELS = ['crmContact', 'savedQuote', 'savedJob', 'appointment
 /** Soft models with no accountId or updatedAt of their own (a customer's portal photos and files). */
 const NO_ACCOUNT = new Set<SoftModel>(['portalPhoto', 'portalFile'])
 export type SoftModel = typeof SOFT_MODELS[number]
-export const HARD_MODELS = ['cardFollowUp', 'pendingTouch', 'crmUser', 'scheduleRainDay'] as const
+export const HARD_MODELS = ['cardFollowUp', 'pendingTouch', 'crmUser', 'scheduleRainDay', 'customerPossibleMatch'] as const
 export type HardModel = typeof HARD_MODELS[number]
 export type DocName = 'pipeline' | 'business' | 'inventory' | 'vendors'
 /** JSON lists inside the per company documents: "<doc>.<field>". */
@@ -56,7 +56,7 @@ export type ListDoc =
   | 'inventory.items' | 'inventory.stockLevels'
   | 'vendors.vendors'
 
-export type EntityType = 'customer' | 'quote' | 'job' | 'card' | 'login' | 'inventory_item' | 'vendor' | 'note' | 'photo' | 'file' | 'schedule_entry' | 'rain_day'
+export type EntityType = 'customer' | 'quote' | 'job' | 'card' | 'login' | 'inventory_item' | 'vendor' | 'note' | 'photo' | 'file' | 'schedule_entry' | 'rain_day' | 'import'
 
 /**
  * Every place a customer's id is kept, by the field that holds it. A delete
@@ -77,6 +77,7 @@ export const CUSTOMER_ID_ROWS = [
   { model: 'pendingTouch', field: 'crmContactId', idField: 'userId', account: true },
   { model: 'warrantyUpdate', field: 'crmContactId', idField: 'id', account: true },
   { model: 'crmTextConsent', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'customerImportRow', field: 'crmContactId', idField: 'id', account: true },
   { model: 'portalAccount', field: 'crmCustomerId', idField: 'id', account: false },
   { model: 'portalPhoto', field: 'crmCustomerId', idField: 'id', account: false },
   { model: 'portalFile', field: 'crmCustomerId', idField: 'id', account: false },
@@ -147,6 +148,7 @@ export function labelOf(model: SoftModel | HardModel | ListDoc, row: any): strin
     case 'pendingTouch': return 'Pending call'
     case 'crmUser': return `${nameOf(row)} (${row?.email ?? ''})`
     case 'scheduleRainDay': return `Rain day ${row?.originalDate ?? ''}`
+    case 'customerPossibleMatch': return 'Possible match'
     case 'pipeline.leads': case 'pipeline.archivedLeads': return `Card: ${nameOf(row) || 'no name'}${row?.stage ? ` (${row.stage})` : ''}`
     case 'business.invoices': return `Invoice ${row?.invoiceNumber ?? ''}`.trim()
     case 'business.payments': return 'Payment'
@@ -262,6 +264,27 @@ export async function deleteRecordTx(tx: Tx, actor: Actor, type: DeletableType, 
       label = labelOf(model, row)
       ;(type === 'customer' ? roots.contactIds : type === 'quote' ? roots.quoteIds : roots.jobIds).push(id)
     }
+    const snap = await deleteRootsTx(tx, actor, roots, at)
+
+    const log = await tx.deletionLog.create({ data: {
+      accountId, entityType: type, entityId: id, entityLabel: label, snapshot: json(snap),
+      ids: idsInSnapshot(snap), deletedByUserId: actor.userId, deletedAt: at, reason: reason?.trim() || null,
+    } })
+    return { logId: log.id, label, counts: countsOf(snap) }
+  }
+}
+
+export type DeleteRoots = Roots
+
+/**
+ * Soft delete customers, quotes, jobs and cards (many at once) with everything
+ * that goes with each, inside the caller's transaction, stamped `at`. Returns
+ * the snapshot; the caller writes the one DeletionLog row (deleteRecordTx for
+ * one record, an import's undo for a whole import: lib/customerImport.ts).
+ */
+export async function deleteRootsTx(tx: Tx, actor: Actor, roots: Roots, at: Date): Promise<Snapshot> {
+  {
+    const { accountId } = actor
     const p = await plan(tx, accountId, roots)
     const snap: Snapshot = { v: 1, rows: [], hard: [], items: [], runsStopped: [] }
 
@@ -305,12 +328,7 @@ export async function deleteRecordTx(tx: Tx, actor: Actor, type: DeletableType, 
     }
 
     snap.runsStopped = await stopRuns(tx, accountId, [...p.contactIds, ...p.quoteIds, ...p.jobIds, ...p.cardIds], at)
-
-    const log = await tx.deletionLog.create({ data: {
-      accountId, entityType: type, entityId: id, entityLabel: label, snapshot: json(snap),
-      ids: idsInSnapshot(snap), deletedByUserId: actor.userId, deletedAt: at, reason: reason?.trim() || null,
-    } })
-    return { logId: log.id, label, counts: countsOf(snap) }
+    return snap
   }
 }
 
@@ -422,6 +440,9 @@ export async function restoreDeletion(actor: Actor, logId: string): Promise<Rest
     const log = await tx.deletionLog.findFirst({ where: { id: logId, accountId } })
     if (!log) throw new DeleteError(404, 'Not found in Deleted Records')
     if (log.restoredAt) throw new DeleteError(409, 'Already restored')
+    // An undone import (lib/customerImport.ts): refused when its rows were imported again since.
+    const importHooks = log.entityType === 'import' ? await import('./customerImport.js') : null
+    if (importHooks) await importHooks.beforeImportRestore(tx, accountId, log.entityId)
     const snap = log.snapshot as Snapshot
     const at = new Date(log.deletedAt)
     const skipped: RestoreResult['skipped'] = []
@@ -483,6 +504,8 @@ export async function restoreDeletion(actor: Actor, logId: string): Promise<Rest
       if (Object.keys(fields).length) await writeDoc(tx, doc, accountId, fields)
     }
 
+    if (importHooks) skipped.push(...await importHooks.afterImportRestore(tx, actor, log.entityId))
+
     if (snap.runsStopped.length) skipped.push({ what: `${snap.runsStopped.length} automation step${snap.runsStopped.length === 1 ? '' : 's'} (texts, emails)`, why: 'stopped when deleted; not sent again' })
 
     await tx.deletionLog.update({ where: { id: log.id }, data: { restoredAt: new Date(), restoredByUserId: actor.userId, restoreResult: json({ restored, skipped }) } })
@@ -495,6 +518,7 @@ const DATE_FIELDS: Record<HardModel, string[]> = {
   pendingTouch: ['startedAt'],
   crmUser: ['lastLoginAt', 'createdAt', 'updatedAt'],
   scheduleRainDay: ['flaggedAt'],
+  customerPossibleMatch: ['decidedAt', 'createdAt'],
 }
 
 /** Make a row removed outright again. true, or why not. */
@@ -514,6 +538,9 @@ async function recreate(tx: Tx, accountId: string, h: SnapHard): Promise<true | 
     Object.assign(data, { status: 'invited', mustChangePassword: true, passwordHash: null })
   } else if (h.model === 'scheduleRainDay') {
     if (await tx.scheduleRainDay.findUnique({ where: { id: h.id } })) return 'it is already there'
+  } else if (h.model === 'customerPossibleMatch') {
+    if (await tx.customerPossibleMatch.findUnique({ where: { id: h.id } })) return 'it is already there'
+    if (await tx.customerPossibleMatch.findUnique({ where: { contactId_matchId: { contactId: data.contactId, matchId: data.matchId } } })) return 'the same pair is there again'
   }
   await tx[h.model].create({ data })
   return true

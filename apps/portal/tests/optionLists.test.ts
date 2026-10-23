@@ -56,7 +56,7 @@ describe('the one-time lead source list (live words)', () => {
   })
   test('tags: the import tags are built in and hidden; Settings tags shown', () => {
     const t = optionsFromOld('customerTags', ['Residential', 'Commercial'], [{ word: 'Imported', count: 2039, recentCustomer: true }, { word: 'JobNimbus', count: 1625, recentCustomer: true }, { word: 'From schedule', count: 25, recentCustomer: true }, { word: 'Residential', count: 3, recentCustomer: true }], [], AT)
-    expect(t.options.map(o => [o.id, o.hidden, o.builtIn])).toEqual([['Residential', false, false], ['Commercial', false, false], ['Imported', true, true], ['JobNimbus', true, true], ['From schedule', true, true]])
+    expect(t.options.map(o => [o.id, o.hidden, o.builtIn])).toEqual([['Residential', false, false], ['Commercial', false, false], ['Imported', true, true], ['JobNimbus', true, true], ['From schedule', true, true], ['MyBudgetQuote import', true, true], ['MyBudgetQuote dropoff', true, true]])
   })
 })
 

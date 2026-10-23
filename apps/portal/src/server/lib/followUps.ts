@@ -21,6 +21,7 @@
  */
 
 import prisma from './prisma.js'
+import { isQuietImportCard } from './importCards.js'
 import { isFullRole } from './permissions.js'
 import {
   applyAnswer, badgeFor, cleanConfig, defaultConfig, dueStatus, floridaDay, floridaHour, isDay, keepGoing,
@@ -371,7 +372,10 @@ export async function changeNext(accountId: string, userId: string, cardId: stri
 /** Open cards in stages that need a follow up with none set, by owner. Reads only. */
 export async function firstFollowUpPreview(accountId: string) {
   const { rows, today } = await cardRows(accountId)
-  const cards = rows.filter(r => r.mustHave && r.status === 'none')
+  // A card an import put on the board gets no follow up until a person moves it (lib/importCards.ts).
+  const pipe = await prisma.pipelineState.findUnique({ where: { accountId }, select: { leads: true } })
+  const quiet = new Set((((pipe?.leads as any[]) ?? [])).filter(isQuietImportCard).map(l => l.id))
+  const cards = rows.filter(r => r.mustHave && r.status === 'none' && !quiet.has(r.cardId))
   const byOwner = new Map<string, { ownerId: string | null; name: string; count: number }>()
   for (const r of cards) {
     const k = r.ownerId ?? ''
@@ -402,7 +406,7 @@ export async function runFirstFollowUp(accountId: string): Promise<{ set: number
     let set = 0
     for (const cardId of preview.cardIds) {
       const card = leads.get(cardId)
-      if (!card || !mustHaveFollowUp(card.stage, st)) continue
+      if (!card || !mustHaveFollowUp(card.stage, st) || isQuietImportCard(card)) continue
       const row = await tx.cardFollowUp.findUnique({ where: { accountId_cardId: { accountId, cardId } } })
       const now = reconcile(row ? toState(row) : null, card, config, today, st)
       if (now?.dueOn && !now.stoppedReason) continue

@@ -116,7 +116,7 @@ try {
   // ── Customer Tags ──
   await d.page.goto(`${APP}/settings?tab=tags`)
   await d.page.waitForSelector('[data-option-list="customerTags"]', { timeout: 60000 }); await sleep(800)
-  const tagsOk = await Promise.all(['Imported', 'JobNimbus', 'From schedule'].map(async t => (await d.page.locator(`${sel(t)} [data-option-builtin]`).count()) === 1 && await d.page.locator(`${sel(t)} [data-option-hidden]`).isChecked()))
+  const tagsOk = await Promise.all(['Imported', 'JobNimbus', 'From schedule', 'MyBudgetQuote import', 'MyBudgetQuote dropoff'].map(async t => (await d.page.locator(`${sel(t)} [data-option-builtin]`).count()) === 1 && await d.page.locator(`${sel(t)} [data-option-hidden]`).isChecked()))
   check('Customer Tags: the import tags are built in and hidden from forms', tagsOk.every(Boolean))
   await shot(d.page, 'dev-customer-tags')
 

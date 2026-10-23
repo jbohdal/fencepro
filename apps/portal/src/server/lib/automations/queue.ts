@@ -30,6 +30,7 @@ import { loadOpsStages } from '../opsStages.js'
 import { describeSteps, runStep, type DryStep } from './steps.js'
 import { MAX_ATTEMPTS, RETRY_BACKOFF_MS, SAME_STAGE_WINDOW_MS, STARTER_RULES, STARTER_STAGE_RULES, ruleSchema, stepSchema, triggerSchema, conditionSchema, type Board, type Condition, type Step, type Trigger } from './types.js'
 import { sendPush } from './push.js'
+import { isQuietImportCard } from '../importCards.js'
 import { followUpMorningPush } from '../followUps.js'
 import { proposalOpenedSweep } from '../proposalViews.js'
 import { PERMIT_STATUS_LABEL, portalFor, type PermitStatus } from './permits.js'
@@ -265,10 +266,13 @@ export async function scanTimeTriggers(now = new Date()): Promise<number> {
     const enabledDay = floridaDay(rule.enabledAt ?? rule.updatedAt)
     const board = rule.board as Board
     const fire = async (entityId: string, key: string, why: string) => {
+      // A card an import put on the board starts nothing while it stays in that column (lib/importCards.ts).
+      if (board === 'sales' && quiet.has(entityId)) return
       const id = await recordEvent({ accountId: rule.accountId, type: 'time', board, entityKind: board === 'sales' ? 'card' : 'job', entityId, data: { ruleId: rule.id, why }, dedupeKey: `time:${rule.id}:${entityId}:${key}`, occurredAt: now })
       if (id) made++
     }
     const { leads } = await loadLeads(rule.accountId)
+    const quiet = new Set<string>(leads.filter(isQuietImportCard).map((l: any) => l.id))
     if (trigger.type === 'in_stage_days') {
       if (board === 'sales') {
         for (const l of leads) {

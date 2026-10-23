@@ -25,6 +25,7 @@ import CustomerPhotosTab from './CustomerPhotosTab'
 import CustomerFilesTab from './CustomerFilesTab'
 import CustomerMessagesTab from './CustomerMessagesTab'
 import TextConsent from './TextConsent'
+import ImportHistoryCard from './ImportHistoryCard'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import type { SavedQuote } from './QuotesPage'
 import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
@@ -1081,6 +1082,7 @@ function CustomerDetail({
                 <p className="text-sm text-gray-600 whitespace-pre-wrap">{customer.notes}</p>
               </div>
             )}
+            <ImportHistoryCard customerId={customer.id} />
           </div>
         )}
 
@@ -1380,7 +1382,9 @@ export default function CustomersPage({ onNewQuote }: {
       `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
       (c.phone || '').includes(q) ||
       (c.email || '').toLowerCase().includes(q) ||
-      (c.serviceAddress || '').toLowerCase().includes(q)
+      (c.serviceAddress || '').toLowerCase().includes(q) ||
+      // Tags too (their id and their name), so "MyBudgetQuote dropoff" finds those customers.
+      (q.length > 2 && (c.tags || []).some(t => t.toLowerCase().includes(q) || tagLabel(t).toLowerCase().includes(q)))
     )
   })
 

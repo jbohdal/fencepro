@@ -183,6 +183,18 @@ export async function listContactNotes(contactId: string): Promise<ShownNote[] |
 }
 
 /** Changes to this customer's notes still on the way (for the customer's status). */
+/** One row of an imported file on this customer (server lib/customerImport.ts): the old system's fields, as the file had them. */
+export interface ImportHistoryRecord {
+  id: string; source: string; sourceKey: string; matched: boolean; matchedBy: string | null; cardId: string | null
+  data: Record<string, unknown>; createdAt: string
+}
+
+/** What imports brought for this customer; null when it could not be loaded. */
+export async function listImportHistory(contactId: string): Promise<ImportHistoryRecord[] | null> {
+  const r = await call<ImportHistoryRecord[]>('GET', `/${contactId}/import-history`)
+  return r.ok ? r.data || [] : null
+}
+
 export const noteChangeFor = (contactId: string) => (op: { kind: string; payload: any }) => op.kind.startsWith('note.') && op.payload?.contactId === contactId
 
 /** Add a note: on screen and kept on this phone now, on the server as soon as it can be. */

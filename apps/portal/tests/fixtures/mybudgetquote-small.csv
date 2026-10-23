@@ -1,0 +1,15 @@
+pipeline_stage,order_in_stage,latest_date,first_name,last_name,phone,email,address,city,state,zip,latitude,longitude,first_request_date,request_count,low_estimate,high_estimate,estimate_date,old_tool_status,furthest_step,finished_quote,lead_source,source_other,best_time_to_contact,customer_notes,has_attachments,old_tool_ids,flags
+First Contact,1,2026-10-19 10:30,Dana,Dropper,(352) 555 0170,dana.dropper@example.test,10 Oak Lane,Ocala,FL,34470,29.1,-82.1,2026-10-19,1,,,,Dropoff,Draw,no (dropped off),Facebook,,Anytime,,no,T9001,
+First Contact,2,2026-10-17 17:34,Rita,Received,(352) 555 0171,rita.received@example.test,11 Oak Lane,Ocala,FL,34470,29.1,-82.1,2026-10-17,2,9493,10383,2026-10-19,Received,Design,yes,"Search Engine (Google, Bing)",,Contact via Email,"Wants the gates moved up front, ""asap"".",yes,T9002;T9003,
+First Contact,3,2026-10-10 09:17,Anthony,Gonzalez,(413) 555 3060,nwo.test@example.test,1 Walnut Drive,Ocala,FL,34480,29.11,-82.06,2026-10-10,1,9986,10876,2026-10-10,Dropoff,Design,no (dropped off),Facebook,,Mornings (9:00 am - Noon),,no,T9004,
+First Contact,4,2026-10-10 09:07,Ant,G,(941) 555 1111,nwo.test@example.test,1 Walnut Drive,Ocala,FL,34480,29.11,-82.06,2026-10-10,1,11442,12372,2026-10-10,Received,Design,yes,Facebook,,Anytime,,no,T9005,
+No Answer,1,2025-10-21 15:17,Patricia,Other,(352) 555 0101,patricia.other@example.test,5 Elm St,Ocala,FL,34471,,,2025-10-21,1,5000,5500,2025-10-21,Received,Quote,yes,Friend or Family,,,,no,T9101,
+No Answer,2,2025-09-01 08:00,Eve,Email,(352) 555 0199,EVE@Example.TEST,6 Elm St,Ocala,FL,34471,,,2025-09-01,1,,,,Contacted,Quote,yes,Other,Billboard on Pine,,,no,T9102,
+No Answer,3,2025-08-15 12:00,Sam,Sold,(352) 555 0103,,7 Elm St,Ocala,FL,34471,,,2025-08-15,1,,,,Sold,Quote,yes,TV Ad,,,,no,T9103,old tool status Sold
+No Answer,4,2025-07-01 12:00,Nora,Namesake,(352) 555 0177,nora.new@example.test,8 Elm St,Ocala,FL,34471,,,2025-07-01,1,,,,Received,Quote,yes,Home Show,,,,no,T9104,
+No Answer,5,2025-06-01 12:00,Two,Matches,(352) 555 0105,two.b@example.test,9 Elm St,Ocala,FL,34471,,,2025-06-01,1,,,,Received,Quote,yes,Other,,,,no,T9105,
+No Answer,6,2025-05-01 12:00,Larry,Lost,(352) 555 0106,,10 Elm St,Ocala,FL,34471,,,2025-05-01,1,,,,Appointment,Quote,yes,Other,,,,no,T9106,old tool status Appointment
+No Answer,7,2025-04-01 12:00,Cleared,Contact,,,11 Elm St,Ocala,,34471,,,2025-04-01,1,,,,Contacted,Contact Info,yes,Other,,,,no,T9107,staff phone/email was entered;contact cleared
+No Answer,8,2024-03-01 12:00,Sally,Unmatched,(352) 555 0178,sally.sold@example.test,12 Elm St,Ocala,FL,34471,,,2024-03-01,1,8000,9000,2024-03-01,Sold,Quote,yes,Mail Ad,,,,no,T9108,old tool status Sold
+No Answer,9,2023-02-01 12:00,Olive,Dropoff,(352) 555 0179,olive.drop@example.test,13 Elm St,Ocala,FL,34471,,,2023-02-01,1,,,,Dropoff,Location Search,no (dropped off),Other,,,,no,T9109,2 different addresses on this phone/email;latest used
+No Answer,10,2022-01-01 12:00,Rob,Received,(352) 555 0180,rob.received@example.test,14 Elm St,Ocala,FL,34471,,,2022-01-01,1,4000,4500,2022-01-01,Received,Quote,yes,Banner Ad,,,,no,T9110,
