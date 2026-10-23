@@ -1,17 +1,15 @@
 /**
  * Billing Store — Invoices, Payments, Statements
  *
- * All amounts in cents (integer). localStorage-backed.
+ * All amounts in cents (integer). Kept on the server (/api/business-state).
  */
 
 import { fireInvoiceCreated, firePaymentReceived } from './automationTrigger'
 import { getBusinessField, setBusinessField } from './businessStateStore'
 
 // Invoices, payments, statements, and pull sheets all flow through the
-// /api/business-state singleton. Customer notes are dead code in this file
-// (Phase 1 migrated CustomerNotesTab to /api/crm-contacts/:id/notes); the
-// helpers below remain as no-ops on a localStorage key nothing reads.
-const NOTE_KEY = 'fencepro_customer_notes'
+// /api/business-state singleton. Customer notes are on the server
+// (/api/crm-contacts/:id/notes).
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -171,58 +169,6 @@ export function recordPayment(data: Omit<Payment, 'id' | 'createdAt'>): Payment 
     },
   })
   return pay
-}
-
-// ── Customer Notes ──
-
-export interface CustomerNote {
-  id: string
-  customerId: string
-  body: string
-  isPinned: boolean
-  visibility: 'internal' | 'all_staff'
-  createdBy: string
-  createdAt: string
-  updatedAt: string
-  deletedAt?: string
-}
-
-export function getNotesForCustomer(customerId: string): CustomerNote[] {
-  try {
-    const r = localStorage.getItem(NOTE_KEY)
-    const all: CustomerNote[] = r ? JSON.parse(r) : []
-    return all.filter(n => n.customerId === customerId && !n.deletedAt)
-      .sort((a, b) => {
-        if (a.isPinned && !b.isPinned) return -1
-        if (!a.isPinned && b.isPinned) return 1
-        return b.createdAt.localeCompare(a.createdAt)
-      })
-  } catch { return [] }
-}
-
-function saveNotes(notes: CustomerNote[]) { localStorage.setItem(NOTE_KEY, JSON.stringify(notes)) }
-function getAllNotes(): CustomerNote[] {
-  try { const r = localStorage.getItem(NOTE_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
-}
-
-export function createNote(data: Omit<CustomerNote, 'id' | 'createdAt' | 'updatedAt'>): CustomerNote {
-  const note: CustomerNote = { ...data, id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-  const all = getAllNotes()
-  all.push(note)
-  saveNotes(all)
-  return note
-}
-
-export function updateNote(id: string, updates: Partial<CustomerNote>): void {
-  const all = getAllNotes()
-  const idx = all.findIndex(n => n.id === id)
-  if (idx >= 0) { all[idx] = { ...all[idx], ...updates, updatedAt: new Date().toISOString() }; saveNotes(all) }
-}
-
-export function deleteNote(id: string): void {
-  const all = getAllNotes()
-  const idx = all.findIndex(n => n.id === id)
-  if (idx >= 0) { all[idx].deletedAt = new Date().toISOString(); saveNotes(all) }
 }
 
 // ── Customer Pull Sheets ──

@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { fetchWithAuth, getAccessToken } from './crmAuth'
+import { fetchWithAuth, isSignedIn } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { toast } from './toast'
 import { refreshAfterRestore } from './recordArchive'
@@ -79,7 +79,7 @@ export default function DeletedRecords() {
 
   async function load(t = type) {
     setError('')
-    const r = await fetchWithAuth(`${API}/api/deleted-records${t ? `?type=${encodeURIComponent(t)}` : ''}`, { headers: { Authorization: `Bearer ${getAccessToken()}` } }).catch(() => null)
+    const r = await fetchWithAuth(`${API}/api/deleted-records${t ? `?type=${encodeURIComponent(t)}` : ''}`, {}).catch(() => null)
     const j = r ? await r.json().catch(() => null) : null
     if (r?.ok && j?.success) setRows(j.data)
     else { setRows([]); setError(j?.error || 'Could not load Deleted Records. Check the connection.') }
@@ -88,7 +88,7 @@ export default function DeletedRecords() {
 
   async function restore(row: Row) {
     setBusy(row.id)
-    const r = await fetchWithAuth(`${API}/api/deleted-records/${row.id}/restore`, { method: 'POST', headers: { Authorization: `Bearer ${getAccessToken()}` } }).catch(() => null)
+    const r = await fetchWithAuth(`${API}/api/deleted-records/${row.id}/restore`, { method: 'POST' }).catch(() => null)
     const j = r ? await r.json().catch(() => null) : null
     setBusy(null)
     if (!r?.ok || !j?.success) { toast.error('Not restored', j?.error || 'Check the connection and try again.'); return }

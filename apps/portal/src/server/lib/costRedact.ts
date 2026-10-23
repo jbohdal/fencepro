@@ -97,9 +97,26 @@ export function hidesCosts(role: string | null | undefined): boolean {
   return !!role && CRM_ROLES.has(role) && !can(role, 'costs.view')
 }
 
-/** The role on a request's staff login, or null. */
+/**
+ * The role on a request's staff login, or null. Signed in by the ezbiz_staff
+ * cookie, that is the role the cookie check read from the database
+ * (lib/staffSession.ts sets req.staffCookie, which verifyStaffBearer prefers);
+ * otherwise the old Bearer token's.
+ */
 export function staffRoleOf(req: any): string | null {
   return verifyStaffBearer(req)?.role ?? null
+}
+
+/**
+ * Mounted on /api in index.ts, after the cookie check (staffCookieAuth) and
+ * before every route: a Salesman's or Installer's answers go out without a
+ * cost, whichever route answers.
+ */
+export function hideCostsFromLimitedLogins(req: any, res: any, next: any): void {
+  if (!hidesCosts(staffRoleOf(req))) { next(); return }
+  const json = res.json.bind(res)
+  res.json = (body: any) => json(redactCosts(body))
+  next()
 }
 
 // ── Writing ─────────────────────────────────────────────────────────────────

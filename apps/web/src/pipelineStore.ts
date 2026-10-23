@@ -15,11 +15,11 @@
  * (pipelineStagesStore). The stages the server still keeps on the old board
  * document are never read or sent.
  *
- * UI prefs like collapsed stages, view mode, sort and analytics-open stay in
- * localStorage in SalesPipelineBoard: per browser preferences, not company data.
+ * UI prefs like collapsed stages, view mode, sort and analytics-open stay on
+ * this device (browserStorage.ts readPref): per device choices, not company data.
  */
 
-import { getAccessToken } from './crmAuth'
+import { isSignedIn } from './crmAuth'
 import { applyPipelineDelta, diffPipeline, type PipelineDelta } from './pipelineDelta'
 import { registerKind, enqueue, pendingFor, allOps, type Op } from './outbox'
 import { sendJson } from './syncHttp'
@@ -65,7 +65,7 @@ export function initPipeline(): Promise<void> {
   if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    if (!getAccessToken()) return
+    if (!isSignedIn()) return
     const r = await sendJson('GET', '/api/pipeline')
     if (!r.result.ok || !r.json?.data) return
     version = typeof r.json.data.version === 'number' ? r.json.data.version : 0

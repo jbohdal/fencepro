@@ -1104,6 +1104,16 @@ model CrmUserSession {
   createdAt DateTime  @default(now())
   expiresAt DateTime
   revokedAt DateTime?
+  /// How this sign in is carried: null = the old app token (refresh token hash in tokenHash),
+  /// 'cookie' = the ezbiz_staff cookie (SHA-256 of the cookie value in tokenHash, lib/staffSession.ts),
+  /// 'readonly' = the Mac's 3 hour read only checker (scripts/readonly-session.ts).
+  kind       String?
+  /// Last request made with it (cookie sessions end 30 days after this, and never later than expiresAt).
+  lastUsedAt DateTime?
+  /// Every request that is not a read is refused (the read only checker).
+  readOnly   Boolean   @default(false)
+  /// Shown in Settings > Team ("Read only checker on the Mac").
+  label      String?
 
   user CrmUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 

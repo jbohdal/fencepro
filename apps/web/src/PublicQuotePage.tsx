@@ -2,8 +2,8 @@
  * Public customer-facing quote page at /#/quote/:token.
  *
  * Renders the quote inside the selected template via QuoteTemplateRenderer.
- * This page runs in the *customer's* browser, where there is no staff JWT
- * and no shared localStorage with the CRM. All data comes from the public
+ * This page runs in the *customer's* browser, where there is no staff sign
+ * in and nothing in the browser's storage. All data comes from the public
  * share endpoints:
  *   GET  /api/saved-quotes/share/:token         — fetch the quote
  *   POST /api/saved-quotes/share/:token/accept  — record acceptance
@@ -18,14 +18,10 @@ import {
   acceptPublicQuoteByToken,
   type SavedQuoteRecord,
 } from './savedQuotesApi'
+import { getConfig } from './configStore'
 
-function loadCompanyInfo() {
-  try {
-    const r = localStorage.getItem('fencepro_config')
-    if (!r) return { name: 'Getter Done Fence', phone: '', email: '' }
-    const cfg = JSON.parse(r)
-    return cfg.company || { name: 'Getter Done Fence' }
-  } catch { return { name: 'Getter Done Fence' } }
+function loadCompanyInfo(): any {
+  return getConfig().company || { name: 'Getter Done Fence', phone: '', email: '' }
 }
 
 function recordToSavedQuote(r: SavedQuoteRecord): SavedQuote & QuotePresentation {

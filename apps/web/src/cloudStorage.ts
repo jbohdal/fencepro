@@ -17,12 +17,12 @@
  *   - every key is version checked: if another tab or device saved it first,
  *     this tab's change is put on top of the newest value and saved again
  *
- * Browser preferences (which view is open, collapsed columns) stay in real
- * localStorage on purpose: they are per person per device.
+ * Board choices (which view is open, collapsed columns) stay on the device
+ * on purpose (browserStorage.ts): they are per device, not company data.
  */
 
-import { fetchWithAuth, getAccessToken } from './crmAuth'
-import { createVersionedFlusher, versionedSave, legacyMigrationEnabled, type VersionedFlusher } from './syncGuard'
+import { fetchWithAuth, isSignedIn } from './crmAuth'
+import { createVersionedFlusher, versionedSave, type VersionedFlusher } from './syncGuard'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
@@ -94,7 +94,7 @@ export function initCloudStorage(): Promise<void> {
   if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    if (!getAccessToken()) return
+    if (!isSignedIn()) return
     let data: Record<string, unknown> | null = null
     let versions: Record<string, number> = {}
     try {
@@ -113,20 +113,6 @@ export function initCloudStorage(): Promise<void> {
     for (const key of CLOUD_KEYS) flusherFor(key).loaded(cache[key] ?? null, versions[key] ?? 0)
     hydrated = true
 
-    // Optional, opt in: move this browser's old copies up, but only for keys
-    // the server does not have yet. Nothing on the server is overwritten.
-    if (legacyMigrationEnabled()) {
-      for (const key of CLOUD_KEYS) {
-        if (cache[key] !== undefined) continue
-        try {
-          const raw = localStorage.getItem(key)
-          if (!raw) continue
-          const parsed = JSON.parse(raw)
-          const r = await putKey(key, parsed, 0)
-          if (r.status === 'saved') { cache[key] = parsed; flusherFor(key).loaded(parsed, r.version) }
-        } catch { /* skip this key */ }
-      }
-    }
     emit('*')
   })().finally(() => { if (!hydrated) initPromise = null })
   return initPromise

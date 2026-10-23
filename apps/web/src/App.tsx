@@ -3,6 +3,9 @@ import { initOptionLists, isOptionListsLoaded } from './optionListsStore'
 import { startColorReadyWatch } from './colorReady'
 import { styleLabel } from './fenceCatalog'
 import { startOutbox, resumeAfterSignIn } from './outbox'
+import { unsentCount } from './unsent'
+import { uploadAll } from './mediaStore'
+import { uploadWaitingClips } from './voiceClient'
 import { startLiveRefresh } from './liveRefresh'
 import './liveOverhead'
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment, lazy, Suspense } from 'react'
@@ -45,7 +48,10 @@ const InventoryPage = lazy(() => import('./InventoryPage'))
 import NotificationBell from './NotificationBell'
 import MessagesInbox from './MessagesInbox'
 import PublicQuotePage from './PublicQuotePage'
-import { isAuthenticated, checkSession, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
+import { checkSession, logout as crmLogout, canAccess, setSessionExpiredHandler, type CrmUser } from './crmAuth'
+import { getBusinessField } from './businessStateStore'
+import { getConfig } from './configStore'
+import { clearOldBrowserData } from './browserStorage'
 import { initCustomers, getCustomers, isCustomersHydrated } from './customerStore'
 import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated } from './quoteStore'
 import { initJobs, isJobsHydrated, getJobs, getArchivedJobs } from './jobStore'
@@ -192,11 +198,10 @@ function loadQuotes(): SavedQuote[] {
   return getQuotes()
 }
 
-function loadBudget() {
-  try {
-    const raw = localStorage.getItem('fencepro_budget')
-    return raw ? JSON.parse(raw) : null
-  } catch { return null }
+/** The budget (Budget page), from the server's business record; null until one is saved. */
+function loadBudget(): any {
+  const b = getBusinessField('budget') as any
+  return b && typeof b === 'object' && Object.keys(b).length ? b : null
 }
 
 /** Cards still in play: not in a finished stage (Settings > Pipeline Stages). */
@@ -205,14 +210,7 @@ function loadPipelineCount(): number {
 }
 
 function loadCompanyName(): string {
-  try {
-    const raw = localStorage.getItem('fencepro_config')
-    if (raw) {
-      const cfg = JSON.parse(raw)
-      if (cfg.company?.name) return cfg.company.name
-    }
-  } catch { /* fall through */ }
-  return 'Getter Done Fence'
+  return getConfig().company?.name || 'Getter Done Fence'
 }
 
 /** Shown for the moment a page's code is still on its way (it loads on first use). */
@@ -232,16 +230,9 @@ function greeting(): string {
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
 }
 
-function loadUserProfile(): { name: string; role: UserRole } {
-  try {
-    const raw = localStorage.getItem('fencepro_user')
-    if (raw) return JSON.parse(raw)
-  } catch { /* fall through */ }
-  return { name: 'Jonathan', role: 'owner' }
-}
-
-function saveUserProfile(profile: { name: string; role: UserRole }) {
-  localStorage.setItem('fencepro_user', JSON.stringify(profile))
+/** The signed in person's name and menu role, from the sign in (memory only). */
+function profileOf(user: CrmUser): { name: string; role: UserRole } {
+  return { name: `${user.firstName} ${user.lastName}`.trim() || user.email, role: ROLE_MAP[user.role] || 'salesman' }
 }
 
 /* ───────── command search ───────── */
@@ -300,6 +291,9 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     // What this phone still has waiting goes back on screen as each module loads, then is sent.
     await startOutbox(user.id)
     resumeAfterSignIn()
+    // Photos, video and voice clips this person left waiting on this phone go now too.
+    void uploadAll().catch(() => {})
+    void uploadWaitingClips().catch(() => {})
     const failed = await hydrateStores()
     setNotLoaded(failed)
     setLoadingData(false)
@@ -316,7 +310,6 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
 
   function startSession(user: CrmUser) {
     setSignedInRole(user.role)
-    saveUserProfile({ name: `${user.firstName} ${user.lastName}`, role: ROLE_MAP[user.role] || 'salesman' })
     setLoadingData(true)
     setCrmUser(user)
     void loadData(user)
@@ -361,13 +354,12 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
   useEffect(() => {
     setSessionExpiredHandler(() => {
       setCrmUser(null)
-      toast.warning('Your session has expired', 'Please log in again — your local work has been preserved.')
+      toast.warning('Your sign in has ended', 'Please sign in again. Anything waiting on this phone is kept and is sent once you sign in.')
     })
-    if (isAuthenticated()) {
-      void checkAgain()
-    } else {
-      setAuthChecked(true)
-    }
+    // Business data an older version left in this browser goes, unread and not uploaded: the server is the record (browserStorage.ts).
+    clearOldBrowserData()
+    // Who is signed in is asked of the server every time (the cookie): nothing about it is kept on the phone.
+    void checkAgain()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -375,7 +367,11 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     startSession(user)
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    // Changes, photos or voice clips not on the server yet: ask first. They stay
+    // (encrypted) on this phone and go the next time the same person signs in here.
+    const waiting = await unsentCount(crmUser?.id ?? null).catch(() => 0)
+    if (waiting > 0 && !window.confirm(`${waiting} ${waiting === 1 ? 'thing on this phone has' : 'things on this phone have'} not reached the office yet. They stay on this phone and are sent the next time you sign in here. Sign out anyway?`)) return
     // Reload after signing out so no data from this session stays in memory
     // for whoever logs in next on this browser.
     crmLogout().finally(() => { window.location.reload() })
@@ -390,7 +386,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6" data-no-signal-screen>
         <div className="max-w-sm text-center space-y-4">
           <h1 className="text-xl font-bold text-gray-900">No signal</h1>
-          <p className="text-base text-gray-700">EZ Biz cannot reach the office server right now. You are still signed in, and anything saved on this phone is kept and will be sent when there is signal.</p>
+          <p className="text-base text-gray-700">EZ Biz cannot reach the office server right now. Anything saved on this phone is kept and will be sent when there is signal.</p>
           <button type="button" className="btn btn-primary w-full min-h-[48px]" onClick={() => { void checkAgain() }}>Try again</button>
           <p className="text-sm text-gray-500">This page tries again by itself every 15 seconds.</p>
         </div>
@@ -533,7 +529,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   }, [])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [userProfile, setUserProfile]   = useState(loadUserProfile)
+  const [userProfile, setUserProfile]   = useState(() => profileOf(crmUser))
   const [showMapQuote, setShowMapQuote] = useState(false)
   const [showSitePlan, setShowSitePlan] = useState(false)
   const [showSmartSchedule, setShowSmartSchedule] = useState(false)
@@ -566,9 +562,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   }, [])
 
   function handleRoleChange(newRole: UserRole) {
-    const updated = { ...userProfile, role: newRole }
-    setUserProfile(updated)
-    saveUserProfile(updated)
+    setUserProfile({ ...userProfile, role: newRole })
     // If current page isn't visible for the new role, go to Dashboard
     const visible = ALL_NAV_ITEMS.find(i => i.name === active)
     if (visible && !visible.roles.includes(newRole)) {
@@ -899,7 +893,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           <button onClick={onChangePassword} className="mt-2 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
             Change password
           </button>
-          <button onClick={onLogout} className="mt-1 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
+          <button onClick={onLogout} data-sign-out className="mt-1 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
             Sign out
           </button>
         </div>
@@ -994,7 +988,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               <button onClick={onChangePassword} className="mt-2 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
                 Change password
               </button>
-              <button onClick={onLogout} className="mt-1 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
+              <button onClick={onLogout} data-sign-out className="mt-1 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
                 Sign out
               </button>
             </>

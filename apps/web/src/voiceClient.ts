@@ -7,12 +7,15 @@
  *            Each clip waits on the phone (IndexedDB outbox) until there is
  *            signal, then uploads; the Mac transcribes it with whisper.cpp.
  *
- * The outbox is the one place this app keeps data in the browser, by request:
- * a recording must survive no signal and the app being closed. It holds a
- * clip only until the upload succeeds.
+ * The clip outbox is one of the offline queues Jonathan allowed (answer 1 of
+ * the sign in plan): a recording must survive no signal and the app being
+ * closed. It is encrypted at rest (vault.ts), holds a clip only until the
+ * upload succeeds, and a clip goes only while the person who recorded it is
+ * signed in on this phone.
  */
 
-import { fetchWithAuth } from './crmAuth'
+import { fetchWithAuth, signedInUserId } from './crmAuth'
+import { sealJson, openJson, sealBytes, openBytes, vaultAvailable } from './vault'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 const API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/voice'
@@ -115,7 +118,11 @@ export async function startRecording(): Promise<{ stop: () => Promise<Blob>; mim
 
 // ── Outbox: clips wait on the phone until they upload ─────────────────────────
 
-interface OutboxClip { id: string; quoteKey: string; hint?: string; mime: string; blob: Blob; createdAt: number }
+interface OutboxClip { id: string; quoteKey: string; hint?: string; mime: string; blob: Blob; createdAt: number; owner?: string | null }
+type ClipHead = Omit<OutboxClip, 'blob'>
+/** As kept: the id in the clear; the details and the sound sealed. A clip kept before encryption has `blob` and is sealed on the next read. */
+type ClipRow = { id: string; v: 2; head: ArrayBuffer; audio: ArrayBuffer } | OutboxClip
+const sealedRow = (r: ClipRow): r is { id: string; v: 2; head: ArrayBuffer; audio: ArrayBuffer } => (r as any).v === 2
 
 function db(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -134,16 +141,42 @@ async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
   })
 }
 
+async function sealClip(c: OutboxClip): Promise<ClipRow> {
+  const { blob, ...head } = c
+  return { id: c.id, v: 2, head: await sealJson(head), audio: await sealBytes(await blob.arrayBuffer()) }
+}
+
+/** Every clip waiting (with its sound when asked). Clips kept before encryption are sealed now. */
+async function readClips(withAudio: boolean): Promise<OutboxClip[]> {
+  const rows = await tx<ClipRow[]>('readonly', s => s.getAll() as IDBRequest<ClipRow[]>).catch(() => [] as ClipRow[])
+  const out: OutboxClip[] = []
+  for (const r of rows) {
+    try {
+      if (sealedRow(r)) {
+        const head = await openJson<ClipHead>(r.head)
+        out.push({ ...head, blob: withAudio ? new Blob([await openBytes(r.audio)], { type: head.mime }) : new Blob([], { type: head.mime }) })
+      } else {
+        const sealed = await sealClip(r)
+        await tx('readwrite', s => s.put(sealed))
+        out.push(r)
+      }
+    } catch { console.warn('[voice] a waiting clip could not be opened on this phone') }
+  }
+  return out
+}
+
 export async function keepClip(quoteKey: string, blob: Blob, mime: string, hint?: string): Promise<void> {
-  const clip: OutboxClip = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, quoteKey, hint, mime, blob, createdAt: Date.now() }
-  await tx('readwrite', s => s.put(clip))
+  if (!vaultAvailable()) throw new Error('This browser cannot keep a recording safely on the phone.')
+  const clip: OutboxClip = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, quoteKey, hint, mime, blob, createdAt: Date.now(), owner: signedInUserId() }
+  const row = await sealClip(clip)
+  await tx('readwrite', s => s.put(row))
   window.dispatchEvent(new Event(OUTBOX_EVENT))
   uploadWaitingClips().catch(() => {})
 }
 
-export async function waitingClips(quoteKey?: string): Promise<Array<Omit<OutboxClip, 'blob'>>> {
-  const all = await tx<OutboxClip[]>('readonly', s => s.getAll() as IDBRequest<OutboxClip[]>).catch(() => [])
-  return all.filter(c => !quoteKey || c.quoteKey === quoteKey).map(({ blob, ...c }) => { void blob; return c })
+export async function waitingClips(quoteKey?: string, owner?: string | null): Promise<Array<Omit<OutboxClip, 'blob'>>> {
+  const all = await readClips(false)
+  return all.filter(c => (!quoteKey || c.quoteKey === quoteKey) && (!owner || !c.owner || c.owner === owner)).map(({ blob, ...c }) => { void blob; return c })
 }
 
 export const OUTBOX_EVENT = 'ezbiz:voice-outbox'
@@ -155,7 +188,10 @@ export async function uploadWaitingClips(): Promise<number> {
   uploading = true
   let sent = 0
   try {
-    const all = await tx<OutboxClip[]>('readonly', s => s.getAll() as IDBRequest<OutboxClip[]>).catch(() => [])
+    // Only while someone is signed in, and only that person's clips (and older ones with no owner).
+    const me = signedInUserId()
+    if (!me) return 0
+    const all = (await readClips(true)).filter(c => !c.owner || c.owner === me)
     for (const c of all) {
       const form = new FormData()
       form.append('quoteKey', c.quoteKey)

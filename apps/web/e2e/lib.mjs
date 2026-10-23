@@ -15,8 +15,10 @@ if ((!local(APP) || !local(API)) && process.env.E2E_ALLOW_REMOTE !== 'I understa
   console.error('Refusing to run: APP_URL and API_URL must be localhost. These tests write test data.')
   process.exit(2)
 }
-if (!EMAIL || !PASSWORD) {
-  console.error('Set E2E_EMAIL and E2E_PASSWORD to a login on the test database.')
+export const STAFF_COOKIE = process.env.E2E_STAFF_COOKIE || ''
+export const ACCESS_TOKEN = process.env.E2E_ACCESS_TOKEN || ''
+if ((!EMAIL || !PASSWORD) && !STAFF_COOKIE && !ACCESS_TOKEN) {
+  console.error('Set E2E_STAFF_COOKIE (scripts/dev-session-token.ts --cookie), E2E_ACCESS_TOKEN, or E2E_EMAIL and E2E_PASSWORD for a login on the test database.')
   process.exit(2)
 }
 
@@ -47,6 +49,34 @@ export async function login(s, password = PASSWORD) {
   await s.page.fill('input[type="email"]', EMAIL)
   await s.page.fill('input[type="password"]', password)
   await s.page.click('button[type="submit"]')
+}
+
+/**
+ * Sign a browser context in the way the app does since Oct 2026: the
+ * `ezbiz_staff` cookie (HttpOnly, Path=/api; apps/portal/src/server/lib/staffSession.ts).
+ * Nothing goes in the browser's storage. In order of preference:
+ *   - `cookie`, or E2E_STAFF_COOKIE (scripts/dev-session-token.ts --cookie): set as it is;
+ *   - `email` + `password` (or E2E_EMAIL / E2E_PASSWORD): signed in through the API;
+ *   - `token`, or E2E_ACCESS_TOKEN: the old token, swapped for a cookie by the
+ *     one time move over (until stage D switches it off).
+ * The cookie lands in the context's own cookie jar, as a sign in on the page would.
+ * Returns the signed in login (/api/crm-auth/me).
+ */
+export async function signInByCookie(ctx, { cookie = STAFF_COOKIE, email = EMAIL, password = PASSWORD, token = ACCESS_TOKEN, api = API } = {}) {
+  const headers = { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }
+  if (cookie) {
+    const u = new URL(api)
+    await ctx.addCookies([{ name: 'ezbiz_staff', value: cookie, domain: u.hostname, path: '/api', httpOnly: true, secure: false, sameSite: 'Strict' }])
+  } else if (email && password) {
+    const r = await ctx.request.post(`${api}/api/crm-auth/login`, { headers, data: { email, password, cookie: true } })
+    if (!r.ok()) throw new Error(`cookie sign in failed: ${r.status()} ${await r.text()}`)
+  } else if (token) {
+    const r = await ctx.request.post(`${api}/api/crm-auth/move-over`, { headers: { ...headers, Authorization: `Bearer ${token}` }, data: {} })
+    if (!r.ok()) throw new Error(`moving the test token over to a cookie failed: ${r.status()} ${await r.text()}`)
+  } else throw new Error('signInByCookie: no cookie, password or token')
+  const me = await ctx.request.get(`${api}/api/crm-auth/me`)
+  if (!me.ok()) throw new Error(`signed in by cookie, but /me answered ${me.status()}`)
+  return (await me.json()).data
 }
 
 /** Wait until the app has loaded every module's data and shows the dashboard. */

@@ -49,6 +49,7 @@ import { refreshNow } from './liveRefresh'
 import { businessDate } from './businessDate'
 import { useFollowUpBoard, badgeOf, needsFollowUpNow, startTouch, openedOf } from './followUpStore'
 import { openedBadgeText } from './proposalOpened'
+import { readPref, writePref } from './browserStorage'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -89,10 +90,10 @@ function ageBadgeClass(d: number): string {
 
 
 // Per device view preferences (not business data).
-const COLLAPSE_KEY = 'fencepro_pipeline_collapsed_columns'
-const VIEW_KEY = 'fencepro_pipeline_view'   // 'board' | 'list'
-const SORT_KEY = 'fencepro_pipeline_sort_v2'   // SortMode
-const ANALYTICS_KEY = 'fencepro_pipeline_analytics_open'
+const COLLAPSE_KEY = 'fencepro_pipeline_collapsed_columns' as const
+const VIEW_KEY = 'fencepro_pipeline_view' as const   // 'board' | 'list'
+const SORT_KEY = 'fencepro_pipeline_sort_v2' as const   // SortMode
+const ANALYTICS_KEY = 'fencepro_pipeline_analytics_open' as const
 
 type SortMode = 'manual' | 'newest' | 'oldest' | 'value_desc' | 'value_asc' | 'days_in_stage'
 type ViewMode = 'board' | 'list'
@@ -108,7 +109,7 @@ const collapsedByDefault = (): Record<string, boolean> => Object.fromEntries(get
 
 function readCollapsed(): Record<string, boolean> {
   try {
-    const raw = localStorage.getItem(COLLAPSE_KEY)
+    const raw = readPref(COLLAPSE_KEY)
     return raw ? JSON.parse(raw) : collapsedByDefault()
   } catch { return collapsedByDefault() }
 }
@@ -126,7 +127,7 @@ function byManualOrder(a: PipelineLead, b: PipelineLead): number {
   return ra - rb
 }
 function writeCollapsed(state: Record<string, boolean>) {
-  localStorage.setItem(COLLAPSE_KEY, JSON.stringify(state))
+  writePref(COLLAPSE_KEY, JSON.stringify(state))
 }
 
 function isMobileViewport() {
@@ -155,13 +156,13 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   const stageList = usePipelineStages()
   const stages = useMemo(() => initial.stages, [stageList])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [view, setView] = useState<ViewMode>(() => (localStorage.getItem(VIEW_KEY) as ViewMode) || 'board')
+  const [view, setView] = useState<ViewMode>(() => (readPref(VIEW_KEY) as ViewMode) || 'board')
   const [sortMode, setSortMode] = useState<SortMode>(() => {
-    const saved = localStorage.getItem(SORT_KEY) as SortMode
+    const saved = readPref(SORT_KEY) as SortMode
     return SORT_MODES.includes(saved) ? saved : 'manual'
   })
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed)
-  const [analyticsOpen, setAnalyticsOpen] = useState<boolean>(() => localStorage.getItem(ANALYTICS_KEY) === '1')
+  const [analyticsOpen, setAnalyticsOpen] = useState<boolean>(() => readPref(ANALYTICS_KEY) === '1')
 
   const [search, setSearch] = useState(restore?.search ?? '')
   const [repFilter, setRepFilter] = useState(restore?.repFilter ?? '')
@@ -242,10 +243,10 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   }, [])
 
   /* ── persist controls ── */
-  useEffect(() => { localStorage.setItem(VIEW_KEY, view) }, [view])
-  useEffect(() => { localStorage.setItem(SORT_KEY, sortMode) }, [sortMode])
+  useEffect(() => { writePref(VIEW_KEY, view) }, [view])
+  useEffect(() => { writePref(SORT_KEY, sortMode) }, [sortMode])
   useEffect(() => { writeCollapsed(collapsed) }, [collapsed])
-  useEffect(() => { localStorage.setItem(ANALYTICS_KEY, analyticsOpen ? '1' : '0') }, [analyticsOpen])
+  useEffect(() => { writePref(ANALYTICS_KEY, analyticsOpen ? '1' : '0') }, [analyticsOpen])
 
   /* ── live reload from settings/pipeline events ── */
   useEffect(() => {

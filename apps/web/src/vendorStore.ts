@@ -2,18 +2,15 @@
  * Vendor & Accounts Payable Store
  *
  * All amounts in cents (integer). Backed by /api/vendor-state (singleton
- * per CrmAccount). The legacy fencepro_vendors / fencepro_vendor_bills /
- * fencepro_vendor_payments localStorage trio is migrated on first login
- * post Phase 7 and then dropped.
+ * per CrmAccount). Nothing is kept in the browser.
  */
 
-import { getAccessToken, fetchWithAuth } from './crmAuth'
-import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
+import { isSignedIn, fetchWithAuth } from './crmAuth'
+import { createVersionedFlusher, versionedSave } from './syncGuard'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const VENDOR_EVT = 'fencepro:vendors:updated'
-const VENDOR_MIGRATION_FLAG = 'fencepro_vendors_db_migrated_v1'
 
 interface VendorStateBlob { vendors: any[]; bills: any[]; payments: any[] }
 
@@ -22,12 +19,12 @@ let vendorInitPromise: Promise<void> | null = null
 let vendorHydrated = false
 
 async function vendorCall<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T }> {
-  const token = getAccessToken()
+  const token = isSignedIn()
   if (!token) return { ok: false }
   try {
     const res = await fetchWithAuth(`${AUTH_API}/api/vendor-state`, {
       method,
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     })
     if (!res.ok) return { ok: false }
@@ -56,55 +53,22 @@ const vendorFlusher = createVersionedFlusher<VendorStateBlob>({
 })
 function vendorScheduleFlush() { vendorFlusher.schedule() }
 
-/** Optional, opt in. Old browser data only moves up if the server has no vendor data at all. */
-async function migrateLocalVendorsOnce(server: VendorStateBlob, version: number): Promise<VendorStateBlob | null> {
-  if (!legacyMigrationEnabled()) return null
-  if (localStorage.getItem(VENDOR_MIGRATION_FLAG) === '1') return null
-  if (!getAccessToken()) return null
-  if (server.vendors.length || server.bills.length || server.payments.length) {
-    localStorage.setItem(VENDOR_MIGRATION_FLAG, '1')
-    return null
-  }
-  try {
-    const blob: VendorStateBlob = {
-      vendors: JSON.parse(localStorage.getItem('fencepro_vendors') || '[]'),
-      bills: JSON.parse(localStorage.getItem('fencepro_vendor_bills') || '[]'),
-      payments: JSON.parse(localStorage.getItem('fencepro_vendor_payments') || '[]'),
-    }
-    const hasData = blob.vendors.length || blob.bills.length || blob.payments.length
-    if (!hasData) { localStorage.setItem(VENDOR_MIGRATION_FLAG, '1'); return null }
-    const r = await vendorCall<VendorStateBlob>('PUT', { ...blob, baseVersion: version })
-    if (!r.ok) return null
-    localStorage.setItem(VENDOR_MIGRATION_FLAG, '1')
-    return blob
-  } catch { return null }
-}
-
 export function initVendors(): Promise<void> {
   if (vendorHydrated) return Promise.resolve()
   if (vendorInitPromise) return vendorInitPromise
   vendorInitPromise = (async () => {
     const r = await vendorCall<VendorStateBlob>('GET')
     if (!r.ok || !r.data) return
-    let next: VendorStateBlob = {
+    const next: VendorStateBlob = {
       vendors: Array.isArray(r.data.vendors) ? r.data.vendors : [],
       bills: Array.isArray(r.data.bills) ? r.data.bills : [],
       payments: Array.isArray(r.data.payments) ? r.data.payments : [],
     }
-    let version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
-    const migrated = await migrateLocalVendorsOnce(next, version)
-    if (migrated) { next = migrated; version++ }
+    const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
     vendorCache = next
     vendorFlusher.loaded(next, version)
     vendorHydrated = true
     vendorEmit()
-    if (legacyMigrationEnabled() && localStorage.getItem(VENDOR_MIGRATION_FLAG) === '1') {
-      try {
-        localStorage.removeItem('fencepro_vendors')
-        localStorage.removeItem('fencepro_vendor_bills')
-        localStorage.removeItem('fencepro_vendor_payments')
-      } catch {}
-    }
   })().finally(() => { if (!vendorHydrated) vendorInitPromise = null })
   return vendorInitPromise
 }

@@ -3,10 +3,10 @@
  *
  * Uses the server-backed portal data plane via portalStaffApi. Customer-uploaded
  * photos appear here with a "Customer" source badge; staff uploads appear with a
- * "Staff" badge. CompanyCam sub-tab is preserved when the integration is linked.
+ * "Staff" badge.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from './toast'
 import {
   listCustomerPhotos,
@@ -35,16 +35,6 @@ function logActivity(customerId: string, action: string, meta?: any) {
   } catch {}
 }
 
-function companyCamProjectForCustomer(customerId: string): string | null {
-  try {
-    const raw = localStorage.getItem('fencepro_integrations')
-    if (!raw) return null
-    const intg = JSON.parse(raw)
-    const cc = intg?.companycam
-    if (!cc?.connected) return null
-    return cc?.customerProjects?.[customerId] || null
-  } catch { return null }
-}
 
 function sourceBadge(source: PortalPhotoRow['source']) {
   switch (source) {
@@ -66,11 +56,8 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [subTab, setSubTab] = useState<'all' | 'companycam'>('all')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragRef = useRef<HTMLDivElement>(null)
-
-  const ccProjectId = useMemo(() => companyCamProjectForCustomer(customerId), [customerId])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -150,7 +137,7 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
     a.click()
   }
 
-  const visible = subTab === 'all' ? photos : []
+  const visible = photos
 
   return (
     <div className="space-y-4">
@@ -171,52 +158,30 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
         </div>
       </div>
 
-      {ccProjectId && (
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-          {(['all', 'companycam'] as const).map(t => (
-            <button key={t} onClick={() => setSubTab(t)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition capitalize ${subTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
-              {t === 'companycam' ? 'CompanyCam' : 'All Photos'}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {subTab === 'all' && (
-        <div
-          ref={dragRef}
-          onDragOver={onDragOver}
-          onDrop={onDrop}
-          className={`border-2 border-dashed ${visible.length === 0 ? 'border-gray-300' : 'border-transparent'} rounded-2xl transition-colors hover:border-orange-300`}
-        >
-          {visible.length === 0 ? (
-            <div className="py-16 text-center">
-              <p className="text-5xl mb-2">📷</p>
-              <p className="text-gray-500 font-medium">{loading ? 'Loading photos…' : 'No photos yet'}</p>
-              <p className="text-xs text-gray-400 mt-1">Drag photos here or click Upload Photos · JPG, PNG, HEIC, WebP up to 20MB each</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-1">
-              {visible.map((p, i) => (
-                <PhotoCard key={p.id} photo={p}
-                  onOpen={() => setLightboxIdx(i)}
-                  onDelete={() => handleDelete(p)}
-                  onDownload={() => handleDownload(p)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {subTab === 'companycam' && ccProjectId && (
-        <div className="bg-gray-50 rounded-2xl border border-gray-200 p-8 text-center">
-          <p className="text-4xl mb-2">📸</p>
-          <p className="text-sm font-medium text-gray-700">CompanyCam Project Linked</p>
-          <p className="text-xs text-gray-500 mt-1 mb-3">Project ID: {ccProjectId}</p>
-          <p className="text-xs text-gray-400 max-w-md mx-auto">Live photos from CompanyCam will appear here once the integration is fully wired on the portal backend.</p>
-        </div>
-      )}
+      <div
+        ref={dragRef}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        className={`border-2 border-dashed ${visible.length === 0 ? 'border-gray-300' : 'border-transparent'} rounded-2xl transition-colors hover:border-orange-300`}
+      >
+        {visible.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-5xl mb-2">📷</p>
+            <p className="text-gray-500 font-medium">{loading ? 'Loading photos…' : 'No photos yet'}</p>
+            <p className="text-xs text-gray-400 mt-1">Drag photos here or click Upload Photos · JPG, PNG, HEIC, WebP up to 20MB each</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-1">
+            {visible.map((p, i) => (
+              <PhotoCard key={p.id} photo={p}
+                onOpen={() => setLightboxIdx(i)}
+                onDelete={() => handleDelete(p)}
+                onDownload={() => handleDownload(p)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {lightboxIdx !== null && visible[lightboxIdx] && (
         <Lightbox photos={visible} index={lightboxIdx}

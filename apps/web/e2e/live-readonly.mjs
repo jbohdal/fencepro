@@ -3,33 +3,41 @@
 //
 //   node e2e/live-readonly.mjs [cards|customers|quotes ...]   (all three by default)
 //
-// Read only for certain: every request that is not a GET is stopped in the
-// browser before it leaves, and listed (an app that writes just from being
-// opened is a finding too). The sign in is made here from the live server's
-// own secret, read in this process and never printed. Requests are paced to
-// well under the server's limit so the people using it are not slowed.
+// Read only for certain, twice over: the sign in is a read only session the
+// server itself refuses every save with (403), and every request that is not
+// a GET is also stopped in the browser before it leaves, and listed (an app
+// that writes just from being opened is a finding too). Requests are paced
+// to well under the server's limit so the people using it are not slowed.
 // Report: ~/Downloads/live-readonly-<date>.txt
+//
+// The sign in: a 3 hour read only session made on the Mac first (it shows in
+// Settings > Team with its end time; nothing here reads the live settings
+// file or its secret):
+//
+//   cd ~/ezbiz/apps/portal && npx tsx scripts/readonly-session.ts
+//
+// It works only on the Mac itself, straight to the server (localhost:4000),
+// not through the Tailscale address, so the page is opened at localhost:4000.
 
 import { chromium } from 'playwright'
 import fs from 'fs'
-import { execSync } from 'child_process'
-import { createRequire } from 'module'
 
-const LIVE = 'http://localhost:4000'
-// The page is opened the way the phones open it: by the Tailscale address.
-const PAGE = process.env.LIVE_PAGE || 'https://jonathans-mac-mini.tail40fb4a.ts.net'
+const LIVE = process.env.LIVE_URL || 'http://localhost:4000'
+const PAGE = LIVE
 const HOME = process.env.HOME
-const require = createRequire(`${HOME}/ezbiz/apps/portal/package.json`)
-const jwt = require('jsonwebtoken')
-const env = Object.fromEntries(fs.readFileSync(`${HOME}/ezbiz/apps/portal/.env`, 'utf8').split('\n').filter(l => /^[A-Z_]+=/.test(l)).map(l => { const i = l.indexOf('='); return [l.slice(0, i), l.slice(i + 1).replace(/^"|"$/g, '')] }))
-const row = execSync(`PGOPTIONS='-c default_transaction_read_only=on' /opt/homebrew/opt/postgresql@16/bin/psql -d ezbiz -AtF '|' -c "select id,email,role,\\"firstName\\",\\"lastName\\",\\"crmAccountId\\" from \\"CrmUser\\" where email='jbohdal@gdfencepro.com'"`).toString().trim().split('|')
-const TOKEN = jwt.sign({ sub: row[0], email: row[1], role: row[2], firstName: row[3], lastName: row[4], crmAccountId: row[5] }, env.JWT_SECRET, { expiresIn: '3h' })
+const SESSION_FILE = process.env.READONLY_SESSION_FILE || `${HOME}/.ezbiz-readonly-session`
+if (!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(LIVE)) { console.error('LIVE_URL must be http://localhost:<port> (the read only sign in works only on the Mac itself).'); process.exit(2) }
+if (!fs.existsSync(SESSION_FILE)) { console.error(`No read only sign in at ${SESSION_FILE}. Make one first: cd ~/ezbiz/apps/portal && npx tsx scripts/readonly-session.ts`); process.exit(2) }
+const COOKIE = fs.readFileSync(SESSION_FILE, 'utf8').trim()
+const me = await fetch(LIVE + '/api/crm-auth/me', { headers: { Cookie: `ezbiz_staff=${COOKIE}` } })
+if (!me.ok) { console.error(`The read only sign in did not work (${me.status}): it ends after 3 hours, or was ended in Settings > Team. Make a new one.`); process.exit(2) }
+if (!(await me.json()).data?.readOnly) { console.error('That sign in is not a read only one. Refusing.'); process.exit(2) }
 
 const WHAT = process.argv.slice(2).length ? process.argv.slice(2) : ['cards', 'customers', 'quotes', 'jobs']
 const WORKERS = 3
 const MAX_PER_MIN = 280
 const sleep = ms => new Promise(r => setTimeout(r, ms))
-const get = async p => (await (await fetch(LIVE + p, { headers: { Authorization: `Bearer ${TOKEN}` } })).json()).data
+const get = async p => (await (await fetch(LIVE + p, { headers: { Cookie: `ezbiz_staff=${COOKIE}` } })).json()).data
 
 // Pace: requests seen in the last minute, across every worker.
 const stamps = []
@@ -47,7 +55,8 @@ const problems = []
 
 async function worker(browser, items, label) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
-  await ctx.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'readonly') }, TOKEN)
+  const u = new URL(LIVE)
+  await ctx.addCookies([{ name: 'ezbiz_staff', value: COOKIE, domain: u.hostname, path: '/api', httpOnly: true, secure: false, sameSite: 'Strict' }])
   await ctx.route('**/*', route => {
     const req = route.request()
     if (!req.url().startsWith(PAGE)) return route.continue()

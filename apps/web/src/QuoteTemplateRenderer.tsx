@@ -15,19 +15,15 @@ import { useState } from 'react'
 import { getContractSections } from './contractStore'
 import type { SavedQuote } from './QuotesPage'
 import { getTemplate, type QuoteTemplate, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
+import { getConfig } from './configStore'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const fmt2 = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
-function readCompany() {
-  try {
-    const r = localStorage.getItem('fencepro_config')
-    if (!r) return { name: 'Getter Done Fence', phone: '', email: '', address: '' }
-    const cfg = JSON.parse(r)
-    return cfg.company || { name: 'Getter Done Fence' }
-  } catch { return { name: 'Getter Done Fence' } }
+function readCompany(): any {
+  return getConfig().company || { name: 'Getter Done Fence', phone: '', email: '', address: '' }
 }
 
 function readContract() {

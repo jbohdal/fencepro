@@ -19,6 +19,7 @@ import {
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
 import { loadFinanceLabor } from './takeoffStore'
+import { getConfig } from './configStore'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -563,13 +564,7 @@ function exportPlCsv(pl: PlStatement) {
 
 function exportPlPdf(pl: PlStatement) {
   // Lightweight PDF: print-friendly HTML opened in new window → user prints to PDF.
-  const company = (() => {
-    try {
-      const raw = localStorage.getItem('fencepro_config')
-      if (raw) { const c = JSON.parse(raw); return c.company?.name || 'Getter Done Fence' }
-    } catch {}
-    return 'Getter Done Fence'
-  })()
+  const company = getConfig().company?.name || 'Getter Done Fence'
 
   const html = `
 <!doctype html>

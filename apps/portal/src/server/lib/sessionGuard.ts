@@ -29,6 +29,10 @@
  *   - the sync key (X-API-Key): not a sign in; every save made with it is
  *     written to the log with the device and address.
  *
+ * Signed in by the ezbiz_staff cookie (lib/staffSession.ts): checked there,
+ * before this runs, on every request; this lets it through. With the stage D
+ * switch on (STAFF_COOKIE_ONLY=1) a staff Bearer token is refused here.
+ *
  * Dev only: on the practice database (ezbiz_dev, never in production) a staff
  * token without `sid` is still let through, so test tokens made for the
  * browser tests keep working. A token that names a session is checked the
@@ -40,6 +44,7 @@ import prisma from './prisma.js'
 import { verifyStaffBearer, syncKeyMatches, type StaffIdentity } from './secrets.js'
 import { databaseNameOf } from './liveGuard.js'
 import { noteStaffDevice } from './staffDevices.js'
+import { cookieOnly } from './staffSession.js'
 
 export const DEV_DATABASE_NAME = 'ezbiz_dev'
 
@@ -54,7 +59,7 @@ export function sidlessAllowed(): boolean {
   return process.env.NODE_ENV !== 'production' && databaseNameOf(process.env.DATABASE_URL) === DEV_DATABASE_NAME
 }
 
-export type SessionRefusal = 'NO_SESSION_ID' | 'SESSION_ENDED'
+export type SessionRefusal = 'NO_SESSION_ID' | 'SESSION_ENDED' | 'BEARER_RETIRED'
 
 const READ_CACHE_MS = 15_000
 const okCache = new Map<string, number>()   // `${sid}:${sub}` → good until
@@ -82,7 +87,7 @@ export async function sessionRefusal(payload: Pick<StaffIdentity, 'sub'> & { sid
 /** Sign in steps that must work without (or with an old) access token. */
 const OPEN_PATHS = new Set([
   '/crm-auth/login', '/crm-auth/refresh', '/crm-auth/logout', '/crm-auth/accept-invite',
-  '/crm-auth/forgot-password', '/crm-auth/reset-password', '/health', '/health/storage',
+  '/crm-auth/forgot-password', '/crm-auth/reset-password', '/crm-auth/move-over', '/health', '/health/storage',
 ])
 
 const isRead = (method: string) => method === 'GET' || method === 'HEAD'
@@ -90,7 +95,14 @@ const isRead = (method: string) => method === 'GET' || method === 'HEAD'
 /** Mounted on /api before every route (index.ts). */
 export function requireLiveSession(req: Request, res: Response, next: NextFunction): void {
   if (req.method === 'OPTIONS' || OPEN_PATHS.has(req.path.replace(/\/+$/, ''))) { next(); return }
+  // Signed in by the ezbiz_staff cookie: its session was looked up just now (lib/staffSession.ts).
+  if (req.staffCookie) { (req as any).staffSessionId = req.staffCookie.sessionId; next(); return }
   const payload = verifyStaffBearer(req) as (StaffIdentity & { sid?: unknown }) | null
+  // Stage D (STAFF_COOKIE_ONLY=1): the old Bearer sign in is refused; the app signs in again by cookie.
+  if (payload && cookieOnly()) {
+    console.warn(`[session-refused] ${req.method} ${req.originalUrl.split('?')[0]} BEARER_RETIRED user=${payload.email ?? payload.sub} from ${clientIp(req)}`)
+    res.status(401).json({ success: false, code: 'BEARER_RETIRED', error: 'Please sign in again' }); return
+  }
   if (!payload) {
     // Not a staff token (none, a customer's, or one that does not verify: the route answers that).
     if (!isRead(req.method) && !req.headers.authorization && syncKeyMatches(req.headers['x-api-key'])) {

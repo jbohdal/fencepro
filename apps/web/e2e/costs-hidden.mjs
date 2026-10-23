@@ -74,7 +74,7 @@ async function invite(role, last) {
   made.users.push(email)
   const password = `Ch-${crypto.randomBytes(9).toString('base64url')}`
   const acc = await call('', 'POST', '/api/crm-auth/accept-invite', { token: link.searchParams.get('token'), email, password })
-  return { email, token: acc.json.data?.accessToken, refresh: acc.json.data?.refreshToken }
+  return { email, password, token: acc.json.data?.accessToken, refresh: acc.json.data?.refreshToken }
 }
 
 const browser = await chromium.launch()
@@ -90,9 +90,19 @@ function recorder(page) {
   })
   return bodies
 }
-async function signedIn(token, viewport) {
+// Signed in the way the app does now: the ezbiz_staff cookie (the salesman and
+// installer with their password, the owner's test token moved over once), and
+// nothing in the browser's storage. The cost hiding must read the role from
+// the cookie's session (lib/staffSession.ts).
+async function signedIn(login, viewport) {
   const ctx = await browser.newContext({ viewport })
-  await ctx.addInitScript(([t, r]) => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', r || 'e2e') }, [token.token, token.refresh])
+  const headers = { 'X-Staff-Request': '1' }
+  const r = login.password
+    ? await ctx.request.post(`${API}/api/crm-auth/login`, { headers, data: { email: login.email, password: login.password, cookie: true } })
+    : await ctx.request.post(`${API}/api/crm-auth/move-over`, { headers: { ...headers, Authorization: `Bearer ${login.token}` }, data: {} })
+  if (!r.ok()) throw new Error(`cookie sign in failed: ${r.status()} ${await r.text()}`)
+  const jar = await ctx.cookies(`${API}/api/`)
+  check(`${login.email ?? 'owner'}: signed in by an HttpOnly cookie`, jar.some(c => c.name === 'ezbiz_staff' && c.httpOnly && c.sameSite === 'Strict' && c.path === '/api'))
   const page = await ctx.newPage()
   page.on('pageerror', e => errors.push(String(e).slice(0, 200)))
   page.on('dialog', d => d.accept().catch(() => {}))

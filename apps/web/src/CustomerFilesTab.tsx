@@ -2,9 +2,7 @@
  * Files / Documents tab for a customer profile (staff side).
  *
  * Server-backed via the portal data plane. Customer-uploaded documents appear
- * here with a "Customer" source badge. Staff uploads with "Staff". Legacy
- * localStorage files (site plans, etc.) still render below in a fallback list
- * so existing site-plan workflows continue to work.
+ * here with a "Customer" source badge. Staff uploads with "Staff".
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'

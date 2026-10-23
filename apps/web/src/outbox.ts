@@ -11,6 +11,13 @@
  *
  * What is kept is only changes the server has not confirmed yet; each one is
  * deleted the moment it is confirmed. The server stays the source of truth.
+ * Each change is encrypted before it is written to the phone (vault.ts: a key
+ * the browser keeps and no script can read out); only its random id is kept
+ * in the clear, to find it again.
+ *
+ * Changes belong to the person who made them (`account`, their login id):
+ * after a sign out they wait on the phone and go when that same person signs
+ * in again here; another person signed in on the phone never sends them.
  *
  * Sending again never makes a duplicate: every new record carries the id it
  * was given on the phone, and the server treats a second create with the same
@@ -23,6 +30,7 @@
  */
 
 import { plainError, plainThrown, type PlainError } from './plainError'
+import { sealJson, openJson, vaultAvailable } from './vault'
 
 export interface Op<P = any> {
   id: string
@@ -79,8 +87,10 @@ export interface OutboxStorage {
 }
 
 const DB = 'ezbiz-outbox', STORE = 'ops'
+/** As kept on the phone: the change sealed (vault.ts), and its id to find it. A change kept before encryption (no `sealed`) is sealed on the next start. */
+type Row = { id: string; sealed: ArrayBuffer } | Op
 function idb(): OutboxStorage | null {
-  if (typeof indexedDB === 'undefined') return null
+  if (typeof indexedDB === 'undefined' || !vaultAvailable()) return null
   let dbp: Promise<IDBDatabase> | null = null
   const open = () => dbp ??= new Promise((res, rej) => {
     const r = indexedDB.open(DB, 1)
@@ -98,9 +108,24 @@ function idb(): OutboxStorage | null {
       t.onabort = () => rej(t.error)
     })
   }
+  const put = async (op: Op) => { const row: Row = { id: op.id, sealed: await sealJson(op) }; await tx('readwrite', s => { s.put(row) }) }
   return {
-    all: async () => (await tx<Op[]>('readonly', s => s.getAll())) ?? [],
-    put: async op => { await tx('readwrite', s => { s.put(op) }) },
+    all: async () => {
+      const rows = (await tx<Row[]>('readonly', s => s.getAll())) ?? []
+      const out: Op[] = []
+      for (const row of rows) {
+        if ('sealed' in row && row.sealed) {
+          // One that cannot be opened (sealed with a key this browser no longer has) is left as it is, never deleted.
+          try { out.push(await openJson<Op>(row.sealed)) } catch { console.warn('[outbox] a waiting change could not be opened on this phone') }
+        } else {
+          // Kept before encryption: sealed now, in place.
+          out.push(row as Op)
+          await put(row as Op)
+        }
+      }
+      return out
+    },
+    put,
     remove: async id => { await tx('readwrite', s => { s.delete(id) }) },
   }
 }
@@ -353,6 +378,11 @@ export function whenSaved(key: string, ms: number): Promise<boolean> {
 
 export function subscribe(f: () => void): () => void { listeners.add(f); return () => { listeners.delete(f) } }
 export function outboxVersion() { return version }
+
+/** Changes waiting on this phone for this person (or, with no one given, for anyone). */
+export function waitingFor(userId: string | null): number {
+  return ops.filter(o => !userId || !o.account || o.account === userId).length
+}
 
 /** For tests: forget everything. */
 export function _resetForTests() {

@@ -37,6 +37,7 @@ import { Search, SlidersHorizontal } from 'lucide-react'
 import { useBackLayer, useScreenMemory, useNav, takeOpenedParam, replaceUrl } from './nav'
 import { refreshNow } from './liveRefresh'
 import { businessDate } from './businessDate'
+import { readPref, writePref } from './browserStorage'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -83,12 +84,12 @@ function isMobileViewport() {
   return window.matchMedia('(max-width: 767px)').matches
 }
 
-const COLLAPSE_KEY      = 'fencepro_ops_collapsed_columns'
-const VIEW_KEY          = 'fencepro_ops_view'
-const SORT_KEY          = 'fencepro_ops_sort'
-const ANALYTICS_KEY     = 'fencepro_ops_analytics_open'
-const SHOW_COMPLETED_KEY= 'fencepro_ops_show_completed'
-const TODAY_HIGHLIGHT_KEY = 'fencepro_ops_highlight_today'
+const COLLAPSE_KEY      = 'fencepro_ops_collapsed_columns' as const
+const VIEW_KEY          = 'fencepro_ops_view' as const
+const SORT_KEY          = 'fencepro_ops_sort' as const
+const ANALYTICS_KEY     = 'fencepro_ops_analytics_open' as const
+const SHOW_COMPLETED_KEY= 'fencepro_ops_show_completed' as const
+const TODAY_HIGHLIGHT_KEY = 'fencepro_ops_highlight_today' as const
 
 type SortMode = 'scheduled' | 'value' | 'name' | 'days_in_stage'
 type ViewMode = 'board' | 'list'
@@ -101,14 +102,14 @@ export default function OperationsBoard() {
   const stages = useOpsStages()
   // Opened: read the newest copy (a job sold online, a card moved by the server).
   useEffect(() => { void refreshNow() }, [])
-  const [view, setView] = useState<ViewMode>(() => (localStorage.getItem(VIEW_KEY) as ViewMode) || 'board')
-  const [sortMode, setSortMode] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) as SortMode) || 'scheduled')
+  const [view, setView] = useState<ViewMode>(() => (readPref(VIEW_KEY) as ViewMode) || 'board')
+  const [sortMode, setSortMode] = useState<SortMode>(() => (readPref(SORT_KEY) as SortMode) || 'scheduled')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
-    try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}') } catch { return {} }
+    try { return JSON.parse(readPref(COLLAPSE_KEY) || '{}') } catch { return {} }
   })
-  const [analyticsOpen, setAnalyticsOpen] = useState<boolean>(() => localStorage.getItem(ANALYTICS_KEY) === '1')
-  const [highlightToday, setHighlightToday] = useState<boolean>(() => localStorage.getItem(TODAY_HIGHLIGHT_KEY) !== '0')
-  const [showCompleted, setShowCompleted] = useState<boolean>(() => localStorage.getItem(SHOW_COMPLETED_KEY) === '1')
+  const [analyticsOpen, setAnalyticsOpen] = useState<boolean>(() => readPref(ANALYTICS_KEY) === '1')
+  const [highlightToday, setHighlightToday] = useState<boolean>(() => readPref(TODAY_HIGHLIGHT_KEY) !== '0')
+  const [showCompleted, setShowCompleted] = useState<boolean>(() => readPref(SHOW_COMPLETED_KEY) === '1')
 
   // Filters come back when Back returns to the board.
   type Memory = { search: string; crewFilter: string; stageFilter: string; styleFilter: string }
@@ -148,12 +149,12 @@ export default function OperationsBoard() {
   }, [])
 
   /* ── persist ── */
-  useEffect(() => { localStorage.setItem(VIEW_KEY, view) }, [view])
-  useEffect(() => { localStorage.setItem(SORT_KEY, sortMode) }, [sortMode])
-  useEffect(() => { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed)) }, [collapsed])
-  useEffect(() => { localStorage.setItem(ANALYTICS_KEY, analyticsOpen ? '1' : '0') }, [analyticsOpen])
-  useEffect(() => { localStorage.setItem(SHOW_COMPLETED_KEY, showCompleted ? '1' : '0') }, [showCompleted])
-  useEffect(() => { localStorage.setItem(TODAY_HIGHLIGHT_KEY, highlightToday ? '1' : '0') }, [highlightToday])
+  useEffect(() => { writePref(VIEW_KEY, view) }, [view])
+  useEffect(() => { writePref(SORT_KEY, sortMode) }, [sortMode])
+  useEffect(() => { writePref(COLLAPSE_KEY, JSON.stringify(collapsed)) }, [collapsed])
+  useEffect(() => { writePref(ANALYTICS_KEY, analyticsOpen ? '1' : '0') }, [analyticsOpen])
+  useEffect(() => { writePref(SHOW_COMPLETED_KEY, showCompleted ? '1' : '0') }, [showCompleted])
+  useEffect(() => { writePref(TODAY_HIGHLIGHT_KEY, highlightToday ? '1' : '0') }, [highlightToday])
 
   /* ── refresh on external updates ── */
   function refresh() { setJobs(buildUnifiedList()) }

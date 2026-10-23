@@ -13,15 +13,12 @@
 
 import { fireCustomerCreated } from './automationTrigger'
 import { leadForNewCustomer } from './pipelineSeeder'
-import { legacyMigrationEnabled } from './syncGuard'
 import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, type Op } from './outbox'
 import { sendJson } from './syncHttp'
 import { addCardWithCustomer, pipelineSavedElsewhere } from './pipelineStore'
 import {
   listContacts,
-  migrateLocalContactsOnce,
-  migrateLocalNotesOnce,
   type CrmContactRecord,
   type CrmContactPayload,
 } from './crmContactsApi'
@@ -29,7 +26,6 @@ import { cloudStorage } from './cloudStorage'
 import { businessDate } from './businessDate'
 
 const EVT = 'fencepro:customers:updated'
-const LEGACY_KEY = 'fencepro_customers'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -112,26 +108,12 @@ function emit() {
 
 /**
  * Hydrate the in memory cache from /api/crm-contacts. Idempotent — the second
- * call returns the same in flight promise. Pushes any legacy localStorage
- * records to the API first via migrateLocalContactsOnce, then drops the
- * legacy key so canonical data lives only in Postgres.
+ * call returns the same in flight promise.
  */
 export function initCustomers(): Promise<void> {
   if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    // Old browser only customers move up only when that is switched on
-    // (see legacyMigrationEnabled); otherwise they are left where they are.
-    const migrate = legacyMigrationEnabled()
-    if (migrate) {
-      try {
-        const raw = localStorage.getItem(LEGACY_KEY)
-        const local = raw ? JSON.parse(raw) : []
-        if (Array.isArray(local) && local.length > 0) {
-          await migrateLocalContactsOnce(local)
-        }
-      } catch {}
-    }
     const records = await listContacts()
     if (!records) return
     cache = records.map(fromApi)
@@ -140,10 +122,6 @@ export function initCustomers(): Promise<void> {
     // Customers added or changed on this phone and not on the server yet.
     reapply('customer.')
     emit()
-    if (migrate) {
-      try { localStorage.removeItem(LEGACY_KEY) } catch {}
-      try { await migrateLocalNotesOnce() } catch {}
-    }
   })().finally(() => { if (!hydrated) initPromise = null })
   return initPromise
 }
@@ -418,9 +396,7 @@ export async function bulkImportCustomers(records: Customer[]): Promise<{ create
 }
 
 // ── Activity feed ────────────────────────────────────────────────────────────
-// Unchanged in Phase 1: customer activity entries are still localStorage only.
-// They will be migrated to the database in a later phase (alongside notes /
-// audit log work). Preserved here so callers (CustomersPage) keep working.
+// Kept on the server (cloudStorage: an account document under /api/kv).
 
 export interface CustomerActivity {
   id: string

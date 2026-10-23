@@ -76,11 +76,20 @@ export interface StaffIdentity {
 const NON_STAFF_ROLES = new Set(['customer', 'portal_customer'])
 
 /**
- * Verify the Bearer token on a request and return the staff identity, or null.
- * The signature is checked; a header that merely starts with "Bearer " is not
+ * The staff login on a request, or null.
+ *
+ * Signed in by the `ezbiz_staff` cookie (lib/staffSession.ts): the identity
+ * the cookie check read from the database, never anything the browser sent.
+ * Otherwise the Bearer token (the old sign in, kept during the switch window):
+ * the signature is checked; a header that merely starts with "Bearer " is not
  * enough. Customer and portal customer tokens are not staff.
+ *
+ * Every role read on the server comes through here or through the header the
+ * cookie check set from the same identity (cost hiding, permissions, routes).
  */
 export function verifyStaffBearer(req: Request): StaffIdentity | null {
+  const cookie = (req as any).staffCookie as (StaffIdentity & { sid?: string }) | undefined
+  if (cookie?.sub && cookie.role) return cookie
   const auth = req.headers.authorization
   if (!auth?.startsWith('Bearer ')) return null
   const token = auth.slice(7)

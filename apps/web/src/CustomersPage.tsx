@@ -1780,14 +1780,8 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
     // Fallback used when the server couldn't send the email itself
     const link = buildActivationLink(rawToken)
     const tpl = getEmailTemplate('portal_welcome')
-    const companyName = (() => {
-      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.name || 'Getter Done Fence' } catch {}
-      return 'Getter Done Fence'
-    })()
-    const companyPhone = (() => {
-      try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company?.phone || '' } catch {}
-      return ''
-    })()
+    const companyName = getConfig().company?.name || 'Getter Done Fence'
+    const companyPhone = getConfig().company?.phone || ''
     const rendered = renderTemplate(tpl, {
       customer_first_name: customer.firstName || 'there',
       customer_name: `${customer.firstName} ${customer.lastName}`.trim(),

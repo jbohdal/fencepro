@@ -53,7 +53,8 @@ function PasswordInput({
 
 export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => void }) {
   const [view, setView] = useState<View>('login')
-  const [email, setEmail] = useState(() => localStorage.getItem('crm_last_email') || '')
+  // Not filled in from the browser's storage (answer 3 of the sign in plan): the phone's password manager does it.
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')

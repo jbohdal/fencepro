@@ -665,3 +665,84 @@ settings. Restart and test the same way.
 The dev copy keeps all of these empty (section 15): its database holds real
 customers' addresses. The tests start their own fake mail server on the
 Mac itself and never send real mail.
+
+## 19. Staff sign in by cookie (DEV, Oct 22, 2026)
+
+Plan: `~/Downloads/staff-signin-plan-2026-10-20.md` (stages A, B, C built;
+D built as a switch that is off).
+
+**What changes for staff at the deploy.** Nothing to do for most people.
+The app no longer keeps a sign in in the phone's storage. Signing in sets a
+cookie, `ezbiz_staff`, that the page cannot read (HttpOnly), is sent only to
+`/api`, never from another site (SameSite=Strict) and only over https (plain
+http only on the Mac itself). A sign in lasts 30 days since it was last used,
+90 days at most. It ends at once on Sign out, on ending it in Settings >
+Team > Active Sessions, on a password change (every other device), or when
+the login is switched off, given a new role or deleted. The sign in page no
+longer fills in the last email (the phone's password manager does it).
+
+**How phones move over.** On the first open after the deploy, the app swaps
+the sign in it kept in storage for the cookie, once (one tab at a time), then
+deletes the old keys. With no signal it shows "No signal" and tries again
+every 15 seconds. If that phone's stored sign in had already run out (not
+opened for 7 days), that person types the password once. Nothing waiting to
+be sent is lost: the outbox, photos and voice clips stay on the phone and go
+after the same person is signed in. Team > Active Sessions marks phones not
+moved yet "Old sign in (moves over on next open)".
+
+**iPhone.** The installed home-screen app keeps its own cookies, apart from
+Safari. Sign in inside the installed app, and use it rather than a Safari tab.
+
+**Old data in the browser.** On load the app deletes everything an older
+version kept in browser storage (the Settings copy, the budget copy, who was
+signed in, old one-time move flags, old customers/quotes/jobs copies) without
+reading or uploading it. Kept: the board choices (folded columns, view,
+sort), and the offline queues, now encrypted.
+
+**Offline queues, encrypted.** Unsent changes, photos, video, invoice files
+and voice clips are sealed with AES-GCM before they are written to the phone.
+The key is made on the phone as a non-extractable WebCrypto key, kept in
+IndexedDB; no script can read its bytes out. Signing out with something
+unsent asks first.
+
+**Every save carries `X-Staff-Request: 1`.** The app adds it. A save with the
+cookie but without the header counts as not signed in (protection against
+other websites). Scripts that save must send it (and the cookie), or use the
+old token while it still works.
+
+**Stage D: turn the old token off.** 30 days after the deploy (when Team >
+Active Sessions shows no "Old sign in" rows), add to `~/ezbiz/apps/portal/.env`
+
+```bash
+STAFF_COOKIE_ONLY=1
+```
+
+then `pm2 restart ezbiz --update-env` (or `bash ~/ezbiz/deploy/mac/set-secret.sh`).
+With it on: every staff Bearer token is refused (401 `BEARER_RETIRED`), the
+renewal (`/api/crm-auth/refresh`) and the move over (`/api/crm-auth/move-over`)
+are closed, and every sign in is a cookie. Anyone not moved over by then signs
+in with the password once. Take it off again by removing the line and
+restarting. The move-over code itself can then be removed from the app
+(crmAuth.ts `moveOverOldSignIn`).
+
+**The read only live checker.** It no longer reads the live settings file or
+signs anything with the live secret. On the Mac:
+
+```bash
+cd ~/ezbiz/apps/portal && npx tsx scripts/readonly-session.ts      # 3 hours, read only
+cd ~/ezbiz/apps/portal/../web && node e2e/live-readonly.mjs        # opens localhost:4000
+cd ~/ezbiz/apps/portal && npx tsx scripts/readonly-session.ts --end   # end it early
+```
+
+The session shows in Settings > Team > Active Sessions as "Read only checker
+on the Mac" with its end time, and can be ended there. The server refuses
+every save made with it (403 `READ_ONLY`), and refuses it altogether
+(401 `READ_ONLY_NOT_HERE`) unless the request is made on the Mac straight to
+the server: from the Mac's own address (localhost or its own Tailscale
+address), with no proxy headers (Tailscale serve and Funnel add them) and
+Host naming the Mac. Only the script makes one; there is no web route for it.
+
+**Risks.** A dev browser on `localhost:4001` and the live server on
+`localhost:4000` share cookies (cookies ignore the port): opening both in the
+same browser signs the other out. Use the Tailscale address for live.
+Renaming the Mac's Tailscale name signs everyone out.

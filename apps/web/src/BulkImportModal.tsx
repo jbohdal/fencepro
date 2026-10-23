@@ -9,6 +9,7 @@ import { useState, useRef, useCallback } from 'react'
 import { parseFile, autoMapColumns, INVENTORY_FIELDS, getImportTemplates, saveImportTemplate, saveImportLogEntry, getImportLog, type ParsedSheet, type ColumnMappingTemplate, type ImportLogEntry } from './csvParser'
 import { getInventory, saveInventory, type InventoryItem } from './inventoryStore'
 import { useBackLayer } from './nav'
+import { currentUser } from './crmAuth'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -151,7 +152,8 @@ export default function BulkImportModal({ onClose, onComplete }: { onClose: () =
     setResult(result)
 
     // Save import log
-    const user = (() => { try { const u = localStorage.getItem('fencepro_user'); return u ? JSON.parse(u).name : 'Unknown' } catch { return 'Unknown' } })()
+    const me = currentUser()
+    const user = me ? `${me.firstName} ${me.lastName}`.trim() || me.email : 'Unknown'
     saveImportLogEntry({
       id: uid(),
       filename: sheet.filename,

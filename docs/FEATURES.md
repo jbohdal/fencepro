@@ -391,6 +391,17 @@ Status key:
 * Service requests: the "photos received" push goes to Jonathan and the customer's card owner. **DEV**
 * Esri World Imagery is on for live: a sharp yard photo in about 0.4 to 0.6 s on 4G (was 20 to 50 s). **LIVE** (Oct 22)
 
+## 9v. Staff sign in by cookie; business data out of the browser (Oct 22) **DEV**
+* Signing in sets the `ezbiz_staff` cookie (HttpOnly, SameSite=Strict, Path=/api, https only off the Mac); the server keeps only its hash. 30 days since last use, 90 at most. Sign out, ending it in Settings > Team, a password change, a switched off, re-roled or deleted login stop that device at once. **DEV**
+* Every save carries `X-Staff-Request: 1` (the app adds it); a cookie save without it is not signed in. **DEV**
+* Salesman and Installer cost hiding reads the role from the cookie's session (database), before any route; a test covers quotes, jobs, job costing, pull sheets, inventory, reports, payments, account documents and vendors. **DEV**
+* Phones move over on their first open after the deploy (the stored sign in becomes the cookie once, old keys deleted; no signal: tries again; run out: password once). Nothing waiting is lost. **DEV**
+* The old token keeps working for 30 days; stage D (`STAFF_COOKIE_ONLY=1`, GO_LIVE.md section 19) turns it off. Off for now. **DEV**
+* Offline queues (changes, photos, video, invoice files, voice clips) encrypted at rest with a non-extractable key; signing out with something unsent asks first; it goes when the same person signs in again. **DEV**
+* Removed from the browser: the Settings copy (12 screens now read Settings from the server), the budget copy, who was signed in, the last email, the old one-time moves, dead CompanyCam and customer-notes code. Old browser data is deleted on load without uploading. A guard test fails on any new browser storage outside the allow-list (board choices, the encrypted queues, the move-over keys until stage D). **DEV**
+* Read only checker on the Mac: `scripts/readonly-session.ts` makes a 3 hour read only sign in shown in Team; works only on the Mac itself; `e2e/live-readonly.mjs` uses it. **DEV**
+* Team > Active Sessions shows how each device is signed in, when it ends, and "This device". **DEV**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)

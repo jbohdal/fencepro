@@ -200,15 +200,9 @@ export function getRailOptimizerConfig(cfg: AppConfig = getConfig()): RailOptimi
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 //
-// Backed by /api/business-state.config via businessStateStore. The legacy
-// fencepro_config localStorage blob is migrated on first login post Phase 9.
-//
-// We also keep a read-only localStorage mirror at the same key. Many call
-// sites across the codebase still inline `localStorage.getItem('fencepro_config')`
-// to grab company info or fence styles synchronously; mirroring the cached
-// config there means those inline reads keep returning fresh data without
-// needing one-by-one updates. The canonical source of truth is the cloud
-// blob; the mirror is updated on every save and on initBusinessState().
+// Backed by /api/business-state.config via businessStateStore, held in memory
+// for this visit. Nothing is copied to the browser's storage (rule 1): every
+// screen reads getConfig().
 
 import type { ProposalSettings } from './proposal'
 import { getBusinessField, setBusinessField } from './businessStateStore'
@@ -217,12 +211,6 @@ import { withDefaults, type AppointmentSettings } from './appointmentLogic'
 /** Appointment settings with every default filled in. */
 export function getAppointmentSettings(cfg: AppConfig = getConfig()): AppointmentSettings {
   return withDefaults(cfg.appointments)
-}
-
-const LEGACY_KEY = 'fencepro_config'
-
-function mirrorToLocalStorage(cfg: AppConfig): void {
-  try { localStorage.setItem(LEGACY_KEY, JSON.stringify(cfg)) } catch {}
 }
 
 /** Overhead % from the budget when switched on and the budget is filled in (set by targetMargin.ts). */
@@ -244,11 +232,7 @@ export function overheadPctOf(cfg: AppConfig): number {
 export function getConfig(): AppConfig {
   const saved = getBusinessField('config') as Partial<AppConfig>
   const merged = mergeSavedConfig(saved)
-  const out = withTargetMargins(merged, overheadPctOf(merged))
-  // Keep the inline-reader mirror fresh on every read; cheap, idempotent,
-  // and avoids stale defaults during the brief window after auth hydrates.
-  mirrorToLocalStorage(out)
-  return out
+  return withTargetMargins(merged, overheadPctOf(merged))
 }
 
 
@@ -256,12 +240,10 @@ export function saveConfig(config: AppConfig): void {
   // What is worked out on every read (plain names, holds, job lot prices) is not saved.
   const clean = { ...config, fenceStyles: stripDerived(config.fenceStyles ?? []) }
   setBusinessField('config', clean)
-  mirrorToLocalStorage(clean)
 }
 
 export function resetConfig(): void {
   setBusinessField('config', {} as any)
-  try { localStorage.removeItem(LEGACY_KEY) } catch {}
 }
 
 export function getDefaultConfig(): AppConfig {

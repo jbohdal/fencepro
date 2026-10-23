@@ -145,17 +145,17 @@ const again = await a.page.evaluate(async (made) => {
 }, made)
 check('a new browser logging in wiped nothing', again.rate === 25 && again.cost === 3.33 && again.quote && again.vendors === 1 && again.items > 200, JSON.stringify(again))
 
-// ── expired login token: the save must still land ──────────────────────────
+// ── the sign in is the cookie: a save lands, and the browser keeps no sign in ──
 const before = a.log.api.length
-await a.page.evaluate(async () => {
+const kept = await a.page.evaluate(async () => {
   const imp = name => { const hit = performance.getEntriesByType('resource').map(e => e.name).filter(n => n.includes('/src/' + name)).pop(); return import(hit ? hit.replace(location.origin, '') : '/src/' + name) }
-  const auth = await imp('crmAuth.ts'); const cfg = await imp('configStore.ts')
-  auth.setTokens('expired.invalid.token', localStorage.getItem('crm_refresh_token'))
+  const cfg = await imp('configStore.ts')
   const c = cfg.getConfig(); cfg.saveConfig({ ...c, pricing: { ...c.pricing, manHourRate: 27 } })
   await new Promise(r => setTimeout(r, 2500))
+  return { keys: Object.keys(localStorage), session: Object.keys(sessionStorage), cookie: document.cookie }
 })
 const calls = a.log.api.slice(before)
-check('expired token: 401, one refresh, save retried and stored', calls.some(c => c.includes('business-state 401')) && calls.filter(c => c.includes('/crm-auth/refresh 200')).length === 1 && calls.some(c => c.includes('PATCH /api/business-state 200')), calls.join(' ; '))
+check('signed in by cookie: the save is stored; no token in storage and the page cannot read the cookie', calls.some(c => c.includes('PATCH /api/business-state 200')) && !kept.keys.some(k => /crm_|token|fencepro_config|fencepro_user/.test(k)) && kept.session.length === 0 && !kept.cookie.includes('ezbiz_staff'), `${calls.join(' ; ')} | ${JSON.stringify(kept)}`)
 const b2 = await newSession(browser, 'B2'); await login(b2); await ready(b2)
 const rate = await b2.page.evaluate(async () => {
   const imp = name => { const hit = performance.getEntriesByType('resource').map(e => e.name).filter(n => n.includes('/src/' + name)).pop(); return import(hit ? hit.replace(location.origin, '') : '/src/' + name) }

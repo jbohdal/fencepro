@@ -7,6 +7,7 @@ import jsPDF from 'jspdf'
 import { getInvoices, getPayments, getARSummary, type Invoice, type Payment } from './billingStore'
 import { PaymentsToConfirm } from './Payments'
 import { businessDate } from './businessDate'
+import { getConfig } from './configStore'
 
 const fmtD = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })
 
@@ -18,15 +19,8 @@ const statusColors: Record<string, string> = {
   overdue: 'bg-red-100 text-red-700', void: 'bg-gray-100 text-gray-400',
 }
 
-function getCompanyInfo() {
-  try {
-    const raw = localStorage.getItem('fencepro_config')
-    if (raw) {
-      const c = JSON.parse(raw)
-      return c.company || {}
-    }
-  } catch {}
-  return {}
+function getCompanyInfo(): any {
+  return getConfig().company || {}
 }
 
 // ─── Logo loader (browser canvas → base64) ─────────────────────────────────

@@ -5,6 +5,7 @@ import type { SavedQuote } from './QuotesPage'
 import FollowUpReport from './FollowUpReport'
 import JobCostingReport from './JobCostingReport'
 import ServiceReport from './ServiceReport'
+import { getBusinessField } from './businessStateStore'
 
 /* ───────── helpers ───────── */
 
@@ -55,11 +56,10 @@ interface BudgetState {
   overhead: OverheadItem[]
 }
 
+/** The budget (Budget page), from the server's business record; null until one is saved. */
 function loadBudget(): BudgetState | null {
-  try {
-    const raw = localStorage.getItem('fencepro_budget')
-    return raw ? JSON.parse(raw) : null
-  } catch { return null }
+  const b = getBusinessField('budget') as BudgetState | null
+  return b && typeof b === 'object' && Object.keys(b).length ? b : null
 }
 
 /* ───────── grouping helpers ───────── */

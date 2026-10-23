@@ -165,12 +165,6 @@ function getCategoryColor(categories: string[], cat: string): string {
 import { getBusinessField, setBusinessField } from './businessStateStore'
 import { useBackLayer } from './nav'
 
-const STORAGE_KEY = 'fencepro_budget'
-
-function mirrorBudget(state: any) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch {}
-}
-
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
@@ -195,9 +189,6 @@ function loadState(defaults: BudgetState): BudgetState {
   const merged: BudgetState = (!saved || Object.keys(saved).length === 0)
     ? defaults
     : { ...defaults, ...saved }
-  // Mirror so the inline localStorage.getItem('fencepro_budget') reads in
-  // App.tsx + ReportsPage keep returning current values.
-  mirrorBudget(merged)
   return merged
 }
 
@@ -1602,7 +1593,6 @@ export default function BudgetPage() {
   function handleChange(next: BudgetState) {
     setState(next)
     setBusinessField('budget', next)
-    mirrorBudget(next)
   }
 
   return (

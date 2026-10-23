@@ -16,11 +16,10 @@ import {
   fetchScheduledJobs,
   fetchRainLog,
   appendRainDay,
-  migrateLocalScheduleOnce,
   type CrewRecord,
 } from './scheduleApi'
 import type { ScheduledJob, ScheduleSettings, RainDayEntry } from './SchedulePage'
-import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
+import { createVersionedFlusher, versionedSave } from './syncGuard'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
@@ -60,7 +59,6 @@ export function initSchedule(): Promise<void> {
   if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    if (legacyMigrationEnabled()) { try { await migrateLocalScheduleOnce() } catch {} }
     const [settings, jobs, rain] = await Promise.all([
       fetchScheduleSettings(),
       fetchScheduledJobs(),

@@ -20,6 +20,9 @@ import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { can, refuse } from '../lib/permissions.js'
 import { inviteStepsHtml } from '../lib/inviteSteps.js'
+import { startStaffSession, endStaffSessionOf, cookieOnly, sessionEndsAt, staffCookieOf, cookieHash, STAFF_WRITE_HEADER } from '../lib/staffSession.js'
+import { sessionRefusal } from '../lib/sessionGuard.js'
+import { verifyStaffBearer } from '../lib/secrets.js'
 
 const router = Router()
 
@@ -55,6 +58,33 @@ function generateRefreshToken(): string {
 
 function verifyAccess(token: string): any {
   return jwt.verify(token, JWT_SECRET)
+}
+
+/**
+ * Sign in by cookie (lib/staffSession.ts): the app asks for it with
+ * `{ cookie: true }` and the app header. An app from before the switch (an
+ * old copy still open on a phone) gets the old tokens until stage D
+ * (STAFF_COOKIE_ONLY=1), when every sign in is a cookie.
+ */
+function wantsCookie(req: any): boolean {
+  return cookieOnly() || req.body?.cookie === true
+}
+
+/** A sign in by cookie must come from the app (the same header every cookie save carries). */
+function appHeaderMissing(req: any, res: any): boolean {
+  if (req.headers[STAFF_WRITE_HEADER] === '1') return false
+  res.status(403).json({ success: false, code: 'APP_HEADER_REQUIRED', error: 'This sign in did not come from the EZ Biz app.' })
+  return true
+}
+
+function publicUser(user: { id: string; email: string; firstName: string; lastName: string; role: any; status: any; mustChangePassword: boolean; avatarUrl: string | null }) {
+  return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role, status: user.status, mustChangePassword: user.mustChangePassword, avatarUrl: user.avatarUrl }
+}
+
+/** A cookie this browser already had (perhaps another login's) is replaced by the new one: its session ends. */
+async function endPreviousCookie(req: any): Promise<void> {
+  const previous = staffCookieOf(req)
+  if (previous && previous.length <= 200) await prisma.crmUserSession.updateMany({ where: { tokenHash: cookieHash(previous), revokedAt: null }, data: { revokedAt: new Date() } })
 }
 
 function payloadFirstName(payload: any): string {
@@ -106,6 +136,8 @@ async function ensureStaffAccount<T extends { id: string; role: string; crmAccou
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = loginSchema.parse(req.body)
+    const byCookie = wantsCookie(req)
+    if (byCookie && appHeaderMissing(req, res)) return
 
     let user = await prisma.crmUser.findUnique({ where: { email: email.toLowerCase() } })
     if (!user || !user.passwordHash) {
@@ -151,6 +183,14 @@ router.post('/login', async (req, res) => {
 
     // Make sure an owner/admin has a company before the token is issued
     user = await ensureStaffAccount(user)
+
+    if (byCookie) {
+      await endPreviousCookie(req)
+      await startStaffSession(req, res, user.id)
+      await prisma.crmUserActivity.create({ data: { userId: user.id, action: 'login', ipAddress: req.ip || null } }).catch(() => {})
+      res.json({ success: true, data: { user: publicUser(user) } })
+      return
+    }
 
     // Store the session, then the access token that names it
     const refreshToken = generateRefreshToken()
@@ -198,6 +238,7 @@ router.post('/login', async (req, res) => {
 // ── Refresh Token ──
 
 router.post('/refresh', async (req, res) => {
+  if (cookieOnly()) { res.status(401).json({ success: false, code: 'BEARER_RETIRED', error: 'Please sign in again' }); return }
   try {
     const { refreshToken } = req.body
     if (!refreshToken) { res.status(401).json({ success: false, error: 'Refresh token required' }); return }
@@ -279,6 +320,8 @@ router.get('/me', async (req, res) => {
         mustChangePassword: user.mustChangePassword,
         avatarUrl: user.avatarUrl,
         lastLoginAt: user.lastLoginAt,
+        signedInBy: req.staffCookie ? 'cookie' : 'token',
+        readOnly: !!req.staffCookie?.readOnly,
       },
     })
   } catch {
@@ -289,8 +332,10 @@ router.get('/me', async (req, res) => {
 // ── Logout ──
 
 router.post('/logout', async (req, res) => {
-  const { refreshToken } = req.body
-  if (refreshToken) {
+  // Signed in by cookie: this session ends now and the cookie is cleared.
+  await endStaffSessionOf(req, res).catch(() => false)
+  const { refreshToken } = req.body ?? {}
+  if (typeof refreshToken === 'string' && refreshToken) {
     const sessions = await prisma.crmUserSession.findMany({ where: { revokedAt: null } })
     for (const session of sessions) {
       if (await bcrypt.compare(refreshToken, session.tokenHash)) {
@@ -300,6 +345,48 @@ router.post('/logout', async (req, res) => {
     }
   }
   res.json({ success: true })
+})
+
+// ── Move over: the old stored sign in becomes a cookie, once ──
+//
+// A phone signed in before the switch has the old tokens in its storage. On
+// its first load after the deploy the app sends them here once (one tab),
+// gets the cookie, and deletes them. The refresh token (7 days) is tried
+// first; it is used up, as a renewal would. Otherwise a still valid access
+// token whose session is live. Neither: 401, and that person types their
+// password once. Stage D (STAFF_COOKIE_ONLY=1): 410, nothing is swapped.
+router.post('/move-over', async (req, res) => {
+  if (cookieOnly()) { res.status(410).json({ success: false, code: 'MOVE_OVER_ENDED', error: 'Please sign in again' }); return }
+  if (appHeaderMissing(req, res)) return
+  try {
+    let userId: string | null = null
+    const refreshToken = req.body?.refreshToken
+    if (typeof refreshToken === 'string' && /^[0-9a-f]{80}$/.test(refreshToken)) {
+      const sessions = await prisma.crmUserSession.findMany({ where: { kind: null, revokedAt: null, expiresAt: { gt: new Date() } }, select: { id: true, userId: true, tokenHash: true } })
+      for (const s of sessions) {
+        if (await bcrypt.compare(refreshToken, s.tokenHash)) {
+          await prisma.crmUserSession.update({ where: { id: s.id }, data: { revokedAt: new Date() } })
+          userId = s.userId
+          break
+        }
+      }
+    }
+    if (!userId) {
+      const bearer = verifyStaffBearer(req) as any
+      if (bearer && !(await sessionRefusal(bearer))) userId = bearer.sub
+    }
+    const user = userId ? await prisma.crmUser.findUnique({ where: { id: userId } }) : null
+    if (!user || user.status !== 'active') {
+      res.status(401).json({ success: false, code: 'SIGN_IN_AGAIN', error: 'Please sign in again' }); return
+    }
+    await endPreviousCookie(req)
+    await startStaffSession(req, res, user.id)
+    await prisma.crmUserActivity.create({ data: { userId: user.id, action: 'login', metadata: { how: 'move_over' }, ipAddress: req.ip || null } }).catch(() => {})
+    res.json({ success: true, data: { user: publicUser(user) } })
+  } catch (err) {
+    console.error('[CRM Auth] move over error:', err)
+    res.status(500).json({ success: false, error: 'Could not move the sign in over. Try again.' })
+  }
 })
 
 // ── Invite User ──
@@ -514,6 +601,8 @@ const acceptSchema = z.object({
 router.post('/accept-invite', async (req, res) => {
   try {
     const { token, email, password } = acceptSchema.parse(req.body)
+    const byCookie = wantsCookie(req)
+    if (byCookie && appHeaderMissing(req, res)) return
 
     // Find the user by email with invited status
     const user = await prisma.crmUser.findUnique({ where: { email: email.toLowerCase() } })
@@ -550,6 +639,12 @@ router.post('/accept-invite', async (req, res) => {
     })
 
     // Auto-login
+    if (byCookie) {
+      await endPreviousCookie(req)
+      await startStaffSession(req, res, user.id)
+      res.json({ success: true, data: { user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role } } })
+      return
+    }
     const refreshToken = generateRefreshToken()
     const refreshHash = await bcrypt.hash(refreshToken, 10)
 
@@ -712,6 +807,17 @@ router.post('/change-password', async (req, res) => {
       data: { passwordHash, mustChangePassword: false, failedLoginAttempts: 0, lockedUntil: null },
     })
 
+    // Signed in by cookie: every other device is signed out at once; this one keeps its cookie.
+    if (req.staffCookie) {
+      await prisma.crmUserSession.updateMany({
+        where: { userId: user.id, revokedAt: null, id: { not: req.staffCookie.sessionId } },
+        data: { revokedAt: new Date() },
+      })
+      await prisma.crmUserActivity.create({ data: { userId: user.id, action: 'password_changed', ipAddress: req.ip || null } }).catch(() => {})
+      res.json({ success: true, data: {} })
+      return
+    }
+
     // Sign every other device out, then hand this one a fresh session.
     await prisma.crmUserSession.updateMany({
       where: { userId: user.id, revokedAt: null },
@@ -812,13 +918,19 @@ router.get('/sessions', async (req, res) => {
     const payload = verifyAccess(auth.slice(7))
     if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
 
-    // Never the refresh token's hash.
-    const sessions = await prisma.crmUserSession.findMany({
+    // Never the token's or the cookie's hash.
+    const rows = await prisma.crmUserSession.findMany({
       where: { revokedAt: null, expiresAt: { gt: new Date() } },
-      select: { id: true, userId: true, ipAddress: true, userAgent: true, createdAt: true, expiresAt: true, revokedAt: true, user: { select: { firstName: true, lastName: true, email: true } } },
+      select: { id: true, userId: true, ipAddress: true, userAgent: true, createdAt: true, expiresAt: true, revokedAt: true, kind: true, lastUsedAt: true, readOnly: true, label: true, user: { select: { firstName: true, lastName: true, email: true } } },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 200,
     })
+    // A cookie sign in ends 30 days after its last use (lib/staffSession.ts): one past that is not shown.
+    const now = Date.now()
+    const sessions = rows
+      .map((s: any) => ({ ...s, endsAt: sessionEndsAt(s), current: s.id === req.staffCookie?.sessionId }))
+      .filter((s: any) => s.endsAt.getTime() > now)
+      .slice(0, 100)
 
     res.json({ success: true, data: sessions })
   } catch {

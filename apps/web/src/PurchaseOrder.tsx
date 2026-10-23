@@ -2,6 +2,7 @@ import type { SavedQuote } from './QuotesPage'
 import { formatPhone } from './phoneFormat'
 import { styleLabel } from './fenceCatalog'
 import { businessDate } from './businessDate'
+import { getConfig } from './configStore'
 
 /* ───────── config loader ───────── */
 
@@ -11,14 +12,7 @@ interface CompanyInfo {
 }
 
 function loadCompany(): CompanyInfo {
-  try {
-    const raw = localStorage.getItem('fencepro_config')
-    if (raw) {
-      const cfg = JSON.parse(raw)
-      if (cfg.company) return cfg.company
-    }
-  } catch { /* fall through */ }
-  return { name: 'Getter Done Fence', phone: '', email: '', address: '', city: '', state: 'FL', zip: '' }
+  return (getConfig().company as CompanyInfo | undefined) || { name: 'Getter Done Fence', phone: '', email: '', address: '', city: '', state: 'FL', zip: '' }
 }
 
 /* ───────── PO generator ───────── */

@@ -3,6 +3,7 @@
  * Classic, Bold) plus per-quote customization fields (intro text, scope text,
  * photos, contract body, validity days, selected template key).
  */
+import { getConfig } from './configStore'
 
 export type TemplateKey = 'premium' | 'modern' | 'classic' | 'bold'
 
@@ -104,26 +105,10 @@ export function getTemplate(key: string): QuoteTemplate {
   return TEMPLATES[(key as TemplateKey)] || TEMPLATES.premium
 }
 
+/** The template a quote opens in: Settings (the server's config) `quote.defaultTemplate`, else Premium. */
 export function getDefaultTemplateKey(): TemplateKey {
-  try {
-    const r = localStorage.getItem('fencepro_config')
-    if (r) {
-      const cfg = JSON.parse(r)
-      const k = cfg.quote?.defaultTemplate
-      if (k && TEMPLATES[k as TemplateKey]) return k as TemplateKey
-    }
-  } catch {}
-  return 'premium'
-}
-
-export function setDefaultTemplateKey(key: TemplateKey): void {
-  try {
-    const r = localStorage.getItem('fencepro_config')
-    const cfg = r ? JSON.parse(r) : {}
-    cfg.quote = { ...(cfg.quote || {}), defaultTemplate: key }
-    localStorage.setItem('fencepro_config', JSON.stringify(cfg))
-    window.dispatchEvent(new CustomEvent('fencepro:settings:updated'))
-  } catch {}
+  const k = (getConfig() as { quote?: { defaultTemplate?: string } }).quote?.defaultTemplate
+  return k && TEMPLATES[k as TemplateKey] ? k as TemplateKey : 'premium'
 }
 
 /** Per-quote extension fields stored alongside SavedQuote. */

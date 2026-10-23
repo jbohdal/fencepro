@@ -1,18 +1,13 @@
 /**
  * Database-backed contact persistence for the CRM web app.
  *
- * The CRM has historically stored customers in localStorage (`fencepro_customers`)
- * — see CRITICAL_ISSUES_AUDIT.md. This client adds a parallel write to the
- * Postgres-backed `/api/crm-contacts` endpoint so contacts survive browser
- * clears, device switches, and deploys.
- *
- * Strategy: dual-write. Local UI is still driven by localStorage (so the page
- * is instantly responsive and works offline), but every save is mirrored to
- * the API in the background. If the API call fails the local state is
- * preserved and the user is warned via toast — no data is lost.
+ * Customers live in Postgres (`/api/crm-contacts`), scoped by company on the
+ * server. The screen's copy is in memory (customerStore.ts); a change made
+ * without signal waits in the encrypted outbox (outbox.ts) until the server
+ * confirms it.
  */
 
-import { getAccessToken, fetchWithAuth } from './crmAuth'
+import { isSignedIn, fetchWithAuth, currentUser } from './crmAuth'
 import { toast } from './toast'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { registerKind, enqueue, allOps, pendingFor } from './outbox'
@@ -53,13 +48,12 @@ export interface CrmContactRecord extends CrmContactPayload {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
-  const token = getAccessToken()
+  const token = isSignedIn()
   if (!token) return { ok: false, error: 'Not authenticated' }
   try {
     const res = await fetchWithAuth(`${AUTH_API}/api/crm-contacts${path}`, {
       method,
       headers: {
-        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -139,11 +133,8 @@ export function noteAuthor(n: { createdByName?: string | null; createdBy?: strin
 
 /** The signed in person's name, from their sign in. */
 function myName(): string {
-  try {
-    const t = getAccessToken()
-    const p = t ? JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) : null
-    return `${p?.firstName ?? ''} ${p?.lastName ?? ''}`.trim() || 'You'
-  } catch { return 'You' }
+  const p = currentUser()
+  return `${p?.firstName ?? ''} ${p?.lastName ?? ''}`.trim() || 'You'
 }
 
 export interface CrmContactNotePayload {
@@ -233,93 +224,3 @@ registerKind<NoteEdit>('note.delete', {
     return r.status === 404 ? { ok: true } : r.result
   },
 })
-
-/**
- * One shot push of the legacy `fencepro_customer_notes` localStorage blob into
- * the database. Idempotent on the server side (matches by contact + body) and
- * gated by a localStorage flag so we do not retry on every page load.
- */
-const NOTES_MIGRATION_FLAG = 'fencepro_notes_db_migrated_v1'
-
-interface LegacyLocalNote {
-  id?: string
-  customerId: string
-  body: string
-  isPinned?: boolean
-  visibility?: 'internal' | 'all_staff'
-  createdBy?: string
-  createdAt?: string
-  deletedAt?: string
-}
-
-export async function migrateLocalNotesOnce(): Promise<void> {
-  if (localStorage.getItem(NOTES_MIGRATION_FLAG) === '1') return
-  const token = getAccessToken()
-  if (!token) return
-  try {
-    const raw = localStorage.getItem('fencepro_customer_notes')
-    const all: LegacyLocalNote[] = raw ? JSON.parse(raw) : []
-    const live = (Array.isArray(all) ? all : []).filter(n => n && n.customerId && n.body && !n.deletedAt)
-    if (live.length === 0) {
-      localStorage.setItem(NOTES_MIGRATION_FLAG, '1')
-      return
-    }
-    const payload = {
-      notes: live.map(n => ({
-        crmContactId: n.customerId,
-        body: n.body,
-        isPinned: !!n.isPinned,
-        visibility: (n.visibility === 'internal' ? 'internal' : 'all_staff') as 'internal' | 'all_staff',
-        createdBy: n.createdBy || 'migrated',
-        createdAt: n.createdAt,
-      })),
-    }
-    const r = await call<{ created: number; skipped: number; total: number }>('POST', '/notes/sync', payload)
-    if (r.ok) {
-      localStorage.setItem(NOTES_MIGRATION_FLAG, '1')
-      if (r.data && r.data.created > 0) {
-        toast.info('Customer notes synced to cloud', `${r.data.created} note${r.data.created === 1 ? '' : 's'} migrated.`)
-      }
-    }
-  } catch {}
-}
-
-/**
- * One-time bulk migration: pushes the entire localStorage `fencepro_customers`
- * blob into the database. Safe to call repeatedly — the server upserts by
- * (ownerId, email) or (ownerId, firstName+lastName+phone). Stamps a flag
- * after first success so we don't repeat on every page load.
- */
-const MIGRATION_FLAG = 'fencepro_contacts_db_migrated_v1'
-
-export async function migrateLocalContactsOnce(localCustomers: any[]): Promise<void> {
-  if (!localCustomers || localCustomers.length === 0) return
-  if (localStorage.getItem(MIGRATION_FLAG) === '1') return
-  const token = getAccessToken()
-  if (!token) return
-  const payload = {
-    contacts: localCustomers.map((c: any) => ({
-      firstName: c.firstName || c.first_name || '',
-      lastName: c.lastName || c.last_name || '',
-      email: c.email || undefined,
-      phone: c.phone || undefined,
-      serviceAddress: c.serviceAddress || c.service_address || undefined,
-      billingAddress: c.billingAddress || undefined,
-      billingDifferent: !!c.billingDifferent,
-      leadSource: c.leadSource || undefined,
-      salesRep: c.salesRep || undefined,
-      firstApptDate: c.firstApptDate || undefined,
-      tags: Array.isArray(c.tags) ? c.tags : undefined,
-      notes: c.notes || undefined,
-      jobStatus: c.jobStatus || undefined,
-      isCompleted: !!c.isCompleted,
-    })).filter(c => c.firstName && c.lastName),
-  }
-  const r = await call<{ created: number; skipped: number; total: number }>('POST', '/sync', payload)
-  if (r.ok && r.data) {
-    localStorage.setItem(MIGRATION_FLAG, '1')
-    if (r.data.created > 0 || r.data.skipped > 0) {
-      toast.info('Customers backed up to cloud', `${r.data.created} new customers are now in the database. ${r.data.skipped ?? 0} already on file were left as they are.`)
-    }
-  }
-}

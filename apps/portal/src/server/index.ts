@@ -10,6 +10,7 @@ import { printEnvValidation } from './lib/urls.js'
 import { mountStaticSites } from './lib/staticSites.js'
 import { liveDatabaseMisuse } from './lib/liveGuard.js'
 import { requireLiveSession } from './lib/sessionGuard.js'
+import { staffCookieAuth } from './lib/staffSession.js'
 import { retitleUpcomingCalendarEventsAll, startCalendarSyncRetry } from './lib/calendarSync/index.js'
 
 // Before anything touches the database: only the live install may use the live database.
@@ -87,7 +88,7 @@ import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
 import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
-import { hidesCosts, staffRoleOf, redactCosts } from './lib/costRedact.js'
+import { hideCostsFromLimitedLogins } from './lib/costRedact.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
 import { ensureTwoOptionTiersAll } from './lib/tierSets.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
@@ -163,6 +164,11 @@ app.use(cors((req, cb) => {
 app.use(compression())
 app.use(express.json({ limit: '10mb' }))
 
+// Staff signed in by the ezbiz_staff cookie: the session is looked up and the
+// login's identity (role from the database) is set on the request, before the
+// cost hiding below and every route read it (lib/staffSession.ts).
+app.use('/api', staffCookieAuth)
+
 // Every save the server refuses or fails is written to the log, with who and
 // from what device, so a change that did not save can always be traced.
 app.use('/api', (req, res, next) => {
@@ -181,12 +187,8 @@ app.use('/api', (req, res, next) => {
 // A Salesman's or Installer's login gets prices only: every answer is sent
 // without a cost, margin, profit, sub rate, wage, overhead or commission figure
 // (lib/costRedact.ts), whichever route answers.
-app.use('/api', (req, res, next) => {
-  if (!hidesCosts(staffRoleOf(req))) return next()
-  const json = res.json.bind(res)
-  res.json = (body: any) => json(redactCosts(body))
-  next()
-})
+// The role comes from the cookie's session (staffCookieAuth above), or the old token's.
+app.use('/api', hideCostsFromLimitedLogins)
 
 // ── Rate Limiting ──
 // Limits can be set from the environment. The API default allows a real
@@ -227,6 +229,7 @@ app.use('/api', apiLimiter)
 app.use('/api/auth/login', loginLimiter)
 app.use('/api/crm-auth/login', loginLimiter)
 app.use('/api/crm-auth/forgot-password', loginLimiter)
+app.use('/api/crm-auth/move-over', loginLimiter)
 app.use('/api/portal/login', loginLimiter)
 app.use('/api/portal/activate', loginLimiter)
 app.use('/api/documents', uploadLimiter)

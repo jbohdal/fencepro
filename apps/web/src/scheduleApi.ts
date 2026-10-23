@@ -3,7 +3,7 @@
  * Mirrors savedQuotesApi.ts pattern. Account scoped on the server.
  */
 
-import { getAccessToken, fetchWithAuth } from './crmAuth'
+import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { plainError, plainThrown } from './plainError'
@@ -48,12 +48,12 @@ export interface RainDayRecord {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
-  const token = getAccessToken()
+  const token = isSignedIn()
   if (!token) return { ok: false, error: 'Not authenticated' }
   try {
     const res = await fetchWithAuth(`${AUTH_API}/api/schedule${path}`, {
       method,
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     })
     if (res.status === 401) return { ok: false, error: plainError(401).message }
@@ -122,62 +122,4 @@ export async function appendRainDay(payload: Omit<RainDayRecord, 'id' | 'account
 export async function syncRainLog(entries: any[]): Promise<{ created: number; total: number } | null> {
   const r = await call<{ created: number; total: number }>('POST', '/rain-log/sync', { entries })
   return r.ok ? (r.data || null) : null
-}
-
-const SCHEDULE_MIGRATION_FLAG = 'fencepro_schedule_db_migrated_v1'
-
-export async function migrateLocalScheduleOnce(): Promise<void> {
-  if (localStorage.getItem(SCHEDULE_MIGRATION_FLAG) === '1') return
-  const token = getAccessToken()
-  if (!token) return
-  try {
-    // Settings
-    try {
-      const raw = localStorage.getItem('fencepro_schedule')
-      const blob = raw ? JSON.parse(raw) : null
-      if (blob?.settings) {
-        const current = await fetchScheduleSettings()
-        await saveScheduleSettings({
-          workDays: Array.isArray(blob.settings.workDays) ? blob.settings.workDays : [1, 2, 3, 4],
-          crews: Array.isArray(blob.settings.crews) ? blob.settings.crews : [],
-        }, (current as { version?: number } | null)?.version ?? 0)
-      }
-      if (Array.isArray(blob?.jobs) && blob.jobs.length > 0) {
-        await syncScheduledJobs(blob.jobs.map((j: any) => ({
-          id: j.id,
-          stagingJobId: j.stagingJobId || undefined,
-          clientName: j.clientName || '',
-          area: j.area || '',
-          sections: j.sections || 0,
-          fenceType: j.fenceType || '',
-          jobPrice: j.jobPrice || 0,
-          tearout: !!j.tearout,
-          crewId: j.crewId || '',
-          date: j.date || '',
-          notes: j.notes || '',
-          status: ['Scheduled', 'In Progress', 'Complete', 'Rain Day', 'Rolled Over'].includes(j.status)
-            ? (j.status === 'In Progress' ? 'InProgress' : j.status === 'Rain Day' ? 'RainDay' : j.status === 'Rolled Over' ? 'RolledOver' : j.status)
-            : 'Scheduled',
-        })))
-      }
-    } catch {}
-    // Rain log
-    try {
-      const raw = localStorage.getItem('fencepro_rainlog')
-      const log = raw ? JSON.parse(raw) : []
-      if (Array.isArray(log) && log.length > 0) {
-        await syncRainLog(log.map((e: any) => ({
-          jobId: e.jobId || '',
-          clientName: e.clientName || '',
-          originalDate: e.originalDate || '',
-          rescheduleDate: e.rescheduleDate || '',
-          reason: e.reason || '',
-          flaggedAt: e.flaggedAt || new Date().toISOString(),
-        })))
-      }
-    } catch {}
-    localStorage.setItem(SCHEDULE_MIGRATION_FLAG, '1')
-    try { localStorage.removeItem('fencepro_schedule') } catch {}
-    try { localStorage.removeItem('fencepro_rainlog') } catch {}
-  } catch {}
 }

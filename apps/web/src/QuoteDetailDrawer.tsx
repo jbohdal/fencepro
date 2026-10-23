@@ -363,10 +363,7 @@ function SendQuoteModal({ quote, onClose, onSent }: { quote: SavedQuote; onClose
 function SendQuoteForm({ quote, shareUrl, onClose, onSent }: { quote: SavedQuote; shareUrl: string; onClose: () => void; onSent: () => void }) {
   const tpl = getEmailTemplate('quote_sent')
 
-  const company = useMemo(() => {
-    try { const r = localStorage.getItem('fencepro_config'); if (r) return JSON.parse(r).company || {} } catch {}
-    return {}
-  }, [])
+  const company = useMemo((): any => getConfig().company || {}, [])
 
   const mergeData: Record<string, string> = {
     customer_name: quote.customerName,

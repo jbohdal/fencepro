@@ -14,7 +14,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { sendJson } from './syncHttp'
-import { getAccessToken } from './crmAuth'
+import { currentUser } from './crmAuth'
 import { registerKind, enqueue, allOps, reapply, subscribe as onOutbox } from './outbox'
 import { newId } from './recordSync'
 import { getPipeline, PIPELINE_UPDATED_EVENT } from './pipelineStore'
@@ -401,9 +401,6 @@ export async function checkServerPending(): Promise<void> {
 // ── Who is signed in (from the sign in) ─────────────────────────────────────
 
 export function myName(): string {
-  try {
-    const t = getAccessToken()
-    const p = t ? JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) : null
-    return `${p?.firstName ?? ''} ${p?.lastName ?? ''}`.trim()
-  } catch { return '' }
+  const p = currentUser()
+  return `${p?.firstName ?? ''} ${p?.lastName ?? ''}`.trim()
 }

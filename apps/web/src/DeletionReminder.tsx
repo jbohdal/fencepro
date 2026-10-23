@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { getAccessToken, fetchWithAuth } from './crmAuth'
+import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { toast } from './toast'
 
@@ -24,9 +24,8 @@ export default function DeletionReminder() {
 
   useEffect(() => {
     let live = true
-    const token = getAccessToken()
-    if (!token) return
-    fetchWithAuth(`${API}/api/scheduled-deletions`, { headers: { Authorization: `Bearer ${token}` } })
+    if (!isSignedIn()) return
+    fetchWithAuth(`${API}/api/scheduled-deletions`)
       .then(r => (r.ok ? r.json() : null))
       .then(j => { if (live && j?.success) { setRows(j.data); setToday(j.today) } })
       .catch(() => { /* the reminder simply does not show */ })
@@ -34,7 +33,7 @@ export default function DeletionReminder() {
   }, [])
 
   async function keep(id: string) {
-    const r = await fetchWithAuth(`${API}/api/scheduled-deletions/${id}/cancel`, { method: 'POST', headers: { Authorization: `Bearer ${getAccessToken()}` } }).catch(() => null)
+    const r = await fetchWithAuth(`${API}/api/scheduled-deletions/${id}/cancel`, { method: 'POST' }).catch(() => null)
     if (r?.ok) { setRows(rs => rs.filter(x => x.id !== id)); toast.success('Kept', 'Nothing will be deleted.') }
     else toast.error('Could not cancel', 'Check the connection and try again.')
   }

@@ -2,6 +2,13 @@
  * A real sign in session on the PRACTICE database, for the browser tests.
  *
  *   cd apps/portal && npx tsx scripts/dev-session-token.ts --out <file> [--email you@x.com] [--days 7]
+ *   cd apps/portal && npx tsx scripts/dev-session-token.ts --cookie --out <file> [--email you@x.com] [--days 7]
+ *
+ * --cookie: a cookie sign in instead (lib/staffSession.ts): writes the value
+ * of the `ezbiz_staff` cookie, for E2E_STAFF_COOKIE (e2e/lib.mjs
+ * signInByCookie). That is how the browser tests sign in once the old token
+ * is switched off (stage D). Without it: the old access token (E2E_ACCESS_TOKEN),
+ * which the app moves over to a cookie on its first load.
  *
  * Makes a CrmUserSession row on ezbiz_dev (its refresh token is random and
  * thrown away) and writes an access token that names it (`sid`, see
@@ -20,6 +27,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { liveDatabaseMisuse, databaseNameOf } from '../src/server/lib/liveGuard.js'
 import { resolveSecret } from '../src/server/lib/secrets.js'
+import { cookieHash } from '../src/server/lib/staffSession.js'
 
 const argv = process.argv.slice(2)
 const opt = (n: string) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : undefined }
@@ -43,6 +51,13 @@ async function main() {
       : await prisma.crmUser.findFirst({ where: { role: 'super_admin', status: 'active' }, orderBy: { createdAt: 'asc' } })
     if (!user || user.status === 'deactivated') { console.error(`No active login${email ? ` for ${email}` : ' with the owner role'} on ezbiz_dev.`); process.exit(1) }
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    if (argv.includes('--cookie')) {
+      const value = crypto.randomBytes(32).toString('base64url')
+      const s = await prisma.crmUserSession.create({ data: { userId: user.id, tokenHash: cookieHash(value), kind: 'cookie', lastUsedAt: new Date(), ipAddress: '127.0.0.1', userAgent: 'dev-session-token --cookie (browser tests)', expiresAt } })
+      if (out) { fs.writeFileSync(out, value + '\n', { mode: 0o600 }); console.log(`Wrote a ${days} day dev cookie sign in for ${user.email} (session ${s.id.slice(0, 8)}) to ${out}.`) }
+      else console.log(value)
+      return
+    }
     const session = await prisma.crmUserSession.create({
       data: {
         userId: user.id,

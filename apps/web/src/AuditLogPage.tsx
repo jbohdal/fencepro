@@ -7,7 +7,7 @@
  */
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { getAccessToken, fetchWithAuth } from './crmAuth'
+import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { plainText } from './plainError'
 import { businessDate } from './businessDate'
@@ -58,8 +58,7 @@ export default function AuditLogPage() {
   }, [user, entityType, action, since, until, offset])
 
   async function load() {
-    const token = getAccessToken()
-    if (!token) { setError('Not authenticated'); return }
+    if (!isSignedIn()) { setError('Not authenticated'); return }
     setLoading(true); setError(null)
     try {
       const res = await fetchWithAuth(`${API_BASE}/api/admin/audit-log?${queryString}`)
@@ -77,13 +76,9 @@ export default function AuditLogPage() {
   useEffect(() => { load() }, [queryString])
 
   function exportCsv() {
-    const token = getAccessToken()
-    if (!token) return
-    // Open in new tab — server returns the CSV with Content-Disposition
-    const a = document.createElement('a')
-    a.href = `${API_BASE}/api/admin/audit-log.csv?${queryString}`
-    // We need to send the auth header — easiest is fetch + blob
-    fetch(a.href, { headers: { Authorization: `Bearer ${token}` } })
+    if (!isSignedIn()) return
+    // The CSV comes with the sign in cookie, then is saved from a blob.
+    fetchWithAuth(`${API_BASE}/api/admin/audit-log.csv?${queryString}`)
       .then(r => r.blob())
       .then(blob => {
         const url = URL.createObjectURL(blob)

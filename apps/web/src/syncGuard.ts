@@ -12,7 +12,7 @@
  */
 
 import { toast } from './toast'
-import { fetchWithAuth, getAccessToken } from './crmAuth'
+import { fetchWithAuth, isSignedIn } from './crmAuth'
 import { createVersionedDoc, type SaveResult, type PushResult } from './versionedDoc'
 import { merge3 } from './merge3'
 import { registerKind, enqueue, pendingFor } from './outbox'
@@ -201,7 +201,7 @@ export function createVersionedFlusher<T>(opts: {
  * current copy, shaped by `pick`.
  */
 export async function versionedSave<T>(url: string, method: 'PUT' | 'PATCH', body: Record<string, unknown>, baseVersion: number, pick: (data: any) => T): Promise<SaveResult<T>> {
-  if (!getAccessToken()) return { status: 'failed' }
+  if (!isSignedIn()) return { status: 'failed' }
   try {
     const res = await fetchWithAuth(url, {
       method,
@@ -220,16 +220,4 @@ export async function versionedSave<T>(url: string, method: 'PUT' | 'PATCH', bod
     const version = typeof json.version === 'number' ? json.version : json.data?.version
     return typeof version === 'number' ? { status: 'saved', version } : { status: 'failed' }
   } catch { return { status: 'failed' } }
-}
-
-/**
- * Moving old browser only data (from before the database existed) up to the
- * server is OFF unless it is switched on in this browser. EZ Biz starts from
- * a clean database; old test data sitting in a browser should not flow into
- * it by surprise. To switch it on for one browser, run in the console:
- *   localStorage.setItem('ezbiz_migrate_legacy_local_data', '1')
- * While it is off the old browser data is left exactly where it is.
- */
-export function legacyMigrationEnabled(): boolean {
-  try { return localStorage.getItem('ezbiz_migrate_legacy_local_data') === '1' } catch { return false }
 }

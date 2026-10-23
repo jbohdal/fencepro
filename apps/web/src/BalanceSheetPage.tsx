@@ -14,6 +14,7 @@ import { getInvoices } from './billingStore'
 import { getBills } from './vendorStore'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
+import { getConfig } from './configStore'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -364,10 +365,7 @@ function exportBsPdf(ctx: {
   totalCurrentLiabilities: number; totalLongTermLiabilities: number; totalLiabilities: number;
   totalEquity: number; totalLiabEquity: number; diff: number; balanced: boolean;
 }) {
-  const company = (() => {
-    try { const raw = localStorage.getItem('fencepro_config'); if (raw) { const c = JSON.parse(raw); return c.company?.name || 'Getter Done Fence' } } catch {}
-    return 'Getter Done Fence'
-  })()
+  const company = getConfig().company?.name || 'Getter Done Fence'
   const rows = (items: BalanceSheetEntry[]) => items.map(e => `<tr><td>${e.label}</td><td class="amt">${fmt(e.amountCents)}</td></tr>`).join('')
 
   const html = `

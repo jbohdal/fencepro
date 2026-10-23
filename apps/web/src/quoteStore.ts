@@ -13,12 +13,10 @@
 
 import {
   listSavedQuotes,
-  migrateLocalQuotesOnce,
   type SavedQuoteRecord,
   type SavedQuotePayload,
 } from './savedQuotesApi'
 import type { SavedQuote } from './QuotesPage'
-import { legacyMigrationEnabled } from './syncGuard'
 import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, pendingFor, type Op } from './outbox'
 import { sendJson } from './syncHttp'
@@ -26,7 +24,6 @@ import { businessDate } from './businessDate'
 import { toast } from './toast'
 
 const EVT = 'fencepro:quotes:updated'
-const LEGACY_KEY = 'fencepro_quotes'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -134,16 +131,12 @@ function emit() {
 }
 
 /**
- * Hydrate the in memory cache from /api/saved-quotes. Idempotent. Pushes any
- * legacy localStorage records via migrateLocalQuotesOnce first, then fetches
- * the canonical list, then drops the legacy localStorage blob.
+ * Hydrate the in memory cache from /api/saved-quotes. Idempotent.
  */
 export function initQuotes(): Promise<void> {
   if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    const migrate = legacyMigrationEnabled()
-    if (migrate) { try { await migrateLocalQuotesOnce() } catch {} }
     const records = await listSavedQuotes()
     if (!records) return
     cache = records.map(fromApi)
@@ -152,7 +145,6 @@ export function initQuotes(): Promise<void> {
     // Quotes saved on this phone and not on the server yet.
     reapply('quote.')
     emit()
-    if (migrate) { try { localStorage.removeItem(LEGACY_KEY) } catch {} }
   })().finally(() => { if (!hydrated) initPromise = null })
   return initPromise
 }

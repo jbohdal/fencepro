@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
-import { getAccessToken, fetchWithAuth } from './crmAuth'
+import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { navigate } from './nav'
 import { toast } from './toast'
@@ -17,7 +17,7 @@ const API = window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
 interface Item { key: string; label: string; done: boolean; detail: string; link?: string; answer?: Array<{ label: string; value: string }> }
 
 async function get<T>(path: string): Promise<T | null> {
-  const r = await fetchWithAuth(`${API}${path}`, { headers: { Authorization: `Bearer ${getAccessToken()}` } }).catch(() => null)
+  const r = await fetchWithAuth(`${API}${path}`, {}).catch(() => null)
   if (!r?.ok) return null
   const j = await r.json().catch(() => null)
   return j?.success ? (j.data as T) : null
@@ -45,7 +45,7 @@ export function DuplicateWarning() {
   useEffect(() => { load() }, [])
   async function fine(key: string) {
     setBusy(key)
-    const r = await fetchWithAuth(`${API}/api/system/duplicates/dismiss`, { method: 'POST', headers: { Authorization: `Bearer ${getAccessToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) }).catch(() => null)
+    const r = await fetchWithAuth(`${API}/api/system/duplicates/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) }).catch(() => null)
     setBusy('')
     if (r?.ok) setList(l => (l ?? []).filter(f => f.key !== key)); else toast.error('Not saved', 'Check the connection and try again.')
   }
@@ -72,7 +72,7 @@ export default function FinishSetup() {
   useEffect(() => { load() }, [])
 
   async function answer(key: string, value: string) {
-    const r = await fetchWithAuth(`${API}/api/system/setup`, { method: 'POST', headers: { Authorization: `Bearer ${getAccessToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) }).catch(() => null)
+    const r = await fetchWithAuth(`${API}/api/system/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) }).catch(() => null)
     if (r?.ok) { toast.success('Saved'); load() } else toast.error('Not saved', 'Check the connection and try again.')
   }
 

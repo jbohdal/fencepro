@@ -6,10 +6,16 @@
  * phone only after the Mac has all of it.
  *
  * Like the voice outbox, this is browser storage by request: a capture must
- * survive no signal and the app being closed.
+ * survive no signal and the app being closed. It is one of the offline queues
+ * Jonathan allowed (answer 1 of the sign in plan): encrypted at rest (vault.ts;
+ * the file in 2 MB sealed pieces, its details sealed apart), holding only what
+ * has not reached the server, each capture deleted once the server has it.
+ * A capture belongs to the person who took it: it uploads only while that
+ * person is signed in on this phone.
  */
 
-import { fetchWithAuth } from './crmAuth'
+import { fetchWithAuth, signedInUserId } from './crmAuth'
+import { sealJson, openJson, sealBlob, openBlob, vaultAvailable, type SealedPiece } from './vault'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 
 const ORIGIN = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
@@ -69,6 +75,8 @@ export interface LocalMedia<M = MediaMeta> {
   /** Set once the Mac has it; the record is then removed. */
   serverId?: string | null
   error?: string | null
+  /** The login that took it; it uploads only under that login. Older captures have none (anyone's). */
+  owner?: string | null
 }
 
 export interface ServerMedia extends Omit<MediaMeta, 'takenAt'> {
@@ -90,7 +98,7 @@ export interface ServerMedia extends Omit<MediaMeta, 'takenAt'> {
 
 export const MEDIA_EVENT = 'ezbiz:media-outbox'
 
-// ── IndexedDB ─────────────────────────────────────────────────────────────────
+// ── IndexedDB (sealed, vault.ts) ──────────────────────────────────────────────
 
 function db(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -110,28 +118,81 @@ async function store<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDB
     t.onabort = t.onerror = () => reject(t.error ?? r.error ?? new Error('The phone did not keep it.'))
   })
 }
-/** As kept on the phone: a photo as it is, or (where the phone refuses that) its bytes. */
 type AnyMeta = MediaMeta | InvoiceFileMeta
-type Stored = LocalMedia<AnyMeta> & { bytes?: ArrayBuffer; type?: string; markupBytes?: ArrayBuffer; markupType?: string }
-const revive = (m: Stored): LocalMedia<AnyMeta> => ({
+/** Everything but the file, sealed together. */
+type Head = Omit<LocalMedia<AnyMeta>, 'blob' | 'markupBlob'> & { type: string; markupType?: string | null }
+/** As kept on the phone: only the id in the clear; the details and the file (in pieces) sealed. */
+type SealedRow = { clientId: string; v: 2; head: ArrayBuffer; pieces: SealedPiece[]; markup?: SealedPiece[] | null }
+/** Kept by a version before encryption: the photo as it is, or its bytes. Sealed on the next read. */
+type PlainRow = LocalMedia<AnyMeta> & { bytes?: ArrayBuffer; type?: string; markupBytes?: ArrayBuffer; markupType?: string }
+type Row = SealedRow | PlainRow
+const isSealed = (r: Row): r is SealedRow => (r as SealedRow).v === 2
+
+/** Opened files, for this visit only (in memory), so a big video is not opened again on every look. */
+const opened = new Map<string, { blob: Blob; markupBlob: Blob | null }>()
+
+async function seal(m: LocalMedia<AnyMeta>, keep?: SealedRow): Promise<SealedRow> {
+  const { blob, markupBlob, ...rest } = m
+  const head: Head = { ...rest, type: blob.type, markupType: markupBlob?.type ?? null }
+  const sealHead = await sealJson(head)
+  const pieces = keep?.pieces ?? await sealBlob(blob, CHUNK)
+  const markup = markupBlob ? (keep && opened.get(m.clientId)?.markupBlob === markupBlob ? keep.markup ?? null : await sealBlob(markupBlob, CHUNK)) : null
+  return { clientId: m.clientId, v: 2, head: sealHead, pieces, markup }
+}
+
+async function openRow(r: SealedRow, withFile: boolean): Promise<LocalMedia<AnyMeta>> {
+  const head = await openJson<Head>(r.head)
+  const { type, markupType, ...rest } = head
+  let files = opened.get(r.clientId)
+  if (!files && withFile) {
+    files = { blob: await openBlob(r.pieces, type), markupBlob: r.markup?.length ? await openBlob(r.markup, markupType || 'image/jpeg') : null }
+    opened.set(r.clientId, files)
+  }
+  return { ...rest, blob: files?.blob ?? new Blob([], { type }), markupBlob: files?.markupBlob ?? null } as LocalMedia<AnyMeta>
+}
+
+const revivePlain = (m: PlainRow): LocalMedia<AnyMeta> => ({
   ...m,
   blob: m.bytes ? new Blob([m.bytes], { type: m.type }) : m.blob,
   markupBlob: m.markupBytes ? new Blob([m.markupBytes], { type: m.markupType }) : m.markupBlob,
 })
-const all = () => store<Stored[]>('readonly', s => s.getAll() as IDBRequest<Stored[]>).then(l => l.map(revive)).catch(() => [] as LocalMedia<AnyMeta>[])
-async function put(m: LocalMedia<AnyMeta>): Promise<void> {
+
+async function writeRow(row: SealedRow): Promise<void> {
   try {
-    await store('readwrite', s => s.put(m))
+    await store('readwrite', s => s.put(row))
   } catch {
-    // Some phones (Safari in a private window) will not keep a photo as it is; they keep its bytes.
-    const flat: Stored = {
-      ...m, blob: null as unknown as Blob, bytes: await m.blob.arrayBuffer(), type: m.blob.type,
-      ...(m.markupBlob ? { markupBlob: null, markupBytes: await m.markupBlob.arrayBuffer(), markupType: m.markupBlob.type } : {}),
-    }
-    await store('readwrite', s => s.put(flat))
+    // Some phones (Safari in a private window) will not keep a Blob; they keep the sealed bytes.
+    const flat = (list: SealedPiece[]) => Promise.all(list.map(p => (p instanceof Blob ? p.arrayBuffer() : p)))
+    const bytes: SealedRow = { ...row, pieces: await flat(row.pieces), markup: row.markup ? await flat(row.markup) : null }
+    await store('readwrite', s => s.put(bytes))
   }
 }
-const remove = (id: string) => store('readwrite', s => s.delete(id))
+
+/** Every capture waiting, with its file opened when asked (`withFile`). Old plain ones are sealed now. */
+async function readAll(withFile: boolean): Promise<LocalMedia<AnyMeta>[]> {
+  const rows = await store<Row[]>('readonly', s => s.getAll() as IDBRequest<Row[]>).catch(() => [] as Row[])
+  const out: LocalMedia<AnyMeta>[] = []
+  for (const r of rows) {
+    try {
+      if (isSealed(r)) out.push(await openRow(r, withFile))
+      else {
+        const m = revivePlain(r)
+        await writeRow(await seal(m))
+        opened.set(m.clientId, { blob: m.blob, markupBlob: m.markupBlob ?? null })
+        out.push(m)
+      }
+    } catch { console.warn('[media] a waiting capture could not be opened on this phone') }
+  }
+  return out
+}
+const all = (withFile = true) => readAll(withFile).catch(() => [] as LocalMedia<AnyMeta>[])
+
+async function put(m: LocalMedia<AnyMeta>): Promise<void> {
+  if (!vaultAvailable()) throw new Error('This browser cannot keep photos safely on the phone. Upload with signal, or use the installed app.')
+  await writeRow(await seal(m))
+  opened.set(m.clientId, { blob: m.blob, markupBlob: m.markupBlob ?? null })
+}
+const remove = async (id: string) => { await store('readwrite', s => s.delete(id)); opened.delete(id) }
 const notify = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event(MEDIA_EVENT)) }
 
 function newClientId(): string {
@@ -140,7 +201,7 @@ function newClientId(): string {
 
 /** Save a capture on the phone right away, then upload in the background. */
 export async function addCapture<M extends AnyMeta = MediaMeta>(blob: Blob, meta: M): Promise<LocalMedia<M>> {
-  const m: LocalMedia<M> = { clientId: newClientId(), meta, blob, size: blob.size, sent: 0, createdAt: Date.now() }
+  const m: LocalMedia<M> = { clientId: newClientId(), meta, blob, size: blob.size, sent: 0, createdAt: Date.now(), owner: signedInUserId() }
   await put(m)
   // Ask the phone not to clear this app's storage when it runs low.
   navigator.storage?.persist?.().catch(() => {})
@@ -151,10 +212,15 @@ export async function addCapture<M extends AnyMeta = MediaMeta>(blob: Blob, meta
 
 /** Change a capture still on the phone (caption, pin, markup …). */
 export async function updateLocal(clientId: string, patch: Partial<Pick<LocalMedia, 'meta' | 'markupBlob'>>): Promise<void> {
-  const raw = await store<Stored | undefined>('readonly', s => s.get(clientId) as IDBRequest<Stored | undefined>).catch(() => undefined)
-  const m = raw ? revive(raw) : undefined
-  if (!m || m.meta.kind === 'invoice') return
-  await put({ ...m, ...patch, meta: { ...m.meta, ...(patch.meta ?? {}) } as MediaMeta })
+  const raw = await store<Row | undefined>('readonly', s => s.get(clientId) as IDBRequest<Row | undefined>).catch(() => undefined)
+  if (!raw) return
+  const m = isSealed(raw) ? await openRow(raw, !!patch.markupBlob) : revivePlain(raw)
+  if (m.meta.kind === 'invoice') return
+  const next = { ...m, ...patch, meta: { ...m.meta, ...(patch.meta ?? {}) } as MediaMeta }
+  // The file's sealed pieces are kept as they are: only the details (and a new markup) are sealed again.
+  await writeRow(await seal(next, isSealed(raw) ? raw : undefined))
+  const files = opened.get(clientId)
+  if (files && patch.markupBlob !== undefined) opened.set(clientId, { ...files, markupBlob: patch.markupBlob ?? null })
   notify()
 }
 
@@ -174,8 +240,9 @@ export async function localInvoiceFiles(): Promise<LocalMedia<InvoiceFileMeta>[]
   return (await all()).filter((m): m is LocalMedia<InvoiceFileMeta> => !m.serverId && m.meta.kind === 'invoice')
 }
 
-export async function waitingCount(): Promise<number> {
-  return (await all()).filter(m => !m.serverId).length
+/** Captures waiting on this phone (for one person, or anyone's). */
+export async function waitingCount(owner?: string | null): Promise<number> {
+  return (await all(false)).filter(m => !m.serverId && (!owner || !m.owner || m.owner === owner)).length
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────────
@@ -195,7 +262,10 @@ export async function uploadAll(): Promise<void> {
   if (running || (typeof navigator !== 'undefined' && navigator.onLine === false)) return
   running = true
   try {
-    for (const m of (await all()).filter(x => !x.serverId).sort((a, b) => a.createdAt - b.createdAt)) {
+    // Only while someone is signed in, and only that person's captures (and older ones with no owner).
+    const me = signedInUserId()
+    if (!me) return
+    for (const m of (await all()).filter(x => !x.serverId && (!x.owner || x.owner === me)).sort((a, b) => a.createdAt - b.createdAt)) {
       if (!(await uploadOne(m))) break
     }
   } finally {

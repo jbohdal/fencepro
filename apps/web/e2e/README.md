@@ -19,6 +19,16 @@ scripts refuse to run unless both URLs are localhost.
 | `dispatch.mjs` | Dispatch map pins at desktop and phone sizes: each pin in its Operations stage color (Settings, by stage id), a crew's ring color and initials (by crew id or by name), the customer's initials with a dashed ring when there is no crew, never "?", and the legend (folded on a phone). Writes nothing (crews are added to the job list on its way into the page). Dev copy only. |
 | `appointments.mjs` | Appointments at desktop and phone sizes: booking from the customer page, a pipeline card and the global button (with the confirmation offer), a drop into the Appointment column opening booking, dragging to reschedule on the week view (reason and old time kept), and the phone Today screen: On my way text, Navigate, Complete with Ready to quote landing in a quote with the property and measurements, and the pipeline card moving. Dev copy only, like `kanban-drag.mjs`. |
 
+## Signing in (since Oct 2026: the `ezbiz_staff` cookie)
+
+The app keeps no sign in in browser storage. New tests sign a context in with
+`signInByCookie(ctx)` from `lib.mjs`: a cookie made with
+`npx tsx scripts/dev-session-token.ts --cookie --out <file>` (E2E_STAFF_COOKIE),
+a password, or the old E2E_ACCESS_TOKEN moved over once. Older suites that put
+E2E_ACCESS_TOKEN in localStorage still work until stage D: the app moves it
+over to a cookie on its first load. `staff-signin.mjs` covers the sign in
+itself on desktop Chrome, WebKit (iPhone size) and the Android emulator.
+
 ## Running them
 
 1. A local Postgres with an empty database, and the server pointed at it:

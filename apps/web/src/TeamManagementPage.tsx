@@ -28,8 +28,14 @@ interface TeamUser {
 interface Session {
   id: string; userId: string; ipAddress?: string; userAgent?: string
   createdAt: string; expiresAt: string
+  /** null: the old app token; 'cookie': signed in by cookie; 'readonly': the Mac's read only checker. */
+  kind?: string | null; lastUsedAt?: string | null; readOnly?: boolean; label?: string | null
+  /** When it ends if not used again (cookie: 30 days after last use, 90 at most). */
+  endsAt?: string; current?: boolean
   user: { firstName: string; lastName: string; email: string }
 }
+
+const when = (d?: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
 
 const ROLES = [
   { value: 'admin', label: 'Admin', desc: 'Full access to all features', color: 'bg-red-100 text-red-700' },
@@ -77,8 +83,10 @@ export default function TeamManagementPage() {
   }, [tab])
 
   async function revokeSession(id: string) {
-    await api(`/sessions/${id}`, { method: 'DELETE' })
-    setSessions(s => s.filter(x => x.id !== id))
+    try {
+      await api(`/sessions/${id}`, { method: 'DELETE' })
+      setSessions(s => s.filter(x => x.id !== id))
+    } catch (err) { alert(plainText(err)) }
   }
 
   return (
@@ -170,15 +178,21 @@ export default function TeamManagementPage() {
           ) : (
             <div className="divide-y divide-gray-50">
               {sessions.map(s => (
-                <div key={s.id} className="px-4 lg:px-6 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+                <div key={s.id} data-session-row={s.id} data-session-kind={s.kind ?? 'token'} className="px-4 lg:px-6 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{s.user.firstName} {s.user.lastName}</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {s.user.firstName} {s.user.lastName}
+                      {s.current && <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">This device</span>}
+                      {s.kind === 'readonly' && <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700" data-readonly-session>{s.label || 'Read only checker on the Mac'}</span>}
+                      {!s.kind && <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Old sign in (moves over on next open)</span>}
+                    </p>
                     <p className="text-xs text-gray-500">{s.user.email} · {s.ipAddress || 'Unknown IP'}</p>
                     <p className="text-xs text-gray-400">{s.userAgent?.slice(0, 60) || 'Unknown device'}</p>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-gray-400">{new Date(s.createdAt).toLocaleString()}</span>
-                    <button onClick={() => revokeSession(s.id)} className="text-xs text-red-600 hover:text-red-800 px-2 py-1 border border-red-200 rounded-lg hover:bg-red-50">Revoke</button>
+                  <div className="flex flex-col lg:items-end gap-1">
+                    <span className="text-xs text-gray-500">Signed in {when(s.createdAt)}{s.lastUsedAt ? ` · last used ${when(s.lastUsedAt)}` : ''}</span>
+                    <span className="text-xs text-gray-500" data-session-ends>{s.kind === 'readonly' ? 'Read only, ends' : 'Ends if not used by'} {when(s.endsAt ?? s.expiresAt)}</span>
+                    <button onClick={() => revokeSession(s.id)} data-end-session={s.id} className="self-start lg:self-end text-xs text-red-600 hover:text-red-800 px-2 py-1 min-h-[36px] border border-red-200 rounded-lg hover:bg-red-50">{s.current ? 'Sign this device out' : 'End this sign in'}</button>
                   </div>
                 </div>
               ))}

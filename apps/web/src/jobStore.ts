@@ -1,5 +1,4 @@
 import type { SavedQuote } from './QuotesPage'
-import { legacyMigrationEnabled } from './syncGuard'
 import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, pendingFor, type Op } from './outbox'
 import { sendJson } from './syncHttp'
@@ -9,7 +8,6 @@ import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
 import { getQuoteById } from './quoteStore'
 import {
   listSavedJobs,
-  migrateLocalJobsOnce,
   type SavedJobRecord,
 } from './savedJobsApi'
 import { businessDate } from './businessDate'
@@ -101,7 +99,6 @@ export interface Job {
 
 /* ───────── helpers ───────── */
 
-const LEGACY_KEY = 'fencepro_jobs'
 const EVT = 'fencepro:jobs:updated'
 const uid = () => Math.random().toString(36).slice(2, 9)
 
@@ -218,8 +215,6 @@ export function initJobs(): Promise<void> {
   if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    const migrate = legacyMigrationEnabled()
-    if (migrate) { try { await migrateLocalJobsOnce() } catch {} }
     const records = await listSavedJobs()
     if (!records) return
     cache = records.map(fromApi)
@@ -228,7 +223,6 @@ export function initJobs(): Promise<void> {
     // Jobs made or changed on this phone and not on the server yet.
     reapply('job.')
     emit()
-    if (migrate) { try { localStorage.removeItem(LEGACY_KEY) } catch {} }
   })().finally(() => { if (!hydrated) initPromise = null })
   return initPromise
 }

@@ -9,7 +9,7 @@
  * screen takes the server's copy; nothing is merged over someone else's change.
  */
 
-import { getAccessToken, fetchWithAuth } from './crmAuth'
+import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import type { Appointment, AppointmentOutcome, AppointmentStatus, AppointmentType } from './appointmentLogic'
@@ -30,7 +30,7 @@ let initPromise: Promise<void> | null = null
 function emit() { try { window.dispatchEvent(new CustomEvent(APPOINTMENTS_UPDATED)) } catch { /* no window */ } }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status: number; data?: T; version?: number; error?: string }> {
-  if (!getAccessToken()) return { ok: false, status: 401, error: 'Not signed in' }
+  if (!isSignedIn()) return { ok: false, status: 401, error: 'Not signed in' }
   try {
     const res = await fetchWithAuth(`${URL_BASE}${path}`, {
       method,

@@ -37,7 +37,9 @@ const results = []
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  -- ' + detail : ''}`) }
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `dev-salesman-${name}.png`) }) }
 const call = async (token, method, p, body) => {
-  const r = await fetch(`${API}${p}`, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+  // 'cookie:<value>': signed in as the app is, by the ezbiz_staff cookie (with the app header every save carries).
+  const auth = token.startsWith('cookie:') ? { Cookie: `ezbiz_staff=${token.slice(7)}`, 'X-Staff-Request': '1' } : { Authorization: `Bearer ${token}` }
+  const r = await fetch(`${API}${p}`, { method, headers: { ...auth, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
   return { status: r.status, json: await r.json().catch(() => ({})) }
 }
 const owner = (m, p, b) => call(OWNER, m, p, b)
@@ -101,7 +103,8 @@ try {
   const refused = []
   watch(sp, refused); await noAutomations(sp)
   let token = ''
-  sp.on('request', r => { const a = r.headers()['authorization']; if (a && r.url().startsWith(API)) token = a.replace(/^Bearer /, '') })
+  let sentHeader = false
+  sp.on('request', r => { if (r.headers()['authorization'] && r.url().startsWith(API)) sentHeader = true })
   await sp.goto(`${APP}${u.pathname}${u.search}`, { waitUntil: 'domcontentloaded' })
   await sp.locator('button:has-text("Set Password & Sign In")').waitFor({ timeout: 30000 })
   await shot(sp, 'desktop-set-password')
@@ -111,7 +114,9 @@ try {
   await sp.locator('button:has-text("Set Password & Sign In")').click()
   await sp.waitForSelector('[data-global-appointment]', { timeout: 60000 })
   await sleep(1500)
-  check('accept invite: signed in straight away', !!token)
+  const jar = (await sc.cookies(`${API}/api/`)).find(c => c.name === 'ezbiz_staff')
+  if (jar) token = `cookie:${jar.value}`
+  check('accept invite: signed in straight away, by the HttpOnly cookie (no login header, nothing in storage)', !!jar && jar.httpOnly && !sentHeader && !(await sp.evaluate(() => Object.keys(localStorage).some(k => /crm_|token/.test(k)))))
 
   // ── 2. The menu ──
   const navItems = (await sp.locator('.sidebar-desktop nav button').allInnerTexts()).map(t => t.trim()).filter(Boolean)

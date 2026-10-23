@@ -13,6 +13,7 @@ import {
 } from './vendorStore'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
+import { getConfig } from './configStore'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -289,10 +290,7 @@ function exportAgingCsv(aging: ReturnType<typeof getVendorAging>) {
 }
 
 function exportAgingPdf(aging: ReturnType<typeof getVendorAging>, summary: ReturnType<typeof getAPSummary>) {
-  const company = (() => {
-    try { const raw = localStorage.getItem('fencepro_config'); if (raw) { const c = JSON.parse(raw); return c.company?.name || 'Getter Done Fence' } } catch {}
-    return 'Getter Done Fence'
-  })()
+  const company = getConfig().company?.name || 'Getter Done Fence'
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>AP Aging Report</title>
 <style>body{font-family:-apple-system,Segoe UI,sans-serif;padding:32px;color:#1f2937}h1{margin:0;font-size:20px}h2{margin:4px 0 16px;font-size:12px;color:#6b7280}.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:16px 0}.card{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.card .l{font-size:9px;color:#6b7280;text-transform:uppercase;font-weight:700}.card .v{font-size:16px;font-weight:700;margin-top:4px}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#f9fafb;padding:6px;font-size:9px;text-transform:uppercase;color:#6b7280;text-align:left;font-weight:700}td{padding:6px;border-bottom:1px solid #f3f4f6}td.r{text-align:right;font-variant-numeric:tabular-nums}tr.total td{font-weight:700;background:#f9fafb}</style></head><body>
 <h1>${company}</h1><h2>Accounts Payable Aging — ${new Date().toLocaleDateString()}</h2>

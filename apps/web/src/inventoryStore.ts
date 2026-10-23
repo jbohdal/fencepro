@@ -6,8 +6,8 @@
  * server, so spam-saves from the inventory page don't hammer the network.
  */
 
-import { getAccessToken, fetchWithAuth } from './crmAuth'
-import { createVersionedFlusher, versionedSave, legacyMigrationEnabled } from './syncGuard'
+import { isSignedIn, fetchWithAuth } from './crmAuth'
+import { createVersionedFlusher, versionedSave } from './syncGuard'
 import { setMaterialPriceSource, inventoryPriceSource } from './materialCalculator'
 import { cloudStorage } from './cloudStorage'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
@@ -17,7 +17,6 @@ import { setSavedKitSets, type KitSet } from './materialKits'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const INV_EVT = 'fencepro:inventory:updated'
-const INV_MIGRATION_FLAG = 'fencepro_inventory_db_migrated_v1'
 
 interface InventoryStateBlob {
   items: any[]
@@ -34,12 +33,12 @@ let invInitPromise: Promise<void> | null = null
 let invHydrated = false
 
 async function invCall<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T }> {
-  const token = getAccessToken()
+  const token = isSignedIn()
   if (!token) return { ok: false }
   try {
     const res = await fetchWithAuth(`${AUTH_API}/api/inventory-state`, {
       method,
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     })
     if (!res.ok) return { ok: false }
@@ -68,40 +67,13 @@ const invFlusher = createVersionedFlusher<InventoryStateBlob>({
 })
 function scheduleFlush() { invFlusher.schedule() }
 
-const INV_LEGACY_KEYS = ['fencepro_inventory', 'fencepro_bundles', 'fencepro_inv_locations', 'fencepro_inv_stock', 'fencepro_inv_transactions']
-
-/** Optional, opt in. Old browser data only moves up if the server has no inventory at all. */
-async function migrateLocalInventoryOnce(server: InventoryStateBlob, version: number): Promise<InventoryStateBlob | null> {
-  if (!legacyMigrationEnabled()) return null
-  if (localStorage.getItem(INV_MIGRATION_FLAG) === '1') return null
-  if (!getAccessToken()) return null
-  const serverHasData = server.items.length || server.bundles.length || server.locations.length || server.stockLevels.length || server.transactions.length
-  if (serverHasData) { localStorage.setItem(INV_MIGRATION_FLAG, '1'); return null }
-  try {
-    const blob: InventoryStateBlob = {
-      items: JSON.parse(localStorage.getItem('fencepro_inventory') || '[]'),
-      bundles: JSON.parse(localStorage.getItem('fencepro_bundles') || '[]'),
-      locations: JSON.parse(localStorage.getItem('fencepro_inv_locations') || '[]'),
-      stockLevels: JSON.parse(localStorage.getItem('fencepro_inv_stock') || '[]'),
-      transactions: JSON.parse(localStorage.getItem('fencepro_inv_transactions') || '[]'),
-      kits: [],
-    }
-    const hasData = blob.items.length || blob.bundles.length || blob.locations.length || blob.stockLevels.length || blob.transactions.length
-    if (!hasData) { localStorage.setItem(INV_MIGRATION_FLAG, '1'); return null }
-    const r = await invCall<InventoryStateBlob>('PUT', { ...blob, baseVersion: version })
-    if (!r.ok) return null
-    localStorage.setItem(INV_MIGRATION_FLAG, '1')
-    return blob
-  } catch { return null }
-}
-
 export function initInventory(): Promise<void> {
   if (invHydrated) return Promise.resolve()
   if (invInitPromise) return invInitPromise
   invInitPromise = (async () => {
     const r = await invCall<InventoryStateBlob>('GET')
     if (!r.ok || !r.data) return
-    let next: InventoryStateBlob = {
+    const next: InventoryStateBlob = {
       items: Array.isArray(r.data.items) ? r.data.items : [],
       bundles: Array.isArray(r.data.bundles) ? r.data.bundles : [],
       locations: Array.isArray(r.data.locations) ? r.data.locations : [],
@@ -109,18 +81,12 @@ export function initInventory(): Promise<void> {
       transactions: Array.isArray(r.data.transactions) ? r.data.transactions : [],
       kits: Array.isArray((r.data as any).kits) ? (r.data as any).kits : [],
     }
-    let version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
-    const migrated = await migrateLocalInventoryOnce(next, version)
-    if (migrated) { next = migrated; version++ }
+    const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
     invCache = next
     rememberCosts()
     invFlusher.loaded(next, version)
     invHydrated = true
     invEmit()
-    // Old browser copies are only cleared once they have been moved up.
-    if (legacyMigrationEnabled() && localStorage.getItem(INV_MIGRATION_FLAG) === '1') {
-      try { for (const k of INV_LEGACY_KEYS) localStorage.removeItem(k) } catch {}
-    }
   })().finally(() => { if (!invHydrated) invInitPromise = null })
   return invInitPromise
 }
