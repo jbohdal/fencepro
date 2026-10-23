@@ -158,6 +158,16 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('email: never a fake "sent" (dev 
       expect(bad.json.data.sent).toBe(false)
       expect(bad.json.data.message).toMatch(/^Not sent: The mail server refused the login/)
       expect(JSON.stringify(bad.json)).not.toContain('wrong-password')
+      // The card keeps the newest test: the error now, then a later success replaces it.
+      expect((await call('GET', '/api/integrations/email')).json.data.lastTest).toMatchObject({ sent: false })
+      process.env.SMTP_PASS = 'fake-app-password'
+      mail.closeEmailTransport()
+      const good = await call('POST', '/api/integrations/email/test')
+      expect(good.json.data.sent).toBe(true)
+      expect(good.json.data.setup.lastTest).toMatchObject({ sent: true, user: 'office@gdfence.test' })
+      const after = (await call('GET', '/api/integrations/email')).json.data
+      expect(after.lastTest.sent).toBe(true)
+      expect(after.lastTest.message).toMatch(/^Test email sent to /)
     } finally {
       mail.closeEmailTransport()
       for (const k of KEYS) process.env[k] = ''

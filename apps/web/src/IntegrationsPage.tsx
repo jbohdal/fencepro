@@ -38,17 +38,24 @@ interface EmailSetup {
   configured: boolean; provider: 'smtp' | 'sendgrid' | null
   fromName: string; fromEmail: string; replyTo: string
   host?: string; port?: number; mode?: 'tls' | 'starttls'; user?: string
+  /** The newest test (kept on the server): a later success replaces an earlier error. */
+  lastTest?: { at: string; sent: boolean; message: string; user: string } | null
 }
 
 /** Email: set up or not, through what, from which address, and a test sent to the signed in person. */
-function EmailCard({ email }: { email: EmailSetup }) {
+function EmailCard({ email: first }: { email: EmailSetup }) {
+  const [email, setEmail] = useState(first)
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<{ sent: boolean; message: string } | null>(null)
+  // Only the newest result shows: the server keeps the last test, so a success replaces an earlier error
+  // (and the details above it are read again, e.g. after the login account was changed).
+  const [result, setResult] = useState<{ sent: boolean; message: string; at?: string } | null>(first.lastTest ?? null)
+  useEffect(() => { setEmail(first); setResult(first.lastTest ?? null) }, [first])
   async function test() {
     setBusy(true); setResult(null)
     try {
       const r = await api('/email/test', { method: 'POST', body: '{}' })
-      setResult({ sent: !!r.sent, message: r.message })
+      if (r.setup) setEmail(r.setup)
+      setResult({ sent: !!r.sent, message: r.message, at: r.setup?.lastTest?.at })
     } catch (err: any) { setResult({ sent: false, message: plainText(err) }) }
     setBusy(false)
   }
@@ -72,7 +79,7 @@ function EmailCard({ email }: { email: EmailSetup }) {
       </button>
       {result && (
         <p className={`text-xs rounded-lg p-2 break-words ${result.sent ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`} data-email-test-result={result.sent ? 'sent' : 'not-sent'}>
-          {result.message}
+          {result.message}{result.at ? ` (${new Date(result.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })})` : ''}
         </p>
       )}
     </div>

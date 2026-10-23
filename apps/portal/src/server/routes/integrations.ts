@@ -143,6 +143,7 @@ router.get('/', requireAuth, async (req, res) => {
     // Built in: Google Calendar and email, shown as they are (no key or address is sent).
     const accountId = req.user!.accountId
     const cal = accountId ? await calendarStatus(accountId).catch(() => null) : null
+    const lastTest = await lastEmailTest(accountId)
     const builtIn = BUILT_IN.map(b => {
       let connected = false
       let setupNote = ''
@@ -155,7 +156,7 @@ router.get('/', requireAuth, async (req, res) => {
         setupNote = e.provider === 'smtp' ? `Sent through ${e.host} (port ${e.port}) from ${e.fromName} <${e.fromEmail}>.`
           : e.provider === 'sendgrid' ? `Sent through SendGrid from ${e.fromName} <${e.fromEmail || 'no sender address set'}>.`
           : 'Not set up: nothing is emailed, and each screen says "not sent". Add the mail server settings to the server\u2019s settings file (GO_LIVE.md, Email).'
-        return { ...b, configFields: [], isActive: connected, status: connected ? 'connected' : 'disconnected', comingSoon: false, builtIn: true, setupNote, email: e }
+        return { ...b, configFields: [], isActive: connected, status: connected ? 'connected' : 'disconnected', comingSoon: false, builtIn: true, setupNote, email: { ...e, lastTest } }
       }
       return { ...b, configFields: [], isActive: connected, status: connected ? 'connected' : 'disconnected', comingSoon: false, builtIn: true, setupNote }
     })
@@ -167,9 +168,17 @@ router.get('/', requireAuth, async (req, res) => {
 })
 
 // Email: is it set up (provider, from address; never the password), and a test to the signed in person.
-router.get('/email', requireAuth, (req, res) => {
+// The last test is kept per company, so the card shows the newest result (a success replaces an earlier error).
+type LastTest = { at: string; sent: boolean; message: string; user: string }
+async function lastEmailTest(accountId: string | undefined): Promise<LastTest | null> {
+  if (!accountId) return null
+  const row = await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: 'email:last-test' } } }).catch(() => null)
+  return (row?.value as LastTest | undefined) ?? null
+}
+
+router.get('/email', requireAuth, async (req, res) => {
   if (req.user!.role !== 'admin') { res.status(403).json({ success: false, error: 'Admin required' }); return }
-  res.json({ success: true, data: emailSetup() })
+  res.json({ success: true, data: { ...emailSetup(), lastTest: await lastEmailTest(req.user!.accountId) } })
 })
 
 router.post('/email/test', requireAuth, async (req, res) => {
@@ -180,7 +189,13 @@ router.post('/email/test', requireAuth, async (req, res) => {
   const to = me?.email || u.email
   if (!to) { res.status(400).json({ success: false, error: 'Your login has no email address to send the test to.' }); return }
   const r = await sendTestEmail(to)
-  res.json({ success: true, data: { to, sent: r.success, ...(r.notConfigured ? { notConfigured: true } : {}), ...(r.success ? {} : { error: r.error }), message: r.success ? `Test email sent to ${to}. Check that inbox (and spam).` : `Not sent: ${r.error}` } })
+  const message = r.success ? `Test email sent to ${to}. Check that inbox (and spam).` : `Not sent: ${r.error}`
+  const accountId = req.user!.accountId
+  if (accountId) {
+    const value: LastTest = { at: new Date().toISOString(), sent: r.success, message, user: emailSetup().user ?? '' }
+    await prisma.accountKeyValue.upsert({ where: { accountId_key: { accountId, key: 'email:last-test' } }, create: { accountId, key: 'email:last-test', value }, update: { value } }).catch(() => {})
+  }
+  res.json({ success: true, data: { to, sent: r.success, ...(r.notConfigured ? { notConfigured: true } : {}), ...(r.success ? {} : { error: r.error }), message, setup: { ...emailSetup(), lastTest: accountId ? await lastEmailTest(accountId) : null } } })
 })
 
 // Connect an integration

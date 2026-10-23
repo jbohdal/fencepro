@@ -5,11 +5,15 @@
 #   bash ~/ezbiz/deploy/mac/set-secret.sh esri      ESRI_API_KEY (asked, hidden)
 #   bash ~/ezbiz/deploy/mac/set-secret.sh email     the Google Workspace email set:
 #                                                   SMTP_HOST smtp.gmail.com, SMTP_PORT 465,
-#                                                   SMTP_USER and SMTP_FROM_EMAIL sales@gdfencepro.com,
-#                                                   SMTP_FROM "Getter Done Fence", SMTP_PASS (asked, hidden)
+#                                                   SMTP_USER: the Google account that signs in and made the
+#                                                     App Password (asked, shown; Enter = admin@gdfencepro.com),
+#                                                   SMTP_FROM_EMAIL sales@gdfencepro.com (an alias on that account,
+#                                                     added under Gmail "Send mail as"), SMTP_FROM "Getter Done Fence",
+#                                                   SMTP_PASS: that account's App Password (asked, hidden)
 #   bash ~/ezbiz/deploy/mac/set-secret.sh NAME      any one setting by name (asked, hidden)
 #
-# A secret can also be piped in instead of typed (one line per asked value):
+# Values can also be piped in instead of typed, one line per asked value in the order asked
+# (for email: the login account, empty for the default, then the App Password):
 #   printf '%s\n' "$VALUE" | bash ~/ezbiz/deploy/mac/set-secret.sh esri
 #
 # What it does: copies .env to ~/ezbiz-backups/portal-env.<date-time> first;
@@ -23,6 +27,16 @@ ENV_FILE="${EZBIZ_ENV_FILE:-$HOME/ezbiz/apps/portal/.env}"
 BACKUP_DIR="$HOME/ezbiz-backups"
 
 if [ ! -f "$ENV_FILE" ]; then echo "No settings file at $ENV_FILE"; exit 1; fi
+
+ask_shown() { # ask_shown PROMPT DEFAULT -> the value on stdout, shown while typed (not a secret)
+  local v=""
+  if [ -t 0 ]; then
+    read -r -p "$1 [$2]: " v
+  else
+    IFS= read -r v || true
+  fi
+  printf '%s' "${v:-$2}"
+}
 
 ask() { # ask NAME PROMPT -> the value on stdout, hidden while typed
   local v=""
@@ -46,10 +60,12 @@ case "${1:-}" in
   email)
     add SMTP_HOST "smtp.gmail.com"
     add SMTP_PORT "465"
-    add SMTP_USER "sales@gdfencepro.com"
+    login="$(ask_shown 'Google account that signs in (the one that made the App Password)' 'admin@gdfencepro.com')"
+    if ! [[ "$login" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then echo "That is not an email address; nothing changed."; exit 1; fi
+    add SMTP_USER "$login"
     add SMTP_FROM_EMAIL "sales@gdfencepro.com"
     add SMTP_FROM "Getter Done Fence"
-    add SMTP_PASS "$(ask SMTP_PASS 'Google App Password for sales@gdfencepro.com, 16 letters (typing is hidden)' | tr -d ' ')"
+    add SMTP_PASS "$(ask SMTP_PASS "Google App Password for $login, 16 letters (typing is hidden)" | tr -d ' ')"
     ;;
   ""|-h|--help)
     sed -n '2,20p' "$0"; exit 0

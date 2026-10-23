@@ -381,7 +381,7 @@ Status key:
 
 ## 9t. Email that really sends (Oct 22)
 
-* Found on live: no email was ever sent (SMTP settings empty, and the SMTP code was a stub that pretended to succeed): portal invites, password resets, receipts and alerts were only logged. Now: SMTP through nodemailer (Google Workspace with an App Password; 465 TLS or 587 STARTTLS), SendGrid as the alternative, receipts attach their PDF. With no email set up every screen says "Not sent: email is not set up" instead of "sent". Admin → Integrations → Email shows the setup and "Send a test email to me". GO_LIVE.md section 18 has the steps. **LIVE**
+* Live since Oct 22, 8:55 PM: sends through admin@gdfencepro.com (the Google account with the App Password) from the alias sales@gdfencepro.com. Before that, no email was ever sent (SMTP settings empty, and the SMTP code was a stub that pretended to succeed): portal invites, password resets, receipts and alerts were only logged. Now: SMTP through nodemailer (Google Workspace with an App Password; 465 TLS or 587 STARTTLS), SendGrid as the alternative, receipts attach their PDF. With no email set up every screen says "Not sent: email is not set up" instead of "sent". Admin → Integrations → Email shows the setup and "Send a test email to me". GO_LIVE.md section 18 has the steps. **LIVE**
 
 ## 9u. Maps under menus, Dispatch pins, change order pick list, service push to the card owner (Oct 22)
 
