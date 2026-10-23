@@ -16,6 +16,8 @@ import { useAppointmentList, OutcomeForm } from './TodayScreen'
 import { toast } from './toast'
 import AddressAutocomplete from './AddressAutocomplete'
 import { lookupPosition } from './appointmentsStore'
+import { useBookingTeam } from './bookingTeamStore'
+import type { PersonHome } from './bookingTeamModel'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
@@ -140,27 +142,29 @@ const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function AppointmentSettingsTab() {
   const [s, setS] = useState<AppointmentSettings>(getAppointmentSettings())
-  const [newName, setNewName] = useState('')
   const [saving, setSaving] = useState(false)
+  // Who appointments can be with: the active logins of Settings > Team (bookingTeamStore.ts). Only their home bases are kept here, by login.
+  const team = useBookingTeam()
   const set = (patch: Partial<AppointmentSettings>) => setS(cur => ({ ...cur, ...patch }))
-  const setMember = (i: number, patch: Partial<AppointmentSettings['team'][number]>) => setS(cur => ({ ...cur, team: cur.team.map((x, j) => (j === i ? { ...x, ...patch } : x)) }))
+  const homeOfId = (id: string): PersonHome => s.homes[id] ?? { homeBase: '', homeLat: null, homeLng: null }
+  const setHome = (id: string, patch: Partial<PersonHome>) => setS(cur => ({ ...cur, homes: { ...cur.homes, [id]: { ...homeOfId(id), ...patch } } }))
   async function save() {
-    let team = s.team.filter(t => t.name.trim()).map(t => ({ ...t, homeBase: (t.homeBase || '').trim() }))
-    if (!team.length) { toast.error('Add at least one person'); return }
-    if (!team.some(t => t.isDefault)) team[0] = { ...team[0], isDefault: true }
     setSaving(true)
     // A home base typed without picking a suggestion: find it on the map now (kept on the server).
+    // Homes of logins no longer on the team are kept: switched back on, the home is still there.
     const missed: string[] = []
-    team = await Promise.all(team.map(async t => {
-      if (!t.homeBase) return { ...t, homeLat: null, homeLng: null }
-      if (t.homeLat != null && t.homeLng != null) return t
-      const p = await lookupPosition(t.homeBase)
-      if (!p) missed.push(t.name)
-      return { ...t, homeLat: p?.lat ?? null, homeLng: p?.lng ?? null }
-    }))
+    const homes: Record<string, PersonHome> = {}
+    for (const [id, h] of Object.entries(s.homes)) {
+      const homeBase = (h?.homeBase || '').trim()
+      if (!homeBase) continue
+      if (h.homeLat != null && h.homeLng != null) { homes[id] = { ...h, homeBase }; continue }
+      const p = await lookupPosition(homeBase)
+      if (!p) missed.push(team.find(m => m.userId === id)?.name || homeBase)
+      homes[id] = { homeBase, homeLat: p?.lat ?? null, homeLng: p?.lng ?? null }
+    }
     setSaving(false)
     const cfg = getConfig()
-    const next = withDefaults({ ...s, team })
+    const next = withDefaults({ ...s, homes })
     saveConfig({ ...cfg, appointments: next })
     setS(next)
     if (missed.length) toast.error('Home base not found on the map', `${missed.join(', ')}: pick the address from the suggestions.`)
@@ -168,31 +172,27 @@ export function AppointmentSettingsTab() {
   }
   return (
     <div className="space-y-6 max-w-2xl" data-appointment-settings>
-      <section>
-        <h3 className="text-sm font-bold text-gray-900">Team</h3>
-        <p className="text-xs text-gray-500 mb-2">Who appointments can be assigned to. The default person is picked for new appointments; anyone else is named in the Google Calendar title. Each person's home base is where their day starts: the first appointment of a day is figured from there.</p>
+      <section data-appointment-team>
+        <h3 className="text-sm font-bold text-gray-900">Where each person's day starts</h3>
+        <p className="text-xs text-gray-500 mb-2">Appointments can be with anyone who has an active login in Settings, Team: add or switch off people there and the booking list follows. The owner is picked for new appointments; anyone else is named in the Google Calendar title. Each person's home base is where their day starts: the first appointment of a day is figured from there.</p>
         <div className="space-y-1.5">
-          {s.team.map((t, i) => (
-            <div key={i} className="rounded-lg border border-gray-100 p-2 space-y-1.5" data-team-member={t.name}>
-              <div className="flex items-center gap-2">
-                <input value={t.name} onChange={e => setMember(i, { name: e.target.value })} className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-                <label className="text-xs text-gray-600 flex items-center gap-1"><input type="radio" checked={!!t.isDefault} onChange={() => set({ team: s.team.map((x, j) => ({ ...x, isDefault: j === i })) })} /> Default</label>
-                <button onClick={() => set({ team: s.team.filter((_, j) => j !== i) })} className="text-xs text-red-600 px-2">Remove</button>
+          {team.length === 0 && <p className="text-sm text-gray-400">No active logins yet. Add people in Settings, Team.</p>}
+          {team.map(m => {
+            const h = homeOfId(m.userId)
+            return (
+              <div key={m.userId} className="rounded-lg border border-gray-100 p-2 space-y-1.5" data-team-member={m.name}>
+                <p className="text-sm font-semibold text-gray-900">{m.name}{m.isDefault && <span className="ml-2 text-[11px] font-normal text-gray-500">Owner, the default</span>}</p>
+                <label className="block text-[11px] font-semibold text-gray-500">Home base (where the day starts)
+                  <AddressAutocomplete value={h.homeBase || ''} placeholder="House number and street"
+                    onChange={v => setHome(m.userId, { homeBase: v, homeLat: null, homeLng: null })}
+                    onSelect={p => setHome(m.userId, { homeBase: p.formatted, homeLat: p.lat ?? null, homeLng: p.lng ?? null })}
+                    inputAttrs={{ 'data-home-base': m.name }}
+                    className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-normal text-gray-900" />
+                </label>
+                {h.homeBase && <p className="text-[11px] text-gray-400" data-home-status>{h.homeLat != null ? 'On the map.' : 'Will be found on the map when you save.'}</p>}
               </div>
-              <label className="block text-[11px] font-semibold text-gray-500">Home base (where the day starts)
-                <AddressAutocomplete value={t.homeBase || ''} placeholder="House number and street"
-                  onChange={v => setMember(i, { homeBase: v, homeLat: null, homeLng: null })}
-                  onSelect={p => setMember(i, { homeBase: p.formatted, homeLat: p.lat ?? null, homeLng: p.lng ?? null })}
-                  inputAttrs={{ 'data-home-base': t.name }}
-                  className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-normal text-gray-900" />
-              </label>
-              {t.homeBase && <p className="text-[11px] text-gray-400" data-home-status>{t.homeLat != null ? 'On the map.' : 'Will be found on the map when you save.'}</p>}
-            </div>
-          ))}
-          <div className="flex gap-2">
-            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Add a name" className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-            <button onClick={() => { if (newName.trim()) { set({ team: [...s.team, { name: newName.trim() }] }); setNewName('') } }} className="text-sm px-3 rounded-lg border border-gray-200">Add</button>
-          </div>
+            )
+          })}
         </div>
       </section>
 

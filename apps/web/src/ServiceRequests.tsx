@@ -37,7 +37,7 @@ import { useBackLayer, takeOpenedParam, useNav } from './nav'
 import { can } from './permissions'
 import { toast } from './toast'
 import { getInventory } from './inventoryStore'
-import { getAppointmentSettings } from './configStore'
+import { useBookingTeam } from './bookingTeamStore'
 import { sendInstallPacket, packetUrl, type Packet } from './installPacket'
 import { fetchWithAuth } from './crmAuth'
 import { API_ORIGIN } from './syncHttp'
@@ -516,7 +516,8 @@ interface MatLine { part: string; qty: string; unit: string }
 function FixedBlock({ t, decider, onTicket }: { t: Ticket; decider: boolean; onTicket: (r: Awaited<ReturnType<typeof markFixed>>) => boolean }) {
   const [open, setOpen] = useState(false)
   const [day, setDay] = useState(todayYmd)
-  const team = getAppointmentSettings().team.map(m => m.name)
+  // Crew names offered: the team (the active logins, bookingTeamStore.ts); any name can still be typed.
+  const team = useBookingTeam().map(m => m.name)
   const [crew, setCrew] = useState<Array<{ name: string; hours: string }>>([{ name: t.appointment?.assignedTo || team[0] || '', hours: '' }])
   const [mats, setMats] = useState<MatLine[]>([{ part: '', qty: '', unit: '' }])
   const [busy, setBusy] = useState(false)

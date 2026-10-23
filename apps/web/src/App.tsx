@@ -81,6 +81,7 @@ import { createPendingOrderFromQuote, checkStockForOrder } from './pendingOrderS
 import { fireQuoteSold } from './automationTrigger'
 import { installedRevenueForYear, soldNotInstalled, averageMargin } from './quoteStats'
 import { initAppointments, isAppointmentsHydrated } from './appointmentsStore'
+import { initBookingTeam, isBookingTeamLoaded } from './bookingTeamStore'
 const AppointmentsPage = lazy(() => import('./AppointmentsPage'))
 import TodayScreen from './TodayScreen'
 import FollowUpsPage from './FollowUpsPage'
@@ -261,6 +262,7 @@ const STORE_LOADERS: Array<{ name: string; load: () => Promise<void>; loaded: ()
   { name: 'Schedule', load: initSchedule, loaded: isScheduleHydrated },
   { name: 'Sales pipeline', load: initPipeline, loaded: isPipelineHydrated },
   { name: 'Appointments', load: initAppointments, loaded: isAppointmentsHydrated },
+  { name: 'Team for appointments', load: initBookingTeam, loaded: isBookingTeamLoaded },
   { name: 'Inventory', load: initInventory, loaded: isInventoryHydrated },
   { name: 'Vendors', load: initVendors, loaded: isVendorsHydrated },
   { name: 'Settings and business data', load: initBusinessState, loaded: isBusinessStateHydrated },

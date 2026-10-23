@@ -21,7 +21,7 @@ import {
   type TierSet, type TierSpec, type TierInstall, type TierWidth, type TierColor,
 } from './tiers'
 import { optionLabel } from './proposal'
-import { catalogOf, colorDimOf } from './fenceCatalog'
+import { colorNamesOf } from './fenceCatalog'
 import { isQuotable } from './styleAvailability'
 
 const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -68,7 +68,7 @@ export default function TierSettings() {
   const catStyles = useMemo(() => (draft ? cfg.fenceStyles.filter(s => isQuotable(s) && s.category.toLowerCase() === draft.category.toLowerCase()) : []), [cfg, draft?.category])  // eslint-disable-line react-hooks/exhaustive-deps
   const choices = useMemo(() => choicesFor(catStyles), [catStyles])
   // Color names from Settings → Fence styles (colors added later included).
-  const colorNames = useMemo(() => Object.fromEntries(catalogOf(cfg).materials.flatMap(m => colorDimOf(m)?.options.map(x => [x.key, x.label] as [string, string]) ?? [])), [cfg])
+  const colorNames = useMemo(() => colorNamesOf(cfg), [cfg])
 
   // Preview: a sample yard and a sample style from this category.
   const [yardKey, setYardKey] = useState(SAMPLE_YARDS[1].key)

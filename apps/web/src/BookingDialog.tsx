@@ -23,7 +23,7 @@ import {
   getAppointments, getAppointment, createAppointment, updateAppointment, lookupPosition, pinPosition, suggestAddresses, APPOINTMENTS_UPDATED,
 } from './appointmentsStore'
 import {
-  APPOINTMENT_TYPES, TYPE_LABELS, TYPE_COLORS, TYPE_SHORT, defaultPerson, floridaDate, floridaHM, floridaTime, minutesOf,
+  APPOINTMENT_TYPES, TYPE_LABELS, TYPE_COLORS, TYPE_SHORT, floridaDate, floridaHM, floridaTime, minutesOf,
   overlapWarnings, isOpen, addDays, smsLink, mailtoLink, buildIcs, longWhen, weekdayOf,
   type Appointment, type AppointmentType,
 } from './appointmentLogic'
@@ -36,6 +36,8 @@ import { applyBooking } from './appointmentPipeline'
 import MapView, { type MapPoint } from './MapView'
 import { useBackLayer } from './nav'
 import { SaveStatus } from './SaveStatus'
+import { useBookingTeam } from './bookingTeamStore'
+import { defaultMemberOf, memberOf, isWith, homeOf } from './bookingTeamModel'
 
 export interface BookingRequest {
   customerId?: string
@@ -92,7 +94,15 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const [customerId, setCustomerId] = useState(existing?.crmContactId || req.customerId || '')
   const customer = customerId ? getCustomerById(customerId) : null
   const [type, setType] = useState<AppointmentType>(existing?.type || req.type || 'estimate')
-  const [person, setPerson] = useState(existing?.assignedTo || defaultPerson(settings))
+  // With: a login from the team (Settings > Team, bookingTeamStore.ts), the owner for a new booking.
+  // An appointment whose person has left the team keeps that name until another person is picked.
+  const team = useBookingTeam()
+  const [personId, setPersonId] = useState(() => (existing ? memberOf(team, existing) : defaultMemberOf(team))?.userId ?? '')
+  const member = team.find(m => m.userId === personId) ?? null
+  const formerName = existing && !memberOf(team, existing) ? existing.assignedTo : ''
+  const person = member?.name ?? (personId ? '' : formerName)
+  const isTheirs = (a: Pick<Appointment, 'assignedTo'> & { assignedToUserId?: string | null }) => (member ? isWith(team, a, member) : !!person && a.assignedTo === person)
+  const home = homeOf(settings.homes, member)
   const startIso = existing?.startAt || (req.date && req.date.length > 10 ? req.date : null)
   const [date, setDate] = useState(startIso ? floridaDate(startIso) : req.date || addDays(floridaDate(new Date()), 1))
   // Empty until a time is picked (never the clock time).
@@ -178,18 +188,18 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const jobs = useMemo(() => allJobs.filter(j => j.customerId === customerId), [allJobs, customerId])
 
   const dayList = useMemo(() => all
-    .filter(a => a.assignedTo === person && isOpen(a) && a.startAt && floridaDate(a.startAt) === date && a.id !== existing?.id)
-    .sort((x, y) => x.startAt!.localeCompare(y.startAt!)), [all, person, date, existing?.id])
+    .filter(a => isTheirs(a) && isOpen(a) && a.startAt && floridaDate(a.startAt) === date && a.id !== existing?.id)
+    .sort((x, y) => x.startAt!.localeCompare(y.startAt!)), [all, person, team, date, existing?.id])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // The day as the planner sees it: home base, appointments, work hours, drive times.
-  const day = useMemo(() => dayInput({ date, minutes, target: pos, person, appointments: all, settings, now, ignoreId: existing?.id }),
-    [date, minutes, pos, person, all, now, existing?.id])  // eslint-disable-line react-hooks/exhaustive-deps
+  const day = useMemo(() => dayInput({ date, minutes, target: pos, person, home, isTheirs, appointments: all, settings, now, ignoreId: existing?.id }),
+    [date, minutes, pos, person, team, all, now, existing?.id])  // eslint-disable-line react-hooks/exhaustive-deps
   const bookingDay = settings.slotDays.includes(weekdayOf(date))
   const options = useMemo(() => (allDay || !bookingDay ? [] : bestTimes(day)), [day, allDay, bookingDay])
   const grid = useMemo(() => (allDay ? [] : timeGrid(day)), [day, allDay])
   const nearby = useMemo(() => (allDay ? [] : otherDays({
-    date, minutes, target: pos, person, appointments: all, jobs: allJobs, settings, now, ignoreId: existing?.id,
-  })), [date, minutes, pos, person, all, allJobs, now, allDay])  // eslint-disable-line react-hooks/exhaustive-deps
+    date, minutes, target: pos, person, home, isTheirs, appointments: all, jobs: allJobs, settings, now, ignoreId: existing?.id,
+  })), [date, minutes, pos, person, team, all, allJobs, now, allDay])  // eslint-disable-line react-hooks/exhaustive-deps
   const segments = useMemo(() => timeline(day, allDay ? null : time || null), [day, time, allDay])
   const timeWarnings = !allDay && time ? warningsFor(day, time) : []
 
@@ -197,7 +207,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const endAt = startAt ? (allDay ? floridaTime(addDays(date, days), '00:00') : new Date(startAt.getTime() + Math.max(5, minutes) * 60_000)) : null
   // This person's own clashes are in the time warnings (with drive time); here: the customer's other appointments, and all day ones.
   const warnings = startAt && endAt ? overlapWarnings({ startAt: startAt.toISOString(), endAt: endAt.toISOString(), person, customerId, ignoreId: existing?.id },
-    all.filter(a => allDay || a.allDay || a.assignedTo !== person)) : []
+    all.filter(a => allDay || a.allDay || !isTheirs(a))) : []
 
   function typeTime(text: string) {
     if (!text.trim()) { setTypedBad(false); return }
@@ -214,7 +224,9 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
     inFlight.current = true
     setSaving(true)
     const body = {
-      type, assignedTo: person, address, lat: pos?.lat ?? null, lng: pos?.lng ?? null, notes,
+      type, address,
+      // The login and its name; an appointment kept with a former team member sends what it had (no change).
+      ...(member ? { assignedTo: member.name, assignedToUserId: member.userId } : { assignedTo: formerName, assignedToUserId: existing?.assignedToUserId ?? null }), lat: pos?.lat ?? null, lng: pos?.lng ?? null, notes,
       startAt: startAt?.toISOString() ?? null, endAt: endAt?.toISOString() ?? null, allDay,
       // An install, or a service or warranty visit opened from a job (a service request): on that job.
       jobId: (type === 'install' || ((type === 'service' || type === 'warranty') && !!req.jobId)) && jobId ? jobId : null, quoteId: existing?.quoteId ?? req.quoteId ?? null,
@@ -327,10 +339,14 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                   </select>
                 </label>
                 <label className="text-xs font-semibold text-gray-500">With
-                  <select value={person} data-field="person" onChange={e => setPerson(e.target.value)} className="mt-1 w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900">
-                    {settings.team.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
-                    {person && !settings.team.some(t => t.name === person) && <option value={person}>{person}</option>}
+                  <select value={personId} data-field="person" onChange={e => setPersonId(e.target.value)} className="mt-1 w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900">
+                    {team.map(m => <option key={m.userId} value={m.userId} data-user-id={m.userId}>{m.name}</option>)}
+                    {formerName && <option value="" data-former>{formerName} (former team member)</option>}
+                    {!team.length && !formerName && <option value="">Nobody on the team yet (Settings, Team)</option>}
                   </select>
+                  <span className="block mt-0.5 text-[11px] font-normal text-gray-500" data-person-phone={member?.phone || ''}>
+                    {member ? (member.phone ? `Direct ${formatPhone(member.phone)}` : 'No Direct phone: texts give the company phone') : formerName ? 'No longer on the team' : ''}
+                  </span>
                 </label>
                 <label className="text-xs font-semibold text-gray-500">Day
                   <input type="date" value={date} data-field="date" onChange={e => setDate(e.target.value)} className="mt-1 w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900" />

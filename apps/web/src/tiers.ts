@@ -15,7 +15,7 @@ import { deriveLayout, layoutForShape, type YardLayout } from './yardLayout'
 import { layoutPanelFt } from './gateSlide'
 import type { QuoteCalcInput, QuoteStyle } from './quoteCalc'
 import { isQuotable } from './styleAvailability'
-import { styleLabel } from './fenceCatalog'
+import { styleLabel, colorNamesOf } from './fenceCatalog'
 
 export type TierKey = string
 export type TierInstall = 'same' | 'no-dig' | 'dig-set'
@@ -55,10 +55,10 @@ export const MAX_TIERS = 3
 
 export const INSTALL_LABEL: Record<TierInstall, string> = { same: 'Same as the quote', 'no-dig': 'No dig', 'dig-set': 'Dig set' }
 export const WIDTH_LABEL: Record<TierWidth, string> = { same: 'Same as the quote', cheapest: 'Whichever width prices lower (6 or 8 ft)', '6': 'All 6 ft wide sections', '8': 'All 8 ft wide sections' }
-export const COLOR_LABEL: Record<string, string> = { same: 'Same as the quote', white: 'White', tan: 'Tan', galv: 'Galvanized', black: 'Black' }
+export const COLOR_LABEL: Record<string, string> = { same: 'Same as the quote' }
 
-/** A tier color's name: the built in ones, else the color's name in Settings (any style using it carries it in its plain name). */
-export function colorLabel(key: string, names: Record<string, string> = {}): string {
+/** A tier color's name: the color's name in Settings (fenceCatalog.ts colorNamesOf; the default tree when none is given). */
+export function colorLabel(key: string, names: Record<string, string> = colorNamesOf(null)): string {
   return COLOR_LABEL[key] ?? names[key] ?? key
 }
 
@@ -114,7 +114,7 @@ function partsFromCode(name: string): StyleParts | null {
 /** "tan, no dig, 6 ft tall, 6 ft wide vinyl privacy" */
 function describe(p: { family: StyleParts['family']; color: string | null; install: string | null; height: string; width: number | 'auto' | null | 'any'; model?: string }): string {
   const bits: string[] = []
-  if (p.color) bits.push(COLOR_LABEL[p.color]?.toLowerCase() ?? p.color)
+  if (p.color) bits.push(colorLabel(p.color).toLowerCase())
   if (p.install) bits.push(p.install === 'no-dig' ? 'no dig' : 'dig set')
   if (p.height) bits.push(`${p.height} ft tall`)
   if (p.width === 'auto') bits.push('auto mix (6 and 8 ft wide)')

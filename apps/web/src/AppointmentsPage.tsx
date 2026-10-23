@@ -18,6 +18,9 @@ import {
 import { openBooking } from './BookingDialog'
 import { useAppointmentList, OutcomeForm } from './TodayScreen'
 import MapView from './MapView'
+import { useBookingTeam } from './bookingTeamStore'
+import { formerNamesOf, matchesPerson } from './bookingTeamModel'
+import PersonFilter from './PersonFilter'
 
 type View = 'day' | 'week' | 'month' | 'agenda' | 'map'
 const HOUR_PX = 48
@@ -28,13 +31,16 @@ const weekStart = (d: string) => addDays(d, -((weekdayOf(d) + 6) % 7))      // M
 export default function AppointmentsPage() {
   const list = useAppointmentList()
   const settings = getAppointmentSettings()
+  const team = useBookingTeam()
   const [view, setView] = useState<View>(() => (window.matchMedia('(max-width: 767px)').matches ? 'agenda' : 'week'))
   const [date, setDate] = useState(floridaDate(new Date()))
   const [person, setPerson] = useState('')
   const [type, setType] = useState<AppointmentType | ''>('')
   const [closing, setClosing] = useState<Appointment | null>(null)
 
-  const shown = useMemo(() => list.filter(a => a.status !== 'cancelled' && (!person || a.assignedTo === person) && (!type || a.type === type)), [list, person, type])
+  // Person: '' everyone, a team member (u:<login id>), or a former team member's name (n:<name>), bookingTeamModel.ts.
+  const former = useMemo(() => formerNamesOf(team, list), [team, list])
+  const shown = useMemo(() => list.filter(a => a.status !== 'cancelled' && matchesPerson(team, a, person) && (!type || a.type === type)), [list, team, person, type])
   const dated = shown.filter(a => a.startAt)
 
   // Needs a date: call backs with no time, and cards in the Appointment stage with nothing booked.
@@ -65,10 +71,7 @@ export default function AppointmentsPage() {
               <button key={v} onClick={() => setView(v)} data-view={v} className={`px-3 py-1 rounded-md text-xs font-semibold capitalize ${view === v ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>{v}</button>
             ))}
           </div>
-          <select value={person} onChange={e => setPerson(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
-            <option value="">Everyone</option>
-            {settings.team.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
-          </select>
+          <PersonFilter team={team} former={former} value={person} onChange={setPerson} everyoneFirst className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
           <select value={type} onChange={e => setType(e.target.value as AppointmentType | '')} className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
             <option value="">All types</option>
             {APPOINTMENT_TYPES.map(t => <option key={t} value={t}>{TYPE_SHORT[t]}</option>)}

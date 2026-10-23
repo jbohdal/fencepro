@@ -15,6 +15,7 @@
 
 import { stageAfterBooking as modelStageAfterBooking, stageAfterOutcome as modelStageAfterOutcome, type PipelineStageDef } from './pipelineStageModel'
 import { distanceMiles, type LatLng } from './geoUtils'
+import type { PersonHome } from './bookingTeamModel'
 
 /* ── Names ───────────────────────────────────────────────────────────────── */
 
@@ -92,17 +93,14 @@ export interface Appointment {
 
 /* ── Settings ────────────────────────────────────────────────────────────── */
 
-export interface TeamMember {
-  name: string
-  isDefault?: boolean
-  /** Where this person's day starts (typed in Settings); the first appointment of a day is figured from here. */
-  homeBase?: string
-  homeLat?: number | null
-  homeLng?: number | null
-}
-
+/**
+ * Who appointments can be with is not kept here: it is the company's active
+ * logins (Settings > Team), bookingTeamStore.ts. What Settings > Appointments
+ * keeps per person is where that person's day starts, by login id.
+ */
 export interface AppointmentSettings {
-  team: TeamMember[]
+  /** Home base per login id: the first appointment of a day is figured from there. */
+  homes: Record<string, PersonHome>
   /** Minutes per type; 0 means all day. */
   durations: Record<AppointmentType, number>
   /** Days suggested slots may fall on, 0 = Sunday. */
@@ -117,12 +115,7 @@ export interface AppointmentSettings {
 }
 
 export const DEFAULT_APPOINTMENT_SETTINGS: AppointmentSettings = {
-  team: [
-    { name: 'Jonathan Bohdal', isDefault: true },
-    { name: 'Alexander Bohdal' },
-    { name: 'Stacy Mcgovern' },
-    { name: 'Christopher Lindsey' },
-  ],
+  homes: {},
   durations: { estimate: 60, follow_up: 30, contract_signing: 30, install: 0, service: 90, warranty: 60, call_back: 15, other: 60 },
   slotDays: [1, 2, 3, 4, 5, 6],
   slotStart: '07:00',
@@ -131,17 +124,18 @@ export const DEFAULT_APPOINTMENT_SETTINGS: AppointmentSettings = {
   bufferMinutes: 15,
 }
 
+/** Saved settings over the defaults. A names list saved before Oct 23, 2026 (`team`) is dropped: the team is the logins now. */
 export function withDefaults(s: Partial<AppointmentSettings> | undefined | null): AppointmentSettings {
   const d = DEFAULT_APPOINTMENT_SETTINGS
+  const { team: _oldNamesList, ...rest } = (s || {}) as Partial<AppointmentSettings> & { team?: unknown }
+  void _oldNamesList
   return {
-    ...d, ...(s || {}),
-    team: s?.team?.length ? s.team : d.team,
-    durations: { ...d.durations, ...(s?.durations || {}) },
-    slotDays: Array.isArray(s?.slotDays) ? s!.slotDays : d.slotDays,
+    ...d, ...rest,
+    homes: rest.homes && typeof rest.homes === 'object' ? rest.homes : {},
+    durations: { ...d.durations, ...(rest.durations || {}) },
+    slotDays: Array.isArray(rest.slotDays) ? rest.slotDays : d.slotDays,
   }
 }
-
-export const defaultPerson = (s: AppointmentSettings) => s.team.find(t => t.isDefault)?.name || s.team[0]?.name || ''
 
 /* ── Florida time ────────────────────────────────────────────────────────── */
 

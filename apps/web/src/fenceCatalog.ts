@@ -229,6 +229,10 @@ export function materialOf(catalog: FenceCatalog, key: string | undefined): Mate
   return catalog.materials.find(m => m.key === key)
 }
 export function colorDimOf(m: MaterialDef | undefined): ChoiceDim | undefined { return m?.dims.find(d => d.isColor) }
+/** Every color's name by its key (vinyl colors, chain link finishes), from Settings (config.fenceCatalog), else the default tree. */
+export function colorNamesOf(cfg: { fenceCatalog?: FenceCatalog | null } | null | undefined): Record<string, string> {
+  return Object.fromEntries(catalogOf(cfg).materials.flatMap(m => colorDimOf(m)?.options.map(x => [x.key, x.label] as [string, string]) ?? []))
+}
 export function optionOf(m: MaterialDef | undefined, dim: string, key: string | undefined): ChoiceOption | undefined {
   return m?.dims.find(d => d.key === dim)?.options.find(x => x.key === key)
 }

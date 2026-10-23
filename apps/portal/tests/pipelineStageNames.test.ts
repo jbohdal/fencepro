@@ -16,6 +16,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 import { START_IDS } from '../src/server/lib/pipelineStageModel.js'
+import { withoutComments } from './fixtures/sourceScan'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const ROOTS = ['../src', '../scripts', '../../web/src'].map(r => path.resolve(here, r))
@@ -39,27 +40,6 @@ function files(dir: string): string[] {
     const p = path.join(dir, name)
     if (statSync(p).isDirectory()) { if (name !== 'node_modules' && name !== 'dist') out.push(...files(p)); continue }
     if (/\.(ts|tsx|mjs|js)$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(p)
-  }
-  return out
-}
-
-/** The source with comments blanked out (strings kept, line numbers kept). */
-export function withoutComments(src: string): string {
-  let out = ''
-  let i = 0
-  let quote: string | null = null
-  while (i < src.length) {
-    const c = src[i], n = src[i + 1]
-    if (quote) {
-      out += c
-      if (c === '\\') { out += n ?? ''; i += 2; continue }
-      if (c === quote) quote = null
-      i++; continue
-    }
-    if (c === '/' && n === '/') { while (i < src.length && src[i] !== '\n') i++; continue }
-    if (c === '/' && n === '*') { i += 2; while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) { if (src[i] === '\n') out += '\n'; i++ } i += 2; continue }
-    if (c === "'" || c === '"' || c === '`') quote = c
-    out += c; i++
   }
   return out
 }

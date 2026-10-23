@@ -3,6 +3,15 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-23: appointments are with the real Team; "Settings lists connected"
+
+- **Jonathan:** "The booking Team list should not be a separate list of names. Make Appointments use the real Team members (active logins with a role), so anyone I add in Team Management appears automatically with their Direct phone, and removed people disappear from booking (their past appointments keep their name)."
+- **Who can be booked:** the company's staff logins (any role but customer) whose status is active. Switched off, suspended and deleted logins are not; an invited login is not until the invite is accepted. The owner (the first super admin) is first and the default; the rest by name.
+- **Settings > Appointments:** the Team names list is removed (with its built-in four: Jonathan Bohdal, Alexander Bohdal, Stacy Mcgovern, Christopher Lindsey). The only per-person setting it had, the home base, stays in Settings > Appointments, kept by login id (config.appointments.homes) rather than on the login: it is an appointments setting, changed with the other appointment settings, and needs no database change. Neither live nor the dev copy had a saved names list, so nothing was moved.
+- **Past appointments** keep the name they were booked with (assignedTo) and the login (assignedToUserId). A person no longer on the team is shown as a former team member; the filters list those names apart.
+- **"Settings lists connected"** (Jonathan: "Add this list to the 'Settings lists connected' check from before so it can't drift again"): no check by that name existed, so it was built: apps/portal/tests/settingsListsConnected.test.ts. It covers Pipeline Stages, Operations Stages, Lead Sources, Customer Tags, Vinyl Colors, Fence Styles and the booking team; the list of lists and their one source is in FEATURES.md, "Settings lists connected". This is the check meant by that name from now on.
+- **In the app:** apps/portal/src/server/lib/appointmentRep.ts (bookingTeam), routes/appointments.ts (GET /team, booking by login), apps/web/src/bookingTeamStore.ts and bookingTeamModel.ts; pinned in apps/portal/tests/bookingTeam.test.ts and bookingTeam.db.test.ts.
+
 ## 2026-10-23: matching imported rows to customers on file (every import)
 
 - **Only phone or email find a match:** the same phone (last 10 digits) or the same email (any capitals). A name alone never matches anyone.

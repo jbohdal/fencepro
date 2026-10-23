@@ -220,7 +220,10 @@ async function phone(browser) {
   for (const a of list.filter(a => a.startAt && new Date(a.startAt) >= dayStart && new Date(a.startAt) < start && ['scheduled', 'confirmed', 'on_my_way', 'rescheduled'].includes(a.status))) {
     await api(`/api/appointments/${a.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'no_show', baseVersion: a.version }) })
   }
-  const made = await api('/api/appointments', { method: 'POST', body: JSON.stringify({ crmContactId: card.customerId, type: 'estimate', assignedTo: 'Jonathan Bohdal', startAt: start.toISOString(), endAt: new Date(start.getTime() + 3_600_000).toISOString(), notes: 'Gate code 1234 (test)' }) })
+  // With the owner: first on the booking team (the active logins) and the person Today opens on.
+  const owner = ((await api('/api/appointments/team')) || []).find(m => m.isDefault)
+  if (!owner) throw new Error('the booking team has no owner')
+  const made = await api('/api/appointments', { method: 'POST', body: JSON.stringify({ crmContactId: card.customerId, type: 'estimate', assignedToUserId: owner.userId, startAt: start.toISOString(), endAt: new Date(start.getTime() + 3_600_000).toISOString(), notes: 'Gate code 1234 (test)' }) })
   const s = await open(browser, true)
   await nav(s, 'Today')
   await s.page.locator('[data-next-appointment]').waitFor()

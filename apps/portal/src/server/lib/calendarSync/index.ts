@@ -16,6 +16,7 @@ import { exchangeCode, forgetTokens, googleApiFor, googleConfigured } from './go
 import { loadPipelineStages } from '../pipelineStages.js'
 import { buildDesiredEvents, eventKey, startsFrom, type LeadRow, type SpecInputs } from './spec.js'
 import { pricingModule } from '../estimates.js'
+import { bookingTeam } from '../appointmentRep.js'
 
 const DEBOUNCE_MS = 2_000
 const RETRY_EVERY_MS = 5 * 60_000
@@ -37,7 +38,7 @@ const floridaToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America
 const baseUrl = () => (process.env.CLIENT_URL || process.env.APP_URL || '').replace(/\/+$/, '')
 
 async function loadInputs(accountId: string): Promise<SpecInputs> {
-  const [gridJobs, pipeline, contacts, settings, appointments, business, owner] = await Promise.all([
+  const [gridJobs, pipeline, contacts, settings, appointments, business, team] = await Promise.all([
     prisma.scheduledGridJob.findMany({ where: { accountId, deletedAt: null } }),
     prisma.pipelineState.findUnique({ where: { accountId }, select: { leads: true } }),
     prisma.crmContact.findMany({
@@ -50,10 +51,10 @@ async function loadInputs(accountId: string): Promise<SpecInputs> {
       include: { contact: { select: { firstName: true, lastName: true, phone: true, email: true, serviceAddress: true } } },
     }),
     prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
-    prisma.crmUser.findFirst({ where: { crmAccountId: accountId }, orderBy: { createdAt: 'asc' }, select: { firstName: true, lastName: true } }),
+    bookingTeam(accountId),
   ])
-  const team = (business?.config as any)?.appointments?.team as Array<{ name: string; isDefault?: boolean }> | undefined
-  const defaultPerson = team?.find(t => t?.isDefault)?.name || team?.[0]?.name || `${owner?.firstName || ''} ${owner?.lastName || ''}`.trim()
+  // The default person (not named in event titles): the owner, first on the booking team (the active logins, Settings > Team).
+  const defaultPerson = team.find(t => t.isDefault)?.name || ''
   const onBoard = gridJobs.map(g => g.stagingJobId).filter((x): x is string => !!x)
   const jobs = await prisma.savedJob.findMany({
     where: { accountId, deletedAt: null, archivedAt: null, OR: [{ scheduledDate: { not: '' } }, { id: { in: onBoard } }] },

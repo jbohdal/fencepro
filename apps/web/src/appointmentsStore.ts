@@ -87,6 +87,8 @@ export interface NewAppointment {
   lat?: number | null
   lng?: number | null
   assignedTo?: string
+  /** The login from the booking team (bookingTeamStore.ts); the server keeps its name as assignedTo. */
+  assignedToUserId?: string | null
   notes?: string
   quoteId?: string | null
   jobId?: string | null
@@ -121,7 +123,7 @@ export async function createAppointment(input: NewAppointment & { id?: string })
     id, crmContactId: input.crmContactId, quoteId: input.quoteId ?? null, jobId: input.jobId ?? null,
     type: input.type, status: input.status ?? 'scheduled', startAt: input.startAt, endAt: input.endAt, allDay: !!input.allDay,
     address: input.address ?? c?.serviceAddress ?? '', lat: input.lat ?? null, lng: input.lng ?? null,
-    assignedTo: input.assignedTo ?? '', notes: input.notes ?? '', outcome: null, outcomeNotes: '', measuredFeet: null, nextStep: '',
+    assignedTo: input.assignedTo ?? '', assignedToUserId: input.assignedToUserId ?? null, notes: input.notes ?? '', outcome: null, outcomeNotes: '', measuredFeet: null, nextStep: '',
     history: [], source: 'manual', version: 0, startedAt: null, completedAt: null, createdAt: now,
     customerName: c ? `${c.firstName} ${c.lastName}`.trim() : '', customerPhone: c?.phone ?? '', customerEmail: c?.email ?? '',
   }
@@ -140,7 +142,7 @@ async function settle(id: string): Promise<ShownAppointment | null> {
 }
 
 export type AppointmentChanges = Partial<Pick<Appointment,
-  'type' | 'status' | 'startAt' | 'endAt' | 'allDay' | 'address' | 'lat' | 'lng' | 'assignedTo' | 'notes' |
+  'type' | 'status' | 'startAt' | 'endAt' | 'allDay' | 'address' | 'lat' | 'lng' | 'assignedTo' | 'assignedToUserId' | 'notes' |
   'outcomeNotes' | 'measuredFeet' | 'nextStep' | 'quoteId' | 'jobId' | 'startedAt'>> & { outcome?: AppointmentOutcome | null }
 
 /**
@@ -153,7 +155,8 @@ export async function updateAppointment(id: string, changes: AppointmentChanges,
   if (!cur) return null
   const local: Appointment = { ...cur, ...changes } as Appointment
   // Another person: whose phone the texts give is the server's to say again (appointmentMessages.ts).
-  if ('assignedTo' in changes && changes.assignedTo !== cur.assignedTo) { local.rep = undefined; local.assignedToUserId = null }
+  const otherPerson = ('assignedToUserId' in changes && changes.assignedToUserId !== cur.assignedToUserId) || ('assignedTo' in changes && changes.assignedTo !== cur.assignedTo)
+  if (otherPerson) { local.rep = undefined; if (!('assignedToUserId' in changes)) local.assignedToUserId = null }
   put(local)
   await enqueue<ApptChange>({ key: apptKey(id), kind: 'appointment.update', payload: { id, changes, reason, local }, label: `${cur.customerName || 'Appointment'}, appointment changes`, coalesce: false })
   return settle(id)

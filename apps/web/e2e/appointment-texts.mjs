@@ -17,10 +17,16 @@
 //    preview follows, saved; the phone then books and gets the edited words
 //    (from the server). Reset to default on the phone; the desktop then gets
 //    the default words again.
+// 6. The booking "With" list is the active logins (Settings > Team), not a
+//    list of names: a new test login is in it with its Direct phone, the owner
+//    first; switched off in Team, another browser (after a reload) no longer
+//    offers it, and its appointment keeps its name ("former team member", and
+//    in the Appointments filter's "Former team members").
 //
-// Makes three test logins (never Christa's or Jonathan's rows), a test customer,
-// their appointments, and adds the three to the team list in Settings >
-// Appointments. All of it is removed at the end and the settings put back.
+// Makes four test logins (never Christa's or Jonathan's rows), a test customer
+// and their appointments. Being active logins puts them on the booking team;
+// nothing is added to Settings. All of it is removed at the end and the
+// message settings put back.
 // Nothing is sent: the texts open the phone's own texting app, which a test never taps.
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
@@ -53,14 +59,17 @@ const REPS = {
   alpha: { first: 'Testrep', last: `Alpha ${TAG}`, phone: '352-555-0142', role: 'sales_rep' },
   owner: { first: 'Testowner', last: `Beta ${TAG}`, phone: '3525550101', role: 'admin' },
   nophone: { first: 'Testnophone', last: `Gamma ${TAG}`, phone: null, role: 'sales_rep' },
+  leaver: { first: 'Testleaver', last: `Delta ${TAG}`, phone: '3525550177', role: 'sales_rep' },
 }
+/** The names the booking list held before Oct 23, 2026; none may be offered unless it is a real login. */
+const OLD_NAMES = ['Alexander Bohdal', 'Stacy Mcgovern', 'Christopher Lindsey']
 const full = r => `${r.first} ${r.last}`
 const DAY = '2026-12-08'   // a Tuesday
 const WHEN = 'Tuesday, December 8 at 10:00 AM'
 const COMPANY_PHONE = '(352) 789 4314'
 const EDITED = 'Hi {customer_first_name}! {rep_first_name} from {company_name} will see you {date_time}. Questions: {rep_phone}'
 const ids = {}
-let accountId = '', contactId = '', original = { appointments: undefined, appointmentMessages: undefined }
+let accountId = '', contactId = '', original = { appointmentMessages: undefined }
 const contexts = []
 
 async function config() { const r = await api('/api/business-state'); return { config: r.json.data.config || {}, version: r.json.data.version } }
@@ -88,20 +97,18 @@ async function setup() {
       values (gen_random_uuid(), '${TAG.toLowerCase()}-${k}@example.test', '${r.first}', '${r.last}', '${r.role}', 'active', false, '${accountId}', now()) returning id`).split('\n')[0]
   }
   // The owner-type login's phone through the API (the Team route); Alpha's through the Team screen below.
-  const p = await api(`/api/crm-auth/users/${ids.owner}`, { method: 'PATCH', body: JSON.stringify({ phone: REPS.owner.phone }) })
-  if (p.status !== 200) throw new Error(`setting a phone: ${p.status} ${JSON.stringify(p.json)}`)
+  for (const k of ['owner', 'leaver']) {
+    const p = await api(`/api/crm-auth/users/${ids[k]}`, { method: 'PATCH', body: JSON.stringify({ phone: REPS[k].phone }) })
+    if (p.status !== 200) throw new Error(`setting a phone: ${p.status} ${JSON.stringify(p.json)}`)
+  }
   contactId = sql(`insert into "CrmContact" (id, "accountId", "firstName", "lastName", phone, email, "updatedAt")
     values (gen_random_uuid(), '${accountId}', 'Kristi', '${TAG}', '3525550100', '${TAG.toLowerCase()}@example.test', now()) returning id`).split('\n')[0]
-  // The three in the team list (Settings > Appointments); the list as it was is put back at the end.
+  // The four are on the booking team because they are active logins: nothing goes in Settings.
+  // The message templates start at the defaults; as they were is put back at the end.
   const { config: c } = await config()
-  original = { appointments: c.appointments, appointmentMessages: c.appointmentMessages }
-  const DEFAULT_TEAM = [{ name: 'Jonathan Bohdal', isDefault: true }, { name: 'Alexander Bohdal' }, { name: 'Stacy Mcgovern' }, { name: 'Christopher Lindsey' }]
-  const ok = await patchConfig(cur => ({
-    ...cur,
-    appointments: { ...(cur.appointments || {}), team: [...(cur.appointments?.team?.length ? cur.appointments.team : DEFAULT_TEAM), ...Object.values(REPS).map(r => ({ name: full(r) }))] },
-    appointmentMessages: {},
-  }))
-  if (!ok) throw new Error('could not add the test team members')
+  original = { appointmentMessages: c.appointmentMessages }
+  const ok = await patchConfig(cur => ({ ...cur, appointmentMessages: {} }))
+  if (!ok) throw new Error('could not reset the message templates')
 }
 
 async function cleanup() {
@@ -111,7 +118,6 @@ async function cleanup() {
   }
   await patchConfig(cur => {
     const next = { ...cur }
-    if (original.appointments === undefined) delete next.appointments; else next.appointments = original.appointments
     if (original.appointmentMessages === undefined) delete next.appointmentMessages; else next.appointmentMessages = original.appointmentMessages
     return next
   }).catch(() => false)
@@ -125,9 +131,8 @@ async function cleanup() {
   }
   const left = sql(`select count(*) from "CrmUser" where email like '${TAG.toLowerCase()}-%'`) + '/' + sql(`select count(*) from "CrmContact" where "lastName" = '${TAG}'`)
   const { config: c } = await config()
-  const teamBack = JSON.stringify(c.appointments) === JSON.stringify(original.appointments)
   const msgsBack = JSON.stringify(c.appointmentMessages) === JSON.stringify(original.appointmentMessages)
-  check('cleanup: test logins, customer and appointments removed; Settings put back', left === '0/0' && teamBack && msgsBack, `${left} team ${teamBack} messages ${msgsBack}`)
+  check('cleanup: test logins, customer and appointments removed; Settings put back', left === '0/0' && msgsBack, `${left} messages ${msgsBack}`)
 }
 
 async function open(browser, phone) {
@@ -160,7 +165,8 @@ async function book(s, person, shot) {
   await s.page.evaluate(id => window.dispatchEvent(new CustomEvent('ezbiz:book-appointment', { detail: { customerId: id, type: 'estimate' } })), contactId)
   const dlg = s.page.locator('[data-booking-dialog]')
   await dlg.waitFor({ timeout: 15000 })
-  await dlg.locator('[data-field="person"]').selectOption(person)
+  await dlg.locator('[data-field="person"]').selectOption({ label: person })
+  const personPhone = ((await dlg.locator('[data-person-phone]').textContent()) || '').trim()
   await dlg.locator('[data-field="date"]').fill(DAY)
   await s.tap(dlg.locator('[data-field="time"]'))
   await dlg.locator('[data-typed-time]').fill('10:00 am')
@@ -184,7 +190,7 @@ async function book(s, person, shot) {
   const ics = (await s.page.evaluate(() => window.__ics)) || ''
   if (shot) await s.shot(shot)
   await s.tap(dlg.locator('[data-booked-done]'))
-  return { text, smsBody, warning, mail, ics: ics.replace(/\\,/g, ',').replace(/\\;/g, ';') }
+  return { text, smsBody, warning, mail, personPhone, ics: ics.replace(/\\,/g, ',').replace(/\\;/g, ';') }
 }
 
 async function teamDirectPhone(s) {
@@ -261,6 +267,67 @@ async function desktopRun(browser) {
   return s
 }
 
+/** Open the booking dialog (a new booking, or an appointment) and read its With list; the dialog stays open. */
+async function withList(s, detail) {
+  await home(s)
+  await s.page.evaluate(d => window.dispatchEvent(new CustomEvent('ezbiz:book-appointment', { detail: d })), detail)
+  const dlg = s.page.locator('[data-booking-dialog]')
+  await dlg.waitFor({ timeout: 15000 })
+  const sel = dlg.locator('[data-field="person"]')
+  const labels = (await sel.locator('option').allTextContents()).map(l => l.trim())
+  const selected = (await sel.evaluate(el => el.options[el.selectedIndex]?.textContent || '')).trim()
+  const phone = ((await dlg.locator('[data-person-phone]').textContent()) || '').trim()
+  return { labels, selected, phone }
+}
+
+/** 6. The With list is the active logins: a new login is in it with its Direct phone; switched off in Team, it is gone, and its appointment keeps the name. */
+async function teamFollowsLogins(desk, browser) {
+  const L = full(REPS.leaver)
+  const owner = sql(`select "firstName" || ' ' || "lastName" from "CrmUser" where "crmAccountId" = '${accountId}' and role = 'super_admin' and status = 'active' order by "createdAt" limit 1`)
+  let w = await withList(desk, { customerId: contactId, type: 'estimate' })
+  check(`${desk.tag}: With list: the owner first and picked for a new booking`, w.labels[0] === owner && w.selected === owner, `${w.labels.join(', ')} / ${w.selected}`)
+  check(`${desk.tag}: With list: the new test login is offered`, w.labels.includes(L), w.labels.join(', '))
+  check(`${desk.tag}: With list: none of the old built-in names (they are not logins)`, !OLD_NAMES.some(n => w.labels.includes(n)), w.labels.join(', '))
+  const team = await api('/api/appointments/team')
+  check(`${desk.tag}: the With list is the server's team, in its order`, JSON.stringify(team.json.data.map(m => m.name)) === JSON.stringify(w.labels), team.json.data.map(m => m.name).join(', '))
+
+  const booked = await book(desk, L, 'booked-leaver')
+  check(`${desk.tag}: picked, the dialog shows the login's Direct phone`, booked.personPhone === 'Direct (352) 555 0177', booked.personPhone)
+  check(`${desk.tag}: the confirmation gives that login's name and phone`, booked.text.includes('this is Testleaver') && booked.text.includes('(352) 555 0177'), booked.text)
+  const apptId = sql(`select id from "CrmAppointment" where "crmContactId" = '${contactId}' and "assignedToUserId" = '${ids.leaver}'`)
+  check(`${desk.tag}: the appointment keeps the login and the name`, !!apptId && sql(`select "assignedTo" from "CrmAppointment" where id = '${apptId}'`) === L)
+
+  // Switched off in Settings > Team.
+  await desk.page.goto(`${APP}/team`)
+  await desk.page.locator(`[data-edit-user="${ids.leaver}"]`).waitFor({ timeout: 30000 })
+  await desk.page.locator(`[data-edit-user="${ids.leaver}"]`).click({ force: true })
+  await desk.page.locator('[data-edit-status]').selectOption('deactivated')
+  await desk.page.locator('[data-save-user]').click()
+  const off = await waitFor(async () => /deactivated/.test((await desk.page.locator(`[data-user-status="${ids.leaver}"]`).textContent().catch(() => '')) || ''))
+  check(`${desk.tag}: switched off in Team`, off && sql(`select status from "CrmUser" where id = '${ids.leaver}'`) === 'deactivated')
+  await desk.shot('team-switched-off')
+
+  // The same desktop after a reload, and another browser (the phone): gone from the With list.
+  await desk.page.reload()
+  w = await withList(desk, { customerId: contactId, type: 'estimate' })
+  check(`${desk.tag}: after a reload the switched off login is not offered`, !w.labels.includes(L) && w.labels[0] === owner, w.labels.join(', '))
+  const ph = await open(browser, true)
+  w = await withList(ph, { customerId: contactId, type: 'estimate' })
+  check(`${ph.tag}: another browser: the switched off login is not offered`, !w.labels.includes(L) && w.labels.includes(full(REPS.alpha)), w.labels.join(', '))
+  // Its appointment keeps the name.
+  w = await withList(ph, { appointmentId: apptId })
+  check(`${ph.tag}: its appointment keeps the name, as a former team member`, w.selected === `${L} (former team member)` && w.phone === 'No longer on the team', `${w.selected} / ${w.phone}`)
+  await ph.shot('former-team-member')
+  // The Appointments filter: team members, then the former ones apart.
+  await ph.page.goto(`${APP}/appointments`)
+  const filter = ph.page.locator('[data-appointments-page] [data-person-filter]')
+  await filter.waitFor({ timeout: 30000 })
+  const former = (await filter.locator('optgroup[label="Former team members"] option').allTextContents()).map(t => t.trim())
+  const current = (await filter.locator(':scope > option').allTextContents()).map(t => t.trim())
+  check(`${ph.tag}: Appointments filter: the name is under Former team members, not with the team`, former.includes(L) && !current.includes(L) && current.includes(owner), `team: ${current.join(', ')} | former: ${former.join(', ')}`)
+  check(`${ph.tag}: no page errors`, ph.errors.length === 0, ph.errors.join(' | '))
+}
+
 async function phoneRun(browser) {
   const s = await open(browser, true)
   // Edited on the desktop: the phone gets it from the server.
@@ -301,6 +368,7 @@ try {
   // Back on the desktop (a reload, as another computer would): the default words again.
   const back = await book(desk, full(REPS.alpha))
   checkDefault(desk.tag, 'after the reset on the phone', back, 'Testrep', '(352) 555 0142')
+  await teamFollowsLogins(desk, safari)
 } catch (e) {
   check('ran to the end', false, e?.stack || String(e))
 } finally {

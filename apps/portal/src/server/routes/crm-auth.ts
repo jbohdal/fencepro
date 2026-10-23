@@ -883,8 +883,12 @@ router.get('/users', async (req, res) => {
   try {
     const payload = verifyAccess(auth.slice(7))
     if (!can(payload.role, 'users.manage')) { refuse(res, 'users.manage'); return }
+    // Only this company's logins (it had listed every company's).
+    const accountId = payload.crmAccountId ?? (await prisma.crmUser.findUnique({ where: { id: payload.sub }, select: { crmAccountId: true } }))?.crmAccountId ?? null
+    if (!accountId) { res.json({ success: true, data: [] }); return }
 
     const users = await prisma.crmUser.findMany({
+      where: { crmAccountId: accountId },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true, email: true, firstName: true, lastName: true, phone: true,

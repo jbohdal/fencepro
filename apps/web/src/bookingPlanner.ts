@@ -69,12 +69,12 @@ export interface DayInput {
 const point = (a: { lat: number | null | undefined; lng: number | null | undefined }): LatLng | null =>
   a.lat != null && a.lng != null && Number.isFinite(a.lat) && Number.isFinite(a.lng) ? { lat: a.lat, lng: a.lng } : null
 
-type ApptLike = Pick<Appointment, 'id' | 'startAt' | 'endAt' | 'allDay' | 'assignedTo' | 'status' | 'lat' | 'lng' | 'customerName'>
+type ApptLike = Pick<Appointment, 'id' | 'startAt' | 'endAt' | 'allDay' | 'assignedTo' | 'status' | 'lat' | 'lng' | 'customerName'> & { assignedToUserId?: string | null }
 
 /** The person's open, timed appointments on a day, in order. */
-export function stopsFor(appointments: ApptLike[], person: string, date: string, ignoreId?: string): Stop[] {
+export function stopsFor(appointments: ApptLike[], person: string, date: string, ignoreId?: string, isTheirs?: (a: ApptLike) => boolean): Stop[] {
   return appointments
-    .filter(a => a.id !== ignoreId && a.assignedTo === person && isOpen(a) && a.startAt && !a.allDay && floridaDate(a.startAt) === date)
+    .filter(a => a.id !== ignoreId && (isTheirs ? isTheirs(a) : a.assignedTo === person) && isOpen(a) && a.startAt && !a.allDay && floridaDate(a.startAt) === date)
     .map(a => {
       const start = minutesOf(floridaHM(a.startAt!))
       const end = a.endAt && floridaDate(a.endAt) === date ? minutesOf(floridaHM(a.endAt)) : start + 60
@@ -83,21 +83,22 @@ export function stopsFor(appointments: ApptLike[], person: string, date: string,
     .sort((x, y) => x.start - y.start)
 }
 
-/** A team member's home base, when set and on the map. */
-export function homeOf(settings: AppointmentSettings, person: string): LatLng | null {
-  const m = settings.team.find(t => t.name === person)
-  return m ? point({ lat: m.homeLat, lng: m.homeLng }) : null
-}
-
-/** Everything the planner needs for one person and one day, from the app's own data. */
+/**
+ * Everything the planner needs for one person and one day, from the app's own data.
+ * `person`: the appointment's name (assignedTo); `isTheirs`, when given, says
+ * which appointments are that person's (by login, bookingTeamModel.ts isWith).
+ * `home`: where that person's day starts (Settings > Appointments, by login:
+ * bookingTeamModel.ts homeOf), or null.
+ */
 export function dayInput(o: {
-  date: string; minutes: number; target: LatLng | null; person: string
+  date: string; minutes: number; target: LatLng | null; person: string; home?: LatLng | null
+  isTheirs?: (a: ApptLike) => boolean
   appointments: ApptLike[]; settings: AppointmentSettings; now: Date; ignoreId?: string; drive?: DriveFn
 }): DayInput {
   const s = o.settings
   return {
     date: o.date, minutes: Math.max(15, o.minutes || 60), target: o.target,
-    stops: stopsFor(o.appointments, o.person, o.date, o.ignoreId), home: homeOf(s, o.person),
+    stops: stopsFor(o.appointments, o.person, o.date, o.ignoreId, o.isTheirs), home: o.home ?? null,
     workStart: minutesOf(s.slotStart), workEnd: minutesOf(s.slotEnd), buffer: Math.max(0, s.bufferMinutes ?? 15),
     now: o.now, drive: o.drive ?? estimator(s.driveMph),
   }
@@ -376,7 +377,8 @@ const DONE_JOB = new Set(['completed', 'paid', 'cancelled', 'on_hold'])
  * or a scheduled job: the best time that day, next to it where possible.
  */
 export function otherDays(o: {
-  date: string; minutes: number; target: LatLng | null; person: string
+  date: string; minutes: number; target: LatLng | null; person: string; home?: LatLng | null
+  isTheirs?: (a: ApptLike) => boolean
   appointments: ApptLike[]; jobs: NearbyJob[]; settings: AppointmentSettings; now: Date
   ignoreId?: string; drive?: DriveFn; near?: number; count?: number
 }): OtherDay[] {

@@ -3,6 +3,7 @@
  *
  * Staff (signed in):
  *   GET    /api/appointments                 list (?from=&to= ISO, ?contactId=, ?all=1 includes archived)
+ *   GET    /api/appointments/team            who appointments can be with: the active staff logins (lib/appointmentRep.ts bookingTeam)
  *   GET    /api/appointments/:id             one
  *   POST   /api/appointments                 book
  *   PATCH  /api/appointments/:id             change; send baseVersion, and a reason when moving the time
@@ -33,7 +34,7 @@ import {
 } from '../lib/appointments.js'
 import { plainZod } from '../lib/plainZod.js'
 import { suggest } from '../lib/addressIndex.js'
-import { withReps, assignedUserIdFor } from '../lib/appointmentRep.js'
+import { withReps, assignedUserIdFor, bookingTeam, bookableMember } from '../lib/appointmentRep.js'
 
 const router = Router()
 
@@ -72,6 +73,8 @@ const fields = {
   lat: z.number().min(-90).max(90).nullable(),
   lng: z.number().min(-180).max(180).nullable(),
   assignedTo: z.string().max(120),
+  /** The login from the booking team; the name (assignedTo) is then taken from it. */
+  assignedToUserId: z.string().max(80).nullable(),
   notes: z.string().max(10_000),
   outcome: z.enum(APPOINTMENT_OUTCOMES).nullable(),
   outcomeNotes: z.string().max(10_000),
@@ -82,7 +85,7 @@ const fields = {
   startedAt: iso.nullable(),
 }
 const createSchema = z.object({ crmContactId: z.string().min(1), ...fields }).partial({
-  status: true, endAt: true, allDay: true, address: true, lat: true, lng: true, assignedTo: true, notes: true,
+  status: true, endAt: true, allDay: true, address: true, lat: true, lng: true, assignedTo: true, assignedToUserId: true, notes: true,
   outcome: true, outcomeNotes: true, measuredFeet: true, nextStep: true, quoteId: true, jobId: true, startAt: true, startedAt: true,
 }).extend({ id: z.string().uuid().optional() })
 const patchSchema = z.object(fields).partial().extend({
@@ -95,6 +98,20 @@ const dateOrNull = (s: string | null | undefined) => (s ? new Date(s) : null)
 /** An appointment as the browser gets it, with the login it is with (`rep`: whose Direct phone the texts give). */
 const one = async (accountId: string, a: any) => (await withReps(accountId, [toClient(a)]))[0]
 const actor = (req: any) => req.user?.name || req.user?.email || 'staff'
+
+/**
+ * Who a booking is with. A login id must be on the booking team now (an active
+ * staff login): its name is kept with it. A name alone (an older phone's queued
+ * booking) is matched to a login exactly, as before.
+ */
+async function personOf(accountId: string, d: { assignedTo?: string; assignedToUserId?: string | null }): Promise<{ assignedTo: string; assignedToUserId: string | null } | { error: string }> {
+  if (d.assignedToUserId) {
+    const m = await bookableMember(accountId, d.assignedToUserId)
+    if (!m) return { error: 'That person is no longer on the team (Settings > Team). Pick someone else.' }
+    return { assignedTo: m.name, assignedToUserId: m.userId }
+  }
+  return { assignedTo: d.assignedTo ?? '', assignedToUserId: await assignedUserIdFor(accountId, d.assignedTo) }
+}
 
 /** Fill a missing position from the address, without holding up the save for long. */
 async function withPosition(accountId: string, data: any) {
@@ -134,6 +151,11 @@ router.post('/geo/pin', requireUser, async (req: any, res) => {
 
 /* ── Staff ───────────────────────────────────────────────────────────────── */
 
+// The "With" list: the company's active staff logins, owner first (the default), each with its Direct phone.
+router.get('/team', requireUser, async (req: any, res) => {
+  res.json({ success: true, data: await bookingTeam(req.user.crmAccountId) })
+})
+
 router.get('/', requireUser, async (req: any, res) => {
   // Deleted ones never (Settings > Deleted Records); ?all=1 also lists the archived (cancelled) ones.
   const where: any = { accountId: req.user.crmAccountId, deletedAt: null }
@@ -166,6 +188,8 @@ async function bookByStaff(req: any, res: any) {
       const already = await prisma.appointment.findFirst({ where: { id: d.id, accountId }, include: { contact: { select: contactSelect } } })
       if (already) { res.status(200).json({ success: true, data: await one(accountId, already), version: already.version }); return }
     }
+    const who = await personOf(accountId, d)
+    if ('error' in who) { res.status(400).json({ success: false, code: 'NOT_ON_TEAM', error: who.error }); return }
     const start = dateOrNull(d.startAt)
     const allDay = d.allDay ?? d.type === 'install'
     const end = dateOrNull(d.endAt) ?? (start ? new Date(start.getTime() + (DEFAULT_MINUTES[d.type] || 60) * 60_000) : null)
@@ -174,7 +198,7 @@ async function bookByStaff(req: any, res: any) {
       accountId, crmContactId: contact.id, type: d.type, status: d.status ?? 'scheduled',
       startAt: start, endAt: end, allDay,
       address: d.address ?? contact.serviceAddress ?? '', lat: d.lat ?? null, lng: d.lng ?? null,
-      assignedTo: d.assignedTo ?? '', assignedToUserId: await assignedUserIdFor(accountId, d.assignedTo), notes: d.notes ?? '', quoteId: d.quoteId ?? null, jobId: d.jobId ?? null,
+      assignedTo: who.assignedTo, assignedToUserId: who.assignedToUserId, notes: d.notes ?? '', quoteId: d.quoteId ?? null, jobId: d.jobId ?? null,
       outcome: d.outcome ?? null, outcomeNotes: d.outcomeNotes ?? '', measuredFeet: d.measuredFeet ?? null, nextStep: d.nextStep ?? '',
       source: 'manual', createdBy: actor(req),
       history: [{ at: new Date().toISOString(), by: actor(req), kind: 'booked', to: { startAt: start?.toISOString() ?? null, endAt: end?.toISOString() ?? null } }],
@@ -226,8 +250,15 @@ router.patch('/:id', requireUser, async (req: any, res) => {
       if (d.status === 'completed' || d.status === 'no_show') data.completedAt = new Date()
     }
     if (d.status === 'on_my_way' && !cur.startedAt) data.startedAt = new Date()
-    // Another person: the login it is with is matched again.
-    if ('assignedTo' in d && d.assignedTo !== cur.assignedTo) data.assignedToUserId = await assignedUserIdFor(accountId, d.assignedTo)
+    // Another person: a login from the team (its name kept with it), or a name matched again. The same login: nothing changes.
+    delete data.assignedTo; delete data.assignedToUserId
+    if (d.assignedToUserId && d.assignedToUserId !== cur.assignedToUserId) {
+      const who = await personOf(accountId, { assignedToUserId: d.assignedToUserId })
+      if ('error' in who) { res.status(400).json({ success: false, code: 'NOT_ON_TEAM', error: who.error }); return }
+      Object.assign(data, who)
+    } else if (!d.assignedToUserId && 'assignedTo' in d && d.assignedTo !== cur.assignedTo) {
+      Object.assign(data, { assignedTo: d.assignedTo ?? '', assignedToUserId: await assignedUserIdFor(accountId, d.assignedTo) })
+    }
     if ('address' in d && d.address !== cur.address && !('lat' in d)) { data.lat = null; data.lng = null; await withPosition(accountId, data) }
     data.history = history
 

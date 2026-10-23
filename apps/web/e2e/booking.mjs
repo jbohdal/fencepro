@@ -8,11 +8,14 @@
 //     SHOTS=<folder, optional> node e2e/booking.mjs
 //
 // Dev only (port 4001). Makes three test customers and their appointments on
-// a week with nothing booked, sets a test home base for the default person in
-// Settings, and removes all of it at the end (the home base is put back).
+// a week with nothing booked, sets a test home base for the default person (the
+// owner, first on the booking team: the active logins) in Settings >
+// Appointments (kept by login id), and removes all of it at the end (the
+// appointment settings are put back).
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import { execFileSync } from 'child_process'
+import { signInByCookie } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -41,14 +44,14 @@ const WRONG = '11000 SW 207th Ct, Dunnellon, FL 34431'          // same house nu
 const NEARBY = { address: '11050 SW 210th Ave, Dunnellon, FL 34431', lat: 29.063166, lng: -82.468588 }
 const TAG = `E2E${Date.now().toString(36).slice(-5)}`
 const made = { contacts: [], appointments: [] }
-let person = 'Jonathan Bohdal'
+let person = '', personId = ''
 let origAppointments, accountId = ''
 
 async function open(browser, phone) {
   const ctx = await browser.newContext(phone
     ? { viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, hasTouch: true, isMobile: true }
     : { viewport: { width: 1440, height: 900 } })
-  await ctx.addInitScript(t => { localStorage.setItem('crm_access_token', t); if (!localStorage.getItem('crm_refresh_token')) localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
+  await signInByCookie(ctx, { token: TOKEN, cookie: '', email: '', password: '', api: API })
   // Stage changes ask the server to run automations; the dev data holds real customers, so not here.
   await ctx.route('**/api/automations/trigger', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' }))
   const page = await ctx.newPage()
@@ -200,8 +203,11 @@ const browser = await chromium.launch()
 try {
   // The week must be empty for the default person.
   const cfg = await api('/api/business-state')
-  const team = cfg?.data?.config?.appointments?.team
-  person = team?.find(t => t.isDefault)?.name || team?.[0]?.name || person
+  // The default person: the owner, first on the booking team (the active logins, Settings > Team).
+  const team = (await api('/api/appointments/team'))?.data || []
+  const owner = team.find(t => t.isDefault) || team[0]
+  if (!owner) throw new Error('the booking team is empty')
+  person = owner.name; personId = owner.userId
   origAppointments = cfg?.data?.config?.appointments
   accountId = cfg?.data?.accountId || ''
   const all = (await api('/api/appointments'))?.data || []
@@ -215,7 +221,7 @@ try {
     made.contacts.push(id); return id
   }
   const book = async (crmContactId, startAt, endAt, p) => {
-    const r = await api('/api/appointments', { method: 'POST', body: JSON.stringify({ id: crypto.randomUUID(), crmContactId, type: 'estimate', assignedTo: person, address: p.address, lat: p.lat ?? null, lng: p.lng ?? null, startAt, endAt, allDay: false, notes: 'booking.mjs test' }) })
+    const r = await api('/api/appointments', { method: 'POST', body: JSON.stringify({ id: crypto.randomUUID(), crmContactId, type: 'estimate', assignedToUserId: personId, assignedTo: person, address: p.address, lat: p.lat ?? null, lng: p.lng ?? null, startAt, endAt, allDay: false, notes: 'booking.mjs test' }) })
     if (!r?.data?.id) throw new Error('could not book a test appointment: ' + JSON.stringify(r).slice(0, 200))
     made.appointments.push(r.data.id); return r.data.id
   }
@@ -228,8 +234,10 @@ try {
 
   const set = await settingsHomeBase(browser, HOME, true)
   check('Settings: home base picked from the county suggestions and found on the map', set.val === HOME && /On the map/.test(set.status || ''), `${set.val} / ${set.status}`)
-  const after = (await api('/api/business-state'))?.data?.config?.appointments?.team?.find(t => t.name === person)
-  check('Settings: home base kept on the server', after?.homeBase === HOME && Number.isFinite(after?.homeLat), JSON.stringify(after))
+  const saved = (await api('/api/business-state'))?.data?.config?.appointments
+  const after = saved?.homes?.[personId]
+  check('Settings: home base kept on the server, by login id', after?.homeBase === HOME && Number.isFinite(after?.homeLat), JSON.stringify(after))
+  check('Settings: no names list kept', !('team' in (saved || {})), JSON.stringify(Object.keys(saved || {})))
 
   await bookingRun(browser, true, dunnellonId)
   await bookingRun(browser, false, dunnellonId)

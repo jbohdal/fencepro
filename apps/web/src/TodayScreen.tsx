@@ -15,7 +15,7 @@ import { getAppointmentSettings, getConfig } from './configStore'
 import { getQuotesForCustomer } from './quoteStore'
 import { uploadStaffPhotoForCustomer } from './portalStaffApi'
 import {
-  TYPE_SHORT, TYPE_COLORS, STATUS_LABELS, OUTCOME_LABELS, floridaDate, isOpen, needsOutcome, statusForOutcome, defaultPerson,
+  TYPE_SHORT, TYPE_COLORS, STATUS_LABELS, OUTCOME_LABELS, floridaDate, isOpen, needsOutcome, statusForOutcome,
   directionsUrl, smsLink, driveMinutes, type Appointment, type AppointmentOutcome,
 } from './appointmentLogic'
 import { applyOutcome } from './appointmentPipeline'
@@ -26,6 +26,9 @@ import TasksList from './TasksList'
 import { ServiceNeedsYou } from './ServiceRequests'
 import { useOpenTickets } from './serviceStore'
 import { onMyWaySms } from './appointmentMessages'
+import { useBookingTeam } from './bookingTeamStore'
+import { defaultMemberOf, formerNamesOf, matchesPerson, memberKey } from './bookingTeamModel'
+import PersonFilter from './PersonFilter'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
 const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
@@ -53,15 +56,19 @@ export function startQuote(a: Appointment) {
 export default function TodayScreen() {
   const list = useAppointmentList()
   const tickets = useOpenTickets()
-  const settings = getAppointmentSettings()
-  const [person, setPerson] = useState(defaultPerson(settings))
+  // Whose day: the owner by default (the booking team, bookingTeamStore.ts), or anyone on the team, a former team member, or everyone.
+  const team = useBookingTeam()
+  const [picked, setPerson] = useState<string | null>(null)
+  const owner = defaultMemberOf(team)
+  const person = picked ?? (owner ? memberKey(owner) : '')
+  const former = useMemo(() => formerNamesOf(team, list), [team, list])
   const [closing, setClosing] = useState<Appointment | null>(null)
   const today = floridaDate(new Date())
   const todays = useMemo(() => list
-    .filter(a => a.startAt && floridaDate(a.startAt) === today && a.status !== 'cancelled' && (!person || a.assignedTo === person))
-    .sort((x, y) => x.startAt!.localeCompare(y.startAt!)), [list, today, person])
+    .filter(a => a.startAt && floridaDate(a.startAt) === today && a.status !== 'cancelled' && matchesPerson(team, a, person))
+    .sort((x, y) => x.startAt!.localeCompare(y.startAt!)), [list, team, today, person])
   const next = todays.find(a => isOpen(a))
-  const overdue = list.filter(a => needsOutcome(a) && floridaDate(a.startAt!) < today && (!person || a.assignedTo === person))
+  const overdue = list.filter(a => needsOutcome(a) && floridaDate(a.startAt!) < today && matchesPerson(team, a, person))
 
   return (
     <div className="max-w-xl mx-auto space-y-4 pb-24" data-today>
@@ -70,10 +77,7 @@ export default function TodayScreen() {
           <h1 className="text-xl font-bold text-gray-900">Today</h1>
           <p className="text-sm text-gray-500">{new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric' })}</p>
         </div>
-        <select value={person} onChange={e => setPerson(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-2 text-sm">
-          {settings.team.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
-          <option value="">Everyone</option>
-        </select>
+        <PersonFilter team={team} former={former} value={person} onChange={setPerson} className="border border-gray-200 rounded-lg px-2 py-2 text-sm" />
       </div>
 
       {next ? <NextCard a={next} onComplete={() => setClosing(next)} /> : (

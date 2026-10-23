@@ -11,6 +11,7 @@ import {
   clock, duration, differentStreets, estimateDriveMinutes, type DriveFn,
 } from '../../web/src/bookingPlanner'
 import { floridaTime, floridaHM, withDefaults, type Appointment } from '../../web/src/appointmentLogic'
+import { homeOf, type TeamMember } from '../../web/src/bookingTeamModel'
 
 // Places are fake points; the drive between them is a table.
 const HOME = { lat: 1, lng: 1 }, BRENDA = { lat: 2, lng: 2 }, ASHLEY = { lat: 3, lng: 3 }, SMITH = { lat: 4, lng: 4 }
@@ -29,7 +30,10 @@ const drive: DriveFn = (a, b) => {
 }
 
 const PERSON = 'Jonathan Bohdal'
-const S = withDefaults({ slotStart: '07:00', slotEnd: '18:00', bufferMinutes: 15, slotDays: [1, 2, 3, 4, 5, 6], team: [{ name: PERSON, isDefault: true, homeBase: '1 Home Rd, Ocklawaha, FL', homeLat: HOME.lat, homeLng: HOME.lng }] })
+// The person is a login (bookingTeamModel.ts); the home base is kept by login id in Settings > Appointments.
+const ME: TeamMember = { userId: 'login-jonathan', name: PERSON, firstName: 'Jonathan', lastName: 'Bohdal', phone: null, role: 'super_admin', isDefault: true }
+const S = withDefaults({ slotStart: '07:00', slotEnd: '18:00', bufferMinutes: 15, slotDays: [1, 2, 3, 4, 5, 6], homes: { [ME.userId]: { homeBase: '1 Home Rd, Ocklawaha, FL', homeLat: HOME.lat, homeLng: HOME.lng } } })
+const home = homeOf(S.homes, ME)
 const MON = '2026-10-19', TUE = '2026-10-20', WED = '2026-10-21', THU = '2026-10-22'
 const at = (date: string, hm: string) => floridaTime(date, hm).toISOString()
 
@@ -44,7 +48,7 @@ const minutes = (hm: string) => { const [h, m] = hm.split(':').map(Number); retu
 
 describe("(a) Jonathan's report: 11:15 AM, Ashley at 5 PM in Ocala, booking Dunnellon", () => {
   const now = floridaTime(MON, '11:15')
-  const d = dayInput({ date: MON, minutes: 60, target: BRENDA, person: PERSON, appointments: [appt('Ashley Rozicki', MON, '17:00', '18:00', ASHLEY)], settings: S, now, drive })
+  const d = dayInput({ date: MON, minutes: 60, target: BRENDA, person: PERSON, home, appointments: [appt('Ashley Rozicki', MON, '17:00', '18:00', ASHLEY)], settings: S, now, drive })
   const opts = bestTimes(d)
 
   test('three options, never before now plus the drive (11:15 + 50 min, rounded up to 12:15)', () => {
@@ -60,7 +64,7 @@ describe("(a) Jonathan's report: 11:15 AM, Ashley at 5 PM in Ocala, booking Dunn
     expect(opts.map(o => o.best)).toEqual([true, false, false])
   })
   test('a narrow window still gives three choices, half an hour apart', () => {
-    const d90 = dayInput({ date: MON, minutes: 90, target: BRENDA, person: PERSON, appointments: [appt('Ashley Rozicki', MON, '17:00', '18:00', ASHLEY)], settings: S, now, drive })
+    const d90 = dayInput({ date: MON, minutes: 90, target: BRENDA, person: PERSON, home, appointments: [appt('Ashley Rozicki', MON, '17:00', '18:00', ASHLEY)], settings: S, now, drive })
     expect(hms(bestTimes(d90))).toEqual(['14:15', '13:45', '12:45'])
   })
   test('each explains itself in one line', () => {
@@ -84,7 +88,7 @@ describe("(a) Jonathan's report: 11:15 AM, Ashley at 5 PM in Ocala, booking Dunn
 describe('(b) two appointments with a gap', () => {
   const now = floridaTime(MON, '08:00')
   const list = [appt('Smith', TUE, '09:00', '10:00', SMITH), appt('Ashley Rozicki', TUE, '14:00', '15:00', ASHLEY)]
-  const d = dayInput({ date: TUE, minutes: 60, target: NEAR, person: PERSON, appointments: list, settings: S, now, drive })
+  const d = dayInput({ date: TUE, minutes: 60, target: NEAR, person: PERSON, home, appointments: list, settings: S, now, drive })
   test('fills the gap (it was dead time anyway) before the end of the day', () => {
     const opts = bestTimes(d)
     expect(hms(opts)).toEqual(['10:30', '11:30', '15:45'])
@@ -99,7 +103,7 @@ describe('(b) two appointments with a gap', () => {
 })
 
 describe('(c) a day with nothing booked, from home base', () => {
-  const d = dayInput({ date: TUE, minutes: 60, target: NEAR, person: PERSON, appointments: [], settings: S, now: floridaTime(MON, '16:00'), drive })
+  const d = dayInput({ date: TUE, minutes: 60, target: NEAR, person: PERSON, home, appointments: [], settings: S, now: floridaTime(MON, '16:00'), drive })
   test('first time is after leaving home at 7:00 (40 min drive): 8:00, labeled with the leave time', () => {
     const opts = bestTimes(d)
     expect(hms(opts)).toEqual(['08:00', '09:00', '10:00'])
@@ -107,8 +111,8 @@ describe('(c) a day with nothing booked, from home base', () => {
     expect(checkStart(d, minutes('07:30')).problems.join()).toMatch(/leave home at 6:50, before work hours/)
   })
   test('no home base: from the start of work hours', () => {
-    const noHome = withDefaults({ ...S, team: [{ name: PERSON, isDefault: true }] })
-    const d2 = dayInput({ date: TUE, minutes: 60, target: NEAR, person: PERSON, appointments: [], settings: noHome, now: floridaTime(MON, '16:00'), drive })
+    const noHome = withDefaults({ ...S, homes: {} })
+    const d2 = dayInput({ date: TUE, minutes: 60, target: NEAR, person: PERSON, home: homeOf(noHome.homes, ME), appointments: [], settings: noHome, now: floridaTime(MON, '16:00'), drive })
     expect(bestTimes(d2)[0].time).toBe('07:00')
     expect(bestTimes(d2)[0].line).toBe('No home base set · 7:00 to 8:00')
   })
@@ -120,7 +124,7 @@ describe('(c) a day with nothing booked, from home base', () => {
 
 describe('(d) a typed time that clashes, and the time grid', () => {
   const now = floridaTime(MON, '11:15')
-  const d = dayInput({ date: MON, minutes: 60, target: BRENDA, person: PERSON, appointments: [appt('Ashley Rozicki', MON, '17:00', '18:00', ASHLEY)], settings: S, now, drive })
+  const d = dayInput({ date: MON, minutes: 60, target: BRENDA, person: PERSON, home, appointments: [appt('Ashley Rozicki', MON, '17:00', '18:00', ASHLEY)], settings: S, now, drive })
   test('typed times get a plain warning', () => {
     expect(warningsFor(d, '17:30')[0]).toBe('Clashes with Ashley Rozicki (5:00 to 6:00)')
     expect(warningsFor(d, '16:00')[0]).toMatch(/^Not enough time to drive to Ashley Rozicki \(46 min drive \+ 15 min gap; they're at 5:00\)/)
@@ -140,7 +144,7 @@ describe('(d) a typed time that clashes, and the time grid', () => {
     expect(cell('17:00').reason).toMatch(/Clashes with Ashley Rozicki/)
   })
   test('a day already gone offers nothing', () => {
-    const past = dayInput({ date: '2026-10-16', minutes: 60, target: BRENDA, person: PERSON, appointments: [], settings: S, now, drive })
+    const past = dayInput({ date: '2026-10-16', minutes: 60, target: BRENDA, person: PERSON, home, appointments: [], settings: S, now, drive })
     expect(bestTimes(past)).toEqual([])
   })
 })
@@ -149,7 +153,7 @@ describe('other days this week, near this address', () => {
   const now = floridaTime(MON, '11:15')
   const jobs = [{ id: 'j1', customerName: 'Smith', lat: SMITH.lat, lng: SMITH.lng, scheduledDate: TUE, scheduledEndDate: TUE, status: 'scheduled' }]
   const list = [appt('Pat Lee', THU, '10:00', '11:00', PAT), appt('Far Away', WED, '10:00', '11:00', FAR)]
-  const o = otherDays({ date: MON, minutes: 60, target: BRENDA, person: PERSON, appointments: list, jobs, settings: S, now, drive })
+  const o = otherDays({ date: MON, minutes: 60, target: BRENDA, person: PERSON, home, appointments: list, jobs, settings: S, now, drive })
   test('a scheduled job 8 min away on Tuesday, and an appointment 5 min away on Thursday, nearest first', () => {
     expect(o.map(x => x.line)).toEqual(['Thu 11:30 · 5 min from Pat Lee', 'Tue 8:00 · 8 min from Smith job'])
   })
@@ -157,8 +161,8 @@ describe('other days this week, near this address', () => {
     expect(floridaHM(o[0].startAt)).toBe('11:30')
   })
   test('nothing when nowhere near, or no address on the map', () => {
-    expect(otherDays({ date: MON, minutes: 60, target: BRENDA, person: PERSON, appointments: [list[1]], jobs: [], settings: S, now, drive })).toEqual([])
-    expect(otherDays({ date: MON, minutes: 60, target: null, person: PERSON, appointments: list, jobs, settings: S, now, drive })).toEqual([])
+    expect(otherDays({ date: MON, minutes: 60, target: BRENDA, person: PERSON, home, appointments: [list[1]], jobs: [], settings: S, now, drive })).toEqual([])
+    expect(otherDays({ date: MON, minutes: 60, target: null, person: PERSON, home, appointments: list, jobs, settings: S, now, drive })).toEqual([])
   })
 })
 

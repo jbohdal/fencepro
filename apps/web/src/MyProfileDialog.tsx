@@ -9,6 +9,7 @@ import { currentUser, saveMyPhone } from './crmAuth'
 import { formatPhone } from './phoneFormat'
 import { useBackLayer } from './nav'
 import { toast } from './toast'
+import { refreshBookingTeam } from './bookingTeamStore'
 
 export default function MyProfileDialog({ onClose }: { onClose: () => void }) {
   useBackLayer(onClose, { key: 'my-profile' })
@@ -22,6 +23,7 @@ export default function MyProfileDialog({ onClose }: { onClose: () => void }) {
     try {
       const saved = await saveMyPhone(phone.trim())
       setPhone(formatPhone(saved || ''))
+      void refreshBookingTeam()  // the booking team shows each person's Direct phone
       toast.success('Direct phone saved', saved ? formatPhone(saved) : 'Cleared: appointment texts give the company number.')
       onClose()
     } catch (err: any) { setError(err?.message || 'Could not save') }

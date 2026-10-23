@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { authFetch } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { useBackLayer } from './nav'
+import { refreshBookingTeam } from './bookingTeamStore'
 import ConfirmByTyping from './ConfirmByTyping'
 import { plainText } from './plainError'
 import { inviteStepsText, INVITE_STEP_1_LINES } from '../../portal/src/server/lib/inviteSteps'
@@ -73,6 +74,8 @@ export default function TeamManagementPage() {
   const loadUsers = useCallback(() => {
     setLoading(true)
     api('/users').then(setUsers).catch(console.error).finally(() => setLoading(false))
+    // Who appointments can be with is this list (the active logins): booking shows a change at once.
+    void refreshBookingTeam()
   }, [])
 
   useEffect(() => { loadUsers() }, [loadUsers])
@@ -140,7 +143,7 @@ export default function TeamManagementPage() {
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLES.find(r => r.value === user.role)?.color || 'bg-gray-100 text-gray-700'}`}>
                       {user.role === 'super_admin' ? 'Super Admin' : ROLES.find(r => r.value === user.role)?.label || user.role}
                     </span>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGES[user.status] || 'bg-gray-100 text-gray-500'}`}>
+                    <span data-user-status={user.id} className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGES[user.status] || 'bg-gray-100 text-gray-500'}`}>
                       {user.status}
                     </span>
                     {user.lastLoginAt && (
@@ -462,7 +465,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
 
         <div>
           <label className="block text-xs text-gray-500 mb-1">Status</label>
-          <select value={status} onChange={e => setStatus(e.target.value)}
+          <select value={status} data-edit-status onChange={e => setStatus(e.target.value)}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
             <option value="active">Active</option>
             <option value="suspended">Suspended</option>

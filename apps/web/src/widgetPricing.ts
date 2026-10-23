@@ -18,12 +18,12 @@ import { resolveTiers, type TierSet } from './tiers'
 import { isQuotable } from './styleAvailability'
 import type { AppConfig, FenceStyle } from './configStore'
 import type { QuotePricingOverrides } from './pricingEngine'
+import { colorNamesOf } from './fenceCatalog'
 
 // ── What the customer picks ──────────────────────────────────────────────────
 
 export type WidgetMaterial = 'vinyl' | 'chain' | 'alum' | 'wood'
 export const MATERIAL_LABEL: Record<WidgetMaterial, string> = { vinyl: 'Vinyl', chain: 'Chain link', alum: 'Aluminum', wood: 'Wood' }
-const COLOR_NAME: Record<string, string> = { white: 'White', tan: 'Tan', galv: 'Galvanized', black: 'Black' }
 const KIND_NAME: Record<string, string> = { privacy: 'privacy', bell: 'bell top', emily: 'Emily' }
 
 /** One thing the customer can pick: material, color (where it applies), height and kind (privacy / bell top ...). */
@@ -59,7 +59,9 @@ export function widgetStyles(cfg: Pick<AppConfig, 'fenceStyles'>): FenceStyle[] 
 }
 
 /** Materials, colors and heights the customer can pick from (only what is available for quoting). */
-export function widgetCatalog(cfg: Pick<AppConfig, 'fenceStyles'>): WidgetCatalog {
+export function widgetCatalog(cfg: Pick<AppConfig, 'fenceStyles'> & Partial<Pick<AppConfig, 'fenceCatalog'>>): WidgetCatalog {
+  // Color names from Settings (Vinyl Colors), never a list of our own.
+  const colorNames = colorNamesOf(cfg)
   const order: WidgetMaterial[] = ['vinyl', 'chain', 'alum', 'wood']
   const out: WidgetCatalog = { materials: [] }
   for (const material of order) {
@@ -76,7 +78,7 @@ export function widgetCatalog(cfg: Pick<AppConfig, 'fenceStyles'>): WidgetCatalo
     }
     out.materials.push({
       material, label: MATERIAL_LABEL[material],
-      colors: colors.map(k => ({ key: k, label: COLOR_NAME[k] ?? k.charAt(0).toUpperCase() + k.slice(1) })),
+      colors: colors.map(k => ({ key: k, label: colorNames[k] ?? k.charAt(0).toUpperCase() + k.slice(1) })),
       heights: [...hk.values()].sort((a, b) => Number(a.height) - Number(b.height) || a.kind.localeCompare(b.kind)),
     })
   }

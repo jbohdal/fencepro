@@ -411,6 +411,30 @@ Status key:
 * Settings → Messages: editable booking confirmation per type (estimate, install, service call, other), the email subject, the "On my way" text and the calendar invite description, with placeholders {customer_first_name} {rep_first_name} {rep_phone} {company_name} {company_phone} {appointment_type} {date_time} {address}, a live preview and Reset to default. Saved on the server, in the Settings change log. **DEV**
 * {rep_phone} is the Direct phone of the person the appointment is with (Team; owner edits anyone's, each person edits their own under My profile); with none, the company phone and a warning on the Booked screen. Every text starts "Getter Done Fence: " and ends "Reply STOP to opt out." (the registered Twilio wording); every phone written (352) 789 4314. Jonathan's Direct phone on live: (352) 844 2677; his personal cell is never used in anything a customer sees. **DEV** (the Direct phone value: LIVE)
 
+## 9y. Appointments are with the real Team (Oct 23)
+
+* The "With" list everywhere (booking, changing an appointment, Today, the Appointments filter, service crew names, the booking planner, the calendar title's person, the texts' rep) is the company's active staff logins from Settings > Team, read from the server (GET /api/appointments/team), each with its Direct phone, the owner first and picked for new appointments. Anyone added in Team is in it; anyone switched off, suspended or deleted is gone at once (another device on its next read). An invited login joins when the invite is accepted. **DEV**
+* An appointment keeps the login (assignedToUserId) and the name (assignedTo). A past appointment whose person left keeps the name: it shows "(former team member)" when opened, and the Appointments and Today filters list such names apart under "Former team members". A login that is not on the team cannot be booked (the server refuses it). **DEV**
+* Settings > Appointments no longer has a names list (it had a built-in four: Jonathan, Alexander, Stacy, Christopher). What it keeps per person is the home base (where the day starts), now by login. **DEV**
+
+## Settings lists connected
+
+Every list that Settings owns has one source, and every screen reads that source; no screen keeps its own copy. The check is `apps/portal/tests/settingsListsConnected.test.ts` (run with the unit tests): it fails when a list's words appear as a list in the code outside the files that hold the defaults, when a screen that shows a list does not read its store, when a screen imports the start list itself, or when code reads an old Settings copy. To add a list Settings owns, add it to that test and here.
+
+| List | Changed in | The one source (apps/web/src) | Server |
+|---|---|---|---|
+| Pipeline Stages | Settings > Pipeline Stages | pipelineStagesStore.ts (rules: pipelineStageModel.ts) | /api/pipeline-stages |
+| Operations Stages | Settings > Operations Stages | opsStagesStore.ts (rules: opsStageModel.ts) | /api/ops-stages |
+| Lead Sources | Settings > Lead Sources | optionListsStore.ts (rules: optionListModel.ts) | /api/option-lists |
+| Customer Tags | Settings > Customer Tags | optionListsStore.ts | /api/option-lists |
+| Vinyl Colors and chain link finishes | Settings > Price List > Vinyl Colors (config.fenceCatalog) | fenceCatalog.ts catalogOf / colorNamesOf on the saved Settings | /api/business-state, /api/vinyl-colors |
+| Fence Styles | Settings > Price List (config.fenceStyles) | configStore.ts getConfig | /api/business-state |
+| Booking team ("With") | Settings > Team (active staff logins) | bookingTeamStore.ts (rules: bookingTeamModel.ts) | /api/appointments/team |
+
+* Not Settings lists: appointment types, statuses and outcomes are fixed in the code (appointmentLogic.ts; the server repeats them and a test checks they match); Settings > Appointments owns only each type's length.
+* Found and fixed when the check was built: the Good / Better / Best tier color names and the website quote's color names were their own list of four; both now read the color names from Settings.
+* Allowed, each with its reason in the test: pricing, takeoff and seed rules keyed by a style's permanent internal name; the Inventory > Fill in to do list of styles; the website catalog reading old style codes; MyBudgetQuote's own source words; starter automations pointing at a start stage's permanent id. Follow up: QuotePlan.tsx falls back to the default style list for a saved quote's panel width when its caller passes no style.
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)
