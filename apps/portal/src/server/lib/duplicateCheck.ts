@@ -6,7 +6,8 @@
  * app. Jonathan can mark a finding "This is fine" (the Rice family sharing a
  * phone): it is then left out until something about it changes.
  *
- *   phone      the same customer phone (10 digits) on two active customers
+ *   phone      the same customer phone (10 digits) on two active customers (not deleted; two
+ *              already shown as a Possible match of each other are left out)
  *   card       one customer with two cards in the same stage
  *   rule       two automation rules with the same name or starter key
  *   seeded     a seeded thing twice (stage rules, active kit set per style, two pipeline stages with one name)
@@ -32,9 +33,14 @@ export async function findDuplicates(accountId: string): Promise<Finding[]> {
   return prisma.$transaction(async tx => {
     await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY')
     const out: Finding[] = []
-    for (const r of await rows(tx, `select right(regexp_replace(phone,'\\D','','g'),10) p, count(*)::int n, string_agg("firstName"||' '||"lastName", ' / ' order by "createdAt") who
-      from "CrmContact" where "accountId"='${a}' and "archivedAt" is null and length(regexp_replace(coalesce(phone,''),'\\D','','g')) >= 10 group by 1 having count(*) > 1`))
+    // Deleted customers do not count. Two customers already shown as a Possible match of each other
+    // (an import's new customer with another name, lib/customerImport.ts) are not told again.
+    const linked = new Set((await rows(tx, `select "contactId" c, "matchId" m from "CustomerPossibleMatch" where "accountId"='${a}'`)).flatMap((r: any) => [`${r.c}|${r.m}`, `${r.m}|${r.c}`]))
+    for (const r of await rows(tx, `select right(regexp_replace(phone,'\\D','','g'),10) p, count(*)::int n, string_agg("firstName"||' '||"lastName", ' / ' order by "createdAt") who, array_agg(id order by "createdAt") ids
+      from "CrmContact" where "accountId"='${a}' and "archivedAt" is null and "deletedAt" is null and length(regexp_replace(coalesce(phone,''),'\\D','','g')) >= 10 group by 1 having count(*) > 1`)) {
+      if (r.n === 2 && linked.has(`${r.ids[0]}|${r.ids[1]}`)) continue
       out.push({ key: `phone:${r.p}:${r.n}`, check: 'phone', title: `Same phone on ${r.n} customers`, detail: `${r.who} share (${r.p.slice(0, 3)}) ${r.p.slice(3, 6)}-${r.p.slice(6)}` })
+    }
     for (const r of await rows(tx, `select l->>'customerId' c, l->>'stage' s, count(*)::int n, max(l->>'firstName')||' '||max(l->>'lastName') name
       from "PipelineState", jsonb_array_elements(leads::jsonb) l where "accountId"='${a}' and coalesce(l->>'customerId','') <> '' group by 1,2 having count(*) > 1`))
       out.push({ key: `card:${r.c}:${r.s}:${r.n}`, check: 'card', title: `${r.n} cards for one customer in ${r.s}`, detail: r.name })

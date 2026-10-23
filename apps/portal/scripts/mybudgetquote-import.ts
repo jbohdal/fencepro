@@ -103,7 +103,8 @@ function renderReport(m: M, plan: any, o: { apply: boolean; dbName: string }): s
   const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0)
   const decisions: any[] = plan.decisions
 
-  L.push(`# MyBudgetQuote import: ${o.apply ? 'APPLIED' : 'dry run'} (${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })})`, '')
+  L.push(`# MyBudgetQuote import: ${o.apply ? 'APPLIED' : 'dry run'}, v2 with Jonathan's answers (${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })})`, '')
+  L.push("v2 (Jonathan, Oct 23): lead source mapping approved (Other Social Media and Mail Ad stay their own sources); a phone or email match with a different name makes a NEW customer with a Possible match; a row matching several customers goes to the one with the same name, if exactly one; all same email + street Possible matches kept; no second card in a column that already has the customer's card.", '')
   L.push(`Database: \`${o.dbName}\`${o.dbName === 'ezbiz_dev' ? ' (the practice copy of live, refreshed from live today; live was only read)' : ''}. File: \`${plan.file}\`, ${n(c.rows)} rows. ${o.apply ? '' : 'Nothing was written.'}`, '')
   L.push('## Counts', '')
   L.push('| What | Count |', '|---|---:|')
@@ -118,7 +119,9 @@ function renderReport(m: M, plan: any, o: { apply: boolean; dbName: string }): s
   for (const [k, v] of Object.entries(c.matchedWithoutCardWhy)) L.push(`| &nbsp;&nbsp;of which: ${esc(k)} | ${n(v as number)} |`)
   L.push(`| Skipped | ${n(sum(c.skipped))} |`)
   for (const [k, v] of Object.entries(c.skipped)) L.push(`| &nbsp;&nbsp;${esc(k)} | ${n(v as number)} |`)
-  L.push(`| Possible matches made | ${n(c.possibleMatches)} |`, '')
+  L.push(`| Possible matches made | ${n(c.possibleMatches)} |`)
+  L.push(`| &nbsp;&nbsp;new customer, same phone/email as a customer on file with another name | ${n(c.possibleMatchesByKind.nameDiffers)} |`)
+  L.push(`| &nbsp;&nbsp;two new customers, same email and same street | ${n(c.possibleMatchesByKind.sameEmailAndStreet)} |`, '')
   L.push('Flagged rows, by flag (a row can have several):', '', '| Flag | Rows |', '|---|---:|')
   for (const [k, v] of Object.entries(c.flags).sort((a: any, b: any) => b[1] - a[1])) L.push(`| ${esc(k)} | ${n(v as number)} |`)
   L.push('', `Rows with at least one flag: ${n(plan.rows.filter((r: any) => r.flags.length).length)}.`, '')
@@ -127,8 +130,8 @@ function renderReport(m: M, plan: any, o: { apply: boolean; dbName: string }): s
   L.push('Mapped to the live list of lead sources (Settings > Lead Sources, read from the copy). Anything not mapped stays as its own source, as written; Settings > Lead Sources then lists it to Add or Merge.', '')
   L.push('| MyBudgetQuote says | Rows | Saved as | |', '|---|---:|---|---|')
   for (const s of plan.sourceMap) L.push(`| ${esc(s.from)} | ${n(s.rows)} | ${esc(s.to)} | ${s.mapped ? 'mapped to an existing source' : 'not mapped: its own source'} |`)
-  L.push('', 'Proposed but not done without your say so: "Other Social Media (Twitter, Instagram, Pinterest)" could go to Instagram, "Mail Ad" to Door Hanger. Say the word and the script maps them.', '')
-  L.push(`**source_other** (the words people typed when they picked Other, ${n(plan.sourceOther.reduce((a: number, s: any) => a + s.rows, 0))} rows): never used as the lead source; kept word for word in the history note and the stored row. Many say Billboard or ChatGPT; your Billboard maricamp / billboard 441 sources could take some of these by hand later.`, '')
+  L.push('', 'Approved by Jonathan (Oct 23), with "Other Social Media (Twitter, Instagram, Pinterest)" and "Mail Ad" kept as their own sources.', '')
+  L.push(`**source_other** (the words people typed when they picked Other, ${n(plan.sourceOther.reduce((a: number, s: any) => a + s.rows, 0))} rows): never used as the lead source; kept word for word in the history note and the stored row (approved).`, '')
   L.push('| They wrote | Rows |', '|---|---:|')
   for (const s of plan.sourceOther) L.push(`| ${esc(s.text)} | ${s.rows} |`)
   L.push('')
@@ -136,11 +139,14 @@ function renderReport(m: M, plan: any, o: { apply: boolean; dbName: string }): s
   const matched = decisions.filter(d => d.kind === 'matched')
   L.push(`## Every match to an existing customer (${matched.length} rows)`, '')
   L.push('Matched only on the same phone (last 10 digits) or the same email (any capitals); never on a name. Nothing on the customer on file is changed except the tag "MyBudgetQuote import"; the row is added as a pinned history note.', '')
-  const letters = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[^a-z]/g, '')
-  const namesDiffer = (d: any) => { const last = letters(d.row.last); return !last || !letters(`${d.onFile.firstName}${d.onFile.lastName}`).includes(last) }
-  L.push(`Rows where the name on file does not contain the file's last name: ${matched.filter(namesDiffer).length} (marked NAMES DIFFER below; matched anyway, by the phone/email rule).`, '')
+  L.push('Same name rule (lib/customerImport.ts sameName): names cut into words of letters only (accents, capitals, punctuation ignored); the same if all the letters are the same, or every word of one name (at least two words, each at least two letters) is a word of the other. A first name only, a nickname or an initial is a different name.', '')
   L.push('| # | Row (file) | Phone, email (file) | Old status | Existing customer | Matched by | Card? |', '|---:|---|---|---|---|---|---|')
-  matched.forEach((d, i) => L.push(`| ${i + 1} | ${esc(who(d))} (line ${d.row.line}, ${d.row.stage} #${d.row.order}) | ${esc(contact(d.row))} | ${esc(d.row.status)} | ${esc(onFile(d.onFile))}${namesDiffer(d) ? ' **NAMES DIFFER**' : ''} | ${d.matchedBy} | ${d.card.make ? `yes, ${d.card.stage}` : `no: ${esc(d.card.why)}`} |`))
+  matched.forEach((d, i) => L.push(`| ${i + 1} | ${esc(who(d))} (line ${d.row.line}, ${d.row.stage} #${d.row.order}) | ${esc(contact(d.row))} | ${esc(d.row.status)} | ${esc(onFile(d.onFile))}${d.byNameAmong ? ` (by name, of ${d.byNameAmong} matching)` : ''} | ${d.matchedBy} | ${d.card.make ? `yes, ${d.card.stage}` : `no: ${esc(d.card.why)}`} |`))
+  L.push('')
+  L.push(`## Same phone or email as a customer on file, different name: NEW customer + Possible match (${plan.nameDiffers.length})`, '')
+  L.push('Made as new customers (card by the make_card rule, like any new customer), each with a Possible match notice on its page pointing at the customer on file: Merge is one tap for the real ones.', '')
+  L.push('| # | Row (file) | Phone, email (file) | Old status | Customer on file | Same | Card? |', '|---:|---|---|---|---|---|---|')
+  plan.nameDiffers.forEach((d: any, i: number) => L.push(`| ${i + 1} | ${esc(who(d))} (line ${d.row.line}, ${d.row.stage} #${d.row.order}) | ${esc(contact(d.row))} | ${esc(d.row.status)} | ${esc(onFile(d.possibleOf.c))} | ${d.possibleOf.by} | ${d.card.make ? `yes, ${d.card.stage}` : `no: ${esc(d.card.why)}`} |`))
   L.push('')
 
   const soldNew = decisions.filter(d => d.kind === 'new' && m.isSold(d.row))
@@ -152,7 +158,10 @@ function renderReport(m: M, plan: any, o: { apply: boolean; dbName: string }): s
   L.push('', `Sold rows that did match a customer on file: ${soldMatched.length}${soldMatched.length ? ` (${soldMatched.map(d => `${who(d)} -> ${`${d.onFile.firstName} ${d.onFile.lastName}`.trim()}`).join('; ')})` : ''}.`, '')
 
   const two = decisions.filter(d => d.kind === 'skip' && d.candidates)
-  L.push(`## Rows matching two or more existing customers (${two.length}): not imported`, '')
+  const byName = matched.filter(d => d.byNameAmong)
+  L.push(`## Rows matching two or more existing customers`, '')
+  L.push(`Attached to the one with the same name (${byName.length}): ${byName.map(d => `${who(d)} (line ${d.row.line}) -> ${onFile(d.onFile)}, of ${d.byNameAmong} matching`).join('; ') || 'none'}.`, '')
+  L.push(`Not imported, no single customer with the same name (${two.length}):`, '')
   if (!two.length) L.push('None.', '')
   else {
     L.push('| Row (file) | Phone, email | Matches |', '|---|---|---|')
@@ -162,7 +171,7 @@ function renderReport(m: M, plan: any, o: { apply: boolean; dbName: string }): s
 
   L.push('## Anthony Gonzalez and "Ant G" (1 Walnut Drive): possible match', '')
   if (!plan.pairs.length) L.push('No pair found among the new customers (one of them may have matched a customer on file; see the matches above).', '')
-  L.push('Rule used: two NEW customers in the file with the same email and the same street. Besides the Walnut Drive pair this finds the pairs below, all looking like one person who filled the form twice; each gets the same possible match notice (Merge, or Not the same person). Say so if you want only Walnut Drive.', '')
+  L.push('Rule used: two NEW customers in the file with the same email and the same street. Besides the Walnut Drive pair this finds the pairs below; Jonathan kept all of them (Oct 23). Each gets the possible match notice (Merge, or Not the same person).', '')
   for (const p of plan.pairs) {
     L.push(`- ${who(p.contact)} (${contact(p.contact.row)}, ${p.contact.row.latest}, ${p.contact.row.status}, ${p.contact.card.make ? `card in ${p.contact.card.stage}` : 'no card'}) and ${who(p.match)} (${contact(p.match.row)}, ${p.match.row.latest}, ${p.match.row.status}, ${p.match.card.make ? `card in ${p.match.card.stage}` : 'no card'}): both made; ${who(p.contact)}'s page shows "Possible match: ${who(p.match)}" (same ${p.reason}, same street) with Merge / Not the same person.`)
   }
@@ -174,6 +183,7 @@ function renderReport(m: M, plan: any, o: { apply: boolean; dbName: string }): s
   }
 
   L.push('## Where each field goes', '')
+  L.push('- Matching (every import): same phone or email only; same name -> attach to the customer on file; one match with a different name -> new customer + Possible match; several matches -> the single one with the same name, else skipped and listed.')
   L.push('- Name, phone ((352) 555-0100 form), email (lower case), address (street, city, state zip; also city/state/zip fields), lead source (mapped): on a NEW customer only. A matched customer keeps its own.')
   L.push('- "Customer since" (createdAt) of a new customer: first_request_date.')
   L.push('- Everything else, every row: one pinned note "MyBudgetQuote history" (estimate as "Old online estimate $X to $Y (date)", never a quote; old tool status, furthest step, finished quote, requests, lead source and their own words, best time to contact, their notes, attachments, old tool ids, flags; on a match also the name/phone/email/address as the old tool had them).')
@@ -182,13 +192,14 @@ function renderReport(m: M, plan: any, o: { apply: boolean; dbName: string }): s
   L.push('- Card (where made): the column from pipeline_stage, dated latest_date, order_in_stage kept (1 on top), no price on the card (the estimate is in its note line).')
   L.push('- Not set: texting consent (stays unknown), follow ups, automations, appointments, notifications, portal invites.', '')
 
-  L.push('## Five sample customers as they would look', '')
+  L.push('## Sample customers as they would look', '')
   const pick = (f: (d: any) => boolean) => decisions.find(f)
   const samples = [
     [`${plan.firstStage}, new, with an estimate`, pick(d => d.kind === 'new' && d.row.stage === plan.firstStage && d.row.lowCents != null)],
     ['A card in another column, new', pick(d => d.kind === 'new' && d.row.stage !== plan.firstStage && d.card.make && d.row.customerNotes)],
     ['Older dropoff, customer only', pick(d => d.kind === 'new' && !d.card.make && d.tags.includes(m.TAG_DROPOFF))],
     ['Matched to a customer on file', pick(d => d.kind === 'matched')],
+    ['Same phone/email as a customer on file, different name: new + Possible match', pick(d => d.kind === 'new' && d.possibleOf)],
     ['Flagged (contact cleared)', pick(d => d.kind !== 'skip' && d.row.flags.some((f: string) => /contact cleared/.test(f)))],
   ].filter(([, d]) => d) as Array<[string, any]>
   for (const [title, d] of samples) {
@@ -198,6 +209,7 @@ function renderReport(m: M, plan: any, o: { apply: boolean; dbName: string }): s
       L.push(`- Customer: ${who(d)}; phone ${r.phone ? m.fmtPhone(r.phone) : 'none'}; email ${r.email || 'none'}; address ${m.fullAddress(r) || 'none'}`)
       L.push(`- Lead source: ${d.leadSource}; customer since ${r.firstRequest || r.latest.slice(0, 10)}`)
     } else L.push(`- Existing customer ${onFile(d.onFile)}, matched by ${d.matchedBy}; not changed except the tag`)
+    if (d.possibleOf) L.push(`- Possible match notice on its page: ${onFile(d.possibleOf.c)} (same ${d.possibleOf.by})`)
     L.push(`- Tags: ${d.tags.join(', ')}`)
     L.push(`- Card: ${d.card.make ? `${d.card.stage}, dated ${r.latest.slice(0, 10)}, position ${r.order} of the file's ${d.card.stage} rows` : `none (${d.card.why})`}`)
     L.push('- Pinned note:', '', '```', d.noteBody, '```', '')

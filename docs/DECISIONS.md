@@ -3,6 +3,17 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-23: matching imported rows to customers on file (every import)
+
+- **Only phone or email find a match:** the same phone (last 10 digits) or the same email (any capitals). A name alone never matches anyone.
+- **Same name: attach.** The row goes on the customer on file. Nothing on that customer is overwritten; the import adds its notes, its stored row and its tag.
+- **Phone or email match plus a different name: a new customer and a Possible match.** The row becomes a new customer (with its card by the import's own card rule, like any new customer), and its page shows a Possible match notice pointing at the customer on file, so the real ones are merged with one tap (Merge / Not the same person).
+- **Several customers match:** the row goes to the single one with the same name. If none has the same name, or more than one does, the row is not imported and is listed for Jonathan.
+- **Same name means:** both names cut into words of letters only (accents, capitals, punctuation and spacing ignored), and either all the letters are the same ("John StClair" = "John St. Clair"), or every word of one name, at least two words and each at least two letters, is a word of the other ("Elsa Ipus" = "Roger & Elsa Ipus", "Nonito Palencia Jr." = "Nonito Palencia"). A first name only, a nickname or an initial is a different name: "Ant G" is not "Anthony Gonzalez", "Jennifer D" is not "Jennifer", "Ted miiler" is not "Ted Miller".
+- **Undo import** removes the new customers and their Possible matches with everything else the import made.
+- **In the app:** apps/portal/src/server/lib/customerImport.ts (`sameName`, `decideMatch`), used by lib/mybudgetquoteImport.ts; pinned in apps/portal/tests/mybudgetquoteImport.db.test.ts.
+- **Also decided for the MyBudgetQuote import (Oct 23):** lead sources Search Engine → website/google, Friend or Family → Referral, Facebook → Facebook, Other → Other, the rest (Other Social Media, Mail Ad, Banner Ad, Press Coverage, TV Ad, Home Show) kept as their own sources; the "Other" text word for word in the note; all Possible matches between two new customers with the same email and street kept; a customer on file who already has a card in the target column gets no second card.
+
 ## 2026-10-21 (evening): tan 6x8 is 15 pickets; 8 ft tall vinyl priced by the piece
 
 - **Tan 6 ft tall, 8 ft wide:** 15 pickets a section, as White and Chai Gray. This reverses the Oct 20 ruling below (16, as on the sheet). Applies to TV-ND / TV-DS 6'x8' and to the 8 ft rail runs of TV-Auto DS.

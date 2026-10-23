@@ -53,6 +53,58 @@ export interface BatchRecords {
   tagged: TaggedRecord[]
 }
 
+// ── The matching rule for every import (Jonathan, Oct 23, 2026) ─────────────
+//
+// A file row is matched to customers on file ONLY by the same phone (last 10
+// digits) or the same email (any capitals); never by a name alone. Then:
+//
+//   one customer matches, same name        attach: the row goes on that customer
+//   one customer matches, different name   a NEW customer, with a Possible match
+//                                          notice pointing at the one on file
+//                                          (Merge is one tap; lib/customerMerge.ts)
+//   several match, exactly one same name   attach to that one
+//   several match, none or several by name skip the row and list it (never guessed)
+//
+// "Same name" (sameName below): both names are cut into words of letters only
+// (accents, capitals, punctuation and spaces ignored), and either
+//   - all the letters are the same ("John StClair" = "John St. Clair"), or
+//   - every word of one name, at least two words and each at least two
+//     letters, is a word of the other ("Elsa Ipus" = "Roger & Elsa Ipus",
+//     "Nonito Palencia Jr." = "Nonito Palencia").
+// A first name only, a nickname or an initial is a DIFFERENT name: "Ant G" is
+// not "Anthony Gonzalez", "Jennifer D" is not "Jennifer", "Ted miiler" is not
+// "Ted Miller". Recorded in docs/DECISIONS.md.
+
+const words = (s: string) => String(s || '').normalize('NFD').toLowerCase().split(/[^a-z]+/).filter(Boolean)
+
+/** True when two people's names are the same by the rule above. */
+export function sameName(a: { first: string; last: string }, b: { first: string; last: string }): boolean {
+  const wa = words(`${a.first} ${a.last}`), wb = words(`${b.first} ${b.last}`)
+  if (!wa.length || !wb.length) return false
+  if (wa.join('') === wb.join('')) return true
+  const within = (x: string[], y: string[]) => x.length >= 2 && x.every(w => w.length >= 2 && y.includes(w))
+  return within(wa, wb) || within(wb, wa)
+}
+
+export type MatchDecision<C> =
+  | { kind: 'new' }
+  | { kind: 'attach'; to: C; by: string }
+  | { kind: 'new_possible'; to: C; by: string }
+  | { kind: 'skip'; why: string; candidates: Array<{ to: C; by: string }> }
+
+/** The rule above, for one row: `hits` are the customers on file with the row's phone or email (and how each matched). */
+export function decideMatch<C>(row: { first: string; last: string }, hits: Array<{ to: C; by: string; first: string; last: string }>): MatchDecision<C> {
+  if (!hits.length) return { kind: 'new' }
+  const named = hits.filter(h => sameName(row, h))
+  if (named.length === 1) return { kind: 'attach', to: named[0].to, by: named[0].by }
+  if (hits.length === 1) return { kind: 'new_possible', to: hits[0].to, by: hits[0].by }
+  return {
+    kind: 'skip',
+    why: named.length ? 'matches two or more customers on file with the same name (not guessed)' : 'matches two or more customers on file, none by name (not guessed)',
+    candidates: hits.map(h => ({ to: h.to, by: h.by })),
+  }
+}
+
 export const emptyRecords = (): BatchRecords => ({ contacts: [], notes: [], notesOnFile: [], cards: [], possibleMatches: [], tagged: [] })
 
 function recordsOf(v: unknown): BatchRecords {

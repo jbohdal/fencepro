@@ -6,11 +6,13 @@
  *
  *  1. Plan first (writes nothing). Apply writes in ONE transaction, under one
  *     ImportBatch (lib/customerImport.ts), so Undo import takes it all back.
- *  2. A row goes to a customer on file ONLY on the same phone (last 10
- *     digits) or the same email (any capitals), never on a name. Nothing on
- *     that customer is overwritten: the import adds its pinned history note,
- *     its row (old tool ids) and its tag. A row matching two different
- *     customers on file is not imported: listed, nothing guessed.
+ *  2. Matching is the rule for every import (lib/customerImport.ts
+ *     decideMatch): same phone or email, never a name alone; same name ->
+ *     attach; one match with a different name -> a NEW customer with a
+ *     Possible match on the one on file; several matches -> attach to the
+ *     single one with the same name, otherwise skip and list. Nothing on an
+ *     attached customer is overwritten: the import adds its pinned history
+ *     note, its row (old tool ids) and its tag.
  *     A customer on file with an open pipeline card (a column not marked
  *     finished in Settings > Pipeline Stages), a sold quote or any job (sold
  *     or paid) gets no new card. Nor one with a card already in the column
@@ -48,7 +50,7 @@ import { loadOptionList } from './optionLists.js'
 import { optionFor } from './optionListModel.js'
 import { lockDoc, writeDoc } from './deletion.js'
 import { roleStageId } from './pipelineStageModel.js'
-import { addTagTx, emptyRecords, lockImport, type BatchRecords } from './customerImport.js'
+import { addTagTx, decideMatch, emptyRecords, lockImport, type BatchRecords } from './customerImport.js'
 
 type Db = any
 
@@ -182,6 +184,10 @@ export interface Decision {
   matchedBy?: string
   /** For a row matching two or more on file */
   candidates?: Array<{ c: OnFile; by: string }>
+  /** A new customer whose phone or email is on a customer with another name: the Possible match it gets */
+  possibleOf?: { c: OnFile; by: string; id: string }
+  /** Attached to one of several matches because only its name is the same */
+  byNameAmong?: number
   /** why: the sentence in the note; key: the short reason the counts group by */
   card: { make: boolean; stage: string; why: string; key: string; id?: string }
   leadSource: string
@@ -202,6 +208,8 @@ export interface MbqPlan {
   sourceMap: Array<{ from: string; to: string; mapped: boolean; rows: number }>
   sourceOther: Array<{ text: string; rows: number }>
   pairs: Array<{ contact: Decision; match: Decision; reason: string; id: string }>
+  /** New customers made because the name differs from the customer on file with their phone or email */
+  nameDiffers: Decision[]
   sameEmailOther: Array<{ email: string; rows: Decision[] }>
   cards: any[]
   counts: {
@@ -209,6 +217,7 @@ export interface MbqPlan {
     cardsByStage: Record<string, number>; newWithoutCard: number; newWithoutCardWhy: Record<string, number>
     matchedWithoutCardWhy: Record<string, number>; skipped: Record<string, number>; flags: Record<string, number>
     possibleMatches: number
+    possibleMatchesByKind: { sameEmailAndStreet: number; nameDiffers: number }
   }
 }
 
@@ -228,6 +237,10 @@ export function noteBody(d: Decision): string {
     `Old tool ids: ${r.oldToolIds.join(', ') || 'none'}.`,
     r.flags.length ? `Flags: ${r.flags.join('; ')}.` : '',
   ]
+  if (d.possibleOf) {
+    const c = d.possibleOf.c
+    lines.push(`Same ${d.possibleOf.by} as ${`${c.firstName} ${c.lastName}`.trim() || 'a customer'} on file, but a different name: made as a new customer, with a Possible match notice to merge if it is the same person.`)
+  }
   if (d.kind === 'matched' && d.onFile) {
     lines.push(`As the old tool had them: ${[`${r.first} ${r.last}`.trim(), r.phone ? fmtPhone(r.phone) : '', r.email, fullAddress(r)].filter(Boolean).join(', ')}.`)
     lines.push(`Matched to this customer by ${d.matchedBy}. Nothing on the customer was changed.`)
@@ -286,14 +299,15 @@ export async function planMbq(db: Db, accountId: string, rows: MbqRow[], file: s
     for (const c of byPhone.get(digits10(r.phone)) ?? []) hits.set(c.id, { c, by: new Set(['phone']) })
     for (const c of r.email ? byEmail.get(r.email) ?? [] : []) { const h = hits.get(c.id); if (h) h.by.add('email'); else hits.set(c.id, { c, by: new Set(['email']) }) }
     const how = (s: Set<string>) => (s.size > 1 ? 'phone and email' : [...s][0])
-    if (hits.size > 1) {
-      decisions.push({ ...base, kind: 'skip', skipWhy: 'matches two or more customers on file (not guessed)', candidates: [...hits.values()].map(h => ({ c: h.c, by: how(h.by) })) })
+    const m = decideMatch<OnFile>(r, [...hits.values()].map(h => ({ to: h.c, by: how(h.by), first: h.c.firstName, last: h.c.lastName })))
+    if (m.kind === 'skip') {
+      decisions.push({ ...base, kind: 'skip', skipWhy: m.why, candidates: m.candidates.map(x => ({ c: x.to, by: x.by })) })
       continue
     }
     const src = mapLeadSource(r.leadSource, known).to
-    if (hits.size === 1) {
-      const { c, by } = [...hits.values()][0]
-      const d: Decision = { ...base, kind: 'matched', contactId: c.id, onFile: c, matchedBy: how(by), leadSource: src, tags: [TAG_IMPORT] }
+    if (m.kind === 'attach') {
+      const c = m.to
+      const d: Decision = { ...base, kind: 'matched', contactId: c.id, onFile: c, matchedBy: m.by, leadSource: src, tags: [TAG_IMPORT], byNameAmong: hits.size > 1 ? hits.size : undefined }
       const open = (cardsOf.get(c.id) ?? []).find(l => !stageDef.get(l.stage)?.finished)
       const same = (cardsOf.get(c.id) ?? []).find(l => l.stage === r.stage)
       const js = jobs.get(c.id) ?? []
@@ -312,6 +326,7 @@ export async function planMbq(db: Db, accountId: string, rows: MbqRow[], file: s
       continue
     }
     const d: Decision = { ...base, kind: 'new', contactId: newId(), leadSource: src, tags: [TAG_IMPORT] }
+    if (m.kind === 'new_possible') d.possibleOf = { c: m.to, by: m.by, id: newId() }
     if (!makeCardRule(r, firstStage)) { d.card.key = 'older dropoff (make_card = no)'; d.card.why = 'an older dropoff (make_card = no), tagged MyBudgetQuote dropoff'; d.tags.push(TAG_DROPOFF) }
     else if (isSold(r)) { d.card.key = 'Sold in the old tool, not matched (listed)'; d.card.why = 'Sold in the old tool and not matched to a customer on file (listed for Jonathan)' }
     else { d.card.make = true; d.card.why = 'made'; d.card.key = 'made' }
@@ -355,6 +370,7 @@ export async function planMbq(db: Db, accountId: string, rows: MbqRow[], file: s
   const paired = new Set(pairs.flatMap(p => [p.contact, p.match]))
   const byEmailNew = new Map<string, Decision[]>()
   for (const d of fresh) if (d.row.email) byEmailNew.set(d.row.email, [...(byEmailNew.get(d.row.email) ?? []), d])
+  const nameDiffers = fresh.filter(d => d.possibleOf)
   const sameEmailOther = [...byEmailNew].filter(([, ds]) => ds.length > 1 && ds.some(d => !paired.has(d))).map(([email, ds]) => ({ email, rows: ds }))
 
   // Counts.
@@ -370,13 +386,14 @@ export async function planMbq(db: Db, accountId: string, rows: MbqRow[], file: s
   for (const r of rows) { srcCount.set(r.leadSource, (srcCount.get(r.leadSource) ?? 0) + 1); if (r.sourceOther) otherCount.set(r.sourceOther, (otherCount.get(r.sourceOther) ?? 0) + 1) }
   const matched = decisions.filter(d => d.kind === 'matched')
   return {
-    accountId, batchId, file, firstStage, rows, decisions, cards, pairs, sameEmailOther,
+    accountId, batchId, file, firstStage, rows, decisions, cards, pairs, nameDiffers, sameEmailOther,
     sourceMap: [...srcCount].sort((a, b) => b[1] - a[1]).map(([from, n]) => ({ from, ...mapLeadSource(from, known), rows: n })),
     sourceOther: [...otherCount].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([text, n]) => ({ text, rows: n })),
     counts: {
       rows: rows.length, newCustomers: fresh.length, matchedRows: matched.length, matchedCustomers: new Set(matched.map(d => d.contactId)).size,
       cardsByStage, newWithoutCard: fresh.filter(d => !d.card.make).length, newWithoutCardWhy, matchedWithoutCardWhy, skipped, flags,
-      possibleMatches: pairs.length,
+      possibleMatches: pairs.length + nameDiffers.length,
+      possibleMatchesByKind: { sameEmailAndStreet: pairs.length, nameDiffers: nameDiffers.length },
     },
   }
 }
@@ -446,15 +463,22 @@ export async function applyMbq(prisma: Db, accountId: string, rows: MbqRow[], fi
         flagList: d.row.flags, oldToolIdList: d.row.oldToolIds,
         makeCard: makeCardRule(d.row, plan.firstStage), card: d.card.make ? d.card.stage : null, cardWhy: d.card.why,
         leadSourceMapped: d.leadSource,
+        possibleMatchOf: d.possibleOf ? { id: d.possibleOf.c.id, name: `${d.possibleOf.c.firstName} ${d.possibleOf.c.lastName}`.trim(), by: d.possibleOf.by } : null,
+        attachedByNameAmong: d.byNameAmong ?? null,
       },
     })) }))
     wrote.rows = todo.length
 
     // Possible matches between the new ones (newer points at the older).
-    if (plan.pairs.length) {
-      await tx.customerPossibleMatch.createMany({ data: plan.pairs.map(p => ({ id: p.id, accountId, contactId: p.contact.contactId, matchId: p.match.contactId, reason: p.reason, createdAt: at })) })
-      rec.possibleMatches = plan.pairs.map(p => p.id)
-      wrote.possibleMatches = plan.pairs.length
+    // And between a new customer and the one on file with its phone or email but another name.
+    const pms = [
+      ...plan.pairs.map(p => ({ id: p.id, contactId: p.contact.contactId, matchId: p.match.contactId, reason: p.reason })),
+      ...plan.nameDiffers.map(d => ({ id: d.possibleOf!.id, contactId: d.contactId, matchId: d.possibleOf!.c.id, reason: d.possibleOf!.by })),
+    ]
+    if (pms.length) {
+      await tx.customerPossibleMatch.createMany({ data: pms.map(p => ({ ...p, accountId, createdAt: at })) })
+      rec.possibleMatches = pms.map(p => p.id)
+      wrote.possibleMatches = pms.length
     }
 
     // Cards: after the board's cards, in the file's order (ties on a date keep it).

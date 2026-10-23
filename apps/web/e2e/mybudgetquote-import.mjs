@@ -10,7 +10,8 @@
 //   1. An imported customer (a First Contact row): the tag, the "MyBudgetQuote
 //      history" card (estimate, status), the pinned history note on Notes.
 //   2. A flagged one ("contact cleared"): the flags show, in amber.
-//   3. Anthony Gonzalez: "Possible match: Ant G".
+//   3. Anthony Gonzalez: "Possible match: Ant G". Bill Meyers (same phone/email as
+//      William Meyers on file, another name): a new customer, "Possible match: William Meyers".
 //   4. The pipeline: No Answer opens, the imported cards are on top in the
 //      file's order (order_in_stage), the column count includes them; First
 //      Contact holds its imported cards in the file's order too.
@@ -100,6 +101,17 @@ try {
     await notice.waitFor({ timeout: 15000 }).catch(() => {})
     check('Anthony Gonzalez shows "Possible match: Ant G" with Merge and Not the same person', await notice.isVisible().catch(() => false) && await notice.locator('[data-merge-match]').isVisible() && await notice.locator('[data-dismiss-match]').isVisible())
     await shot('possible-match')
+
+    // 3b. Same phone/email as a customer on file but another name (Bill Meyers, William Meyers on file): a new customer with a Possible match.
+    const bill = find('Bill', 'Meyers')
+    const william = contacts.find(c => c.firstName === 'William' && c.lastName === 'Meyers' && !(c.tags || []).includes('MyBudgetQuote dropoff') && c.id !== bill?.id)
+    if (bill && william) {
+      await page.goto(`${APP}/customers/${bill.id}`)
+      await page.waitForSelector('[data-customer-tab]', { timeout: 60000 })
+      const pm = page.locator(`[data-match-customer="${william.id}"]`)
+      await pm.waitFor({ timeout: 15000 }).catch(() => {})
+      check('Bill Meyers (new, different name) shows "Possible match: William Meyers"', await pm.isVisible().catch(() => false))
+    } else check('Bill Meyers made new, William Meyers on file', false, `${!!bill} ${!!william}`)
 
     // 4. The pipeline: imported cards on top of No Answer, in the file's order.
     await page.goto(`${APP}/pipeline`)
