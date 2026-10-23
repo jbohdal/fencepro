@@ -29,6 +29,44 @@ E2E_ACCESS_TOKEN in localStorage still work until stage D: the app moves it
 over to a cookie on its first load. `staff-signin.mjs` covers the sign in
 itself on desktop Chrome, WebKit (iPhone size) and the Android emulator.
 
+## Real iPhone Safari (`iphone-safari.mjs`)
+
+Mobile Safari in the iOS Simulator, driven by Apple's `safaridriver` (W3C
+WebDriver, spoken with `fetch`: no extra package). Dev copy only: it refuses
+anything but `http://localhost:4001` and an `apps/portal/.env` that names
+`ezbiz_dev`. It covers phone fit (phone-fit.mjs's own checks, and the menus over
+the maps), the website quote in test mode (address suggestion, the sharp aerial
+photo, fence points and a gate tapped on it, the prices), "Choose from gallery"
+with a photo and a video, Payment received and the public receipt link, the
+customer portal invite and sign in (Billing, Documents), and Add to Home Screen
+(manifest, apple-touch-icon, apple-mobile-web-app tags, start URL). It makes one
+test customer with a sold job, and its own dev sign in, and removes them all.
+
+Once on the Mac: Xcode with the iOS 18.5 simulator runtime
+(`xcodebuild -downloadPlatform iOS -buildVersion 18.5`). If safaridriver says
+remote automation is off, run `safaridriver --enable` once (admin password).
+
+```bash
+cd apps/web
+APP_URL=http://localhost:4001 API_URL=http://localhost:4001 \
+  MEDIA_PHOTO=/path/photo.jpg MEDIA_VIDEO=/path/short.mp4 node e2e/iphone-safari.mjs
+#   DEVICE='iPhone 16' IOS=18.5                 the simulator (Safari only)
+#   AREAS=fit,quote,media,payments,portal,home  some areas only
+#   SHOTS=<folder>                              failure screenshots (default ~/Downloads/ezbiz-screens-2026-10-17)
+#   DRIVER=webkit | DRIVER=chromium             the same steps in Playwright at 393 x 852,
+#                                               to tell an iPhone-only failure from a general one
+```
+
+What it cannot do: tap Safari's Share sheet or "Add to Home Screen" (that is
+iOS's own screen, out of WebDriver's reach), or open the app from the Home
+Screen, so standalone mode is checked through what the page declares and
+`navigator.standalone` (false in a Safari tab). The iOS photo picker and
+camera are iOS's own screens too: the files go to the same file input.
+Simulator quirks it works around (said in the code): a tap's lift is held
+back until the next command, so each tap releases it at once; and the
+Simulator's keys reach the page but insert no text, so a field left empty is
+set the way the keyboard leaves it (the run prints which).
+
 ## Running them
 
 1. A local Postgres with an empty database, and the server pointed at it:
