@@ -15,8 +15,11 @@ pnpm install --frozen-lockfile
   # Refuses a change that would drop data instead of applying it.
   pnpm exec prisma db push --skip-generate )
 ( cd apps/web && pnpm build )
-# Restart from the process file so changes in it (e.g. the memory limit) take effect too.
-pm2 restart deploy/mac/ecosystem.config.cjs --update-env || pm2 start deploy/mac/ecosystem.config.cjs
+# Start it again from the process file: a plain restart keeps pm2's old copy of the settings
+# (Oct 23, 2026: the 2G memory limit only took effect after delete + start). The server finishes
+# requests in flight before it exits (kill_timeout).
+pm2 delete ezbiz >/dev/null 2>&1 || true
+pm2 start deploy/mac/ecosystem.config.cjs
 pm2 save
 
 for _ in $(seq 1 20); do
