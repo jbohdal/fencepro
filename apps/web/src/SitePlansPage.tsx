@@ -215,7 +215,7 @@ export default function SitePlansPage() {
 
       {/* Editor */}
       {editing && (
-        <SitePlanTool onClose={() => { setEditing(null); setPlans(loadPlans()) }} />
+        <SitePlanTool openPlanId={editing.id} onClose={() => { setEditing(null); setPlans(loadPlans()) }} />
       )}
       {showCreate && (
         <SitePlanTool onClose={() => { setShowCreate(false); setPlans(loadPlans()) }} />

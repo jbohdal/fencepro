@@ -190,7 +190,7 @@ function AddressInput({ onSelect }: { onSelect: (addr: string, loc: LatLng) => v
    SITE PLAN TOOL
    ═══════════════════════════════════════════════ */
 
-export default function SitePlanTool({ onClose }: { onClose: () => void }) {
+export default function SitePlanTool({ onClose, openPlanId }: { onClose: () => void; /** Opens this saved plan (Edit on Site Plans). */ openPlanId?: string }) {
   const mapDivRef = useRef<HTMLDivElement>(null)
   const freeRef = useRef<FreeMap | null>(null)
   const [base, setBase] = useState<BaseKind>('aerial')
@@ -541,6 +541,14 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
     activePtsRef.current = []
     setActivePoints([])
   }
+
+  // Edit on Site Plans: open that plan, the same as picking it in Open.
+  useEffect(() => {
+    if (!openPlanId) return
+    const plan = loadPlans().find(p => p.id === openPlanId)
+    if (plan) loadPlan(plan)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPlanId])
 
   // ── Delete plan ──
   function deletePlan(id: string) {
