@@ -97,7 +97,8 @@ try {
   // (The dev server restarts when code is saved: ask again for up to a minute.)
   let all = []
   for (let i = 0; i < 30 && !all.length; i++) { all = (await call('GET', '/api/saved-quotes').catch(() => ({ json: {} }))).json.data ?? []; if (!all.length) await sleep(2000) }
-  const template = all.filter(q => !/^E2E/i.test(q.customerName) && Array.isArray(q.pullSheet) && q.pullSheet.length >= 8 && q.totalCOGS > 0 && !q.work && q.runs?.length && q.pullSheet.some(l => l.item === 'ND, Donut'))
+  // Priced from cost: a price set by hand does not move with footage.
+  const template = all.filter(q => !/^E2E/i.test(q.customerName) && !(q.pricing?.finalPrice > 0) && Array.isArray(q.pullSheet) && q.pullSheet.length >= 8 && q.totalCOGS > 0 && !q.work && q.runs?.length && q.pullSheet.some(l => l.item === 'ND, Donut'))
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0]
   check('a priced quote to copy (its inputs and figures)', !!template, template ? `${template.fenceStyle}, ${template.runs.length} runs` : 'none')
   if (!template) throw new Error('no template quote')

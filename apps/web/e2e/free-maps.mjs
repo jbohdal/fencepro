@@ -20,7 +20,8 @@ const google = [], errs = []
 async function page(phone = false) {
   const c = await b.newContext(phone ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } : { viewport: { width: 1280, height: 900 } })
   await c.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
-  await c.route('**/api/**', r => ['GET', 'HEAD'].includes(r.request().method()) ? r.continue() : r.abort())
+  // Writes nothing, except the sign in (the app moves the test token over to the staff cookie).
+  await c.route('**/api/**', r => ['GET', 'HEAD'].includes(r.request().method()) || r.request().url().includes('/api/crm-auth/') ? r.continue() : r.abort())
   const p = await c.newPage()
   p.on('request', r => { if (/maps\.googleapis|maps\.gstatic/.test(r.url())) google.push(r.url().slice(0, 80)) })
   p.on('pageerror', e => errs.push(String(e).slice(0, 200)))

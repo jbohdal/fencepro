@@ -35,7 +35,8 @@ const API = process.env.API_URL || 'http://localhost:4001'
 const OWNER = process.env.E2E_ACCESS_TOKEN || ''
 const CDP = process.env.CDP_URL || 'http://localhost:9333'
 const SHOTS = process.env.SHOTS || ''
-const DEVICES = (process.env.DEVICES || 'desktop,webkit,android').split(',').map(s => s.trim()).filter(Boolean)
+// Android only when an emulator's Chrome is connected (CDP_URL set); the heavy runs leave it off.
+const DEVICES = (process.env.DEVICES || (process.env.CDP_URL ? 'desktop,webkit,android' : 'desktop,webkit')).split(',').map(s => s.trim()).filter(Boolean)
 const local = u => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(u)
 if (!local(APP) || !local(API) || /:4000(\/|$)/.test(API) || /:4000(\/|$)/.test(APP)) { console.error('Refusing to run: the dev copy only (localhost, not port 4000).'); process.exit(2) }
 if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }

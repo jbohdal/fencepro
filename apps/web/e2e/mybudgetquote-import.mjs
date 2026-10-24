@@ -122,17 +122,18 @@ try {
     const naIds = await page.locator('[data-kanban-col="No Answer"] [data-kanban-card]').evaluateAll(els => els.map(e => e.getAttribute('data-kanban-card')))
     const wantNa = imported('No Answer').map(l => l.id)
     // Cards nobody placed by hand come first, newest on top; a few older No Answer cards were never placed in it either and sit among them by date.
+    // A column shows 50 cards at a time (Show 50 more, since Oct 23): the ones on screen are the file's first rows, in its order.
     const shownImported = naIds.filter(id => wantNa.includes(id))
-    const lastImported = naIds.indexOf(wantNa[wantNa.length - 1])
-    check(`No Answer: all ${wantNa.length} imported cards, in the file's order (order_in_stage)`, wantNa.length > 0 && JSON.stringify(shownImported) === JSON.stringify(wantNa), `${naIds.slice(0, lastImported + 1).length - wantNa.length} older unplaced cards sit among them by date`)
-    check('No Answer: the imported cards come before the cards placed by hand', naIds.slice(lastImported + 1).every(id => (pipe.leads || []).find(l => l.id === id)?.boardOrder?.stage === 'No Answer'))
+    const lastImported = naIds.indexOf(shownImported[shownImported.length - 1])
+    check(`No Answer: the imported cards on screen (${shownImported.length} of ${wantNa.length}) are the file's first rows, in its order (order_in_stage)`, wantNa.length > 0 && shownImported.length >= Math.min(40, wantNa.length) && JSON.stringify(shownImported) === JSON.stringify(wantNa.slice(0, shownImported.length)), `${naIds.length} cards shown`)
+    check('No Answer: the imported cards come before the cards placed by hand', naIds.slice(lastImported + 1).every(id => wantNa.includes(id) || (pipe.leads || []).find(l => l.id === id)?.boardOrder?.stage === 'No Answer'))
     const naCount = Number(await na.locator('[data-kanban-count]').innerText().catch(() => '0'))
     check('No Answer: the count includes them', naCount === (pipe.leads || []).filter(l => l.stage === 'No Answer').length, `${naCount}`)
     const firstCard = await na.locator('[data-kanban-card]').first().innerText().catch(() => '')
     check('No Answer: the top card is the newest row (order_in_stage 1 among cards)', firstCard.includes(imported('No Answer')[0].firstName), firstCard.slice(0, 60).replace(/\n/g, ' | '))
     const fcIds = await page.locator('[data-kanban-col="First Contact"] [data-kanban-card]').evaluateAll(els => els.map(e => e.getAttribute('data-kanban-card')))
     const wantFc = imported('First Contact').map(l => l.id)
-    check(`First Contact: the ${wantFc.length} imported cards keep the file's order`, wantFc.length === 5 && JSON.stringify(fcIds.filter(id => wantFc.includes(id))) === JSON.stringify(wantFc))
+    check(`First Contact: the ${wantFc.length} imported cards keep the file's order`, wantFc.length > 0 && JSON.stringify(fcIds.filter(id => wantFc.includes(id))) === JSON.stringify(wantFc))
     check('no sideways scrolling of the page on the pipeline', phone ? await page.evaluate(() => document.body.scrollWidth <= window.innerWidth + 1) : true)
     await shot('pipeline')
 

@@ -21,7 +21,8 @@ try {
   // Phone: a new lead from the pipeline, one tap fills street, city, state and ZIP.
   const c = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
   await c.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
-  await c.route('**/api/**', r => ['GET', 'HEAD'].includes(r.request().method()) ? r.continue() : r.abort())
+  // Writes nothing, except the sign in (the app moves the test token over to the staff cookie).
+  await c.route('**/api/**', r => ['GET', 'HEAD'].includes(r.request().method()) || r.request().url().includes('/api/crm-auth/') ? r.continue() : r.abort())
   const p = await c.newPage(); const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)))
   await p.goto(`${APP}/pipeline`); await p.waitForSelector('[data-tabbar]', { timeout: 60000 }); await sleep(1500)
   await p.locator('button[aria-label="New Lead"]').click()
@@ -48,7 +49,9 @@ try {
   const ws = await wp.locator('[data-w-suggestion]').allTextContents()
   check('website instant quote: suggestions as the customer types', ws.length > 0 && /3995 NE 58th Cir/.test(ws[0]), ws.slice(0, 2).join(' | '))
   await wp.locator('[data-w-suggestion]').first().click()
-  check('picked: the full address is in the box', (await wp.locator('[data-w-address]').inputValue()) === '3995 NE 58th Cir, Silver Springs, FL 34488')
+  // Picking goes straight to drawing on the aerial photo of that address (since f222f92).
+  const drawing = await wp.locator('[data-w-step="draw"]').waitFor({ timeout: 15000 }).then(() => true, () => false)
+  check('picked: straight to drawing on the photo of that address', drawing)
   if (SHOTS) await wp.screenshot({ path: `${SHOTS}/dev-widget-address-picked.png` })
   await w.close()
 } catch (e) {

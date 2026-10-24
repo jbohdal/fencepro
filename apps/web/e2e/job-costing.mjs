@@ -227,7 +227,8 @@ try {
     for (const f of figures) {
       const esc = f.replace('.', '\\.')
       const re = new RegExp(`"([A-Za-z0-9_]+)":"?${esc}(?:\\.0+)?"?(?=[,}\\]])`, 'g')
-      let m; while ((m = re.exec(r.text))) costFigures.push(`${m[1]}=${f} in ${r.url}`)
+      // A card's place on the board (rank) is a position, not money: it can equal a cost by chance.
+      let m; while ((m = re.exec(r.text))) if (!/^(rank|version)$/.test(m[1])) costFigures.push(`${m[1]}=${f} in ${r.url}`)
     }
     if (r.url.includes('/api/job-costing/') || r.url.includes('/api/saved-quotes')) {
       // The quote's own unit costs as a value of any field in the takeoff and quote answers.

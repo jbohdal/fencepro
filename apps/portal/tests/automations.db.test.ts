@@ -216,16 +216,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
 
   test('X days before the install date: email from Gmail (fake), caught up once; Gmail not connected fails clearly, retries with backoff, Run again', async () => {
     const jobId = jobIds[0]
+    // The rule covers every job: real dev jobs (a copy of live) installing soon get it too, so only this job's emails are counted.
     const install = floridaDay(later(5 * 86_400_000))
     await call('PATCH', `/api/saved-jobs/${jobId}`, { scheduledDate: install, status: 'scheduled' })
     await prisma.automationEvent.updateMany({ where: { entityId: jobId, processedAt: null }, data: { processedAt: new Date() } })
     const rule = await makeRule({ name: '2 days before install', board: 'ops', trigger: { type: 'date_offset', dateField: 'install', days: 2, when: 'before' }, steps: [{ type: 'email_customer', subject: `${tag} install on {install date}`, body: 'Hi {first name}, see you {install date}.' }] })
     await Q.tick(later(1 * 86_400_000), { scan: true })
-    expect(emails.filter(e => e.subject.includes(tag))).toHaveLength(0)
+    expect(emails.filter(e => e.subject.includes(tag) && e.to === 'testy@example.com')).toHaveLength(0)
     // Down on the due day (day 3), back on day 4: it goes once.
     await Q.tick(later(4 * 86_400_000), { scan: true })
     await Q.tick(later(4 * 86_400_000 + 10 * MIN), { scan: true })
-    const sent = emails.filter(e => e.subject.includes(tag))
+    const sent = emails.filter(e => e.subject.includes(tag) && e.to === 'testy@example.com')
     expect(sent).toHaveLength(1)
     expect(sent[0].to).toBe('testy@example.com')
     expect(sent[0].subject).toMatch(/install on \w+day, \w+ \d+/)

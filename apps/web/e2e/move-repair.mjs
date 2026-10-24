@@ -266,6 +266,9 @@ try {
   await rp.close()
 
   // ── 4. A leaning post: the minimum ──
+  // Live's repair multipliers (copied to dev) price a leaning post above $350 ($449 on Oct 23), so the
+  // minimum is raised to $600 for this step only, to see it applied; put back to $350 right after.
+  await setMoveRepair(mr => ({ ...mr, minimumJobCents: 60000 }))
   await home(); await newQuote()
   await b.locator('[data-step="style"]').click(); await sleep(300)
   await b.locator('[data-job-type-option="repair"]').click()
@@ -273,10 +276,11 @@ try {
   await b.locator('[data-what="leaning"]').click(); await sleep(200)
   await b.locator('[data-step="price"]').click(); await sleep(500)
   const leanText = await b.locator('[data-work-breakdown]').textContent().catch(() => '')
-  check('Minimum: a leaning post prices at $350.00', money(await b.locator('[data-quote-price]').textContent()) === 350, `${await b.locator('[data-quote-price]').textContent()} | ${leanText.slice(0, 300)}`)
+  check('Minimum: a leaning post prices at the $600.00 minimum', money(await b.locator('[data-quote-price]').textContent()) === 600, `${await b.locator('[data-quote-price]').textContent()} | ${leanText.slice(0, 300)}`)
   check('Minimum: "Minimum job price applied" shows internally', await b.locator('[data-price-minimum]').count() === 1 && await b.locator('[data-minimum-applied]').count() === 1)
   await shot('dev-repair-4-minimum-applied', b.locator('[data-work-breakdown]'))
   await b.locator('[data-quote-close]').click(); await sleep(500)
+  await setMoveRepair(mr => ({ ...mr, minimumJobCents: 35000 }))
 
   // ── 5. Wood ──
   await home(); await newQuote()

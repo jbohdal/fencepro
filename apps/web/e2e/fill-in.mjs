@@ -55,7 +55,8 @@ try {
   for (let i = 0; i < 15 && !(await estimate("CL - Com 6'")).success; i++) await sleep(1000)
   const setupBefore = (await api('/api/system/setup')).find(i => i.key === 'fill-in')
   check('turned back on: Finish setup lists "Fill in Inventory" with what is left', !!setupBefore && !setupBefore.done && /prices at \$0/.test(setupBefore.detail) && /Durafence/.test(setupBefore.detail), setupBefore?.detail)
-  const zeroBefore = before.items.filter(i => i.status !== 'inactive' && i.status !== 'discontinued' && !(i.unitCost > 0))
+  // A part priced inside another (the Chai Gray section, 8 ft tall section price) is not to fill in.
+  const zeroBefore = before.items.filter(i => i.status !== 'inactive' && i.status !== 'discontinued' && !(i.unitCost > 0) && !i.includedIn)
   const gateBefore = await estimate("CL - Com 6'", 1), plainBefore = await estimate("CL - Com 6'")
 
   const c = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })

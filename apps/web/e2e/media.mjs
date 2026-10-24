@@ -17,7 +17,7 @@ import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev cop
 import { chromium } from 'playwright'
 import fs from 'fs'
 
-const APP = process.env.APP_URL || 'http://localhost:5173'
+const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const PORTAL = process.env.E2E_PORTAL_TOKEN || ''
@@ -84,7 +84,9 @@ try {
   await sleep(800)
   await page.locator('[data-capture-shutter]').click(); await sleep(400)
   await page.locator('[data-capture-shutter]').click(); await sleep(400)
-  check('camera: several photos in a row without leaving the screen', (await page.locator('[data-capture-count]').textContent()).includes('2'))
+  // The count follows each photo once it is stored on the phone: wait for it rather than read it once.
+  const two = await page.waitForFunction(() => (document.querySelector('[data-capture-count]')?.textContent || '').includes('2'), null, { timeout: 5000 }).then(() => true, () => false)
+  check('camera: several photos in a row without leaving the screen', two, await page.locator('[data-capture-count]').textContent().catch(() => ''))
   await page.locator('[data-capture-mode="video"]').click()
   await page.locator('[data-capture-record]').click(); await sleep(2500)
   await page.locator('[data-capture-stop]').click(); await sleep(800)

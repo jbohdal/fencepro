@@ -46,6 +46,15 @@ for u in "$APP_URL" "$API_URL" "${CDP_URL:-}"; do
   esac
 done
 
+# The website widget's key for the dev copy (estimate-match and others), from the dev settings; never printed.
+if [ -z "${EZ_QUOTE_WIDGET_TOKEN:-}" ] && [ -f "$HERE/../../portal/.env" ]; then
+  EZ_QUOTE_WIDGET_TOKEN="$(grep '^EZ_QUOTE_WIDGET_TOKEN=' "$HERE/../../portal/.env" | head -1 | cut -d= -f2- | tr -d '"')"
+  export EZ_QUOTE_WIDGET_TOKEN
+fi
+
+# A made up test photo and video (generated, no real job) for the suites that upload media.
+export MEDIA_PHOTO="${MEDIA_PHOTO:-$HERE/fixtures/test-photo.jpg}" MEDIA_VIDEO="${MEDIA_VIDEO:-$HERE/fixtures/test-video.mp4}"
+
 LOW=(nice -n 15)
 command -v taskpolicy >/dev/null 2>&1 && LOW=(nice -n 15 taskpolicy -b)
 

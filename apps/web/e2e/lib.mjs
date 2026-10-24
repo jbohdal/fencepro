@@ -3,7 +3,8 @@ import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev cop
 import { chromium } from 'playwright'
 export { chromium }
 
-export const APP = process.env.APP_URL || 'http://localhost:5173'
+// The dev copy serves the app too. (5173 is the old ~/fencepro build's dev server on this Mac: never test there.)
+export const APP = process.env.APP_URL || 'http://localhost:4001'
 export const API = process.env.API_URL || 'http://localhost:4001'
 export const EMAIL = process.env.E2E_EMAIL || ''
 export const PASSWORD = process.env.E2E_PASSWORD || ''
@@ -44,6 +45,12 @@ export async function newSession(browser, name) {
 }
 
 export async function login(s, password = PASSWORD) {
+  // No password given (a run with only E2E_ACCESS_TOKEN or E2E_STAFF_COOKIE): the cookie sign in.
+  if (!EMAIL || !password) {
+    await signInByCookie(s.ctx)
+    await s.page.goto(APP)
+    return
+  }
   await s.page.goto(APP)
   await s.page.waitForSelector('input[type="email"]', { timeout: 15000 })
   await s.page.fill('input[type="email"]', EMAIL)

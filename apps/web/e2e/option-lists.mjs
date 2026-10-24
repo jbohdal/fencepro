@@ -34,7 +34,8 @@ const call = async (p, init = {}) => {
   return { status: r.status, json: await r.json().catch(() => null) }
 }
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: false }) }
-const getAll = async () => (await call('/api/option-lists')).json?.data
+// Asked again on a passing error (one answer came back empty once at the end of a heavy run).
+const getAll = async () => { for (let i = 0; i < 3; i++) { const r = await call('/api/option-lists'); if (r.json?.data) return r.json.data; await new Promise(res => setTimeout(res, 1000)) } throw new Error('could not read /api/option-lists') }
 const put = async (kind, options, baseVersion, token) => call(`/api/option-lists/${kind}`, { method: 'PUT', body: JSON.stringify({ options, baseVersion }), token })
 
 const tag = crypto.randomUUID().slice(0, 6)
@@ -66,7 +67,12 @@ try {
   check('Settings shows the options in order', ids.join() === original.leadSources.options.map(o => o.id).join())
   check('the Google merge shows, with Undo merge', (await d.page.locator(`${sel('website/google')} [data-option-link="Google"]`).innerText()).includes('merged'))
   check('built-ins are marked and hidden from forms', (await d.page.locator(`${sel('Website Quote')} [data-option-builtin]`).count()) === 1 && await d.page.locator(`${sel('Website Quote')} [data-option-hidden]`).isChecked())
-  check('nothing found on records that no option matches', (await d.page.locator('[data-option-found-none]').count()) === 1)
+  // Real records can carry words no option matches (the MyBudgetQuote import kept 'Banner Ad' and others as written,
+  // for Jonathan to Add or Merge): the section must finish counting and list none of this test's words.
+  await d.page.waitForFunction(() => !/Counting…/.test(document.querySelector('[data-option-found]')?.textContent || 'Counting…'), null, { timeout: 30000 }).catch(() => {})
+  const foundWords = await d.page.$$eval('[data-option-found-word]', els => els.map(e => e.getAttribute('data-option-found-word')))
+  const counted = await d.page.locator('[data-option-found-none], [data-option-found-word]').count() > 0
+  check('found on records: counted, and nothing left over from this test', counted && !foundWords.some(w => /^E2E/i.test(w || '')), foundWords.slice(0, 5).join(' | '))
   await shot(d.page, 'dev-lead-sources')
   await d.page.locator(`${sel('website/google')} [data-option-name]`).fill(RENAMED)
   await d.page.locator(`${sel('canvassing')} [data-option-merge]`).selectOption('Other'); await sleep(200)

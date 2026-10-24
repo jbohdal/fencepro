@@ -13,7 +13,7 @@ import { chromium } from 'playwright'
 import fs from 'fs'
 import path from 'path'
 
-const APP = process.env.APP_URL || 'http://localhost:5173'
+const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.SHOTS || ''
@@ -58,7 +58,7 @@ try {
   await setProposalSettings(d.page, '50', '60', '9.99')
   const form = new FormData()
   form.append('styleName', TAN)
-  form.append('photo', new Blob([fs.readFileSync(path.resolve('public/icon-512.png'))], { type: 'image/png' }), 'tan.png')
+  form.append('photo', new Blob([fs.readFileSync(new URL('../public/icon-512.png', import.meta.url))], { type: 'image/png' }), 'tan.png')
   photoId = (await api('/api/style-photos', { method: 'POST', body: form })).id
   await d.page.reload(); await d.page.waitForSelector('[data-global-appointment]'); await sleep(800)
   await d.page.locator('span:text-is("Settings"):visible').first().click(); await sleep(400)

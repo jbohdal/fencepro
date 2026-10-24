@@ -17,7 +17,7 @@ import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev cop
 import { chromium } from 'playwright'
 import fs from 'fs'
 
-const APP = process.env.APP_URL || 'http://localhost:5173'
+const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const CLIP = process.env.VOICE_CLIP ? fs.readFileSync(process.env.VOICE_CLIP).toString('base64') : ''

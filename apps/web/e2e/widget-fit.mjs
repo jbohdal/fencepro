@@ -36,6 +36,8 @@ async function fits(page) {
       const top = document.elementFromPoint(cx, cy)
       // The drawing under an open sheet is meant to be covered by it.
       if (top?.closest('[data-w-sheet]') && el.closest('[data-w-overlay]')) continue
+      // So is the map itself (zoom buttons, credit): it is dimmed and sits under the sheet while one is open (layers.css).
+      if (document.querySelector('[data-w-sheet]') && el.closest('.leaflet-container')) continue
       if (top && top !== el && !el.contains(top) && !top.contains(el) && !(el.tagName === 'INPUT' && el.type === 'checkbox' && top.tagName === 'LABEL')) bad.push(`covered: ${label} by ${top.tagName.toLowerCase()}${top.getAttribute('class') ? '.' + top.getAttribute('class').split(' ')[0] : ''}`)
     }
     return bad

@@ -8,7 +8,7 @@
 // It needs real pipeline data and books appointments, so run it on the dev
 // copy only:
 //
-//   APP_URL=http://localhost:5173 API_URL=http://localhost:4001 \
+//   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 \
 //     E2E_EMAIL=... E2E_PASSWORD=... node appointments.mjs
 //
 // E2E_ACCESS_TOKEN (a staff access token for the dev server) can stand in for
@@ -16,7 +16,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 
-const APP = process.env.APP_URL || 'http://localhost:5173'
+const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const EMAIL = process.env.E2E_EMAIL || '', PASSWORD = process.env.E2E_PASSWORD || ''

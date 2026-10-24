@@ -8,7 +8,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 
-const APP = process.env.APP_URL || 'http://localhost:5173'
+const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.SHOTS || ''
@@ -75,10 +75,11 @@ try {
   await b.locator('input[placeholder="Calculated"]').last().fill('1500'); await sleep(400)
   const w2 = await warnings()
   check('a low typed price warns about margin', /Margin is -?\d+\.\d%, under your 34% target in Settings\./.test(w2), w2.slice(0, 200))
-  // The normal price per foot comes from saved quotes with run lengths; the
-  // imported quotes have none, so with under 5 for this style it stays quiet
-  // (the warning itself is covered by tests/quoteChecks.test.ts).
-  check('price per foot stays quiet without 5 past quotes with footage for the style', !w2.includes('a foot is far'), w2.slice(0, 300))
+  // The normal price per foot comes from saved quotes with run lengths (imported quotes have none):
+  // quiet with under 5 for this style; once there are 5 or more, it warns and says from how many
+  // (the rule itself is covered by tests/quoteChecks.test.ts).
+  const perFoot = /a foot is far below your past .* quotes \(usually \$[\d.,]+ to \$[\d.,]+ a foot, from (\d+) past quotes\)/.exec(w2)
+  check('price per foot: quiet under 5 past quotes for the style, a warning that names the count from 5', perFoot ? Number(perFoot[1]) >= 5 : !w2.includes('a foot is far'), w2.slice(0, 300))
   if (SHOTS) { await b.locator('text=Check before you quote').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${SHOTS}/2-phone-warnings.png` }) }
   check('warnings never block saving', await page.locator('[data-quote-bar] [data-save-open]').isEnabled())
 
