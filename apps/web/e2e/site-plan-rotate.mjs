@@ -353,7 +353,10 @@ try {
   const sp = await d.newPage()
   sp.on('pageerror', e => dErrors.push(String(e).slice(0, 300)))
   await sp.goto(`${APP}/site-plans`); await sleep(2500)
-  await sp.locator('button:has-text("New")').first().click(); await sp.waitForSelector('[data-site-plan-map]'); await sleep(3000)
+  await sp.locator('button:has-text("New")').first().click(); await sp.waitForSelector('[data-site-plan-map]'); await sleep(1000)
+  // It opens over Ocala, zoomed out on the soft photo; the sharp photo comes with an address.
+  await sp.locator('input[data-site-plan-address]').fill('110 SE Watula')
+  await sp.locator('[data-address-suggestion]').first().click({ timeout: 20000 }); await sleep(3000)
   const mapEl = sp.locator('[data-site-plan-map]')
   const spSource = await mapEl.getAttribute('data-aerial-source'), spZoom = Number(await mapEl.getAttribute('data-aerial-max-native-zoom'))
   const tileUrls = photoUrls.slice(before)

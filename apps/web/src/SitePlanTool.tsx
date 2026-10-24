@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import L from 'leaflet'
 import { createFreeMap, centeredIcon, BaseToggle, type BaseKind, type FreeMap } from './freeMap'
-import { prefetchAerial } from './aerialTiles'
+import { warmAerial } from './aerialTiles'
 import AddressAutocomplete from './AddressAutocomplete'
 import { lookupPosition } from './appointmentsStore'
 import { distanceFeet } from './geoUtils'
@@ -144,6 +144,12 @@ function savePlans(plans: SitePlan[]) { cloudStorage.setItem(STORAGE_KEY, JSON.s
 
 /* ───────── Address Search (reused) ───────── */
 
+/** Where the map opens before an address: Ocala, zoomed out. */
+const OPEN_AT: LatLng = { lat: 29.1872, lng: -82.1401 }
+const OPEN_ZOOM = 12
+/** The sharp photo from this zoom in (below it the soft USGS photo is all there is to see anyway). */
+const SHARP_FROM_ZOOM = 15
+
 // Free lookups: Marion County's address list on the Mac, then the US Census.
 function AddressInput({ onSelect }: { onSelect: (addr: string, loc: LatLng) => void }) {
   const [text, setText] = useState('')
@@ -152,12 +158,12 @@ function AddressInput({ onSelect }: { onSelect: (addr: string, loc: LatLng) => v
   async function find(address: string, known?: { lat?: number; lng?: number }) {
     const a = address.trim()
     if (!a) return
-    // The photo starts at once, before the map moves there.
-    if (known?.lat != null && known?.lng != null) { prefetchAerial(known.lat, known.lng, { w: 1000, h: 700 }); onSelect(a, { lat: known.lat, lng: known.lng }); return }
+    // The map is already open: moving it asks for just the tiles it shows (nothing asked twice); with NAIP the server starts at once.
+    if (known?.lat != null && known?.lng != null) { warmAerial(known.lat, known.lng); onSelect(a, { lat: known.lat, lng: known.lng }); return }
     setBusy(true)
     try {
       const p = await lookupPosition(a)
-      if (p) { prefetchAerial(p.lat, p.lng, { w: 1000, h: 700 }); onSelect(a, { lat: p.lat, lng: p.lng }) }
+      if (p) { warmAerial(p.lat, p.lng); onSelect(a, { lat: p.lat, lng: p.lng }) }
       else toast.error('Address not found', 'Pick a suggestion, or pan the map to the property.')
     } finally { setBusy(false) }
   }
@@ -191,7 +197,7 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
 
   const [mode, setMode] = useState<DrawMode>('fence')
   const [address, setAddress] = useState('')
-  const [center, setCenter] = useState<LatLng>({ lat: 29.1872, lng: -82.1401 })
+  const [center, setCenter] = useState<LatLng>(OPEN_AT)
   const [isLoaded, setIsLoaded] = useState(false)
 
   // Drawing state
@@ -231,7 +237,9 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!mapDivRef.current || freeRef.current) return
     // No double-click zoom: a double-click finishes the line being drawn.
-    const fm = createFreeMap(mapDivRef.current, { center: [center.lat, center.lng], zoom: 19, base: 'aerial', doubleClickZoom: false, loadingText: 'Loading the aerial photo…' })
+    // Until an address is picked (or a plan opened): Ocala from above, on the quick soft photo only, so the
+    // sharp photo is asked for the property alone and not first for a made up spot downtown.
+    const fm = createFreeMap(mapDivRef.current, { center: [center.lat, center.lng], zoom: OPEN_ZOOM, base: 'aerial', doubleClickZoom: false, sharpMinZoom: SHARP_FROM_ZOOM })
     freeRef.current = fm
     objectsLayerRef.current = L.layerGroup().addTo(fm.map)
 
@@ -256,7 +264,7 @@ export default function SitePlanTool({ onClose }: { onClose: () => void }) {
 
   // Re-center
   useEffect(() => {
-    if (freeRef.current && center.lat !== 0) {
+    if (freeRef.current && center !== OPEN_AT && center.lat !== 0) {
       freeRef.current.map.setView([center.lat, center.lng], 19)
     }
   }, [center])

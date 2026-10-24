@@ -15,7 +15,8 @@ import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev cop
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
-if (!/localhost:4001/.test(APP)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
+// The dev copy on 4001, or a worktree's own dev server on another local port (devOnly.mjs refuses 4000).
+if (!/^http:\/\/localhost:\d+\/?$/.test(APP) || /:4000\b/.test(APP)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
 const ADDRESS = '110 SE Watula'
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
