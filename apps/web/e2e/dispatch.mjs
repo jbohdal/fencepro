@@ -30,7 +30,8 @@ const get = async p => (await (await fetch(`${API}${p}`, { headers: { Authorizat
 const stages = (await get('/api/ops-stages')).stages
 const crews = (await get('/api/schedule/settings')).crews || []
 const jobs = await get('/api/saved-jobs')
-const onMap = jobs.filter(j => !j.deletedAt && !j.archivedAt && (j.status === 'staging' || j.status === 'scheduled'))
+// Jobs with no date: given a crew here they stay on the map (a dated job shows only on its own dates).
+const onMap = jobs.filter(j => !j.deletedAt && !j.archivedAt && (j.status === 'staging' || j.status === 'scheduled') && !j.scheduledDate)
 if (onMap.length < 2 || !crews.length) { console.error(`Needs at least two staging jobs (has ${onMap.length}) and one Schedule crew (has ${crews.length}).`); process.exit(2) }
 const BY_ID = onMap[0].id, BY_NAME = onMap[1].id
 const NAME_CREW = 'Juan Bravo'

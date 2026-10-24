@@ -232,7 +232,7 @@ try {
     }
     if (r.url.includes('/api/job-costing/') || r.url.includes('/api/saved-quotes')) {
       // The quote's own unit costs as a value of any field in the takeoff and quote answers.
-      const walk = v => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { if (typeof x === 'number' && !/qty|Qty|units|sections|hours|count|version/i.test(k) && unitCosts.has(x) && x % 1 !== 0) costFigures.push(`${k}=${x} in ${r.url}`); walk(x) } }
+      const walk = v => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { if (typeof x === 'number' && !/qty|Qty|units|sections|hours|count|version|priceAdjust|pct|percent/i.test(k) && unitCosts.has(x) && x % 1 !== 0) costFigures.push(`${k}=${x} in ${r.url}`); walk(x) } }
       walk(j)
     }
   }
