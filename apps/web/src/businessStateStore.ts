@@ -154,4 +154,22 @@ export function setBusinessField<K extends keyof BusinessFields>(key: K, value: 
   scheduleFlush()
 }
 
+/**
+ * Resolves true once every change made here has reached the server (the
+ * short wait before sending included), false if that takes longer than `ms`
+ * (no signal: the change stays queued and is sent later).
+ */
+export function whenBusinessStateSaved(ms = 15_000): Promise<boolean> {
+  const end = Date.now() + ms
+  return new Promise(res => {
+    const tick = () => {
+      if (!flusher.isDirty()) { res(true); return }
+      if (Date.now() > end) { res(false); return }
+      setTimeout(tick, 120)
+    }
+    // The change is queued only after the short wait, so look a moment later.
+    setTimeout(tick, 60)
+  })
+}
+
 export const BUSINESS_STATE_UPDATED_EVENT = EVT

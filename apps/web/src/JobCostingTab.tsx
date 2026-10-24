@@ -6,6 +6,8 @@ import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
 import { can } from './permissions'
+import NumberField from './NumberField'
+import { dollarsToCents, centsToDollars } from './numberText'
 
 /* ───────── types ───────── */
 
@@ -117,9 +119,10 @@ function CostAJobModal({
   useBackLayer(onClose, { key: 'cost-a-job-modal' })
   const [quoteId, setQuoteId] = useState(editEntry?.quoteId || '')
   const [completionDate, setCompletionDate] = useState(editEntry?.completionDate || businessDate(new Date()))
-  const [actualLaborHrs, setActualLaborHrs] = useState(String(editEntry?.actualLaborHrs || ''))
-  const [actualMaterialCost, setActualMaterialCost] = useState(String(editEntry?.actualMaterialCost || ''))
-  const [actualOtherCosts, setActualOtherCosts] = useState(String(editEntry?.actualOtherCosts || ''))
+  const [actualLaborHrs, setActualLaborHrs] = useState(Number(editEntry?.actualLaborHrs) || 0)
+  // Typed as whole cents (NumberField), kept in dollars as before.
+  const [actualMaterialCents, setActualMaterialCents] = useState(dollarsToCents(Number(editEntry?.actualMaterialCost) || 0))
+  const [actualOtherCents, setActualOtherCents] = useState(dollarsToCents(Number(editEntry?.actualOtherCosts) || 0))
   const [notes, setNotes] = useState(editEntry?.notes || '')
   const [crew, setCrew] = useState<CrewEntry[]>(editEntry?.crew || [])
 
@@ -130,7 +133,7 @@ function CostAJobModal({
     setCrew(prev => [...prev, { name: '', hours: 0, rate: 0 }])
   }
 
-  function updateCrew(i: number, field: keyof CrewEntry, val: string) {
+  function updateCrew(i: number, field: keyof CrewEntry, val: string | number) {
     setCrew(prev => prev.map((c, idx) => idx === i ? { ...c, [field]: field === 'name' ? val : Number(val) || 0 } : c))
   }
 
@@ -144,10 +147,10 @@ function CostAJobModal({
       id: editEntry?.id || uid(),
       quoteId,
       completionDate,
-      actualLaborHrs: Number(actualLaborHrs) || 0,
+      actualLaborHrs,
       crew: crew.filter(c => c.name.trim()),
-      actualMaterialCost: Number(actualMaterialCost) || 0,
-      actualOtherCosts: Number(actualOtherCosts) || 0,
+      actualMaterialCost: centsToDollars(actualMaterialCents),
+      actualOtherCosts: centsToDollars(actualOtherCents),
       notes,
     })
   }
@@ -203,43 +206,22 @@ function CostAJobModal({
               />
             </div>
             <div>
-              <label className="text-xs text-gray-500 font-medium mb-1 block">Actual Total Labor Hours</label>
-              <input
-                type="number" min={0} step={0.5}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                placeholder="e.g. 24.5"
-                value={actualLaborHrs}
-                onChange={e => setActualLaborHrs(e.target.value)}
-              />
+              <label htmlFor="jc-labor-hrs" className="text-xs text-gray-500 font-medium mb-1 block">Actual Total Labor Hours</label>
+              <NumberField id="jc-labor-hrs" kind="number" min={0} decimals={2} placeholder="e.g. 24.5" className="!text-left"
+                value={actualLaborHrs} onCommit={setActualLaborHrs} />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-xs text-gray-500 font-medium mb-1 block">Actual Material Cost</label>
-              <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-orange-400">
-                <span className="px-3 text-gray-400 bg-gray-50 border-r border-gray-300 py-2 text-sm">$</span>
-                <input
-                  type="number" min={0} step={0.01}
-                  className="flex-1 px-3 py-2 text-sm outline-none"
-                  placeholder="0.00"
-                  value={actualMaterialCost}
-                  onChange={e => setActualMaterialCost(e.target.value)}
-                />
-              </div>
+              <label htmlFor="jc-material" className="text-xs text-gray-500 font-medium mb-1 block">Actual Material Cost</label>
+              <NumberField id="jc-material" kind="money" min={0} cents={true} className="!text-left"
+                value={actualMaterialCents} onCommit={setActualMaterialCents} />
             </div>
             <div>
-              <label className="text-xs text-gray-500 font-medium mb-1 block">Other Costs (extras, change orders)</label>
-              <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-orange-400">
-                <span className="px-3 text-gray-400 bg-gray-50 border-r border-gray-300 py-2 text-sm">$</span>
-                <input
-                  type="number" min={0} step={0.01}
-                  className="flex-1 px-3 py-2 text-sm outline-none"
-                  placeholder="0.00"
-                  value={actualOtherCosts}
-                  onChange={e => setActualOtherCosts(e.target.value)}
-                />
-              </div>
+              <label htmlFor="jc-other" className="text-xs text-gray-500 font-medium mb-1 block">Other Costs (extras, change orders)</label>
+              <NumberField id="jc-other" kind="money" min={0} cents={true} className="!text-left"
+                value={actualOtherCents} onCommit={setActualOtherCents} />
             </div>
           </div>
 
@@ -259,20 +241,10 @@ function CostAJobModal({
                       value={c.name}
                       onChange={e => updateCrew(i, 'name', e.target.value)}
                     />
-                    <input
-                      type="number" min={0} step={0.5}
-                      className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-right"
-                      placeholder="Hours"
-                      value={c.hours || ''}
-                      onChange={e => updateCrew(i, 'hours', e.target.value)}
-                    />
-                    <input
-                      type="number" min={0} step={0.5}
-                      className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-right"
-                      placeholder="$/hr"
-                      value={c.rate || ''}
-                      onChange={e => updateCrew(i, 'rate', e.target.value)}
-                    />
+                    <NumberField kind="number" min={0} decimals={2} width="w-20" label={`Hours for crew member ${i + 1}`} placeholder="Hours"
+                      value={c.hours} onCommit={h => updateCrew(i, 'hours', h)} />
+                    <NumberField kind="money" min={0} width="w-24" label={`Dollars an hour for crew member ${i + 1}`} placeholder="$/hr"
+                      value={dollarsToCents(c.rate)} onCommit={r => updateCrew(i, 'rate', centsToDollars(r))} />
                     <span className="text-xs text-gray-400 w-16 text-right">{fmt(c.hours * c.rate)}</span>
                     <button onClick={() => removeCrew(i)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
                   </div>

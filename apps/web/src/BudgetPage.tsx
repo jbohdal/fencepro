@@ -1,6 +1,8 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import JobCostingTab from './JobCostingTab'
 import { getQuotes } from './quoteStore'
+import NumberField from './NumberField'
+import { dollarsToCents, centsToDollars, fractionToPercent, percentToFraction, parseCents } from './numberText'
 
 interface Employee {
   id: string
@@ -162,8 +164,36 @@ function getCategoryColor(categories: string[], cat: string): string {
   return CATEGORY_COLOR_OPTIONS[idx % CATEGORY_COLOR_OPTIONS.length]
 }
 
-import { getBusinessField, setBusinessField } from './businessStateStore'
+import { getBusinessField, setBusinessField, whenBusinessStateSaved, BUSINESS_STATE_UPDATED_EVENT } from './businessStateStore'
 import { useBackLayer } from './nav'
+
+/**
+ * A change to the budget, saved when a box is left (not on every key):
+ * `what` names it for the Saved line and Undo. Changes with the same `key`
+ * made within a moment of each other (a slider being dragged) are one Undo.
+ */
+type Commit = (next: BudgetState, what: string, opts?: { key?: string }) => void
+
+/** Money kept in the budget in dollars, edited as whole cents. */
+const cents = (dollars: number) => dollarsToCents(Number(dollars) || 0)
+const dollars = (c: number) => centsToDollars(c)
+
+/** A name typed in a box, saved when the box is left (Enter too). An empty name keeps the old one. */
+function NameField({ value, onCommit, className = '', label, autoFocus, onDone }: { value: string; onCommit: (v: string) => void; className?: string; label: string; autoFocus?: boolean; onDone?: () => void }) {
+  const [text, setText] = useState(value)
+  const [editing, setEditing] = useState(false)
+  useEffect(() => { if (!editing) setText(value) }, [value, editing])
+  return (
+    <input
+      aria-label={label} autoFocus={autoFocus} value={text} enterKeyHint="done"
+      onFocus={() => setEditing(true)}
+      onChange={e => setText(e.target.value)}
+      onBlur={() => { setEditing(false); const v = text.trim(); if (v && v !== value) onCommit(v); else setText(value); onDone?.() }}
+      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setText(value); setEditing(false); onDone?.() } }}
+      className={`min-h-[44px] ${className}`}
+    />
+  )
+}
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -272,11 +302,12 @@ function BarChart({
 
 function TabBar({ tabs, active, onChange }: { tabs: string[], active: string, onChange: (t: string) => void }) {
   return (
-    <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-8">
+    // Three a row on a phone, so every tab shows; one row on a computer.
+    <div className="grid grid-cols-3 lg:flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 lg:mb-8">
       {tabs.map(t => (
         <button
-          key={t} onClick={() => onChange(t)}
-          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${active === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+          key={t} onClick={() => onChange(t)} aria-pressed={active === t}
+          className={`lg:flex-1 py-2.5 px-2 lg:px-4 rounded-lg text-sm font-medium leading-tight transition-all ${active === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
         >
           {t}
         </button>
@@ -287,9 +318,9 @@ function TabBar({ tabs, active, onChange }: { tabs: string[], active: string, on
 
 function StatCard({ label, value, sub, accent }: { label: string, value: string, sub?: string, accent?: boolean }) {
   return (
-    <div className={`rounded-2xl p-5 ${accent ? 'bg-orange-500' : 'bg-white border border-gray-200'}`}>
+    <div className={`rounded-2xl p-4 lg:p-5 min-w-0 ${accent ? 'bg-orange-500' : 'bg-white border border-gray-200'}`}>
       <p className={`text-xs font-semibold mb-1 ${accent ? 'text-orange-100' : 'text-gray-400'}`}>{label}</p>
-      <p className={`text-2xl font-bold ${accent ? 'text-white' : 'text-gray-900'}`}>{value}</p>
+      <p className={`text-xl lg:text-2xl font-bold break-words ${accent ? 'text-white' : 'text-gray-900'}`} data-budget-stat={label}>{value}</p>
       {sub && <p className={`text-xs mt-1 ${accent ? 'text-orange-200' : 'text-gray-400'}`}>{sub}</p>}
     </div>
   )
@@ -320,16 +351,17 @@ function BucketBar({ label, actual, target, color, invertColor }: { label: strin
 
 // ── Budget Tab ────────────────────────────────────────────────────────────────
 
-function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: BudgetState) => void }) {
+function BudgetTab({ state, onChange }: { state: BudgetState, onChange: Commit }) {
   const { revenueGoal, overheadPct, laborPct, materialsPct, vinylPct, aluminumPct, chainlinkPct, employees, overhead, seasonality } = state
 
-  const totalLaborCost    = employees.reduce((s, e) => s + e.hourlyRate * e.annualHours, 0)
-  const totalOverheadCost = overhead.filter(o => !(o as any).parentId).reduce((s, o) => s + o.annual, 0)
+  // Added up in whole cents, the way the Crew and Overhead tabs show them.
+  const totalLaborCost    = dollars(employees.reduce((s, e) => s + Math.round(cents(e.hourlyRate) * (Number(e.annualHours) || 0)), 0))
+  const totalOverheadCost = dollars(overhead.filter(o => !(o as any).parentId).reduce((s, o) => s + cents(o.annual), 0))
   const actualLaborPct    = revenueGoal > 0 ? totalLaborCost / revenueGoal : 0
   const actualOverheadPct = revenueGoal > 0 ? totalOverheadCost / revenueGoal : 0
 
-  // Target net profit from the editable 4-bucket inputs
-  const targetNetProfitPct = state.netProfitPct ?? 0.1195
+  // Target net profit from the editable 4-bucket inputs (the same default as the box below)
+  const targetNetProfitPct = state.netProfitPct ?? 0.106
 
   // Magic Number = 1 - Overhead% - Net Profit% = COGS target %
   // This is the reciprocal of (overhead + desired profit)
@@ -364,7 +396,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
       <div className="bg-gray-900 rounded-2xl p-4 lg:p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <p className="text-gray-400 text-xs font-semibold mb-2">Target Margin — overhead plus profit</p>
-          <p className="text-4xl lg:text-7xl font-black text-white leading-none">{fmtPct(impliedGM)}</p>
+          <p className="text-4xl lg:text-7xl font-black text-white leading-none" data-budget-target-margin>{fmtPct(impliedGM)}</p>
           <p className="text-gray-500 text-xs mt-1">Price = (materials + labor) ÷ (100% − {fmtPct(impliedGM)}). Materials and labor are {fmtPct(magicNumber)} of the price.</p>
           <div className="flex flex-wrap gap-4 lg:gap-6 mt-4">
             <div>
@@ -400,14 +432,16 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
           </div>
         </div>
         <div className="text-left lg:text-right">
-          <p className="text-gray-500 text-xs mb-2">Annual Revenue Goal</p>
-          <input
-            type="number"
-            className="text-2xl lg:text-4xl font-black text-orange-400 bg-transparent text-left lg:text-right outline-none w-full lg:w-56 border-b-2 border-gray-700 focus:border-orange-400 transition-colors pb-1"
-            value={revenueGoal}
-            onChange={e => onChange({ ...state, revenueGoal: Number(e.target.value) })}
+          <label htmlFor="budget-revenue-goal" className="block text-gray-400 text-xs mb-2">Annual Revenue Goal</label>
+          <NumberField
+            id="budget-revenue-goal" kind="money" look="plain" min={0}
+            data-budget-field="revenueGoal"
+            className="!text-2xl lg:!text-4xl font-black text-orange-400 text-left lg:text-right lg:w-64 border-b-2 border-gray-700 focus:border-orange-400 transition-colors pb-1"
+            width="w-full lg:w-64"
+            value={cents(revenueGoal)}
+            onCommit={c => onChange({ ...state, revenueGoal: dollars(c) }, 'Annual revenue goal')}
           />
-          <p className="text-gray-600 text-xs mt-2">click to edit</p>
+          <p className="text-gray-500 text-xs mt-2">tap to change</p>
         </div>
       </div>
 
@@ -439,7 +473,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
               <p className="text-xs text-gray-400 mt-0.5">Orange = above average · Gray = below average</p>
             </div>
             <button
-              onClick={() => onChange({ ...state, seasonalityLocked: !state.seasonalityLocked })}
+              onClick={() => onChange({ ...state, seasonalityLocked: !state.seasonalityLocked }, state.seasonalityLocked ? 'Seasonality unlocked' : 'Seasonality locked')}
               className={`text-xs px-3 py-1.5 rounded-lg border font-medium ${state.seasonalityLocked ? 'bg-orange-50 border-orange-300 text-orange-600' : 'border-gray-200 text-gray-500'}`}
             >
               {state.seasonalityLocked ? '🔒 Locked' : '🔓 Unlocked'}
@@ -470,17 +504,14 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
               { label: 'Materials',   key: 'materialsPct', val: materialsPct },
               { label: 'Net Profit',  key: 'netProfitPct', val: state.netProfitPct ?? 0.106 },
             ].map(f => (
-              <div key={f.key} className="flex items-center justify-between">
-                <label className="text-xs text-gray-400">{f.label}</label>
-                <div className="flex items-center gap-1 border border-gray-200 rounded-lg px-2 py-1 w-24">
-                  <input
-                    type="number" min={0} max={100} step={0.5}
-                    className="w-full text-right text-sm font-semibold text-gray-900 outline-none"
-                    value={Math.round(f.val * 1000) / 10}
-                    onChange={e => onChange({ ...state, [f.key]: Number(e.target.value) / 100 })}
-                  />
-                  <span className="text-gray-400 text-xs">%</span>
-                </div>
+              <div key={f.key} className="flex items-center justify-between gap-3">
+                <label htmlFor={`budget-${f.key}`} className="text-sm text-gray-600">{f.label} target</label>
+                <NumberField
+                  id={`budget-${f.key}`} kind="percent" decimals={2} min={0} max={100} width="w-28"
+                  data-budget-field={f.key}
+                  value={fractionToPercent(f.val)}
+                  onCommit={p => onChange({ ...state, [f.key]: percentToFraction(p) }, `${f.label} target`)}
+                />
               </div>
             ))}
 
@@ -494,7 +525,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
                 <div className="pt-2 border-t border-gray-100">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs text-gray-400">Total allocation</span>
-                    <span className={`text-xs font-bold ${over || under ? 'text-red-500' : 'text-green-600'}`}>
+                    <span className={`text-xs font-bold ${over || under ? 'text-red-500' : 'text-green-600'}`} data-budget-bucket-total>
                       {pct}%
                     </span>
                   </div>
@@ -515,7 +546,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
       </div>
 
       {/* Product mix */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 lg:p-6">
         <div className="flex items-center justify-between mb-1">
           <h3 className="font-bold text-gray-900">Revenue by Product Mix</h3>
           {(() => {
@@ -531,7 +562,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
             )
           })()}
         </div>
-        <p className="text-sm text-gray-400 mb-5">Must total exactly 100%. Adjust sliders until the indicator turns green.</p>
+        <p className="text-sm text-gray-400 mb-5">Must total exactly 100%. Type a percent or drag the slider until the indicator turns green.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {[
             { label: 'Vinyl',     key: 'vinylPct',     val: vinylPct,            color: 'bg-orange-400' },
@@ -540,24 +571,29 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
             { label: 'Misc/Other',key: 'miscPct',      val: state.miscPct ?? 0.02, color: 'bg-green-300' },
           ].map(f => (
             <div key={f.label}>
-              <div className="flex justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">{f.label}</span>
-                <span className="text-sm font-bold text-gray-900">{Math.round(f.val * 100)}%</span>
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <label htmlFor={`budget-${f.key}`} className="text-sm font-medium text-gray-700">{f.label}</label>
+                <NumberField
+                  id={`budget-${f.key}`} kind="percent" decimals={2} min={0} max={100} width="w-28"
+                  data-budget-field={f.key}
+                  value={fractionToPercent(f.val)}
+                  onCommit={p => onChange({ ...state, [f.key]: percentToFraction(p) }, `${f.label} share`)}
+                />
               </div>
               <div className="h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
-                <div className={`h-full ${f.color} rounded-full`} style={{ width: `${f.val * 100}%` }} />
+                <div className={`h-full ${f.color} rounded-full`} style={{ width: `${Math.min(f.val * 100, 100)}%` }} />
               </div>
-              <p className="text-xs text-gray-400">{fmt(revenueGoal * f.val)}</p>
+              <p className="text-xs text-gray-400" data-budget-mix-dollars={f.key}>{fmt(revenueGoal * f.val)} a year</p>
               <input
                 type="range" min={0} max={100} step={1}
+                aria-label={`${f.label} share slider`}
                 className="w-full mt-2 accent-orange-500"
                 value={Math.round(f.val * 100)}
-                onChange={e => onChange({ ...state, [f.key]: Number(e.target.value) / 100 })}
+                onChange={e => onChange({ ...state, [f.key]: Number(e.target.value) / 100 }, `${f.label} share`, { key: `slider-${f.key}` })}
               />
             </div>
           ))}
         </div>
-      </div>
     {(() => {
           const total = vinylPct + aluminumPct + chainlinkPct + (state.miscPct ?? 0)
           const pct = Math.round(total * 1000) / 10
@@ -567,7 +603,7 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
             <div className="mt-5 pt-4 border-t border-gray-100">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-gray-500 font-medium">Total allocation</span>
-                <span className={`text-sm font-bold ${over || under ? 'text-red-500' : 'text-green-600'}`}>{pct}%</span>
+                <span className={`text-sm font-bold ${over || under ? 'text-red-500' : 'text-green-600'}`} data-budget-mix-total>{pct}%</span>
               </div>
               <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
                 <div
@@ -581,40 +617,54 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: (s: Budg
             </div>
           )
         })()}
-        </div>
+      </div>
+    </div>
   )
-}// ── Historic Revenue Tab ──────────────────────────────────────────────────────
+}
 
-function HistoricTab({ state, onChange }: { state: BudgetState, onChange: (s: BudgetState) => void }) {
+// ── Historic Revenue Tab ──────────────────────────────────────────────────────
+
+function HistoricTab({ state, onChange }: { state: BudgetState, onChange: Commit }) {
   const { historic } = state
   const computedSeasonality = useMemo(() => calcSeasonality(historic), [historic])
 
-  function updateMonth(yearIdx: number, monthIdx: number, val: string) {
+  function updateMonth(yearIdx: number, monthIdx: number, valueCents: number) {
     const updated = historic.map((y, yi) =>
       yi === yearIdx
-        ? { ...y, months: y.months.map((m, mi) => mi === monthIdx ? (Number(val) || 0) : m) }
+        ? { ...y, months: y.months.map((m, mi) => mi === monthIdx ? dollars(valueCents) : m) }
         : y
     )
-    onChange({ ...state, historic: updated, seasonality: calcSeasonality(updated), seasonalityLocked: true })
+    onChange({ ...state, historic: updated, seasonality: calcSeasonality(updated), seasonalityLocked: true }, `${MONTHS[monthIdx]} ${historic[yearIdx].year} revenue`)
   }
+
+  const monthBox = (y: HistoricYear, yi: number, m: number, mi: number, width: string) => (
+    <NumberField
+      kind="money" min={0} width={width} placeholder="$0"
+      label={`${MONTHS[mi]} ${y.year} revenue`}
+      data-budget-field={`historic-${y.year}-${mi}`}
+      className="!text-xs lg:!text-xs"
+      value={cents(m)}
+      onCommit={c => updateMonth(yi, mi, c)}
+    />
+  )
 
   const yearColors = ['rgba(99,102,241,0.7)', 'rgba(59,130,246,0.7)', 'rgba(16,185,129,0.7)', 'rgba(249,115,22,0.7)', 'rgba(236,72,153,0.7)']
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Historic Revenue</h2>
           <p className="text-sm text-gray-400 mt-0.5">Enter monthly actuals. Seasonality auto-calculates and locks in to drive projections.</p>
         </div>
-        <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-right">
+        <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 md:text-right">
           <p className="text-xs text-orange-600 font-semibold">Seasonality locked from historic data</p>
           <p className="text-xs text-gray-400 mt-0.5">Edit any cell to recalculate</p>
         </div>
       </div>
 
       {/* Year legend */}
-      <div className="flex gap-4">
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
         {historic.map((y, i) => (
           <div key={y.year} className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: yearColors[i] }} />
@@ -624,7 +674,7 @@ function HistoricTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
       </div>
 
       {/* Chart */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 md:p-6">
         <h3 className="font-bold text-gray-900 mb-4">Revenue by Year</h3>
         <BarChart
           values={historic.map(y => y.months)}
@@ -634,9 +684,29 @@ function HistoricTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
         />
       </div>
 
+      {/* Phone: one card a year, three months a row */}
+      <div className="md:hidden space-y-4">
+        {historic.map((y, yi) => (
+          <div key={y.year} className="bg-white rounded-2xl border border-gray-200 p-4">
+            <div className="flex items-baseline justify-between mb-3">
+              <p className="font-bold text-gray-900">{y.year}</p>
+              <p className="text-sm font-bold text-gray-900" data-budget-historic-total={y.year}>{fmt(y.months.reduce((a, b) => a + b, 0))}</p>
+            </div>
+            <div className="grid grid-cols-3 gap-x-2 gap-y-3">
+              {y.months.map((m, mi) => (
+                <div key={mi} className="min-w-0">
+                  <p className="text-xs text-gray-500 mb-1">{MONTHS[mi]}</p>
+                  {monthBox(y, yi, m, mi, 'w-full')}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Input table */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
-        <table className="w-full text-sm min-w-[900px]">
+      <div className="hidden md:block bg-white rounded-2xl border border-gray-200 overflow-x-auto">
+        <table className="w-full text-sm min-w-[1000px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-16">Year</th>
@@ -652,16 +722,10 @@ function HistoricTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
                   <td className="px-4 py-2 font-bold text-gray-900">{y.year}</td>
                   {y.months.map((m, mi) => (
                     <td key={mi} className="px-0.5 py-1.5 text-right">
-                      <input
-                        type="number"
-                        className="w-[68px] text-right text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
-                        value={m || ''}
-                        placeholder="0"
-                        onChange={e => updateMonth(yi, mi, e.target.value)}
-                      />
+                      {monthBox(y, yi, m, mi, 'w-[76px]')}
                     </td>
                   ))}
-                  <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs whitespace-nowrap">{fmt(total)}</td>
+                  <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs whitespace-nowrap" data-budget-historic-total={y.year}>{fmt(total)}</td>
                 </tr>
               )
             })}
@@ -670,17 +734,17 @@ function HistoricTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
       </div>
 
       {/* Seasonality bars */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 md:p-6">
         <h3 className="font-bold text-gray-900 mb-5">Seasonality Distribution</h3>
-        <div className="flex items-end gap-2" style={{ height: 100 }}>
+        <div className="flex items-end gap-0.5 md:gap-2" style={{ height: 100 }}>
           {computedSeasonality.map((pct, i) => (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1">
-              <span className="text-xs text-gray-500 font-medium">{fmtPct(pct)}</span>
+            <div key={i} className="flex-1 min-w-0 flex flex-col items-center gap-1">
+              <span className="text-[9px] md:text-xs text-gray-500 font-medium whitespace-nowrap">{fmtPct(pct)}</span>
               <div
                 className="w-full bg-orange-400 rounded-t"
                 style={{ height: `${Math.max((pct / Math.max(...computedSeasonality)) * 64, 4)}px` }}
               />
-              <span className="text-xs text-gray-400">{MONTHS[i]}</span>
+              <span className="text-[10px] md:text-xs text-gray-400">{MONTHS[i]}</span>
             </div>
           ))}
         </div>
@@ -716,7 +780,7 @@ function OverheadDrawer({
   useBackLayer(onClose, { key: 'overhead-drawer' })
   const [mode, setMode] = useState<'single' | 'bulk'>('single')
   const [label, setLabel] = useState('')
-  const [annual, setAnnual] = useState('')
+  const [annualCents, setAnnualCents] = useState(0)
   const [category, setCategory] = useState('Operations')
   const [parentId, setParentId] = useState<string | null>(null)
   const [bulkText, setBulkText] = useState('')
@@ -734,14 +798,14 @@ function OverheadDrawer({
     const newItem: OverheadAccount = {
       id: uid(),
       label: label.trim(),
-      annual: Number(annual) || 0,
+      annual: dollars(annualCents),
       category,
       parentId,
       order: accounts.filter(a => a.category === category).length,
     }
     onAdd([newItem])
     setLabel('')
-    setAnnual('')
+    setAnnualCents(0)
   }
 
   function handleBulk() {
@@ -749,16 +813,16 @@ function OverheadDrawer({
     const lines = bulkText.split('\n').map(l => l.trim()).filter(Boolean)
     const parsed: OverheadAccount[] = []
     for (const line of lines) {
-      const parts = line.split(',').map(p => p.trim())
-      if (parts.length < 1) continue
-      const itemLabel = parts[0].replace(/^[-*]\s*/, '')
-      const rawAmt = parts[1] || '0'
-      const amt = Number(rawAmt.replace(/[$,\s]/g, ''))
+      // The name is up to the first comma; the rest is the amount, so "Fuel, $15,000" is $15,000.
+      const cut = line.indexOf(',')
+      const itemLabel = (cut < 0 ? line : line.slice(0, cut)).trim().replace(/^[-*]\s*/, '')
+      const rawAmt = cut < 0 ? '0' : line.slice(cut + 1).trim() || '0'
+      const amtCents = parseCents(rawAmt)
       if (!itemLabel) continue
       parsed.push({
         id: uid(),
         label: itemLabel,
-        annual: isNaN(amt) ? 0 : amt,
+        annual: amtCents == null ? 0 : dollars(amtCents),
         category,
         parentId,
         order: accounts.length + parsed.length,
@@ -775,7 +839,7 @@ function OverheadDrawer({
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/40" onClick={onClose} />
-      <div className="w-96 bg-white shadow-2xl flex flex-col h-full overflow-y-auto">
+      <div className="w-full max-w-sm bg-white shadow-2xl flex flex-col h-full overflow-y-auto">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900">Add Expense</h2>
           <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
@@ -809,17 +873,11 @@ function OverheadDrawer({
               </div>
 
               <div>
-                <label className="text-xs text-gray-500 mb-1 block font-medium">Annual Amount</label>
-                <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-orange-400">
-                  <span className="px-3 text-gray-400 bg-gray-50 border-r border-gray-300 py-2 text-sm">$</span>
-                  <input
-                    type="number" min={0}
-                    className="flex-1 px-3 py-2 text-sm outline-none"
-                    placeholder="0"
-                    value={annual}
-                    onChange={e => setAnnual(e.target.value)}
-                  />
-                </div>
+                <label htmlFor="budget-new-expense-annual" className="text-xs text-gray-500 mb-1 block font-medium">Annual Amount</label>
+                <NumberField
+                  id="budget-new-expense-annual" kind="money" min={0} className="!text-left"
+                  value={annualCents} onCommit={setAnnualCents}
+                />
               </div>
 
               <div>
@@ -897,9 +955,134 @@ function OverheadDrawer({
       </div>
     </div>
   )
-}// ── Overhead Tab ──────────────────────────────────────────────────────────────
+}
 
-function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: BudgetState) => void }) {
+// ── Overhead Tab ──────────────────────────────────────────────────────────────
+
+/**
+ * A group's own amount is the sum of the lines under it: the totals (and
+ * live overhead for pricing, liveOverhead.ts) add up top level lines only,
+ * so a group has to carry its lines' sum.
+ */
+function withGroupTotals(accounts: OverheadAccount[]): OverheadAccount[] {
+  const sums = new Map<string, number>()
+  for (const a of accounts) if (a.parentId) sums.set(a.parentId, (sums.get(a.parentId) ?? 0) + cents(a.annual))
+  return accounts.map(a => sums.has(a.id) ? { ...a, annual: dollars(sums.get(a.id)!) } : a)
+}
+
+/** Yearly and monthly are linked: a month is a twelfth of the year, to the cent. */
+const monthlyCents = (annualDollars: number) => Math.round(cents(annualDollars) / 12)
+
+function AccountRow({
+  account, depth, children, expanded, editingName, categories, revenueGoal,
+  onToggle, onRename, onStartRename, onStopRename, onField, onAmount, onMove, onRemove,
+}: {
+  account: OverheadAccount
+  depth: number
+  children: OverheadAccount[]
+  expanded: boolean
+  editingName: boolean
+  categories: string[]
+  revenueGoal: number
+  onToggle: () => void
+  onRename: (label: string) => void
+  onStartRename: () => void
+  onStopRename: () => void
+  onField: (field: 'category', val: string) => void
+  onAmount: (annualCents: number, what: string) => void
+  onMove: (dir: 'up' | 'down') => void
+  onRemove: () => void
+}) {
+  const hasChildren = children.length > 0
+  const displayAmt = hasChildren ? dollars(children.reduce((s, c) => s + cents(c.annual), 0)) : account.annual
+  const name = account.label
+  return (
+    <div
+      className="group grid grid-cols-2 gap-x-3 gap-y-2 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_9rem_9rem_8rem_4rem_8.5rem] lg:items-center lg:gap-y-0 lg:py-1.5 hover:bg-gray-50"
+      data-budget-account={account.id}
+    >
+      {/* Name */}
+      <div className="col-span-2 lg:col-span-1 flex items-center gap-1 min-w-0" style={{ paddingLeft: `${depth * 20}px` }}>
+        {hasChildren ? (
+          <button
+            onClick={onToggle} aria-expanded={expanded} aria-label={`${expanded ? 'Hide' : 'Show'} the lines under ${name}`}
+            className="min-w-[44px] min-h-[44px] -ml-3 inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xs"
+          >{expanded ? '▼' : '▶'}</button>
+        ) : <span className="w-8 shrink-0" />}
+        {editingName ? (
+          <NameField
+            autoFocus label={`Name of ${name}`} value={name}
+            onCommit={onRename} onDone={onStopRename}
+            className="flex-1 min-w-0 border-b border-orange-400 outline-none text-sm font-medium text-gray-900 bg-transparent"
+          />
+        ) : (
+          <button
+            onClick={onStartRename} title="Tap to rename"
+            className={`flex-1 min-w-0 text-left text-sm hover:text-orange-600 ${depth > 0 ? 'text-gray-600' : 'font-medium text-gray-800'}`}
+          >{name}</button>
+        )}
+      </div>
+
+      {/* Yearly */}
+      <div className="min-w-0 lg:order-2">
+        <span className="block text-xs text-gray-500 mb-1 lg:hidden">Yearly</span>
+        {hasChildren ? (
+          <p className="min-h-[44px] flex items-center justify-end text-sm font-bold text-gray-700 font-mono" data-budget-group-total={account.id} title="The sum of the lines under it">{fmt(displayAmt)}</p>
+        ) : (
+          <NumberField
+            kind="money" min={0} label={`${name}, yearly`}
+            data-budget-field={`overhead-${account.id}-annual`}
+            value={cents(account.annual)}
+            onCommit={c => onAmount(c, `${name}, yearly`)}
+          />
+        )}
+      </div>
+
+      {/* Monthly */}
+      <div className="min-w-0 lg:order-3">
+        <span className="block text-xs text-gray-500 mb-1 lg:hidden">Monthly</span>
+        {hasChildren ? (
+          <p className="min-h-[44px] flex items-center justify-end text-sm text-gray-500 font-mono">{fmt(displayAmt / 12)}</p>
+        ) : (
+          <NumberField
+            kind="money" min={0} label={`${name}, monthly`}
+            data-budget-field={`overhead-${account.id}-monthly`}
+            value={monthlyCents(account.annual)}
+            onCommit={c => onAmount(c * 12, `${name}, monthly`)}
+          />
+        )}
+      </div>
+
+      {/* Category */}
+      <div className="min-w-0 lg:order-1">
+        <span className="block text-xs text-gray-500 mb-1 lg:hidden">Category</span>
+        <select
+          aria-label={`Category of ${name}`}
+          className="w-full min-h-[44px] text-sm lg:text-xs text-gray-600 border border-gray-200 rounded-lg px-2 focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white"
+          value={account.category}
+          onChange={e => onField('category', e.target.value)}
+        >
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+
+      {/* % of revenue */}
+      <div className="min-w-0 lg:order-4 flex items-end lg:items-center lg:justify-end">
+        <span className="text-xs text-gray-500 mr-1 lg:hidden">Of revenue</span>
+        <span className="text-sm lg:text-xs font-medium text-gray-500" data-budget-account-pct={account.id}>{revenueGoal > 0 ? fmtPct(displayAmt / revenueGoal) : '—'}</span>
+      </div>
+
+      {/* Move and remove: always there on a phone, on hover on a computer */}
+      <div className="col-span-2 lg:col-span-1 flex items-center justify-end gap-0.5 lg:order-5 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100 transition-opacity">
+        <button onClick={() => onMove('up')} aria-label={`Move ${name} up`} title="Move up" className="min-w-[44px] min-h-[44px] inline-grid place-items-center text-gray-400 hover:text-gray-700 text-xs rounded">▲</button>
+        <button onClick={() => onMove('down')} aria-label={`Move ${name} down`} title="Move down" className="min-w-[44px] min-h-[44px] inline-grid place-items-center text-gray-400 hover:text-gray-700 text-xs rounded">▼</button>
+        <button onClick={onRemove} aria-label={`Remove ${name}`} title="Remove" className="min-w-[44px] min-h-[44px] inline-grid place-items-center text-gray-400 hover:text-red-500 text-lg leading-none">×</button>
+      </div>
+    </div>
+  )
+}
+
+function OverheadTab({ state, onChange }: { state: BudgetState, onChange: Commit }) {
   const { revenueGoal, overheadPct } = state
   const categories: string[] = state.overheadCategories ?? ['Facilities', 'Admin', 'Sales', 'Operations']
   const [showDrawer, setShowDrawer] = useState(false)
@@ -919,17 +1102,22 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
     }))
   }, [state.overhead])
 
+  const setAccounts = (next: OverheadAccount[], what: string) => onChange({ ...state, overhead: withGroupTotals(next) as any }, what)
+
   function addCategory() {
     if (!newCatName.trim()) return
-    onChange({ ...state, overheadCategories: [...categories, newCatName.trim()] })
+    if (categories.includes(newCatName.trim())) { setNewCatName(''); return }
+    onChange({ ...state, overheadCategories: [...categories, newCatName.trim()] }, `New category ${newCatName.trim()}`)
     setNewCatName('')
   }
 
   function renameCategory(idx: number, val: string) {
     const oldName = categories[idx]
+    // Two categories with one name would merge their lines for good: keep the old name.
+    if (!val || categories.some((c, i) => i !== idx && c === val)) return
     const updated = categories.map((c, i) => i === idx ? val : c)
     const updatedAccounts = accounts.map(a => a.category === oldName ? { ...a, category: val } : a)
-    onChange({ ...state, overheadCategories: updated, overhead: updatedAccounts as any })
+    onChange({ ...state, overheadCategories: updated, overhead: updatedAccounts as any }, `Category ${oldName} renamed`)
   }
 
   function removeCategory(idx: number) {
@@ -938,10 +1126,11 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
       alert(`Move or delete all expenses in "${cat}" before removing it.`)
       return
     }
-    onChange({ ...state, overheadCategories: categories.filter((_, i) => i !== idx) })
+    onChange({ ...state, overheadCategories: categories.filter((_, i) => i !== idx) }, `Category ${cat} removed`)
   }
 
-  const total = accounts.filter(a => a.parentId === null).reduce((s, a) => s + a.annual, 0)
+  const sumDollars = (list: OverheadAccount[]) => dollars(list.reduce((s, a) => s + cents(a.annual), 0))
+  const total = sumDollars(accounts.filter(a => a.parentId === null))
   const actualPct = revenueGoal > 0 ? total / revenueGoal : 0
   const overTarget = actualPct > overheadPct
 
@@ -949,25 +1138,28 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
     const topLevel = accounts
       .filter(a => a.category === cat && a.parentId === null)
       .sort((a, b) => a.order - b.order)
-    return { cat, topLevel, total: topLevel.reduce((s, a) => s + a.annual, 0) }
+    return { cat, topLevel, total: sumDollars(topLevel) }
   })
 
   function getChildren(parentId: string) {
     return accounts.filter(a => a.parentId === parentId).sort((a, b) => a.order - b.order)
   }
 
-  function updateAccount(id: string, field: string, val: string | number) {
-    const updated = accounts.map(a => a.id === id ? { ...a, [field]: val } : a)
-    onChange({ ...state, overhead: updated as any })
+  function updateAccount(id: string, field: 'label' | 'category', val: string, what: string) {
+    setAccounts(accounts.map(a => a.id === id ? { ...a, [field]: val } : a), what)
+  }
+
+  function setAmount(id: string, annualCents: number, what: string) {
+    setAccounts(accounts.map(a => a.id === id ? { ...a, annual: dollars(annualCents) } : a), what)
   }
 
   function removeAccount(id: string) {
-    const updated = accounts.filter(a => a.id !== id && a.parentId !== id)
-    onChange({ ...state, overhead: updated as any })
+    const a = accounts.find(x => x.id === id)
+    setAccounts(accounts.filter(x => x.id !== id && x.parentId !== id), `${a?.label ?? 'Expense'} removed`)
   }
 
   function addAccounts(items: OverheadAccount[]) {
-    onChange({ ...state, overhead: [...accounts, ...items] as any })
+    setAccounts([...accounts, ...items], items.length === 1 ? `${items[0].label} added` : `${items.length} expenses added`)
   }
 
   function moveItem(id: string, dir: 'up' | 'down') {
@@ -985,7 +1177,7 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
       if (a.id === swapItem.id) return { ...a, order: item.order }
       return a
     })
-    onChange({ ...state, overhead: updated as any })
+    setAccounts(updated, `${item.label} moved ${dir}`)
   }
 
   function toggleExpand(id: string) {
@@ -996,106 +1188,27 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
     })
   }
 
-  function AccountRow({ account, depth = 0 }: { account: OverheadAccount, depth?: number }) {
+  // A plain function, not a component: a component made here would be new on
+  // every change, and React would throw away the box being typed in.
+  function rows(account: OverheadAccount, depth: number): React.ReactNode {
     const children = getChildren(account.id)
-    const hasChildren = children.length > 0
-    const isExpanded = expandedIds.has(account.id)
-    const isEditing = editingId === account.id
-    const childTotal = children.reduce((s, c) => s + c.annual, 0)
-    const displayAmt = hasChildren ? childTotal : account.annual
-
+    const expanded = expandedIds.has(account.id)
     return (
-      <>
-        <tr className="hover:bg-gray-50 group">
-          <td className="px-5 py-2.5" style={{ paddingLeft: `${20 + depth * 24}px` }}>
-            <div className="flex items-center gap-2">
-              {hasChildren && (
-                <button
-                  onClick={() => toggleExpand(account.id)}
-                  className="text-gray-400 hover:text-gray-600 w-4 h-4 flex items-center justify-center text-xs"
-                >
-                  {isExpanded ? '▼' : '▶'}
-                </button>
-              )}
-              {!hasChildren && <span className="w-4" />}
-              {isEditing ? (
-                <input
-                  autoFocus
-                  className="border-b border-orange-400 outline-none text-sm font-medium text-gray-900 bg-transparent flex-1"
-                  value={account.label}
-                  onChange={e => updateAccount(account.id, 'label', e.target.value)}
-                  onBlur={() => setEditingId(null)}
-                  onKeyDown={e => e.key === 'Enter' && setEditingId(null)}
-                />
-              ) : (
-                <span
-                  className={`text-sm cursor-pointer hover:text-orange-600 ${depth > 0 ? 'text-gray-600' : 'font-medium text-gray-800'}`}
-                  onClick={() => setEditingId(account.id)}
-                >
-                  {account.label}
-                </span>
-              )}
-            </div>
-          </td>
-
-          <td className="px-3 py-2.5">
-            <select
-              className="text-xs text-gray-500 border border-gray-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-orange-400"
-              value={account.category}
-              onChange={e => updateAccount(account.id, 'category', e.target.value)}
-            >
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </td>
-
-          <td className="px-3 py-2.5 text-right">
-            {hasChildren ? (
-              <span className="text-sm font-bold text-gray-700 font-mono">{fmt(displayAmt)}</span>
-            ) : (
-              <div className="flex items-center justify-end gap-1">
-                <span className="text-gray-400 text-xs">$</span>
-                <input
-                  type="number" min={0}
-                  className="w-24 text-right border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
-                  value={account.annual}
-                  onChange={e => updateAccount(account.id, 'annual', Number(e.target.value))}
-                />
-              </div>
-            )}
-          </td>
-
-          <td className="px-3 py-2.5 text-right text-gray-400 font-mono text-xs whitespace-nowrap">
-            {fmt(displayAmt / 12)}/mo
-          </td>
-
-          <td className="px-3 py-2.5 text-right text-xs font-medium text-gray-400 w-16">
-            {revenueGoal > 0 ? fmtPct(displayAmt / revenueGoal) : '—'}
-          </td>
-
-          <td className="px-2 py-2.5 w-20">
-            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={() => moveItem(account.id, 'up')}
-                className="text-gray-300 hover:text-gray-600 text-xs px-1 py-0.5 rounded"
-                title="Move up"
-              >▲</button>
-              <button
-                onClick={() => moveItem(account.id, 'down')}
-                className="text-gray-300 hover:text-gray-600 text-xs px-1 py-0.5 rounded"
-                title="Move down"
-              >▼</button>
-              <button
-                onClick={() => removeAccount(account.id)}
-                className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 text-lg leading-none ml-1"
-              >×</button>
-            </div>
-          </td>
-        </tr>
-
-        {hasChildren && isExpanded && children.map(child => (
-          <AccountRow key={child.id} account={child} depth={depth + 1} />
-        ))}
-      </>
+      <React.Fragment key={account.id}>
+        <AccountRow
+          account={account} depth={depth} children={children} expanded={expanded}
+          editingName={editingId === account.id} categories={categories} revenueGoal={revenueGoal}
+          onToggle={() => toggleExpand(account.id)}
+          onStartRename={() => setEditingId(account.id)}
+          onStopRename={() => setEditingId(null)}
+          onRename={label => updateAccount(account.id, 'label', label, `${account.label} renamed`)}
+          onField={(field, val) => updateAccount(account.id, field, val, `${account.label} category`)}
+          onAmount={(c, what) => setAmount(account.id, c, what)}
+          onMove={dir => moveItem(account.id, dir)}
+          onRemove={() => removeAccount(account.id)}
+        />
+        {children.length > 0 && expanded && children.map(child => rows(child, depth + 1))}
+      </React.Fragment>
     )
   }
 
@@ -1106,12 +1219,12 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Overhead Expenses</h2>
-          <p className="text-sm text-gray-400 mt-0.5">Full chart of accounts. Click any name to rename. Changes update the Budget tab instantly.</p>
+          <p className="text-sm text-gray-400 mt-0.5">Full chart of accounts. Tap a name to rename it. Type a yearly or a monthly amount; the other follows. Changes update the Budget tab instantly.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className={`rounded-2xl px-5 py-3 text-right ${overTarget ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
-            <p className={`text-2xl font-black ${overTarget ? 'text-red-600' : 'text-green-600'}`}>{fmtPct(actualPct)}</p>
-            <p className="text-xs text-gray-500 mt-0.5">target {fmtPct(overheadPct)} · {fmt(total)}/yr</p>
+            <p className={`text-2xl font-black ${overTarget ? 'text-red-600' : 'text-green-600'}`} data-budget-overhead-pct>{fmtPct(actualPct)}</p>
+            <p className="text-xs text-gray-500 mt-0.5">target {fmtPct(overheadPct)} · <span data-budget-overhead-total>{fmt(total)}</span>/yr</p>
           </div>
           <button
             onClick={() => setShowDrawer(true)}
@@ -1125,40 +1238,39 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
       {/* Category summary pills */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {byCategory.map(({ cat, topLevel, total: catTotal }, idx) => (
-          <div key={cat} className={`rounded-xl border p-4 group relative ${getCategoryColor(categories, cat)}`}>
+          <div key={idx} className={`rounded-xl border p-4 group relative min-w-0 ${getCategoryColor(categories, cat)}`}>
             {editingCatIdx === idx ? (
-              <input
-                autoFocus
-                className="text-xs font-bold bg-transparent outline-none border-b border-current w-full mb-1"
-                value={cat}
-                onChange={e => renameCategory(idx, e.target.value)}
-                onBlur={() => setEditingCatIdx(null)}
-                onKeyDown={e => e.key === 'Enter' && setEditingCatIdx(null)}
+              <NameField
+                autoFocus label={`Name of category ${cat}`} value={cat}
+                onCommit={v => renameCategory(idx, v)} onDone={() => setEditingCatIdx(null)}
+                className="text-xs font-bold bg-transparent outline-none border-b border-current w-full mb-1 pr-10"
               />
             ) : (
-              <p
-                className="text-xs font-semibold opacity-70 cursor-pointer hover:opacity-100"
+              <button
+                className="block text-left text-xs font-semibold opacity-70 cursor-pointer hover:opacity-100 pr-10"
                 onClick={() => setEditingCatIdx(idx)}
-                title="Click to rename"
+                title="Tap to rename"
               >
                 {cat} ✎
-              </p>
+              </button>
             )}
-            <p className="text-xl font-bold mt-1">{fmt(catTotal)}</p>
+            <p className="text-xl font-bold mt-1" data-budget-category-total={cat}>{fmt(catTotal)}</p>
             <p className="text-xs opacity-60 mt-0.5">{topLevel.length} items · {fmt(catTotal / 12)}/mo</p>
             <button
               onClick={() => removeCategory(idx)}
-              className="min-w-[48px] min-h-[48px] inline-grid place-items-center absolute top-2 right-2 text-current opacity-0 group-hover:opacity-40 hover:opacity-100 text-sm leading-none"
+              aria-label={`Remove category ${cat}`}
+              className="min-w-[44px] min-h-[44px] inline-grid place-items-center absolute top-0 right-0 text-current opacity-40 lg:opacity-0 lg:group-hover:opacity-40 hover:opacity-100 text-sm leading-none"
               title="Remove category"
             >×</button>
           </div>
         ))}
 
         {/* Add category tile */}
-        <div className="rounded-xl border border-dashed border-gray-300 p-4 flex flex-col justify-center">
-          <p className="text-xs text-gray-400 mb-2 font-medium">New Category</p>
+        <div className="rounded-xl border border-dashed border-gray-300 p-4 flex flex-col justify-center min-w-0">
+          <label htmlFor="budget-new-category" className="text-xs text-gray-400 mb-2 font-medium">New Category</label>
           <input
-            className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 mb-2"
+            id="budget-new-category"
+            className="min-h-[44px] border border-gray-300 rounded-lg px-2 py-1 text-sm lg:text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 mb-2"
             placeholder="Category name..."
             value={newCatName}
             onChange={e => setNewCatName(e.target.value)}
@@ -1174,42 +1286,34 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
         </div>
       </div>
 
-      {/* Chart of accounts table */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
-        <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between min-w-[640px]">
+      {/* Chart of accounts: a table on a computer, one card a line on a phone */}
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="px-4 lg:px-5 py-3 bg-gray-50 border-b border-gray-200 flex flex-wrap items-center justify-between gap-1">
           <p className="text-xs font-semibold text-gray-500">Chart of Accounts</p>
-          <p className="text-xs text-gray-400">Click name to rename · hover for controls</p>
+          <p className="text-xs text-gray-400">Tap a name to rename · Enter goes to the next box</p>
         </div>
-        <table className="w-full text-sm min-w-[640px]">
-          <thead className="border-b border-gray-100">
-            <tr>
-              <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400">Expense</th>
-              <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-400 w-36">Category</th>
-              <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-400 w-36">Annual</th>
-              <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-400 w-28">Monthly</th>
-              <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-400 w-16">% Rev</th>
-              <th className="w-20" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {byCategory.map(({ cat, topLevel }) =>
+        <div className="hidden lg:grid grid-cols-[minmax(0,1fr)_9rem_9rem_8rem_4rem_8.5rem] gap-x-3 px-4 py-2.5 border-b border-gray-100 text-xs font-semibold text-gray-400">
+          <span className="pl-9">Expense</span>
+          <span>Category</span>
+          <span className="text-right">Yearly</span>
+          <span className="text-right">Monthly</span>
+          <span className="text-right">% Rev</span>
+          <span />
+        </div>
+        <div className="divide-y divide-gray-100">
+          {byCategory.map(({ cat, topLevel }) =>
             topLevel.length === 0 ? null : (
-            <React.Fragment key={cat}>
-               <tr className="bg-gray-50">
-                    <td colSpan={6} className="px-5 py-2">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${getCategoryColor(categories, cat)}`}>
-                        {cat}
-                      </span>
-                    </td>
-                  </tr>
-                  {topLevel.map(account => (
-                    <AccountRow key={account.id} account={account} depth={0} />
-                  ))}
-                </React.Fragment>
-              )
-            )}
-          </tbody>
-        </table>
+              <React.Fragment key={cat}>
+                <div className="bg-gray-50 px-4 lg:px-5 py-2">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${getCategoryColor(categories, cat)}`}>
+                    {cat}
+                  </span>
+                </div>
+                {topLevel.map(account => rows(account, 0))}
+              </React.Fragment>
+            )
+          )}
+        </div>
       </div>
 
       {/* Total footer */}
@@ -1222,7 +1326,7 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
           </div>
           <div className="text-right">
             <p className="text-gray-400 text-xs">Monthly avg</p>
-            <p className="text-white font-bold text-lg">{fmt(total / 12)}</p>
+            <p className="text-white font-bold text-lg" data-budget-overhead-monthly>{fmt(total / 12)}</p>
           </div>
           <div className="text-right">
             <p className="text-gray-400 text-xs">% of Revenue</p>
@@ -1244,23 +1348,28 @@ function OverheadTab({ state, onChange }: { state: BudgetState, onChange: (s: Bu
 
 // ── Crew & Labor Tab ──────────────────────────────────────────────────────────
 
-function CrewTab({ state, onChange }: { state: BudgetState, onChange: (s: BudgetState) => void }) {
+function CrewTab({ state, onChange }: { state: BudgetState, onChange: Commit }) {
   const { employees, revenueGoal, laborPct } = state
-  const totalCost = employees.reduce((s, e) => s + e.hourlyRate * e.annualHours, 0)
+  // Each person's yearly cost to the cent: rate (cents) × hours.
+  const annualOf = (e: Employee) => dollars(Math.round(cents(e.hourlyRate) * (Number(e.annualHours) || 0)))
+  const totalCost = employees.reduce((s, e) => s + annualOf(e), 0)
   const actualPct = revenueGoal > 0 ? totalCost / revenueGoal : 0
   const overTarget = actualPct > laborPct
 
-  function updateEmp(id: string, field: keyof Employee, val: string | number) {
-    onChange({ ...state, employees: employees.map(e => e.id === id ? { ...e, [field]: val } : e) })
+  function updateEmp(id: string, field: keyof Employee, val: string | number, what: string) {
+    onChange({ ...state, employees: employees.map(e => e.id === id ? { ...e, [field]: val } : e) }, what)
   }
 
   function addEmp() {
-    onChange({ ...state, employees: [...employees, { id: uid(), name: 'New', role: 'Installer', hourlyRate: 20, annualHours: 2040 }] })
+    onChange({ ...state, employees: [...employees, { id: uid(), name: 'New', role: 'Installer', hourlyRate: 20, annualHours: 2040 }] }, 'Team member added')
   }
 
   function removeEmp(id: string) {
-    onChange({ ...state, employees: employees.filter(e => e.id !== id) })
+    const e = employees.find(x => x.id === id)
+    onChange({ ...state, employees: employees.filter(e => e.id !== id) }, `${e?.name ?? 'Team member'} removed`)
   }
+
+  const cols = 'lg:grid-cols-[2rem_minmax(0,1fr)_9rem_8rem_8rem_8rem_4.5rem_3rem]'
 
   return (
     <div className="space-y-6">
@@ -1270,86 +1379,87 @@ function CrewTab({ state, onChange }: { state: BudgetState, onChange: (s: Budget
           <p className="text-sm text-gray-400 mt-0.5">Every team member ties directly into the labor bucket.</p>
         </div>
         <div className={`rounded-2xl px-4 lg:px-6 py-4 text-right ${overTarget ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
-          <p className={`text-2xl lg:text-3xl font-black ${overTarget ? 'text-red-600' : 'text-green-600'}`}>{fmtPct(actualPct)}</p>
-          <p className="text-xs text-gray-500 mt-1">target {fmtPct(laborPct)} · {fmt(totalCost)}/yr</p>
+          <p className={`text-2xl lg:text-3xl font-black ${overTarget ? 'text-red-600' : 'text-green-600'}`} data-budget-labor-pct>{fmtPct(actualPct)}</p>
+          <p className="text-xs text-gray-500 mt-1">target {fmtPct(laborPct)} · <span data-budget-labor-total>{fmt(totalCost)}</span>/yr</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[720px]">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-8">#</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Name</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-36">Role</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 w-28">$/hr</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 w-28">Hrs/yr</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 w-32">Annual Cost</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 w-20">% Rev</th>
-              <th className="w-10" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {employees.map((emp, idx) => {
-              const annual = emp.hourlyRate * emp.annualHours
-              return (
-                <tr key={emp.id} className="hover:bg-gray-50 group">
-                  <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
-                  <td className="px-4 py-3">
-                    <input
-                      className="border-b border-transparent hover:border-gray-200 focus:border-orange-400 outline-none text-sm font-medium text-gray-900 bg-transparent w-28"
-                      value={emp.name}
-                      onChange={e => updateEmp(emp.id, 'name', e.target.value)}
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <select
-                      className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-400"
-                      value={emp.role}
-                      onChange={e => updateEmp(emp.id, 'role', e.target.value)}
-                    >
-                      {['Foreman', 'CO Foreman', 'Installer', 'Other'].map(r => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <span className="text-gray-400 text-xs">$</span>
-                      <input
-                        type="number" min={0}
-                        className="w-20 text-right border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
-                        value={emp.hourlyRate}
-                        onChange={e => updateEmp(emp.id, 'hourlyRate', Number(e.target.value))}
-                      />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <input
-                      type="number" min={0}
-                      className="w-20 text-right border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
-                      value={emp.annualHours}
-                      onChange={e => updateEmp(emp.id, 'annualHours', Number(e.target.value))}
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold text-gray-900 font-mono text-sm">{fmt(annual)}</td>
-                  <td className="px-4 py-3 text-right text-xs font-medium text-gray-500">
-                    {revenueGoal > 0 ? fmtPct(annual / revenueGoal) : '—'}
-                  </td>
-                  <td className="px-2 py-3">
-                    <button onClick={() => removeEmp(emp.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-          <tfoot className="bg-gray-50 border-t border-gray-200">
-            <tr>
-              <td colSpan={5} className="px-4 py-3 font-bold text-gray-900">{employees.length} team members</td>
-              <td className="px-4 py-3 text-right font-bold text-gray-900 font-mono">{fmt(totalCost)}</td>
-              <td className={`px-4 py-3 text-right font-bold text-sm ${overTarget ? 'text-red-500' : 'text-green-600'}`}>{fmtPct(actualPct)}</td>
-              <td />
-            </tr>
-          </tfoot>
-        </table>
+      {/* A table on a computer, one card a person on a phone */}
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className={`hidden lg:grid ${cols} gap-x-3 bg-gray-50 border-b border-gray-200 px-4 py-3 text-xs font-semibold text-gray-500`}>
+          <span>#</span>
+          <span>Name</span>
+          <span>Role</span>
+          <span className="text-right">$/hr</span>
+          <span className="text-right">Hrs/yr</span>
+          <span className="text-right">Annual Cost</span>
+          <span className="text-right">% Rev</span>
+          <span />
+        </div>
+        <div className="divide-y divide-gray-100">
+          {employees.map((emp, idx) => {
+            const annual = annualOf(emp)
+            return (
+              <div key={emp.id} className={`group grid grid-cols-2 gap-x-3 gap-y-2 px-4 py-3 lg:items-center lg:gap-y-0 lg:py-1.5 ${cols} hover:bg-gray-50`} data-budget-employee={emp.id}>
+                <span className="hidden lg:block text-gray-400 text-xs">{idx + 1}</span>
+                <div className="col-span-2 lg:col-span-1 min-w-0 flex items-center gap-2">
+                  <NameField
+                    label={`Name of team member ${idx + 1}`} value={emp.name}
+                    onCommit={v => updateEmp(emp.id, 'name', v, `${emp.name} renamed`)}
+                    className="flex-1 min-w-0 border-b border-transparent hover:border-gray-200 focus:border-orange-400 outline-none text-sm font-medium text-gray-900 bg-transparent"
+                  />
+                  <button onClick={() => removeEmp(emp.id)} aria-label={`Remove ${emp.name}`} title="Remove" className="lg:hidden min-w-[44px] min-h-[44px] inline-grid place-items-center text-gray-400 hover:text-red-500 text-lg leading-none">×</button>
+                </div>
+                <div className="col-span-2 lg:col-span-1 min-w-0">
+                  <span className="block text-xs text-gray-500 mb-1 lg:hidden">Role</span>
+                  <select
+                    aria-label={`Role of ${emp.name}`}
+                    className="w-full min-h-[44px] text-sm lg:text-xs text-gray-600 border border-gray-200 rounded-lg px-2 focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white"
+                    value={emp.role}
+                    onChange={e => updateEmp(emp.id, 'role', e.target.value, `${emp.name} role`)}
+                  >
+                    {['Foreman', 'CO Foreman', 'Installer', 'Other'].map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div className="min-w-0">
+                  <span className="block text-xs text-gray-500 mb-1 lg:hidden">$ an hour</span>
+                  <NumberField
+                    kind="money" min={0} cents={true} label={`${emp.name}, dollars an hour`}
+                    data-budget-field={`employee-${emp.id}-rate`}
+                    value={cents(emp.hourlyRate)}
+                    onCommit={c => updateEmp(emp.id, 'hourlyRate', dollars(c), `${emp.name}, $ an hour`)}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <span className="block text-xs text-gray-500 mb-1 lg:hidden">Hours a year</span>
+                  <NumberField
+                    kind="number" decimals={2} min={0} max={8784} label={`${emp.name}, hours a year`}
+                    data-budget-field={`employee-${emp.id}-hours`}
+                    value={Number(emp.annualHours) || 0}
+                    onCommit={h => updateEmp(emp.id, 'annualHours', h, `${emp.name}, hours a year`)}
+                  />
+                </div>
+                <div className="min-w-0 lg:text-right">
+                  <span className="text-xs text-gray-500 mr-1 lg:hidden">Yearly cost</span>
+                  <span className="font-bold text-gray-900 font-mono text-sm" data-budget-employee-annual={emp.id}>{fmt(annual)}</span>
+                </div>
+                <div className="min-w-0 text-right">
+                  <span className="text-xs text-gray-500 mr-1 lg:hidden">Of revenue</span>
+                  <span className="text-xs font-medium text-gray-500">{revenueGoal > 0 ? fmtPct(annual / revenueGoal) : '—'}</span>
+                </div>
+                <div className="hidden lg:flex justify-end">
+                  <button onClick={() => removeEmp(emp.id)} aria-label={`Remove ${emp.name}`} title="Remove" className="min-w-[44px] min-h-[44px] inline-grid place-items-center text-gray-300 hover:text-red-400 lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100 text-lg leading-none">×</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className={`grid grid-cols-2 gap-x-3 ${cols} bg-gray-50 border-t border-gray-200 px-4 py-3`}>
+          <span className="lg:col-span-5 font-bold text-gray-900">{employees.length} team members</span>
+          <span className="text-right font-bold text-gray-900 font-mono">{fmt(totalCost)}</span>
+          <span className={`hidden lg:block text-right font-bold text-sm ${overTarget ? 'text-red-500' : 'text-green-600'}`}>{fmtPct(actualPct)}</span>
+          <span className="hidden lg:block" />
+        </div>
       </div>
 
       <button onClick={addEmp} className="text-orange-500 border border-orange-300 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-orange-50">
@@ -1446,7 +1556,7 @@ function KPIsTab({ state }: { state: BudgetState }) {
       </div>
 
       {/* Actual vs Goal chart */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 md:p-6">
         <h3 className="font-bold text-gray-900 mb-1">Actual vs Goal by Month</h3>
         <p className="text-xs text-gray-400 mb-4">Data pulled live from sold quotes in the system</p>
         <BarChart
@@ -1462,7 +1572,7 @@ function KPIsTab({ state }: { state: BudgetState }) {
       </div>
 
       {/* Actual bucket health */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 md:p-6">
         <h3 className="font-bold text-gray-900 mb-1">Budget Health — Actual vs Targets</h3>
         <p className="text-xs text-gray-400 mb-5">Based on {totalSold} sold jobs totaling {fmt(totalRevenue)} in revenue</p>
         <div className="space-y-5">
@@ -1586,13 +1696,64 @@ function buildInitialState(): BudgetState {
   return loadState(defaults)
 }
 
+interface SaveNote { what: string; status: 'saving' | 'saved' | 'waiting'; undone?: boolean }
+
 export default function BudgetPage() {
   const [tab, setTab]     = useState('Budget')
   const [state, setState] = useState<BudgetState>(buildInitialState)
+  const [note, setNote]   = useState<SaveNote | null>(null)
+  // The last change, for Undo: the budget before it, and after it.
+  const [last, setLast]   = useState<{ prev: BudgetState; next: BudgetState; what: string; key: string; at: number } | null>(null)
+  // The saved budget this screen last read or wrote, to tell a change from elsewhere.
+  const seen = useRef<unknown>(getBusinessField('budget'))
+  const seq = useRef(0)
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  function handleChange(next: BudgetState) {
+  // Saved from another phone or computer (or merged after a clash): show it.
+  useEffect(() => {
+    const onUpdate = () => {
+      const raw = getBusinessField('budget')
+      if (raw === seen.current) return
+      seen.current = raw
+      setState(buildInitialState())
+      setLast(null)
+    }
+    window.addEventListener(BUSINESS_STATE_UPDATED_EVENT, onUpdate)
+    return () => {
+      window.removeEventListener(BUSINESS_STATE_UPDATED_EVENT, onUpdate)
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+    }
+  }, [])
+
+  function save(next: BudgetState, what: string, undone = false) {
+    seen.current = next
     setState(next)
     setBusinessField('budget', next)
+    const n = ++seq.current
+    if (hideTimer.current) clearTimeout(hideTimer.current)
+    setNote({ what, status: 'saving', undone })
+    void whenBusinessStateSaved().then(ok => {
+      if (seq.current !== n) return
+      setNote({ what, status: ok ? 'saved' : 'waiting', undone })
+      // The Saved line (and its Undo) stays a while, then goes.
+      hideTimer.current = setTimeout(() => { if (seq.current === n) setNote(null) }, 12_000)
+    })
+  }
+
+  const commit: Commit = (next, what, opts) => {
+    const key = opts?.key ?? what
+    // A slider being dragged is one change for Undo.
+    const same = !!opts?.key && !!last && last.key === key && last.next === state && Date.now() - last.at < 2_000
+    setLast({ prev: same && last ? last.prev : state, next, what, key, at: Date.now() })
+    save(next, what)
+  }
+
+  // Undo only while nothing else has changed the budget since.
+  const canUndo = !!last && last.next === state
+  function undo() {
+    if (!last || last.next !== state) return
+    setLast(null)
+    save(last.prev, last.what, true)
   }
 
   return (
@@ -1603,12 +1764,28 @@ export default function BudgetPage() {
           <p className="text-gray-400 mt-1">Your financial command center. Every number is connected.</p>
         </div>
         <TabBar tabs={TABS} active={tab} onChange={setTab} />
-        {tab === 'Budget'           && <BudgetTab   state={state} onChange={handleChange} />}
-        {tab === 'Historic Revenue' && <HistoricTab state={state} onChange={handleChange} />}
-        {tab === 'Overhead'         && <OverheadTab state={state} onChange={handleChange} />}
-        {tab === 'Crew & Labor'     && <CrewTab     state={state} onChange={handleChange} />}
+        {tab === 'Budget'           && <BudgetTab   state={state} onChange={commit} />}
+        {tab === 'Historic Revenue' && <HistoricTab state={state} onChange={commit} />}
+        {tab === 'Overhead'         && <OverheadTab state={state} onChange={commit} />}
+        {tab === 'Crew & Labor'     && <CrewTab     state={state} onChange={commit} />}
         {tab === 'KPIs'             && <KPIsTab     state={state} />}
         {tab === 'Job Costing'     && <JobCostingTab state={state} />}
+      </div>
+
+      {/* Saved, with Undo for the last change: above the phone's tab bar, bottom right on a computer. */}
+      <div aria-live="polite" className="pointer-events-none fixed inset-x-4 z-40 flex justify-center lg:justify-end lg:left-auto lg:right-6 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] lg:bottom-6">
+        {note && (
+          <div data-budget-save={note.status} className="pointer-events-auto flex max-w-full items-center gap-3 rounded-xl bg-gray-900 pl-4 pr-1.5 py-1.5 text-sm text-white shadow-lg">
+            <span className="min-w-0 truncate">
+              {note.status === 'saving' && <>Saving… <span className="text-gray-400">{note.what}</span></>}
+              {note.status === 'saved' && <><span className="text-green-400 font-bold" aria-hidden>✓</span> {note.undone ? 'Undone' : 'Saved'} <span className="text-gray-400">{note.what}</span></>}
+              {note.status === 'waiting' && <>Not sent yet: no signal. It is kept and sent when there is. <span className="text-gray-400">{note.what}</span></>}
+            </span>
+            {canUndo && !note.undone && (
+              <button onClick={undo} data-budget-undo className="min-h-[40px] shrink-0 rounded-lg px-3 font-semibold text-orange-300 hover:bg-white/10">Undo</button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
