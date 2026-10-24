@@ -221,6 +221,25 @@ describe('change orders are whole dollars', () => {
     const simple = changeOrderDraft({ signed, current, signedOverrides: signedIn.overrides, styles: [style], priceNow: signedPrice + 240.5, sectionsNow: 0, simple: true })
     expect(simple.lines[simple.lines.length - 1].amountCents).toBe(24_000)
   })
+
+  test('a signed quote with its price set by hand: each change is still priced from cost, never $0', () => {
+    const style = st("WV-ND 6'x8' Privacy")
+    const signedIn = input(style, { overrides: { finalPrice: 12145.78 } })
+    const signed = {
+      id: 'q2', fenceStyle: style.name, runs: [97.3, 41.5], runRails: ['auto', 'auto'], corners: 1, ends: 2, walkGates: 1, dblGates: 0,
+      tearOutSections: 0, tearOutGates: 0, adjLaborHrs: 0, hasSalesman: true, priceAdjust: 0.03, sections: 0, finalPrice: 12145.78,
+    } as any
+    const current = { ...signedIn, runs: [{ ft: 109.3 }, { ft: 41.5 }], walkGates: 2 }
+    const d = changeOrderDraft({ signed, current, signedOverrides: signedIn.overrides, styles: [style], priceNow: 12145.78, sectionsNow: 0, simple: false })
+    const fence = d.lines.find(l => /^Add 12 ft of fence/.test(l.description))!
+    const gate = d.lines.find(l => /^Add 1 walk gate/.test(l.description))!
+    expect(fence.amountCents).toBeGreaterThan(0)
+    expect(gate.amountCents).toBeGreaterThan(0)
+    for (const l of d.lines) expect(l.amountCents % 100, l.description).toBe(0)
+    // The same as the change costs on the quote priced from cost.
+    const fromCost = changeOrderDraft({ signed, current: { ...current, overrides: {} }, signedOverrides: {}, styles: [style], priceNow: 0, sectionsNow: 0, simple: false })
+    expect(d.lines.map(l => l.amountCents)).toEqual(fromCost.lines.map(l => l.amountCents))
+  })
 })
 
 describe('where every dollar goes: the cents come out of profit, never overhead', () => {

@@ -8,7 +8,8 @@
  * (style, footage, walk gates, double gates, tear out, the rest) and each
  * line is what that step moved the price. The lines add up to "the new work
  * today" minus "the signed work today", so a cost change since signing is
- * never billed to the customer. Amounts are integer cents.
+ * never billed to the customer. A price set by hand on the signed quote is
+ * left out of these steps (it would make every step $0). Amounts are integer cents.
  *
  * A move or repair, or a login that sees prices only (the server prices
  * their quotes), gets the changes as lines and one price difference line:
@@ -30,7 +31,14 @@ type Style = NonNullable<QuoteCalcInput['style']>
 
 const ft = (runs: Array<{ ft: number }>) => Math.round(runs.reduce((s, r) => s + (r.ft > 0 ? r.ft : 0), 0) * 100) / 100
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
-const priceCents = (input: QuoteCalcInput) => (input.style ? Math.round(calculateQuote({ ...input, overrides: { ...(input.overrides ?? {}), wholeDollar: true } }).priced.price * 100) : 0)
+// Priced from cost, never at a price set by hand: a hand set price is the same before and after
+// every step, so each line came out $0 and the change order could not be saved (seen Oct 23, 2026
+// on a signed quote with its price typed in). The step's difference is what the change costs today.
+const priceCents = (input: QuoteCalcInput) => {
+  if (!input.style) return 0
+  const { finalPrice, ...o } = input.overrides ?? {}; void finalPrice
+  return Math.round(calculateQuote({ ...input, overrides: { ...o, wholeDollar: true } }).priced.price * 100)
+}
 /** The pricing choices without the whole dollar mark (which every change order step prices with). */
 const choices = (o: QuoteCalcInput['overrides']) => { const { wholeDollar, roundingCents, ...rest } = o ?? {}; void wholeDollar; void roundingCents; return rest }
 
