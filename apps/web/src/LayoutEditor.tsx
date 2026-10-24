@@ -11,7 +11,7 @@ import SitePlan, { type PlanPin } from './SitePlan'
 import { centeredVertices, buildPlan, returnHouseEnd, setHouseMeets, clearHouseMeets, canMoveHouse } from './sitePlanGeometry'
 import { freezeDrawing, placeNewSide, keepClear, setCornerAngle, cornerAngleAt, incomingSide, setTee, resetDrawing, isEdited } from './yardDrawing'
 import { bakePhoto, loadImage } from './aerialBake'
-import { again, prefetchAerial } from './aerialTiles'
+import { again, warmAerial } from './aerialTiles'
 import { AerialCredit } from './freeMap'
 import { photoBackdrop, photoView, withPhotoView, lineUpRotation, normDeg, stepDeg, turnAbout, planMiddle, FRAME_PX } from './sitePlanPhoto'
 
@@ -328,7 +328,9 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     setAerialMsg('Finding the address…')
     const at = await lookupPosition(aerialAddress.trim()).catch(() => null)
     if (!at) { setAerialMsg('That address was not found. Check it, or add the city and ZIP.'); return }
-    prefetchAerial(at.lat, at.lng, { w: 800, h: 800 })
+    // The photo shows at once and asks for its own tiles (the server's choice, /p/tiles/aerial: not the
+    // Esri addresses a prefetch would ask for, so those were a second download); with NAIP the server starts now.
+    warmAerial(at.lat, at.lng)
     setAerialMsg('')
     // Enough photo around the point for the whole yard, with room to drag.
     const pts = centeredVertices(layout!)

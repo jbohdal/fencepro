@@ -57,6 +57,32 @@ export function aerialConfig(): Promise<AerialConfig> {
   return cfg
 }
 
+/** How long a map stays on NAIP after Esri was slow twice, before it tries Esri again (as the server does). */
+export const ESRI_REST_MS = 60_000
+
+/**
+ * One map's choice between Esri and NAIP (freeMap.tsx): an Esri tile that
+ * fails or is slower than the switch time goes to NAIP; after two such tiles
+ * the whole map uses NAIP for a minute, then tries Esri again (a bad moment
+ * on the phone's signal must not leave the map on the slower NAIP for good).
+ */
+export class EsriSwitch {
+  private fails = 0
+  private downUntil = 0
+  private now: () => number
+  constructor(now: () => number = () => Date.now()) { this.now = now }
+  /** True while the map uses NAIP for every tile. */
+  get down(): boolean { return this.now() < this.downUntil }
+  /** An Esri tile failed or was too slow. True when that turned the whole map to NAIP. */
+  failed(): boolean {
+    if (this.down) return false
+    if (++this.fails < 2) return false
+    this.fails = 0
+    this.downUntil = this.now() + ESRI_REST_MS
+    return true
+  }
+}
+
 /** The Web Mercator tile holding a point (fractional). */
 export function tileXY(lat: number, lng: number, z: number): { x: number; y: number } {
   const n = 2 ** z, r = (lat * Math.PI) / 180
@@ -85,11 +111,41 @@ export function prefetchAerial(lat: number, lng: number, view: { w?: number; h?:
   const key = `${lat.toFixed(5)},${lng.toFixed(5)}`
   if (started.has(key)) return
   started.add(key)
-  const w = view.w ?? 400, h = view.h ?? 500, z = Math.min(view.zoom ?? AERIAL_MAX_ZOOM, AERIAL_MAX_ZOOM)
   const load = (src: string) => { const i = new Image(); i.decoding = 'async'; i.src = src; held.push(i); if (held.length > 60) held.shift() }
-  for (const t of viewTiles(lat, lng, LOW_MAX_ZOOM, w / 8, h / 8)) load(lowTile(LOW_MAX_ZOOM, t.x, t.y))
+  for (const src of prefetchPlan(lat, lng, false, view).low) load(src)
   void aerialConfig().then(c => {
-    if (c.esri) for (const t of viewTiles(lat, lng, z, w, h)) load(esriTile(z, t.x, t.y))
-    else fetch(`${TILES}/warm?lat=${lat}&lng=${lng}`, { credentials: 'same-origin', keepalive: true }).catch(() => {})
+    const p = prefetchPlan(lat, lng, c.esri, view)
+    p.sharp.forEach(load)
+    if (p.warm) warm(lat, lng)
   })
+}
+
+const warmed = new Set<string>()
+function warm(lat: number, lng: number): void {
+  const key = `${lat.toFixed(5)},${lng.toFixed(5)}`
+  if (warmed.has(key)) return
+  warmed.add(key)
+  fetch(`${TILES}/warm?lat=${lat}&lng=${lng}`, { credentials: 'same-origin', keepalive: true }).catch(() => {})
+}
+
+/**
+ * For a map or photo already on the screen that is about to show this
+ * address: it asks for exactly the tiles it shows, so the browser asks for
+ * nothing more here (a second set of the same tiles, or a wider one, only
+ * slows the first ones on a phone). With NAIP, the server is told to start
+ * its pictures for the address at once.
+ */
+export function warmAerial(lat: number, lng: number): void {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+  void aerialConfig().then(c => { if (!c.esri) warm(lat, lng) })
+}
+
+/** What prefetchAerial / warmAerial would ask the browser for (for tests): the soft and the sharp tile addresses. */
+export function prefetchPlan(lat: number, lng: number, esri: boolean, view: { w?: number; h?: number; zoom?: number } = {}): { low: string[]; sharp: string[]; warm: boolean } {
+  const w = view.w ?? 400, h = view.h ?? 500, z = Math.min(view.zoom ?? AERIAL_MAX_ZOOM, AERIAL_MAX_ZOOM)
+  return {
+    low: viewTiles(lat, lng, LOW_MAX_ZOOM, w / 8, h / 8).map(t => lowTile(LOW_MAX_ZOOM, t.x, t.y)),
+    sharp: esri ? viewTiles(lat, lng, z, w, h).map(t => esriTile(z, t.x, t.y)) : [],
+    warm: !esri,
+  }
 }

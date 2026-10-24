@@ -17,7 +17,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 // Every map sits in its own layer, under the page's menus and dialogs (layers.css).
 import './layers.css'
-import { aerialConfig, again, esriTile, naipTile, AERIAL_MAX_ZOOM, LOW_MAX_ZOOM, LOW_TILES, NAIP_CREDIT } from './aerialTiles'
+import { aerialConfig, again, esriTile, naipTile, EsriSwitch, AERIAL_MAX_ZOOM, LOW_MAX_ZOOM, LOW_TILES, NAIP_CREDIT } from './aerialTiles'
 
 export type BaseKind = 'aerial' | 'street'
 
@@ -30,23 +30,34 @@ export const NAIP_ATTRIBUTION = NAIP_CREDIT
 export const SHARPEST_TEXT = 'Sharpest photo available here'
 export const LOADING_TEXT = 'Loading your yard photo…'
 
-type AerialGrid = L.GridLayer & { esriDown: boolean; esriFails: number; usedNaip: boolean; usedEsri: boolean; source: () => 'esri' | 'naip' | '' }
+type AerialGrid = L.GridLayer & { esri: EsriSwitch; usedNaip: boolean; usedEsri: boolean; source: () => 'esri' | 'naip' | '' }
+type TileImg = HTMLImageElement & { ezStop?: () => void }
+const EMPTY_IMG = (L.Util as unknown as { emptyImageUrl?: string }).emptyImageUrl || 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+
+/** A tile the map no longer wants while it is still coming: its download is stopped (as Leaflet's own tile layer does), so it does not hold up the tiles in view. */
+const tileIn = (img: TileImg) => img.complete && img.naturalWidth > 0 && img.src !== EMPTY_IMG
+function stopTile(img: TileImg): void {
+  if (!tileIn(img)) img.ezStop?.()
+}
 
 /**
  * The sharp photo, tile by tile: Esri when the server has it, NAIP after an
  * Esri tile fails or is slower than the switch time (3 s); two such tiles and
- * the whole layer stays on NAIP. A NAIP tile that fails is asked once more.
+ * the whole layer uses NAIP for a minute (EsriSwitch). A NAIP tile that fails
+ * is asked once more. A tile panned or zoomed away before it came is stopped.
  */
 const Grid = L.GridLayer.extend({
   createTile(this: AerialGrid, coords: L.Coords, done: L.DoneCallback) {
-    const img = document.createElement('img')
+    const img: TileImg = document.createElement('img')
     img.alt = ''
     img.setAttribute('role', 'presentation')
     let settled = false
     let timer: number | undefined
     const finish = (err?: Error) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); done(err as Error, img) }
+    img.ezStop = () => { settled = true; if (timer) clearTimeout(timer); img.onload = null; img.onerror = null; img.src = EMPTY_IMG }
     const { z, x, y } = coords
     const naip = (n = 0) => {
+      if (settled) return
       this.usedNaip = true
       this.fire('aerialsource')
       img.dataset.aerialSource = 'naip'
@@ -55,12 +66,12 @@ const Grid = L.GridLayer.extend({
       img.src = n ? again(naipTile(z, x, y), n) : naipTile(z, x, y)
     }
     const esriFailed = () => {
-      if (++this.esriFails >= 2 && !this.esriDown) { this.esriDown = true; this.fire('aerialsource') }
+      if (this.esri.failed()) this.fire('aerialsource')
       naip()
     }
     void aerialConfig().then(c => {
       if (settled) return
-      if (!c.esri || this.esriDown) { naip(); return }
+      if (!c.esri || this.esri.down) { naip(); return }
       this.usedEsri = true
       img.dataset.aerialSource = 'esri'
       img.onload = () => finish()
@@ -75,16 +86,33 @@ const Grid = L.GridLayer.extend({
     })
     return img
   },
+  // Leaflet's GridLayer leaves a removed tile downloading (its TileLayer stops it): stop it here too.
+  _removeTile(this: any, key: string) {
+    const t = this._tiles[key]
+    if (t) stopTile(t.el)
+    return (L.GridLayer.prototype as any)._removeTile.call(this, key)
+  },
+  // Called by Leaflet when the zoom changes: tiles of the old zoom still coming are stopped and dropped.
+  _abortLoading(this: any) {
+    for (const k of Object.keys(this._tiles)) {
+      const t = this._tiles[k]
+      if (t.coords.z === this._tileZoom || tileIn(t.el)) continue
+      stopTile(t.el)
+      L.DomUtil.remove(t.el)
+      delete this._tiles[k]
+      this.fire('tileabort', { tile: t.el, coords: t.coords })
+    }
+  },
 })
 
 /** The aerial photo layer (sharp tiles only; see createFreeMap for the soft ones under it). */
-export function aerialLayer(maxZoom = AERIAL_MAX_ZOOM): AerialGrid {
-  const layer = new (Grid as unknown as new (o: L.GridLayerOptions) => AerialGrid)({ maxNativeZoom: AERIAL_MAX_ZOOM, maxZoom, tileSize: 256 })
-  layer.esriDown = false; layer.esriFails = 0; layer.usedNaip = false; layer.usedEsri = false
-  layer.source = () => (layer.usedEsri && !layer.esriDown ? 'esri' : layer.usedNaip ? 'naip' : '')
+export function aerialLayer(maxZoom = AERIAL_MAX_ZOOM, minZoom?: number): AerialGrid {
+  const layer = new (Grid as unknown as new (o: L.GridLayerOptions) => AerialGrid)({ maxNativeZoom: AERIAL_MAX_ZOOM, maxZoom, tileSize: 256, ...(minZoom != null ? { minZoom } : {}) })
+  layer.esri = new EsriSwitch(); layer.usedNaip = false; layer.usedEsri = false
+  layer.source = () => (layer.usedEsri && !layer.esri.down ? 'esri' : layer.usedNaip ? 'naip' : '')
   // The credit: Esri's (with Powered by Esri) when its tiles are shown, NAIP's when those are.
   const credit = () => aerialConfig().then(c => {
-    const parts = [layer.usedEsri && !layer.esriDown && c.credit.esri ? c.credit.esri : '', layer.usedNaip || !c.esri ? c.credit.naip : ''].filter(Boolean)
+    const parts = [layer.usedEsri && !layer.esri.down && c.credit.esri ? c.credit.esri : '', layer.usedNaip || !c.esri ? c.credit.naip : ''].filter(Boolean)
     const next = parts.join(' · ')
     const map = (layer as any)._map as L.Map | undefined
     if (next === layer.options.attribution) return
@@ -107,7 +135,12 @@ export interface FreeMap {
   destroy: () => void
 }
 
-export function createFreeMap(el: HTMLElement, opts: { center: [number, number]; zoom: number; base: BaseKind; doubleClickZoom?: boolean; loadingText?: string }): FreeMap {
+/**
+ * `sharpMinZoom`: the sharp photo only from that zoom in (a map that opens
+ * zoomed out over a town shows the soft photo there, and asks for sharp tiles
+ * only once it is over a property).
+ */
+export function createFreeMap(el: HTMLElement, opts: { center: [number, number]; zoom: number; base: BaseKind; doubleClickZoom?: boolean; loadingText?: string; sharpMinZoom?: number }): FreeMap {
   // No zoom animations: a map closed mid-animation (a dialog shut quickly) would otherwise throw.
   const map = L.map(el, {
     zoomControl: true, attributionControl: true,
@@ -119,7 +152,7 @@ export function createFreeMap(el: HTMLElement, opts: { center: [number, number];
   const street = L.tileLayer(OSM_TILES, { maxNativeZoom: 19, maxZoom: MAX_ZOOM, attribution: OSM_ATTRIBUTION })
   // Under the sharp photo, the soft older USGS tiles: they come at once, and a sharp tile still on its way shows soft, not gray.
   const backup = L.tileLayer(USGS_TILES, { maxNativeZoom: LOW_MAX_ZOOM, maxZoom: AERIAL_MAX_ZOOM, attribution: USGS_ATTRIBUTION })
-  const sharp = aerialLayer()
+  const sharp = aerialLayer(AERIAL_MAX_ZOOM, opts.sharpMinZoom)
   const aerial = L.featureGroup([backup, sharp])
   let current: L.TileLayer | L.FeatureGroup = opts.base === 'aerial' ? aerial : street
   el.setAttribute('data-aerial-max-native-zoom', String(AERIAL_MAX_ZOOM))

@@ -35,7 +35,9 @@ const CDP = process.env.CDP_URL || ''
 const IFRAME = process.env.IFRAME === '1'
 const ENGINE = CDP ? 'android' : process.env.BROWSER === 'chromium' ? 'chromium' : 'webkit'
 const DESKTOP = ENGINE === 'chromium' && process.env.PHONE !== '1'
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
+// The dev copy on 4001, or a worktree's own dev server on another local port (devOnly.mjs refuses 4000).
+const devLocal = u => /^http:\/\/localhost:\d+\/?$/.test(u) && !/:4000\b/.test(u)
+if (!devLocal(APP) || !devLocal(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))

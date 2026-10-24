@@ -5,7 +5,7 @@ import type { LatLng } from './geoUtils'
 import AddressAutocomplete from './AddressAutocomplete'
 import { lookupPosition } from './appointmentsStore'
 import { createFreeMap, centeredIcon, aboveIcon, BaseToggle, type BaseKind, type FreeMap } from './freeMap'
-import { prefetchAerial } from './aerialTiles'
+import { warmAerial } from './aerialTiles'
 
 /* ───────── types ───────── */
 
@@ -37,12 +37,12 @@ function AddressSearch({ onPlaceSelected }: { onPlaceSelected: (place: { address
     const a = address.trim()
     if (!a) return
     setMissed('')
-    // The photo starts at once, before the map moves there.
-    if (known?.lat != null && known?.lng != null) { prefetchAerial(known.lat, known.lng, { w: 1000, h: 700 }); onPlaceSelected({ address: a, location: { lat: known.lat, lng: known.lng } }); return }
+    // The map is already open: moving it asks for just the tiles it shows (nothing asked twice); with NAIP the server starts at once.
+    if (known?.lat != null && known?.lng != null) { warmAerial(known.lat, known.lng); onPlaceSelected({ address: a, location: { lat: known.lat, lng: known.lng } }); return }
     setBusy(true)
     try {
       const p = await lookupPosition(a)
-      if (p) { prefetchAerial(p.lat, p.lng, { w: 1000, h: 700 }); onPlaceSelected({ address: a, location: { lat: p.lat, lng: p.lng } }) }
+      if (p) { warmAerial(p.lat, p.lng); onPlaceSelected({ address: a, location: { lat: p.lat, lng: p.lng } }) }
       else setMissed('Address not found. Pick a suggestion, or pan the map to the property.')
     } finally { setBusy(false) }
   }
