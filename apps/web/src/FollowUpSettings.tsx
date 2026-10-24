@@ -19,6 +19,7 @@ import { loadConfig, saveConfig, refreshBoard, myName } from './followUpStore'
 import { fillTemplate, stopsSteps, type FollowUpConfig, type Step, type Template } from './followUpRules'
 import { dayLabel } from './FollowUpPrompt'
 import { getConfig as getAppConfig } from './configStore'
+import { useSettingsPageSave } from './settingsPageSave'
 
 /** "A", "A and B", "A, B and C". */
 const stageList = (names: string[]) => names.length <= 1 ? (names[0] ?? 'stages that need a follow up') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
@@ -48,6 +49,8 @@ export default function FollowUpSettings() {
     setError(r.error)
     if (r.stale) { const again = await loadConfig(); if (again) { setCfg(again.config); setVersion(again.version); setDirty(false) } }
   }
+
+  useSettingsPageSave(dirty, () => save(), () => { setError(''); void loadConfig().then(r => { if (r) { setCfg(r.config); setVersion(r.version); setDirty(false) } }) })
 
   if (!cfg) return <p className="text-sm text-gray-600">{error || 'Loading…'}</p>
   const sample = { firstName: 'Sarah', myName: myName(), company: getAppConfig().company?.name || 'Getter Done Fence' }

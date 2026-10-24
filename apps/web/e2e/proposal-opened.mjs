@@ -290,7 +290,7 @@ try {
   const sp = await desk.newPage(); watch(sp, 'settings')
   await sp.goto(APP); await sp.waitForSelector('[data-global-appointment]', { timeout: 40000 }); await sleep(800)
   await sp.locator('span:text-is("Settings"):visible').first().click(); await sleep(500)
-  await sp.locator('button:text-is("Proposals")').click(); await sleep(500)
+  await sp.locator('[data-settings-tab="proposals"]').click(); await sleep(500)
   check('Settings → Proposals: "Tell me when a proposal is opened", on', await sp.locator('[data-notify-opened]').isChecked().catch(() => false))
   await desk.close()
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))

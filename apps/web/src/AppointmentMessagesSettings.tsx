@@ -18,6 +18,7 @@ import {
   type AppointmentMessageTemplates, type ConfirmKind, type MessageContext,
 } from './appointmentMessages'
 import { toast } from './toast'
+import { useSettingsPageSave } from './settingsPageSave'
 
 type Field = { kind: 'confirm'; key: ConfirmKind } | { kind: 'emailSubject' | 'onMyWay' | 'icsDescription' }
 const fieldId = (f: Field) => (f.kind === 'confirm' ? `confirm-${f.key}` : f.kind)
@@ -55,6 +56,8 @@ export default function AppointmentMessagesSettings() {
     return icsDescription(sample('estimate'), ctx)
   }
   const dirty = JSON.stringify(toSaved(t)) !== savedAs
+
+  useSettingsPageSave(dirty, () => save(), () => setT(messageTemplates(JSON.parse(savedAs))))
 
   function save() {
     const saved = toSaved(t)

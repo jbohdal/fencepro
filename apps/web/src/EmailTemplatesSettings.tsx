@@ -9,6 +9,7 @@ import {
   ALL_MERGE_TAGS, type EmailTemplate, type TemplateKey,
 } from './emailTemplatesStore'
 import { toast } from './toast'
+import { useSettingsPageSave } from './settingsPageSave'
 
 const PREVIEW_DATA: Record<string, string> = {
   customer_name: 'Maria Gonzales',
@@ -40,19 +41,28 @@ export default function EmailTemplatesSettings() {
     setTemplates(prev => prev.map(t => t.key === activeKey ? { ...t, ...patch } : t))
   }
 
+  // What was last saved, to tell which templates changed.
+  const [saved, setSaved] = useState<EmailTemplate[]>(templates)
+  const changedTemplates = templates.filter(t => JSON.stringify(t) !== JSON.stringify(saved.find(x => x.key === t.key)))
+  const dirty = changedTemplates.length > 0
+
   function handleSave() {
     try {
-      saveEmailTemplate(active)
-      toast.success('Template saved')
+      for (const t of changedTemplates) saveEmailTemplate(t)
+      setSaved(templates)
+      toast.success(changedTemplates.length === 1 ? 'Template saved' : 'Templates saved')
     } catch (err: any) {
       toast.error('Could not save', err?.message)
     }
   }
+  // Saved with the Settings bar (Unsaved changes · Save · Discard).
+  useSettingsPageSave(dirty, handleSave, () => setTemplates(saved))
 
   function handleReset() {
     if (!confirm(`Reset "${active.name}" to the default template?`)) return
     const def = resetEmailTemplate(activeKey)
     setTemplates(prev => prev.map(t => t.key === activeKey ? def : t))
+    setSaved(prev => prev.map(t => t.key === activeKey ? def : t))
     toast.success('Template reset to default')
   }
 
@@ -96,7 +106,6 @@ export default function EmailTemplatesSettings() {
               {preview ? 'Hide Preview' : 'Preview'}
             </button>
             <button onClick={handleReset} className="text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50">Reset to default</button>
-            <button onClick={handleSave} className="btn btn-primary">Save</button>
           </div>
         </div>
 

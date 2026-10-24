@@ -93,7 +93,7 @@ export default function CalendarSyncSettings() {
   return (
     <div className="space-y-5 max-w-2xl" data-calendar-settings>
       <div>
-        <h3 className="text-base font-bold text-gray-900">Google Calendar</h3>
+        <h3 data-settings-dup-title className="text-base font-bold text-gray-900">Google Calendar</h3>
         <p className="text-sm text-gray-500 mt-1">
           Estimates and installs are sent one way, from EZ Biz to a calendar of their own named <strong>{status.expectedCalendarName}</strong>.
           EZ Biz can only see and change that calendar, never your main one.

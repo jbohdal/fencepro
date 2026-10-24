@@ -19,6 +19,7 @@ import { TALL_VINYL_SECTION } from './materialCalculator'
 import { isQuotable } from './styleAvailability'
 import { businessDate } from './businessDate'
 import { roleCan, signedInRole } from './permissions'
+import { useSettingsPageSave } from './settingsPageSave'
 
 const inputCls = 'w-full border border-gray-300 rounded-lg px-3 min-h-[44px] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400'
 const shown = (c: number | null | undefined) => (typeof c === 'number' && c > 0 ? (c / 100).toFixed(2) : '')
@@ -44,6 +45,8 @@ export default function TallVinylPrices({ config, onCommit }: {
   useEffect(() => { setTyped(start()) }, [styles])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const changed = styles.some(s => (['section', 'post'] as const).some(k => (typed[`${s.name}|${k}`] ?? '') !== shown(s.pieceCents?.[k])))
+
+  useSettingsPageSave(changed, () => save(), () => { setTyped(start()); setError('') })
 
   function save() {
     setError('')

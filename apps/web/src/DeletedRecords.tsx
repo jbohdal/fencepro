@@ -145,7 +145,7 @@ export default function DeletedRecords() {
   return (
     <div data-deleted-records className="space-y-4 min-w-0">
       <div>
-        <h2 className="text-lg font-bold text-gray-900">Deleted Records</h2>
+        <h2 data-settings-dup-title className="text-lg font-bold text-gray-900">Deleted Records</h2>
         <p className="text-sm text-gray-600 mt-1">Everything deleted, newest first, with what went with it. Restore puts it all back; anything changed since is left as it is and named. Nothing here is ever removed.</p>
       </div>
       {imports.length > 0 && (

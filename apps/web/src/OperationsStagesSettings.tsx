@@ -19,6 +19,7 @@ import { newStageId, stagesProblem, sortedStages, stageOfJob } from './opsStageM
 import { getJobs } from './jobStore'
 import { toast } from './toast'
 import { useBackLayer } from './nav'
+import { useSettingsPageSave } from './settingsPageSave'
 
 const jobsText = (n: number) => `${n} job${n === 1 ? '' : 's'}`
 const copy = (l: OpsStageDef[]) => sortedStages(l).map(s => ({ ...s }))
@@ -99,6 +100,7 @@ export default function OperationsStagesSettings() {
   }
 
   function handleUndo() { setStages(copy(saved)); setDirty(false); setError(null) }
+  useSettingsPageSave(dirty, () => handleSave(), handleUndo)
 
   const mainCount = stages.filter(s => s.lane === 'main').length
 
@@ -106,7 +108,7 @@ export default function OperationsStagesSettings() {
     <div className="space-y-4" data-ops-stages-settings>
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-lg font-bold text-gray-900">Operations Stages</h3>
+          <h3 data-settings-dup-title className="text-lg font-bold text-gray-900">Operations Stages</h3>
           <p className="text-sm text-gray-500 mt-1">
             The columns on the Operations board, left to right, then the side lanes. Drag (or use the arrows) to reorder.
             New jobs land in the <b>First</b> stage; moving a job to the <b>Complete</b> stage marks it complete.

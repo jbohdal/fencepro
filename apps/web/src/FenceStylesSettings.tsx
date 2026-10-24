@@ -94,7 +94,7 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
 
   return (
     <div className="space-y-5" data-styles-tree>
-      <p className="text-sm text-gray-600">Fences are built from choices. Each switch says whether that choice can be quoted; a fence is offered only when every choice above it is on. The old codes stay as hidden internal names, so saved quotes, kits and tiers keep working. Switches and numbers save with Save Changes; adding or changing a color or a choice saves at once.</p>
+      <p className="text-sm text-gray-600">Fences are built from choices. Each switch says whether that choice can be quoted; a fence is offered only when every choice above it is on. The old codes stay as hidden internal names, so saved quotes, kits and tiers keep working. Switches and numbers save with Save changes (the bar at the bottom); adding or changing a color or a choice saves at once.</p>
       {catalog.materials.map(m => (
         <MaterialCard key={m.key} m={m} config={config} catalog={catalog}
           onToggleMaterial={() => setCatalog({ ...catalog, materials: catalog.materials.map(x => (x.key === m.key ? { ...x, quotable: x.quotable === false ? undefined : false } : x)) })}

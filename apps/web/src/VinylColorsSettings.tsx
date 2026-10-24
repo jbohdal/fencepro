@@ -115,7 +115,7 @@ export default function VinylColorsSettings({ blocked, onServerSaved }: {
           </div>
           {may && <button type="button" className="btn btn-primary min-h-[44px]" disabled={busy || blocked} onClick={() => setForm({})} data-vc-add>+ Add Color</button>}
         </div>
-        {blocked && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2" data-vc-blocked>Save or undo your other Settings changes first (Save Changes at the top): adding a color reads Settings again.</p>}
+        {blocked && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2" data-vc-blocked>Save or discard the other changes on this page first (the bar at the bottom): adding a color reads Settings again.</p>}
         <ul className="divide-y divide-gray-100">
           {colors.map(o => {
             const f = o.color?.form
