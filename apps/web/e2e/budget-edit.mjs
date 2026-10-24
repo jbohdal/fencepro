@@ -10,6 +10,8 @@
 //   - tapping a box selects the whole number (bare digits, no "$" or commas);
 //     typing replaces it, one key at a time with no reformatting, no cursor jump
 //     and no lost focus; Backspace works; "$", commas only after leaving the box;
+//     the first key comes right after the tap (no wait), on the 360 phone with
+//     the processor slowed 6 times, and a burst typed at once loses no key;
 //   - Enter and Tab move to the next box; leaving saves once ("Saved" shows);
 //   - Target Margin, the bucket total, the overhead and labor totals and the
 //     % of revenue follow right away;
@@ -28,10 +30,12 @@ if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 const ONLY = (process.env.SIZES || '').split(',').map(s => s.trim()).filter(Boolean)
 const { check, finish } = reporter()
 const H = { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }
+const MONTHS3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 const SIZES = [
   { name: 'iphone', engine: webkit, opts: { ...devices['iPhone 13'] }, phone: true },
-  { name: 'phone360', engine: chromium, opts: { viewport: { width: 360, height: 780 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }, phone: true },
+  // A busy phone: the processor slowed 6 times (THROTTLE=1 for full speed).
+  { name: 'phone360', engine: chromium, opts: { viewport: { width: 360, height: 780 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }, phone: true, throttle: Number(process.env.THROTTLE || 6) },
   { name: 'desktop', engine: chromium, opts: { viewport: { width: 1440, height: 900 } }, phone: false },
 ].filter(s => !ONLY.length || ONLY.includes(s.name))
 
@@ -58,10 +62,12 @@ const state = el => el.evaluate(i => ({ value: i.value, start: i.selectionStart,
 const focusedField = page => page.evaluate(() => document.activeElement?.getAttribute('data-budget-field') ?? document.activeElement?.tagName)
 const text = async (page, sel) => ((await page.locator(`${sel}:visible`).first().textContent()) ?? '').trim()
 
+// No wait after the tap: the first key comes as fast as a person on a busy
+// phone could type it (the select-all must already be there, and the key must
+// not be lost to a late one).
 async function tapBox(s, el) {
   await el.scrollIntoViewIfNeeded()
   if (s.phone) await el.tap(); else await el.click()
-  await sleep(150)
 }
 
 /** Types one key at a time; after each, the box shows exactly what was typed, the cursor at its end, still focused. */
@@ -267,6 +273,15 @@ async function run(s, original) {
     check(`${s.name}: the ${year.year} total follows right away`, (await text(page, `[data-budget-historic-total="${year.year}"]`)) === want, `${await text(page, `[data-budget-historic-total="${year.year}"]`)} want ${want}`)
     check(`${s.name}: "Saved" after Jan`, await waitSaved(page))
     await page.keyboard.press('Escape')
+    // A burst right after the tap (no look at the box in between): every key lands, the old number is gone.
+    for (const mi of [2, 3, 4]) {
+      const m = box(page, `historic-${year.year}-${mi}`)
+      await tapBox(s, m)
+      await page.keyboard.type('987')
+      const v = await m.inputValue()
+      check(`${s.name}: tap ${MONTHS3[mi]} and type 987 at once: the box is "987"`, v === '987', `box "${v}"`)
+      await page.keyboard.press('Escape')
+    }
   }
 
   // ── Reload: the numbers stuck ──
@@ -307,6 +322,11 @@ try {
       if (s.engine === chromium) await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: APP })
       await signInByCookie(ctx)
       const page = await ctx.newPage()
+      if (s.throttle > 1) {
+        const cdp = await ctx.newCDPSession(page)
+        await cdp.send('Emulation.setCPUThrottlingRate', { rate: s.throttle })
+        console.log(`      (${s.name}: processor slowed ${s.throttle} times)`)
+      }
       const errors = []
       page.on('pageerror', e => errors.push(String(e).slice(0, 200)))
       page.on('dialog', d => d.dismiss().catch(() => {}))

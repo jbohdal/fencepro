@@ -15,7 +15,7 @@
  * Money values are whole cents. Percents are in percent (24.5 for 24.5%).
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { readBox, showBox, editBox, type NumberKind } from './numberText'
 
 export const NUMBER_FIELD_ATTR = 'data-number-field'
@@ -68,8 +68,13 @@ export default function NumberField({
   const [error, setError] = useState('')
   // Set when the box is left by Escape: put the old number back, commit nothing.
   const cancel = useRef(false)
-  // The first mouse up after focusing would undo the select-all (Chrome, Safari).
-  const keepSelection = useRef(false)
+  // From the tap (or Tab, Enter) that focused the box until the first key, paste,
+  // or a second tap or arrow key that puts the cursor somewhere on purpose: the
+  // whole number stays selected, so the first key replaces it.
+  const fresh = useRef(false)
+  // The press that is focusing the box: its click is where the browser has just
+  // put the cursor, so the number is selected again there.
+  const focusingPress = useRef(false)
 
   // Set once something is typed (or pasted) after the box was tapped.
   const typed = useRef(false)
@@ -79,28 +84,46 @@ export default function NumberField({
   // the monthly one it moves to), a box being typed in is left alone.
   useEffect(() => {
     if (!editing) setText(showBox(kind, value, { decimals, cents }))
-    else if (!typed.current) { setText(editBox(kind, value, { decimals })); requestAnimationFrame(selectAll) }
+    else if (!typed.current) setText(editBox(kind, value, { decimals }))
   }, [value, editing, kind, decimals, cents])
 
+  // Every time the bare number is put in the box, it is selected at once
+  // (before the screen is drawn), not on a timer that a fast first key beats.
+  useLayoutEffect(() => { if (editing) selectAll() }, [text, editing])
+
+  // The browser may put the cursor down after the tap is over (Safari does, after
+  // the click): until the first key, whatever moves the cursor gets the whole
+  // number selected again. Event driven, so a busy phone cannot get it out of order.
+  useEffect(() => {
+    if (!editing) return
+    const onSel = () => {
+      const el = ref.current
+      if (!el || !fresh.current || document.activeElement !== el) return
+      if (el.selectionStart !== 0 || el.selectionEnd !== el.value.length) selectAll()
+    }
+    document.addEventListener('selectionchange', onSel)
+    return () => document.removeEventListener('selectionchange', onSel)
+  }, [editing])
+
+  /** Select the whole number, only while nothing has been typed or placed on purpose. */
   function selectAll() {
     const el = ref.current
-    if (!el) return
+    if (!el || !fresh.current || document.activeElement !== el) return
     try { el.setSelectionRange(0, el.value.length) } catch { el.select() }
   }
 
   function onFocus() {
     cancel.current = false
     typed.current = false
-    keepSelection.current = true
+    fresh.current = true
     setEditing(true)
     setError('')
     setText(editBox(kind, value, { decimals }))
-    // After the bare number is in the box; again a moment later for iOS Safari.
-    requestAnimationFrame(selectAll)
-    setTimeout(selectAll, 60)
   }
 
   function onBlur() {
+    fresh.current = false
+    focusingPress.current = false
     setEditing(false)
     // Left by Escape, or left without typing anything: nothing changes.
     if (cancel.current || !typed.current) { cancel.current = false; typed.current = false; setError(''); setText(showBox(kind, value, { decimals, cents })); return }
@@ -140,11 +163,27 @@ export default function NumberField({
         value={text}
         onFocus={onFocus}
         onBlur={onBlur}
-        onMouseUp={e => { if (keepSelection.current) { keepSelection.current = false; e.preventDefault() } }}
-        onChange={e => { keepSelection.current = false; typed.current = true; setText(e.target.value); if (error) setError('') }}
+        onPointerDown={e => {
+          // A press on a box already being typed in puts the cursor there on purpose.
+          if (document.activeElement === e.currentTarget) { if (!focusingPress.current) fresh.current = false }
+          else focusingPress.current = true
+        }}
+        onClick={() => {
+          // The browser put the cursor where the box was pressed, after focus: select again.
+          if (focusingPress.current) { focusingPress.current = false; selectAll() }
+        }}
+        onChange={e => { fresh.current = false; typed.current = true; setText(e.target.value); if (error) setError('') }}
+        onPaste={() => { selectAll(); fresh.current = false }}
         onKeyDown={e => {
-          if (e.key === 'Enter') { e.preventDefault(); focusNext(e.currentTarget, e.shiftKey) }
-          else if (e.key === 'Escape') { cancel.current = true; e.currentTarget.blur() }
+          if (e.key === 'Enter') { e.preventDefault(); focusNext(e.currentTarget, e.shiftKey); return }
+          if (e.key === 'Escape') { cancel.current = true; e.currentTarget.blur(); return }
+          if (!fresh.current) return
+          // Moving the cursor on purpose: from here on it is ordinary typing.
+          if (/^(Arrow|Home$|End$|Page)/.test(e.key)) { fresh.current = false; return }
+          // The first key that changes the text replaces the whole number, however
+          // fast it comes after the tap: the selection is made again right before it.
+          // (Phones' keyboards may say "Unidentified" or "Process".)
+          if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Unidentified' || e.key === 'Process')) selectAll()
         }}
         className={look === 'plain'
           ? `min-h-[44px] w-full bg-transparent outline-none ${error ? 'ring-2 ring-red-300 rounded' : ''} ${className}`
