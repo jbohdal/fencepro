@@ -33,6 +33,7 @@ import { getJobs } from './jobStore'
 import { getCustomerById } from './customerStore'
 import { formatPhone, telHref } from './phoneFormat'
 import { leadValue, pipelineMetrics } from './pipelineValue'
+import { byManualOrder, ranksForDrop } from './boardRank'
 import { useMergedRefresh } from './useMergedRefresh'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 import PopMenu, { PopItem } from './PopMenu'
@@ -121,18 +122,6 @@ function readCollapsed(): Record<string, boolean> {
   } catch { return collapsedByDefault() }
 }
 
-/** A card's hand placed position, which only counts in the stage it was placed in. */
-function rankOf(l: PipelineLead): number | null {
-  return l.boardOrder && l.boardOrder.stage === l.stage ? l.boardOrder.rank : null
-}
-/** Manual order: cards nobody has placed yet come first, newest on top, then the placed ones. */
-function byManualOrder(a: PipelineLead, b: PipelineLead): number {
-  const ra = rankOf(a), rb = rankOf(b)
-  if (ra === null && rb === null) return (b.createdAt || '').localeCompare(a.createdAt || '')
-  if (ra === null) return -1
-  if (rb === null) return 1
-  return ra - rb
-}
 function writeCollapsed(state: Record<string, boolean>) {
   writePref(COLLAPSE_KEY, JSON.stringify(state))
 }
@@ -398,16 +387,14 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
       else moveLead(lead, stage)
       return
     }
-    // Hand placed: renumber the whole stage (including cards a filter is
-    // hiding) with the card put just above the one it was dropped on.
+    // Hand placed: the card goes just above the one it was dropped on (counting cards a
+    // filter is hiding), and only the card itself gets a new number (see boardRank).
     const shown = othersIn(stage, lead)
     const all = leads.filter(l => l.stage === stage && l.id !== lead.id).sort(byManualOrder)
     const before = shown[pointerIndex]
     const last = shown[shown.length - 1]
     const at = before ? all.findIndex(l => l.id === before.id) : last ? all.findIndex(l => l.id === last.id) + 1 : 0
-    const ids = all.map(l => l.id)
-    ids.splice(at, 0, lead.id)
-    const ranks = new Map(ids.map((id, i) => [id, i]))
+    const ranks = ranksForDrop(all, lead.id, at)
     if (sameStage) persist(applyRanks(leads, stage, ranks))
     else moveLead(lead, stage, ranks)
   }

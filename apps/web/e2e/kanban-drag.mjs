@@ -5,7 +5,7 @@
 // column with a few cards and a Pending Signature column long enough to
 // scroll. It moves a handful of cards, so run it on the dev copy only.
 //
-//   APP_URL=http://localhost:5173 API_URL=http://localhost:4001 \
+//   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 \
 //     E2E_EMAIL=... E2E_PASSWORD=... node kanban-drag.mjs
 //
 // E2E_ACCESS_TOKEN (a staff access token for the dev server) can stand in for
@@ -13,7 +13,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 
-const APP = process.env.APP_URL || 'http://localhost:5173'
+const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const EMAIL = process.env.E2E_EMAIL || ''
 const PASSWORD = process.env.E2E_PASSWORD || ''
@@ -385,6 +385,10 @@ async function ensureFirstContact(token, need = 3) {
 }
 
 const browser = await chromium.launch({ ignoreDefaultArgs: ['--hide-scrollbars'] })
+// The board as it was: every existing card this run moves (and the ones put in First Contact
+// to have enough to drag) goes back to its stage, place and date at the end, so the dev
+// board does not drift from run to run (other suites read it).
+const boardBefore = await serverLeads({ token: TOKEN })
 await ensureFirstContact(TOKEN, 6)
 const only = process.env.E2E_ONLY || ''
 try {
@@ -394,6 +398,22 @@ try {
 } catch (err) {
   check('test run finished', false, String(err?.stack || err).slice(0, 600))
 }
+async function putBoardBack() {
+  const key = l => JSON.stringify([l.stage, l.boardOrder ?? null, l.lastMoved ?? null])
+  for (let i = 0; i < 3; i++) {
+    const now = await serverLeads({ token: TOKEN })
+    const was = new Map(boardBefore.leads.map(l => [l.id, l]))
+    const upsert = now.leads.filter(l => was.has(l.id) && key(l) !== key(was.get(l.id)))
+      .map(l => { const w = was.get(l.id); return { lead: { ...l, stage: w.stage, boardOrder: w.boardOrder ?? null, lastMoved: w.lastMoved } } })
+    if (!upsert.length) return 0
+    const r = await fetch(`${API}/api/pipeline`, { method: 'PATCH', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json', 'X-Staff-Request': '1' }, body: JSON.stringify({ upsert, remove: [], baseVersion: now.version }) })
+    if (r.ok) return upsert.length
+    await sleep(500)
+  }
+  throw new Error('could not put the board back')
+}
+try { const n = await putBoardBack(); console.log(`(put ${n} moved card${n === 1 ? '' : 's'} back where they were)`) }
+catch (e) { check('the board is put back as it was', false, String(e)) }
 await browser.close()
 const failed = results.filter(r => !r.ok)
 console.log(`\n${results.length - failed.length} of ${results.length} checks passed`)
