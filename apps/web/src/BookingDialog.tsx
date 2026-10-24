@@ -168,18 +168,18 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   // Where the property is: looked up when the address settles (kept on the server).
   // While it is being looked up the best times wait: worked out without it they leave out the
   // drive there, and a "Best" tapped then would be wrong (seen Oct 24, 2026).
-  const [locating, setLocating] = useState(false)
-  // The address a suggestion already placed on the map (no second lookup needed).
-  const placedFor = useRef<string | null>(null)
+  // The address whose spot is known (looked up, picked from a suggestion, or saved on the appointment).
+  // Worked out from the address itself, so the very first draw after a change already waits.
+  const [locatedFor, setLocatedFor] = useState<string | null>(existing?.lat != null ? existing.address ?? null : null)
+  const locating = !!address.trim() && !mismatch && locatedFor !== address
   useEffect(() => {
-    if (!address.trim() || mismatch) { setPos(null); setLocating(false); return }
-    if (existing && address === existing.address && existing.lat != null) { setPos({ lat: existing.lat, lng: existing.lng! }); setLocating(false); return }
-    if (placedFor.current === address) { setLocating(false); return }
+    if (!address.trim() || mismatch) { setPos(null); return }
+    if (existing && address === existing.address && existing.lat != null) { setPos({ lat: existing.lat, lng: existing.lng! }); setLocatedFor(address); return }
+    if (locatedFor === address) return
     let stale = false
-    setLocating(true)
     const t = setTimeout(async () => {
       const p = await lookupPosition(address).catch(() => null)
-      if (!stale) { setPos(p ? { lat: p.lat, lng: p.lng } : null); setLocating(false) }
+      if (!stale) { setPos(p ? { lat: p.lat, lng: p.lng } : null); setLocatedFor(address) }
     }, 600)
     return () => { stale = true; clearTimeout(t) }
   }, [address, mismatch])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -405,7 +405,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
 
               <div className="text-xs font-semibold text-gray-500">Property address
                 <AddressAutocomplete value={address} onChange={setAddress} inputAttrs={{ 'data-field': 'address' }}
-                  onSelect={p => { if (p.lat != null && p.lng != null) { placedFor.current = p.formatted; setPos({ lat: p.lat, lng: p.lng }) } setAddress(p.formatted); setChosenAddress(p.formatted) }}
+                  onSelect={p => { if (p.lat != null && p.lng != null) { setLocatedFor(p.formatted); setPos({ lat: p.lat, lng: p.lng }) } setAddress(p.formatted); setChosenAddress(p.formatted) }}
                   className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-normal text-gray-900" />
               </div>
               {mismatch ? (
@@ -478,7 +478,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
 
               <MapView points={points} height={200} onMove={(id, lat, lng) => {
                 if (id !== 'new') return
-                setPos({ lat, lng })
+                setPos({ lat, lng }); setLocatedFor(address)
                 if (address.trim()) pinPosition(address, lat, lng)
               }} />
               {pos && <p className="text-[11px] text-gray-400">Pin in the wrong place? Drag the ★ to the property; it is remembered for this address.</p>}
