@@ -52,7 +52,7 @@ export default function MoveRepairSettings({ config, onChange }: { config: AppCo
   return (
     <div className="space-y-8" data-move-repair-settings>
       <div>
-        <h2 className="text-lg font-bold text-gray-900">Moves and Repairs</h2>
+        <h2 data-settings-dup-title className="text-lg font-bold text-gray-900">Moves and Repairs</h2>
         <p className="text-sm text-gray-600 mt-1">How a fence move or a repair is priced, for every style. Labor starts from each style's install rate (the subcontractor rate per section in Settings → Pricing, or the hourly crew rate) times the multipliers here. Price = (materials + labor + disposal) ÷ (1 − Target Margin).</p>
         {blanks.length > 0 && (
           <p className="mt-3 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-mr-blank>

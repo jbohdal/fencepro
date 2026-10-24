@@ -8,6 +8,7 @@ import {
   type ContractSection,
 } from './contractStore'
 import { toast } from './toast'
+import { useSettingsPageSave } from './settingsPageSave'
 
 export default function ContractTemplatesSettings() {
   const [sections, setSections] = useState<ContractSection[]>(() => getContractSections())
@@ -29,6 +30,9 @@ export default function ContractTemplatesSettings() {
     }
   }
 
+  // Saved with the Settings bar (Unsaved changes · Save · Discard).
+  useSettingsPageSave(dirty, handleSave, () => { setSections(getContractSections()); setDirty(false) })
+
   function handleReset(key: string) {
     const title = sections.find(s => s.key === key)?.title || 'this section'
     if (!confirm(`Reset "${title}" to default text?`)) return
@@ -40,17 +44,13 @@ export default function ContractTemplatesSettings() {
     <div className="space-y-4">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
-          <h3 className="text-lg font-bold text-gray-900">Contract Templates</h3>
+          <h3 data-settings-dup-title className="text-lg font-bold text-gray-900">Contract Templates</h3>
           <p className="text-sm text-gray-500 mt-0.5">The terms below appear on every quote. Existing quotes keep their saved text; changes apply to new quotes going forward.</p>
           <p className="text-sm text-gray-600 mt-1" data-contract-warranty-moved>Proposals, signed contracts and warranty certificates take each option's warranty from Settings → Warranties (Lifetime for vinyl no dig, and so on). The Warranty section here shows only on the printable quote templates, and only for a quote without per option warranties.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowPreview(p => !p)} className="text-xs border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50">
             {showPreview ? 'Hide Preview' : 'Preview Contract'}
-          </button>
-          <button onClick={handleSave} disabled={!dirty}
-            className={`text-sm font-semibold px-4 py-2 rounded-lg ${dirty ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
-            {dirty ? 'Save Changes' : 'Saved'}
           </button>
         </div>
       </div>
@@ -83,15 +83,6 @@ export default function ContractTemplatesSettings() {
                 className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono" />
             </div>
           ))}
-        </div>
-      )}
-
-      {dirty && (
-        <div className="flex justify-end">
-          <button onClick={handleSave}
-            className="btn btn-primary">
-            Save Changes
-          </button>
         </div>
       )}
     </div>

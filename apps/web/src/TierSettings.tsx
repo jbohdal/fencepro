@@ -23,6 +23,7 @@ import {
 import { optionLabel } from './proposal'
 import { colorNamesOf } from './fenceCatalog'
 import { isQuotable } from './styleAvailability'
+import { useSettingsPageSave } from './settingsPageSave'
 
 const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const inputCls = 'w-full border border-gray-300 rounded-lg px-3 h-11 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400'
@@ -79,6 +80,8 @@ export default function TierSettings() {
     const input = sampleInput(yardKey, sampleStyle, cfg.pricing, getRailOptimizerConfig(cfg))
     return resolveTiers(input, cfg.fenceStyles, draft)
   }, [draft, sampleStyle, yardKey, cfg])
+
+  useSettingsPageSave(dirty, () => save(), () => setDraft(sel ? structuredClone(sel) : null))
 
   function choose(id: string) {
     if (dirty && !window.confirm('This set has changes that are not saved. Leave them?')) return
@@ -151,7 +154,7 @@ export default function TierSettings() {
   return (
     <div className="space-y-6" data-tier-settings>
       <div>
-        <h3 className="text-lg font-bold text-gray-900">Good, Better, Best</h3>
+        <h3 data-settings-dup-title className="text-lg font-bold text-gray-900">Good, Better, Best</h3>
         <p className="text-sm text-gray-600 mt-1 max-w-3xl">
           Each fence category has its own set of up to {MAX_TIERS} tiers. On a quote, each tier is the quote's own style changed the way you set here
           (install method, section width, color, or one specific style), priced with the same math as the quote. New quotes use a change at once;

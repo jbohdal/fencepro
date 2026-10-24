@@ -74,7 +74,7 @@ export default function WalkthroughSettings({ config, onChange }: { config: AppC
         <textarea rows={4} className="mt-2 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={cfg.walkthroughWarranty ?? ''}
           onChange={e => onChange({ ...cfg, walkthroughWarranty: e.target.value } as AppConfig)} placeholder="Workmanship is warranted for 1 year from the completion date…" data-wt-warranty />
       </div>
-      <p className="text-xs text-gray-500">Press Save Changes at the top to keep these.</p>
+      <p className="text-xs text-gray-500">Press Save changes in the bar at the bottom to keep these.</p>
     </div>
   )
 }

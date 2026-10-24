@@ -2,7 +2,7 @@
  * Settings → Warranties: the named warranties (name, how long, the words the
  * customer reads and signs), which one each kind of install gets, and a line
  * added for a material (wood: no warranty on the wood itself). Saved with the
- * rest of Settings (Save Changes at the top; versioned, in the change log).
+ * rest of Settings (the Save changes bar; versioned, in the change log).
  *
  * New quotes get these when saved; a proposal already sent or signed keeps
  * the warranty it went out with (warranties.ts).
@@ -99,7 +99,7 @@ export default function WarrantySettings({ config, onChange }: { config: AppConf
           ))}
         </div>
       </div>
-      <p className="text-xs text-gray-500">Press Save Changes at the top to keep these.</p>
+      <p className="text-xs text-gray-500">Press Save changes in the bar at the bottom to keep these.</p>
     </div>
   )
 }

@@ -17,6 +17,7 @@ import { toast } from './toast'
 import AddressAutocomplete from './AddressAutocomplete'
 import { lookupPosition } from './appointmentsStore'
 import { useBookingTeam } from './bookingTeamStore'
+import { useSettingsPageSave } from './settingsPageSave'
 import type { PersonHome } from './bookingTeamModel'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
@@ -142,6 +143,8 @@ const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function AppointmentSettingsTab() {
   const [s, setS] = useState<AppointmentSettings>(getAppointmentSettings())
+  // What was last saved, for the Settings bar (Unsaved changes · Save · Discard).
+  const [savedS, setSavedS] = useState(() => JSON.stringify(getAppointmentSettings()))
   const [saving, setSaving] = useState(false)
   // Who appointments can be with: the active logins of Settings > Team (bookingTeamStore.ts). Only their home bases are kept here, by login.
   const team = useBookingTeam()
@@ -167,9 +170,11 @@ export function AppointmentSettingsTab() {
     const next = withDefaults({ ...s, homes })
     saveConfig({ ...cfg, appointments: next })
     setS(next)
+    setSavedS(JSON.stringify(next))
     if (missed.length) toast.error('Home base not found on the map', `${missed.join(', ')}: pick the address from the suggestions.`)
     else toast.success('Appointment settings saved')
   }
+  useSettingsPageSave(JSON.stringify(s) !== savedS, () => save(), () => setS(JSON.parse(savedS)))
   return (
     <div className="space-y-6 max-w-2xl" data-appointment-settings>
       <section data-appointment-team>

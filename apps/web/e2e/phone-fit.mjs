@@ -680,12 +680,21 @@ async function ownerScreens(s) {
     }
   }
   if (want('settings')) {
+    // The list first (a phone shows the grouped menu and the search), then each
+    // page: tap it, check it, and its Settings back button returns to the list.
     await go(s, '/settings', '[data-settings-tab]')
+    await shot(s, 'settings-list'); await judge(s, 'Settings list')
+    await s.page.locator('[data-settings-search]').fill('overhead'); await sleep(300)
+    await shot(s, 'settings-search'); await judge(s, 'Settings search')
+    await s.page.locator('[data-settings-search]').fill('')
     const tabs = await s.page.locator('[data-settings-tab]').evaluateAll(b => b.map(x => x.getAttribute('data-settings-tab')))
     for (const t of tabs) {
+      if (!(await s.page.locator(`[data-settings-tab="${t}"]`).isVisible())) await go(s, '/settings', '[data-settings-tab]')
       await tapOn(s, s.page.locator(`[data-settings-tab="${t}"]`))
       await s.page.evaluate(() => { document.querySelector('[data-page-scroll]').scrollTop = 0 })
       await shot(s, `settings-${t}`); await judge(s, `Settings ${t}`); await popups(s, `Settings ${t}`)
+      const back = s.page.locator('[data-settings-back]')
+      if (await back.isVisible().catch(() => false)) await tapOn(s, back)
     }
   }
   if (want('schedule')) { await go(s, '/schedule'); await shot(s, 'schedule'); await judge(s, 'schedule'); await popups(s, 'schedule') }

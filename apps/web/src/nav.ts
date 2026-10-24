@@ -81,7 +81,15 @@ function write(kind: 'push' | 'replace', s: EntryState, url: string) {
   else window.history.replaceState(s, '', url)
 }
 function currentUrl() { return window.location.pathname + window.location.search + window.location.hash }
-function emit() { version += 1; listeners.forEach(f => f()) }
+function emit() { version += 1; shownUrl = currentUrl(); listeners.forEach(f => f()) }
+/** The address the app last drew. */
+let shownUrl = ''
+/** Screens with unsaved work that may stop a move away (useLeaveGuard). */
+const leaveGuards = new Set<(to: string) => boolean>()
+function leaveAllowed(to: string): boolean {
+  for (const g of [...leaveGuards]) if (!g(to)) return false
+  return true
+}
 
 /** Run now, or once the Back press this module is waiting on has arrived. */
 function whenSettled(fn: () => void) {
@@ -134,6 +142,13 @@ function onPop(e: PopStateEvent) {
   const newI = st?.i ?? 0
   const dir = newI < index ? -1 : 1
   const depth = st?.depth ?? 0
+
+  // Back or Forward to another address while a screen has unsaved work (and no
+  // window is open on top of it): ask first; a no puts the address back.
+  if (!ours && leaveGuards.size && !layers.some(l => l.depth > depth) && currentUrl() !== shownUrl && !leaveAllowed(currentUrl())) {
+    goBackOurselves(newI - index)
+    return
+  }
 
   // Close the windows above where this entry is, the top one first.
   const above = layers.filter(l => l.depth > depth).sort((a, b) => b.depth - a.depth)
@@ -271,6 +286,7 @@ export function navigate(url: string, opts: { replace?: boolean; from?: string }
     const target = new URL(url, window.location.origin)
     const to = target.pathname + target.search + target.hash
     if (to === currentUrl() && !layers.length) return
+    if (to !== currentUrl() && !leaveAllowed(to)) return
     const open = [...layers].sort((a, b) => b.depth - a.depth)
     let popups = 0
     for (const l of open) { if (l.params) break; if (l.entryI !== null) popups += 1 }
@@ -348,6 +364,21 @@ export function pagePath(page: string): string {
 export function pageForPath(path: string, pages: string[]): string {
   const first = '/' + (path.split('/')[1] ?? '')
   return pages.find(p => pagePath(p) === first) ?? 'Dashboard'
+}
+
+/**
+ * A screen with unsaved work: `allow(to)` is asked before the app moves to
+ * another address (a link, the menu, Back or Forward). It returns false to
+ * stay (it asks the user itself). Closing the tab is useLeaveWarning's job.
+ */
+export function useLeaveGuard(allow: (to: string) => boolean) {
+  const ref = useRef(allow)
+  ref.current = allow
+  useEffect(() => {
+    const g = (to: string) => ref.current(to)
+    leaveGuards.add(g)
+    return () => { leaveGuards.delete(g) }
+  }, [])
 }
 
 /** Keep the editor's own unsaved work from being dropped by a reload or closing the tab. */

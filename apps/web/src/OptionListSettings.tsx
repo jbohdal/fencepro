@@ -16,6 +16,7 @@ import { useOptions, saveOptions, getWordCounts, getOptions, type OptionDef, typ
 import { mergeOption, undoMerge, addOption, linkWord, foundOnRecords, optionsProblem, wordsOf, LIST_LABEL, ONE_LABEL } from './optionListModel'
 import { useCan } from './permissions'
 import { toast } from './toast'
+import { useSettingsPageSave } from './settingsPageSave'
 
 const recs = (n: number) => `${n} record${n === 1 ? '' : 's'}`
 const copy = (l: OptionDef[]) => l.map(o => ({ ...o, alsoMatches: o.alsoMatches.map(x => ({ ...x })) }))
@@ -40,6 +41,8 @@ export default function OptionListSettings({ kind }: { kind: OptionListKind }) {
   }, [words])
   const found = useMemo(() => foundOnRecords(list, words ?? []), [list, words])
   const now = () => new Date().toISOString()
+
+  useSettingsPageSave(dirty, () => handleSave(), () => { setList(copy(saved)); setDirty(false); setError(null) })
 
   function change(next: OptionDef[]) { setList(next.map((o, i) => ({ ...o, order: i }))); setDirty(true); setError(null) }
   function update(id: string, patch: Partial<OptionDef>) { change(list.map(o => (o.id === id ? { ...o, ...patch } : o))) }
@@ -71,7 +74,7 @@ export default function OptionListSettings({ kind }: { kind: OptionListKind }) {
     <div className="space-y-4" data-option-list={kind}>
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-lg font-bold text-gray-900">{LIST_LABEL[kind]}</h3>
+          <h3 data-settings-dup-title className="text-lg font-bold text-gray-900">{LIST_LABEL[kind]}</h3>
           <p className="text-sm text-gray-500 mt-1">
             The {one}s forms offer. Records keep the word they were saved with and show the {one}'s name here, so renaming changes every record's name at once.
             Merge joins two {one}s: reports add them together, and Undo merge splits them again.

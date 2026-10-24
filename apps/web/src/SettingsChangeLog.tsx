@@ -103,7 +103,7 @@ export default function SettingsChangeLog() {
   return (
     <div className="space-y-4" data-settings-change-log>
       <div>
-        <h3 className="text-lg font-bold text-gray-900">Change log</h3>
+        <h3 data-settings-dup-title className="text-lg font-bold text-gray-900">Change log</h3>
         <p className="text-sm text-gray-500 mt-1">Every Settings save: who made it, when (Ocala time), from which device and address, and what changed. Only the owner sees this.</p>
       </div>
 

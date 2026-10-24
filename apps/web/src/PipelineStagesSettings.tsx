@@ -27,6 +27,7 @@ import { refreshBoard } from './followUpStore'
 import { useCan } from './permissions'
 import { toast } from './toast'
 import { useBackLayer } from './nav'
+import { useSettingsPageSave } from './settingsPageSave'
 
 const cardsText = (n: number) => `${n} card${n === 1 ? '' : 's'}`
 const copy = (l: PipelineStageDef[]) => sortedStages(l).map(s => ({ ...s, roles: [...s.roles] }))
@@ -122,6 +123,7 @@ export default function PipelineStagesSettings() {
   }
 
   function handleUndo() { setStages(copy(saved)); setDirty(false); setError(null) }
+  useSettingsPageSave(dirty, () => handleSave(), handleUndo)
 
   const roleOf = (role: PipelineRole) => stages.find(s => s.roles.includes(role))?.id ?? ''
 
@@ -129,7 +131,7 @@ export default function PipelineStagesSettings() {
     <div className="space-y-4" data-pipeline-stages-settings>
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-lg font-bold text-gray-900">Pipeline Stages</h3>
+          <h3 data-settings-dup-title className="text-lg font-bold text-gray-900">Pipeline Stages</h3>
           <p className="text-sm text-gray-500 mt-1">
             The columns on the Sales Pipeline, left to right, in four groups. What each stage is for (its group and roles) is what the app checks,
             so renaming a stage never moves a card or breaks a follow up or automation.

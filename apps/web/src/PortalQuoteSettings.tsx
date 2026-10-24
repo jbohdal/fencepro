@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react'
 import { TEMPLATES, type TemplateKey } from './quoteTemplatesStore'
 import { toast } from './toast'
 import { getConfig, saveConfig } from './configStore'
+import { useSettingsPageSave } from './settingsPageSave'
+import PhoneInput from './PhoneInput'
 
 type AllSettings = {
   portal: {
@@ -98,18 +100,16 @@ export default function PortalQuoteSettings() {
   function handleSave() {
     save(s); setDirty(false); toast.success('Settings saved')
   }
+  // Saved with the Settings bar (Unsaved changes · Save · Discard).
+  useSettingsPageSave(dirty, handleSave, () => { setS(load()); setDirty(false) })
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
-          <h3 className="text-lg font-bold text-gray-900">Portal &amp; Quote Settings</h3>
+          <h3 data-settings-dup-title className="text-lg font-bold text-gray-900">Portal &amp; Quote Settings</h3>
           <p className="text-sm text-gray-500 mt-0.5">Controls the customer portal experience and quote presentation defaults.</p>
         </div>
-        <button onClick={handleSave} disabled={!dirty}
-          className={`text-sm font-semibold px-4 py-2 rounded-lg ${dirty ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
-          {dirty ? 'Save Changes' : 'Saved'}
-        </button>
       </div>
 
       <section className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
@@ -120,7 +120,7 @@ export default function PortalQuoteSettings() {
         </Field>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Field label="Support Email"><input value={s.portal.supportEmail} onChange={e => update('portal', { supportEmail: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>
-          <Field label="Support Phone"><input value={s.portal.supportPhone} onChange={e => update('portal', { supportPhone: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" /></Field>
+          <Field label="Support Phone"><PhoneInput value={s.portal.supportPhone} onChange={v => update('portal', { supportPhone: v })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" data-portal-support-phone /></Field>
           <Field label="Accent Color"><input type="color" value={s.portal.accentColor} onChange={e => update('portal', { accentColor: e.target.value })} className="w-full h-10 border border-gray-200 rounded-lg" /></Field>
         </div>
       </section>
