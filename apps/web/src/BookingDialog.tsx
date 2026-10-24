@@ -166,11 +166,21 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   }, [address, chosenAddress])
 
   // Where the property is: looked up when the address settles (kept on the server).
+  // While it is being looked up the best times wait: worked out without it they leave out the
+  // drive there, and a "Best" tapped then would be wrong (seen Oct 24, 2026).
+  const [locating, setLocating] = useState(false)
+  // The address a suggestion already placed on the map (no second lookup needed).
+  const placedFor = useRef<string | null>(null)
   useEffect(() => {
-    if (!address.trim() || mismatch) { setPos(null); return }
-    if (existing && address === existing.address && existing.lat != null) { setPos({ lat: existing.lat, lng: existing.lng! }); return }
+    if (!address.trim() || mismatch) { setPos(null); setLocating(false); return }
+    if (existing && address === existing.address && existing.lat != null) { setPos({ lat: existing.lat, lng: existing.lng! }); setLocating(false); return }
+    if (placedFor.current === address) { setLocating(false); return }
     let stale = false
-    const t = setTimeout(async () => { const p = await lookupPosition(address); if (!stale) setPos(p ? { lat: p.lat, lng: p.lng } : null) }, 600)
+    setLocating(true)
+    const t = setTimeout(async () => {
+      const p = await lookupPosition(address).catch(() => null)
+      if (!stale) { setPos(p ? { lat: p.lat, lng: p.lng } : null); setLocating(false) }
+    }, 600)
     return () => { stale = true; clearTimeout(t) }
   }, [address, mismatch])  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -395,7 +405,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
 
               <div className="text-xs font-semibold text-gray-500">Property address
                 <AddressAutocomplete value={address} onChange={setAddress} inputAttrs={{ 'data-field': 'address' }}
-                  onSelect={p => { setAddress(p.formatted); setChosenAddress(p.formatted); if (p.lat != null && p.lng != null) setPos({ lat: p.lat, lng: p.lng }) }}
+                  onSelect={p => { if (p.lat != null && p.lng != null) { placedFor.current = p.formatted; setPos({ lat: p.lat, lng: p.lng }) } setAddress(p.formatted); setChosenAddress(p.formatted) }}
                   className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-normal text-gray-900" />
               </div>
               {mismatch ? (
@@ -478,7 +488,9 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                   <p className="text-xs font-semibold text-gray-500 mb-1">Best open times</p>
                   {!day.home && <p className="text-[11px] text-gray-400 mb-1">No home base set for {person || 'this person'} in Settings, Appointments: the first appointment of a day is figured from the start of work hours.</p>}
                   {mismatch && <p className="text-[11px] text-red-700 mb-1">Pick the address above first; drive times wait for it.</p>}
-                  {options.length === 0 ? (
+                  {locating && !mismatch ? (
+                    <p className="text-xs text-gray-500" data-options-locating>Finding the address on the map… the best times follow, with the drive there.</p>
+                  ) : options.length === 0 ? (
                     <p className="text-xs text-gray-400" data-no-options>{bookingDay ? 'No time left that day that fits the drive and work hours.' : 'Not a booking day in Settings.'}</p>
                   ) : (
                     <div className="grid gap-1.5" data-suggestions>
