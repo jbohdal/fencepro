@@ -215,7 +215,7 @@ try {
     const page = await ctx.newPage()
     await page.goto(APP); await page.waitForSelector('[data-global-appointment]', { timeout: 30000 }); await sleep(800)
     await page.locator('span:text-is("Settings"):visible').first().click(); await sleep(400)
-    await page.locator('button:text-is("Voice")').click(); await sleep(400)
+    await page.locator('[data-settings-tab="voice"]').click(); await sleep(400)
     await page.locator('[data-practice-input]').fill('ten foot double by the house, back one fifty skip forty for the neighbors fence, purple')
     const out = (await page.locator('[data-practice-result]').textContent()).replace(/\s+/g, ' ')
     check('Practice shows what was understood and what was not', out.includes("Back, 150' 0\", skip 40' 0\" (existing fence)") && out.includes('Did not understand: “purple”'), out)

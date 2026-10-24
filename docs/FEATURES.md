@@ -443,6 +443,12 @@ Every list that Settings owns has one source, and every screen reads that source
 * Moving a card by hand (Manual order) saves only that card: it gets a number halfway between the two cards it lands between. Before, a drop renumbered the whole column: one drop into No Answer saved about 1,100 cards (~660 KB, ~3.5 s on a phone over 4G). Cards that nobody has placed yet get a number once, the first time a card is dropped among them; when ~40 drops land in the same gap the column is numbered again (rare). Test: tests/boardRank.test.ts, e2e/kanban-drag.mjs. **DEV**
 * Change order from the yard drawing on a signed quote whose price was set by hand: every line came out $0 and Save stayed grey (each step was priced at the same typed price). Now each change is priced from cost at today's prices, the same as on a quote priced from cost. Found by the evening test run Oct 23 (Jaziel Ortiz's quote on the dev copy). Test: tests/wholeDollar.test.ts, e2e/change-order-flow.mjs. **DEV**
 
+## 9aa. Settings redesign (Oct 23)
+
+* Settings has a side menu in five groups (Company; Pricing & Products; Sales; Operations; Records), one line under each page, and a search box that finds a page or a field by name ("short-run", "overhead", "support phone") and jumps to it. On a phone: the list first, tap a page, Back returns to the list. Old links (/settings?tab=leads, ?tab=deleted, ...) still open the right page. **DEV**
+* Each page saves on its own: an "Unsaved changes · Save changes · Discard" bar shows only after a change on that page; leaving the page with unsaved changes (the menu, a link, Back, reload or closing the tab) asks first. The one "Reset to defaults" for all of Settings is gone; Pricing, Quote Optimizer, Moves and Repairs, Proposals, Warranties, Voice and Final Walkthrough each have their own, behind a confirm, and nothing changes until Save. What each page saves is unchanged. **DEV**
+* Company warns when the street address, city or ZIP is empty (they print on contracts and receipts). Phone numbers in Settings show as (352) 789 4314. **DEV**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)

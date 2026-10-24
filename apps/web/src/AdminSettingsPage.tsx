@@ -530,12 +530,9 @@ const RESET_KEYS: Partial<Record<SettingsTab, string[]>> = {
 const OWN_CARDS = new Set<SettingsTab>(['company', 'pricing', 'optimizer'])
 
 const WIDE = '(min-width: 1024px)'
-function useWide(): boolean {
-  return useSyncExternalStore(
-    f => { const mq = window.matchMedia(WIDE); mq.addEventListener('change', f); return () => mq.removeEventListener('change', f) },
-    () => window.matchMedia(WIDE).matches,
-  )
-}
+const onWideChange = (f: () => void) => { const mq = window.matchMedia(WIDE); mq.addEventListener('change', f); return () => mq.removeEventListener('change', f) }
+const isWide = () => window.matchMedia(WIDE).matches
+function useWide(): boolean { return useSyncExternalStore(onWideChange, isWide) }
 
 const LEAVE_MESSAGE = 'Leave without saving?\n\nThe changes on this page have not been saved.'
 
@@ -640,7 +637,7 @@ export default function AdminSettingsPage() {
     const u = new URL(to, window.location.origin)
     if (u.pathname === '/settings') {
       const t = u.searchParams.get('tab') || u.searchParams.get('settings')
-      const goes = settingsPage(t) ? t : (window.matchMedia(WIDE).matches ? 'company' : null)
+      const goes = settingsPage(t) ? t : (isWide() ? 'company' : null)
       if (goes === tabRef.current) return true
     }
     if (!window.confirm(LEAVE_MESSAGE)) return false

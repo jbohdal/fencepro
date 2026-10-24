@@ -46,7 +46,7 @@ const TAN = "TV-ND 6'x8' Privacy", SIX = "WV-ND 6'x6' Privacy", OWN = "WV-ND 6'x
 async function setProposalSettings(page, dep, months, apr) {
   await page.goto(APP); await page.waitForSelector('[data-global-appointment]', { timeout: 30000 }); await sleep(800)
   await page.locator('span:text-is("Settings"):visible').first().click(); await sleep(500)
-  await page.locator('button:text-is("Proposals")').click(); await sleep(400)
+  await page.locator('[data-settings-tab="proposals"]').click(); await sleep(400)
   await page.locator('[data-deposit-pct]').fill(dep)
   await page.locator('[data-fin-months]').fill(months)
   await page.locator('[data-fin-apr]').fill(apr)
@@ -62,7 +62,7 @@ try {
   photoId = (await api('/api/style-photos', { method: 'POST', body: form })).id
   await d.page.reload(); await d.page.waitForSelector('[data-global-appointment]'); await sleep(800)
   await d.page.locator('span:text-is("Settings"):visible').first().click(); await sleep(400)
-  await d.page.locator('button:text-is("Proposals")').click(); await sleep(800)
+  await d.page.locator('[data-settings-tab="proposals"]').click(); await sleep(800)
   check('Settings: the tan style shows its photo', await d.page.locator(`[data-style-photo="${TAN}"] img`).count() === 1)
   if (SHOTS) await d.page.screenshot({ path: `${SHOTS}/1-settings-proposals.png`, fullPage: true })
 
