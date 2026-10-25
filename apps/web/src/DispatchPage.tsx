@@ -100,7 +100,11 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lng: numb
 // ═══ MAIN COMPONENT ══════════════════════════════
 
 export default function DispatchPage() {
-  const [currentDate, setCurrentDate] = useState(new Date())
+  // ?date=YYYY-MM-DD opens on that day (a link from a scheduled install); else today.
+  const [currentDate, setCurrentDate] = useState(() => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(new URLSearchParams(window.location.search).get('date') || '')
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12) : new Date()
+  })
   const [viewMode, setViewMode] = useState<ViewMode>('day')
   const [jobs, setJobs] = useState<Job[]>(getJobs)
   // Schedule's crew list, kept current (a crew added or recolored on Schedule shows here).
@@ -731,6 +735,8 @@ function DayTimeline({
                     {/* Job block */}
                     <div
                       onClick={() => onSelectJob(block.job.id)}
+                      data-dispatch-block={block.job.id}
+                      data-dispatch-block-day={date}
                       className={`absolute top-1 bottom-1 rounded-lg cursor-pointer transition-all overflow-hidden flex flex-col justify-center px-2.5 ${
                         isSelected
                           ? 'ring-2 ring-orange-500 shadow-lg z-20'

@@ -143,6 +143,24 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           {job.rawJob?.customerEmail && <Field label="Email" value={job.rawJob.customerEmail} />}
         </Section>
 
+        {/* Crew & Schedule: near the top, the install is what the office does next with a sold job */}
+        <Section title="Crew & Schedule">
+          {isJobSource ? (
+            <div data-job-schedule>
+              {/* One way to schedule: the Schedule install window (start day, crew, crew days on work days, the stage, the text). */}
+              <Field label="Install" value={job.scheduledDate ? bookedWords(job.scheduledDate, job.rawJob?.scheduledEndDate, loadSchedule().settings.workDays) : 'Not scheduled'} />
+              <Field label="Crew" value={job.crewAssigned || 'Not assigned'} />
+              <Field label="Sales Rep" value={job.salesRep} />
+              {can('schedule.change') && !inSideLane && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} /></div>}
+            </div>
+          ) : (
+            <>
+              <Field label="Crew" value={job.crewAssigned || 'Not assigned'} />
+              <Field label="Scheduled" value={job.scheduledDate || 'Not scheduled'} />
+            </>
+          )}
+        </Section>
+
         {/* Scope */}
         <Section title="Scope of Work">
           <Field label="Fence Type" value={styleLabel(job.fenceType)} />
@@ -165,24 +183,6 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
               </button>
             ))}
           </div>
-        </Section>
-
-        {/* Crew & Schedule: near the top, the install is what the office does next with a sold job */}
-        <Section title="Crew & Schedule">
-          {isJobSource ? (
-            <div data-job-schedule>
-              {/* One way to schedule: the Schedule install window (start day, crew, crew days on work days, the stage, the text). */}
-              <Field label="Install" value={job.scheduledDate ? bookedWords(job.scheduledDate, job.rawJob?.scheduledEndDate, loadSchedule().settings.workDays) : 'Not scheduled'} />
-              <Field label="Crew" value={job.crewAssigned || 'Not assigned'} />
-              <Field label="Sales Rep" value={job.salesRep} />
-              {can('schedule.change') && !inSideLane && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} /></div>}
-            </div>
-          ) : (
-            <>
-              <Field label="Crew" value={job.crewAssigned || 'Not assigned'} />
-              <Field label="Scheduled" value={job.scheduledDate || 'Not scheduled'} />
-            </>
-          )}
         </Section>
 
         {isJobSource && (

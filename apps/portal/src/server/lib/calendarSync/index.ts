@@ -17,6 +17,7 @@ import { loadPipelineStages } from '../pipelineStages.js'
 import { buildDesiredEvents, eventKey, startsFrom, type LeadRow, type SpecInputs } from './spec.js'
 import { pricingModule } from '../estimates.js'
 import { bookingTeam } from '../appointmentRep.js'
+import { crewDaysOfWeek } from '../installDays.js'
 
 const DEBOUNCE_MS = 2_000
 const RETRY_EVERY_MS = 5 * 60_000
@@ -66,7 +67,8 @@ async function loadInputs(accountId: string): Promise<SpecInputs> {
   return {
     styleLabel: (name: string) => labels[name] || name,
     baseUrl: baseUrl(),
-    workDays: Array.isArray(settings?.workDays) ? (settings!.workDays as number[]) : [1, 2, 3, 4],
+    // Crew days (lib/installDays.ts): a Thursday to Tuesday install is one visit, weekends never count from Settings.
+    workDays: crewDaysOfWeek(Array.isArray(settings?.workDays) ? (settings!.workDays as number[]) : [1, 2, 3, 4]),
     crews: Array.isArray(settings?.crews) ? (settings!.crews as Array<{ id: string; name: string }>) : [],
     jobs, gridJobs, contacts, appointments, defaultPerson,
     pipelineStages: (await loadPipelineStages(accountId)).stages,

@@ -373,3 +373,23 @@ describe('plain style names in titles, upcoming events only', () => {
     expect(w.calls).toEqual([])
   })
 })
+
+// ── Schedule install (lib/installScheduling.ts): one board entry per crew day, linked to the job ──
+describe('an install booked from Ready to schedule', () => {
+  test('a 3 crew day job from Thursday (Thu, Mon, Tue) is one Install event with the job\'s details, moved by a reschedule, gone when taken off', async () => {
+    const { installDays, crewDaysOfWeek } = await import('../src/server/lib/installDays')
+    const rows = (start: string) => installDays(start, 3, crewDaysOfWeek([1, 2, 3, 4])).map((date, i) => grid({ id: `e${i}`, stagingJobId: 'j1', clientName: 'Shawn Collins', date, crewId: 'crew1' }))
+    const booked = job({ scheduledDate: '2026-10-15', scheduledEndDate: '2026-10-20', estimatedDays: 3 })
+    const w = world()
+    expect(await w.run({ jobs: [booked], gridJobs: rows('2026-10-15') })).toMatchObject({ created: 1 })
+    const [e] = [...w.events.values()]
+    expect(e).toMatchObject({ summary: 'Install: Shawn Collins (ALUM, 24 sections)', startDate: '2026-10-15', endDate: '2026-10-20', location: '5904 SW 82nd Terrace Rd, Ocala, FL 34480' })
+    expect(e.description).toContain('Crew: Crew 1')
+    // Moved to Monday: the same event, new days.
+    expect(await w.run({ jobs: [{ ...booked, scheduledDate: '2026-10-19', scheduledEndDate: '2026-10-21' }], gridJobs: rows('2026-10-19') })).toMatchObject({ created: 0, updated: 1 })
+    expect([...w.events.values()][0]).toMatchObject({ startDate: '2026-10-19', endDate: '2026-10-21' })
+    // Taken off the schedule (no date, no entries): the event goes.
+    expect(await w.run({ jobs: [{ ...booked, scheduledDate: '', scheduledEndDate: null }], gridJobs: [] })).toMatchObject({ deleted: 1 })
+    expect(w.events.size).toBe(0)
+  })
+})

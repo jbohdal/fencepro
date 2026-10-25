@@ -104,7 +104,7 @@ export function ReadyPanel({ ready, onPick, canDrag }: { ready: ReturnType<typeo
     <section className="bg-white rounded-2xl border border-gray-200 flex flex-col min-h-0" data-ready-panel>
       <div className="px-4 pt-3 pb-2 border-b border-gray-100">
         <h3 className="text-sm font-bold text-gray-900">Ready to schedule {jobs ? <span className="text-gray-500 font-semibold" data-ready-count={jobs.length}>({jobs.length})</span> : null}</h3>
-        <p className="text-xs text-gray-600 mt-0.5">{canDrag ? 'Drag a job onto a day, or tap it.' : 'Tap a job to pick its start day and crew.'}</p>
+        <p className="text-xs text-gray-600 mt-0.5">{canDrag ? <><span className="hidden lg:inline">Drag a job onto a day, or click it.</span><span className="lg:hidden">Tap a job to pick its start day and crew.</span></> : 'Only the office and the owner schedule installs.'}</p>
       </div>
       {error && <div className="px-4 py-3 text-sm text-red-700">{error} <button type="button" className="underline" onClick={reload}>Try again</button></div>}
       {!jobs && !error && <p className="px-4 py-6 text-sm text-gray-500">Loading…</p>}
@@ -266,7 +266,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
             <label className="block">
               <span className="block text-xs font-semibold text-gray-600 mb-1">Crew</span>
               <select value={crew} onChange={e => setCrew(e.target.value)} data-si-crew
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-base min-h-[48px] bg-white">
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-base h-12 min-h-[48px] bg-white appearance-auto">
                 {crews.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </label>
@@ -430,14 +430,14 @@ export function RainDayDialog({ date: dateAt, onClose }: { date?: string; onClos
               </label>
               <label className="block">
                 <span className="block text-xs font-semibold text-gray-600 mb-1">Move by (crew days)</span>
-                <select value={shift} onChange={e => setShift(Number(e.target.value))} data-rain-shift className="w-full border border-gray-300 rounded-lg px-3 py-2 text-base min-h-[48px] bg-white">
+                <select value={shift} onChange={e => setShift(Number(e.target.value))} data-rain-shift className="w-full border border-gray-300 rounded-lg px-3 py-2 text-base h-12 min-h-[48px] bg-white">
                   {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
               </label>
             </div>
             <label className="block">
               <span className="block text-xs font-semibold text-gray-600 mb-1">Reason</span>
-              <select value={reason} onChange={e => setReason(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-base min-h-[48px] bg-white">
+              <select value={reason} onChange={e => setReason(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-base h-12 min-h-[48px] bg-white">
                 {['Weather — rain', 'Weather — storm', 'Weather — extreme heat', 'Weather — cold/freeze', 'Ground conditions — too wet', 'Other weather delay'].map(x => <option key={x}>{x}</option>)}
               </select>
             </label>

@@ -15,6 +15,7 @@ import { toast } from './toast'
 import { businessDate } from './businessDate'
 import { ReadyPanel, useReadyJobs, ScheduleInstallDialog, MoveInstallConfirm, RainDayDialog, READY_DRAG_TYPE } from './ScheduleInstall'
 import { crewDaysOfWeek, isCrewDay, plusDays } from '../../portal/src/server/lib/installDays'
+import { crewHex } from './dispatchPins'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -357,9 +358,9 @@ export default function SchedulePage() {
           <ScheduleDay jobs={jobs} crews={settings.crews} />
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div className="flex items-center gap-3">
-              <button onClick={prevMonth} className="btn btn-secondary">&larr;</button>
-              <h2 className="text-lg font-bold text-gray-900 flex-1 lg:w-48 text-center">{monthName}</h2>
-              <button onClick={nextMonth} className="btn btn-secondary">&rarr;</button>
+              <button onClick={prevMonth} className="btn btn-secondary" aria-label="Month before" data-month-prev>&larr;</button>
+              <h2 className="text-lg font-bold text-gray-900 flex-1 lg:w-48 text-center" data-month={`${year}-${String(month + 1).padStart(2, '0')}`}>{monthName}</h2>
+              <button onClick={nextMonth} className="btn btn-secondary" aria-label="Next month" data-month-next>&rarr;</button>
             </div>
             <div className="flex gap-2 flex-wrap items-center">
               <div className="flex gap-1.5 items-center flex-wrap mr-2 lg:mr-4">
@@ -437,7 +438,8 @@ export default function SchedulePage() {
                           <div className="space-y-1">
                             {dayJobs.map(j => {
                               const crew = settings.crews.find(c => c.id === j.crewId)
-                              const colorClass = crew?.color ?? 'bg-gray-400'
+                              // The crew's color down the left edge; the card itself light, so the words read.
+                              const crewColor = crew ? crewHex(crew.color, crew.name) : '#9ca3af'
                               const own = daysOfJob.get(jobKeyOf(j)) ?? [j]
                               const nth = own.findIndex(x => x.id === j.id) + 1
                               return (
@@ -448,7 +450,8 @@ export default function SchedulePage() {
                                   onClick={() => { if (j.stagingJobId) setBooking({ jobId: j.stagingJobId }) }}
                                   data-install-entry={j.stagingJobId || j.id}
                                   data-install-day={`${nth}/${own.length}`}
-                                  className={`${colorClass} bg-opacity-15 border-l-[3px] ${colorClass.replace('bg-', 'border-')} rounded px-1.5 lg:px-2 py-1 ${readOnly ? '' : 'cursor-grab'} group`}
+                                  style={{ borderLeftColor: crewColor, backgroundColor: `${crewColor}1f` }}
+                                  className={`border-l-4 rounded px-1.5 lg:px-2 py-1 ${readOnly ? '' : 'cursor-grab'} ${j.stagingJobId ? 'cursor-pointer' : ''} group`}
                                 >
                                   <div className="flex items-start justify-between gap-1">
                                     <div className="min-w-0">
