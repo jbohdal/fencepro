@@ -270,6 +270,24 @@ export function reconcileOpsStage(list: OpsStageDef[], before: OpsJobLike | null
   return firstStageFor(list, after.status) ?? was
 }
 
+/**
+ * The waiting stage a job really is in, from what is recorded on it (Take off
+ * the schedule, when the stage it came from is not known). Never one that
+ * claims a step is done when it is not: no 811 ticket → Awaiting Locates;
+ * permit not issued (or not set) → Permit Pending; materials in → Ready to
+ * Pull; ordered → Materials Ordered; else Need Drawing. A stage not in the
+ * list: the first one that stands for staging.
+ */
+export function waitingStageOf(list: OpsStageDef[], job: { locatesDate?: string | null; materialsStatus?: string | null }, permitStatus: string | null): string | null {
+  const permitOk = permitStatus === 'not_needed' || permitStatus === 'approved' || permitStatus === 'inspection_scheduled' || permitStatus === 'passed'
+  const want = !job.locatesDate ? 'awaiting_locates'
+    : !permitOk ? 'permit_pending'
+    : job.materialsStatus === 'received' || job.materialsStatus === 'loaded' ? 'ready_to_pull'
+    : job.materialsStatus === 'ordered' ? 'materials_ordered'
+    : 'need_drawing'
+  return stageById(list, want) ? want : firstStageFor(list, 'staging')
+}
+
 /** Jobs that are in a stage (by the same rule the board uses). */
 export function jobsInStage<T extends OpsJobLike>(list: OpsStageDef[], jobs: T[], id: string): T[] {
   return jobs.filter(j => stageOfJob(list, j) === id)

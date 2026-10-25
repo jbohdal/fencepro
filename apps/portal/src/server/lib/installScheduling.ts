@@ -25,7 +25,7 @@ import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { dataFor, requestFrom } from './quotePricing.js'
 import { loadOpsStages } from './opsStages.js'
-import { stageOfJob, phaseOf, stageById, firstStageFor, fieldsForStage } from './opsStageModel.js'
+import { stageOfJob, phaseOf, stageById, firstStageFor, fieldsForStage, waitingStageOf } from './opsStageModel.js'
 import { checkJobMove } from './automations/stageRules.js'
 import { recordJobChanges } from './automations/hooks.js'
 import { softDeleteLogged, type Actor } from './deletion.js'
@@ -326,22 +326,8 @@ export async function weekendJobIds(accountId: string): Promise<string[]> {
   return rows.filter(r => (r.value as Json)?.allowWeekend === true).map(r => r.key.slice(INSTALL_META_PREFIX.length))
 }
 
-/**
- * The waiting stage a job really is in, from what is recorded on it (used when
- * the stage it came from is not known). Never one that claims a step is done
- * when it is not: no 811 ticket → Awaiting Locates; permit not issued (or not
- * set) → Permit Pending; drawing not done or materials not ordered → Need
- * Drawing; materials ordered → Materials Ordered; in → Ready to Pull.
- */
-export function waitingStageFor(stages: Json[], job: { locatesDate?: string | null; drawingComplete?: boolean | null; materialsStatus?: string | null }, permitStatus: string | null): string | null {
-  const permitOk = permitStatus === 'not_needed' || ['approved', 'inspection_scheduled', 'passed'].includes(permitStatus ?? '')
-  const want = !job.locatesDate ? 'awaiting_locates'
-    : !permitOk ? 'permit_pending'
-    : job.materialsStatus === 'received' || job.materialsStatus === 'loaded' ? 'ready_to_pull'
-    : job.materialsStatus === 'ordered' ? 'materials_ordered'
-    : 'need_drawing'
-  return stageById(stages as Json, want) ? want : firstStageFor(stages as Json, 'staging')
-}
+/** The waiting stage a job really is in (opsStageModel.waitingStageOf). */
+export const waitingStageFor = waitingStageOf
 
 /** What happens with Google Calendar, in plain words. */
 async function calendarWords(accountId: string): Promise<string> {
