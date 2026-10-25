@@ -18,6 +18,12 @@
 //     job, with who), makes and opens the crew packet (notes once, the
 //     customer's notes on it), photos; the job page has no price, payment or
 //     contract; bottom tabs only to pages it can open; More opens its menu.
+//   Review round 1 (c), Oct 25: the installer is refused the signed contract PDF and the
+//     customers' messages; a note with a dollar amount keeps its words with the amount masked;
+//     he gets only his installs' customers; no office controls (New job, Show numbers, Sort:
+//     Value, Advance, Hold, Send updated warranty, Book a service call, Invoice Sent); typed
+//     /jobs and /staging go to My installs. The Salesman lands on Today; her quote window shows
+//     readable dates, says why Email it is grey, and Escape closes it on a computer.
 //   No page errors anywhere.
 // Dev only (port 4001). Removes the logins, customer, card, quotes, job and schedule entry it made.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
@@ -82,7 +88,7 @@ try {
   const contact = await owner('POST', '/api/crm-contacts', { firstName: 'E2E', lastName: `Roles ${stamp}`, phone: `352555${String(Math.floor(Math.random() * 9000) + 1000)}`, serviceAddress: '110 SE Watula Ave, Ocala, FL 34471', notes: 'Keep the side gate shut' })
   made.contactId = contact.json.data?.id ?? null
   const NAME = `E2E Roles ${stamp}`
-  await owner('POST', `/api/crm-contacts/${made.contactId}/notes`, { body: 'Website, drawn by customer\nEstimate shown to the customer: $5,000\nCustomer notes: Need it done before Thanksgiving, have 2 dogs.' })
+  await owner('POST', `/api/crm-contacts/${made.contactId}/notes`, { body: 'Website, drawn by customer\nEstimate shown to the customer: $5,000\nCustomer notes: Need it done before Thanksgiving, have 2 dogs. Budget about $4000.' })
   const quote = await owner('POST', '/api/saved-quotes', {
     crmContactId: made.contactId, customerName: NAME, customerPhone: contact.json.data?.phone ?? '', customerAddress: '110 SE Watula Ave, Ocala, FL 34471',
     fenceStyle: "WV-ND 6'x8' Privacy", runs: [120], corners: 0, ends: 2, sections: 15, finalPrice: 5000, status: 'SENT', notes: 'Gate code 1234',
@@ -124,9 +130,20 @@ try {
     check(`${where}: the card shows the customer's note and its quote`, await page.locator('[data-card-note]').count() > 0 && await page.locator(`[data-card-quote="${quote.json.data?.id}"]`).count() === 1)
     await page.locator(`[data-card-quote="${quote.json.data?.id}"]`).click()
     await page.locator('[data-quote-drawer]').waitFor({ timeout: 15000 }).catch(() => {})
+    const qd = await page.locator('[data-quote-drawer]').innerText()
+    check(`${where}: the quote window shows a readable date, not YYYY-MM-DD`, !/\d{4}-\d{2}-\d{2}/.test(qd.split('\n').slice(0, 4).join(' ')), qd.split('\n').slice(0, 3).join(' | '))
+    check(`${where}: Email it greyed says why (no email on the customer)`, /add an email to the customer first/i.test(qd))
+    if (!phone) {
+      await page.keyboard.press('Escape'); await sleep(800)
+      check(`${where}: Escape closes the quote window`, await page.locator('[data-quote-drawer]').count() === 0)
+      await page.locator(`[data-card-quote="${quote.json.data?.id}"]`).click()
+      await page.locator('[data-quote-drawer]').waitFor({ timeout: 15000 }).catch(() => {})
+    }
     check(`${where}: the quote shows Proposal with Copy link, Text it and Email it`, await page.locator('[data-quote-drawer] [data-proposal-send]').count() === 1 && await page.locator('[data-proposal-text]').isVisible() && await page.locator('[data-proposal-copy]').isVisible() && await page.locator('[data-quote-drawer] button:has-text("Email it")').count() === 1)
     // She sees costs since Oct 25, 2026 (Jonathan): the margin is on her quote.
     check(`${where}: her quote shows its margin`, /margin/i.test(await page.locator('[data-quote-drawer]').innerText()))
+    await go(page, '/')
+    check(`${where}: sign in lands on Today, not the company Dashboard`, pathOf(page) === '/today', pathOf(page))
     await go(page, '/today')
     await noCrash(page, `${where}: Today`)
     const me = (await call(sales.token, 'GET', '/api/crm-auth/me')).json.data
@@ -178,7 +195,15 @@ try {
     check('installer: today\'s install is listed under Today', await c.count() === 1)
     await c.locator('[data-install-customer-notes]').waitFor({ timeout: 15000 }).catch(() => {})
     const notes = await c.locator('[data-install-customer-notes]').innerText().catch(() => '')
-    check('installer: the customer\'s notes are on it ("have 2 dogs"), no price', /have 2 dogs/.test(notes) && /side gate/.test(notes) && !/\$/.test(notes), notes.replace(/\s+/g, ' '))
+    check('installer: the customer\'s notes are on it ("have 2 dogs"), the amount masked, not the line dropped', /have 2 dogs\. Budget about \$ \(left out\)/.test(notes) && /side gate/.test(notes) && !/4000|\$\s?\d/.test(notes), notes.replace(/\s+/g, ' '))
+    // Not his: the signed contract (price and deposit), customers' messages, other customers.
+    check('installer: the signed contract PDF is refused', (await call(crew.token, 'GET', `/api/warranties/quote/${quote.json.data?.id}/contract.pdf`)).status === 403)
+    check('installer: customers\' portal messages are refused', (await call(crew.token, 'GET', '/api/portal/messages/inbox')).status === 403)
+    const theirContacts = (await call(crew.token, 'GET', '/api/crm-contacts')).json.data ?? []
+    const allContacts = (await owner('GET', '/api/crm-contacts')).json.data ?? []
+    check('installer: only his installs\' customers (not every customer\'s phone and email)', theirContacts.some(c => c.id === made.contactId) && theirContacts.length < 60 && theirContacts.length < allContacts.length, `${theirContacts.length} of ${allContacts.length}`)
+    const other = allContacts.find(c => !theirContacts.some(x => x.id === c.id))
+    check('installer: another customer by id is not found', !other || (await call(crew.token, 'GET', `/api/crm-contacts/${other.id}/notes`)).status === 404)
     check('installer: no price or cost on the home screen', !/\$\s*\d/.test(await page.locator('[data-installer-home]').innerText()))
     await c.locator('[data-install-start]').click()
     await c.locator('[data-install-started]').waitFor({ timeout: 15000 }).catch(() => {})
@@ -194,15 +219,24 @@ try {
       const packet = await ctx.newPage()
       await packet.goto(href.startsWith('http') ? href : `${APP}${href}`)
       const t = await packet.locator('body').innerText()
-      check('crew packet: the customer\'s notes are on it', /Customer notes/.test(t) && /have 2 dogs/.test(t) && !/Estimate shown/.test(t))
+      check('crew packet: the customer\'s notes are on it', /Customer notes/.test(t) && /have 2 dogs/.test(t) && !/Estimate shown/.test(t) && !/4000/.test(t))
       check('crew packet: the job\'s and the quote\'s note printed once', (t.match(/Gate code 1234/g) || []).length === 1, `${(t.match(/Gate code 1234/g) || []).length} times`)
       check('crew packet: no price', !/\$\s*\d/.test(t))
       await packet.close()
     }
     // The job page: the work, no price (no Financial, Payments, Change Orders or contract).
     await go(page, `/operations?job=${made.jobId}`)
-    const jobText = await page.locator('body').innerText()
+    await page.locator('[data-job-panel]').waitFor({ timeout: 15000 }).catch(() => {})
+    const jobText = await page.locator('[data-job-panel]').innerText().catch(() => '')
     check('installer: the job page shows no price, payment or contract', !/\$\s?(\d|NaN)|Contract Value|Amount Paid|Outstanding/.test(jobText) && /Install packet/.test(jobText), (jobText.match(/.{0,30}\$\s?(\d|NaN).{0,10}/) || [''])[0])
+    check('installer: the job page has no office controls', !/Advance to|Advance Stage|\bHold\b|Send updated warranty|Book a service call|Invoice Sent|Update the install packet|Turn off link/.test(jobText), (jobText.match(/Advance to|Advance Stage|\bHold\b|Send updated warranty|Book a service call|Invoice Sent|Update the install packet|Turn off link/) || [''])[0])
+    const moved = await call(crew.token, 'PATCH', `/api/saved-jobs/${made.jobId}`, { status: 'on_hold', holdReason: 'test' })
+    check('installer: the server refuses a hold or stage move from him', moved.status === 403, `${moved.status}`)
+    check('installer: booking a service call is refused', (await call(crew.token, 'POST', '/api/service-tickets', { id: crypto.randomUUID(), jobId: made.jobId, issue: 'leaning_post' })).status === 403)
+    await go(page, '/operations')
+    const boardText = await page.locator('body').innerText()
+    check('installer: the board has no New job, Show numbers or Sort: Value', !/\+ New job|Show numbers|Sort: Value/.test(boardText))
+    for (const typed of ['/jobs', '/staging']) { await go(page, typed); check(`installer: typing ${typed} goes to My installs`, pathOf(page) === '/my-installs', pathOf(page)) }
     await go(page, '/my-installs')
     await c.locator('[data-install-photos]').waitFor({ timeout: 15000 }).catch(() => {})
     await c.locator('[data-install-photos]').click()

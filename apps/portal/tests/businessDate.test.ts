@@ -2,7 +2,7 @@
  * "Customer Since" shows the Florida calendar date of the stored moment.
  */
 import { describe, test, expect } from 'vitest'
-import { businessDate } from '../../web/src/businessDate'
+import { businessDate, dayWords } from '../../web/src/businessDate'
 
 describe('businessDate', () => {
   test('an afternoon entry keeps its date', () => {
@@ -28,5 +28,16 @@ describe('businessDate', () => {
     expect(businessDate('')).toBe('')
     expect(businessDate(undefined)).toBe('')
     expect(businessDate('not a date')).toBe('')
+  })
+})
+
+describe('dayWords: a day for people, not "2026-10-23"', () => {
+  const now = new Date('2026-10-25T15:00:00Z')
+  test('this year: weekday, month, day; another year adds the year; an evening moment is its Florida day', () => {
+    expect(dayWords('2026-10-23', now)).toBe('Fri, Oct 23')
+    expect(dayWords('2025-06-10', now)).toBe('Tue, Jun 10, 2025')
+    expect(dayWords('2026-10-24T01:30:00Z', now)).toBe('Fri, Oct 23')
+    expect(dayWords('', now)).toBe('')
+    expect(dayWords('soon', now)).toBe('soon')
   })
 })

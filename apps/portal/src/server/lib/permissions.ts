@@ -287,6 +287,8 @@ export function businessPatchRefusal(role: string | null, userId: string | null,
     if (value === undefined) continue
     const before = current?.[key]
     if (sameJson(before, value)) continue
+    // The Installer ticks his milestones, never a money one ("Invoice Sent"; review, Oct 25, 2026).
+    if (key === 'jobChecklists' && !can(role, 'prices.view') && moneyMilestoneChanged(before, value)) return 'billing.change'
     const action = businessKeyAction(key)
     if (action === 'any') continue
     if (action === 'quotes.change' && (can(role, 'quotes.change') || can(role, 'billing.change'))) continue
@@ -295,6 +297,30 @@ export function businessPatchRefusal(role: string | null, userId: string | null,
     return action
   }
   return null
+}
+
+/** A job milestone about money: invoice, payment, deposit, contract, balance. */
+export const MONEY_MILESTONE = /invoice|paid|payment|deposit|contract|balance/i
+
+/** Did a money milestone change (ticked, unticked, added, removed) between two jobChecklists records? */
+export function moneyMilestoneChanged(before: unknown, after: unknown): boolean {
+  const flat = (v: unknown) => {
+    const out = new Map<string, string>()
+    const walk = (x: unknown) => {
+      if (Array.isArray(x)) { x.forEach(walk); return }
+      if (x && typeof x === 'object') {
+        const o = x as Record<string, unknown>
+        if (typeof o.id === 'string' && typeof o.label === 'string') { if (MONEY_MILESTONE.test(o.label)) out.set(o.id, JSON.stringify([o.label, !!o.isComplete])); return }
+        Object.values(o).forEach(walk)
+      }
+    }
+    walk(v)
+    return out
+  }
+  const a = flat(before), b = flat(after)
+  if (a.size !== b.size) return true
+  for (const [k, v] of a) if (b.get(k) !== v) return true
+  return false
 }
 
 // ── Pipeline board ──────────────────────────────────────────────────────────

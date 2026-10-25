@@ -137,8 +137,14 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
         <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => go('open')} data-proposal-open><ExternalLink size={16} aria-hidden="true" /> Open</button>
         <button type="button" className="btn btn-secondary" disabled={busy || photoBlock} onClick={() => go('copy')} data-proposal-copy><Copy size={16} aria-hidden="true" /> Copy link</button>
         <button type="button" className="btn btn-primary" disabled={busy || !quote.customerPhone || photoBlock} onClick={() => go('text')} data-proposal-text><MessageSquare size={16} aria-hidden="true" /> Text it</button>
-        <button type="button" className="btn btn-secondary" disabled={busy || !quote.customerEmail || photoBlock} onClick={() => go('email')}><Mail size={16} aria-hidden="true" /> Email it</button>
+        <button type="button" className="btn btn-secondary" disabled={busy || !quote.customerEmail || photoBlock} onClick={() => go('email')} data-proposal-email><Mail size={16} aria-hidden="true" /> Email it</button>
       </div>
+      {/* A greyed button says why (review, Oct 25, 2026). */}
+      {(!quote.customerEmail || !quote.customerPhone) && (
+        <p className="text-xs text-gray-600" data-proposal-missing-contact>
+          {[!quote.customerPhone ? 'Text it: add a phone number to the customer first.' : '', !quote.customerEmail ? 'Email it: add an email to the customer first.' : ''].filter(Boolean).join(' ')}
+        </p>
+      )}
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-gray-600" data-link-state>{linkLine}</p>
         {hasLink && !offAt && !expired && <button type="button" className="btn btn-quiet btn-sm" disabled={busy} onClick={turnOff} data-link-off>Turn off link</button>}

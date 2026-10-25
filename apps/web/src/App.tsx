@@ -71,7 +71,7 @@ import { initPipelineStages, isPipelineStagesLoaded, isFinished } from './pipeli
 import { startIntakeSync } from './intakeStore'
 import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
-import { setSignedInRole, isFullRole, can } from './permissions'
+import { setSignedInRole, isFullRole, can, isCrewLogin } from './permissions'
 import { REFUSED_EVENT } from './outbox'
 import StageBlockedNotice from './StageBlockedNotice'
 import ScreenErrorBoundary from './ScreenErrorBoundary'
@@ -306,6 +306,8 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
   const [showChangePassword, setShowChangePassword] = useState(false)
   // Signed in, but the server could not be reached to check it (no signal, or the server restarting).
   const [unreachable, setUnreachable] = useState(false)
+  // The server answered but was busy (too many requests, restarting): said as busy, not as no signal.
+  const [busy, setBusy] = useState(false)
 
   async function loadData(user: CrmUser) {
     setLoadingData(true)
@@ -323,7 +325,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     // Payments waiting on this phone back on screen; receipt numbers set aside for no signal (paymentsStore.ts).
     startPayments(`${user.firstName} ${user.lastName}`.trim())
     // Website quotes and phone calls that came in while nobody was looking.
-    startIntakeSync()
+    if (!isCrewLogin(user.role)) startIntakeSync()
     startLiveRefresh()
     // A color added in Settings says so when it becomes fully priced.
     startColorReadyWatch()
@@ -340,7 +342,7 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     const s = await checkSession()
     if (s.kind === 'user') { setUnreachable(false); startSession(s.user) }
     else if (s.kind === 'signed-out') setUnreachable(false)
-    else setUnreachable(true)
+    else { setUnreachable(true); setBusy(s.kind === 'offline' && !!s.busy) }
     setAuthChecked(true)
   }
   useEffect(() => {
@@ -406,8 +408,8 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6" data-no-signal-screen>
         <div className="max-w-sm text-center space-y-4">
-          <h1 className="text-xl font-bold text-gray-900">No signal</h1>
-          <p className="text-base text-gray-700">EZ Biz cannot reach the office server right now. Anything saved on this phone is kept and will be sent when there is signal.</p>
+          <h1 className="text-xl font-bold text-gray-900">{busy ? 'Busy, trying again' : 'No signal'}</h1>
+          <p className="text-base text-gray-700">{busy ? 'The office server is busy for a moment. EZ Biz tries again by itself; anything saved on this phone is kept.' : 'EZ Biz cannot reach the office server right now. Anything saved on this phone is kept and will be sent when there is signal.'}</p>
           <button type="button" className="btn btn-primary w-full min-h-[48px]" onClick={() => { void checkAgain() }}>Try again</button>
           <p className="text-sm text-gray-500">This page tries again by itself every 15 seconds.</p>
         </div>
@@ -496,6 +498,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     const id = q.get('customer')
     if (id) { q.delete('customer'); startNav(`/customers/${encodeURIComponent(id)}${q.toString() ? `?${q}` : ''}${window.location.hash}`) }
     else if (q.get('settings') && window.location.pathname === '/') startNav(`/settings${window.location.search}${window.location.hash}`)
+    // The Salesman starts her day on Today, not the company Dashboard (review, Oct 25, 2026).
+    else if (crmUser.role === 'sales_rep' && window.location.pathname === '/') startNav(`/today${window.location.search}${window.location.hash}`)
     else startNav()
     return true
   })
@@ -598,7 +602,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // home (Today; the installer's My installs). The start address (/, the Dashboard) goes there without a word.
   // Once, per page: the installer's login used to bounce between two pages it could not open and drew nothing
   // (and every bounce closed the More menu), walkthrough Oct 24, 2026.
-  const pageItem = ALL_NAV_ITEMS.find(i => i.name === active)
+  // Jobs and Staging are views of Operations without a menu line of their own: the office's, not the installer's.
+  const pageItem: { roles: UserRole[] } | undefined = ALL_NAV_ITEMS.find(i => i.name === active)
+    ?? (active === 'Jobs' || active === 'Staging' ? { roles: ['owner', 'admin', 'ops_manager'] } : undefined)
   const pageBlocked = !isFullRole() && !!pageItem && !pageItem.roles.includes(role)
   const toldBlocked = useRef('')
   useEffect(() => {
@@ -1070,7 +1076,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           </div>
 
           <div className="flex items-center gap-1 md:gap-3 shrink-0">
-            <MessagesInbox onNavigateToCustomer={(customerId) => openCustomerFromAnywhere(customerId, 'messages')} />
+            {/* Customers' portal messages are the office's: not on the installer's phone. */}
+            {!isCrewLogin() && <MessagesInbox onNavigateToCustomer={(customerId) => openCustomerFromAnywhere(customerId, 'messages')} />}
             <SyncBadge />
             <FeedbackButton />
             <NotificationBell />

@@ -97,6 +97,14 @@ export function signedInRole(): string | null { return current }
 /** May the signed in login do this? */
 export function can(action: Action): boolean { return roleCan(current, action) }
 
+/**
+ * The Installer (Field Crew, and any role that sees no prices): his screens are
+ * his installs; the office's controls (new job, stage moves, hold, warranty
+ * sends, service calls, billing milestones, numbers) are not shown to him and
+ * the server refuses them (review, Oct 25, 2026).
+ */
+export function isCrewLogin(role: string | null = current): boolean { return !!role && !roleCan(role, 'prices.view') }
+
 /** Owner, admin and manager: nothing is held back from them but users and system tools. */
 export function isFullRole(role: string | null = current): boolean {
   return role === 'super_admin' || role === 'admin' || role === 'manager'

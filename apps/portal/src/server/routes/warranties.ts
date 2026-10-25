@@ -16,6 +16,7 @@
  * (business-state config.warranties, settings.change, the change log).
  */
 
+import { refuseNoPrices } from '../lib/costRedact.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
@@ -66,7 +67,8 @@ router.post('/service/:appointmentId/override', requireCan('schedule.change'), a
   }
 })
 
-router.get('/quote/:quoteId/contract.pdf', async (req: any, res) => {
+// The signed contract shows the price and deposit: never the Installer's (lib/costRedact.ts refuseNoPrices).
+router.get('/quote/:quoteId/contract.pdf', refuseNoPrices, async (req: any, res) => {
   try {
     const q = await prisma.savedQuote.findFirst({ where: { id: String(req.params.quoteId), accountId: req.user.crmAccountId }, select: CONTRACT_SELECT })
     const pdf = q ? await contractForQuote(q) : null

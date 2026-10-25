@@ -1,4 +1,5 @@
 import MediaGallery from './MediaGallery'
+import { dayWords } from './businessDate'
 import ScreenErrorBoundary from './ScreenErrorBoundary'
 import { usePipelineStages, stageName as pipelineStageName, roleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
@@ -1027,7 +1028,7 @@ function CustomerDetail({
             { label: 'Total revenue', value: fmt(totalRevenue) },
             { label: 'Quotes', value: String(allQuoteCount) },
             { label: 'Jobs', value: String(jobs.length) },
-            { label: 'Customer since', value: customer.createdAt },
+            { label: 'Customer since', value: dayWords(customer.createdAt) },
           ].map(s => (
             <div key={s.label} className="bg-gray-50 rounded-xl p-3">
               <p className="text-xs text-gray-400">{s.label}</p>
@@ -1153,7 +1154,7 @@ function CustomerDetail({
                         {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= 0.34 ? 'text-green-600' : q.margin >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
                           {(q.margin * 100).toFixed(1)}%
                         </td>}
-                        <td data-label="Date" className="px-4 py-3 text-right text-gray-400 text-xs">{q.date}</td>
+                        <td data-label="Date" className="px-4 py-3 text-right text-gray-400 text-xs">{dayWords(q.date)}</td>
                         <td data-label="Status" className="px-4 py-3 text-right">
                           <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[q.status]}`}>{q.status}</span>
                         </td>

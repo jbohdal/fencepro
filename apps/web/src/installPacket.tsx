@@ -5,6 +5,7 @@
  * at /p/i/<link> (routes/installPacket.ts); it never shows prices.
  */
 
+import { can } from './permissions'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -202,15 +203,17 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
   }
 
   const live = packet && !packet.disabledAt
+  const office = can('packets.change')
   const url = live ? packetUrl(packet!.token) : ''
   const msg = `Install packet for ${job.customerName || 'the job'}: ${url}`
   return (
     <div className="space-y-2" data-install-packet>
       <p className="text-xs text-gray-600">A private link for the crew: plan with post spacing, counts, gates, pull sheet, photos and notes. No prices. It closes 30 days after the job is marked complete.</p>
       {live && packet?.changedBy && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-packet-outdated>Change order CO-{packet.changedBy.number} changed the work ({packet.changedBy.what}) after this packet was sent. The crew's link already shows the new pull sheet; update the packet for the new site plan.</p>}
-      <button type="button" className="btn btn-primary w-full" disabled={busy} onClick={send} data-packet-send>
+      {/* The office sends and updates the packet; the crew may only make a job's first one. */}
+      {(office || !live) && <button type="button" className="btn btn-primary w-full" disabled={busy} onClick={send} data-packet-send>
         <Send size={16} aria-hidden="true" /> {live ? 'Update the install packet' : 'Send install packet'}
-      </button>
+      </button>}
       {live && (
         <>
           <div className="grid grid-cols-2 gap-2">
@@ -221,7 +224,7 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
           </div>
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-gray-600 break-all" data-packet-url>{url}</p>
-            <button type="button" className="btn btn-quiet btn-sm shrink-0" onClick={off} data-packet-off>Turn off link</button>
+            {office && <button type="button" className="btn btn-quiet btn-sm shrink-0" onClick={off} data-packet-off>Turn off link</button>}
           </div>
           {!getConfig().proposal?.publicLinks && <p className="text-xs text-amber-900 bg-amber-50 rounded-lg px-2 py-1">Right now the crew can open this only on your own phones and computers. Once outside access is set up (Settings → Proposals), it opens on any phone.</p>}
         </>

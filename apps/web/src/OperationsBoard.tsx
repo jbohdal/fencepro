@@ -15,7 +15,7 @@
  * unchanged.
  */
 
-import { can } from './permissions'
+import { can, isCrewLogin } from './permissions'
 import { stageName as pipelineStageName, roleId as pipelineRoleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
 import { loadSchedule } from './scheduleStore'
@@ -782,8 +782,8 @@ function ControlsBar({
         </div>
         <div className="actions">
           <ViewToggle value={view} onChange={onViewChange} />
-          <button onClick={onToggleAnalytics} className="btn btn-quiet">{analyticsOpen ? 'Hide numbers' : 'Show numbers'}</button>
-          <button onClick={onPrimary} className="btn btn-primary">{primaryLabel}</button>
+          {!isCrewLogin() && <button onClick={onToggleAnalytics} className="btn btn-quiet">{analyticsOpen ? 'Hide numbers' : 'Show numbers'}</button>}
+          {!isCrewLogin() && <button onClick={onPrimary} className="btn btn-primary">{primaryLabel}</button>}
         </div>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
@@ -802,7 +802,7 @@ function ControlsBar({
         </select>
         <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="scheduled">Sort: Scheduled</option>
-          <option value="value">Sort: Value</option>
+          {!isCrewLogin() && <option value="value">Sort: Value</option>}
           <option value="name">Sort: Customer</option>
           <option value="days_in_stage">Sort: Days in stage</option>
         </select>

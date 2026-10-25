@@ -7,6 +7,7 @@
  * "Book a service call" makes a Service appointment on this job.
  */
 
+import { can, isCrewLogin } from './permissions'
 import { useCallback, useEffect, useState } from 'react'
 import { fetchWithAuth } from './crmAuth'
 import { API_ORIGIN, sendJson } from './syncHttp'
@@ -101,14 +102,14 @@ export default function JobWarranty({ job }: { job: Job }) {
             {showText && <p className="text-sm text-gray-700 whitespace-pre-line border-l-2 border-purple-200 pl-3" data-job-warranty-text>{wr.text}</p>}
           </>
         ) : <p className="text-sm text-gray-600">No warranty on file for this job.</p>}
-        {w.contract && <div><button type="button" className="btn btn-secondary min-h-[48px] mt-1" onClick={openContract} data-job-contract-pdf>Signed contract (PDF)</button></div>}
-        {w.signed && w.quoteId && <div className="mt-2"><WarrantyUpdateSend quoteId={w.quoteId} onChange={reload} /></div>}
+        {w.contract && can('prices.view') && <div><button type="button" className="btn btn-secondary min-h-[48px] mt-1" onClick={openContract} data-job-contract-pdf>Signed contract (PDF)</button></div>}
+        {w.signed && w.quoteId && !isCrewLogin() && <div className="mt-2"><WarrantyUpdateSend quoteId={w.quoteId} onChange={reload} /></div>}
       </div>
 
       <div className="border-t border-gray-100 pt-3 mt-3 space-y-2" data-service-calls>
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <h4 className="text-sm font-semibold text-gray-900">Service calls</h4>
-          {!booking && <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => setBooking(true)} data-book-service>Book a service call</button>}
+          {!booking && !isCrewLogin() && <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => setBooking(true)} data-book-service>Book a service call</button>}
         </div>
         {booking && (
           <div className="rounded-lg border border-gray-200 p-2 space-y-2" data-book-service-form>

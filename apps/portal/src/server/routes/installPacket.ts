@@ -56,6 +56,29 @@ export function onceEach(text: string): string {
   return text.split('\n').filter(l => { const k = l.trim().replace(/\s+/g, ' ').toLowerCase(); if (!k) return true; if (seen.has(k)) return false; seen.add(k); return true }).join('\n').trim()
 }
 
+/** A run's post to post spacing ("7' 11 1/2\"") in feet. */
+function spacingFt(text: string): number {
+  const m = /^(\d+)'(?:\s*(\d+)(?:\s+(\d+)\/(\d+))?")?/.exec(text.trim())
+  if (!m) return NaN
+  return Number(m[1]) + (Number(m[2] ?? 0) + (m[3] ? Number(m[3]) / Number(m[4]) : 0)) / 12
+}
+
+/**
+ * The crew needs the panel size, not the price rule: a style sold as "6 or 8
+ * ft panels (best price)" says the panels each run really has, from its post
+ * spacing (review, Oct 25, 2026): "8 ft panels", or "6 and 8 ft panels (8 ft
+ * on Back, Left; 6 ft on Right)".
+ */
+export function panelWords(style: string, runs: Array<{ label: string; spacing: string }> = []): string {
+  if (!/6 or 8 ft panels \(best price\)/i.test(style)) return style
+  const sized = runs.map(r => ({ label: r.label, ft: spacingFt(r.spacing) })).filter(r => r.ft > 0)
+  if (!sized.length) return style.replace(/6 or 8 ft panels \(best price\)/i, '6 or 8 ft panels (see each run)')
+  const panel = (ft: number) => (ft > 7 ? 8 : 6)
+  const eights = sized.filter(r => panel(r.ft) === 8).map(r => r.label), sixes = sized.filter(r => panel(r.ft) === 6).map(r => r.label)
+  const words = !sixes.length ? '8 ft panels' : !eights.length ? '6 ft panels' : `6 and 8 ft panels (8 ft on ${eights.join(', ')}; 6 ft on ${sixes.join(', ')})`
+  return style.replace(/6 or 8 ft panels \(best price\)/i, words)
+}
+
 /** 3527894314 → (352) 789-4314; anything else as typed. */
 function phone(p: string): string {
   const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
@@ -244,7 +267,7 @@ packetPublic.get('/:token', async (req, res) => {
   const s = packetWithChange(p.snapshot as Snapshot, coChange)
   const coLines = coChange ? sheetChanges((p.snapshot as Snapshot).pullSheet ?? [], s.pullSheet ?? []) : []
   // The fence's plain name (packets made before plain names carry the style's code).
-  const styleText = await plainStyleName(s.style ?? job!.fenceStyle)
+  const styleText = panelWords(await plainStyleName(s.style ?? job!.fenceStyle), s.runs ?? [])
   // Crew and Customer photos and video, plus what the crew added from here.
   const ttl = 3 * 86_400_000
   const media = await prisma.mediaItem.findMany({

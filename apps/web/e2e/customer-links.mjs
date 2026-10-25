@@ -101,6 +101,8 @@ async function openSaveQuote(s, id) {
   await s.page.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 }); await sleep(1000)
   await s.press(s.page.locator('[data-save-open]:visible').first())
   await s.page.locator('[data-quote-property-address]').waitFor({ timeout: 10000 })
+  // A quote that already has its customer opens on "Quote for <name>"; Change customer brings back the picker.
+  if (await s.page.locator('[data-save-change-customer]').count()) await s.press(s.page.locator('[data-save-change-customer]'))
 }
 
 async function run(phone) {

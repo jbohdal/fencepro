@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { crewScoped, refuseScopedCrew, refuseCrewWith } from './lib/crewScope.js'
 import express from 'express'
 import compression from 'compression'
 import { requestTiming, startTimingSummaryLog } from './lib/requestTiming.js'
@@ -195,6 +196,19 @@ app.use('/api', (req, res, next) => {
 // (lib/costRedact.ts), whichever route answers.
 // The role comes from the cookie's session (staffCookieAuth above), or the old token's.
 app.use('/api', hideCostsFromLimitedLogins)
+// The Installer gets only his installs' customers, jobs, quotes, appointments and cards, and no customer
+// messages or Ready to schedule list (lib/crewScope.ts; review, Oct 25, 2026).
+app.use('/api/crm-contacts', crewScoped('contacts'))
+app.use('/api/saved-jobs', crewScoped('jobs'))
+app.use('/api/saved-quotes', crewScoped('quotes'))
+app.use('/api/appointments', crewScoped('appointments'))
+app.use('/api/pipeline', crewScoped('pipeline'))
+app.use('/api/portal/messages', refuseScopedCrew)
+app.use('/api/portal/customer', refuseScopedCrew)
+app.use('/api/portal/accounts', refuseScopedCrew)
+app.use('/api/schedule/ready', refuseScopedCrew)
+app.use('/api/intake', refuseScopedCrew)
+app.post('/api/appointments', refuseCrewWith('Appointments and service calls are booked by the office.'))
 
 // ── Rate Limiting ──
 // Limits can be set from the environment. The API default allows a real
@@ -248,7 +262,8 @@ app.use('/api/auth', authRoutes)
 app.use('/api/dashboard', dashboardRoutes)
 app.use('/api/tickets', ticketRoutes)
 app.use('/api/invoices', refuseNoPrices, invoiceRoutes)
-app.use('/api/documents', documentRoutes)
+// Customer documents (contracts, invoices, papers with prices): not the Installer's.
+app.use('/api/documents', refuseNoPrices, documentRoutes)
 app.use('/api/contracts', refuseNoPrices, contractRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/sync', syncRoutes)

@@ -7,6 +7,7 @@
  *   - Quotes list (any row)
  */
 
+import { dayWords } from './businessDate'
 import { formatPhone } from './phoneFormat'
 import { can } from './permissions'
 import { styleLabel } from './fenceCatalog'
@@ -119,7 +120,7 @@ export default function QuoteDetailDrawer({
               <h2 className="text-xl font-bold text-gray-900">Quote #{quote.id.slice(-6).toUpperCase()}</h2>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>{status.label}</span>
             </div>
-            <p className="text-sm text-gray-500 mt-1">{quote.customerName} · {quote.date}</p>
+            <p className="text-sm text-gray-500 mt-1">{quote.customerName} · {dayWords(quote.date)}</p>
           </div>
           <SaveStatus keys={[`quote:${quote.id}`]} />
           <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>

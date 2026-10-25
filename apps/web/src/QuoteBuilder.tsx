@@ -136,6 +136,9 @@ function SaveModal({
     if (!initialCustomerId) return null
     return (getCustomerById(initialCustomerId) as SavedCustomer | null) ?? null
   })
+  // Opened from a customer (their page, their card): the quote is theirs; no Existing / New choice unless
+  // "Change customer" is tapped (review, Oct 25, 2026).
+  const [knownCustomer, setKnownCustomer] = useState(() => !!initialCustomerId && !!getCustomerById(initialCustomerId))
   const [firstName, setFirstName] = useState('')
   // The new customer's id, chosen when this opens: tapped twice, it is one customer.
   const [newCustomerId] = useState(() => newId())
@@ -237,6 +240,16 @@ function SaveModal({
         </div>
 
         <div className="px-6 py-5 space-y-5">
+          {knownCustomer && selectedCustomer ? (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2.5 flex items-center justify-between gap-2" data-save-known-customer>
+              <div>
+                <p className="text-xs text-gray-500">Quote for</p>
+                <p className="text-sm font-semibold text-gray-900">{selectedCustomer.firstName} {selectedCustomer.lastName}</p>
+                <p className="text-xs text-gray-500">{formatPhone(selectedCustomer.phone)}{selectedCustomer.serviceAddress ? ` · ${selectedCustomer.serviceAddress}` : ''}</p>
+              </div>
+              <button type="button" onClick={() => setKnownCustomer(false)} className="btn btn-quiet btn-sm shrink-0" data-save-change-customer>Change customer</button>
+            </div>
+          ) : <>
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
             <button onClick={() => setMode('search')} data-save-mode="search" className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'search' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
               Existing Customer
@@ -338,6 +351,7 @@ function SaveModal({
               </div>
             </div>
           )}
+          </>}
 
           <div>
             <label className="text-xs text-gray-500 mb-1.5 block font-medium">Quote Status</label>

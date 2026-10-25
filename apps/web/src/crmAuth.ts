@@ -195,13 +195,14 @@ export async function moveOverOldSignIn(): Promise<MoveOver> {
  * no signal, or the server restarting, keeps everything waiting to be sent for
  * when it can be reached again.
  */
-export async function checkSession(): Promise<{ kind: 'user'; user: CrmUser } | { kind: 'signed-out' } | { kind: 'offline' }> {
+export async function checkSession(): Promise<{ kind: 'user'; user: CrmUser } | { kind: 'signed-out' } | { kind: 'offline'; busy?: boolean }> {
   const moved = await moveOverOldSignIn()
   if (moved === 'offline') return { kind: 'offline' }
   try {
     const res = await fetch(`${AUTH_API}/me`, withApp())
     if (res.status === 401 || res.status === 403) { signedInUser = null; return { kind: 'signed-out' } }
-    if (!res.ok) return { kind: 'offline' }
+    // Reached, but too busy (429) or restarting (5xx): not a signal problem, and it tries again by itself.
+    if (!res.ok) return { kind: 'offline', busy: res.status === 429 || res.status >= 500 }
     const data = await res.json()
     if (!data.success) return { kind: 'offline' }
     signedInUser = data.data

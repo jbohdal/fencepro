@@ -11,7 +11,8 @@
 //      vendors, tiers) hold no cost field, no price field (price, job value,
 //      deposit, payment, balance, ...), no real unit cost and no dollar amount
 //      in any text; the money routes (payments, invoices, contracts, change
-//      orders, signed documents, quote pricing) refuse it. The Salesman's and
+//      orders, signed documents, the signed contract PDF, customer documents, the
+//      permit packet, quote pricing) and customers' messages refuse it. The Salesman's and
 //      the office's answers carry costs, as the owner's do.
 //   3. The Installer on a phone opens My installs, Operations and a job, Inventory
 //      and the schedule: every answer recorded is checked the same way, and no
@@ -126,12 +127,14 @@ try {
   }
   const dl = leaks(crewDirect)
   check('installer: no cost, no price, no real cost and no dollar amount in any answer', dl.length === 0, dl.slice(0, 5).join(' | '))
-  const money = [`/api/payments/job/${pricedJob?.id}`, '/api/invoices', `/api/change-orders?jobId=${pricedJob?.id}`, `/api/signed-documents?jobId=${pricedJob?.id}`, '/api/contracts']
+  // Papers with prices too (review, Oct 25, 2026): the signed contract PDF, customer documents, the permit packet.
+  const money = [`/api/payments/job/${pricedJob?.id}`, '/api/invoices', `/api/change-orders?jobId=${pricedJob?.id}`, `/api/signed-documents?jobId=${pricedJob?.id}`, '/api/contracts',
+    `/api/warranties/quote/${pricedJob?.quoteId ?? costed?.id}/contract.pdf`, `/api/documents?customerId=${pricedJob?.crmContactId ?? ''}`, `/api/automations/permits/${pricedJob?.id}/packet.pdf`, '/api/portal/messages/inbox']
   const refused = []
   for (const p of money) refused.push([p, (await call(crew.token, 'GET', p)).status])
   const qp = await call(crew.token, 'POST', '/api/quote-pricing', { request: { fenceStyle: "WV-ND 6'x8' Privacy", runs: [{ ft: 120, rail: 'auto' }], corners: 2, ends: 2, walkGates: 1, dblGates: 0, overrides: {}, jobType: 'new' } })
   refused.push(['/api/quote-pricing', qp.status])
-  check('installer: the money routes refuse it', refused.every(([, s]) => s === 403), JSON.stringify(refused))
+  check('installer: the money routes, papers with prices and customers\' messages refuse it', refused.every(([, s]) => s === 403), JSON.stringify(refused))
   for (const [who, t] of [['salesman', sales], ['office', office]]) {
     const i = (await call(t.token, 'GET', '/api/inventory-state')).text
     const q = (await call(t.token, 'GET', `/api/saved-quotes/${costed?.id}`)).json.data

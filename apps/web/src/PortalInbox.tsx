@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getPortalActivity } from './portalSync'
+import { getMessagesInbox, type InboxThread } from './portalStaffApi'
+import { getCustomerById } from './customerStore'
+import { navigate } from './nav'
 
 interface PortalTicket {
   id: string
@@ -20,15 +23,6 @@ interface PortalDocument {
   sizeBytes?: number
 }
 
-interface PortalChat {
-  id: string
-  customerName: string
-  status: string
-  ticketId?: string
-  messageCount: number
-  lastMessages: { role: string; body: string; createdAt: string }[]
-  updatedAt: string
-}
 
 interface PortalActivityItem {
   action: string
@@ -56,7 +50,8 @@ const PRIORITY_DOT: Record<string, string> = {
 export default function PortalInbox() {
   const [tickets, setTickets] = useState<PortalTicket[]>([])
   const [documents, setDocuments] = useState<PortalDocument[]>([])
-  const [chats, setChats] = useState<PortalChat[]>([])
+  // Customer messages: the same list as the chat bubble at the top (/api/portal/messages/inbox), one source (review, Oct 25, 2026).
+  const [chats, setChats] = useState<InboxThread[]>([])
   const [activity, setActivity] = useState<PortalActivityItem[]>([])
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -65,11 +60,11 @@ export default function PortalInbox() {
 
   const fetchData = useCallback(async () => {
     try {
-      const data = await getPortalActivity()
+      const [data, inbox] = await Promise.all([getPortalActivity(), getMessagesInbox().catch(() => null)])
+      if (inbox) setChats(inbox.threads)
       if (data) {
         setTickets(data.tickets)
         setDocuments(data.documents)
-        setChats(data.chats || [])
         setActivity(data.recentActivity)
         setConnected(true)
         setLastUpdated(new Date())
@@ -144,7 +139,7 @@ export default function PortalInbox() {
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
         {([
           { key: 'tickets' as const, label: `Tickets (${tickets.length})`, icon: '🎫' },
-          { key: 'chats' as const, label: `Chats (${chats.length})`, icon: '💬' },
+          { key: 'chats' as const, label: `Messages (${chats.length})`, icon: '💬' },
           { key: 'documents' as const, label: `Documents (${documents.length})`, icon: '📁' },
           { key: 'activity' as const, label: 'Activity Log', icon: '📋' },
         ]).map(t => (
@@ -247,44 +242,26 @@ export default function PortalInbox() {
             </div>
           )}
 
-          {/* Chats tab */}
+          {/* Customer messages: the customer's latest, unread ones first; opens the customer's Messages tab. */}
           {tab === 'chats' && (
-            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden" data-portal-messages>
               {chats.length === 0 ? (
-                <div className="px-6 py-12 text-center text-gray-400 text-sm">No chat conversations yet</div>
+                <div className="px-6 py-12 text-center text-gray-400 text-sm">No messages from customers yet</div>
               ) : (
                 <div className="divide-y divide-gray-50">
-                  {chats.map(c => {
-                    const isActive = c.status === 'active'
-                    const isEscalated = c.status === 'escalated'
+                  {[...chats].sort((a, b) => (b.unreadCustomerCount - a.unreadCustomerCount) || b.lastAt.localeCompare(a.lastAt)).map(t => {
+                    const c = getCustomerById(t.crmCustomerId)
+                    const name = c ? `${c.firstName} ${c.lastName}`.trim() : 'Customer'
                     return (
-                      <div key={c.id} className={`px-6 py-4 ${isActive ? 'bg-orange-50/30' : ''}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-gray-900">{c.customerName}</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                              isActive ? 'bg-green-100 text-green-700' :
-                              isEscalated ? 'bg-red-100 text-red-600' :
-                              'bg-gray-100 text-gray-500'
-                            }`}>
-                              {c.status}
-                            </span>
-                            {isEscalated && <span className="text-[10px] text-red-500">→ Ticket created</span>}
-                          </div>
-                          <span className="text-xs text-gray-400">{new Date(c.updatedAt).toLocaleString()}</span>
+                      <button key={t.crmCustomerId} type="button" data-portal-thread={t.crmCustomerId}
+                        onClick={() => { navigate(`/customers/${encodeURIComponent(t.crmCustomerId)}`); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('fencepro:select-customer', { detail: { customerId: t.crmCustomerId, tab: 'messages' } })) } catch { /* the page is going away */ } }, 50) }}
+                        className={`w-full text-left px-6 py-4 hover:bg-gray-50 ${t.unreadCustomerCount ? 'bg-orange-50/40' : ''}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-gray-900">{name}{t.unreadCustomerCount ? <span className="ml-2 text-[11px] px-2 py-0.5 rounded-full bg-orange-500 text-white">{t.unreadCustomerCount} new</span> : null}</span>
+                          <span className="text-xs text-gray-500">{new Date(t.lastAt).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                         </div>
-                        {/* Show last messages as a mini thread */}
-                        <div className="space-y-1 ml-2 border-l-2 border-gray-100 pl-3">
-                          {[...c.lastMessages].reverse().map((m, i) => (
-                            <div key={i} className="text-xs">
-                              <span className={`font-semibold ${m.role === 'customer' ? 'text-orange-600' : m.role === 'agent' ? 'text-blue-600' : 'text-gray-500'}`}>
-                                {m.role === 'customer' ? 'Customer' : m.role === 'agent' ? 'Agent' : 'AI'}:
-                              </span>{' '}
-                              <span className="text-gray-600">{m.body}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                        <p className="text-sm text-gray-700 truncate mt-1">{t.lastSender === 'customer' ? '' : 'You: '}{t.lastBody}</p>
+                      </button>
                     )
                   })}
                 </div>

@@ -248,6 +248,13 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     }
     // The Installer's notes came with dollar amounts left out: they go back in as saved (lib/costRedact.ts).
     if (hidesPrices(roleOf(req)) && typeof data.notes === 'string') data.notes = withMoneyBack(data.notes, existing.notes ?? '')
+    // The Installer changes his job's notes only: moving the stage, holding, the status and the rest are the
+    // office's (review, Oct 25, 2026). A move or hold is refused; anything else his phone sends back is left as saved.
+    if (hidesPrices(roleOf(req))) {
+      const moved = (['opsStage', 'status', 'holdReason'] as const).some(k => (data as any)[k] !== undefined && String((data as any)[k] ?? '') !== String((existing as any)[k] ?? ''))
+      if (moved) { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Your role cannot move or hold jobs. Ask the office.', data: existing }); return }
+      for (const k of Object.keys(data)) if (k !== 'notes') delete (data as any)[k]
+    }
     // A rep already on the job stays when a blank one is sent (an older copy); a job with none takes its quote's (lib/salesRep.ts).
     if (data.salesRep !== undefined && !data.salesRep.trim()) {
       if (existing.salesRep?.trim()) delete (data as any).salesRep

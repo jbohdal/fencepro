@@ -22,6 +22,7 @@
  *   GET    /notifications  PATCH /notifications/:id/read  POST /notifications/read-all
  */
 
+import { refuseNoPrices } from '../lib/costRedact.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import fs from 'fs'
@@ -469,7 +470,8 @@ router.post('/permits/:jobId/parcel', requireCan('permits.change'), async (req: 
   } catch (err) { fail(res, err, 'look up the parcel') }
 })
 
-router.get('/permits/:jobId/packet.pdf', async (req: any, res) => {
+// The permit packet carries the job's value: never the Installer's.
+router.get('/permits/:jobId/packet.pdf', refuseNoPrices, async (req: any, res) => {
   try {
     const job = await jobOf(req)
     if (!job) { res.status(404).json({ success: false, error: 'Job not found' }); return }

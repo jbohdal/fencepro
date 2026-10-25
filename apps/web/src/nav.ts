@@ -125,7 +125,18 @@ export function startNav(initialUrl?: string) {
   }
   write('replace', { ez: 1, i: index, depth: 0, screen: prev?.screen, scroll: prev?.scroll, from: prev?.from }, url.pathname + url.search + url.hash)
   window.addEventListener('popstate', onPop)
+  window.addEventListener('keydown', onEscape)
   emit()
+}
+
+/** Windows that Escape closes on a computer, like Back (review, Oct 25, 2026): the card window and the quote window. */
+const ESCAPE_CLOSES = new Set(['card', 'qv'])
+function onEscape(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || e.defaultPrevented) return
+  const top = [...layers].sort((a, b) => b.depth - a.depth)[0]
+  if (!top || !ESCAPE_CLOSES.has(top.key) || top.entryI === null) return
+  e.preventDefault()
+  window.history.back()
 }
 
 /** A window param the app was opened with, handed out once. */

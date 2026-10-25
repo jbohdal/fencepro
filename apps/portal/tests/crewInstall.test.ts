@@ -11,18 +11,20 @@ import { onceEach } from '../src/server/routes/installPacket'
 import { crewDays } from '../../web/src/crewDays'
 
 describe("the customer's notes, for the crew", () => {
-  test('the customer record\'s notes and the website\'s "Customer notes:" line; never a price; each once', () => {
+  test('the customer record\'s notes and the website\'s "Customer notes:" line; amounts masked; each once', () => {
     const notes = customerNotesFrom('Keep the side gate shut\nQuoted $5,000 cash\n\n', [
       'Website, drawn by customer\nEstimate shown to the customer: $7,762\nCustomer notes: Need it done before Thanksgiving, have 2 dogs.',
       'customer note: have 2 dogs',
       'Customer notes: keep the side gate shut',
       null,
     ])
-    expect(notes).toEqual(['Keep the side gate shut', 'Need it done before Thanksgiving, have 2 dogs.', 'have 2 dogs'])
+    expect(notes).toEqual(['Keep the side gate shut', 'Quoted $ (left out) cash', 'Need it done before Thanksgiving, have 2 dogs.', 'have 2 dogs'])
+    // A line with an amount is kept, the amount masked (review, Oct 25, 2026).
+    expect(customerNotesFrom(null, ['Customer notes: Have 2 dogs, keep side gate shut. Budget about $4000.'])).toEqual(['Have 2 dogs, keep side gate shut. Budget about $ (left out).'])
   })
   test('nothing on file: none', () => {
     expect(customerNotesFrom(null, [])).toEqual([])
-    expect(customerNotesFrom('', ['Estimate shown: $100'])).toEqual([])
+    expect(customerNotesFrom('', ['Estimate shown: $100'])).toEqual([])   // not a "Customer notes:" line
   })
 })
 
@@ -71,5 +73,34 @@ describe("whose tasks Today lists", () => {
     expect(sales.OR).toHaveLength(4)
     expect(sales.OR[3]).toEqual({ AND: [{ OR: [{ assignedTo: null }, { assignedTo: '' }] }, { assignedRole: 'sales_rep' }] })
     expect(sales.OR.slice(0, 3).map((x: any) => x.assignedTo.equals)).toEqual(['christa@x.com', 'Christa Feagin', 'Christa'])
+  })
+})
+
+describe('review round 1 (c): the installer', () => {
+  test('the packet says the panel size each run really has, not the price rule', async () => {
+    const { panelWords } = await import('../src/server/routes/installPacket')
+    const style = 'White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig'
+    expect(panelWords(style, [{ label: 'Back', spacing: `7' 11 1/2"` }, { label: 'Left', spacing: `8' 0"` }])).toBe('White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
+    expect(panelWords(style, [{ label: 'Back', spacing: `7' 10"` }, { label: 'Right', spacing: `5' 11"` }])).toBe('White Vinyl Privacy, 6 ft tall, 6 and 8 ft panels (8 ft on Back; 6 ft on Right), No dig')
+    expect(panelWords('White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig', [])).toBe('White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
+  })
+  test('a money milestone ("Invoice Sent") is the office\'s; his own milestones are not', async () => {
+    const { moneyMilestoneChanged, businessPatchRefusal } = await import('../src/server/lib/permissions')
+    const before = { j1: [{ id: 'a', label: 'Job Started', isComplete: false }, { id: 'b', label: 'Invoice Sent', isComplete: false }] }
+    const started = { j1: [{ id: 'a', label: 'Job Started', isComplete: true }, { id: 'b', label: 'Invoice Sent', isComplete: false }] }
+    const invoiced = { j1: [{ id: 'a', label: 'Job Started', isComplete: false }, { id: 'b', label: 'Invoice Sent', isComplete: true }] }
+    expect(moneyMilestoneChanged(before, started)).toBe(false)
+    expect(moneyMilestoneChanged(before, invoiced)).toBe(true)
+    expect(businessPatchRefusal('field_crew', 'u', { jobChecklists: before }, { jobChecklists: invoiced })).toBe('billing.change')
+    expect(businessPatchRefusal('office_staff', 'u', { jobChecklists: before }, { jobChecklists: invoiced })).toBeNull()
+  })
+  test("his records: his installs' customers, jobs, quotes, cards and appointments only", async () => {
+    const { inScope } = await import('../src/server/lib/crewScope')
+    const s = { userId: 'me', jobIds: new Set(['j1']), contactIds: new Set(['c1']), quoteIds: new Set(['q1']) }
+    expect([inScope('contacts', s, { id: 'c1' }), inScope('contacts', s, { id: 'c2' })]).toEqual([true, false])
+    expect([inScope('jobs', s, { id: 'j1' }), inScope('jobs', s, { id: 'j2' })]).toEqual([true, false])
+    expect([inScope('quotes', s, { id: 'q1' }), inScope('quotes', s, { id: 'q2', crmContactId: 'c2' })]).toEqual([true, false])
+    expect([inScope('pipeline', s, { customerId: 'c1' }), inScope('pipeline', s, { customerId: 'c9' })]).toEqual([true, false])
+    expect([inScope('appointments', s, { crmContactId: 'c1' }), inScope('appointments', s, { crmContactId: 'c9', assignedToUserId: 'me' }), inScope('appointments', s, { crmContactId: 'c9' })]).toEqual([true, true, false])
   })
 })

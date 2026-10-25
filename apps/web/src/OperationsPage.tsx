@@ -25,7 +25,7 @@ import { getJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
 import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, pickable, useOpsStages } from './opsStagesStore'
 import { ChangeOrderPanel, ChangeOrderButton, JobTimeline } from './ChangeOrders'
-import { can } from './permissions'
+import { can, isCrewLogin } from './permissions'
 import { archiveRecord, deleteRecord } from './recordArchive'
 import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
 import { loadSchedule } from './scheduleStore'
@@ -135,11 +135,12 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   if (stage && !choices.some(s => s.id === stage.id)) choices.push(stage)
   const isJobSource = job.source === 'job'
   const seesPrices = can('prices.view')
+  const crew = isCrewLogin()
   // A repair or move job: its items from the quote (moveRepair.ts workScope).
   const scope = workScope(job.rawJob?.quoteId ? (getQuotes().find(q => q.id === job.rawJob!.quoteId) as { work?: SavedWork | null } | undefined)?.work : null)
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full lg:w-[480px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col overflow-hidden">
+    <div className="fixed inset-y-0 right-0 w-full lg:w-[480px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col overflow-hidden" data-job-panel={job.id}>
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
         <div>
@@ -207,6 +208,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
 
         {/* Operations Status */}
         <Section title="Operations Stage">
+          {/* The Installer sees the stage; moving it is the office's. */}
+          {crew ? <p className="text-sm text-gray-800" data-ops-stage-readonly>{stage?.name ?? job.opsStageLabel}</p> : (
           <div className="flex flex-wrap gap-1">
             {choices.map(s => (
               <button key={s.id} onClick={() => onMoveStage(s.id)} disabled={!isJobSource || job.opsStage === s.id} data-ops-stage-choice={s.id}
@@ -218,6 +221,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
               </button>
             ))}
           </div>
+          )}
         </Section>
 
         {isJobSource && (
@@ -234,7 +238,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {/* The Installer sees the work, never a price (Jonathan, Oct 25, 2026): no payments, contract, change orders or history of them. */}
         {isJobSource && seesPrices && <Section title="Payments"><PaymentsPanel jobId={job.id} /></Section>}
         {/* Warranty and service requests on this fence (ServiceRequests.tsx). */}
-        {isJobSource && <Section title="Warranty and service"><div className="space-y-2" data-job-service><ServiceRequestButton jobId={job.id} /><ServiceTicketList jobId={job.id} title="Requests on this job" /></div></Section>}
+        {isJobSource && <Section title="Warranty and service"><div className="space-y-2" data-job-service>{!crew && <ServiceRequestButton jobId={job.id} />}<ServiceTicketList jobId={job.id} title="Requests on this job" /></div></Section>}
         {/* The warranty it was signed with, its dates, and whether service calls on it are covered. */}
         {isJobSource && job.rawJob && <JobWarranty job={job.rawJob} />}
         {/* The signed contract and signed change orders of this job, as stored at signing (SignedDocuments.tsx). */}
@@ -247,7 +251,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           </Section>
         )}
 
-        {isJobSource && <Section title="Permit"><PermitPanel jobId={job.id} /></Section>}
+        {isJobSource && !crew && <Section title="Permit"><PermitPanel jobId={job.id} /></Section>}
         {isJobSource && <AutomationRunLog entityId={job.id} />}
 
         {/* Readiness Checklist */}
@@ -302,8 +306,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {isJobSource && <JobArchiveDelete job={job} onClose={onClose} />}
       </div>
 
-      {/* Footer actions */}
-      {isJobSource && (
+      {/* Footer actions: the office's (stage moves and hold); the Installer has his own Start / Finish on My installs. */}
+      {isJobSource && !crew && (
         <div className="px-6 py-4 border-t border-gray-200 flex gap-2">
           {inSideLane ? (
             <button onClick={onUnhold} className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium">Resume</button>
@@ -395,8 +399,12 @@ function CheckItem({ label, done, detail }: { label: string; done: boolean; deta
 import { getChecklistForJob, toggleChecklistItem, type ChecklistItem } from './checklistStore'
 import { toast } from './toast'
 
+/** Milestones about money (invoice, payment, deposit, contract): the office's, never on the Installer's list. */
+const MONEY_MILESTONE = /invoice|paid|payment|deposit|contract|balance/i
+
 function MilestoneChecklist({ jobId }: { jobId: string }) {
-  const [items, setItems] = useState<ChecklistItem[]>([])
+  const [rawItems, setItems] = useState<ChecklistItem[]>([])
+  const items = isCrewLogin() ? rawItems.filter(i => !MONEY_MILESTONE.test(i.label)) : rawItems
   const [busyId, setBusyId] = useState<string | null>(null)
 
   function reload() { setItems(getChecklistForJob(jobId)) }

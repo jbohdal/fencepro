@@ -7,11 +7,14 @@
  * read them back. Nothing about money is here.
  *
  * The customer's notes ("have 2 dogs") come from the customer record's notes
- * and the "Customer notes:" line of a website quote's note. A line with a
- * dollar amount is left out: the crew never sees a price.
+ * and the "Customer notes:" line of a website quote's note. A dollar amount in
+ * a line is shown as "$ (left out)" (lib/costRedact.ts): the crew never sees a
+ * price, and never loses the rest of the line ("Have 2 dogs ... Budget about
+ * $4000." kept the dogs; review, Oct 25, 2026).
  */
 
 import prisma from './prisma.js'
+import { withoutMoney } from './costRedact.js'
 
 export type InstallTimeKind = 'start' | 'finish'
 export interface InstallTime { kind: InstallTimeKind; at: string; by: string; day: string }
@@ -22,8 +25,6 @@ const SAID: Record<InstallTimeKind, string> = { start: 'Install started', finish
 /** YYYY-MM-DD in Florida. */
 export const floridaYmd = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
-/** A line the crew may see: not empty, no dollar amount. */
-const crewSafe = (line: string) => !!line.trim() && !/\$\s*\d/.test(line)
 
 /**
  * What the customer told us, for the crew packet and the installer: the
@@ -32,7 +33,7 @@ const crewSafe = (line: string) => !!line.trim() && !/\$\s*\d/.test(line)
  */
 export function customerNotesFrom(contactNotes: string | null | undefined, noteBodies: Array<string | null | undefined>): string[] {
   const out: string[] = []
-  const add = (s: string) => { const t = s.trim().replace(/\s+/g, ' '); if (crewSafe(t) && !out.some(x => x.toLowerCase() === t.toLowerCase())) out.push(t) }
+  const add = (s: string) => { const t = withoutMoney(s.trim().replace(/\s+/g, ' ')); if (t && !out.some(x => x.toLowerCase() === t.toLowerCase())) out.push(t) }
   for (const line of String(contactNotes ?? '').split('\n')) add(line)
   for (const body of noteBodies) {
     for (const line of String(body ?? '').split('\n')) {

@@ -1,4 +1,5 @@
 import type { QuoteProposal } from './proposal'
+import { dayWords } from './businessDate'
 import ScreenErrorBoundary from './ScreenErrorBoundary'
 import { formatPhone } from './phoneFormat'
 import PhoneLink from './PhoneLink'
@@ -322,7 +323,7 @@ function QuoteDrawer({
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900 text-lg">{quote.customerName}</h2>
-            <p className="text-sm text-gray-400">{styleLabel(quote.fenceStyle)} · {quote.sections} sections · {quote.date}</p>
+            <p className="text-sm text-gray-400">{styleLabel(quote.fenceStyle)} · {quote.sections} sections · {dayWords(quote.date)}</p>
           </div>
           <div className="flex items-center gap-2">
             <POButton quote={quote} />
@@ -638,7 +639,7 @@ export default function QuotesPage({
                     <FlameRating value={q.leadTemp ?? 0} onChange={v => handleTempChange(q.id, v)} />
                   </td>
                   <td className="px-4 py-3 text-right text-gray-500 text-xs" data-label="Rep">{q.salesRep || '—'}</td>
-                  <td className="px-4 py-3 text-right text-gray-400 text-xs" data-label="Date">{q.date}</td>
+                  <td className="px-4 py-3 text-right text-gray-400 text-xs" data-label="Date">{dayWords(q.date)}</td>
                   <td className="px-4 py-3 text-right" data-label="Status">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[q.status]}`}>{q.status}</span>
                     <EngagementIndicator quote={q} />

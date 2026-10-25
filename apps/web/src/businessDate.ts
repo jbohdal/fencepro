@@ -19,3 +19,19 @@ export function businessDate(value: string | Date | null | undefined): string {
   const d = value instanceof Date ? value : new Date(value)
   return Number.isNaN(d.getTime()) ? '' : dayFormat.format(d)
 }
+
+/**
+ * A day for people: "Fri, Oct 23" (this year) or "Fri, Oct 23, 2025". A
+ * record's YYYY-MM-DD (or an ISO time, read as the Florida day) is shown this
+ * way everywhere instead of "2026-10-23" (review, Oct 25, 2026). Anything else
+ * comes back as it was.
+ */
+export function dayWords(value: string | Date | null | undefined, now = new Date()): string {
+  if (!value) return ''
+  const ymd = businessDate(value)
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd)
+  if (!m) return typeof value === 'string' ? value : ''
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12)
+  const sameYear = Number(m[1]) === Number(businessDate(now).slice(0, 4))
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) })
+}

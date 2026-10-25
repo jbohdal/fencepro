@@ -18,6 +18,7 @@
  * Nothing is sent to a customer from here: the office's phone sends the text.
  */
 
+import { refuseCrewWith } from '../lib/crewScope.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
@@ -100,7 +101,8 @@ const createSchema = z.object({
   notes: z.string().trim().max(2000).default(''),
 })
 
-router.post('/', async (req: any, res) => {
+// Booking a service call is the office's and the sales side's, not the Installer's (review, Oct 25, 2026).
+router.post('/', refuseCrewWith('Service calls are booked by the office. Tell the office what you saw.'), async (req: any, res) => {
   try {
     const b = createSchema.parse(req.body)
     const t = await createTicket(req.user.crmAccountId, await actorOf(req), b)
