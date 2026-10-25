@@ -90,6 +90,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     await prisma.permit.deleteMany({ where: { accountId } })
     await prisma.installPacket.deleteMany({ where: { accountId } })
     await prisma.scheduledGridJob.deleteMany({ where: { accountId } })
+    await prisma.changeOrder.deleteMany({ where: { accountId } })
+    await prisma.activityLog.deleteMany({ where: { entityId: { in: jobs } } })
     await prisma.scheduleSettings.deleteMany({ where: { accountId } })
     await prisma.automationEvent.deleteMany({ where: { accountId } })
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: [...jobs, ...pays.map(p => p.id)] } } })
@@ -186,16 +188,49 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     const d = await call('POST', '/api/payments', { id: `jtpay${Date.now().toString(36)}a`, jobId: ids.job, amountCents: 355692, method: 'check', checkNumber: '101' })
     expect(d.status).toBe(201)
     expect((await prisma.savedJob.findUnique({ where: { id: ids.job } }))?.status).toBe('staging')
-    // The rest: the job closes out.
+    // Paid in full and signed off, but never installed (its crew days are in 2099): not Complete; the owner is asked.
     const f = await call('POST', '/api/payments', { id: `jtpay${Date.now().toString(36)}b`, jobId: ids.job, amountCents: 355691, method: 'check', checkNumber: '102' })
     expect(f.status).toBe(201)
+    expect((await prisma.savedJob.findUnique({ where: { id: ids.job } }))?.status).toBe('staging')
+    expect((await call('GET', `/api/saved-jobs/${ids.job}/milestones`)).json.data.closeOut).toBe('mark_installed')
+    // The install happened (the crew tapped Finish): it closes out.
+    const { recordInstallTime } = await import('../src/server/lib/crewInstall.js')
+    await recordInstallTime(ids.job, 'finish', 'Crew test')
+    expect(await truth.closeOutIfDone(accountId, ids.job, 'finish tapped')).toMatchObject({ moved: true })
     const job = await prisma.savedJob.findUnique({ where: { id: ids.job } })
     expect(job).toMatchObject({ status: 'completed', opsStage: 'completed', paymentStatus: 'paid' })
     expect(job?.completedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     const leads = (await prisma.pipelineState.findUnique({ where: { accountId } }))?.leads as any[]
-    expect(leads.find(l => l.id === `card-${tag}`)?.stage).toBe('Job Complete')
+    // Paid in full and done: the last Sold, work done stage (Paid & Closed on the start list).
+    expect(leads.find(l => l.id === `card-${tag}`)?.stage).toBe('Paid & Closed')
     // Again: nothing more happens.
     expect(await truth.closeOutIfDone(accountId, ids.job, 'again')).toEqual({ moved: false, why: 'already done' })
+  })
+
+  test('the sales card follows the job: Job Prep while staging, Pending Start once scheduled', async () => {
+    const { stages } = await (await import('../src/server/lib/pipelineStages.js')).loadPipelineStages(accountId)
+    expect(truth.cardStageForJob(stages, { status: 'staging' }, false)).toBe('Job Prep')
+    expect(truth.cardStageForJob(stages, { status: 'scheduled' }, false)).toBe('Pending Start')
+    expect(truth.cardStageForJob(stages, { status: 'in_progress' }, false)).toBe('Jobs In Progress')
+    expect(truth.cardStageForJob(stages, { status: 'completed' }, false)).toBe('Job Complete')
+    expect(truth.cardStageForJob(stages, { status: 'paid' }, true)).toBe('Paid & Closed')
+  })
+
+  test('the crew packet carries the approved change order, whoever builds it', async () => {
+    const { withSignedWork } = await import('../src/server/routes/installPacket.js')
+    const original = { footageFt: 150, sections: 17, pullSheet: [{ item: 'Tension bar', qty: 12 }], gates: ['1 double gate'], runs: [{ label: 'Run 1', length: '150 ft', sections: 17, spacing: '' }] }
+    // No change order: as sent.
+    expect(await withSignedWork(accountId, ids.quote, original)).toEqual(original)
+    await prisma.changeOrder.create({ data: { accountId, quoteId: ids.quote, number: 1, status: 'approved', approvedAt: new Date(), totalCents: 74900,
+      work: { fenceStyle: "TV-ND 6'x8' Privacy", footage: 170, sections: 19, runs: [150, 20], walkGates: 1, dblGates: 1, layout: { runSections: [17, 2] }, pullSheet: [{ item: 'Tension bar', qty: 16 }, { item: 'Price line', qty: 1, moneyOnly: true }] } as any } })
+    const made = await withSignedWork(accountId, ids.quote, original)
+    expect(made).toMatchObject({ footageFt: 170, sections: 19, gates: ['1 walk gate', '1 double gate'], pullSheet: [{ item: 'Tension bar', qty: 16 }], changeOrder: 1 })
+    // The office's snapshot already has the change: left as sent.
+    const office = { ...original, footageFt: 170, sections: 19, pullSheet: [{ item: 'Tension bar', qty: 16 }] }
+    expect(await withSignedWork(accountId, ids.quote, office)).toEqual(office)
+    // Never a price: only items and quantities.
+    expect(JSON.stringify(made)).not.toMatch(/cost|price|cents/i)
+    await prisma.changeOrder.deleteMany({ where: { accountId } })
   })
 
   test('a quoted cost saved for another option is replaced by the signed one\'s', async () => {

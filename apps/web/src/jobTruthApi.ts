@@ -10,7 +10,7 @@ import { sendJson } from './syncHttp'
 import type { Milestone } from '../../portal/src/server/lib/jobReadiness'
 
 export type { Milestone }
-export interface JobMilestones { milestones: Milestone[]; complete: number; total: number }
+export interface JobMilestones { milestones: Milestone[]; complete: number; total: number; closeOut?: 'mark_installed' | null }
 
 /** Fired after anything that can change a job's milestones (a locate, a permit, a tick). */
 export const MILESTONES_EVENT = 'ezbiz:milestones:changed'

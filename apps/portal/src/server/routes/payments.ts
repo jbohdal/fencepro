@@ -38,7 +38,7 @@ import {
 } from '../lib/contractBilling.js'
 import { METHODS } from '../lib/paymentMath.js'
 import { isSignedQuote } from '../lib/quoteLock.js'
-import { closeOutIfDone, receivables } from '../lib/jobTruth.js'
+import { closeOutIfDone, receivables, cardFollowsJob } from '../lib/jobTruth.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -136,6 +136,8 @@ router.post('/', requireCan('payments.record'), async (req: any, res) => {
       if (body.email?.to && out.receipt) email = await emailReceipt(accountId, out.receipt.id, body.email.to, body.email.link, by).catch(e => ({ status: 'failed', error: (e as Error).message }))
       // Paid in full with the final walkthrough signed: the job moves to Complete by itself (lib/jobTruth.ts).
       await closeOutIfDone(accountId, out.payment.jobId, 'final payment recorded')
+      // Paid in full on a finished job: its card to the last Sold, work done stage (Paid & Closed).
+      await cardFollowsJob(accountId, out.payment.jobId)
     }
     const receipt = out.receipt ? await prisma.receipt.findUnique({ where: { id: out.receipt.id } }) : null
     res.status(out.created ? 201 : 200).json({ success: true, data: { payment: out.payment, receipt: receipt ? receiptView(receipt) : null, email, again: !out.created, schedule: await scheduleView(accountId, out.payment.jobId) } })

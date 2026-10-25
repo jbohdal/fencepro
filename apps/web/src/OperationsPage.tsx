@@ -260,7 +260,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
 
         {/* The milestones, from the job's records: the locate, the permit, materials, the schedule, the walkthrough, photos, the payment schedule (portal lib/jobReadiness.ts). */}
         <Section title="Milestone Checklist">
-          {isJobSource && job.rawJob ? <JobMilestones job={job.rawJob} /> : <p className="text-xs text-gray-400">Only available for Job records.</p>}
+          {isJobSource && job.rawJob ? <JobMilestones job={job.rawJob} onMarkInstalled={() => { const done = getCompleteOpsStage(); if (done) onMoveStage(done.id) }} /> : <p className="text-xs text-gray-400">Only available for Job records.</p>}
         </Section>
 
         {/* What the milestones do not cover. */}

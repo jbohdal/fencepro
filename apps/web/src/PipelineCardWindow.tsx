@@ -20,6 +20,13 @@
  * Its address is ?card=<lead id>, so Back closes it and a reload reopens it.
  */
 
+import { getJobs } from './jobStore'
+/** The fullest of a few addresses for one place (the longest one written; stored data is never rewritten). */
+const fullestAddress = (list: Array<string | null | undefined>) => list.map(a => (a || '').trim()).filter(Boolean).reduce((best, a) => (a.length > best.length ? a : best), '')
+import TextButton from './TextButton'
+import { isDonePhase } from './opsStageModel'
+/** "Fri, Oct 24, 2026" */
+const installedWords = (d: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d); return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : d }
 import { stageName } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
 import { formatPhone, telHref } from './phoneFormat'
@@ -46,7 +53,7 @@ import { ChangeOrderButton, isSignedForChange } from './ChangeOrders'
 import { PastCustomerBadge, ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
 import { getJobByQuoteId, type Job } from './jobStore'
 import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
-import { loadSchedule } from './scheduleStore'
+import { loadSchedule, crewName } from './scheduleStore'
 import { can } from './permissions'
 
 const fmtUSD = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -74,7 +81,9 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
   const customer = lead.customerId ? getCustomerById(lead.customerId) : null
   const name = `${lead.firstName} ${lead.lastName}`.trim() || 'Customer'
   const phone = lead.phone || customer?.phone || ''
-  const address = lead.address || customer?.serviceAddress || ''
+  // The fullest address on record: the job's (as signed), else the customer's, else what the card was typed with
+  // (Manuel's card read "1301 silver springs" next to the job's "1301 SE Silver Springs Pl, Ocala, FL 34471").
+  const address = fullestAddress([getJobs().find(j => (lead.quoteId && j.quoteId === lead.quoteId) || (lead.customerId && j.customerId === lead.customerId))?.customerAddress, customer?.serviceAddress, lead.address])
 
   // Notes live with the customer record on the server.
   const [notes, setNotes] = useState<CrmContactNoteRecord[] | null>(null)
@@ -155,7 +164,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
           {lead.customerId && <div className="space-y-2 empty:hidden" data-card-service><ServiceRequestButton customerId={lead.customerId} /><ServiceTicketList customerId={lead.customerId} /></div>}
           <div className="grid grid-cols-4 gap-2">
             <a href={phone ? telHref(phone) : undefined} onClick={startCall} className={`${action} ${phone ? '' : off}`} data-card-call><Phone size={20} aria-hidden="true" />Call</a>
-            <a href={phone ? smsLink(phone, '') : undefined} onClick={startText} className={`${action} ${phone ? '' : off}`} data-card-text><MessageSquare size={20} aria-hidden="true" />Text</a>
+            <TextButton phone={phone} customerId={lead.customerId} firstName={lead.firstName} name={name} onTap={startText} className={`${action} ${phone ? '' : off}`} data-card-text><MessageSquare size={20} aria-hidden="true" />Text</TextButton>
             <a href={address ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}` : undefined} target="_blank" rel="noreferrer" className={`${action} ${address ? '' : off}`} data-card-navigate><Navigation size={20} aria-hidden="true" />Navigate</a>
             <button type="button" onClick={onBook} className={`${action} text-center leading-tight`} data-card-book-appt><CalendarPlus size={20} aria-hidden="true" />Book appointment</button>
           </div>
@@ -231,10 +240,12 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
               {soldJobs.map(j => (
                 <div key={j.id} className="space-y-2" data-card-install-job={j.id}>
                   <p className="text-sm text-gray-800">
-                    {j.scheduledDate ? <>Scheduled: <span className="font-semibold">{bookedWords(j.scheduledDate, j.scheduledEndDate, loadSchedule().settings.workDays)}</span>{j.crewAssigned ? `, ${j.crewAssigned}` : ''}</> : 'Not scheduled yet.'}
+                    {/* A job whose work is done says when it was installed, never a date still ahead (Oct 25 2026: Maria, installed 10/24, read "Scheduled: Thu 10/29"). */}
+                    {isDonePhase(j.status) ? <>Installed{j.completedDate ? <> <span className="font-semibold" data-card-installed={j.completedDate}>{installedWords(j.completedDate)}</span></> : ''}{j.crewAssigned ? `, ${crewName(j.crewAssigned)}` : ''}</>
+                      : j.scheduledDate ? <>Scheduled: <span className="font-semibold">{bookedWords(j.scheduledDate, j.scheduledEndDate, loadSchedule().settings.workDays)}</span>{j.crewAssigned ? `, ${crewName(j.crewAssigned)}` : ''}</> : 'Not scheduled yet.'}
                     {soldJobs.length > 1 && <span className="block text-xs text-gray-600">{styleLabel(j.fenceStyle)}</span>}
                   </p>
-                  {can('schedule.change') && <ScheduleInstallButton jobId={j.id} scheduledDate={j.scheduledDate} />}
+                  {can('schedule.change') && !isDonePhase(j.status) && <ScheduleInstallButton jobId={j.id} scheduledDate={j.scheduledDate} />}
                 </div>
               ))}
             </section>

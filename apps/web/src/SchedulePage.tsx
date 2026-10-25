@@ -35,7 +35,8 @@ export function datedJobsWithoutEntries(all: Job[], entries: ScheduledJob[], set
   const week = crewDaysOfWeek(settings.workDays)
   const out: ScheduledJob[] = []
   for (const j of all) {
-    if (booked.has(j.id) || !/^\d{4}-\d{2}-\d{2}$/.test(j.scheduledDate || '') || j.status === 'on_hold') continue
+    // Done (installed, invoiced, paid): its install date is history, never shown as days ahead (Maria, installed 10/24, dated 10/29).
+    if (booked.has(j.id) || !/^\d{4}-\d{2}-\d{2}$/.test(j.scheduledDate || '') || j.status === 'on_hold' || ['completed', 'invoiced', 'paid'].includes(j.status)) continue
     const end = /^\d{4}-\d{2}-\d{2}$/.test(j.scheduledEndDate || '') && j.scheduledEndDate! >= j.scheduledDate ? j.scheduledEndDate! : null
     let days = crewDaysFrom(j.scheduledDate, end ? 60 : Math.max(1, j.estimatedDays || 1), week)
     if (end) days = days.filter(d => d <= end)

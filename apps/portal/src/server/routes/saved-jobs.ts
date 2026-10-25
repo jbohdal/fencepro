@@ -35,7 +35,7 @@ import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage } from '../lib
 import { floridaDay } from '../lib/automations/context.js'
 import { jobTotalsFor } from '../lib/changeOrders.js'
 import { afterJobSaved } from '../lib/contractBilling.js'
-import { saveLocate, jobMilestones, milestoneSummary, setHandTick } from '../lib/jobTruth.js'
+import { saveLocate, jobMilestones, milestoneSummary, setHandTick, cardFollowsJob } from '../lib/jobTruth.js'
 
 const router = Router()
 
@@ -233,6 +233,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     await ensureJobChecklist(req.user.crmAccountId, created.id).catch(err => console.error('[saved-jobs] checklist:', err))
     // A job for a signed quote gets its payment schedule from the contract (lib/contractBilling.ts).
     await afterJobSaved(req.user.crmAccountId, created.id, { userId: req.user.id ?? null, name: req.user.email ?? '' })
+    // The sales card follows the job (Job Prep, Pending Start, ... by Settings > Pipeline Stages; lib/jobTruth.ts).
+    await cardFollowsJob(req.user.crmAccountId, created.id)
     res.status(201).json({ success: true, data: created })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -313,6 +315,7 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     await audit(req, 'update', 'SavedJob', updated.id, { oldValues: existing, newValues: updated })
     // The payment schedule: made if the quote is signed now, and the Final due on the install date (lib/contractBilling.ts).
     await afterJobSaved(req.user.crmAccountId, updated.id, { userId: req.user.id ?? null, name: req.user.email ?? '' })
+    await cardFollowsJob(req.user.crmAccountId, updated.id)
     res.json({ success: true, data: updated })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }

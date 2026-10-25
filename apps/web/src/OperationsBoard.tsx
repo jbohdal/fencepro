@@ -408,8 +408,9 @@ export default function OperationsBoard() {
     if (laneKey === UNSCHEDULED_KEY) {
       return sortJobs(filtered.filter(j => !j.scheduledDate && !isDoneStage(j.opsStage)))
     }
-    // exclude unscheduled from the regular lanes (they're shown only in the Unscheduled lane)
-    return sortJobs(filtered.filter(j => j.opsStage === laneKey && j.scheduledDate))
+    // exclude unscheduled from the regular lanes (they're shown only in the Unscheduled lane); a finished job is in its
+    // stage's lane with or without a date (Oct 25 2026: a job completed with no install date was in no column).
+    return sortJobs(filtered.filter(j => j.opsStage === laneKey && (j.scheduledDate || isDoneStage(j.opsStage))))
   }
 
   const columns: KanbanColumn<UnifiedJob>[] = laneOrder.map(lane => {

@@ -7,6 +7,7 @@
  *   /api/schedule/rain-log           — append only RainDay log
  */
 
+import { cardFollowsJob } from '../lib/jobTruth.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
@@ -505,6 +506,7 @@ router.post('/install', requireCan('schedule.change'), async (req: any, res) => 
     const b = z.object({ jobId: z.string().min(1), start: day, crew: z.string().optional().nullable(), days: z.number().int().min(1).max(60).optional().nullable(), allowWeekend: z.boolean().optional() }).parse(req.body)
     const accountId = req.user.crmAccountId
     const r = await scheduleInstall(accountId, { accountId, userId: req.user.id ?? null }, b)
+    await cardFollowsJob(accountId, r.job.id)
     await audit(req, 'update', 'SavedJob', r.job.id, { newValues: { scheduledDate: r.days[0], scheduledEndDate: r.days[r.days.length - 1], crewAssigned: r.crew.name, opsStage: r.job.opsStage, days: r.days } })
     // The Final's due date and the payment schedule follow the job (lib/contractBilling.ts).
     await afterJobSaved(accountId, r.job.id, { userId: req.user.id ?? null, name: req.user.email ?? '' })
@@ -516,6 +518,7 @@ router.post('/install/:jobId/off', requireCan('schedule.change'), async (req: an
   try {
     const accountId = req.user.crmAccountId
     const row = await unscheduleInstall(accountId, { accountId, userId: req.user.id ?? null }, String(req.params.jobId))
+    await cardFollowsJob(accountId, String(req.params.jobId))
     await audit(req, 'update', 'SavedJob', row.job.id, { newValues: { scheduledDate: '', opsStage: row.job.opsStage } })
     res.json({ success: true, data: row })
   } catch (err) { scheduleFail(res, err, 'take the install off the schedule') }

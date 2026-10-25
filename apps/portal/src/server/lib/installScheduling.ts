@@ -477,7 +477,8 @@ export interface MissingEntries { jobId: string; customerName: string; crewId: s
  */
 export async function jobsMissingEntries(accountId: string): Promise<MissingEntries[]> {
   const settings = await settingsOf(accountId)
-  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null, NOT: { status: 'on_hold' } }, orderBy: { scheduledDate: 'asc' } })
+  // Not on hold, not done: an installed, invoiced or paid job gets no crew days made after the fact (Maria, installed 10/24).
+  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null, status: { notIn: ['on_hold', 'completed', 'invoiced', 'paid'] } }, orderBy: { scheduledDate: 'asc' } })
   const dated = jobs.filter(j => isYmd(j.scheduledDate))
   if (!dated.length) return []
   const have = new Set((await prisma.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, stagingJobId: { in: dated.map(j => j.id) } }, select: { stagingJobId: true } })).map(e => e.stagingJobId))

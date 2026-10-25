@@ -13,6 +13,7 @@
  *   OpenCustomerProfile  the customer's page, as on the Sales Pipeline card
  */
 
+import TextButton from './TextButton'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { ExternalLink, MessageSquare, Phone } from 'lucide-react'
 import { formatPhone, telHref } from './phoneFormat'
@@ -47,9 +48,9 @@ export function CustomerContact({ job }: { job: Job }) {
         <a href={telHref(phone)} onClick={() => touch('call')} className="inline-flex items-center gap-1 min-h-[44px] px-2 font-semibold text-blue-700 hover:underline whitespace-nowrap" aria-label={`Call ${formatPhone(phone)}`} data-job-call>
           <Phone size={16} aria-hidden="true" />{formatPhone(phone)}
         </a>
-        <a href={smsLink(phone, '')} onClick={() => touch('text')} className="inline-flex items-center gap-1 min-h-[44px] px-2 rounded-lg border border-gray-200 text-gray-800 hover:bg-gray-50" aria-label={`Text ${formatPhone(phone)}`} data-job-text>
+        <TextButton phone={phone} customerId={job.customerId} name={job.customerName} firstName={job.customerName} onTap={() => touch('text')} className="inline-flex items-center gap-1 min-h-[44px] px-2 rounded-lg border border-gray-200 text-gray-800 hover:bg-gray-50" aria-label={`Text ${formatPhone(phone)}`} data-job-text>
           <MessageSquare size={16} aria-hidden="true" />Text
-        </a>
+        </TextButton>
       </span>
     </div>
   )
@@ -148,7 +149,7 @@ const usDay = (d: string) => `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)
 
 /* ── Milestones ─────────────────────────────────────────────────────────── */
 
-export function JobMilestones({ job }: { job: Job }) {
+export function JobMilestones({ job, onMarkInstalled }: { job: Job; onMarkInstalled?: () => void }) {
   // Reloaded when the job changes (a locate, a stage, a schedule) or anything fires the milestones event.
   const { data, error, setData } = useJobMilestones(job.id, `${job.updatedAt}|${job.locateUpdatedAt ?? ''}`)
   const [busy, setBusy] = useState<string | null>(null)
@@ -164,6 +165,16 @@ export function JobMilestones({ job }: { job: Job }) {
   }
   return (
     <div className="space-y-1.5" data-milestones>
+      {/* Signed off and paid in full, but nothing says it was installed: it does not close out by itself; the owner says so. */}
+      {data.closeOut === 'mark_installed' && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm space-y-2" data-closeout-ask>
+          <p className="font-semibold text-amber-900">Paid and signed off. Mark it installed?</p>
+          <p className="text-amber-900">The walkthrough is signed and it is paid in full, but the job has no install day reached, no Finish from the crew and was never In Progress, so it did not move to Complete by itself.</p>
+          {can('billing.amounts') && onMarkInstalled
+            ? <button type="button" className="btn btn-primary min-h-[48px]" onClick={() => { if (window.confirm('Mark this job installed and complete?')) onMarkInstalled() }} data-closeout-mark>Mark installed and complete</button>
+            : <p className="text-xs text-amber-800">The owner marks it installed.</p>}
+        </div>
+      )}
       <div className="flex items-center justify-between text-xs mb-1">
         <span className="text-gray-500" data-milestones-count={`${data.complete}/${data.total}`}>{data.complete} of {data.total} complete</span>
         <div className="flex-1 mx-3 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div className="h-1.5 bg-orange-500 rounded-full transition-all" style={{ width: `${pct}%` }} /></div>

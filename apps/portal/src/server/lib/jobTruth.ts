@@ -28,7 +28,7 @@ import { applyPayments } from './paymentMath.js'
 import { findOrCreate } from './once.js'
 import { defaultChecklist, milestoneLabels, milestoneId } from './seeds.js'
 import { loadPipelineStages } from './pipelineStages.js'
-import { cardForCompletedJob, roleStageId, isSoldStage, isOpenStage, stageNameOf, hasRole } from './pipelineStageModel.js'
+import { cardForCompletedJob, roleStageId, isSoldStage, isOpenStage, stageNameOf, hasRole, sortedStages, stageById as pipelineStageById, GROUPS, type PipelineStageDef } from './pipelineStageModel.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
 
 type Json = any
@@ -181,12 +181,12 @@ export async function readinessFactsFor(accountId: string, jobs: Json[], today =
 }
 
 /** One job's milestones and progress. */
-export async function jobMilestones(accountId: string, jobId: string): Promise<{ milestones: Milestone[]; complete: number; total: number }> {
+export async function jobMilestones(accountId: string, jobId: string): Promise<{ milestones: Milestone[]; complete: number; total: number; closeOut: 'mark_installed' | null }> {
   const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null } })
   if (!job) throw err(404, 'Job not found')
   const [facts, cl] = await Promise.all([readinessFactsFor(accountId, [job]), checklistState(accountId)])
   const list = milestones(facts.get(job.id)!, cl.map[job.id], cl.labels)
-  return { milestones: list, ...progressOf(list) }
+  return { milestones: list, ...progressOf(list), closeOut: await closeOutPrompt(accountId, job) }
 }
 
 /** Every open job's milestone count (the board cards). */
@@ -286,31 +286,94 @@ export async function moveCardToJobComplete(accountId: string, job: Json): Promi
 export interface CardBehind { jobId: string; customerName: string; jobStatus: string; cardId: string; from: string; fromName: string; to: string; toName: string }
 
 /**
- * Pipeline cards behind their job: a sold job whose card is still in a
- * selling stage (First Contact ...) goes to Signed Contract; a job whose work
- * is done whose card is not in Job Complete goes there. The card is the one
- * carrying the job's quote or id, else the customer's only open card with no
- * quote (never by name, phone or email). Listed by the backfill, moved with
- * --apply (moveCardTo).
+ * The pipeline stage a sold job's card belongs in, from the job (Settings >
+ * Pipeline Stages, by role and by order, never by name):
+ *   staging (permit, 811, materials)  the Sold, work ahead stage after Signed (Job Prep)
+ *   scheduled                         the next one (Pending Start)
+ *   in progress                       the next one (Jobs In Progress)
+ *   done, money still owed            the Job complete stage
+ *   done and paid in full             the last Sold, work done stage (Paid & Closed)
+ * A list with fewer stages uses the last one there is. On hold: no move.
  */
-export async function cardsBehind(accountId: string): Promise<CardBehind[]> {
+export function cardStageForJob(list: PipelineStageDef[], job: { status: string; previousStatus?: string | null; scheduledDate?: string | null }, paidInFull: boolean): string | null {
+  const shown = sortedStages(list).filter(s => !s.hidden)
+  const ahead = shown.filter(s => s.group === 'sold_ahead')
+  const done = shown.filter(s => s.group === 'sold_done')
+  const signed = roleStageId(list, 'signed')
+  const complete = roleStageId(list, 'complete')
+  const at = signed ? ahead.findIndex(s => s.id === signed) : -1
+  const pick = (n: number) => (ahead.length ? ahead[Math.min(ahead.length - 1, Math.max(0, at) + n)].id : signed)
+  switch (job.status) {
+    // A job with an install date waits to start, whatever its prep stage says (Manuel: Ready to Pull, installs 10/26).
+    case 'staging': return /^\d{4}-\d{2}-\d{2}$/.test(job.scheduledDate || '') ? pick(2) : pick(1)
+    case 'scheduled': return pick(2)
+    case 'in_progress': return pick(3)
+    case 'completed': case 'invoiced': case 'paid':
+      return paidInFull ? (done[done.length - 1]?.id ?? complete) : complete
+    default: return null
+  }
+}
+
+/** Where a stage sits on the board, left to right (group, then order). */
+function boardRank(list: PipelineStageDef[], id: string): number {
+  const st = pipelineStageById(list, id)
+  if (!st) return -1
+  return GROUPS.indexOf(st.group) * 1000 + st.order
+}
+
+/** The card of a job: the one carrying its quote or id, else the customer's only open card with no quote. */
+function cardOfJob(list: PipelineStageDef[], leads: Json[], j: { id: string; quoteId: string | null; crmContactId: string | null }): Json | null {
+  const own = leads.filter(l => (j.quoteId && l.quoteId === j.quoteId) || l.jobId === j.id)
+  if (own.length === 1) return own[0]
+  if (own.length > 1 || !j.crmContactId) return null
+  // The customer's only card with no quote, selling or sold (never one in a dead stage).
+  const o = leads.filter(l => l.customerId === j.crmContactId && !l.quoteId && (isOpenStage(list, l.stage) || isSoldStage(list, l.stage)))
+  return o.length === 1 ? o[0] : null
+}
+
+/** Is a card behind its job (and where should it go)? Only forward, never out of a dead stage. */
+function behindTarget(list: PipelineStageDef[], card: Json, target: string | null): string | null {
+  if (!target || card.stage === target) return null
+  const cur = pipelineStageById(list, card.stage)
+  if (cur?.group === 'dead') return null
+  return boardRank(list, target) > boardRank(list, card.stage) ? target : null
+}
+
+/**
+ * Pipeline cards behind their job (cardStageForJob): listed by the backfill,
+ * moved with --apply (moveCardTo), and kept in step after every job change
+ * (cardFollowsJob).
+ */
+export async function cardsBehind(accountId: string, onlyJobId?: string): Promise<CardBehind[]> {
   const { stages } = await loadPipelineStages(accountId)
-  const signed = roleStageId(stages, 'signed')
-  const complete = roleStageId(stages, 'complete')
   const state = await prisma.pipelineState.findUnique({ where: { accountId } })
   const leads = ((state?.leads as Json[]) ?? []).filter(Boolean)
-  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null }, select: { id: true, quoteId: true, crmContactId: true, customerName: true, status: true } })
+  // One job: it and its customer's other jobs (so a card two jobs could claim is never moved).
+  const one = onlyJobId ? await prisma.savedJob.findFirst({ where: { id: onlyJobId, accountId }, select: { crmContactId: true } }) : null
+  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, ...(onlyJobId ? { OR: [{ id: onlyJobId }, ...(one?.crmContactId ? [{ crmContactId: one.crmContactId }] : [])] } : {}) }, select: { id: true, quoteId: true, crmContactId: true, customerName: true, status: true, previousStatus: true, scheduledDate: true } })
   const out: CardBehind[] = []
   for (const j of jobs) {
-    const own = leads.filter(l => (j.quoteId && l.quoteId === j.quoteId) || l.jobId === j.id)
-    const card = own.length === 1 ? own[0] : own.length === 0 && j.crmContactId ? (() => { const o = leads.filter(l => l.customerId === j.crmContactId && !l.quoteId && isOpenStage(stages, l.stage)); return o.length === 1 ? o[0] : null })() : null
+    const card = cardOfJob(stages, leads, j)
     if (!card) continue
-    const done = isDonePhase(j.status)
-    const to = done ? (hasRole(stages, card.stage, 'complete') ? null : complete) : (isOpenStage(stages, card.stage) ? signed : null)
-    if (!to || to === card.stage) continue
+    const paid = isDonePhase(j.status) ? billingStatusOf(await billingViewFor(accountId, j.id)).paidInFull : false
+    const to = behindTarget(stages, card, cardStageForJob(stages, j, paid))
+    if (!to) continue
     out.push({ jobId: j.id, customerName: j.customerName, jobStatus: j.status, cardId: card.id, from: card.stage, fromName: stageNameOf(stages, card.stage), to, toName: stageNameOf(stages, to) })
   }
-  return out
+  // One card for two of a customer's jobs (no quote on it to tell them apart): left alone, never guessed.
+  const n = new Map<string, number>()
+  for (const c of out) n.set(c.cardId, (n.get(c.cardId) ?? 0) + 1)
+  return out.filter(c => n.get(c.cardId) === 1 && (!onlyJobId || c.jobId === onlyJobId))
+}
+
+/** After a job change: its card goes where the job is (only forward). Never throws. */
+export async function cardFollowsJob(accountId: string, jobId: string): Promise<void> {
+  try {
+    for (const c of await cardsBehind(accountId, jobId)) {
+      const j = await prisma.savedJob.findUnique({ where: { id: c.jobId }, select: { quoteId: true } })
+      await moveCardTo(accountId, c.cardId, c.to, { quoteId: j?.quoteId ?? null, jobId: c.jobId })
+    }
+  } catch (e) { console.error('[card follows job]', e) }
 }
 
 /** Move one pipeline card to a stage (version checked, retried), with the job's quote and id on it. True when moved. */
@@ -334,6 +397,29 @@ export async function moveCardTo(accountId: string, cardId: string, stage: strin
   return false
 }
 
+/**
+ * Did the install happen? The job was In Progress, the crew tapped Finish, or
+ * its last crew day (the Schedule's entries, else its end or start date) is
+ * today or past.
+ */
+export async function installHappened(accountId: string, job: { id: string; status: string; scheduledDate: string; scheduledEndDate: string | null }, today = floridaDay(new Date())): Promise<boolean> {
+  if (job.status === 'in_progress') return true
+  const { installTimes } = await import('./crewInstall.js')
+  if ((await installTimes(job.id)).some(t => t.kind === 'finish')) return true
+  const days = (await prisma.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, stagingJobId: job.id }, select: { date: true } })).map(d => d.date).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort()
+  const last = days[days.length - 1] ?? (/^\d{4}-\d{2}-\d{2}$/.test(job.scheduledEndDate || '') ? job.scheduledEndDate! : /^\d{4}-\d{2}-\d{2}$/.test(job.scheduledDate || '') ? job.scheduledDate : null)
+  return !!last && last <= today
+}
+
+/** Signed off and paid in full but not installed by the records: the owner is asked to mark it installed. */
+export async function closeOutPrompt(accountId: string, job: { id: string; status: string; scheduledDate: string; scheduledEndDate: string | null }): Promise<'mark_installed' | null> {
+  if (isDonePhase(job.status) || job.status === 'on_hold') return null
+  const w = await prisma.walkthrough.findUnique({ where: { jobId: job.id }, select: { accountId: true, homeownerSig: true, repSig: true } })
+  if (!w || w.accountId !== accountId || !w.homeownerSig || !w.repSig) return null
+  if (!billingStatusOf(await billingViewFor(accountId, job.id)).paidInFull) return null
+  return (await installHappened(accountId, job)) ? null : 'mark_installed'
+}
+
 export type CloseOut = { moved: true; stage: string } | { moved: false; why: string }
 
 /**
@@ -352,6 +438,9 @@ export async function closeOutIfDone(accountId: string, jobId: string, why: stri
     if (!w || w.accountId !== accountId || !w.homeownerSig || !w.repSig) return { moved: false, why: 'walkthrough not signed' }
     const status = billingStatusOf(await billingViewFor(accountId, jobId))
     if (!status.paidInFull) return { moved: false, why: 'not paid in full' }
+    // Only a job that was really installed (Oct 25 2026: a job never scheduled closed out on a signature and a
+    // payment). Not installed: the job page asks the owner "Paid and signed off: mark installed?".
+    if (!(await installHappened(accountId, job))) return { moved: false, why: 'not installed' }
     const { stages } = await loadOpsStages(accountId)
     const done = completeStage(stages)
     if (!done) return { moved: false, why: 'no Complete stage' }
@@ -370,7 +459,8 @@ export async function closeOutIfDone(accountId: string, jobId: string, why: stri
     // The Final's due date is the install date (lib/contractBilling.ts afterJobSaved).
     const { afterJobSaved } = await import('./contractBilling.js')
     await afterJobSaved(accountId, jobId, { userId: null, name: 'Close out' })
-    await moveCardToJobComplete(accountId, updated)
+    // The card follows: Job Complete, or the last Sold, work done stage (Paid & Closed) when paid in full.
+    await cardFollowsJob(accountId, jobId)
     return { moved: true, stage: stageById(stages, stageOfJob(stages, updated as Json))?.name ?? done.name }
   } catch (e) {
     console.error('[close out]', e)
