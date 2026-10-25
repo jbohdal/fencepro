@@ -13,6 +13,7 @@ import { phoneCanText } from '../../web/src/textingDevice'
 import { refusalOf, uploadOutcome, isInvoicePdf, isInvoicePhoto } from '../../web/src/uploadOutcome'
 import { starterNote, isStarterItem, workScope } from '../../web/src/moveRepair'
 import { draftToReuse, withVisit, lastVisit, visitPhotos } from '../../web/src/quoteReuse'
+import { partWithPair } from '../src/server/lib/partNames'
 
 // ── 14. "Invalid Date" on a Salesman's iPhone ────────────────────────────────
 
@@ -243,5 +244,17 @@ describe('a Census match far from Ocala is not offered', () => {
   test('not Florida, or no point: dropped', () => {
     expect(censusSuggestions([{ matchedAddress: '1 MAIN ST, OCALA, GA, 30000', coordinates: { x: -82.14, y: 29.19 } }, { matchedAddress: '1 MAIN ST, OCALA, FL, 34471' }])).toEqual([])
     expect(censusSuggestions(null)).toEqual([])
+  })
+})
+
+// ── Hinges come as a pair (Jonathan, Oct 25, 2026) ───────────────────────────
+
+describe('the vinyl gate hinge is shown as a pair to the crew', () => {
+  test('"(pair)" after the hinge only, once; the Inventory name is not changed', () => {
+    expect(partWithPair('*Vinyl, Gate, Hinge')).toBe('*Vinyl, Gate, Hinge (pair)')
+    expect(partWithPair('Vinyl, Gate, Hinge')).toBe('Vinyl, Gate, Hinge (pair)')
+    expect(partWithPair('*Vinyl, Gate, Hinge (pair)')).toBe('*Vinyl, Gate, Hinge (pair)')
+    expect(partWithPair('*Vinyl, Gate, Latch')).toBe('*Vinyl, Gate, Latch')
+    expect(partWithPair('Alum, Gate, Hinge, Self-Closing')).toBe('Alum, Gate, Hinge, Self-Closing')
   })
 })

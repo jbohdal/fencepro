@@ -58,6 +58,7 @@ import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../
 import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, type ChangeOrderPrefill } from './ChangeOrders'
 import { changeOrderDraft } from './changeOrderDraft'
 import { SignedDocumentLinks } from './SignedDocuments'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
 /** "2026-10-19" → "Oct 19, 2026" */
@@ -1794,7 +1795,7 @@ export default function QuoteBuilder({
                   {materialItems.map((item, i) => (
                     <div key={i} className="flex items-start justify-between text-xs py-1.5 border-b border-gray-100 last:border-0">
                       <div className="flex-1 pr-2">
-                        <p className="text-gray-800 font-medium leading-tight">{item.item}</p>
+                        <p className="text-gray-800 font-medium leading-tight">{partWithPair(item.item)}</p>
                         <p className="text-gray-400 mt-0.5">{!internal ? `${item.qty}` : `${item.qty} × ${fmt(item.unitCost)}`}</p>
                       </div>
                       {internal && <span className="text-gray-900 font-semibold whitespace-nowrap">{fmt(item.total)}</span>}

@@ -482,6 +482,7 @@ From the Oct 24 workflow walkthrough (items 5, 14, 15). Tests: tests/round1Fixes
 * Smart Schedule says "26 sections" (it said "26 sec", read as drive time; it has no drive times). A job with no sections shows none. **DEV**
 * Repair quote: "Broken or sagging gate" (and the other answers) says what it added to the list and marks that row, so the rehang is not added twice. A repair or move job's Scope of Work lists the quote's items instead of "0 ft, 0 sections". **DEV**
 * Job costing: actual sub labor includes the sub's walk and double gate pay (and tear out, extra hours) as quoted; a 2 gate job read $20 under the quote. An approved takeoff keeps the numbers it was approved with. **DEV**
+* Gate hinges come as a pair (Jonathan, Oct 25): "*Vinyl, Gate, Hinge" ($29.03) is one pair, 2 hinges on each leaf at every height, so one per gate leaf. 8 ft tall vinyl had 2 per leaf; now 1 per leaf like every other vinyl gate (new quotes only; saved quotes keep their price). Pull sheets, the quote's pull sheet and the crew packet show it as "*Vinyl, Gate, Hinge (pair)"; the Inventory item keeps its name. **DEV**
 * Address lookup: when the county list lacks an address, the Census lookup offers only matches within 60 miles of Ocala, nearest first (it offered Homestead or Okeechobee for an Ocala street). **DEV**
 
 ## 10. Reliability (top priority)

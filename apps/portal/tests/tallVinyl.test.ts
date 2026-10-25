@@ -124,7 +124,7 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
     const none = calculateQuote(job(cfg, style))
     // What the gates add is exactly the old gate rows (Inventory prices), nothing covered, no piece line and no blank post.
     const added = (name: string) => qty(w.materials.items.filter(i => i.costSource !== 'jobLot'), name) - qty(none.materials.items.filter(i => i.costSource !== 'jobLot'), name)
-    expect([added('V , W, Privacy Gate 8 x 4'), added('*Vinyl, Gate, Hinge'), added('*Vinyl, Gate, Latch'), added('*Vinyl, Gate, Handle'), added('*Vinyl, White, Cap, Gate')]).toEqual([3, 6, 2, 6, 6])
+    expect([added('V , W, Privacy Gate 8 x 4'), added('*Vinyl, Gate, Hinge'), added('*Vinyl, Gate, Latch'), added('*Vinyl, Gate, Handle'), added('*Vinyl, White, Cap, Gate')]).toEqual([3, 3, 2, 6, 6])
     if (/-DS /.test(style)) expect(line(w.materials.items, 'Misc, Concrete').find(i => i.costSource !== 'jobLot')).toMatchObject({ qty: 2, unitCost: 7.06 })
     expect(w.materials.items.filter(i => i.jobLotPiece).map(i => i.item).sort()).toEqual(none.materials.items.filter(i => i.jobLotPiece).map(i => i.item).sort())
     expect(w.materials.items.some(i => /Blank|gate post/.test(i.item))).toBe(false)
