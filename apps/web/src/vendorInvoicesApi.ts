@@ -174,16 +174,22 @@ const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? c
  * Queue files as one invoice: saved on this phone first, then sent (the same
  * queue as photos). Pages in the order given.
  */
-export async function queueInvoice(files: Blob[], names: string[], jobId: string | null): Promise<void> {
+/** Saves the files of one invoice on this device for upload; the ids of the saved files. */
+export async function queueInvoice(files: Blob[], names: string[], jobId: string | null): Promise<string[]> {
   const batch = newId()
+  const ids: string[] = []
   for (const [seq, f] of files.entries()) {
     const mime = f.type || (names[seq]?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg')
-    await addCapture(f, {
+    const m = await addCapture(f, {
       kind: 'invoice', mime, takenAt: new Date().toISOString(), invoiceBatch: batch, invoiceSeq: seq, invoicePages: files.length,
       fileName: names[seq] ?? '', invoiceJobId: jobId,
     })
+    ids.push(m.clientId)
   }
+  return ids
 }
+
+export { isInvoicePdf, isInvoicePhoto, uploadOutcome } from './uploadOutcome'
 
 /** "$1,234.56" */
 export const money = (c: number | null | undefined) => c == null ? '—' : `${c < 0 ? '-' : ''}$${(Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

@@ -22,6 +22,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useBackLayer } from './nav'
 import { can } from './permissions'
 import { toast } from './toast'
+import { canTextHere } from './textingDevice'
 import { smsLink } from './appointmentLogic'
 import { hasSignal } from './outbox'
 import {
@@ -316,6 +317,8 @@ export function ReceiptScreen({ paymentId, jobId, onClose }: { paymentId: string
   const [phone, setPhone] = useState(snap?.phone || s?.phone || '')
   const [email, setEmail] = useState(snap?.email || s?.email || '')
   const emailed = emailResultOf(paymentId)
+  // On a computer: the number "Did you send it?" is asked about (nothing is recorded until Yes).
+  const [ask, setAsk] = useState<string | null>(null)
   if (!snap) return null
   const body = `${snap.company.name}: receipt for your ${money(snap.amountCents)} payment (${snap.forText.toLowerCase()}). Thank you! ${link}`
   return (
@@ -360,8 +363,21 @@ export function ReceiptScreen({ paymentId, jobId, onClose }: { paymentId: string
             <label className="block"><span className="text-xs text-gray-500">Phone</span>
               <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-base" inputMode="tel" value={phone} onChange={e => setPhone(e.target.value)} data-receipt-phone />
             </label>
-            <a href={phone && link ? smsLink(phone, body) : undefined} onClick={() => { if (phone) noteTexted(paymentId, phone) }}
+            {/* A phone hands the text to its Messages app: that is recorded as texted. A computer asks "Did you send it?" first. */}
+            <a href={phone && link ? smsLink(phone, body) : undefined} onClick={() => { if (!phone) return; if (canTextHere()) { noteTexted(paymentId, phone); setAsk(null) } else setAsk(phone) }}
               className={`block text-center min-h-[52px] leading-[52px] rounded-xl font-bold text-white ${phone ? 'bg-violet-700' : 'bg-gray-300 pointer-events-none'}`} data-receipt-text>Text the receipt</a>
+            {ask && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2" data-receipt-text-ask>
+                <p className="text-sm text-gray-800">This computer may not send texts. Send this from your phone if it did not open:</p>
+                <p className="text-xs text-gray-700 bg-white rounded border border-gray-200 p-2 break-words select-all" data-receipt-text-body>{body}</p>
+                <button type="button" className="text-sm text-violet-700 underline min-h-[36px]" onClick={() => { navigator.clipboard?.writeText(body).then(() => toast.success('Copied'), () => toast.error('Could not copy', 'Select the words and copy them.')) }} data-receipt-text-copy>Copy the text</button>
+                <p className="text-sm font-semibold text-gray-900">Did you send it to {ask}?</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" className="min-h-[48px] rounded-xl font-bold bg-violet-700 text-white" onClick={() => { noteTexted(paymentId, ask); setAsk(null); toast.success('Saved as texted') }} data-receipt-text-sent>Yes, I sent it</button>
+                  <button type="button" className="min-h-[48px] rounded-xl font-bold border-2 border-gray-300 text-gray-700" onClick={() => setAsk(null)} data-receipt-text-not-sent>No</button>
+                </div>
+              </div>
+            )}
             <label className="block"><span className="text-xs text-gray-500">Email</span>
               <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-base" inputMode="email" value={email} onChange={e => setEmail(e.target.value)} data-receipt-email />
             </label>

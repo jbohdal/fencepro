@@ -9,6 +9,7 @@
 import { styleLabel } from './fenceCatalog'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { getQuotes } from './quoteStore'
+import { workScope, type SavedWork } from './moveRepair'
 import { InstallPacketPanel } from './installPacket'
 import PermitPanel from './PermitPanel'
 import AutomationRunLog from './AutomationRunLog'
@@ -117,6 +118,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   const choices = pickable()
   if (stage && !choices.some(s => s.id === stage.id)) choices.push(stage)
   const isJobSource = job.source === 'job'
+  // A repair or move job: its items from the quote (moveRepair.ts workScope).
+  const scope = workScope(job.rawJob?.quoteId ? (getQuotes().find(q => q.id === job.rawJob!.quoteId) as { work?: SavedWork | null } | undefined)?.work : null)
 
   return (
     <div className="fixed inset-y-0 right-0 w-full lg:w-[480px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col overflow-hidden">
@@ -164,10 +167,22 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {/* Scope */}
         <Section title="Scope of Work">
           <Field label="Fence Type" value={styleLabel(job.fenceType)} />
-          <Field label="Sections" value={String(job.sections)} />
-          {job.rawJob && <Field label="Total Feet" value={String(job.rawJob.totalFeet || 0)} />}
-          {job.rawJob && <Field label="Walk Gates" value={String(job.rawJob.walkGates)} />}
-          {job.rawJob && <Field label="Double Gates" value={String(job.rawJob.dblGates)} />}
+          {scope ? (
+            // A repair or a move: what the crew does, from the quote (not a new fence's feet and sections).
+            <div data-job-work-scope={scope.title}>
+              <Field label="Job" value={scope.title} />
+              <ul className="mt-1 space-y-1 text-sm text-gray-800 list-disc pl-5" data-job-work-items>
+                {scope.items.map((t, i) => <li key={i}>{t}</li>)}
+              </ul>
+            </div>
+          ) : (
+            <>
+              <Field label="Sections" value={String(job.sections)} />
+              {job.rawJob && <Field label="Total Feet" value={String(job.rawJob.totalFeet || 0)} />}
+              {job.rawJob && <Field label="Walk Gates" value={String(job.rawJob.walkGates)} />}
+              {job.rawJob && <Field label="Double Gates" value={String(job.rawJob.dblGates)} />}
+            </>
+          )}
         </Section>
 
         {/* Operations Status */}
