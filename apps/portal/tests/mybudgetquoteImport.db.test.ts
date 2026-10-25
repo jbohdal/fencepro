@@ -202,7 +202,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('MyBudgetQuote import (dev databa
     expect(await prisma.crmContactNote.count({ where: { crmContactId: on.pat.id } })).toBe(0)
     // Patricia Other: a new customer of her own, her card, her note, and the Possible match on Pat.
     const patricia = named('Patricia', 'Other')
-    expect(patricia).toMatchObject({ phone: '(352) 555-0101', leadSource: 'Referral', tags: ['MyBudgetQuote import'] })
+    expect(patricia).toMatchObject({ phone: '(352) 555 0101', leadSource: 'Referral', tags: ['MyBudgetQuote import'] })
     expect((await prisma.crmContactNote.findFirst({ where: { crmContactId: patricia.id } })).body).toContain(`Same phone as Pat ${tag} on file, but a different name`)
     expect((await ci.importHistory(accountId, patricia.id))[0].data.possibleMatchOf).toMatchObject({ id: on.pat.id, by: 'phone' })
 
