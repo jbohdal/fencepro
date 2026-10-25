@@ -22,6 +22,7 @@ import { layoutPanelFt } from './gateSlide'
 import { deriveLayout, formatFtIn, postSpacing, teePostFor, type YardLayout } from './yardLayout'
 import LayoutEditor, { nextEmptySide } from './LayoutEditor'
 import CustomerDrawing from './CustomerDrawing'
+import SiteVisitInQuote from './SiteVisitInQuote'
 import VoicePanel, { type VoiceHandle } from './VoicePanel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { fetchCurrentUser } from './crmAuth'
@@ -420,10 +421,13 @@ export default function QuoteBuilder({
   onClose,
   onSave,
   initialQuote,
+  startOnYard = false,
 }: {
   onClose: () => void
   onSave: (q: SavedQuote) => void
   initialQuote?: SavedQuote | null
+  /** Open on the Yard step (a draft opened from Ready to quote: the customer's drawing and the site visit are there). */
+  startOnYard?: boolean
 }) {
   const init = initialQuote
 
@@ -493,7 +497,7 @@ export default function QuoteBuilder({
   }, [])
   const [showPullSheet, setShowPullSheet] = useState(true)
   // One step on screen at a time: a new quote starts with the customer, a saved one on its price.
-  const [step, setStep] = useState<StepKey>(() => (init?.id ? 'price' : 'customer'))
+  const [step, setStep] = useState<StepKey>(() => (startOnYard ? 'yard' : init?.id ? 'price' : 'customer'))
   // The one side of the yard shown open (Next side moves it on).
   const [openSide, setOpenSide] = useState<string | null>(null)
   const [photosOpen, setPhotosOpen] = useState(false)
@@ -1092,6 +1096,8 @@ export default function QuoteBuilder({
               )}
             </div>
             {init?.layout?.widgetDrawing && <CustomerDrawing record={init.layout.widgetDrawing} />}
+            {/* The site visit's footage, notes and photos (SiteVisitInQuote.tsx). */}
+            {jobType === 'new' && <SiteVisitInQuote customerId={init?.customerId} />}
 
             {entry === 'advanced' && (<>
             <div>
