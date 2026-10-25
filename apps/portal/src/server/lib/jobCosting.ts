@@ -51,21 +51,45 @@ async function settingsOf(accountId: string): Promise<{ pricing: PricingSettings
  * Save the quote's cost as it is now, once. Called where a quote becomes
  * signed; a second call (the same signing sent twice) keeps the first.
  */
-export async function snapshotQuotedCost(accountId: string, quoteId: string, signedVia: 'proposal' | 'share' | 'app'): Promise<boolean> {
-  const exists = await prisma.jobQuotedCost.findUnique({ where: { accountId_quoteId: { accountId, quoteId } }, select: { id: true } })
-  if (exists) return false
+/**
+ * Does a saved quoted cost belong to the option the quote is signed at? The
+ * quote's style and price are the accepted option's (routes/proposal.ts
+ * acceptQuote makes the quote the chosen option; Sold in the app signs it as
+ * it is). A quoted cost saved for another option (Manuel Cotrich, Oct 20
+ * 2026: marked Sold in the app at the white option, $6,072.01, then he signed
+ * the tan option online at $7,113.83) does not.
+ */
+export function quotedMatchesQuote(row: { fenceStyle: string; priceCents: number }, q: { fenceStyle: string; finalPrice: number }): boolean {
+  return row.fenceStyle === q.fenceStyle && row.priceCents === toCents(q.finalPrice)
+}
+
+/**
+ * Save the quote's cost as signed, once. Called where a quote becomes signed;
+ * a second call for the same signing keeps the first. One saved for a
+ * different option than the one now signed is replaced by the accepted
+ * option's (`replaced` in the log), so the job's Quoted cost is always the
+ * option the customer signed.
+ */
+export async function snapshotQuotedCost(accountId: string, quoteId: string, signedVia: 'proposal' | 'share' | 'app', opts: { replaceMismatch?: boolean } = { replaceMismatch: true }): Promise<boolean> {
+  const exists = await prisma.jobQuotedCost.findUnique({ where: { accountId_quoteId: { accountId, quoteId } }, select: { id: true, fenceStyle: true, priceCents: true } })
   const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } })
   if (!q || q.status !== 'SOLD') return false
+  if (exists && (quotedMatchesQuote(exists, q) || !opts.replaceMismatch)) return false
   const s = await settingsOf(accountId)
   const snap = quotedCostOf(q as any, { inventory: s.items, pricing: s.pricing, style: s.styles.find(x => x?.name === q.fenceStyle), signedVia, signedAt: q.acceptedAt ?? new Date() })
+  const data = {
+    accountId, quoteId, signedVia, signedAt: new Date(snap.signedAt), fenceStyle: snap.fenceStyle, salesRep: snap.salesRep, jobType: snap.jobType,
+    sections: snap.sections, footage: snap.footage, priceCents: snap.priceCents, materialCents: snap.materialCents, laborCents: snap.laborCents,
+    tearOutCents: snap.tearOutCents, totalCents: snap.totalCents, lines: snap.lines as any, labor: snap.labor as any,
+  }
   try {
-    await prisma.jobQuotedCost.create({
-      data: {
-        accountId, quoteId, signedVia, signedAt: new Date(snap.signedAt), fenceStyle: snap.fenceStyle, salesRep: snap.salesRep, jobType: snap.jobType,
-        sections: snap.sections, footage: snap.footage, priceCents: snap.priceCents, materialCents: snap.materialCents, laborCents: snap.laborCents,
-        tearOutCents: snap.tearOutCents, totalCents: snap.totalCents, lines: snap.lines as any, labor: snap.labor as any,
-      },
-    })
+    if (exists) {
+      // Saved for another option: the accepted option's cost takes its place (only while it is still the other one).
+      const n = await prisma.jobQuotedCost.updateMany({ where: { id: exists.id, fenceStyle: exists.fenceStyle, priceCents: exists.priceCents }, data: { ...data, createdAt: new Date() } })
+      if (n.count === 1) console.log(`[job-costing] quoted cost for quote ${quoteId} replaced: was ${exists.fenceStyle} ${exists.priceCents}c, now the accepted ${snap.fenceStyle} ${snap.priceCents}c`)
+      return n.count === 1
+    }
+    await prisma.jobQuotedCost.create({ data })
     await markSignedNow(accountId, quoteId)
     return true
   } catch (e) {
