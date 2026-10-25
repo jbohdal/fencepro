@@ -13,6 +13,7 @@
  * unchanged. The original JobsPage.tsx remains importable as a fallback.
  */
 
+import ScreenErrorBoundary from './ScreenErrorBoundary'
 import PhoneLink from './PhoneLink'
 import { AUTOMATIC_SOURCES, sourceFor } from './optionListsStore'
 import { styleLabel } from './fenceCatalog'
@@ -681,7 +682,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
 
       {/* The card's window */}
       {cardLead && (
-        <PipelineCardWindow
+        <ScreenErrorBoundary name="Card window" window onBack={() => setCardId(null)} resetKey={cardLead.id}><PipelineCardWindow
           lead={cardLead} stages={stages} quotes={cardQuotes}
           next={cardLead.customerId ? apptInfo.next.get(cardLead.customerId) ?? null : null}
           onClose={() => setCardId(null)}
@@ -692,15 +693,15 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
           onEditLead={() => setSelected(cardLead)}
           onOpenCustomer={cardLead.customerId && getCustomerById(cardLead.customerId)
             ? () => navigate(`/customers/${encodeURIComponent(cardLead.customerId!)}`, { from: 'Sales Pipeline' }) : null}
-        />
+        /></ScreenErrorBoundary>
       )}
       {openQuote && (
-        <QuoteDetailDrawer
+        <ScreenErrorBoundary name="Quote window" window onBack={() => setOpenQuote(null)} resetKey={openQuote.id}><QuoteDetailDrawer
           quote={openQuote}
           onClose={() => setOpenQuote(null)}
           onEdit={onOpenQuote ? () => onOpenQuote(openQuote) : undefined}
           onChange={() => setOpenQuote((getQuotes() as SavedQuote[]).find(q => q.id === openQuote.id) ?? null)}
-        />
+        /></ScreenErrorBoundary>
       )}
 
       {/* Slide-over / Bottom sheet */}

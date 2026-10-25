@@ -12,8 +12,9 @@ if (window.location.hash.startsWith('#/portal/')) {
     root.render(<StrictMode><PortalRoot /></StrictMode>)
   })
 } else {
-  void import('./App.tsx').then(({ default: App }) => {
-    root.render(<StrictMode><App /></StrictMode>)
+  // The last line of defence: never a blank page (ScreenErrorBoundary.tsx). Each screen and window has its own too.
+  void Promise.all([import('./App.tsx'), import('./ScreenErrorBoundary')]).then(([{ default: App }, { default: ScreenErrorBoundary }]) => {
+    root.render(<StrictMode><ScreenErrorBoundary name="EZ Biz"><App /></ScreenErrorBoundary></StrictMode>)
   })
   // A phone that keeps the app open takes a new version by itself, when nothing would be lost.
   if (import.meta.env.PROD) void import('./appUpdate').then(({ startUpdateCheck }) => startUpdateCheck())

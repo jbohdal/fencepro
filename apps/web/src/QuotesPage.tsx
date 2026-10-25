@@ -1,4 +1,5 @@
 import type { QuoteProposal } from './proposal'
+import ScreenErrorBoundary from './ScreenErrorBoundary'
 import { formatPhone } from './phoneFormat'
 import PhoneLink from './PhoneLink'
 import { sourceLabel } from './optionListsStore'
@@ -653,7 +654,7 @@ export default function QuotesPage({
       </div>
 
       {selectedQuote && (
-        <QuoteDetailDrawer
+        <ScreenErrorBoundary name="Quote window" window onBack={() => setSelectedQuote(null)} resetKey={selectedQuote.id}><QuoteDetailDrawer
           quote={selectedQuote}
           onClose={() => setSelectedQuote(null)}
           onEdit={() => { onOpenQuote(selectedQuote); setSelectedQuote(null) }}
@@ -662,7 +663,7 @@ export default function QuotesPage({
             setLocalQuotes(all)
             setSelectedQuote(all.find(q => q.id === selectedQuote.id) || null)
           }}
-        />
+        /></ScreenErrorBoundary>
       )}
 
       {/* Pull result toast */}

@@ -73,6 +73,7 @@ import { ToastContainer, toast } from './toast'
 import { setSignedInRole, isFullRole, can } from './permissions'
 import { REFUSED_EVENT } from './outbox'
 import StageBlockedNotice from './StageBlockedNotice'
+import ScreenErrorBoundary from './ScreenErrorBoundary'
 import { isUpdateReady, reloadIfSafe, UPDATE_READY_EVENT } from './appUpdate'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
@@ -1082,6 +1083,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         {/* Page content */}
         <div ref={pageScroll} data-page-scroll className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-8 py-4 md:py-6 max-md:pb-[calc(92px+env(safe-area-inset-bottom))]">
           {/* Keyed so the open page reloads its data after another device's changes are merged in. */}
+          <ScreenErrorBoundary name={active} resetKey={nav.path}>
           <Suspense fallback={<PageLoading />}>
           {!pageBlocked && <Fragment key={dataEpoch}>
           {active === 'Team' && <TeamManagementPage />}
@@ -1245,13 +1247,14 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           )}
           </Fragment>}
           </Suspense>
+          </ScreenErrorBoundary>
         </div>
       </div>
 
       {/* ═══ COMMAND SEARCH OVERLAY ═══ */}
       {searchOpen && <BackClose name="search" onClose={() => { setSearchOpen(false); setSearchQuery('') }} />}
       {searchOpen && (
-        <GlobalSearch
+        <ScreenErrorBoundary name="Search" window onBack={() => { setSearchOpen(false); setSearchQuery('') }}><GlobalSearch
           onClose={() => { setSearchOpen(false); setSearchQuery('') }}
           quotes={reportQuotes}
           jobs={reportJobs}
@@ -1261,13 +1264,13 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           newQuoteFor={c => { if (c) openQuoteFor(c); else { setEditingQuote(null); setShowQuote(true) } }}
           newCustomer={() => navigate('/customers/new')}
           goTo={p => setActive(p)}
-        />
+        /></ScreenErrorBoundary>
       )}
 
       {/* Warranty and service requests: the request form and a ticket's window, opened from anywhere (ServiceRequests.tsx). Before the booking dialog, which opens over it. */}
-      <ServiceHost />
+      <ScreenErrorBoundary name="Service request" window onBack={() => {}}><ServiceHost /></ScreenErrorBoundary>
       {/* ═══ BOOKING DIALOG (opened from anywhere with openBooking) ═══ */}
-      <BookingHost />
+      <ScreenErrorBoundary name="Booking" window onBack={() => {}}><BookingHost /></ScreenErrorBoundary>
       {/* "How'd it go?" after a Call or Text tap, and Log a call */}
       <FollowUpPromptHost />
 
@@ -1289,29 +1292,29 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ SMART SCHEDULE ═══ */}
       {showSmartSchedule && (
-        <Suspense fallback={null}><BackClose name="smart-schedule" onClose={() => setShowSmartSchedule(false)} /><SmartSchedule onClose={() => setShowSmartSchedule(false)} /></Suspense>
+        <Suspense fallback={null}><BackClose name="smart-schedule" onClose={() => setShowSmartSchedule(false)} /><ScreenErrorBoundary name="Smart Schedule" window onBack={() => setShowSmartSchedule(false)}><SmartSchedule onClose={() => setShowSmartSchedule(false)} /></ScreenErrorBoundary></Suspense>
       )}
 
       {/* ═══ SITE PLAN TOOL ═══ */}
       {showSitePlan && (
-        <Suspense fallback={null}><BackClose name="site-plan-tool" onClose={() => setShowSitePlan(false)} /><SitePlanTool onClose={() => setShowSitePlan(false)} /></Suspense>
+        <Suspense fallback={null}><BackClose name="site-plan-tool" onClose={() => setShowSitePlan(false)} /><ScreenErrorBoundary name="Site plan" window onBack={() => setShowSitePlan(false)}><SitePlanTool onClose={() => setShowSitePlan(false)} /></ScreenErrorBoundary></Suspense>
       )}
 
       {/* ═══ MAP QUOTE MODAL ═══ */}
       {showMapQuote && (
-        <Suspense fallback={null}><BackClose name="map-quote" onClose={() => setShowMapQuote(false)} /><MapQuoteBuilder
+        <Suspense fallback={null}><BackClose name="map-quote" onClose={() => setShowMapQuote(false)} /><ScreenErrorBoundary name="Map quote" window onBack={() => setShowMapQuote(false)}><MapQuoteBuilder
           onUseData={handleMapQuoteData}
           onClose={() => setShowMapQuote(false)}
-        /></Suspense>
+        /></ScreenErrorBoundary></Suspense>
       )}
 
       {/* ═══ QUOTE BUILDER MODAL ═══ */}
       {showQuote && (
-        <QuoteBuilder
+        <ScreenErrorBoundary name="Quote" window onBack={() => { setShowQuote(false); setEditingQuote(null) }}><QuoteBuilder
           onClose={() => { setShowQuote(false); setEditingQuote(null) }}
           onSave={handleSaveQuote}
           initialQuote={editingQuote}
-        />
+        /></ScreenErrorBoundary>
       )}
     </div>
   )

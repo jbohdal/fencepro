@@ -1,4 +1,5 @@
 import MediaGallery from './MediaGallery'
+import ScreenErrorBoundary from './ScreenErrorBoundary'
 import { usePipelineStages, stageName as pipelineStageName, roleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
@@ -1775,7 +1776,7 @@ export default function CustomersPage({ onNewQuote }: {
       )}
 
       {drawerQuote && (
-        <QuoteDetailDrawer
+        <ScreenErrorBoundary name="Quote window" window onBack={() => setDrawerQuote(null)} resetKey={drawerQuote.id}><QuoteDetailDrawer
           quote={drawerQuote}
           onClose={() => setDrawerQuote(null)}
           onChange={() => {
@@ -1784,7 +1785,7 @@ export default function CustomersPage({ onNewQuote }: {
             setQuotes(readQuotes())
             setJobs(readJobs())
           }}
-        />
+        /></ScreenErrorBoundary>
       )}
     </div>
   )

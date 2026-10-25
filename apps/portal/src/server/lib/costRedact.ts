@@ -75,6 +75,11 @@ export function redactCosts<T>(value: T): T {
 }
 
 function walk(v: unknown): unknown {
+  // A date (or a Prisma decimal) is sent as what it turns into on the way out:
+  // walked as an object it came out as {}, and a Salesman's card window drew
+  // that {} and blanked the app (walkthrough, Oct 24, 2026). Dates showed as
+  // "Invalid Date" on her Today screen the same way.
+  if (v && typeof v === 'object' && typeof (v as { toJSON?: unknown }).toJSON === 'function') v = (v as { toJSON: () => unknown }).toJSON()
   if (Array.isArray(v)) return v.map(walk)
   if (!isObj(v)) return v
   const out: Record<string, unknown> = {}
