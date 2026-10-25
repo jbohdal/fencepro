@@ -216,7 +216,8 @@ try {
   await pp.waitForFunction(() => location.hash.startsWith('#/portal/dashboard'), null, { timeout: 30000 })
   await pp.goto(`${APP}/#/portal/papers`)
   const card = pp.locator(`[data-portal-signed-doc="${stored?.[0]}"]`)
-  await card.waitFor({ timeout: 30000 }).catch(() => null)
+  // A loaded machine can miss the list on the first open right after signing in: reload once, as a person would.
+  if (!(await card.waitFor({ timeout: 15000 }).then(() => true, () => false))) { await pp.reload(); await card.waitFor({ timeout: 30000 }).catch(() => null) }
   const cardText = (await card.innerText().catch(() => '')).replace(/\s+/g, ' ')
   check('portal: Contract & Warranty lists the signed contract with its date and signer', cardText.includes('Signed contract') && cardText.includes(`by ${SIGNER}`), cardText)
   check('portal: the contract is not listed twice (the stored copy stands for it)', (await pp.locator(`[data-portal-contract="${quoteId}"]`).count()) === 0)

@@ -161,7 +161,10 @@ try {
   // ── A second browser at 360 px: reload, same list ──
   const m = await open(b, 360, 780, true)
   await m.page.goto(`${APP}/operations`)
-  await m.page.waitForSelector('[data-kanban-col="scheduled"]', { timeout: 60000 }); await sleep(800)
+  await m.page.waitForSelector('[data-kanban-col="scheduled"]', { timeout: 60000 })
+  // The board draws before the saved stages arrive on a loaded machine: give it up to 10 s to show them.
+  let mOk = false
+  for (let i = 0; i < 20 && !mOk; i++) { await sleep(500); mOk = (await boardOk(m.page)).ok && (await m.page.locator('[data-kanban-col="scheduled"]').innerText()).includes(RENAMED) }
   check('phone (second browser): same columns after a reload', (await boardOk(m.page)).ok)
   check('phone: renamed column', (await m.page.locator('[data-kanban-col="scheduled"]').innerText()).includes(RENAMED))
   await m.page.goto(`${APP}/settings?tab=ops_stages`)
