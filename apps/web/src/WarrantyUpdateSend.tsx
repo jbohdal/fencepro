@@ -7,6 +7,7 @@
  * apps with the message filled in; nothing is sent by a service.
  */
 
+import { customerText } from '../../portal/src/server/lib/customerText'
 import { useEffect, useState } from 'react'
 import { ShieldCheck, MessageSquare, Mail, Copy, ExternalLink } from 'lucide-react'
 import { sendJson } from './syncHttp'
@@ -76,7 +77,8 @@ export default function WarrantyUpdateSend({ quoteId, onChange }: { quoteId: str
     const url = warrantyUpdateUrl(m.s.token)
     if (kind === 'open') { window.open(warrantyUpdateUrl(m.s.token, m.preview), '_blank', 'noopener'); onChange?.(); return }
     const message = `Hi ${p.customer.firstName}, here is your updated warranty from ${company}: ${url}`
-    if (kind === 'text') window.location.href = smsLink(p.customer.phone, message)
+    // The text in the registered form: "Company: ... Reply STOP to opt out." (lib/customerText.ts).
+    if (kind === 'text') window.location.href = smsLink(p.customer.phone, customerText(message, company))
     if (kind === 'email') window.location.href = `mailto:${encodeURIComponent(p.customer.email)}?subject=${encodeURIComponent(`Your updated warranty from ${company}`)}&body=${encodeURIComponent(message)}`
     if (kind === 'copy') { await navigator.clipboard?.writeText(url).catch(() => {}); toast.success('Link copied') }
     const s = await sendJson('POST', `/api/warranties/update/${encodeURIComponent(m.s.id)}/sent`, { channel: kind })

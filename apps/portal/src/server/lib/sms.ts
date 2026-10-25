@@ -9,6 +9,7 @@
  * and the result says why (blocked). sendSms itself is for texts to the team.
  */
 
+import { customerText } from './customerText.js'
 import { textAllowedTo } from './textConsent.js'
 
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || ''
@@ -68,20 +69,21 @@ export async function sendSms(to: string, body: string): Promise<SmsResult> {
 export async function sendCustomerSms(to: string, body: string): Promise<SmsResult> {
   const ok = await textAllowedTo(to)
   if (!ok.allowed) return { success: false, blocked: true, error: ok.reason ?? 'Not sent: no text consent.' }
-  return sendSms(to, body)
+  // "Company: ... Reply STOP to opt out.", once each (lib/customerText.ts).
+  return sendSms(to, customerText(body, COMPANY_NAME))
 }
 
 /** Send the initial "thanks for reaching out" SMS to a new lead */
 export async function sendLeadConfirmation(phone: string, firstName?: string): Promise<SmsResult> {
   const name = firstName ? ` ${firstName}` : ''
-  const body = `Thanks for reaching out${name}! ${COMPANY_NAME} received your info and we'll confirm your estimate shortly. Reply STOP to opt out.`
+  const body = `Thanks for reaching out${name}! We received your info and we'll confirm your estimate shortly.`
   return sendCustomerSms(phone, body)
 }
 
 /** Send appointment confirmation */
 export async function sendAppointmentConfirmation(phone: string, dateStr: string, firstName?: string): Promise<SmsResult> {
   const name = firstName ? ` ${firstName}` : ''
-  const body = `Hi${name}! Your fence estimate with ${COMPANY_NAME} is confirmed for ${dateStr}. We'll see you then! Reply STOP to opt out.`
+  const body = `Hi${name}! Your fence estimate with ${COMPANY_NAME} is confirmed for ${dateStr}. We'll see you then!`
   return sendCustomerSms(phone, body)
 }
 

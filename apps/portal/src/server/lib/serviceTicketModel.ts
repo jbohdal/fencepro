@@ -12,6 +12,8 @@
  *                 work by style and by installer
  */
 
+import { customerText } from './customerText.js'
+
 export const ISSUES = [
   { key: 'leaning_post', label: 'Leaning post' },
   { key: 'damaged_section', label: 'Damaged section' },
@@ -132,7 +134,7 @@ export function uploadRefusal(mime: string, bytes: number, already: number): str
 /** The text "Ask for photos" opens in the phone's own texting app. */
 export function photoRequestText(firstName: string, link: string): string {
   const name = firstName.trim() || 'there'
-  return `Getter Done Fence: Hi ${name}, sorry to hear about the issue with your fence. Please send us a few photos here so we can take a look: ${link}. Reply STOP to opt out.`
+  return customerText(`Hi ${name}, sorry to hear about the issue with your fence. Please send us a few photos here so we can take a look: ${link}.`, 'Getter Done Fence')
 }
 
 // ── Past customer badge ──────────────────────────────────────────────────────

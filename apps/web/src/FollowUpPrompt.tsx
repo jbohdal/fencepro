@@ -14,6 +14,7 @@
  * app with the message ready; nothing is ever sent by the app).
  */
 
+import { customerText } from '../../portal/src/server/lib/customerText'
 import { stageHasRole, stageName, roleId, getPipelineStages } from './pipelineStagesStore'
 import { bookingTypeFor } from './pipelineStageModel'
 import { useEffect, useRef, useState } from 'react'
@@ -251,7 +252,8 @@ export function TextTemplatesSheet({ card, onClose }: { card: { cardId: string; 
         </div>
         <ul className="px-4 pt-3 space-y-2">
           {templates.map(t => {
-            const body = fillTemplate(t.body, { firstName: card.firstName, myName: me, company })
+            // "Company: ... Reply STOP to opt out." around the template (lib/customerText.ts).
+            const body = customerText(fillTemplate(t.body, { firstName: card.firstName, myName: me, company }), company)
             return (
               <li key={t.id}>
                 <a href={smsLink(card.phone, body)} onClick={tap} data-template={t.id}

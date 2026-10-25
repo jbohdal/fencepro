@@ -10,6 +10,7 @@
  * (walkthroughStore), photos through the media queue (mediaStore).
  */
 
+import { customerText } from '../../portal/src/server/lib/customerText'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Camera, Images, Check, AlertTriangle, PenLine, FileText, Copy, MessageSquare, Mail, ExternalLink, X, Minus, Plus, MapPin, Eye, EyeOff, Wrench } from 'lucide-react'
 import type { Job } from './jobStore'
@@ -506,7 +507,8 @@ function SendToHomeowner({ w, job, compact = false }: { w: Walkthrough; job: Job
     if (!u) return
     if (kind === 'open') window.open(u, '_blank', 'noopener')
     // Texts and emails go from this phone's own apps: nothing is sent by a service.
-    if (kind === 'text') window.location.href = smsLink(job.customerPhone || '', message(u))
+    // The text in the registered form: "Company: ... Reply STOP to opt out." (lib/customerText.ts).
+    if (kind === 'text') window.location.href = smsLink(job.customerPhone || '', customerText(message(u), company))
     if (kind === 'email') window.location.href = mailtoLink(job.customerEmail || '', `Your final walkthrough from ${company}`, message(u))
     if (kind === 'copy') { await navigator.clipboard?.writeText(u).catch(() => {}); toast.success('Link copied') }
   }

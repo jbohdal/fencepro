@@ -18,6 +18,7 @@
  *   invoice amount or adjusts the contract amount. Every change is in History.
  */
 
+import { customerText } from '../../portal/src/server/lib/customerText'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useBackLayer } from './nav'
 import { can } from './permissions'
@@ -317,7 +318,8 @@ export function ReceiptScreen({ paymentId, jobId, onClose }: { paymentId: string
   const [email, setEmail] = useState(snap?.email || s?.email || '')
   const emailed = emailResultOf(paymentId)
   if (!snap) return null
-  const body = `${snap.company.name}: receipt for your ${money(snap.amountCents)} payment (${snap.forText.toLowerCase()}). Thank you! ${link}`
+  // "Company: ... Reply STOP to opt out." (lib/customerText.ts).
+  const body = customerText(`Receipt for your ${money(snap.amountCents)} payment (${snap.forText.toLowerCase()}). Thank you! ${link}`, snap.company.name)
   return (
     <div className="fixed inset-0 z-[95] bg-white overflow-y-auto" data-receipt-screen>
       <div className="max-w-lg mx-auto p-5 space-y-4">

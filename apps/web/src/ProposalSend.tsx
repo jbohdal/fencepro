@@ -4,6 +4,7 @@
  * salesman's own phone or mail app; nothing is sent by a service.
  */
 
+import { customerText } from '../../portal/src/server/lib/customerText'
 import { useEffect, useState } from 'react'
 import { ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import type { SavedQuote } from './QuotesPage'
@@ -84,13 +85,15 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
     toast.success('Link turned off')
   }
   const message = (u: string) => `Hi ${first}, here is your fence proposal from ${company}. You can pick an option and sign right on your phone: ${u}`
+  // The text: "Company: ... Reply STOP to opt out." (lib/customerText.ts); the email is the plain message.
+  const textOf = (u: string) => customerText(message(u), company)
 
   async function go(kind: 'open' | 'text' | 'email' | 'copy') {
     if (kind !== 'open' && photoBlock) { toast.error(`Take at least ${need} photos of the fence first, or tap Send anyway.`); return }
     if (kind === 'open') { await openOwn(); return }
     const u = await link()
     if (!u) return
-    if (kind === 'text') window.location.href = smsLink(quote.customerPhone || '', message(u))
+    if (kind === 'text') window.location.href = smsLink(quote.customerPhone || '', textOf(u))
     if (kind === 'email') window.location.href = `mailto:${encodeURIComponent(quote.customerEmail || '')}?subject=${encodeURIComponent(`Your fence proposal from ${company}`)}&body=${encodeURIComponent(message(u))}`
     if (kind === 'copy') { await navigator.clipboard?.writeText(u).catch(() => {}); toast.success('Link copied') }
     // Given to the customer (texted, emailed or copied to send): the quote is Sent. Opening it yourself (above) is not.

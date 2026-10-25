@@ -18,6 +18,7 @@
  * history. A change from the yard drawing sends the new work; the server
  * prices it and keeps it (lib/changeOrderWork.ts).
  */
+import { customerText } from '../../portal/src/server/lib/customerText'
 import { useEffect, useRef, useState } from 'react'
 import { useBackLayer } from './nav'
 import { can } from './permissions'
@@ -624,7 +625,8 @@ function SendToCustomer({ co, quoteId }: { co: ChangeOrder; quoteId: string }) {
     if (u && co.status === 'draft') await setChangeOrderStatus({ ...co, version: (getOrdersForQuote(quoteId).find(x => x.id === co.id) ?? co).version }, 'sent')
     setBusy(false)
     if (!u) return
-    if (kind === 'text') window.location.href = smsLink(q?.customerPhone || '', message(u))
+    // The text in the registered form: "Company: ... Reply STOP to opt out." (lib/customerText.ts).
+    if (kind === 'text') window.location.href = smsLink(q?.customerPhone || '', customerText(message(u), company))
     if (kind === 'email') window.location.href = `mailto:${encodeURIComponent(q?.customerEmail || '')}?subject=${encodeURIComponent(`Change order CO-${co.number} from ${company}`)}&body=${encodeURIComponent(message(u))}`
     if (kind === 'copy') { await navigator.clipboard?.writeText(u).catch(() => {}); toast.success('Link copied') }
   }
