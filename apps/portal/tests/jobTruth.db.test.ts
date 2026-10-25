@@ -92,6 +92,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     await prisma.scheduledGridJob.deleteMany({ where: { accountId } })
     await prisma.changeOrder.deleteMany({ where: { accountId } })
     await prisma.activityLog.deleteMany({ where: { entityId: { in: jobs } } })
+    await prisma.cardFollowUp.deleteMany({ where: { accountId } })
+    await prisma.deletionLog.deleteMany({ where: { accountId } })
     await prisma.scheduleSettings.deleteMany({ where: { accountId } })
     await prisma.automationEvent.deleteMany({ where: { accountId } })
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: [...jobs, ...pays.map(p => p.id)] } } })
@@ -214,6 +216,52 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     expect(truth.cardStageForJob(stages, { status: 'in_progress' }, false)).toBe('Jobs In Progress')
     expect(truth.cardStageForJob(stages, { status: 'completed' }, false)).toBe('Job Complete')
     expect(truth.cardStageForJob(stages, { status: 'paid' }, true)).toBe('Paid & Closed')
+  })
+
+  test('a card follows only the same sale: an old paid job never closes a new open quote card', async () => {
+    // Tiffany Clark: 2026 card ($3,032.79 quote sent 7/28) and her paid 2023 job ($9,264.24).
+    expect(truth.sameJobCard({ customerId: 'c1', createdAt: '2026-07-15', quotePrice: 3032.79, jobValue: 0 }, { crmContactId: 'c1', createdAt: new Date('2023-01-26T19:30:00Z'), contractValue: 9264.24, status: 'paid' })).toBe(false)
+    // Central Florida Landscapes: a $24,811 quote card (8/13/2026) and a $150 job from 2025.
+    expect(truth.sameJobCard({ customerId: 'c2', createdAt: '2026-08-13', quotePrice: 24811, jobValue: 0 }, { crmContactId: 'c2', createdAt: new Date('2025-08-11T19:44:20Z'), contractValue: 150, status: 'paid' })).toBe(false)
+    // The same customer, within 60 days, but the price is far off: not the same sale.
+    expect(truth.sameJobCard({ customerId: 'c2', createdAt: '2026-08-13', quotePrice: 24811 }, { crmContactId: 'c2', createdAt: new Date('2026-09-01T12:00:00Z'), contractValue: 150, status: 'staging' })).toBe(false)
+    // Within 60 days and within 10%: the same sale.
+    expect(truth.sameJobCard({ customerId: 'c1', createdAt: '2026-10-01', quotePrice: 3032.79 }, { crmContactId: 'c1', createdAt: new Date('2026-10-20T12:00:00Z'), contractValue: 3100, status: 'staging' })).toBe(true)
+    // A card with no price: only a job still under way, made within 60 days.
+    expect(truth.sameJobCard({ customerId: 'c1', createdAt: '2026-10-01' }, { crmContactId: 'c1', createdAt: new Date('2026-10-20T12:00:00Z'), contractValue: 3100, status: 'staging' })).toBe(true)
+    expect(truth.sameJobCard({ customerId: 'c1', createdAt: '2026-10-01' }, { crmContactId: 'c1', createdAt: new Date('2026-10-20T12:00:00Z'), contractValue: 3100, status: 'paid' })).toBe(false)
+    // In the database: an old paid job and the customer's new open quote card (no quote on it): nothing moves.
+    const c = await prisma.crmContact.create({ data: { accountId, firstName: 'Tiffany', lastName: tag } as any })
+    const old = await prisma.savedJob.create({ data: { accountId, crmContactId: c.id, customerName: `Tiffany ${tag}`, status: 'paid', paymentStatus: 'paid', contractValue: 9264.24, createdAt: new Date('2023-01-26T19:30:00Z') } as any })
+    const st = await prisma.pipelineState.findUnique({ where: { accountId } })
+    const leads = [...((st!.leads as any[]) ?? []), { id: `tiff-${tag}`, firstName: 'Tiffany', lastName: tag, customerId: c.id, stage: 'Appointment', quotePrice: 3032.79, createdAt: '2026-07-15' }]
+    await prisma.pipelineState.update({ where: { accountId }, data: { leads, version: { increment: 1 } } })
+    expect((await truth.cardsBehind(accountId)).some(x => x.cardId === `tiff-${tag}`)).toBe(false)
+    await truth.cardFollowsJob(accountId, old.id)
+    const after = ((await prisma.pipelineState.findUnique({ where: { accountId } }))!.leads as any[]).find(l => l.id === `tiff-${tag}`)
+    expect(after.stage).toBe('Appointment')
+  })
+
+  test('Mark as Sold: the server moves the sale\'s card to Signed Contract, stamped with the quote', async () => {
+    const c = await prisma.crmContact.create({ data: { accountId, firstName: 'Sol', lastName: tag } as any })
+    const q = await prisma.savedQuote.create({ data: { accountId, crmContactId: c.id, customerName: `Sol ${tag}`, fenceStyle: "WV-ND 6'x8' Privacy", runs: [80], pullSheet: [], finalPrice: 2945, status: 'SENT' } as any })
+    const st = await prisma.pipelineState.findUnique({ where: { accountId } })
+    await prisma.pipelineState.update({ where: { accountId }, data: { leads: [...((st!.leads as any[]) ?? []), { id: `sol-${tag}`, firstName: 'Sol', lastName: tag, customerId: c.id, stage: 'First Contact', createdAt: new Date().toISOString().slice(0, 10) }], version: { increment: 1 } } })
+    expect(await truth.moveCardForSoldQuote(accountId, q.id)).toEqual({ cardId: `sol-${tag}`, why: 'moved' })
+    const card = ((await prisma.pipelineState.findUnique({ where: { accountId } }))!.leads as any[]).find(l => l.id === `sol-${tag}`)
+    expect(card).toMatchObject({ stage: 'Signed Contract', quoteId: q.id })
+    // Its follow up is stopped (signed), never "None set".
+    const fu = await prisma.cardFollowUp.findFirst({ where: { accountId, cardId: `sol-${tag}` } })
+    expect(fu?.stoppedReason ?? null).toBe('signed')
+  })
+
+  test('a finished job: its crew days done, any still ahead off the Schedule', async () => {
+    const S = await import('../src/server/lib/installScheduling.js')
+    const j = await prisma.savedJob.create({ data: { accountId, customerName: `Fin ${tag}`, status: 'completed', completedDate: '2026-10-27' } as any })
+    for (const d of ['2026-10-27', '2026-10-28']) await prisma.scheduledGridJob.create({ data: { accountId, stagingJobId: j.id, clientName: 'Fin', crewId: 'crew1', date: d } })
+    expect(await S.finishScheduleRows(accountId, j.id, { accountId, userId: null }, '2026-10-27')).toEqual({ completed: 1, removed: 1 })
+    const rows = await prisma.scheduledGridJob.findMany({ where: { accountId, stagingJobId: j.id }, orderBy: { date: 'asc' } })
+    expect(rows.map(r => [r.date, r.status, !!r.deletedAt])).toEqual([['2026-10-27', 'Complete', false], ['2026-10-28', 'Scheduled', true]])
   })
 
   test('the crew packet carries the approved change order, whoever builds it', async () => {

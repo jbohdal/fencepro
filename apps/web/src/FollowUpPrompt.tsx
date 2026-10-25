@@ -152,7 +152,7 @@ function AnswerDialog({ touch }: { touch: Touch }) {
         className="bg-gray-50 w-full md:max-w-md rounded-t-2xl md:rounded-2xl shadow-2xl max-h-[92vh] overflow-y-auto pb-[calc(16px+env(safe-area-inset-bottom))]">
         <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-bold text-gray-900">{step === 'done' ? 'Saved' : touch.manual ? 'Log a call' : "How'd it go?"}</h2>
+            <h2 className="text-lg font-bold text-gray-900">{step === 'done' ? 'Saved' : touch.manual ? 'Log a call' : touch.channel === 'text' ? 'Did you send the text?' : "How'd it go?"}</h2>
             <p className="text-sm text-gray-600 truncate">{touch.name}{touch.channel === 'text' ? ' · text' : ' · call'}</p>
           </div>
           <button type="button" onClick={close} aria-label="Close" className="btn btn-quiet btn-icon shrink-0"><X size={22} aria-hidden="true" /></button>
@@ -226,7 +226,7 @@ function AnswerDialog({ touch }: { touch: Touch }) {
                   className={`w-12 h-12 grid place-items-center rounded-lg border ${listening ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-gray-300 text-gray-700'}`}><Mic size={20} aria-hidden="true" /></button>
               )}
             </div>
-            {!touch.manual && step === 'pick' && <button type="button" className="mt-3 text-sm text-gray-600 underline min-h-[44px]" onClick={close} data-answer-skip>Skip: the call did not happen</button>}
+            {!touch.manual && step === 'pick' && <button type="button" className="mt-3 text-sm text-gray-600 underline min-h-[44px]" onClick={close} data-answer-skip>{touch.channel === 'text' ? 'Skip: I did not send it' : 'Skip: the call did not happen'}</button>}
           </div>
         )}
       </div>

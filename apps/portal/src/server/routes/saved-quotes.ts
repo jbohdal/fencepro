@@ -32,7 +32,7 @@ import { audit } from '../lib/auditLog.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
-import { repForSave } from '../lib/salesRep.js'
+import { repForSave, repName } from '../lib/salesRep.js'
 import { requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
@@ -371,6 +371,16 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     // Job costing: marked Sold (signed in person) now; its quoted cost is saved once. A quote already Sold keeps the one from its signing.
     if (updated.status === 'SOLD' && !updated.soldAt) await markEverSold(updated.accountId, updated.id)
     if (existing.status !== 'SOLD' && updated.status === 'SOLD') await snapshotAfterSigning(updated.accountId, updated.id, 'app')
+    // Sold with no rep: the person who sold it is credited, whatever their role (Oct 25 2026: an owner's sale read "Sales Rep —").
+    if (existing.status !== 'SOLD' && updated.status === 'SOLD' && !updated.salesRep?.trim()) {
+      const u = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } }).catch(() => null)
+      const rep = u ? repName(u) : ''
+      if (rep) {
+        await prisma.savedQuote.update({ where: { id: updated.id }, data: { salesRep: rep } })
+        await prisma.savedJob.updateMany({ where: { accountId: updated.accountId, quoteId: updated.id, salesRep: '' }, data: { salesRep: rep } })
+        ;(updated as any).salesRep = rep
+      }
+    }
     // Its job's payment schedule, when the job is there already (lib/contractBilling.ts; otherwise made with the job).
     if (updated.status === 'SOLD') await scheduleAfterSigning(updated.accountId, updated.id, 'sold', { userId: req.user.id ?? null, name: req.user.email ?? '' })
     res.json({ success: true, data: updated.status === 'SOLD' && !updated.soldAt ? await prisma.savedQuote.findUnique({ where: { id: updated.id } }) : updated })

@@ -19,7 +19,7 @@
 
 import { logCustomerActivity } from './customerStore'
 import { fireOpsStageChange } from './automationTrigger'
-import { getPipeline, savePipeline } from './pipelineStore'
+import { getPipeline, savePipeline, refreshPipelineNow } from './pipelineStore'
 import { getPipelineStages, roleId, stageName } from './pipelineStagesStore'
 import { cardForCompletedJob } from './pipelineStageModel'
 import { getJobs } from './jobStore'
@@ -57,14 +57,18 @@ export interface JobCompletedContext {
   fromStage?: string
 }
 
-/** Full Job complete cascade. Call when a job moves to the Complete stage. */
+/**
+ * Full Job complete cascade. Call when a job moves to the Complete stage. The
+ * pipeline card is moved by the server when the job is saved (lib/jobTruth.ts
+ * cardFollowsJob: Job Complete, or Paid & Closed when paid in full, and only
+ * the card of the same sale); this phone reads it again shortly after, so it
+ * never saves the pipeline over the server's move (Oct 25 2026: the phone's
+ * "Job Complete" landed over the server's "Paid & Closed", with a 409).
+ */
 export function onJobCompleted(ctx: JobCompletedContext): void {
-  let moved: string | null = null
-  try { moved = movePipelineCardToJobComplete(ctx) } catch { /* the job is complete; the card can be moved by hand */ }
-  if (moved && ctx.customerId) {
-    try {
-      logCustomerActivity(ctx.customerId, `Job marked ${ctx.stageName} — card moved to ${stageName(roleId('complete'))} in the sales pipeline`, { actor: 'operations', kind: 'job' })
-    } catch { /* activity is a nicety */ }
+  setTimeout(() => { void refreshPipelineNow() }, 2500)
+  if (ctx.customerId) {
+    try { logCustomerActivity(ctx.customerId, `Job marked ${ctx.stageName}`, { actor: 'operations', kind: 'job' }) } catch { /* activity is a nicety */ }
   }
   try {
     fireOpsStageChange(ctx.jobId, ctx.fromStage || '', ctx.stageName, {

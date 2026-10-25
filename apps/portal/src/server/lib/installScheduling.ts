@@ -462,6 +462,27 @@ export async function applyRainDay(accountId: string, from: Ymd, shift: number, 
   return withTexts(accountId, moves)
 }
 
+/* ── A finished job's crew days ─────────────────────────────────────────── */
+
+/**
+ * A job that is done (Complete, Invoiced, Paid): its Schedule entries on days
+ * before or on its completed day are marked Complete; entries after it are
+ * taken off (logged, restorable), so a finished job is never drawn on days
+ * ahead (Oct 25 2026: a closed-out job stayed on the month as Scheduled).
+ * Returns what changed.
+ */
+export async function finishScheduleRows(accountId: string, jobId: string, actor: Actor, doneDay: Ymd): Promise<{ completed: number; removed: number }> {
+  return prisma.$transaction(async tx => {
+    const rows = await tx.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, stagingJobId: jobId } })
+    const ahead = rows.filter(r => isYmd(r.date) && r.date > doneDay)
+    const past = rows.filter(r => !ahead.includes(r) && r.status !== 'Complete')
+    if (past.length) await tx.scheduledGridJob.updateMany({ where: { id: { in: past.map(r => r.id) } }, data: { status: 'Complete' } })
+    if (ahead.length) await softDeleteLogged(tx as Json, actor, 'scheduledGridJob', 'schedule_entry', ahead.map(r => r.id))
+    if (past.length || ahead.length) await bumpBoard(tx, accountId, await settingsOf(accountId, tx))
+    return { completed: past.length, removed: ahead.length }
+  })
+}
+
 /* ── Jobs with install dates and no board entries ───────────────────────── */
 
 export interface MissingEntries { jobId: string; customerName: string; crewId: string; crewName: string; crewFound: boolean; days: Ymd[]; status: string }

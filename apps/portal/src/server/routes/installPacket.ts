@@ -195,6 +195,23 @@ packetStaff.get('/', async (req: any, res) => {
   res.json({ success: true, data: p ? { id: p.id, token: p.token, disabledAt: p.disabledAt, sentAt: p.sentAt, changedBy: co ? { number: co.number, what: co.what } : null } : null })
 })
 
+// The work as it is now for a packet (the newest approved change order's drawing, runs, gates and quantities;
+// never a price), for a phone that may not read change orders (the installer): it builds the gates with their
+// places and swing from this drawing, as the office's phone does.
+packetStaff.get('/work', async (req: any, res) => {
+  try {
+    const job = await prisma.savedJob.findFirst({ where: { id: String(req.query.jobId || ''), accountId: req.user.crmAccountId, deletedAt: null }, select: { quoteId: true } })
+    const co = job ? await packetChange(req.user.crmAccountId, job.quoteId, new Date(0)) : null
+    if (!co) { res.json({ success: true, data: null }); return }
+    const w = co.work as any
+    res.json({ success: true, data: { number: co.number, work: {
+      fenceStyle: w.fenceStyle, runs: w.runs, runRails: w.runRails, corners: w.corners, ends: w.ends, walkGates: w.walkGates, dblGates: w.dblGates,
+      tearOutSections: w.tearOutSections, tearOutGates: w.tearOutGates, sections: w.sections, footage: w.footage, layout: w.layout ?? null, planSvg: w.planSvg ?? null,
+      pullSheet: (w.pullSheet ?? []).filter((l: any) => !l.moneyOnly).map((l: any) => ({ item: l.item, qty: l.qty })),
+    } } })
+  } catch (err) { console.error('[packet] work:', err); res.status(500).json({ success: false, error: 'Could not read the work' }) }
+})
+
 // Send (or refresh) a job's packet. A packet that was turned off gets a new link.
 // The office sends and refreshes it (packets.change); the crew may make a job's first one from their home
 // screen, so a scheduled install always has its packet (walkthrough round 1, Oct 25, 2026).

@@ -644,7 +644,10 @@ function OpsCard({
       </div>
 
       <div className="flex items-center justify-between mt-2 text-[11px]">
-        {job.scheduledDate ? (
+        {/* A finished job says when it was installed, never its old (or still ahead) install dates. */}
+        {isDoneStage(job.opsStage) ? (
+          <span className="text-green-700 font-semibold" data-ops-card-installed={job.rawJob?.completedDate || ''}>✓ {job.rawJob?.completedDate ? `Installed ${cardDays(job.rawJob.completedDate)}` : 'Done'}</span>
+        ) : job.scheduledDate ? (
           <span className="text-gray-500" data-ops-card-date={job.scheduledDate}>📅 {cardDays(job.scheduledDate, job.rawJob?.scheduledEndDate)}{today ? ' • Today' : ''}</span>
         ) : (
           <span className="text-amber-700 font-semibold">Unscheduled</span>

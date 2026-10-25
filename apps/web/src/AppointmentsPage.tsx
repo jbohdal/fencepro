@@ -6,6 +6,7 @@
  * an outcome.
  */
 
+import { memberKey } from './bookingTeamModel'
 import { signedInRole } from './permissions'
 import { currentUser } from './crmAuth'
 import { myDayKey } from './TodayScreen'
@@ -52,7 +53,10 @@ export default function AppointmentsPage() {
   // Needs a date: call backs with no time, and cards in the Appointment stage with nothing booked.
   const undated = list.filter(a => !a.startAt && isOpen(a) && matchesPerson(team, a, person))
   const booked = new Set(list.filter(a => isOpen(a) && a.startAt).map(a => a.crmContactId))
-  const waitingCards = (getPipeline().leads || []).filter((l: any) => stageHasRole(l?.stage, 'appointment') && !(l.customerId && booked.has(l.customerId)))
+  // The cards follow the person picker too (by the card's rep): a Salesman sees her own waiting cards, not everyone's.
+  const personName = person.startsWith('u:') ? team.find(m => memberKey(m) === person)?.name ?? '' : person.startsWith('n:') ? person.slice(2) : ''
+  const norm = (x: unknown) => String(x ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+  const waitingCards = (getPipeline().leads || []).filter((l: any) => stageHasRole(l?.stage, 'appointment') && !(l.customerId && booked.has(l.customerId)) && (!person || (!!personName && norm(l.assignedRep) === norm(personName))))
   const overdue = list.filter(a => needsOutcome(a) && matchesPerson(team, a, person)).sort((x, y) => y.startAt!.localeCompare(x.startAt!))
 
   const step = view === 'day' || view === 'map' ? 1 : view === 'week' ? 7 : view === 'month' ? 30 : 14

@@ -15,6 +15,7 @@
  *                     pipeline card to Job complete.
  */
 
+import { onCardMoves } from './followUps.js'
 import prisma from './prisma.js'
 import { auditSystem } from './auditLog.js'
 import { recordJobChanges, recordCardMoves } from './automations/hooks.js'
@@ -321,13 +322,35 @@ function boardRank(list: PipelineStageDef[], id: string): number {
   return GROUPS.indexOf(st.group) * 1000 + st.order
 }
 
-/** The card of a job: the one carrying its quote or id, else the customer's only open card with no quote. */
-function cardOfJob(list: PipelineStageDef[], leads: Json[], j: { id: string; quoteId: string | null; crmContactId: string | null }): Json | null {
+const DAY_MS = 86_400_000
+const dayMs = (v: unknown): number | null => { const t = typeof v === 'string' ? Date.parse(v.length <= 10 ? `${v}T12:00:00Z` : v) : v instanceof Date ? v.getTime() : NaN; return Number.isFinite(t) ? t : null }
+
+/**
+ * Is a pipeline card the same sale as a job, when the card carries neither
+ * the job's quote nor its id? Jonathan's same-job rule: the same customer AND
+ * within 60 days AND prices within 10%. A card with no price is only the same
+ * sale as a job still under way, made within 60 days of the card. Never by
+ * the customer alone (Oct 25 2026: a 2026 open quote card would have been
+ * closed by the customer's paid 2023 job).
+ */
+export function sameJobCard(card: { customerId?: string | null; createdAt?: string | null; lastMoved?: string | null; quotePrice?: number | null; jobValue?: number | null }, job: { crmContactId: string | null; createdAt: Date | string; contractValue?: number | null; quotePrice?: number | null; status: string }): boolean {
+  if (!job.crmContactId || card.customerId !== job.crmContactId) return false
+  const jt = dayMs(job.createdAt)
+  const ct = dayMs(card.createdAt) ?? dayMs(card.lastMoved)
+  if (jt === null || ct === null || Math.abs(jt - ct) > 60 * DAY_MS) return false
+  const cardPrice = Number(card.quotePrice) || Number(card.jobValue) || 0
+  const jobPrice = Number(job.contractValue) || Number(job.quotePrice) || 0
+  if (cardPrice > 0 && jobPrice > 0) return Math.abs(cardPrice - jobPrice) <= 0.1 * Math.max(cardPrice, jobPrice)
+  return !isDonePhase(job.status)
+}
+
+/** The card of a job: the one carrying its quote or id; else the customer's one card that is the same sale (sameJobCard). */
+function cardOfJob(list: PipelineStageDef[], leads: Json[], j: { id: string; quoteId: string | null; crmContactId: string | null; createdAt: Date; contractValue: number; quotePrice: number; status: string }): Json | null {
   const own = leads.filter(l => (j.quoteId && l.quoteId === j.quoteId) || l.jobId === j.id)
   if (own.length === 1) return own[0]
   if (own.length > 1 || !j.crmContactId) return null
-  // The customer's only card with no quote, selling or sold (never one in a dead stage).
-  const o = leads.filter(l => l.customerId === j.crmContactId && !l.quoteId && (isOpenStage(list, l.stage) || isSoldStage(list, l.stage)))
+  // No quote on the card to tell: only a card that is the same sale by the same-job rule, never one in a dead stage.
+  const o = leads.filter(l => !l.quoteId && !l.jobId && (isOpenStage(list, l.stage) || isSoldStage(list, l.stage)) && sameJobCard(l, j))
   return o.length === 1 ? o[0] : null
 }
 
@@ -350,7 +373,7 @@ export async function cardsBehind(accountId: string, onlyJobId?: string): Promis
   const leads = ((state?.leads as Json[]) ?? []).filter(Boolean)
   // One job: it and its customer's other jobs (so a card two jobs could claim is never moved).
   const one = onlyJobId ? await prisma.savedJob.findFirst({ where: { id: onlyJobId, accountId }, select: { crmContactId: true } }) : null
-  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, ...(onlyJobId ? { OR: [{ id: onlyJobId }, ...(one?.crmContactId ? [{ crmContactId: one.crmContactId }] : [])] } : {}) }, select: { id: true, quoteId: true, crmContactId: true, customerName: true, status: true, previousStatus: true, scheduledDate: true, paymentStatus: true } })
+  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, ...(onlyJobId ? { OR: [{ id: onlyJobId }, ...(one?.crmContactId ? [{ crmContactId: one.crmContactId }] : [])] } : {}) }, select: { id: true, quoteId: true, crmContactId: true, customerName: true, status: true, previousStatus: true, scheduledDate: true, paymentStatus: true, createdAt: true, contractValue: true, quotePrice: true } })
   const out: CardBehind[] = []
   for (const j of jobs) {
     const card = cardOfJob(stages, leads, j)
@@ -366,6 +389,32 @@ export async function cardsBehind(accountId: string, onlyJobId?: string): Promis
   const n = new Map<string, number>()
   for (const c of out) n.set(c.cardId, (n.get(c.cardId) ?? 0) + 1)
   return out.filter(c => n.get(c.cardId) === 1 && (!onlyJobId || c.jobId === onlyJobId))
+}
+
+/**
+ * A quote marked Sold in the app: its card (the one carrying the quote, else
+ * the customer's one card that is the same sale by the same-job rule) goes to
+ * the Signed stage with the quote on it, on the server (the phone shows it
+ * after its next read; no second save of the pipeline from the phone).
+ * Returns the card id, or null with why.
+ */
+export async function moveCardForSoldQuote(accountId: string, quoteId: string): Promise<{ cardId: string | null; why: string }> {
+  const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId }, select: { id: true, crmContactId: true, createdAt: true, finalPrice: true } })
+  if (!q) return { cardId: null, why: 'no quote' }
+  const { stages } = await loadPipelineStages(accountId)
+  const signed = roleStageId(stages, 'signed')
+  if (!signed) return { cardId: null, why: 'no Signed stage' }
+  const state = await prisma.pipelineState.findUnique({ where: { accountId } })
+  const leads = ((state?.leads as Json[]) ?? []).filter(Boolean)
+  const own = leads.filter(l => l.quoteId === q.id)
+  const pick = own.length === 1 ? own[0] : own.length ? null : (() => {
+    const o = leads.filter(l => !l.quoteId && !l.jobId && isOpenStage(stages, l.stage) && sameJobCard(l, { crmContactId: q.crmContactId, createdAt: q.createdAt, contractValue: q.finalPrice, status: 'staging' }))
+    return o.length === 1 ? o[0] : null
+  })()
+  if (!pick) return { cardId: null, why: 'no single card for this sale' }
+  if (isSoldStage(stages, pick.stage)) { if (!pick.quoteId) await moveCardTo(accountId, pick.id, pick.stage, { quoteId: q.id }); return { cardId: pick.id, why: 'already sold' } }
+  await moveCardTo(accountId, pick.id, signed, { quoteId: q.id })
+  return { cardId: pick.id, why: 'moved' }
 }
 
 /** After a job change: its card goes where the job is (only forward). Never throws. */
@@ -386,12 +435,16 @@ export async function moveCardTo(accountId: string, cardId: string, stage: strin
     const leads = (state.leads as Json[]) ?? []
     const card = leads.find(l => l?.id === cardId)
     if (!card) return false
-    if (card.stage === stage) return false
-    const lead = { ...card, stage, lastMoved: floridaDay(new Date()), ...(stamp.quoteId && !card.quoteId ? { quoteId: stamp.quoteId } : {}), ...(stamp.jobId && !card.jobId ? { jobId: stamp.jobId } : {}) }
+    if (card.stage === stage && (!stamp.quoteId || card.quoteId) && (!stamp.jobId || card.jobId)) return false
+    const lead = { ...card, stage, lastMoved: card.stage === stage ? card.lastMoved : floridaDay(new Date()), ...(stamp.quoteId && !card.quoteId ? { quoteId: stamp.quoteId } : {}), ...(stamp.jobId && !card.jobId ? { jobId: stamp.jobId } : {}) }
     const next = applyPipelineDelta({ leads, stages: (state.stages as Json[]) ?? [] }, { upsert: [{ lead }], remove: [] })
     const done = await prisma.$transaction(async tx => {
       const d = await tx.pipelineState.updateMany({ where: { accountId, version: state.version }, data: { leads: JSON.parse(JSON.stringify(next.leads)), version: { increment: 1 } } })
-      if (d.count === 1) await recordCardMoves(accountId, leads, next.leads, state.version + 1, tx)
+      if (d.count === 1) {
+        await recordCardMoves(accountId, leads, next.leads, state.version + 1, tx)
+        // The card's follow up follows the move (stopped once it is sold), as when it is moved on the board.
+        await onCardMoves(tx as any, accountId, leads, next.leads)
+      }
       return d
     })
     if (done.count === 1) return true
@@ -463,6 +516,9 @@ export async function closeOutIfDone(accountId: string, jobId: string, why: stri
     await afterJobSaved(accountId, jobId, { userId: null, name: 'Close out' })
     // The card follows: Job Complete, or the last Sold, work done stage (Paid & Closed) when paid in full.
     await cardFollowsJob(accountId, jobId)
+    // Its crew days: done; any still ahead off the Schedule.
+    const { finishScheduleRows } = await import('./installScheduling.js')
+    await finishScheduleRows(accountId, jobId, { accountId, userId: null }, updated.completedDate || floridaDay(new Date()))
     return { moved: true, stage: stageById(stages, stageOfJob(stages, updated as Json))?.name ?? done.name }
   } catch (e) {
     console.error('[close out]', e)

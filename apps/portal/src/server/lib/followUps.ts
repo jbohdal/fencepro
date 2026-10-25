@@ -112,7 +112,8 @@ export async function onCardMoves(db: Tx, accountId: string, before: any[], afte
     // A card that was never followed up and enters a stage without steps gets no row.
     const next = startState(card.stage, today, config, st, prev ?? undefined)
     if (!row && !next.dueOn && !next.stoppedReason) continue
-    if (!row && next.stoppedReason) continue
+    // A card never followed up that is signed keeps a "Stopped: signed" row, so it never reads "None set" (Oct 25 2026).
+    if (!row && next.stoppedReason && next.stoppedReason !== 'signed') continue
     await saveState(db, accountId, card.id, next)
     n++
   }

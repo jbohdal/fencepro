@@ -12,6 +12,7 @@
  * the app during the call still asks how it went.
  */
 
+import { isOpen as isOpenStage } from './pipelineStagesStore'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { sendJson } from './syncHttp'
 import { currentUser } from './crmAuth'
@@ -339,6 +340,9 @@ const emitPrompt = () => promptListeners.forEach(f => { try { f() } catch { /* g
 
 /** A tap on Call, Text or the phone number: when the person comes back to the app, "How'd it go?" is asked. */
 export function startTouch(t: Omit<Touch, 'startedAt'>): void {
+  // Only a sales card still being sold is asked about (Oct 25 2026: a text to a past customer brought up Signed / Lost).
+  const stage = (t as any).stage ?? (getPipeline().leads || []).find((l: any) => l?.id === t.cardId)?.stage
+  if (!stage || !isOpenStage(stage)) return
   pending = { ...t, startedAt: Date.now(), left: false }
   installWatch()
   // Also on the server, for a phone that reloads the app while in the call. Without signal, memory is enough.

@@ -161,7 +161,15 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T | null> 
 export async function sendInstallPacket(jobId: string, job: { fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number }, signedQuote: SavedQuote | undefined): Promise<Packet | null> {
   // The work now: an approved change order from the yard drawing changes the plan, runs, gates and pull sheet (ChangeOrders.tsx).
   let quote = signedQuote
-  if (quote) { await refreshChangeOrders(quote.id); quote = quoteWithChanges(signedQuoteOf(quote)) }
+  if (quote) {
+    const orders = await refreshChangeOrders(quote.id)
+    if (orders) quote = quoteWithChanges(signedQuoteOf(quote))
+    else {
+      // This login may not read change orders (the installer sees no prices): the work now, price free, from the packet route.
+      const w = await call<{ number: number; work: any } | null>(`/work?jobId=${encodeURIComponent(jobId)}`)
+      if (w?.work) quote = { ...quote, ...w.work, layout: w.work.layout ?? quote.layout, pullSheet: (w.work.pullSheet ?? []).map((l: any) => ({ item: l.item, qty: l.qty, unitCost: 0, total: 0 })), proposal: quote.proposal ? { ...quote.proposal, ...(w.work.planSvg ? { planSvg: w.work.planSvg } : {}) } : quote.proposal } as SavedQuote
+    }
+  }
   if (quote && (quote.walkGates !== signedQuote?.walkGates || quote.dblGates !== signedQuote?.dblGates)) job = { ...job, walkGates: quote.walkGates, dblGates: quote.dblGates }
   const media = await listMedia({ jobId })
   // The aerial photo, turned as saved with the quote, under the plan (when it was on).

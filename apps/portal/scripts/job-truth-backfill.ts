@@ -12,6 +12,7 @@
  *      moved onto the job's one locate record (lib/locates.ts): the ticket number,
  *      and the packet's date as the good to dig date. A field the job already
  *      has is kept. The packet's own fields are left as they were.
+ *   2a. Permits Jonathan said are not needed (Manuel Cotrich): set to Not needed.
  *   2. Milestone ticks that disagree with the job's records (lib/jobReadiness.ts):
  *      a tick on Locate Complete, Permit Approved or Crew Assigned that the
  *      records say is not done is cleared (those follow their record from now
@@ -33,6 +34,9 @@
  *      (started from another option): made again from the signed quote after
  *      3 (lib/jobCosting.ts rebuildDraftTakeoff). Submitted or approved ones are
  *      never changed.
+ *   9. Finished jobs (Complete, Invoiced, Paid) with Schedule entries still
+ *      "Scheduled", or on days after the job was finished: those on or before
+ *      the finished day marked Complete, later ones taken off (restorable).
  *
  * The milestone list (2) is worked out as the jobs will be after 1, so the
  * locates moved in count. Nothing is texted or emailed. Run on live only
@@ -94,6 +98,19 @@ async function main() {
     return m ? { ...j, ...locateFields(m.to) } : j
   })
 
+  // ── 2a. Permits Jonathan said are not needed (Oct 25 2026: Manuel Cotrich needs no permit) ──
+  // The job's Permit is set to Not needed, so its Permit Approved tick agrees and the "permit needed" warnings stop.
+  const PERMIT_NOT_NEEDED = ['e5968fa7-1e3d-4a84-b787-5a8fa009445b']
+  const permitSet: Array<{ job: typeof jobs[number]; from: string | null }> = []
+  for (const id of PERMIT_NOT_NEEDED) {
+    const j = byId.get(id)
+    if (!j) continue
+    const p = await prisma.permit.findUnique({ where: { jobId: id } })
+    if (p?.status !== 'not_needed') permitSet.push({ job: j, from: p?.status ?? null })
+  }
+  console.log(`\n2a. Permits set to Not needed (Jonathan, Oct 25): ${permitSet.length}`)
+  for (const x of permitSet) console.log(`   ${name(x.job)}: Permit ${x.from ?? '(none)'} -> not_needed`)
+
   // ── 2. Milestone ticks against the records ──
   const accounts = [...new Set(jobs.map(j => j.accountId))]
   const stale: Array<{ job: typeof jobs[number]; ticks: ReturnType<typeof staleTicks> }> = []
@@ -103,6 +120,8 @@ async function main() {
     const map = ((s?.jobChecklists as any) ?? {}) as Record<string, any[]>
     const mine = after.filter(j => j.accountId === accountId && Array.isArray(map[j.id]) && map[j.id].some(t => t?.isComplete))
     const facts = await readinessFactsFor(accountId, mine)
+    // As it will be after 2a.
+    for (const x of permitSet) { const f = facts.get(x.job.id); if (f) f.permitStatus = 'not_needed' }
     for (const j of mine) {
       const f = facts.get(j.id)!
       const ticks = staleTicks(f, map[j.id])
@@ -194,6 +213,20 @@ async function main() {
   console.log(`\n8. Draft takeoffs whose lines are not the signed work (made again from the signed quote): ${wrong.length}`)
   for (const w of wrong) console.log(`   ${name(w.job)}: takeoff started ${w.t.createdAt.toISOString().slice(0, 10)}, ${linesOf(w.t).length} lines (${w.parts}...) -> the signed ${w.style}`)
 
+  // ── 9. Finished jobs' Schedule entries ──
+  const doneJobs = jobs.filter(j => ['completed', 'invoiced', 'paid'].includes(j.status))
+  const rows = doneJobs.length ? await prisma.scheduledGridJob.findMany({ where: { deletedAt: null, stagingJobId: { in: doneJobs.map(j => j.id) } } }) : []
+  const finish: Array<{ job: typeof jobs[number]; doneDay: string; complete: string[]; remove: string[] }> = []
+  for (const j of doneJobs) {
+    const doneDay = j.completedDate || j.updatedAt.toISOString().slice(0, 10)
+    const mine = rows.filter(r => r.stagingJobId === j.id)
+    const remove = mine.filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.date > doneDay).map(r => r.date)
+    const complete = mine.filter(r => !(r.date > doneDay) && r.status !== 'Complete').map(r => r.date)
+    if (remove.length || complete.length) finish.push({ job: j, doneDay, complete, remove })
+  }
+  console.log(`\n9. Finished jobs with Schedule entries still open or after they were finished: ${finish.length}`)
+  for (const f of finish) console.log(`   ${name(f.job)}, finished ${mdy(f.doneDay)}:${f.complete.length ? ` mark Complete ${f.complete.map(mdy).join(', ')};` : ''}${f.remove.length ? ` take off ${f.remove.map(mdy).join(', ')}` : ''}`)
+
   if (!APPLY) { console.log('\nReport only. Nothing was written. Run with --apply to make these changes.'); await prisma.$disconnect(); return }
 
   // ── Apply ──
@@ -202,6 +235,11 @@ async function main() {
     const j = byId.get(m.jobId)!
     await saveLocate(j.accountId, j.id, { ticket: m.to.ticket, calledDate: m.to.calledDate, goodDate: m.to.goodDate, expDate: m.to.expDate }, 'Backfill: from the crew packet')
     n1++
+  }
+  let n2a = 0
+  for (const x of permitSet) {
+    await prisma.permit.upsert({ where: { jobId: x.job.id }, create: { accountId: x.job.accountId, jobId: x.job.id, status: 'not_needed', updatedBy: 'Backfill (Jonathan: no permit needed)' }, update: { status: 'not_needed', updatedBy: 'Backfill (Jonathan: no permit needed)' } })
+    n2a++
   }
   for (const x of stale) n2 += (await clearStaleTicks(x.job.accountId, x.job.id, x.ticks.map(t => t.label))).length
   for (const m of qMis) if (await snapshotQuotedCost(m.q.accountId, m.q.id, m.row.signedVia === 'proposal' || m.row.signedVia === 'share' ? m.row.signedVia : (m.q.acceptedAt ? 'proposal' : 'app') as any)) n3++
@@ -221,7 +259,10 @@ async function main() {
   }
   // After 3, so the signed option's cost is the one the takeoff is made from (3 may have rebuilt some already).
   for (const w of wrong) if (await rebuildDraftTakeoff(w.t.accountId, w.t.jobId, 'backfill: started from another option')) n8++
-  console.log(`\nApplied: ${n1} locates moved, ${n2} milestone ticks cleared, ${n3} quoted costs replaced, ${n4} payment statuses set, ${n5} jobs closed out, ${n6} Schedule entries made, ${n7} pipeline cards moved, ${n8} draft takeoffs made again.`)
+  const { finishScheduleRows } = await import('../src/server/lib/installScheduling.js')
+  let n9 = 0
+  for (const f of finish) { const r = await finishScheduleRows(f.job.accountId, f.job.id, { accountId: f.job.accountId, userId: null }, f.doneDay); n9 += r.completed + r.removed }
+  console.log(`\nApplied: ${n1} locates moved, ${n2a} permits set to not needed, ${n2} milestone ticks cleared, ${n3} quoted costs replaced, ${n4} payment statuses set, ${n5} jobs closed out, ${n6} Schedule entries made, ${n7} pipeline cards moved, ${n8} draft takeoffs made again, ${n9} finished jobs' Schedule entries closed.`)
   await prisma.$disconnect()
 }
 

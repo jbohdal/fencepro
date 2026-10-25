@@ -13,6 +13,7 @@
  *   POST   /sync      — bulk push from a localStorage payload
  */
 
+import { finishScheduleRows } from '../lib/installScheduling.js'
 import { canonicalWord } from '../lib/optionLists.js'
 import { Router } from 'express'
 import { z } from 'zod'
@@ -210,6 +211,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
       else console.warn(`[saved-jobs] contact ${data.crmContactId} not found for this company; saving the job without the link`)
     }
     const { id: _ignored, ...fields } = data
+    // No rep sent: the quote's (credited to whoever sold it, routes/saved-quotes.ts).
+    if (!fields.salesRep?.trim() && data.quoteId) fields.salesRep = (await prisma.savedQuote.findFirst({ where: { id: data.quoteId, accountId: req.user.crmAccountId }, select: { salesRep: true } }))?.salesRep ?? ''
     // The new job lands in the stage marked first in Settings (or the one its status stands for).
     const { stages } = await loadOpsStages(req.user.crmAccountId)
     const opsStage = reconcileOpsStage(stages, null, { ...data, opsStage: data.opsStage && stageById(stages, data.opsStage) ? data.opsStage : '' } as any)
@@ -316,6 +319,11 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     // The payment schedule: made if the quote is signed now, and the Final due on the install date (lib/contractBilling.ts).
     await afterJobSaved(req.user.crmAccountId, updated.id, { userId: req.user.id ?? null, name: req.user.email ?? '' })
     await cardFollowsJob(req.user.crmAccountId, updated.id)
+    // Finished now: its crew days done, any still ahead taken off the Schedule (lib/installScheduling.ts).
+    const DONE = ['completed', 'invoiced', 'paid']
+    if (!DONE.includes(existing.status) && DONE.includes(updated.status)) {
+      await finishScheduleRows(req.user.crmAccountId, updated.id, { accountId: req.user.crmAccountId, userId: req.user.id ?? null }, updated.completedDate || floridaDay(new Date())).catch(e => console.error('[saved-jobs] finish schedule rows:', e))
+    }
     res.json({ success: true, data: updated })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }

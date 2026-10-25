@@ -249,6 +249,7 @@ try {
   await sleep(3000)
   const falseToast = await pc.page.locator('text=Someone changed this on another phone').count()
   check('Mark as Sold: no "Someone changed this on another phone" toast', falseToast === 0)
+  check('Mark as Sold: the phone saves no pipeline (the server moves the card): no PATCH /api/pipeline, no 409', !net.some(l => /PATCH \/api\/pipeline/.test(l)) && !net.some(l => / 409/.test(l)), net.join(' | '))
   W.c.jobId = (await until(async () => sql(`SELECT id FROM "SavedJob" WHERE "quoteId" = ${lit(W.c.quoteId)} AND "deletedAt" IS NULL`) || null, 30000)) || ''
   const qs = sql(`SELECT status FROM "SavedQuote" WHERE id = ${lit(W.c.quoteId)}`)
   check('Mark as Sold: the quote is Sold and its job is made', !!W.c.jobId && qs === 'SOLD', `job ${W.c.jobId || 'none'}, quote ${qs}; ${net.join(' | ')}`)

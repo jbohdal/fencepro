@@ -3,6 +3,7 @@
  * Mirrors the pattern of /api/schedule/settings.
  */
 
+import { moveCardForSoldQuote } from '../lib/jobTruth.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
@@ -277,6 +278,16 @@ async function cardAction(req: any, res: any, run: () => Promise<unknown>) {
     res.status(500).json({ success: false, error: 'Failed to change the card' })
   }
 }
+// A quote marked Sold in the app: its card to Signed Contract, moved here on the server (lib/jobTruth.ts).
+router.post('/sold-quote/:quoteId', requireCan('quotes.change'), async (req: any, res) => {
+  try {
+    res.json({ success: true, data: await moveCardForSoldQuote(req.user.crmAccountId, String(req.params.quoteId)) })
+  } catch (err) {
+    console.error('[pipeline] sold quote card:', err)
+    res.status(500).json({ success: false, error: 'Could not move the card' })
+  }
+})
+
 router.post('/cards/:id/archive', requireCan('records.archive'), (req: any, res) => cardAction(req, res, async () => {
   const r = await setArchived(actorOf(req), 'card', String(req.params.id), true)
   await audit(req, 'update', 'PipelineCard', String(req.params.id), { newValues: { archivedAt: r.archivedAt } })
