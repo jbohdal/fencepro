@@ -10,7 +10,7 @@
 import fs from 'fs'
 import path from 'path'
 import { describe, it, expect } from 'vitest'
-import { customerText, isCustomerText, formatPhonesIn, STOP_WORDS } from '../src/server/lib/customerText.js'
+import { customerText, customerTextStart, isCustomerText, formatPhonesIn, STOP_WORDS } from '../src/server/lib/customerText.js'
 import { installText } from '../src/server/lib/installDays.js'
 import { photoRequestText } from '../src/server/lib/serviceTicketModel.js'
 import { asText, confirmationSms, onMyWaySms, DEFAULT_MESSAGE_TEMPLATES, fillTemplate } from '../../web/src/appointmentMessages'
@@ -65,6 +65,10 @@ describe('every customer text path', () => {
     // A template saved in Settings that already has the words: still once.
     ends(asText(`${DEFAULT_MESSAGE_TEMPLATES.confirm.install} Reply STOP to opt out.`, company))
   })
+  it('a text the person writes (the plain Text buttons) opens framed: "Getter Done Fence: Hi Manuel, " ... STOP', () => {
+    expect(customerTextStart('Manuel Cotrich', CO)).toBe('Getter Done Fence: Hi Manuel,  Reply STOP to opt out.')
+    expect(isCustomerText(customerTextStart('', CO), CO)).toBe(true)
+  })
   it('the service photo request', () => {
     ends(photoRequestText('Manuel', 'https://x.ts.net/p/s/abc'))
   })
@@ -81,7 +85,7 @@ describe('every customer text path', () => {
 describe('no Text button skips customerText', () => {
   const web = path.resolve(__dirname, '../../web/src')
   const files = fs.readdirSync(web).filter(f => /\.(tsx?|ts)$/.test(f))
-  const OK_BODY = /^(''|""|customerText\(|asText\(|confirmationSms\(|onMyWaySms\(|photoRequestText\(|text\.body$|textOf\(|body$|text$)/
+  const OK_BODY = /^(customerTextStart\(|customerText\(|asText\(|confirmationSms\(|onMyWaySms\(|photoRequestText\(|text\.body$|textOf\(|body$|text$)/
   it('each smsLink(phone, body) builds its body through customerText', () => {
     const bad: string[] = []
     for (const f of files) {

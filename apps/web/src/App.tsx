@@ -182,7 +182,8 @@ function tabsFor(role: UserRole): Array<[string, LucideIcon, string]> {
   const tabs: Array<[string, LucideIcon, string]> = role === 'shop'
     ? [['Installs', HardHat, 'My installs'], ['Jobs', Wrench, 'Operations'], ['Stock', Package, 'Inventory']]
     : [['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Follow ups', PhoneCall, 'Follow ups'], ['Customers', Users, 'Customers'],
-      ['Schedule', CalendarDays, role !== 'salesman' && ALL_NAV_ITEMS.find(i => i.name === 'Schedule')?.roles.includes(role) ? 'Schedule' : 'Appointments']]
+      // The tab is named for what it opens: the install calendar (Schedule) or, for a Salesman, her Appointments.
+      ...(role !== 'salesman' && ALL_NAV_ITEMS.find(i => i.name === 'Schedule')?.roles.includes(role) ? [['Schedule', CalendarDays, 'Schedule'] as [string, LucideIcon, string]] : [['Visits', CalendarDays, 'Appointments'] as [string, LucideIcon, string]])]
   return tabs.filter(([, , page]) => role === 'owner' || role === 'admin' || !!ALL_NAV_ITEMS.find(i => i.name === page)?.roles.includes(role))
 }
 

@@ -22,6 +22,7 @@
  *   GET    /notifications  PATCH /notifications/:id/read  POST /notifications/read-all
  */
 
+import { crewScope } from '../lib/crewScope.js'
 import { refuseNoPrices } from '../lib/costRedact.js'
 import { Router } from 'express'
 import { z } from 'zod'
@@ -508,9 +509,32 @@ router.patch('/tasks/:id', async (req: any, res) => {
 
 const portalRole = (role: string) => ADMIN_ROLES.has(role) ? 'admin' : 'support_agent'
 
+/**
+ * Which notices a login sees (Oct 25 2026: everyone, the installer and the
+ * salesman too, saw 50 office notices such as "Possible duplicates"):
+ *   owner, admin, manager, office   their own, their role's, and the company's (no recipient)
+ *   salesman                        her own, her role's, and company notices about her own jobs
+ *   installer                       his own, his role's, and company notices about his crew's jobs
+ */
+async function bellWhere(req: any): Promise<any> {
+  const role = String(req.user.role || '')
+  const own: any[] = [{ recipientId: req.user.email }, { recipientRole: portalRole(role) }, { recipientRole: role }]
+  if (!['sales_rep', 'field_crew'].includes(role)) return { OR: [...own, { recipientId: null, recipientRole: null }] }
+  let jobIds: string[] = []
+  if (role === 'field_crew') {
+    const scope = await crewScope(req.user.id).catch(() => null)
+    jobIds = scope ? [...scope.jobIds] : []
+  } else {
+    const u = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } }).catch(() => null)
+    const name = `${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim()
+    if (name) jobIds = (await prisma.savedJob.findMany({ where: { accountId: req.user.crmAccountId, deletedAt: null, salesRep: { equals: name, mode: 'insensitive' } }, select: { id: true } })).map(j => j.id)
+  }
+  return { OR: [...own, ...(jobIds.length ? [{ recipientId: null, recipientRole: null, jobId: { in: jobIds } }] : [])] }
+}
+
 router.get('/notifications', async (req: any, res) => {
   try {
-    const where = { OR: [{ recipientId: req.user.email }, { recipientRole: portalRole(req.user.role) }, { recipientRole: req.user.role }, { recipientId: null, recipientRole: null }] }
+    const where = await bellWhere(req)
     const notifications = await prisma.notification.findMany({ where, orderBy: { createdAt: 'desc' }, take: 50 })
     res.json({ success: true, data: { notifications, unread: notifications.filter(n => !n.read).length } })
   } catch (err) { fail(res, err, 'load notifications') }
@@ -525,7 +549,8 @@ router.patch('/notifications/:id/read', async (req: any, res) => {
 
 router.post('/notifications/read-all', async (req: any, res) => {
   try {
-    const where = { read: false, OR: [{ recipientId: req.user.email }, { recipientRole: portalRole(req.user.role) }, { recipientRole: req.user.role }, { recipientId: null, recipientRole: null }] }
+    // Only what this login sees (bellWhere): marking all read never clears the office's notices from a crew phone.
+    const where = { read: false, ...(await bellWhere(req)) }
     await prisma.notification.updateMany({ where, data: { read: true, readAt: new Date() } })
     res.json({ success: true })
   } catch (err) { fail(res, err, 'mark all read') }

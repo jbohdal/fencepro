@@ -14,7 +14,8 @@
  * app with the message ready; nothing is ever sent by the app).
  */
 
-import { customerText } from '../../portal/src/server/lib/customerText'
+import { customerText, customerTextStart } from '../../portal/src/server/lib/customerText'
+import { useTextAllowed } from './TextButton'
 import { stageHasRole, stageName, roleId, getPipelineStages } from './pipelineStagesStore'
 import { bookingTypeFor } from './pipelineStageModel'
 import { useEffect, useRef, useState } from 'react'
@@ -239,7 +240,12 @@ export function TextTemplatesSheet({ card, onClose }: { card: { cardId: string; 
   const templates: Template[] = getConfig().templates
   const company = getAppConfig().company?.name || 'Getter Done Fence'
   const me = myName()
-  const tap = () => { startTouch({ cardId: card.cardId, customerId: card.customerId, name: card.name, firstName: card.firstName, phone: card.phone, channel: 'text' }); setTimeout(onClose, 50) }
+  // Only a customer who said yes to texts (TextButton.tsx); otherwise the reason, and nothing opens.
+  const consent = useTextAllowed(card.customerId, card.name)
+  const tap = (e: React.MouseEvent) => {
+    if (!consent.allowed) { e.preventDefault(); toast.error('Text not opened', consent.reason || 'Checking the texting answer. Try again in a moment.'); return }
+    startTouch({ cardId: card.cardId, customerId: card.customerId, name: card.name, firstName: card.firstName, phone: card.phone, channel: 'text' }); setTimeout(onClose, 50)
+  }
   return (
     <div className="fixed inset-0 z-[65] flex items-end md:items-center justify-center bg-black/40" onClick={onClose} data-text-templates>
       <div role="dialog" aria-modal="true" aria-label="Text templates" onClick={e => e.stopPropagation()} className="bg-gray-50 w-full md:max-w-md rounded-t-2xl md:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto pb-[calc(16px+env(safe-area-inset-bottom))]">
@@ -250,13 +256,14 @@ export function TextTemplatesSheet({ card, onClose }: { card: { cardId: string; 
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="btn btn-quiet btn-icon shrink-0"><X size={22} aria-hidden="true" /></button>
         </div>
+        {consent.reason && <p className="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-800" data-text-templates-blocked>{consent.reason}</p>}
         <ul className="px-4 pt-3 space-y-2">
           {templates.map(t => {
             // "Company: ... Reply STOP to opt out." around the template (lib/customerText.ts).
             const body = customerText(fillTemplate(t.body, { firstName: card.firstName, myName: me, company }), company)
             return (
               <li key={t.id}>
-                <a href={smsLink(card.phone, body)} onClick={tap} data-template={t.id}
+                <a href={consent.allowed ? smsLink(card.phone, body) : undefined} onClick={tap} data-template={t.id}
                   className="block rounded-xl border border-gray-200 bg-white px-4 py-3 min-h-[52px] active:bg-orange-50 hover:bg-gray-50">
                   <span className="block text-sm font-semibold text-gray-900">{t.name}</span>
                   <span className="block text-sm text-gray-700 mt-0.5" data-template-body>{body}</span>
@@ -265,7 +272,7 @@ export function TextTemplatesSheet({ card, onClose }: { card: { cardId: string; 
             )
           })}
           <li>
-            <a href={smsLink(card.phone, '')} onClick={tap} data-template="blank" className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 min-h-[52px] text-sm font-semibold text-gray-900">
+            <a href={consent.allowed ? smsLink(card.phone, customerTextStart(card.firstName, company)) : undefined} onClick={tap} data-template="blank" className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 min-h-[52px] text-sm font-semibold text-gray-900">
               <MessageSquare size={18} aria-hidden="true" /> A blank text
             </a>
           </li>

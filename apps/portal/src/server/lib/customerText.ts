@@ -37,6 +37,17 @@ export function customerText(body: string, company?: string | null): string {
   return `${name}: ${t ? `${t} ` : ''}${STOP_WORDS}`
 }
 
+/**
+ * A text the person writes themselves (the plain Text buttons): it opens as
+ * "Getter Done Fence: Hi Manuel, " ... "Reply STOP to opt out.", the words
+ * typed in between.
+ */
+export function customerTextStart(firstName: string | null | undefined, company?: string | null): string {
+  const name = (company ?? '').trim() || DEFAULT_COMPANY
+  const first = String(firstName ?? '').trim().split(/\s+/)[0] || 'there'
+  return `${name}: Hi ${first},  ${STOP_WORDS}`
+}
+
 /** True when a text is already in the registered form (used by the tests and the send buttons' checks). */
 export function isCustomerText(text: string, company?: string | null): boolean {
   const name = (company ?? '').trim() || DEFAULT_COMPANY

@@ -1,4 +1,5 @@
 import MediaGallery from './MediaGallery'
+import TextButton from './TextButton'
 import { dayWords } from './businessDate'
 import ScreenErrorBoundary from './ScreenErrorBoundary'
 import { usePipelineStages, stageName as pipelineStageName, roleId } from './pipelineStagesStore'
@@ -850,9 +851,9 @@ function CustomerActionBar({ customer, onNewQuote, onEdit }: { customer: Custome
       <a href={phone ? telHref(phone) : undefined} onClick={() => touchCustomer(customer, 'call')} aria-disabled={!phone} data-customer-action="call" className={`${plain} ${phone ? '' : off}`}>
         <Phone size={20} aria-hidden="true" />Call
       </a>
-      <a href={phone ? smsLink(phone, '') : undefined} onClick={() => touchCustomer(customer, 'text')} aria-disabled={!phone} data-customer-action="text" className={`${plain} ${phone ? '' : off}`}>
+      <TextButton phone={phone} customerId={customer.id} firstName={customer.firstName} name={`${customer.firstName} ${customer.lastName}`.trim()} onTap={() => touchCustomer(customer, 'text')} data-customer-action="text" className={`${plain} ${phone ? '' : off}`}>
         <MessageSquare size={20} aria-hidden="true" />Text
-      </a>
+      </TextButton>
       <a href={address ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}` : undefined} target="_blank" rel="noreferrer" aria-disabled={!address} data-customer-action="navigate" className={`${plain} ${address ? '' : off}`}>
         <Navigation size={20} aria-hidden="true" />Navigate
       </a>
@@ -997,7 +998,7 @@ function CustomerDetail({
               {/* One tap to reach the customer or the property */}
               {wide && <div className="flex flex-wrap gap-2 mt-3" data-contact-actions>
                 {customer.phone && <a href={telHref(customer.phone)} onClick={() => touchCustomer(customer, 'call')} className="btn btn-secondary btn-sm"><Phone size={16} aria-hidden="true" /> Call</a>}
-                {customer.phone && <a href={smsLink(customer.phone, '')} onClick={() => touchCustomer(customer, 'text')} className="btn btn-secondary btn-sm"><MessageSquare size={16} aria-hidden="true" /> Text</a>}
+                {customer.phone && <TextButton phone={customer.phone} customerId={customer.id} firstName={customer.firstName} name={`${customer.firstName} ${customer.lastName}`.trim()} onTap={() => touchCustomer(customer, 'text')} className="btn btn-secondary btn-sm" data-customer-text><MessageSquare size={16} aria-hidden="true" /> Text</TextButton>}
                 {customer.serviceAddress && <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(customer.serviceAddress)}`} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm"><Navigation size={16} aria-hidden="true" /> Navigate</a>}
               </div>}
               <div className="flex gap-1.5 mt-2 flex-wrap">

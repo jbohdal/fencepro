@@ -61,7 +61,7 @@ export function startQuote(a: Appointment) {
 }
 
 /** The Today screen's first day: the signed in person's own when they are on the team (a Salesman always: never someone else's), else the owner's. */
-function myDayKey(team: TeamMember[], userId: string | null, role: string | null): string {
+export function myDayKey(team: TeamMember[], userId: string | null, role: string | null): string {
   const me = userId ? team.find(m => m.userId === userId) : undefined
   if (me) return memberKey(me)
   if (userId && (role === 'sales_rep' || role === 'field_crew')) return `u:${userId}`
@@ -85,6 +85,11 @@ export default function TodayScreen() {
     .sort((x, y) => x.startAt!.localeCompare(y.startAt!)), [list, team, today, person])
   const next = todays.find(a => isOpen(a))
   const overdue = list.filter(a => needsOutcome(a) && floridaDate(a.startAt!) < today && matchesPerson(team, a, person))
+  // The visits booked in the next 7 days (Christa's Today said "Nothing" with her Tuesday visit booked).
+  const weekOut = new Date(Date.now() + 7 * 86_400_000)
+  const comingUp = useMemo(() => list
+    .filter(a => a.startAt && floridaDate(a.startAt) > today && new Date(a.startAt) <= weekOut && a.status !== 'cancelled' && matchesPerson(team, a, person))
+    .sort((x, y) => x.startAt!.localeCompare(y.startAt!)), [list, team, today, person])  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="max-w-xl mx-auto space-y-4 pb-24" data-today>
@@ -100,6 +105,22 @@ export default function TodayScreen() {
         <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center">
           <p className="text-gray-600 font-semibold">{todays.length ? 'All done for today.' : 'Nothing booked today.'}</p>
           <button onClick={() => openBooking({ date: today })} className="mt-3 px-4 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold">+ Appointment</button>
+        </div>
+      )}
+
+      {comingUp.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-200" data-today-coming-up>
+          <p className="px-4 pt-3 text-sm font-bold text-gray-900">Coming up ({comingUp.length})</p>
+          <ul className="divide-y divide-gray-100">
+            {comingUp.map(a => (
+              <li key={a.id}>
+                <button type="button" onClick={() => openBooking({ appointmentId: a.id })} className="w-full text-left px-4 py-3 min-h-[48px]" data-today-upcoming={a.id}>
+                  <span className="block text-sm font-semibold text-gray-900">{new Date(a.startAt!).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' })}{a.allDay ? '' : ` · ${fmtTime(a.startAt!)}`} · {a.customerName}</span>
+                  <span className="block text-xs text-gray-600">{TYPE_SHORT[a.type]} · {a.address || 'No address'}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

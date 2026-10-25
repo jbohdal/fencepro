@@ -12,6 +12,7 @@
  * only.
  */
 
+import { plainStyleName } from '../lib/estimates.js'
 import { phoneWords } from '../lib/installDays.js'
 import { Router } from 'express'
 import express from 'express'
@@ -322,7 +323,7 @@ walkthroughPublic.get('/:token', async (req, res) => {
     <p class="small upper">Final walkthrough</p>
     <h1>${esc(job?.customerName || '')}</h1>
     <p class="small">${esc(job?.customerAddress || '')}</p>
-    <p class="facts">${esc(job?.fenceStyle || CATEGORY_LABEL[w.category as WalkCategory] || '')}</p>
+    <p class="facts">${esc((job?.fenceStyle ? await plainStyleName(job.fenceStyle) : '') || CATEGORY_LABEL[w.category as WalkCategory] || '')}</p>
     ${w.status === 'completed' ? `<section class="done"><h2>Complete</h2><p>Finished ${esc(when(w.completedAt!))}. Thank you!</p>${w.certificatePath ? `<p><a class="btn linkbtn" href="${esc(token)}/certificate.pdf">Certificate of Completion (PDF)</a></p>` : ''}</section>` : ''}
     <section><h2>Checklist</h2><ul class="check">${list.map(i => `<li class="${i.result === 'pass' ? 'pass' : i.result === 'fix' ? 'fix' : ''}"><span class="mark">${i.result === 'pass' ? 'Pass' : i.result === 'fix' ? 'Needs fixing' : 'Not checked'}</span><span>${esc(i.label)}${i.note ? `<br><span class="small">${esc(i.note)}</span>` : ''}</span></li>`).join('')}</ul></section>
     ${punch.length ? `<section><h2>Punch list</h2><ul class="check">${punch.map(p => `<li class="${p.status === 'fixed' ? 'pass' : 'fix'}"><span class="mark">${p.status === 'fixed' ? 'Fixed' : 'To fix'}</span><span>${esc(p.label)}${p.note ? `<br><span class="small">${esc(p.note)}</span>` : ''}${p.fixNote ? `<br><span class="small">Fixed: ${esc(p.fixNote)}</span>` : ''}</span></li>`).join('')}</ul>${openPunch.length ? '<p class="small">We will fix these and send you photos before the job is finished.</p>' : ''}</section>` : ''}

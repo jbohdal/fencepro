@@ -6,6 +6,9 @@
  * an outcome.
  */
 
+import { signedInRole } from './permissions'
+import { currentUser } from './crmAuth'
+import { myDayKey } from './TodayScreen'
 import { stageHasRole } from './pipelineStagesStore'
 import { useMemo, useState } from 'react'
 import { updateAppointment } from './appointmentsStore'
@@ -34,7 +37,10 @@ export default function AppointmentsPage() {
   const team = useBookingTeam()
   const [view, setView] = useState<View>(() => (window.matchMedia('(max-width: 767px)').matches ? 'agenda' : 'week'))
   const [date, setDate] = useState(floridaDate(new Date()))
-  const [person, setPerson] = useState('')
+  // A Salesman or the crew sees their own appointments first (Everyone is one tap away); the office and the owner, everyone.
+  const role = signedInRole()
+  const [picked, setPerson] = useState<string | null>(null)
+  const person = picked ?? (role === 'sales_rep' || role === 'field_crew' ? myDayKey(team, currentUser()?.id ?? null, role) : '')
   const [type, setType] = useState<AppointmentType | ''>('')
   const [closing, setClosing] = useState<Appointment | null>(null)
 
@@ -44,10 +50,10 @@ export default function AppointmentsPage() {
   const dated = shown.filter(a => a.startAt)
 
   // Needs a date: call backs with no time, and cards in the Appointment stage with nothing booked.
-  const undated = list.filter(a => !a.startAt && isOpen(a))
+  const undated = list.filter(a => !a.startAt && isOpen(a) && matchesPerson(team, a, person))
   const booked = new Set(list.filter(a => isOpen(a) && a.startAt).map(a => a.crmContactId))
   const waitingCards = (getPipeline().leads || []).filter((l: any) => stageHasRole(l?.stage, 'appointment') && !(l.customerId && booked.has(l.customerId)))
-  const overdue = list.filter(a => needsOutcome(a)).sort((x, y) => y.startAt!.localeCompare(x.startAt!))
+  const overdue = list.filter(a => needsOutcome(a) && matchesPerson(team, a, person)).sort((x, y) => y.startAt!.localeCompare(x.startAt!))
 
   const step = view === 'day' || view === 'map' ? 1 : view === 'week' ? 7 : view === 'month' ? 30 : 14
   const move = (n: number) => setDate(view === 'month' ? shiftMonth(date, n) : addDays(date, n * step))

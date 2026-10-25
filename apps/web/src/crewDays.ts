@@ -35,7 +35,7 @@ export function crewDays(jobs: Job[], entries: Array<{ stagingJobId?: string; da
         out.push({ job, day, crew: crewName(e.crewId) || job.crewAssigned, dayNo: i + 1, days: days.length })
       })
     } else if (job.scheduledDate && job.scheduledDate >= today && job.scheduledDate <= until) {
-      out.push({ job, day: job.scheduledDate, crew: job.crewAssigned, dayNo: 1, days: Math.max(1, job.estimatedDays || 1) })
+      out.push({ job, day: job.scheduledDate, crew: crewName(job.crewAssigned) || job.crewAssigned, dayNo: 1, days: Math.max(1, job.estimatedDays || 1) })
     }
   }
   return out.sort((a, b) => a.day.localeCompare(b.day) || a.job.customerName.localeCompare(b.job.customerName))
