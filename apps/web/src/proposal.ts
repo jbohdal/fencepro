@@ -142,8 +142,23 @@ export function monthlyPayment(price: number, aprPct: number, months: number): n
 }
 
 /** The same job priced as another style. A price typed by hand is left out. */
+/**
+ * The quote's pricing choices as another style's option takes them: never
+ * the quote's typed final price, and never the cost factor the quote's own
+ * style was priced at. A saved quote keeps its style's cost factor (so its
+ * price stays as saved), and that factor used to be put on every Good /
+ * Better / Best and Compare option too when the quote was opened again: a
+ * website draft's Good (dig set, its own factor) read $668 more than the
+ * website showed the customer (review, Oct 25, 2026). Each other style is
+ * priced at its own factor, as on a new quote and on the website.
+ */
+export function optionOverrides(input: Pick<QuoteCalcInput, 'overrides' | 'style'>, style: Pick<QuoteStyle, 'name'>): QuoteCalcInput['overrides'] {
+  const same = !!input.style && input.style.name === style.name
+  return { ...(input.overrides ?? {}), finalPrice: undefined, ...(same ? {} : { costFactor: undefined }) }
+}
+
 export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalOption {
-  const q = calculateQuote({ ...input, style, overrides: { ...(input.overrides ?? {}), finalPrice: undefined } })
+  const q = calculateQuote({ ...input, style, overrides: optionOverrides(input, style) })
   const filled = input.runs.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0)
   return {
     label: optionLabel(style.name),

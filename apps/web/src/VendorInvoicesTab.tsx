@@ -19,10 +19,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   listInvoices, getInvoice, listWaiting, listNeedsMatch, priceHistory, vendorsByMonth, listJobs, editHeader, editLine, addLine,
   matchLine, okLine, rejectLine, undoInvoice, markOrdered, rereadInvoice, removeInvoice, pageImageUrl, openInvoiceFile, queueInvoice,
-  money, unitPrice, toCents, toHc,
+  isInvoicePdf, isInvoicePhoto, uploadOutcome, money, unitPrice, toCents, toHc,
   type InvoiceSummary, type InvoiceDetail, type InvoiceLine, type WaitingLine, type MatchLine, type HistoryRow, type VendorMonths, type Problem, type Box,
 } from './vendorInvoicesApi'
-import { localInvoiceFiles, uploadAll, MEDIA_EVENT } from './mediaStore'
+import { localInvoiceFiles, uploadAll, uploadRefusedWhy, uploadedAs, discardLocal, MEDIA_EVENT } from './mediaStore'
 import { getInventory, refreshInventory, INVENTORY_UPDATED_EVENT } from './inventoryStore'
 import { getVendors, initVendors } from './vendorStore'
 import { useCan } from './permissions'
@@ -99,7 +99,7 @@ export default function VendorInvoicesTab() {
   const [list, setList] = useState<InvoiceSummary[]>([])
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
-  const [onPhone, setOnPhone] = useState(0)
+  const [onPhone, setOnPhone] = useState<OnPhoneFile[]>([])
   const [matchCount, setMatchCount] = useState(0)
   const [waitCount, setWaitCount] = useState(0)
 
@@ -114,13 +114,13 @@ export default function VendorInvoicesTab() {
   useEffect(() => { void load(); initVendors().catch(() => {}) }, [load])
   // Files still on this phone (no signal yet), like photos.
   useEffect(() => {
-    const read = () => { localInvoiceFiles().then(f => setOnPhone(f.length)).catch(() => {}) }
+    const read = () => { localInvoiceFiles().then(f => setOnPhone(f.map(x => ({ clientId: x.clientId, name: x.meta.fileName || 'Invoice file', why: uploadRefusedWhy(x.clientId) })))).catch(() => {}) }
     read()
     window.addEventListener(MEDIA_EVENT, read)
     return () => window.removeEventListener(MEDIA_EVENT, read)
   }, [])
   // While something is uploading or being read, look again every few seconds.
-  const busy = onPhone > 0 || list.some(i => i.status === 'receiving' || i.status === 'reading')
+  const busy = onPhone.some(f => !f.why) || list.some(i => i.status === 'receiving' || i.status === 'reading')
   const wasBusy = useRef(false)
   useEffect(() => {
     // Only the list while waiting (light on the server); the counts once it is done.
@@ -163,7 +163,38 @@ export default function VendorInvoicesTab() {
 
 // ── Upload ────────────────────────────────────────────────────────────────────
 
-function UploadCard({ onPhone, onQueued }: { onPhone: number; onQueued: () => void }) {
+interface OnPhoneFile { clientId: string; name: string; why: string | null }
+
+/** The invoice the Mac made of files just uploaded, once it is past Uploading and Reading (up to about 20 seconds). */
+async function readOutcome(ids: string[]): Promise<{ status: string; message: string } | null> {
+  const invoiceId = ids.map(uploadedAs).find((x): x is string => !!x)
+  if (!invoiceId) return null
+  for (let i = 0; i < 20; i++) {
+    const inv = await getInvoice(invoiceId).catch(() => null)
+    if (inv && inv.status !== 'receiving' && inv.status !== 'reading') return { status: inv.status, message: inv.message || '' }
+    await new Promise(r => setTimeout(r, 1000))
+  }
+  return null
+}
+
+/** Sends the files just saved, then says in plain words what happened to them. */
+async function sendAndTell(ids: string[], what: string): Promise<void> {
+  // A run already going does not include files added after it started: one more run sends them.
+  await uploadAll().catch(() => {})
+  await uploadAll().catch(() => {})
+  const out = uploadOutcome(ids, await localInvoiceFiles().catch(() => []), uploadRefusedWhy, typeof navigator === 'undefined' || navigator.onLine !== false)
+  if (out.kind === 'uploaded') {
+    // What the Mac then made of it: an "already uploaded" refusal is not a success.
+    const outcome = await readOutcome(ids)
+    if (outcome?.status === 'refused') toast.error(`${what} was not added`, outcome.message || 'This file was already uploaded. Nothing was changed.')
+    else if (outcome?.status === 'needs_review' && outcome.message) toast.warning(`${what} uploaded: it needs review`, outcome.message)
+    else toast.success(`${what} uploaded`, 'It is being read now and shows in the list below.')
+  }
+  else if (out.kind === 'refused') toast.error(`${what} was not uploaded`, out.why)
+  else toast.warning(`${what} is not uploaded yet`, out.why)
+}
+
+function UploadCard({ onPhone, onQueued }: { onPhone: OnPhoneFile[]; onQueued: () => void }) {
   const [pages, setPages] = useState<File[]>([])
   const [forJob, setForJob] = useState(false)
   const [jobId, setJobId] = useState('')
@@ -173,33 +204,57 @@ function UploadCard({ onPhone, onQueued }: { onPhone: number; onQueued: () => vo
   const camRef = useRef<HTMLInputElement>(null)
   const picRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { if (forJob && !jobs.length) listJobs().then(setJobs).catch(() => {}) }, [forJob, jobs.length])
+  useEffect(() => { if (forJob && !jobs.length) listJobs().then(setJobs).catch(e => toast.error('Could not load the jobs', errText(e))) }, [forJob, jobs.length])
   const job = forJob && jobId ? jobId : null
 
   async function sendPdfs(files: FileList | null) {
     if (!files?.length) return
+    const all = [...files]
+    const pdfs = all.filter(isInvoicePdf)
+    const other = all.filter(f => !isInvoicePdf(f))
+    if (other.length) toast.error(`${other.map(f => f.name || 'A file').join(', ')} ${other.length === 1 ? 'is' : 'are'} not a PDF`, 'Use Pick photos for pictures of a paper invoice.')
+    // Named .pdf but not one inside (a photo renamed): said now, not uploaded.
+    const heads = await Promise.all(pdfs.map(f => f.slice(0, 5).text().catch(() => '')))
+    const fake = pdfs.filter((_, i) => heads[i] && !heads[i].startsWith('%PDF'))
+    if (fake.length) toast.error(`${fake.map(f => f.name).join(', ')} ${fake.length === 1 ? 'is' : 'are'} named .pdf but ${fake.length === 1 ? 'is not a PDF' : 'are not PDFs'}`, 'If it is a photo of the invoice, use Pick photos.')
+    const real = pdfs.filter(f => !fake.includes(f))
+    if (!real.length) return
+    pdfs.length = 0; pdfs.push(...real)
     setSaving(true)
     try {
-      const pdfs = [...files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'))
       // Each PDF is its own invoice (all its pages are in the one file).
-      for (const f of pdfs) await queueInvoice([f], [f.name], job)
-      toast.success(`${pdfs.length} invoice${pdfs.length === 1 ? '' : 's'} saved on this device`, 'They upload now, or as soon as there is signal.')
+      const ids: string[] = []
+      for (const f of pdfs) ids.push(...await queueInvoice([f], [f.name], job))
       onQueued()
-    } catch (e) { toast.error('Not saved', errText(e)) }
+      await sendAndTell(ids, pdfs.length === 1 ? 'The invoice' : `${pdfs.length} invoices`)
+      onQueued()
+    } catch (e) { toast.error('Not saved', `${errText(e)}. Nothing was uploaded; try again.`) }
     setSaving(false)
+  }
+
+  function addPages(files: FileList | null) {
+    const all = [...(files ?? [])]
+    const ok = all.filter(isInvoicePhoto)
+    const other = all.filter(f => !isInvoicePhoto(f))
+    if (other.length) toast.error(`${other.map(f => f.name || 'A file').join(', ')} ${other.length === 1 ? 'is' : 'are'} not a photo the app takes`, isInvoicePdf(other[0]) ? 'Use PDF files for a PDF.' : 'Use a JPEG, PNG or HEIC photo.')
+    if (ok.length) setPages(p => [...p, ...ok])
   }
 
   async function sendPages() {
     if (!pages.length) return
     setSaving(true)
     try {
-      await queueInvoice(pages, pages.map(p => p.name), job)
-      toast.success(`Invoice saved on this device (${pages.length} page${pages.length === 1 ? '' : 's'})`, 'It uploads now, or as soon as there is signal.')
+      const ids = await queueInvoice(pages, pages.map(p => p.name), job)
       setPages([])
       onQueued()
-    } catch (e) { toast.error('Not saved', errText(e)) }
+      await sendAndTell(ids, `The invoice (${ids.length} page${ids.length === 1 ? '' : 's'})`)
+      onQueued()
+    } catch (e) { toast.error('Not saved', `${errText(e)}. Nothing was uploaded; try again.`) }
     setSaving(false)
   }
+
+  const refused = onPhone.filter(f => f.why)
+  const waiting = onPhone.length - refused.length
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3" data-invoice-upload>
@@ -208,19 +263,20 @@ function UploadCard({ onPhone, onQueued }: { onPhone: number; onQueued: () => vo
         <p className="text-xs text-gray-500 mt-0.5">Prices update by themselves once the invoice adds up and each item is matched. Nothing is applied if it does not add up.</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <button className={primary} onClick={() => pdfRef.current?.click()} disabled={saving} data-upload-pdf>PDF files</button>
+        <button className={primary} onClick={() => pdfRef.current?.click()} disabled={saving} data-upload-pdf>{saving ? 'Uploading…' : 'PDF files'}</button>
         <button className={secondary} onClick={() => camRef.current?.click()} disabled={saving} data-take-photo>Take photo of a page</button>
         <button className={secondary} onClick={() => picRef.current?.click()} disabled={saving} data-pick-photos>Pick photos</button>
       </div>
       <input ref={pdfRef} type="file" accept="application/pdf,.pdf" multiple className="hidden" data-pdf-input
         onChange={e => { void sendPdfs(e.target.files); e.target.value = '' }} />
       <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" data-camera-input
-        onChange={e => { const f = e.target.files; if (f?.length) setPages(p => [...p, ...f]); e.target.value = '' }} />
+        onChange={e => { addPages(e.target.files); e.target.value = '' }} />
       <input ref={picRef} type="file" accept="image/*" multiple className="hidden" data-photos-input
-        onChange={e => { const f = e.target.files; if (f?.length) setPages(p => [...p, ...f]); e.target.value = '' }} />
+        onChange={e => { addPages(e.target.files); e.target.value = '' }} />
       {pages.length > 0 && (
         <div className="rounded-xl bg-orange-50 border border-orange-200 p-3 space-y-2" data-pages-tray>
           <p className="text-sm font-medium text-gray-900">{pages.length} page{pages.length === 1 ? '' : 's'} of one invoice</p>
+          <p className="text-xs text-gray-700" data-pages-hint>Not uploaded yet. Add every page of this invoice, then tap {pages.length === 1 ? 'Upload page' : `Upload ${pages.length} pages`}.</p>
           <ol className="text-xs text-gray-600 space-y-1">
             {pages.map((p, i) => (
               <li key={i} className="flex items-center gap-2 min-w-0">
@@ -231,8 +287,8 @@ function UploadCard({ onPhone, onQueued }: { onPhone: number; onQueued: () => vo
             ))}
           </ol>
           <div className="grid grid-cols-2 gap-2">
-            <button className={secondary} onClick={() => camRef.current?.click()}>Add a page</button>
-            <button className={primary} onClick={() => void sendPages()} disabled={saving} data-send-pages>Upload {pages.length === 1 ? 'page' : `${pages.length} pages`}</button>
+            <button className={secondary} onClick={() => picRef.current?.click()} disabled={saving}>Add a page</button>
+            <button className={primary} onClick={() => void sendPages()} disabled={saving} data-send-pages>{saving ? 'Uploading…' : `Upload ${pages.length === 1 ? 'page' : `${pages.length} pages`}`}</button>
           </div>
         </div>
       )}
@@ -246,12 +302,18 @@ function UploadCard({ onPhone, onQueued }: { onPhone: number; onQueued: () => vo
           {jobs.map(j => <option key={j.id} value={j.id}>{[j.customerName, j.fenceStyle].filter(Boolean).join(' · ') || j.id}</option>)}
         </select>
       )}
-      {onPhone > 0 && (
+      {waiting > 0 && (
         <p className="text-xs text-blue-700 bg-blue-50 rounded-lg p-2 flex flex-wrap items-center gap-2" data-on-phone>
-          {onPhone} file{onPhone === 1 ? '' : 's'} saved on this device, waiting to upload.
-          <button className="underline" onClick={() => { uploadAll().catch(() => {}) }}>Try now</button>
+          {waiting} file{waiting === 1 ? '' : 's'} saved on this device, waiting to upload.
+          <button className="underline min-h-[32px]" onClick={() => { void uploadAll().then(() => uploadAll()).catch(() => {}) }}>Try now</button>
         </p>
       )}
+      {refused.map(f => (
+        <div key={f.clientId} className="text-xs text-red-800 bg-red-50 rounded-lg p-2 flex flex-wrap items-center gap-2" data-upload-refused={f.clientId}>
+          <span className="min-w-0 break-words"><span className="font-semibold">{f.name}</span> was not uploaded: {f.why}</span>
+          <button className="underline min-h-[32px]" onClick={() => { void discardLocal(f.clientId) }} data-upload-refused-remove>Remove it from this device</button>
+        </div>
+      ))}
     </div>
   )
 }

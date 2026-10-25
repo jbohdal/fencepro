@@ -8,7 +8,7 @@
  */
 
 import prisma from './prisma.js'
-import { countyPoint } from './addressIndex.js'
+import { countyPoint, streetEstimate } from './addressIndex.js'
 
 export const APPOINTMENT_TYPES = ['estimate', 'follow_up', 'contract_signing', 'install', 'service', 'warranty', 'call_back', 'other'] as const
 export const APPOINTMENT_STATUSES = ['scheduled', 'confirmed', 'on_my_way', 'rescheduled', 'completed', 'no_show', 'cancelled'] as const
@@ -72,13 +72,23 @@ export async function locate(accountId: string, address: string): Promise<(Point
   const key = addressKey(address)
   if (!key) return null
   const known = await prisma.geoPoint.findUnique({ where: { accountId_addressKey: { accountId, addressKey: key } } })
-  if (known) return known.lat != null && known.lng != null ? { lat: known.lat, lng: known.lng, source: known.source } : null
+  if (known && known.lat != null && known.lng != null) return { lat: known.lat, lng: known.lng, source: known.source }
+  // Not found before: an address the county list and the Census lack, on a street the county has,
+  // is placed between its neighbours (Smart Schedule could not place such a job; review, Oct 25, 2026).
+  if (known) {
+    const near = streetEstimate(address)
+    if (!near) return null
+    await prisma.geoPoint.update({ where: { accountId_addressKey: { accountId, addressKey: key } }, data: { lat: near.lat, lng: near.lng, source: 'street' } }).catch(() => {})
+    return { lat: near.lat, lng: near.lng, source: 'street' }
+  }
   // Marion County's own property list first (exact, on the Mac), then the lookup service.
   const county = countyPoint(address)
-  const source = county ? 'county' : geocoderName()
   let point: Point | null
+  let source = county ? 'county' : geocoderName()
   try { point = county ?? (source === 'google' ? await lookupGoogle(address) : await lookupCensus(address)) }
   catch (err) { console.error('[geo] lookup failed:', String((err as Error)?.message || err)); return null }
+  // Neither has it: placed between its neighbours on the same street, when the county lists the street.
+  if (!point) { const near = streetEstimate(address); if (near) { point = { lat: near.lat, lng: near.lng }; source = 'street' } }
   try {
     await prisma.geoPoint.upsert({
       where: { accountId_addressKey: { accountId, addressKey: key } },

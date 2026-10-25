@@ -116,7 +116,7 @@ export function saveSnapshot(dataUrl: string | undefined | null): string | null 
   return `/api/portal/files/intake/${name}`
 }
 
-function widgetDrawingRecord(drawing: Json, sides: Json[][], pick: Pick, options: Json[], chosen: Json, snapshotUrl: string | null) {
+function widgetDrawingRecord(drawing: Json, sides: Json[][], pick: Pick, options: Json[], chosen: Json, snapshotUrl: string | null, photos: string[] = []) {
   return {
     v: 1,
     source: SOURCE_TEXT,
@@ -130,7 +130,32 @@ function widgetDrawingRecord(drawing: Json, sides: Json[][], pick: Pick, options
     shown: options.map(optionView),
     chosen: { fenceStyle: chosen.fenceStyle, name: chosen.name, price: chosen.price },
     snapshotUrl,
+    ...(photos.length ? { photos } : {}),
   }
+}
+
+/** Only the website's own photo addresses (routes/quote-widget.ts saves them there). */
+export const INTAKE_PHOTO = /^\/api\/portal\/files\/intake\/([0-9a-f-]{36})\.(jpg|png|webp|heic)$/
+
+/**
+ * The customer's yard photos on their Photos tab (PortalPhoto, from the
+ * customer), once each: the photo's own file id is the row's id, so sending
+ * again adds none. Returns how many were added.
+ */
+export async function photosToCustomer(contactId: string, urls: string[]): Promise<number> {
+  let added = 0
+  for (const url of urls) {
+    const m = INTAKE_PHOTO.exec(url)
+    if (!m) continue
+    const file = path.resolve(UPLOAD_DIR, 'intake', `${m[1]}.${m[2]}`)
+    if (!fs.existsSync(file)) continue
+    const id = `wq-${m[1]}`
+    if (await prisma.portalPhoto.findUnique({ where: { id } })) continue
+    const mime = m[2] === 'jpg' ? 'image/jpeg' : `image/${m[2]}`
+    await prisma.portalPhoto.create({ data: { id, crmCustomerId: contactId, fileKey: `intake/${m[1]}.${m[2]}`, fileUrl: url, originalFilename: `website-photo.${m[2]}`, fileSizeBytes: fs.statSync(file).size, mimeType: mime, caption: 'Sent with the website quote', source: 'portal_customer', isVisibleToCustomer: true } })
+      .then(() => { added++ }, err => { if (!isUniqueViolation(err)) console.error('[widget] photo to customer failed:', err) })
+  }
+  return added
 }
 
 // ── Sending it ───────────────────────────────────────────────────────────────
@@ -148,6 +173,8 @@ export interface DrawnSubmission {
   wantsVisit: boolean
   notes?: string
   snapshot?: string | null
+  /** Photos of the yard the customer uploaded (/api/portal/files/intake/…). */
+  photos?: string[]
   test?: boolean
 }
 
@@ -164,6 +191,13 @@ export interface DrawnResult {
 }
 
 class PipelineBusy extends Error {}
+
+/** Where the "Website quote" notification goes: the lead's card window, else the customer. */
+export function leadLink(cardId: string | null, contactId: string | null): string | null {
+  if (cardId) return `/pipeline?card=${encodeURIComponent(cardId)}`
+  if (contactId) return `/customers?customer=${encodeURIComponent(contactId)}`
+  return null
+}
 
 export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnResult> {
   const accountId = await resolveIntakeAccountId()
@@ -203,7 +237,8 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
   if (already) return changeChoice(accountId, already, chosen, options, quoteFields, layoutBase)
 
   const snapshotUrl = saveSnapshot(input.snapshot)
-  const widgetDrawing = widgetDrawingRecord(input.drawing, sides, input.pick, options, chosen, snapshotUrl)
+  const photos = (input.photos ?? []).filter(u => INTAKE_PHOTO.test(u))
+  const widgetDrawing = widgetDrawingRecord(input.drawing, sides, input.pick, options, chosen, snapshotUrl, photos)
   const today = day()
   const sideLines = (widgetDrawing.sides as Json[][]).flat().map((s: Json) => `Run ${s.run} side ${s.side}: ${s.ft} ft (${s.how}${s.how === 'typed' ? `, photo said ${s.measuredFt} ft` : ''})`)
   const summary = [
@@ -215,7 +250,7 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
     ...sideLines,
     `Asked for an on site estimate: ${input.wantsVisit ? 'yes' : 'no'}`,
     `Address: ${input.address}`,
-    snapshotUrl ? `Drawing on the photo: ${snapshotUrl}` : '',
+    snapshotUrl ? 'The drawing on the aerial photo is on the quote.' : '',
     input.notes ? `Customer notes: ${input.notes}` : '',
   ].filter(Boolean).join('\n')
 
@@ -284,8 +319,10 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
     }
   }
   if (!out) throw new Error('The pipeline was busy; try again')
+  if (out.contactId && photos.length) await photosToCustomer(out.contactId, photos).catch(err => console.error('[widget] photos failed:', err))
   await prisma.notification.create({
-    data: { title: `Website quote: ${input.name}`, body: `${SOURCE_TEXT} · ${choice} · ${q.footageFt} ft · ${money(price)}`.slice(0, 400), type: 'info' },
+    // Tapping it opens the lead: its card window on the Sales Pipeline (?card=, SalesPipelineBoard.tsx).
+    data: { title: `Website quote: ${input.name}`, body: `${SOURCE_TEXT} · ${choice} · ${q.footageFt} ft · ${money(price)}`.slice(0, 400), type: 'info', link: leadLink(out.cardId, out.contactId) },
   }).catch(err => console.error('[widget] notification failed:', err))
   return out
 }

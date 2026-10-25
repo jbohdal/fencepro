@@ -36,7 +36,7 @@ describe('quoted cost at signing', () => {
       ['Vinyl Post 5x5', 'post', 10, 1350, 13500], ['Vinyl Picket', 'picket', 100, 279, 27900], ['Concrete 50 lb', 'concrete', 20, 650, 13000],
     ])
     expect([quoted.priceCents, quoted.materialCents, quoted.laborCents, quoted.tearOutCents, quoted.totalCents]).toEqual([150000, 54400, 24000, 0, 78400])
-    expect(quoted.labor).toEqual({ mode: 'sub', subUnit: 'section', subUnits: 10, subRateCostCents: 2400, hourlyCostCents: 2500 })
+    expect(quoted.labor).toEqual({ mode: 'sub', subUnit: 'section', subUnits: 10, subRateCostCents: 2400, hourlyCostCents: 2500, subOtherCents: 0 })
     expect(quoted.footage).toBe(80)
   })
   test('material on the quote that is not a pull sheet line is kept apart (a move\'s disposal)', () => {

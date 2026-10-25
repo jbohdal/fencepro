@@ -164,6 +164,8 @@ export interface WidgetDrawingRecord {
   shown: Array<{ name: string; fenceStyle: string; price: number; perFoot: number; popular?: boolean }>
   chosen: { fenceStyle: string; name: string; price: number }
   snapshotUrl: string | null
+  /** Photos of the yard the customer sent with the website quote (also on their Photos tab). */
+  photos?: string[]
 }
 
 export const GATE_WIDTH_IN: Record<GateType, number> = { walk: 48, double: 120 }

@@ -17,6 +17,7 @@
 import { fetchWithAuth, signedInUserId } from './crmAuth'
 import { sealJson, openJson, sealBlob, openBlob, vaultAvailable, type SealedPiece } from './vault'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { refusalOf } from './uploadOutcome'
 
 const ORIGIN = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
 const API = ORIGIN + '/api/media'
@@ -247,9 +248,15 @@ export async function waitingCount(owner?: string | null): Promise<number> {
 
 // ── Upload ────────────────────────────────────────────────────────────────────
 
-let running = false
+let current: Promise<void> | null = null
 const progress = new Map<string, number>()
 export const uploadProgress = (clientId: string) => progress.get(clientId) ?? 0
+/** Why the server turned a capture down (it stays on the phone until it is removed); kept for this visit. */
+const refused = new Map<string, string>()
+export const uploadRefusedWhy = (clientId: string) => refused.get(clientId) ?? null
+/** What the server made of a capture sent on this visit (its media id, or a vendor invoice's id). */
+const sentAs = new Map<string, string>()
+export const uploadedAs = (clientId: string) => sentAs.get(clientId) ?? null
 
 async function json<T>(r: Response | null): Promise<T | null> {
   if (!r) return null
@@ -257,53 +264,75 @@ async function json<T>(r: Response | null): Promise<T | null> {
   return r.ok ? (j?.data ?? null) : null
 }
 
-/** Sends everything waiting, oldest first, resuming each where it stopped. */
-export async function uploadAll(): Promise<void> {
-  if (running || (typeof navigator !== 'undefined' && navigator.onLine === false)) return
-  running = true
-  try {
+/**
+ * Sends everything waiting, oldest first, resuming each where it stopped.
+ * Called while it is already running, it returns that run (call again after
+ * it to send something added since). A capture the server turns down is
+ * skipped (its reason in uploadRefusedWhy) so the ones after it still go.
+ */
+export function uploadAll(): Promise<void> {
+  if (current) return current
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve()
+  current = (async () => {
     // Only while someone is signed in, and only that person's captures (and older ones with no owner).
     const me = signedInUserId()
     if (!me) return
     for (const m of (await all()).filter(x => !x.serverId && (!x.owner || x.owner === me)).sort((a, b) => a.createdAt - b.createdAt)) {
-      if (!(await uploadOne(m))) break
+      if (refused.has(m.clientId)) continue
+      const r = await uploadOne(m)
+      if (r === 'retry') break
     }
-  } finally {
-    running = false
-    notify()
-  }
+  })().finally(() => { current = null; notify() })
+  return current
 }
 
-async function uploadOne(m: LocalMedia<AnyMeta>): Promise<boolean> {
-  const start = await json<{ received?: number; done?: boolean; item?: ServerMedia }>(await fetchWithAuth(`${API}/uploads`, {
+async function startUpload(m: LocalMedia<AnyMeta>): Promise<{ received?: number; done?: boolean; item?: ServerMedia } | 'retry' | 'refused'> {
+  const r = await fetchWithAuth(`${API}/uploads`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId: m.clientId, size: m.size, meta: m.meta }),
-  }).catch(() => null))
-  if (!start) return false
+  }).catch(() => null)
+  if (!r) return 'retry'
+  const j = await r.json().catch(() => null)
+  const no = refusalOf(r.status, j)
+  if (no) { refused.set(m.clientId, no); return 'refused' }
+  return r.ok && j?.data ? j.data : 'retry'
+}
+
+async function uploadOne(m: LocalMedia<AnyMeta>): Promise<'ok' | 'retry' | 'refused'> {
+  const start = await startUpload(m)
+  if (start === 'retry' || start === 'refused') return start
   let item: ServerMedia | null = start.item ?? null
   if (!start.done) {
     let at = start.received ?? 0
     while (at < m.size) {
       const chunk = m.blob.slice(at, Math.min(m.size, at + CHUNK))
       const r = await fetchWithAuth(`${API}/uploads/${m.clientId}?offset=${at}`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: chunk }).catch(() => null)
-      if (!r) return false // lost signal: try again later from here
+      if (!r) return 'retry' // lost signal: try again later from here
       const j = await r.json().catch(() => null)
+      const no = refusalOf(r.status, j)
+      if (no) { refused.set(m.clientId, no); return 'refused' }
       const received = j?.data?.received
-      if (typeof received !== 'number') return false
+      if (typeof received !== 'number') return 'retry'
       at = received
       progress.set(m.clientId, at / m.size)
       notify()
     }
-    item = await json<ServerMedia>(await fetchWithAuth(`${API}/uploads/${m.clientId}/finish`, { method: 'POST' }).catch(() => null))
-    if (!item) return false
+    const fin = await fetchWithAuth(`${API}/uploads/${m.clientId}/finish`, { method: 'POST' }).catch(() => null)
+    if (!fin) return 'retry'
+    const fj = await fin.json().catch(() => null)
+    const no = refusalOf(fin.status, fj)
+    if (no) { refused.set(m.clientId, no); return 'refused' }
+    item = fin.ok ? (fj?.data ?? null) : null
+    if (!item) return 'retry'
   }
   // Settings changed on the phone after the upload started go along too.
-  if (item && m.markupBlob) { const ok = await uploadMarkup(item.id, m.markupBlob); if (!ok) return false }
+  if (item && m.markupBlob) { const ok = await uploadMarkup(item.id, m.markupBlob); if (!ok) return 'retry' }
   if (item && m.meta.kind !== 'invoice' && (m.meta.caption || m.meta.pin || m.meta.category || m.meta.visibility)) {
     await patchMedia(item.id, { caption: m.meta.caption, pin: m.meta.pin ?? null, category: m.meta.category, visibility: m.meta.visibility })
   }
   await remove(m.clientId)
   progress.delete(m.clientId)
-  return true
+  if (item?.id) sentAs.set(m.clientId, item.id)
+  return 'ok'
 }
 
 if (typeof window !== 'undefined') {
@@ -346,7 +375,7 @@ export async function deleteMedia(id: string): Promise<boolean> {
 }
 
 /** A capture still on the phone, removed (it was never uploaded). */
-export async function discardLocal(clientId: string): Promise<void> { await remove(clientId); notify() }
+export async function discardLocal(clientId: string): Promise<void> { await remove(clientId); refused.delete(clientId); notify() }
 
 export async function mediaStorage(): Promise<{ items: number; bytes: number; freeBytes: number | null } | null> {
   return json(await fetchWithAuth(`${API}/storage`).catch(() => null))

@@ -22,7 +22,7 @@ import { loadSchedule } from './scheduleStore'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type UnifiedJob,
-  buildUnifiedList, DetailPanel,
+  buildUnifiedList, DetailPanel, fenceText,
 } from './OperationsPage'
 import { type Job, type JobStatus, updateJob, advanceJob, holdJob, unholdJob } from './jobStore'
 import {
@@ -632,7 +632,7 @@ function OpsCard({
         {can('prices.view') && <p className="text-sm font-bold text-emerald-600 shrink-0">{fmtUSD(job.contractValue)}</p>}
       </div>
       <p className="text-xs text-gray-500 truncate">
-        {city}{job.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{styleLabel(job.fenceType)}</span></> : null}
+        {city}{job.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded" data-ops-card-fence>{fenceText(job)}</span></> : null}
         {/* Two jobs for one customer are told apart by their footage. */}
         {job.rawJob?.totalFeet ? <> · {job.rawJob.totalFeet} ft</> : null}
       </p>
@@ -927,7 +927,7 @@ function OpsListView({
                   </td>
                   <td className="px-3 py-2"><p className="font-medium text-gray-900">{j.customerName}</p></td>
                   <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-[200px]">{j.address || '—'}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{styleLabel(j.fenceType) || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{fenceText(j) || '—'}</td>
                   <td className="px-3 py-2"><span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: hex }}>{j.opsStageLabel}</span></td>
                   <td className="px-3 py-2 text-xs">{j.scheduledDate ? <span className="text-gray-700">{j.scheduledDate}</span> : <span className="text-amber-700 font-semibold">Unscheduled</span>}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{j.crewAssigned || '—'}</td>

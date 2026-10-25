@@ -28,6 +28,18 @@ import prisma from './prisma.js'
 import { plainStyleName } from './estimates.js'
 import { applyPayments, methodText } from './paymentMath.js'
 import { contractParts, dayWords } from './contractBilling.js'
+import { nyDay } from './warranties.js'
+
+/**
+ * The day a warranty certificate says the job was completed: the job's own
+ * completed date (as the certificate PDF uses it), else the walkthrough's
+ * finish in Florida time. Never the UTC date: a walkthrough finished after
+ * 8 pm in Florida is already the next day in UTC (Oct 24, 2026 walkthrough).
+ */
+export function certificateDay(completedDate: string | null | undefined, completedAt: Date | null | undefined): string {
+  if (completedDate && /^\d{4}-\d{2}-\d{2}$/.test(completedDate)) return completedDate
+  return completedAt ? nyDay(completedAt) : (completedDate ?? '')
+}
 import { safeSvg } from '../routes/proposal.js'
 import { signedForPortal } from './signedDocuments.js'
 
@@ -89,14 +101,14 @@ export async function papersOf(contact: { id: string; accountId: string | null }
   const contracts = []
   for (const q of quotes) {
     const row = await quoteRowOf(q)
-    if (row.hasContract) contracts.push({ quoteId: q.id, style: row.style, signedOn: (q.acceptedAt ?? q.soldAt)?.toISOString().slice(0, 10) ?? q.date, url: `contracts/${q.id}.pdf`, stored: signed.some(d => d.kind === 'contract' && d.quoteId === q.id) })
+    if (row.hasContract) contracts.push({ quoteId: q.id, style: row.style, signedOn: ((d) => (d ? nyDay(d) : q.date))(q.acceptedAt ?? q.soldAt), url: `contracts/${q.id}.pdf`, stored: signed.some(d => d.kind === 'contract' && d.quoteId === q.id) })
   }
   const jobs = await jobsOf(contact)
   const walks = jobs.length ? await prisma.walkthrough.findMany({ where: { jobId: { in: jobs.map(j => j.id) }, status: 'completed', certificatePath: { not: null } }, select: { jobId: true, completedAt: true } }) : []
   const certificates = []
   for (const w of walks) {
     const j = jobs.find(x => x.id === w.jobId)!
-    certificates.push({ jobId: j.id, style: await plainStyleName(j.fenceStyle), completedOn: w.completedAt?.toISOString().slice(0, 10) ?? j.completedDate ?? '', url: `certificates/${j.id}.pdf` })
+    certificates.push({ jobId: j.id, style: await plainStyleName(j.fenceStyle), completedOn: certificateDay(j.completedDate, w.completedAt), url: `certificates/${j.id}.pdf` })
   }
   return { signed, contracts, certificates }
 }

@@ -746,7 +746,7 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
 
     const gateLeaves = walkGates + dblGates * 2
     add(`${V}, Privacy Gate 8 x 4`, gateLeaves, tall.white ? 399.00 : 458.00)
-    add('*Vinyl, Gate, Hinge', gateLeaves * 2, 29.03)
+    add('*Vinyl, Gate, Hinge', gateLeaves, 29.03) // a pair of hinges per leaf (Jonathan, Oct 25, 2026: hinges come as a pair; 2 per leaf at every height)
     add('*Vinyl, Gate, Latch', walkGates + dblGates, 20.46)
     add('*Vinyl, Gate, Handle', gateLeaves * 2, 5.98)
     add(tall.white ? '*Vinyl, White, Cap, Gate' : 'Vinyl, Tan, Cap, Gate', gateLeaves * 2, 1.00)

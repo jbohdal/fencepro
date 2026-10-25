@@ -16,6 +16,7 @@ const AdminSettingsPage = lazy(() => import('./AdminSettingsPage'))
 const BudgetPage = lazy(() => import('./BudgetPage'))
 import CustomersPage from './CustomersPage'
 import QuotesPage, { type SavedQuote } from './QuotesPage'
+import { draftToReuse, withVisit } from './quoteReuse'
 import SalesPipelineBoard from './SalesPipelineBoard'
 import { startNav, navigate, useNav, pagePath, pageForPath, takeOpenedParam, savedScroll, BackClose } from './nav'
 const OperationsBoard = lazy(() => import('./OperationsBoard'))
@@ -504,6 +505,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const [showQuote, setShowQuote]       = useState(false)
   const [editingQuote, setEditingQuote] = useState<SavedQuote | null>(null)
   const [quotes, setQuotes]             = useState<SavedQuote[]>(loadQuotes)
+  // A draft opened from Ready to quote or a pipeline card starts on the Yard step (its drawing and the site visit).
+  const [quoteOnYard, setQuoteOnYard]   = useState(false)
   const [jobs, setJobs]                 = useState<Job[]>(getJobs)
   // Back to a screen puts its scroll back; a new screen starts at the top.
   const pageScroll = useRef<HTMLDivElement | null>(null)
@@ -687,6 +690,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   }
 
   function handleOpenQuote(q: SavedQuote) {
+    setQuoteOnYard(false)
     // A signed quote opens with the work as approved change orders made it (ChangeOrders.tsx quoteWithChanges),
     // so the next change is priced from the work now; saving keeps the signed quote as signed.
     if (isSignedForChange(q) && signedQuoteOf(q) === q) {
@@ -698,7 +702,20 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   }
 
   /** A new quote for a customer: from their page, or from an appointment closed out "Ready to quote" (with its property and measurements). */
-  function openQuoteFor(c: { id: string; firstName: string; lastName: string; phone?: string; email?: string; serviceAddress?: string; leadSource?: string; salesRep?: string }, extra: { address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string } } = {}) {
+  function openQuoteFor(c: { id: string; firstName: string; lastName: string; phone?: string; email?: string; serviceAddress?: string; leadSource?: string; salesRep?: string }, extra: { address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string }; reuseDraft?: boolean } = {}) {
+    // Ready to quote and a pipeline card open the customer's draft (the website drawing, or one already started),
+    // with the visit's notes added: never a blank quote and a second draft (quoteReuse.ts).
+    if (extra.reuseDraft && !extra.repair) {
+      const draft = draftToReuse(getQuotes() as SavedQuote[], c.id)
+      if (draft) {
+        const fromWebsite = !!(draft.layout as { widgetDrawing?: unknown } | undefined)?.widgetDrawing
+        toast.info(fromWebsite ? 'Opened the website quote' : 'Opened the draft quote', fromWebsite ? 'The customer\'s drawing, sides and gates are in it. Check each measurement and save.' : 'This customer already has a draft. Keep working on it.')
+        handleOpenQuote(withVisit(draft, { notes: extra.notes, address: extra.address }))
+        setQuoteOnYard(true)
+        return
+      }
+    }
+    setQuoteOnYard(false)
     setEditingQuote({
       id: undefined as unknown as string,
       customerId: c.id,
@@ -725,9 +742,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // a not covered service request opens it in repair mode on the customer's fence.
   useEffect(() => {
     const h = (e: Event) => {
-      const d = (e as CustomEvent<{ customerId: string; address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string } }>).detail
+      const d = (e as CustomEvent<{ customerId: string; address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string }; reuseDraft?: boolean }>).detail
       const c = d?.customerId ? getCustomers().find(x => x.id === d.customerId) : null
-      if (c) openQuoteFor(c, { address: d.address, notes: d.notes, repair: d.repair })
+      if (c) openQuoteFor(c, { address: d.address, notes: d.notes, repair: d.repair, reuseDraft: d.reuseDraft })
     }
     const open = (e: Event) => {
       const id = (e as CustomEvent<{ id: string; quote?: SavedQuote }>).detail?.id
@@ -1132,7 +1149,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             else { setEditingQuote(null); setShowQuote(true) }
           }} />}
           {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={handleOpenQuote} onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
-          {active === 'Sales Pipeline' && <SalesPipelineBoard onNewQuote={c => openQuoteFor(c)} onOpenQuote={q => handleOpenQuote(q)} />}
+          {active === 'Sales Pipeline' && <SalesPipelineBoard onNewQuote={c => openQuoteFor(c, { reuseDraft: true })} onOpenQuote={q => handleOpenQuote(q)} />}
           {active === 'Operations'     && <OperationsBoard />}
           {active === 'Jobs'           && <OperationsBoard />}
           {active === 'Staging'        && <OperationsBoard />}
@@ -1335,10 +1352,11 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ QUOTE BUILDER MODAL ═══ */}
       {showQuote && (
-        <ScreenErrorBoundary name="Quote" window onBack={() => { setShowQuote(false); setEditingQuote(null) }}><QuoteBuilder
-          onClose={() => { setShowQuote(false); setEditingQuote(null) }}
+        <ScreenErrorBoundary name="Quote" window onBack={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false) }}><QuoteBuilder
+          onClose={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false) }}
           onSave={handleSaveQuote}
           initialQuote={editingQuote}
+          startOnYard={quoteOnYard}
         /></ScreenErrorBoundary>
       )}
     </div>

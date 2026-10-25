@@ -25,7 +25,7 @@ const FILE = path.join(DATA_DIR, 'marion.json')
 
 /** One property: street as the county writes it, city, ZIP, and its center point. */
 export type AddressRow = [street: string, city: string, zip: string, lng: number, lat: number]
-export interface Suggestion { formatted: string; line1: string; city: string; state: string; zip: string; lat: number; lng: number; source: 'county' | 'census' }
+export interface Suggestion { formatted: string; line1: string; city: string; state: string; zip: string; lat: number; lng: number; source: 'county' | 'street' | 'census' }
 
 let rows: AddressRow[] = []
 let keys: string[][] = []
@@ -135,6 +135,55 @@ function countyRow(address: string): AddressRow | null {
   return null
 }
 
+/**
+ * An address the county list lacks on a street it has ("2715 SE 3rd St" when
+ * the county lists 1419 and 3159 SE 3rd St): placed between the nearest house
+ * numbers on that street (in the ZIP typed, if one was), with their city and
+ * ZIP. Within 2,000 house numbers of a listed one; null otherwise. The street
+ * is the one typed, never a similar one.
+ */
+export function streetEstimate(address: string): Suggestion | null {
+  load()
+  if (!rows.length) return null
+  const [street, ...rest] = address.split(',')
+  const typed = addressWords(street)
+  if (typed.length < 2 || !/^\d+$/.test(typed[0])) return null
+  const n = Number(typed[0])
+  const name = typed.slice(1).join(' ')
+  const zip = rest.join(' ').match(/\b(\d{5})\b/)?.[1]
+  const same: Array<{ n: number; r: AddressRow }> = []
+  for (let i = 0; i < rows.length; i++) {
+    const k = keys[i]
+    if (!/^\d+$/.test(k[0]) || k.slice(1).join(' ') !== name) continue
+    if (zip && rows[i][2] !== zip) continue
+    same.push({ n: Number(k[0]), r: rows[i] })
+  }
+  if (!same.length) return null
+  // The ZIP most of the street is in, when none was typed (a long road crosses towns: the nearest numbers decide).
+  const below = same.filter(x => x.n <= n).sort((a, b) => b.n - a.n)[0]
+  const above = same.filter(x => x.n >= n).sort((a, b) => a.n - b.n)[0]
+  const near = [below, above].filter((x): x is { n: number; r: AddressRow } => !!x).sort((a, b) => Math.abs(a.n - n) - Math.abs(b.n - n))
+  if (!near.length || Math.abs(near[0].n - n) > 2000) return null
+  let lat = near[0].r[4], lng = near[0].r[3]
+  if (below && above && below.n !== above.n && Math.abs(above.n - below.n) <= 4000) {
+    const t = (n - below.n) / (above.n - below.n)
+    lat = below.r[4] + (above.r[4] - below.r[4]) * t
+    lng = below.r[3] + (above.r[3] - below.r[3]) * t
+  }
+  const r = near[0].r
+  const line1 = streetText(street.trim().toUpperCase().replace(/\s+/g, ' '))
+  return { line1, city: cityText(r[1]), state: 'FL', zip: r[2], lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6, source: 'street', formatted: `${line1}, ${cityText(r[1])}, FL ${r[2]}` }
+}
+
+/** ZIPs in the county list (Marion County). */
+let marionZips: Set<string> | null = null
+function inMarion(zip: string): boolean {
+  load()
+  if (!rows.length) return false
+  if (!marionZips || marionZips.size === 0) marionZips = new Set(rows.map(r => r[2]))
+  return marionZips.has(zip)
+}
+
 export interface AddressParts { city: string; state: string; zip: string }
 
 /**
@@ -170,28 +219,99 @@ export function addressParts(address: string): AddressParts {
   return out
 }
 
-/** A complete address the county list lacks: the US Census lookup (free), as one suggestion. */
-export async function suggestCensus(q: string): Promise<Suggestion | null> {
-  const words = q.trim().split(/\s+/)
-  if (words.length < 3 || !/^\d+$/.test(words[0])) return null
-  const url = 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?benchmark=Public_AR_Current&format=json&address=' + encodeURIComponent(/\bFL\b|florida/i.test(q) ? q : `${q}, FL`)
+/** Ocala, the middle of the area the company works in (Marion County and its neighbours). */
+export const SERVICE_CENTER = { lat: 29.1872, lng: -82.1401 }
+/** How far from Ocala a Census match may be and still be offered (miles). Okeechobee, with the same SE street names, is about 170. */
+export const SERVICE_RADIUS_MILES = 60
+
+const milesBetween = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2
+  return 3958.8 * 2 * Math.asin(Math.sqrt(h))
+}
+
+/**
+ * The Census answer's matches as suggestions: in Florida and in the work
+ * area only, nearest to Ocala first. Typed without a city, a Marion County
+ * street the county list lacks ("2715 SE 3rd St") was matched to the same
+ * street in Okeechobee and offered first (Oct 24, 2026 walkthrough).
+ */
+export function censusSuggestions(matches: unknown, center = SERVICE_CENTER, maxMiles = SERVICE_RADIUS_MILES, marion: (zip: string) => boolean = () => false): Suggestion[] {
+  if (!Array.isArray(matches)) return []
+  const out: Array<Suggestion & { miles: number }> = []
+  for (const m of matches as any[]) {
+    const x = Number(m?.coordinates?.x), y = Number(m?.coordinates?.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    const [line1, city, state, zip] = String(m?.matchedAddress ?? '').split(',').map((s: string) => s.trim())
+    if (state !== 'FL' || !line1) continue
+    const miles = milesBetween(center, { lat: y, lng: x })
+    if (miles > maxMiles) continue
+    const l1 = streetText(line1), c = cityText(city ?? '')
+    out.push({ line1: l1, city: c, state, zip: zip ?? '', lat: y, lng: x, source: 'census', formatted: `${l1}, ${c}, ${state} ${zip ?? ''}`.trim(), miles })
+  }
+  // Marion County first, then nearest to Ocala.
+  return out.sort((a, b) => Number(marion(b.zip)) - Number(marion(a.zip)) || a.miles - b.miles).map(({ miles: _m, ...s }) => s)
+}
+
+/** The company's own town: asked first when no city or ZIP was typed. */
+export const HOME_CITY = 'Ocala, FL'
+
+/** Did the typing name a city or a ZIP (anything after the street, or a 5 digit number after it)? */
+export function namesTown(q: string): boolean {
+  const [street, ...rest] = q.split(',')
+  return rest.join(' ').trim().length > 0 || /\b\d{5}\b/.test(street.trim().split(/\s+/).slice(1).join(' '))
+}
+
+/** The Census questions for what was typed: with no city, "…, Ocala, FL" first, then "…, FL". */
+export function censusQueries(q: string): string[] {
+  const t = q.trim()
+  if (namesTown(t)) return [/\bFL\b|florida/i.test(t) ? t : `${t}, FL`]
+  return [`${t}, ${HOME_CITY}`, `${t}, FL`]
+}
+
+async function census(address: string): Promise<unknown[]> {
+  const url = 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?benchmark=Public_AR_Current&format=json&address=' + encodeURIComponent(address)
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000)
   try {
     const r = await fetch(url, { signal: ctl.signal })
-    const m = (await r.json())?.result?.addressMatches?.[0]
-    if (!m?.coordinates) return null
-    const [line1, city, state, zip] = String(m.matchedAddress).split(',').map((s: string) => s.trim())
-    if (state !== 'FL') return null
-    const l1 = streetText(line1), c = cityText(city)
-    return { line1: l1, city: c, state, zip, lat: m.coordinates.y, lng: m.coordinates.x, source: 'census', formatted: `${l1}, ${c}, ${state} ${zip}` }
-  } catch { return null } finally { clearTimeout(t) }
+    const m = (await r.json())?.result?.addressMatches
+    return Array.isArray(m) ? m : []
+  } catch { return [] } finally { clearTimeout(t) }
 }
 
+/** The Census lookup (free) for an address the county list lacks: matches in the work area, Marion County first, then nearest. */
+export async function suggestCensusAll(q: string): Promise<Suggestion[]> {
+  const words = q.trim().split(/\s+/)
+  if (words.length < 3 || !/^\d+$/.test(words[0])) return []
+  const seen = new Set<string>()
+  const out: Suggestion[] = []
+  for (const ask of censusQueries(q)) {
+    for (const s of censusSuggestions(await census(ask), SERVICE_CENTER, SERVICE_RADIUS_MILES, inMarion)) {
+      if (seen.has(s.formatted)) continue
+      seen.add(s.formatted); out.push(s)
+    }
+    if (out.some(s => inMarion(s.zip))) break
+  }
+  return out.sort((a, b) => Number(inMarion(b.zip)) - Number(inMarion(a.zip)))
+}
+
+/** The first Census suggestion, or null. */
+export async function suggestCensus(q: string): Promise<Suggestion | null> {
+  return (await suggestCensusAll(q))[0] ?? null
+}
+
+/**
+ * Suggestions as an address is typed: the county list; else the typed street
+ * placed by its neighbours on the county list (its city and ZIP filled in),
+ * then the Census matches in the work area (Marion County first).
+ */
 export async function suggest(q: string, limit = 6): Promise<Suggestion[]> {
   const county = suggestCounty(q, limit)
   if (county.length) return county
-  const census = await suggestCensus(q)
-  return census ? [census] : []
+  const street = streetEstimate(q)
+  const census = await suggestCensusAll(q)
+  const all = [...(street ? [street] : []), ...census.filter(c => !street || c.formatted.toUpperCase() !== street.formatted.toUpperCase())]
+  return all.slice(0, limit)
 }
 
 // ── Monthly refresh from the county ──────────────────────────────────────────

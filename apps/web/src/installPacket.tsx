@@ -24,6 +24,7 @@ import { getConfig } from './configStore'
 import { toast } from './toast'
 import type { SavedQuote } from './QuotesPage'
 import { refreshChangeOrders, quoteWithChanges, signedQuoteOf } from './ChangeOrders'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 const API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/install-packets'
 
@@ -97,7 +98,7 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
   if (quote.work) {
     snap.work = {
       type: quote.work.type, title: quote.work.type === 'move' ? 'Fence move: what to do' : 'Repair: what to do', steps: quote.work.crew,
-      gateHardware: (quote.pullSheet ?? []).filter(i => !i.moneyOnly && /hinge|latch|\bfork\b/i.test(i.item)).map(i => `${i.qty} × ${i.item.replace(/^\*+/, '')}`),
+      gateHardware: (quote.pullSheet ?? []).filter(i => !i.moneyOnly && /hinge|latch|\bfork\b/i.test(i.item)).map(i => `${i.qty} × ${partWithPair(i.item).replace(/^\*+/, '')}`),
       needs811: quote.work.needs811,
     }
   }

@@ -585,7 +585,25 @@ export const WHAT_HAPPENED: Record<RepairInputs['what'], { label: string; items:
   other: { label: 'Other', items: {} },
 }
 
-/** The parts a "Repair a section" can use: the section kit (and its per foot share), with full quantities. */
+/**
+ * What a "What happened?" answer put in the list, said out loud so it is not
+ * added a second time (Oct 24, 2026 walkthrough: "Broken or sagging gate"
+ * quietly added a gate rehang below the fold). Only the items still at a
+ * count above 0; null when the answer added nothing that is still there.
+ */
+export function starterNote(what: RepairInputs['what'], items: Partial<Record<RepairItemKey, number>>): string | null {
+  const start = WHAT_HAPPENED[what]
+  if (!start) return null
+  const kept = (Object.keys(start.items) as RepairItemKey[]).filter(k => (items[k] ?? 0) > 0)
+  if (!kept.length) return null
+  const list = kept.map(k => `${items[k]} × ${REPAIR_LABEL[k]}`).join(', ')
+  return `"${start.label}" added ${list} to the list below. It is counted once: change the number there, do not add it again.`
+}
+
+/** The items a "What happened?" answer started the list with (marked in the list). */
+export const isStarterItem = (what: RepairInputs['what'], k: RepairItemKey) => (WHAT_HAPPENED[what]?.items[k] ?? 0) > 0
+
+/** The parts a "Repair a section" can use:the section kit (and its per foot share), with full quantities. */
 export function repairPartChoices(style: QuoteStyle): Array<{ part: string; qty: number }> {
   const kit = workKit(style.woodBase ?? style)
   if (!kit) return []
@@ -916,4 +934,16 @@ export function toSavedWork(r: WorkResult, inputs: { move?: MoveInputs; repair?:
     },
     description: r.description, crew: r.crew, needs811: r.needs811, warnings: r.warnings, ...extra,
   }
+}
+
+/**
+ * The job page's Scope of Work for a repair or a move: what the crew does, in
+ * the quote's own words (SavedWork.crew), instead of a new fence's footage and
+ * sections (a repair job showed "0 ft, 0 sections"; Oct 24, 2026 walkthrough).
+ * null for a new fence.
+ */
+export function workScope(work: Pick<SavedWork, 'type' | 'crew' | 'description'> | null | undefined): { title: string; items: string[] } | null {
+  if (!work || (work.type !== 'repair' && work.type !== 'move')) return null
+  const items = (Array.isArray(work.crew) ? work.crew : []).map(s => String(s).trim()).filter(Boolean)
+  return { title: work.type === 'repair' ? 'Repair' : 'Fence move', items: items.length ? items : [String(work.description || '').trim() || 'As described on the quote.'] }
 }

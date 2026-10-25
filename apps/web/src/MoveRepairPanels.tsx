@@ -9,7 +9,7 @@ import { useState } from 'react'
 import SitePlan from './SitePlan'
 import type { LayoutResult, YardLayout } from './yardLayout'
 import {
-  REPAIR_ITEMS, REPAIR_LABEL, REPAIR_HINT, WHAT_HAPPENED, oldLine as oldLineFacts, workWidth, repairPartChoices,
+  REPAIR_ITEMS, REPAIR_LABEL, REPAIR_HINT, WHAT_HAPPENED, starterNote, isStarterItem, oldLine as oldLineFacts, workWidth, repairPartChoices,
   type JobType, type MoveInputs, type RepairInputs, type RepairItemKey, type WorkResult, type PostType,
 } from './moveRepair'
 import type { QuoteStyle } from './quoteCalc'
@@ -185,14 +185,18 @@ export function RepairPanel({ style, repair, setRepair, yard, layoutResult, runS
           ))}
         </div>
       </div>
+      {starterNote(repair.what, repair.items) && (
+        <p className="text-sm text-gray-800 bg-white border-l-4 border-orange-500 rounded-lg px-3 py-2" data-repair-starter-note>{starterNote(repair.what, repair.items)}</p>
+      )}
       {repair.what === 'storm' && (
         <Toggle data="debris-cleared" label="Tree and debris cleared before we start" hint="Or add Haul away debris below" on={!!repair.debrisCleared} onChange={v => set({ debrisCleared: v })} />
       )}
       <div className="space-y-1" data-repair-items>
         {REPAIR_ITEMS.map(k => (
-          <div key={k} className="flex items-center justify-between gap-2 rounded-lg bg-white border border-gray-200 px-3 py-2" data-repair-item={k}>
+          <div key={k} className={`flex items-center justify-between gap-2 rounded-lg bg-white border px-3 py-2 ${isStarterItem(repair.what, k) && qty(k) > 0 ? 'border-orange-400' : 'border-gray-200'}`} data-repair-item={k} data-repair-item-starter={isStarterItem(repair.what, k) && qty(k) > 0 ? 'yes' : undefined}>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-900">{REPAIR_LABEL[k]}</p>
+              {isStarterItem(repair.what, k) && qty(k) > 0 && <p className="text-xs font-semibold text-orange-700">Added by "{WHAT_HAPPENED[repair.what].label}"</p>}
               <p className="text-xs text-gray-500">{REPAIR_HINT[k]}</p>
             </div>
             <Stepper label={REPAIR_LABEL[k]} value={qty(k)} onChange={n => setQty(k, n)} />

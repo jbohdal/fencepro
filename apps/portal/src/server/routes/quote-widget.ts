@@ -260,7 +260,8 @@ api.post('/submit', submitLimit, async (req, res) => {
       res.status(201).json({ success: true, options: priced.options.map(optionView), chosen: optionView(priced.options[0]) })
       return
     }
-    const r = await submitDrawnQuote({ ...data, email: data.email || undefined, test, notes: [data.notes, data.photos?.length ? `Photos: ${data.photos.join(' ')}` : ''].filter(Boolean).join('\n') || undefined })
+    // The customer's photos go on the quote and their Photos tab (lib/widgetDrawQuote.ts), not as links in a note.
+    const r = await submitDrawnQuote({ ...data, email: data.email || undefined, test, photos: data.photos ?? [], notes: [data.notes, data.photos?.length ? `The customer sent ${data.photos.length} photo${data.photos.length === 1 ? '' : 's'} of the yard (on the quote and the customer's Photos).` : ''].filter(Boolean).join('\n') || undefined })
     // The texting checkbox on the customer the quote was filed under (a test run writes nothing).
     if (!r.test && r.contactId) {
       const done = await recordWebsiteTextConsent(r.contactId, data.textConsent, { ip: req.ip, userAgent: String(req.headers['user-agent'] || '') })

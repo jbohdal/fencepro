@@ -203,6 +203,26 @@ const keepPage = (p: ReadPage) => ({
   rows: p.rows.map(r => ({ i: r.i, text: r.cells.join('  '), box: r.box, conf: Math.round(r.conf * 100) / 100 })),
 })
 
+/** The first bytes of a file ('' when it cannot be read). */
+function fileHead(p: string): string {
+  try { const fd = fs.openSync(p, 'r'); const b = Buffer.alloc(8); fs.readSync(fd, b, 0, 8, 0); fs.closeSync(fd); return b.toString('latin1') } catch { return '' }
+}
+
+/**
+ * Why an invoice that was read needs review, when it is not plain from the
+ * invoice itself: a file sent as a PDF that is not one (a photo renamed
+ * .pdf), or nothing on it could be read. '' otherwise.
+ */
+export function reviewReason(r: { files: Array<{ mime: string; head: string }>; vendorName: string | null | undefined; lines: number; rows: number }): string {
+  if (r.files.some(f => f.mime === 'application/pdf' && f.head && !f.head.startsWith('%PDF'))) {
+    const photo = r.files.some(f => /^\xFF\xD8|^\x89PNG/.test(f.head))
+    return `This file is named .pdf but is not a PDF${photo ? ' (it is a photo)' : ''}, so nothing on it could be read. Upload it again with Pick photos, or type the vendor, number and lines in.`
+  }
+  if (!r.rows) return 'Nothing on this invoice could be read. Upload a clearer photo or the PDF, or type the vendor, number and lines in.'
+  if (!r.vendorName && !r.lines) return 'The vendor and the lines could not be read. Type them in, or upload a clearer photo.'
+  return ''
+}
+
 export async function readInvoice(invoiceId: string, engine: 'vision' | 'tesseract' = 'vision'): Promise<void> {
   const inv = await prisma.vendorInvoice.findUnique({ where: { id: invoiceId }, include: { files: { orderBy: { seq: 'asc' } } } })
   if (!inv || inv.status !== 'reading') return
@@ -221,6 +241,8 @@ export async function readInvoice(invoiceId: string, engine: 'vision' | 'tessera
     const parsed = parseInvoice(pages, knownVendors(vs.vendors))
     const known = findVendor(parsed.vendorName, knownVendors(vs.vendors))
     const revision = revisionOf(inv.files[0]?.fileName ?? '')
+    // Why it needs review when nothing could be read: said in words on the invoice.
+    const message = reviewReason({ files: inv.files.map(f => ({ mime: f.mime, head: fileHead(f.path) })), vendorName: parsed.vendorName, lines: parsed.lines.length, rows: pages.reduce((n, p) => n + p.rows.length, 0) })
     await prisma.$transaction(async (tx: any) => {
       await tx.vendorInvoiceLine.deleteMany({ where: { invoiceId } })
       await tx.vendorInvoice.update({
@@ -231,7 +253,7 @@ export async function readInvoice(invoiceId: string, engine: 'vision' | 'tessera
           invoiceDate: parsed.invoiceDate, subtotalCents: parsed.subtotalCents, taxCents: parsed.taxCents, freightCents: parsed.freightCents,
           fees: parsed.fees.map(f => ({ label: f.label, cents: f.cents, page: f.page, row: f.row, box: f.box })) as any,
           feesCents: parsed.fees.reduce((s, f) => s + f.cents, 0), totalCents: parsed.totalCents,
-          problems: [] as any, message: '',
+          problems: [] as any, message,
           docType: parsed.docType, taxFound: parsed.taxFound, taxRate: parsed.taxRate, skipped: parsed.skipped as any, revision,
         },
       })

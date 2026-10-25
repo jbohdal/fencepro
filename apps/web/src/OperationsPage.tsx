@@ -9,6 +9,7 @@
 import { styleLabel } from './fenceCatalog'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { getQuotes } from './quoteStore'
+import { workScope, type SavedWork } from './moveRepair'
 import { InstallPacketPanel } from './installPacket'
 import PermitPanel from './PermitPanel'
 import AutomationRunLog from './AutomationRunLog'
@@ -36,6 +37,8 @@ export interface UnifiedJob {
   customerName: string
   address: string
   fenceType: string
+  /** A repair or a fence move (from its quote), else a new fence. */
+  jobKind?: 'repair' | 'move' | null
   sections: number
   opsStage: string           // unified stage key
   opsStageLabel: string
@@ -68,6 +71,7 @@ export function buildUnifiedList(): UnifiedJob[] {
       customerName: j.customerName,
       address: j.customerAddress,
       fenceType: j.fenceStyle,
+      jobKind: kindOfQuote(j.quoteId),
       sections: j.sections,
       opsStage,
       opsStageLabel: stageName(opsStage) || j.status,
@@ -88,6 +92,19 @@ export function buildUnifiedList(): UnifiedJob[] {
   }
 
   return result
+}
+
+/** A repair or a fence move, from the job's quote (moveRepair.ts); null for a new fence. */
+export function kindOfQuote(quoteId: string | null | undefined): 'repair' | 'move' | null {
+  const t = quoteId ? (getQuotes().find(q => q.id === quoteId) as { work?: { type?: string } | null } | undefined)?.work?.type : null
+  return t === 'repair' || t === 'move' ? t : null
+}
+
+/** How the board names the job's fence: "Repair · White Vinyl …" for a repair or move. */
+export function fenceText(j: { fenceType: string; jobKind?: 'repair' | 'move' | null }): string {
+  const style = styleLabel(j.fenceType)
+  if (!j.jobKind) return style
+  return [j.jobKind === 'repair' ? 'Repair' : 'Fence move', style].filter(Boolean).join(' · ')
 }
 
 const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -118,6 +135,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   if (stage && !choices.some(s => s.id === stage.id)) choices.push(stage)
   const isJobSource = job.source === 'job'
   const seesPrices = can('prices.view')
+  // A repair or move job: its items from the quote (moveRepair.ts workScope).
+  const scope = workScope(job.rawJob?.quoteId ? (getQuotes().find(q => q.id === job.rawJob!.quoteId) as { work?: SavedWork | null } | undefined)?.work : null)
 
   return (
     <div className="fixed inset-y-0 right-0 w-full lg:w-[480px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col overflow-hidden">
@@ -164,11 +183,26 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
 
         {/* Scope */}
         <Section title="Scope of Work">
-          <Field label="Fence Type" value={styleLabel(job.fenceType)} />
-          <Field label="Sections" value={String(job.sections)} />
-          {job.rawJob && <Field label="Total Feet" value={String(job.rawJob.totalFeet || 0)} />}
-          {job.rawJob && <Field label="Walk Gates" value={String(job.rawJob.walkGates)} />}
-          {job.rawJob && <Field label="Double Gates" value={String(job.rawJob.dblGates)} />}
+          {scope ? <>
+            <Field label="Fence Type" value={scope.title} />
+            {job.fenceType && <Field label="Existing fence" value={styleLabel(job.fenceType)} />}
+          </> : <Field label="Fence Type" value={styleLabel(job.fenceType)} />}
+          {scope ? (
+            // A repair or a move: what the crew does, from the quote (not a new fence's feet and sections).
+            <div data-job-work-scope={scope.title}>
+              <Field label="Job" value={scope.title} />
+              <ul className="mt-1 space-y-1 text-sm text-gray-800 list-disc pl-5" data-job-work-items>
+                {scope.items.map((t, i) => <li key={i}>{t}</li>)}
+              </ul>
+            </div>
+          ) : (
+            <>
+              <Field label="Sections" value={String(job.sections)} />
+              {job.rawJob && <Field label="Total Feet" value={String(job.rawJob.totalFeet || 0)} />}
+              {job.rawJob && <Field label="Walk Gates" value={String(job.rawJob.walkGates)} />}
+              {job.rawJob && <Field label="Double Gates" value={String(job.rawJob.dblGates)} />}
+            </>
+          )}
         </Section>
 
         {/* Operations Status */}

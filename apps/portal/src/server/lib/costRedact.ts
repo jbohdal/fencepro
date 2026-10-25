@@ -111,7 +111,17 @@ const hidden = (k: string, h: Hide) => isCostKey(k) || (!!h.prices && isPriceKey
 /** Account documents (/api/kv) that are costs through and through: job costing and supplier prices. */
 export const KV_COST_KEYS: ReadonlySet<string> = new Set(['fencepro_jobcosting', 'fencepro_inv_suppliers'])
 
-const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+/**
+ * A plain object (a record from the database, a JSON object): walked field by
+ * field. A Date, a Decimal or a Buffer is a value, kept as it is: walking a
+ * Date gave {}, and every date a Salesman's or Installer's phone was sent read
+ * "Invalid Date" (Today's tasks, photo dates; Oct 24, 2026 walkthrough).
+ */
+const isObj = (v: unknown): v is Record<string, unknown> => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+  const proto = Object.getPrototypeOf(v)
+  return proto === Object.prototype || proto === null
+}
 /** The business record (Settings): it has the books' keys next to config. */
 const isBusinessRecord = (o: Record<string, unknown>) => 'config' in o && 'plEntries' in o
 

@@ -25,6 +25,7 @@ import RunSpacingTable from './RunSpacingTable'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { sendInstallPacket, packetUrl } from './installPacket'
 import { refreshChangeOrders, quoteWithChanges, CO_EVENT } from './ChangeOrders'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 const API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/pull-sheets'
 
@@ -204,7 +205,7 @@ function PullSheetView({ entry: e, costs, customerId, onChanged, onClose }: { en
                 <tbody>
                   {lines.map((l, i) => (
                     <tr key={i} className={`border-b border-gray-50 ${changedBy.has(l.item) ? 'bg-amber-50' : ''}`} {...(changedBy.has(l.item) ? { 'data-pull-sheet-changed': l.item } : {})}>
-                      <td className="px-2 py-1.5 [overflow-wrap:anywhere]">{l.item}{l.moneyOnly && <span className="text-xs text-gray-500"> (money only, not pulled)</span>}{changedBy.has(l.item) && <span className="text-xs font-semibold text-amber-900"> {changedBy.get(l.item)!.was ? `(was ${qtyText(changedBy.get(l.item)!.was)})` : '(new)'}</span>}</td>
+                      <td className="px-2 py-1.5 [overflow-wrap:anywhere]">{partWithPair(l.item)}{l.moneyOnly && <span className="text-xs text-gray-500"> (money only, not pulled)</span>}{changedBy.has(l.item) && <span className="text-xs font-semibold text-amber-900"> {changedBy.get(l.item)!.was ? `(was ${qtyText(changedBy.get(l.item)!.was)})` : '(new)'}</span>}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{qtyText(l.qty)}</td>
                       {costs && <td className="px-2 py-1.5 text-right tabular-nums">{usd(l.unitCostCents)}</td>}
                       {costs && <td className="px-2 py-1.5 text-right tabular-nums font-medium">{usd(l.totalCostCents)}</td>}
@@ -223,7 +224,7 @@ function PullSheetView({ entry: e, costs, customerId, onChanged, onClose }: { en
                 {e.revisions.slice(1).map(r => (
                   <div key={r.rev} className="border border-gray-100 rounded-lg p-2" data-pull-sheet-old-rev={r.rev}>
                     <p className="text-xs font-semibold text-gray-700">{r.title} · {dayText(r.date)}</p>
-                    <ul className="text-xs text-gray-600 mt-1">{(costs ? r.lines : r.lines.filter(l => !l.moneyOnly)).map((l, i) => <li key={i}>{qtyText(l.qty)} × {l.item}</li>)}</ul>
+                    <ul className="text-xs text-gray-600 mt-1">{(costs ? r.lines : r.lines.filter(l => !l.moneyOnly)).map((l, i) => <li key={i}>{qtyText(l.qty)} × {partWithPair(l.item)}</li>)}</ul>
                   </div>
                 ))}
               </div>
@@ -252,7 +253,7 @@ function PullSheetView({ entry: e, costs, customerId, onChanged, onClose }: { en
                 <tbody>
                   {e.finalTakeoff.lines.map((l, i) => (
                     <tr key={i} className="border-b border-gray-50">
-                      <td className="px-2 py-1.5 [overflow-wrap:anywhere]">{l.item}{l.extra && <span className="text-xs text-gray-500"> (added on the job)</span>}{l.note && <span className="block text-xs text-gray-500">{l.note}</span>}</td>
+                      <td className="px-2 py-1.5 [overflow-wrap:anywhere]">{partWithPair(l.item)}{l.extra && <span className="text-xs text-gray-500"> (added on the job)</span>}{l.note && <span className="block text-xs text-gray-500">{l.note}</span>}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{qtyText(l.plannedQty)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{qtyText(l.usedQty)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{qtyText(l.shopReturnQty)}</td>

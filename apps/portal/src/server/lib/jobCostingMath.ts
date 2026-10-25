@@ -52,6 +52,20 @@ export interface QuotedLabor {
   subRateCostCents: number
   /** Settings' hourly rate when it was signed. */
   hourlyCostCents: number
+  /**
+   * Sub labor the quote paid besides the sections or feet, at signing: walk
+   * and double gates, tear out and extra hours, at the rates in Settings then
+   * (as pricingEngine.ts prices them), never more than the quote's labor
+   * beyond the sections. Costs saved before Oct 25, 2026 have none (0).
+   */
+  subOtherCents?: number
+}
+
+/** The sub labor a quote paid beyond units x rate (gates, tear out, extra hours), in cents; 0 when not sub labor or not saved. */
+export function subOtherOf(q: Pick<QuotedCost, 'labor'> | null | undefined): number {
+  if (!q || q.labor?.mode !== 'sub') return 0
+  const v = q.labor.subOtherCents
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0
 }
 
 export interface QuotedCost {
@@ -183,6 +197,12 @@ export interface QuoteForSnapshot {
   pullSheet: unknown
   pricing: unknown
   work: unknown
+  /** Gates, tear out and extra hours: the sub's pay for them is part of its labor (subOtherCents). */
+  walkGates?: number | null
+  dblGates?: number | null
+  tearOutSections?: number | null
+  tearOutGates?: number | null
+  adjLaborHrs?: number | null
 }
 
 export interface PricingSettings {
@@ -191,6 +211,10 @@ export interface PricingSettings {
   manHourRate?: number
   subRateDefault?: number
   subRateByCategory?: Record<string, number>
+  subWalkGate?: number
+  subDblGate?: number
+  subTearOutSection?: number
+  subTearOutGate?: number
 }
 
 export interface StyleForRate { name?: string; category?: string; subRate?: number }
@@ -232,6 +256,8 @@ export function quotedCostOf(q: QuoteForSnapshot, ctx: {
   const materialCents = toCents(q.materialCost)
   const laborCents = toCents(q.laborCost)
   const tearOutCents = toCents(q.tearOutCost)
+  const subUnits = subUnit === 'section' ? Math.max(0, Math.round(num(q.sections))) : footage
+  const subRateCostCents = toCents(subRateFor(ctx.style, ctx.pricing, pricing.subRate))
   return {
     quoteId: q.id, signedAt: ctx.signedAt.toISOString(), signedVia: ctx.signedVia, fenceStyle: q.fenceStyle, salesRep: q.salesRep,
     jobType: work && (work.type === 'move' || work.type === 'repair') ? String(work.type) : 'new',
@@ -240,8 +266,14 @@ export function quotedCostOf(q: QuoteForSnapshot, ctx: {
     totalCents: toCents(q.totalCOGS) || materialCents + laborCents + tearOutCents,
     lines,
     labor: {
-      mode: laborMode, subUnit, subUnits: subUnit === 'section' ? Math.max(0, Math.round(num(q.sections))) : footage,
-      subRateCostCents: toCents(subRateFor(ctx.style, ctx.pricing, pricing.subRate)), hourlyCostCents: toCents(ctx.pricing.manHourRate),
+      mode: laborMode, subUnit, subUnits, subRateCostCents, hourlyCostCents: toCents(ctx.pricing.manHourRate),
+      // The gates (and tear out, extra hours) the sub is paid for besides the sections, as priced.
+      ...(laborMode === 'sub' ? { subOtherCents: Math.min(
+        Math.max(0, laborCents - Math.round(subUnits * subRateCostCents)),
+        toCents(num(q.walkGates) * num(ctx.pricing.subWalkGate) + num(q.dblGates) * num(ctx.pricing.subDblGate)
+          + num(q.tearOutSections) * num(ctx.pricing.subTearOutSection) + num(q.tearOutGates) * num(ctx.pricing.subTearOutGate)
+          + num(q.adjLaborHrs) * num(ctx.pricing.manHourRate)),
+      ) } : {}),
     },
   }
 }
@@ -319,8 +351,10 @@ export function actualCostOf(t: { lines: TakeoffLine[]; labor: TakeoffLabor; ins
   } else if (t.labor.mode === 'sub') {
     const rate = typeof savedSub === 'number' && savedSub > 0 ? savedSub : ctx.subRateCostCents
     const units = qty(t.labor.subUnits)
-    laborCents = Math.round(units * rate)
-    laborMath = `${units} ${t.labor.subUnit === 'section' ? 'sections' : 'ft'} paid × ${usd(rate)}`
+    // Gates, tear out and extra hours the sub is paid for besides the sections, as the quote priced them.
+    const gates = subOtherOf(ctx.quoted)
+    laborCents = Math.round(units * rate) + gates
+    laborMath = `${units} ${t.labor.subUnit === 'section' ? 'sections' : 'ft'} paid × ${usd(rate)}${gates ? ` + ${usd(gates)} gates and other sub work as quoted` : ''}`
     source = typeof savedSub === 'number' && savedSub > 0 ? 'sub rate saved at signing' : "Settings' sub rate today (none saved at signing)"
   } else {
     const rate = typeof savedHourly === 'number' && savedHourly > 0 ? savedHourly : ctx.hourlyCostCents

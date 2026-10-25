@@ -15,6 +15,9 @@ import { addCrewDays, crewDaysOfWeek } from '../../portal/src/server/lib/install
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
+/** "26 sections" (never "26 sec", which read as seconds of drive time); nothing for a job with none, such as a repair. */
+const sectionsText =(n: number) => (n > 0 ? `${n} section${n === 1 ? '' : 's'}` : '')
+
 const CLUSTER_COLORS = ['#f97316', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#f59e0b', '#06b6d4', '#ec4899']
 
 /* ───────── Unified schedulable job ───────── */
@@ -324,7 +327,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
     if (isSelected) {
       const labelEl = document.createElement('div')
       labelEl.style.cssText = `background:${color};color:white;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);`
-      labelEl.textContent = `${job.customerName} · ${job.sections} sec`
+      labelEl.textContent = [job.customerName, sectionsText(job.sections)].filter(Boolean).join(' · ')
       // Sits just above the selected dot.
       L.marker([job.lat, job.lng], { icon: aboveIcon(labelEl, 16), interactive: false, keyboard: false, zIndexOffset: 1100 }).addTo(group)
     }
@@ -465,7 +468,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
                         <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
                         <span className="text-xs font-bold text-gray-900">Group {ci + 1}</span>
                       </div>
-                      <span className="text-[10px] text-gray-400">{cl.items.length} jobs · {cl.items.reduce((s, j) => s + j.sections, 0)} sec</span>
+                      <span className="text-[10px] text-gray-400">{[`${cl.items.length} jobs`, sectionsText(cl.items.reduce((s, j) => s + j.sections, 0))].filter(Boolean).join(' · ')}</span>
                     </div>
                     {isSel && crewName && startDate && (
                       <button onClick={e => { e.stopPropagation(); scheduleCluster(ci) }}
@@ -490,7 +493,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
                   className={`px-3 py-2.5 border-b border-gray-50 cursor-pointer transition-colors ${isSel ? 'bg-orange-50 border-l-2 border-l-orange-500' : 'hover:bg-gray-50'}`}>
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-semibold text-gray-900 truncate">{job.customerName}</p>
-                    <span className="text-xs font-bold text-gray-500 shrink-0 ml-2">{job.sections} sec</span>
+                    {job.sections > 0 && <span className="text-xs font-bold text-gray-500 shrink-0 ml-2" data-smart-job-sections>{sectionsText(job.sections)}</span>}
                   </div>
                   <p className="text-[10px] text-gray-400 truncate">{job.address || 'No address'}</p>
                   <div className="flex flex-wrap gap-1 mt-1.5">

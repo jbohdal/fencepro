@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from 'react'
 import { plainText } from './plainError'
+import { shownToast, bottomAbove, TOAST_MS } from './toastQueue'
 
 export type ToastKind = 'success' | 'error' | 'info' | 'warning'
 
@@ -32,11 +33,11 @@ function emit() {
   for (const l of listeners) l(current)
 }
 
-function push(kind: ToastKind, title: string, body?: string, ttlMs = 4200) {
+function push(kind: ToastKind, title: string, body?: string, ttlMs: number = TOAST_MS[kind]) {
   const msg: ToastMessage = { id: uid(), kind, title, body, ttlMs }
   current = [...current, msg]
   emit()
-  if (ttlMs > 0) setTimeout(() => dismiss(msg.id), ttlMs)
+  // Its time starts when it is on screen (one at a time; ToastContainer), so none goes unseen.
 }
 
 function dismiss(id: string) {
@@ -46,9 +47,9 @@ function dismiss(id: string) {
 
 export const toast = {
   success: (title: string, body?: string) => push('success', title, body),
-  error:   (title: string, body?: string) => push('error', title, body, 7000),
+  error:   (title: string, body?: string) => push('error', title, body),
   info:    (title: string, body?: string) => push('info', title, body),
-  warning: (title: string, body?: string) => push('warning', title, body, 6000),
+  warning: (title: string, body?: string) => push('warning', title, body),
   dismiss,
 }
 
@@ -70,16 +71,38 @@ export function ToastContainer() {
     success: '✓', error: '✕', warning: '⚠', info: 'ℹ',
   }
 
+  // One at a time (toastQueue.ts), just above the quote's bar when it is open, so it never covers Next or the drawing's buttons.
+  const { shown, waiting } = shownToast(msgs)
+  const [lift, setLift] = useState<number | null>(null)
+  // The one on screen goes after its own time; the next one then shows for its full time.
+  useEffect(() => {
+    if (!shown || shown.ttlMs <= 0) return
+    const t = setTimeout(() => dismiss(shown.id), shown.ttlMs)
+    return () => clearTimeout(t)
+  }, [shown?.id])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!shown) return
+    const place = () => {
+      const bar = [...document.querySelectorAll<HTMLElement>('[data-quote-bar], [data-toast-above]')].find(e => e.offsetParent !== null || getComputedStyle(e).position === 'fixed')
+      setLift(bottomAbove(bar ? bar.getBoundingClientRect().top : null, window.innerHeight))
+    }
+    place()
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  }, [shown?.id])  // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     // At the bottom, above the phone's tab bar and the quote's Save bar: never over a name or its save status at the top.
-    <div className="fixed z-(--z-toast) flex flex-col-reverse gap-2 pointer-events-none inset-x-3 bottom-[calc(108px+env(safe-area-inset-bottom))] md:inset-x-auto md:right-4 md:bottom-4 md:max-w-sm">
-      {msgs.map(m => (
-        <div key={m.id}
+    <div className="fixed z-(--z-toast) flex flex-col-reverse gap-2 pointer-events-none inset-x-3 bottom-[calc(108px+env(safe-area-inset-bottom))] md:inset-x-auto md:right-4 md:bottom-4 md:max-w-sm"
+      style={lift != null ? { bottom: lift } : undefined} data-toasts={msgs.length}>
+      {(shown ? [shown] : []).map(m => (
+        <div key={m.id} data-toast={m.kind}
           className={`${styles[m.kind]} rounded-xl shadow-lg px-4 py-3 flex items-start gap-3 pointer-events-auto animate-in slide-in-from-bottom`}>
           <span className="text-lg leading-none shrink-0">{icons[m.kind]}</span>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold">{m.title}</p>
-            {m.body && <p className="text-xs opacity-90 mt-0.5 whitespace-pre-wrap">{m.body}</p>}
+            {m.body && <p className="text-xs opacity-90 mt-0.5 whitespace-pre-wrap line-clamp-3">{m.body}</p>}
+            {waiting > 0 && <p className="text-[11px] opacity-75 mt-0.5" data-toast-waiting={waiting}>{waiting} more after this</p>}
           </div>
           <button onClick={() => dismiss(m.id)}
             className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-white/70 hover:text-white leading-none text-lg -mr-1">×</button>

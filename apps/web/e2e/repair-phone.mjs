@@ -18,7 +18,8 @@ const SHOTS = process.env.SHOTS || ''
 const CDP = process.env.CDP_URL || ''
 const ENGINE = process.env.BROWSER === 'chromium' ? chromium : webkit
 const NAME = CDP ? 'android' : process.env.BROWSER === 'chromium' ? 'chromium' : 'webkit'
-if (!/localhost:4001/.test(APP)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
+// The dev copy on 4001, or a worktree's own dev server on another local port (devOnly.mjs refuses 4000).
+if (!/^http:\/\/localhost:\d+\/?$/.test(APP) || /:4000\b/.test(APP)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []

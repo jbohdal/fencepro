@@ -45,11 +45,16 @@ export function useAppointmentList(): Appointment[] {
   return list
 }
 
-/** Open the quote builder for a customer, with the property and what was measured. */
+/**
+ * Open the quote builder for a customer, with the property and what was
+ * measured. The customer's draft opens when there is one (a website quote
+ * with their drawing, or a draft already started; App.tsx openQuoteFor,
+ * quoteReuse.ts), never a blank second quote.
+ */
 export function startQuote(a: Appointment) {
   window.dispatchEvent(new CustomEvent('ezbiz:new-quote', {
     detail: {
-      customerId: a.crmContactId, address: a.address,
+      customerId: a.crmContactId, address: a.address, reuseDraft: true,
       notes: [a.measuredFeet ? `Measured on site: about ${a.measuredFeet} ft.` : '', a.outcomeNotes].filter(Boolean).join(' '),
     },
   }))
@@ -217,7 +222,8 @@ export function OutcomeForm({ a, onClose }: { a: Appointment; onClose: () => voi
     if (!saved) { setSaving(false); return }
     let up = 0
     for (const f of files) { const r = await uploadStaffPhotoForCustomer(a.crmContactId, f, `${OUTCOME_LABELS[outcome]} visit`, a.assignedTo); if (r.ok) up++ }
-    if (files.length) toast.info('Photos', `${up} of ${files.length} uploaded to the customer's Photos.`)
+    // Said only when some did not upload (one message at a time: the quote's own message comes next).
+    if (files.length && up < files.length) toast.warning('Photos', `${up} of ${files.length} uploaded to the customer's Photos. Add the others from the customer's Photos tab.`)
     applyOutcome(saved, outcome)
     setSaving(false)
     onClose()

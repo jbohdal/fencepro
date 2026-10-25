@@ -22,6 +22,7 @@ import { layoutPanelFt } from './gateSlide'
 import { deriveLayout, formatFtIn, postSpacing, teePostFor, type YardLayout } from './yardLayout'
 import LayoutEditor, { nextEmptySide } from './LayoutEditor'
 import CustomerDrawing from './CustomerDrawing'
+import SiteVisitInQuote from './SiteVisitInQuote'
 import VoicePanel, { type VoiceHandle } from './VoicePanel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { fetchCurrentUser, currentUser } from './crmAuth'
@@ -57,6 +58,7 @@ import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../
 import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, type ChangeOrderPrefill } from './ChangeOrders'
 import { changeOrderDraft } from './changeOrderDraft'
 import { SignedDocumentLinks } from './SignedDocuments'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
 /** "2026-10-19" → "Oct 19, 2026" */
@@ -428,10 +430,13 @@ export default function QuoteBuilder({
   onClose,
   onSave,
   initialQuote,
+  startOnYard = false,
 }: {
   onClose: () => void
   onSave: (q: SavedQuote) => void
   initialQuote?: SavedQuote | null
+  /** Open on the Yard step (a draft opened from Ready to quote: the customer's drawing and the site visit are there). */
+  startOnYard?: boolean
 }) {
   const init = initialQuote
 
@@ -501,7 +506,7 @@ export default function QuoteBuilder({
   }, [])
   const [showPullSheet, setShowPullSheet] = useState(true)
   // One step on screen at a time: a new quote starts with the customer, a saved one on its price.
-  const [step, setStep] = useState<StepKey>(() => (init?.id ? 'price' : 'customer'))
+  const [step, setStep] = useState<StepKey>(() => (startOnYard ? 'yard' : init?.id ? 'price' : 'customer'))
   // The one side of the yard shown open (Next side moves it on).
   const [openSide, setOpenSide] = useState<string | null>(null)
   const [photosOpen, setPhotosOpen] = useState(false)
@@ -1101,6 +1106,8 @@ export default function QuoteBuilder({
               )}
             </div>
             {init?.layout?.widgetDrawing && <CustomerDrawing record={init.layout.widgetDrawing} />}
+            {/* The site visit's footage, notes and photos (SiteVisitInQuote.tsx). */}
+            {jobType === 'new' && <SiteVisitInQuote customerId={init?.customerId} />}
 
             {entry === 'advanced' && (<>
             <div>
@@ -1797,7 +1804,7 @@ export default function QuoteBuilder({
                   {materialItems.map((item, i) => (
                     <div key={i} className="flex items-start justify-between text-xs py-1.5 border-b border-gray-100 last:border-0">
                       <div className="flex-1 pr-2">
-                        <p className="text-gray-800 font-medium leading-tight">{item.item}</p>
+                        <p className="text-gray-800 font-medium leading-tight">{partWithPair(item.item)}</p>
                         <p className="text-gray-400 mt-0.5">{!internal ? `${item.qty}` : `${item.qty} × ${fmt(item.unitCost)}`}</p>
                       </div>
                       {internal && <span className="text-gray-900 font-semibold whitespace-nowrap">{fmt(item.total)}</span>}

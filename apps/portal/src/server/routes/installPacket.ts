@@ -37,6 +37,7 @@ import { isYmd, usDate, shortDayWords } from '../lib/installDays.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { customerNotesForJob, installTimes, recordInstallTime } from '../lib/crewInstall.js'
 import { withoutMoney } from '../lib/costRedact.js'
+import { partWithPair } from '../lib/partNames.js'
 
 /**
  * The crew days, each one: "3 crew days: Thu 12/3, Mon 12/7, Tue 12/8" (from the Schedule), else
@@ -268,7 +269,7 @@ packetPublic.get('/:token', async (req, res) => {
     <h1>${esc(job_.customerName)}</h1>
     <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
     <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">Install: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(job_.crewAssigned)}` : ''}</p>
-    ${coChange ? `<section class="notes" data-packet-change-order><h2>Changed: change order CO-${coChange.number}</h2><p><b>${esc(coChange.what)}</b> (approved ${esc(coChange.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${coChange.rev ? `, contract rev ${coChange.rev}` : ''}). The fence, runs and pull sheet below are the new ones.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(l.item)}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
+    ${coChange ? `<section class="notes" data-packet-change-order><h2>Changed: change order CO-${coChange.number}</h2><p><b>${esc(coChange.what)}</b> (approved ${esc(coChange.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${coChange.rev ? `, contract rev ${coChange.rev}` : ''}). The fence, runs and pull sheet below are the new ones.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(partWithPair(l.item))}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
     ${s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(withoutMoney(onceEach(s.notes))).replace(/\n/g, '<br>')}</p></section>` : ''}
     ${fromCustomer.length ? `<section class="notes" data-packet-customer-notes><h2>Customer notes</h2><ul>${fromCustomer.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
@@ -287,7 +288,7 @@ packetPublic.get('/:token', async (req, res) => {
       ${s.gates?.length ? `<h3>Gates</h3><ul>${s.gates.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
       ${s.skips?.length ? `<h3>Skips (not included)</h3><ul>${s.skips.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
     </section>
-    ${s.pullSheet?.length ? `<section><h2>Pull sheet</h2><table><thead><tr><th>Material</th><th>Qty</th></tr></thead><tbody>${s.pullSheet.map(i => `<tr><td>${esc(i.item)}</td><td>${esc(i.qty)}</td></tr>`).join('')}</tbody></table></section>` : ''}
+    ${s.pullSheet?.length ? `<section><h2>Pull sheet</h2><table><thead><tr><th>Material</th><th>Qty</th></tr></thead><tbody>${s.pullSheet.map(i => `<tr><td>${esc(partWithPair(i.item))}</td><td>${esc(i.qty)}</td></tr>`).join('')}</tbody></table></section>` : ''}
     <section><h2>Photos and video</h2>
       ${items.length ? `<div class="media">${items.map(m => {
         const src = fix(m.markupUrl ?? m.url)
