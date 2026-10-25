@@ -18,7 +18,38 @@ import { crewDaysOfWeek, isCrewDay, plusDays, nextCrewDay, holidayOn, weekWords,
 import { fetchWeekendJobs } from './installScheduleApi'
 import { crewHex } from './dispatchPins'
 import { locateOf, locateShortWarning } from '../../portal/src/server/lib/locates'
-import { getJob } from './jobStore'
+import { getJob, getJobs, type Job } from './jobStore'
+import { installDays as crewDaysFrom } from '../../portal/src/server/lib/installDays'
+
+/** The id prefix of a month card made from a job's dates (no board entry yet). */
+const FROM_DATES = 'job-dates:'
+
+/**
+ * Jobs with an install date and no board entry: one card per crew day, from
+ * the start (and end, else the crew days estimated) on the crew days, on the
+ * job's crew (by id or by name). A finished or archived job is left out once
+ * its dates are past; Ready to schedule never lists a job with a date.
+ */
+export function datedJobsWithoutEntries(all: Job[], entries: ScheduledJob[], settings: ScheduleSettings): ScheduledJob[] {
+  const booked = new Set(entries.map(e => e.stagingJobId).filter(Boolean))
+  const week = crewDaysOfWeek(settings.workDays)
+  const out: ScheduledJob[] = []
+  for (const j of all) {
+    if (booked.has(j.id) || !/^\d{4}-\d{2}-\d{2}$/.test(j.scheduledDate || '') || j.status === 'on_hold') continue
+    const end = /^\d{4}-\d{2}-\d{2}$/.test(j.scheduledEndDate || '') && j.scheduledEndDate! >= j.scheduledDate ? j.scheduledEndDate! : null
+    let days = crewDaysFrom(j.scheduledDate, end ? 60 : Math.max(1, j.estimatedDays || 1), week)
+    if (end) days = days.filter(d => d <= end)
+    if (!days.length) days = [j.scheduledDate]
+    const key = (j.crewAssigned || '').trim().toLowerCase()
+    const crew = settings.crews.find(c => c.id.toLowerCase() === key) ?? settings.crews.find(c => c.name.trim().toLowerCase() === key)
+    for (const d of days) out.push({
+      id: `${FROM_DATES}${j.id}:${d}`, stagingJobId: j.id, clientName: j.customerName, area: j.customerAddress, sections: j.sections, fenceType: j.fenceStyle,
+      jobPrice: j.contractValue, tearout: j.tearOutSections > 0, crewId: crew?.id ?? '', date: d, notes: '',
+      status: j.status === 'completed' || j.status === 'invoiced' || j.status === 'paid' ? 'Complete' : 'Scheduled',
+    })
+  }
+  return out
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -277,7 +308,9 @@ export default function SchedulePage() {
     const on = () => setData(loadSchedule())
     window.addEventListener(SCHEDULE_UPDATED_EVENT, on)
     window.addEventListener(RAIN_LOG_UPDATED_EVENT, on)
-    return () => { window.removeEventListener(SCHEDULE_UPDATED_EVENT, on); window.removeEventListener(RAIN_LOG_UPDATED_EVENT, on) }
+    // Jobs (their install dates show on the month even without board entries).
+    window.addEventListener('fencepro:jobs:updated', on)
+    return () => { window.removeEventListener(SCHEDULE_UPDATED_EVENT, on); window.removeEventListener(RAIN_LOG_UPDATED_EVENT, on); window.removeEventListener('fencepro:jobs:updated', on) }
   }, [])
   const [showSettings, setShowSettings] = useState(false)
   const [viewMonth, setViewMonth] = useState(() => new Date())
@@ -297,7 +330,11 @@ export default function SchedulePage() {
   // Load weather forecast
   useEffect(() => { fetchForecast().then(setForecast) }, [])
 
-  const { jobs, settings } = data
+  const { jobs: entries, settings } = data
+  // On the month: the board's entries, plus jobs that have install dates but no entries (scheduled the old
+  // way, before Schedule install made one entry per crew day). Shown from their dates; a tap opens Move install,
+  // which books them properly. Never saved as entries from here (updateData saves the board's own entries only).
+  const jobs = [...entries, ...datedJobsWithoutEntries(getJobs(), entries, settings)]
   const rainLog = loadRainLog()
   const crewWeek = crewDaysOfWeek(settings.workDays)
   // Jobs booked "weekends too" (on purpose): their weekend days are not a warning.
@@ -346,11 +383,11 @@ export default function SchedulePage() {
       return
     }
     // An entry made by hand (no job behind it): just its day.
-    updateData(jobs.map(j => j.id === dragged.id ? { ...j, date: dateStr } : j))
+    updateData(entries.map(j => j.id === dragged.id ? { ...j, date: dateStr } : j))
   }
 
   function removeJob(id: string) {
-    updateData(jobs.filter(j => j.id !== id))
+    updateData(entries.filter(j => j.id !== id))
   }
 
   /** Looking at a later month: a tapped job starts on its first crew day; this month: the next crew day. */
@@ -490,6 +527,7 @@ export default function SchedulePage() {
                                   data-install-day={`${nth}/${own.length}`}
                                   data-install-offday={offDay ? 'yes' : undefined}
                                   data-install-clash={clashIds.has(j.id) ? 'yes' : undefined}
+                                  data-install-from-dates={j.id.startsWith(FROM_DATES) ? 'yes' : undefined}
                                   // Everything on hover; a tap opens the job (Move install).
                                   title={[j.clientName, j.area, styleLabel(j.fenceType), j.sections ? `${j.sections} sections` : '', own.length > 1 ? `day ${nth} of ${own.length}` : '', crew?.name].filter(Boolean).join('\n')}
                                   style={{ borderLeftColor: clashIds.has(j.id) ? '#dc2626' : crewColor, backgroundColor: `${crewColor}1f` }}
