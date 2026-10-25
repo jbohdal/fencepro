@@ -447,7 +447,12 @@ export async function moveCardTo(accountId: string, cardId: string, stage: strin
       }
       return d
     })
-    if (done.count === 1) return true
+    if (done.count === 1) {
+      // Its queued runs for a stage it has moved on from are cancelled (lib/automations/queue.ts).
+      const { cancelRunsLeftBehind } = await import('./automations/queue.js')
+      await cancelRunsLeftBehind(accountId, 'sales', cardId).catch(e => console.error('[card moves] cancel runs:', e))
+      return true
+    }
   }
   return false
 }
@@ -516,6 +521,9 @@ export async function closeOutIfDone(accountId: string, jobId: string, why: stri
     await afterJobSaved(accountId, jobId, { userId: null, name: 'Close out' })
     // The card follows: Job Complete, or the last Sold, work done stage (Paid & Closed) when paid in full.
     await cardFollowsJob(accountId, jobId)
+    // Its queued Operations runs for stages it has moved on from: cancelled.
+    const { cancelRunsLeftBehind } = await import('./automations/queue.js')
+    await cancelRunsLeftBehind(accountId, 'ops', jobId).catch(e => console.error('[close out] cancel runs:', e))
     // Its crew days: done; any still ahead off the Schedule.
     const { finishScheduleRows } = await import('./installScheduling.js')
     await finishScheduleRows(accountId, jobId, { accountId, userId: null }, updated.completedDate || floridaDay(new Date()))

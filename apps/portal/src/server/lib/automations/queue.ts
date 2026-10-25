@@ -143,6 +143,57 @@ async function save(run: AutomationRun, data: Partial<Pick<AutomationRun, 'statu
   Object.assign(run, updated)
 }
 
+/**
+ * Does a "moved into <stage>" rule still apply to a card or job now in
+ * `current`? In that stage, yes. On the Sales board, also a card that went on
+ * within the same Sold, work ahead group (the server moves a signed card on to
+ * Job Prep the moment its job is made: Signed Contract's "order materials,
+ * permit packet, schedule install" must still run). Anywhere else (work done,
+ * Paid & Closed, lost, back a stage): no. On Operations, a job further along
+ * that is not done yet still applies; a done one does not.
+ */
+export async function stageStillApplies(accountId: string, board: Board, triggerStage: string, current: string): Promise<boolean> {
+  if (current === triggerStage) return true
+  if (board === 'sales') {
+    const { stages } = await loadPipelineStages(accountId)
+    const a = stages.find(x => x.id === triggerStage), b = stages.find(x => x.id === current)
+    return !!a && !!b && a.group === 'sold_ahead' && b.group === 'sold_ahead' && b.order > a.order
+  }
+  const { stages } = await loadOpsStages(accountId)
+  const { phaseOf, isDonePhase } = await import('../opsStageModel.js')
+  const order = (id: string) => stages.find(x => x.id === id)?.order ?? -1
+  const pa = phaseOf(stages, triggerStage), pb = phaseOf(stages, current)
+  if (!pa || !pb || isDonePhase(pb) || pb === 'on_hold') return isDonePhase(pa) && isDonePhase(pb) && order(current) > order(triggerStage)
+  return order(current) > order(triggerStage)
+}
+
+/**
+ * A card or job moved on (the server's card moves, close out): its queued and
+ * waiting runs of "moved into" rules whose stage no longer applies
+ * (stageStillApplies) are cancelled, so the card never shows a stale
+ * "Queued · Signed Contract: ...". Returns how many.
+ */
+export async function cancelRunsLeftBehind(accountId: string, board: Board, entityId: string): Promise<number> {
+  const runs = await prisma.automationRun.findMany({ where: { accountId, entityId, status: { in: ['queued', 'waiting'] } } })
+  if (!runs.length) return 0
+  const ctx = await buildContext(accountId, board, entityId)
+  if (!ctx) return 0
+  let n = 0
+  for (const run of runs) {
+    const rule = await prisma.automationRule.findUnique({ where: { id: run.ruleId } })
+    if (!rule || rule.board !== board) continue
+    const trigger = (rule.trigger ?? {}) as any
+    if (trigger.type !== 'card_entered' || typeof trigger.stage !== 'string') continue
+    if (await stageStillApplies(accountId, board, trigger.stage, ctx.stage)) continue
+    // A rule that keeps going after the card leaves (not "only while in the stage") is cancelled only before it started.
+    const started = ((run.log as unknown as LogEntry[]) ?? []).some(l => l.result === 'started')
+    if (started && !trigger.onlyWhileInStage) continue
+    const done = await prisma.automationRun.updateMany({ where: { id: run.id, status: { in: ['queued', 'waiting'] } }, data: { status: 'skipped', log: [...((run.log as unknown as LogEntry[]) ?? []), entry(run.stepIndex, 'skipped', `Cancelled: it moved on from ${trigger.stage} (now ${ctx.stageLabel}).`)] as any } })
+    n += done.count
+  }
+  return n
+}
+
 /** Run a queued run as far as it can go now. Returns its status after. */
 export async function executeRun(runId: string, now = new Date()): Promise<string> {
   // Take it: only one worker, and only when it is due.
@@ -162,7 +213,7 @@ export async function executeRun(runId: string, now = new Date()): Promise<strin
   if (!ctx) { await save(run, { status: 'skipped' }, [entry(run.stepIndex, 'skipped', `The ${board === 'sales' ? 'card' : 'job'} is not there any more.`)]); return 'skipped' }
 
   if (!log.some(l => l.result === 'started')) {
-    if (trigger.type === 'card_entered' && ctx.stage !== trigger.stage) {
+    if (trigger.type === 'card_entered' && !(await stageStillApplies(rule.accountId, board, trigger.stage, ctx.stage))) {
       await save(run, { status: 'skipped' }, [entry(null, 'skipped', `It left ${trigger.stage} before the settle time was up (now in ${ctx.stageLabel}).`)])
       return 'skipped'
     }
@@ -187,7 +238,7 @@ export async function executeRun(runId: string, now = new Date()): Promise<strin
       await save(run, { stepIndex: i + 1 }, [entry(i, 'done', 'wait over')])
       continue
     }
-    if (trigger.type === 'card_entered' && trigger.onlyWhileInStage && i > 0 && ctx.stage !== trigger.stage) {
+    if (trigger.type === 'card_entered' && trigger.onlyWhileInStage && i > 0 && !(await stageStillApplies(rule.accountId, board, trigger.stage, ctx.stage))) {
       await save(run, { status: 'skipped' }, [entry(i, 'skipped', `It is no longer in ${trigger.stage} (now ${ctx.stageLabel}); the remaining steps were not run.`)])
       return 'skipped'
     }

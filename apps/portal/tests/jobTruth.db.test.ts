@@ -93,6 +93,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     await prisma.changeOrder.deleteMany({ where: { accountId } })
     await prisma.activityLog.deleteMany({ where: { entityId: { in: jobs } } })
     await prisma.cardFollowUp.deleteMany({ where: { accountId } })
+    await prisma.automationRun.deleteMany({ where: { accountId } })
+    await prisma.automationRule.deleteMany({ where: { accountId } })
     await prisma.deletionLog.deleteMany({ where: { accountId } })
     await prisma.scheduleSettings.deleteMany({ where: { accountId } })
     await prisma.automationEvent.deleteMany({ where: { accountId } })
@@ -257,11 +259,34 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
 
   test('a finished job: its crew days done, any still ahead off the Schedule', async () => {
     const S = await import('../src/server/lib/installScheduling.js')
-    const j = await prisma.savedJob.create({ data: { accountId, customerName: `Fin ${tag}`, status: 'completed', completedDate: '2026-10-27' } as any })
+    const j = await prisma.savedJob.create({ data: { accountId, customerName: `Fin ${tag}`, status: 'completed', completedDate: '2026-10-27', scheduledDate: '2026-10-27', scheduledEndDate: '2026-10-28' } as any })
     for (const d of ['2026-10-27', '2026-10-28']) await prisma.scheduledGridJob.create({ data: { accountId, stagingJobId: j.id, clientName: 'Fin', crewId: 'crew1', date: d } })
     expect(await S.finishScheduleRows(accountId, j.id, { accountId, userId: null }, '2026-10-27')).toEqual({ completed: 1, removed: 1 })
     const rows = await prisma.scheduledGridJob.findMany({ where: { accountId, stagingJobId: j.id }, orderBy: { date: 'asc' } })
     expect(rows.map(r => [r.date, r.status, !!r.deletedAt])).toEqual([['2026-10-27', 'Complete', false], ['2026-10-28', 'Scheduled', true]])
+    // Its install dates are the days worked.
+    expect(await prisma.savedJob.findUnique({ where: { id: j.id }, select: { scheduledDate: true, scheduledEndDate: true } })).toEqual({ scheduledDate: '2026-10-27', scheduledEndDate: '2026-10-27' })
+  })
+
+  test('a card moved on: its queued Signed Contract runs stay while it is in Job Prep, are cancelled once Paid & Closed', async () => {
+    const Q = await import('../src/server/lib/automations/queue.js')
+    expect(await Q.stageStillApplies(accountId, 'sales', 'Signed Contract', 'Job Prep')).toBe(true)
+    expect(await Q.stageStillApplies(accountId, 'sales', 'Signed Contract', 'Paid & Closed')).toBe(false)
+    expect(await Q.stageStillApplies(accountId, 'sales', 'Pending Signature', 'Signed Contract')).toBe(false)
+    const rule = await prisma.automationRule.create({ data: { accountId, name: `Signed ${tag}`, board: 'sales', enabled: true, trigger: { type: 'card_entered', stage: 'Signed Contract', settleMinutes: 2 } as any, steps: [{ type: 'notify', title: `${tag} order materials`, body: '' }] as any } })
+    const st = await prisma.pipelineState.findUnique({ where: { accountId } })
+    await prisma.pipelineState.update({ where: { accountId }, data: { leads: [...((st!.leads as any[]) ?? []), { id: `auto-${tag}`, firstName: 'Auto', lastName: tag, stage: 'Signed Contract', createdAt: '2026-10-25' }], version: { increment: 1 } } })
+    const run = await prisma.automationRun.create({ data: { accountId, ruleId: rule.id, eventId: `ev-${tag}`, entityKind: 'card', entityId: `auto-${tag}`, status: 'queued', nextRunAt: new Date(Date.now() + 120_000) } })
+    expect(await truth.moveCardTo(accountId, `auto-${tag}`, 'Job Prep')).toBe(true)
+    expect((await prisma.automationRun.findUnique({ where: { id: run.id } }))?.status).toBe('queued')
+    expect(await truth.moveCardTo(accountId, `auto-${tag}`, 'Paid & Closed')).toBe(true)
+    const after = await prisma.automationRun.findUnique({ where: { id: run.id } })
+    expect(after?.status).toBe('skipped')
+    expect(JSON.stringify(after?.log)).toMatch(/Cancelled: it moved on from Signed Contract/)
+    // And at run time a run for a stage it left is skipped, never run.
+    const run2 = await prisma.automationRun.create({ data: { accountId, ruleId: rule.id, eventId: `ev2-${tag}`, entityKind: 'card', entityId: `auto-${tag}`, status: 'queued', nextRunAt: new Date(Date.now() - 1000) } })
+    expect(await Q.executeRun(run2.id)).toBe('skipped')
+    expect(await prisma.notification.count({ where: { title: { contains: `${tag} order materials` } } })).toBe(0)
   })
 
   test('the crew packet carries the approved change order, whoever builds it', async () => {

@@ -549,7 +549,7 @@ export default function SchedulePage() {
                                     {j.status === 'Rain Day' && <span title="Rain Day">🌧 </span>}
                                     {cardName(j.clientName)}
                                   </p>
-                                  {j.sections > 0 && <p className="text-[11px] text-gray-600 leading-tight">{j.sections} sec</p>}
+                                  {j.sections > 0 && <p className="text-[11px] text-gray-600 leading-tight">{j.sections} section{j.sections === 1 ? "" : "s"}</p>}
                                   {offDay && <p className="text-[11px] font-semibold text-red-700 leading-tight" data-offday-warning>{DAY_FULL[day.getDay()]} is not a work day any more. Move this day?</p>}
                                   {/* The 811 locate against this install's days, on its first day (the job's one locate record). */}
                                   {nth === 1 && (() => {

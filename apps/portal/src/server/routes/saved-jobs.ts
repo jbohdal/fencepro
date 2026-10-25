@@ -13,6 +13,7 @@
  *   POST   /sync      — bulk push from a localStorage payload
  */
 
+import { cancelRunsLeftBehind } from '../lib/automations/queue.js'
 import { finishScheduleRows } from '../lib/installScheduling.js'
 import { canonicalWord } from '../lib/optionLists.js'
 import { Router } from 'express'
@@ -319,6 +320,8 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     // The payment schedule: made if the quote is signed now, and the Final due on the install date (lib/contractBilling.ts).
     await afterJobSaved(req.user.crmAccountId, updated.id, { userId: req.user.id ?? null, name: req.user.email ?? '' })
     await cardFollowsJob(req.user.crmAccountId, updated.id)
+    // A stage it has moved on from: its queued runs for that stage are cancelled.
+    if (existing.opsStage !== updated.opsStage) await cancelRunsLeftBehind(req.user.crmAccountId, 'ops', updated.id).catch(e => console.error('[saved-jobs] cancel runs:', e))
     // Finished now: its crew days done, any still ahead taken off the Schedule (lib/installScheduling.ts).
     const DONE = ['completed', 'invoiced', 'paid']
     if (!DONE.includes(existing.status) && DONE.includes(updated.status)) {

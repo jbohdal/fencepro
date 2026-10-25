@@ -216,16 +216,18 @@ async function main() {
   // ── 9. Finished jobs' Schedule entries ──
   const doneJobs = jobs.filter(j => ['completed', 'invoiced', 'paid'].includes(j.status))
   const rows = doneJobs.length ? await prisma.scheduledGridJob.findMany({ where: { deletedAt: null, stagingJobId: { in: doneJobs.map(j => j.id) } } }) : []
-  const finish: Array<{ job: typeof jobs[number]; doneDay: string; complete: string[]; remove: string[] }> = []
+  const finish: Array<{ job: typeof jobs[number]; doneDay: string; complete: string[]; remove: string[]; dates: string }> = []
   for (const j of doneJobs) {
     const doneDay = j.completedDate || j.updatedAt.toISOString().slice(0, 10)
     const mine = rows.filter(r => r.stagingJobId === j.id)
     const remove = mine.filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.date > doneDay).map(r => r.date)
     const complete = mine.filter(r => !(r.date > doneDay) && r.status !== 'Complete').map(r => r.date)
-    if (remove.length || complete.length) finish.push({ job: j, doneDay, complete, remove })
+    const ahead = [j.scheduledDate, j.scheduledEndDate].some(d => /^\d{4}-\d{2}-\d{2}$/.test(d || '') && d! > doneDay)
+    const dates = ahead ? ` install dates ${mdy(j.scheduledDate)}${j.scheduledEndDate ? ` to ${mdy(j.scheduledEndDate)}` : ''} -> end ${mdy(doneDay)};` : ''
+    if (remove.length || complete.length || ahead) finish.push({ job: j, doneDay, complete, remove, dates })
   }
-  console.log(`\n9. Finished jobs with Schedule entries still open or after they were finished: ${finish.length}`)
-  for (const f of finish) console.log(`   ${name(f.job)}, finished ${mdy(f.doneDay)}:${f.complete.length ? ` mark Complete ${f.complete.map(mdy).join(', ')};` : ''}${f.remove.length ? ` take off ${f.remove.map(mdy).join(', ')}` : ''}`)
+  console.log(`\n9. Finished jobs with Schedule entries or install dates still open or after they were finished: ${finish.length}`)
+  for (const f of finish) console.log(`   ${name(f.job)}, finished ${mdy(f.doneDay)}:${f.dates}${f.complete.length ? ` mark Complete ${f.complete.map(mdy).join(', ')};` : ''}${f.remove.length ? ` take off ${f.remove.map(mdy).join(', ')}` : ''}`)
 
   if (!APPLY) { console.log('\nReport only. Nothing was written. Run with --apply to make these changes.'); await prisma.$disconnect(); return }
 

@@ -473,6 +473,14 @@ export async function applyRainDay(accountId: string, from: Ymd, shift: number, 
  */
 export async function finishScheduleRows(accountId: string, jobId: string, actor: Actor, doneDay: Ymd): Promise<{ completed: number; removed: number }> {
   return prisma.$transaction(async tx => {
+    // The job's install dates are the days worked: none after the day it was finished (Oct 25 2026: closed out 10/25, still "to 10/27").
+    const j = await tx.savedJob.findUnique({ where: { id: jobId }, select: { scheduledDate: true, scheduledEndDate: true } })
+    if (j && isYmd(doneDay)) {
+      const data: Json = {}
+      if (isYmd(j.scheduledDate) && j.scheduledDate > doneDay) data.scheduledDate = doneDay
+      if (isYmd(j.scheduledEndDate) && j.scheduledEndDate! > doneDay) data.scheduledEndDate = doneDay
+      if (Object.keys(data).length) await tx.savedJob.update({ where: { id: jobId }, data })
+    }
     const rows = await tx.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, stagingJobId: jobId } })
     const ahead = rows.filter(r => isYmd(r.date) && r.date > doneDay)
     const past = rows.filter(r => !ahead.includes(r) && r.status !== 'Complete')
