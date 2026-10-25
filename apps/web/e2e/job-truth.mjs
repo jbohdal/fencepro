@@ -58,6 +58,8 @@ const plus = (d, n) => { const t = new Date(`${d}T12:00:00Z`); t.setUTCDate(t.ge
 const W = {
   a: { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId: crypto.randomUUID(), first: 'Manny', last: `E2E Truth ${stamp}`, phone: '3525550171', addr: '1301 SE Silver Springs Pl, Ocala, FL 34471', price: 7113.83, jobId: '' },
   b: { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId: crypto.randomUUID(), first: 'Bea', last: `E2E Truth ${stamp}`, phone: '3525550172', addr: '4411 SE 31st St, Ocala, FL 34480', price: 3223.0, jobId: '' },
+  // C: a quote sent, the card in First Contact; the office marks it Sold in the app.
+  c: { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId: crypto.randomUUID(), first: 'Cal', last: `E2E Truth ${stamp}`, phone: '3525550173', addr: '9020 SW 103rd Ln, Ocala, FL 34481', price: 2945.0, jobId: '' },
 }
 const nameOf = x => `${x.first} ${x.last}`
 const browsers = []
@@ -104,10 +106,16 @@ const minTap = async (loc) => { const b = await loc.boundingBox(); return b ? Ma
 try {
   const okA = await makeSoldJob(W.a)
   const okB = await makeSoldJob(W.b)
+  const cc = await call('POST', '/api/crm-contacts', { id: W.c.contactId, firstName: W.c.first, lastName: W.c.last, phone: W.c.phone, email: `e2e-truth-${stamp}-cal@example.invalid`, serviceAddress: W.c.addr, leadSource: 'Other',
+    lead: { id: W.c.cardId, customerId: W.c.contactId, firstName: W.c.first, lastName: W.c.last, phone: W.c.phone, address: W.c.addr, stage: 'First Contact', leadSource: 'Other', createdAt: today, lastMoved: today }, leadBefore: null })
+  const cq = await call('POST', '/api/saved-quotes', { id: W.c.quoteId, crmContactId: W.c.contactId, customerName: nameOf(W.c), customerPhone: W.c.phone, customerAddress: W.c.addr, fenceStyle: "WV-ND 6'x8' Privacy", runs: [96], sections: 12, corners: 0, ends: 2, walkGates: 0, materialCost: 1000, laborCost: 600, totalCOGS: 1600, finalPrice: W.c.price, gmPct: 0.35, pullSheet: [], status: 'SENT', date: today, salesRep: 'E2E Salesman', leadSource: 'Other' })
+  // Its proposal (what the quote builder saves): one option.
+  sql(`UPDATE "SavedQuote" SET proposal = ${lit(JSON.stringify({ version: 1, options: [{ label: 'Good', fenceStyle: "WV-ND 6'x8' Privacy", finalPrice: W.c.price, sections: 12 }], depositPct: 50 }))}::jsonb WHERE id = ${lit(W.c.quoteId)}`)
+  check('C: a sent quote, its card in First Contact', cc.status < 300 && cq.status < 300, `${cc.status} ${cq.status} ${JSON.stringify(cq.json).slice(0, 200)}`)
   check('two sold jobs made (A and B), each with a payment schedule', okA && okB && (await call('GET', `/api/payments/job/${W.a.jobId}`)).json.data?.schedule?.invoices?.length === 2)
   // A is booked Monday-Tuesday two weeks out; B has a crew packet.
   const start = plus(today, 14)
-  sql(`UPDATE "SavedJob" SET "scheduledDate" = ${lit(start)}, "scheduledEndDate" = ${lit(plus(start, 1))}, "crewAssigned" = 'Crew One' WHERE id = ${lit(W.a.jobId)}`)
+  sql(`UPDATE "SavedJob" SET "scheduledDate" = ${lit(start)}, "scheduledEndDate" = ${lit(plus(start, 1))}, "crewAssigned" = 'crew1' WHERE id = ${lit(W.a.jobId)}`)
   packetToken = `e2etruth${stamp}${crypto.randomBytes(8).toString('hex')}`
   sql(`INSERT INTO "InstallPacket" (id, "accountId", "jobId", token, snapshot, "sentAt", "createdAt", "updatedAt") SELECT ${lit(crypto.randomUUID())}, "accountId", id, ${lit(packetToken)}, '{"companyName":"Getter Done Fence"}'::jsonb, now(), now(), now() FROM "SavedJob" WHERE id = ${lit(W.a.jobId)}`)
 
@@ -187,6 +195,63 @@ try {
   check('computer: the server has it Complete', !!savedB, (await call('GET', `/api/saved-jobs/${W.b.jobId}`)).json.data?.status)
   await shot(pc.page, 'computer-complete-button')
 
+  // ── A finished job is not advanced by hand ──
+  check('computer: Complete job B shows where it is, no "Advance to Invoiced"', (await pc.page.locator(`[data-job-panel="${W.b.jobId}"] [data-ops-advance]`).count()) === 0 && (await pc.page.locator(`[data-job-panel="${W.b.jobId}"] [data-ops-done]`).count()) === 1)
+
+  // ── Job A: crew name, and the deposit overdue once its day has passed ──
+  check('computer: job A opens', await openJob(pc, W.a.jobId))
+  const crewMs = await until(async () => { const t = await pc.page.locator('[data-milestone="crew"] [data-milestone-detail]').textContent(); return t && /Crew 1/.test(t) ? t : null })
+  check('computer: Crew Assigned shows the crew\'s name, never "crew1"', !!crewMs && !/crew1/.test(crewMs), crewMs || '')
+  check('computer: Job Started comes from the install (not started before its first crew day)', (await pc.page.locator('[data-milestone="started"]').getAttribute('data-milestone-done')) === 'no')
+  sql(`UPDATE "ContractInvoice" SET "dueDate" = ${lit(plus(today, -5))} WHERE "jobId" = ${lit(W.a.jobId)} AND kind = 'deposit'`)
+  await pc.page.goto(`${APP}/billing`)
+  const ar = await until(async () => { const v = Number(await pc.page.locator('[data-ar-overdue]').getAttribute('data-ar-overdue')); return v >= 355692 ? v : null }, 30000)
+  check('Billing: Accounts Receivable counts the overdue deposit from the payment schedule', !!ar && (await pc.page.locator(`[data-ar-row="${nameOf(W.a)}"]`).count()) === 1, String(ar))
+  await pc.page.locator('button:text-is("Overdue")').click()
+  const od = await until(async () => (await pc.page.locator('[data-overdue-invoice]').filter({ hasText: nameOf(W.a) }).count()) === 1)
+  check('Billing: the Overdue tab lists it, 5 days overdue', !!od && /5d overdue/.test(await pc.page.locator('[data-overdue-invoice]').filter({ hasText: nameOf(W.a) }).textContent()))
+  await shot(pc.page, 'billing-overdue')
+  check('computer: job A opens again', await openJob(pc, W.a.jobId))
+  const finOd = await until(async () => { const t = await pc.page.locator('[data-job-payment-status]').textContent(); return /overdue since/.test(t || '') ? t : null })
+  check('computer: the job\'s Financial says the deposit is overdue (same rule as Billing)', !!finOd && /\(5 days\)/.test(finOd), finOd || '')
+  check('computer: Payments marks the deposit Overdue', (await pc.page.locator('[data-invoice="deposit"] [data-invoice-overdue]').first().getAttribute('data-invoice-overdue')) === '5')
+
+  // ── The Schedule month shows A from its dates (no board entries), not in Ready to schedule ──
+  await pc.page.goto(`${APP}/schedule`)
+  const startMonth = new Date(`${start}T12:00:00Z`).getUTCMonth(), nowMonth = new Date(`${today}T12:00:00Z`).getUTCMonth()
+  if (startMonth !== nowMonth) { await pc.page.locator('[data-month-next]').click(); await sleep(500) }
+  const onMonth = await until(async () => (await pc.page.locator(`[data-install-entry="${W.a.jobId}"][data-install-from-dates="yes"]`).count()) >= 1, 30000)
+  check('Schedule: job A shows on the month from its install dates (it has no board entries)', !!onMonth)
+  check('Schedule: job A is not in Ready to schedule', (await pc.page.locator('[data-ready-panel]').textContent()).indexOf(nameOf(W.a)) < 0)
+  await shot(pc.page, 'schedule-month')
+
+  // ── The proposal: text only with a yes on record ──
+  await pc.page.goto(`${APP}/quotes?qv=${encodeURIComponent(W.c.quoteId)}`)
+  const textBtn = pc.page.locator('[data-quote-drawer] [data-proposal-text]')
+  await until(async () => (await textBtn.count()) > 0 && await textBtn.isEnabled(), 30000)
+  await textBtn.click()
+  const blocked = await until(async () => (await pc.page.locator('[data-proposal-text-blocked]').count()) > 0)
+  const opened = await pc.page.evaluate(() => (window.__links || []).filter(h => h.startsWith('sms:')).length)
+  check('proposal: no yes to texts: not texted, the reason and a call link instead', !!blocked && opened === 0 && (await pc.page.locator('[data-proposal-call]').textContent()) === '(352) 555 0173')
+
+  // ── Mark as Sold in the app: the card follows, no false toast ──
+  const net = []
+  pc.page.on('response', r => { if (/\/api\/(saved-|pipeline|business)/.test(r.url()) && r.request().method() !== 'GET') { const line = `${r.request().method()} ${r.url().replace(API, '')} ${r.status()}`; if (r.status() >= 400) r.text().then(t => net.push(line + ' ' + t.slice(0, 300))).catch(() => net.push(line)); else net.push(line) } })
+  pc.page.on('console', m => { if (/quote|job|sold/i.test(m.text())) net.push('console: ' + m.text().slice(0, 200)) })
+  await pc.page.locator('button:text-is("Mark as Sold")').click()
+  const cardC = await until(async () => { const l = ((await call('GET', '/api/pipeline')).json.data?.leads ?? []).find(x => x.id === W.c.cardId); return l?.stage === 'Signed Contract' ? l : null }, 30000)
+  check('Mark as Sold: the card moves from First Contact to Signed Contract, with the quote on it', !!cardC && cardC.quoteId === W.c.quoteId)
+  await sleep(3000)
+  const falseToast = await pc.page.locator('text=Someone changed this on another phone').count()
+  check('Mark as Sold: no "Someone changed this on another phone" toast', falseToast === 0)
+  W.c.jobId = (await until(async () => sql(`SELECT id FROM "SavedJob" WHERE "quoteId" = ${lit(W.c.quoteId)} AND "deletedAt" IS NULL`) || null, 30000)) || ''
+  const qs = sql(`SELECT status FROM "SavedQuote" WHERE id = ${lit(W.c.quoteId)}`)
+  check('Mark as Sold: the quote is Sold and its job is made', !!W.c.jobId && qs === 'SOLD', `job ${W.c.jobId || 'none'}, quote ${qs}; ${net.join(' | ')}`)
+
+  // ── Phones as the app writes them, on the pages customers and crews see ──
+  const pkt = await fetch(`${API}/p/i/${packetToken}`).then(r => r.text())
+  check('packet: phones written (352) 555 0171, never with a dash', pkt.includes('(352) 555 0171') && !/\(\d{3}\) \d{3}-\d{4}/.test(pkt))
+
   // ── Close out (job A): walkthrough signed, then the final payment ──
   const sig = n => `'{"name":"${n}","role":"Homeowner","signedAt":"${new Date().toISOString()}"}'::jsonb`
   sql(`INSERT INTO "Walkthrough" (id, "accountId", "jobId", status, items, photos, "homeownerSig", "repSig", "signedAt", "createdAt", "updatedAt") SELECT ${lit(crypto.randomUUID())}, "accountId", id, 'open', '[]', '[]', ${sig('Manny')}, ${sig('Jonathan')}, now(), now(), now() FROM "SavedJob" WHERE id = ${lit(W.a.jobId)}`)
@@ -207,9 +272,9 @@ try {
 } finally {
   for (const b of browsers) await b.close().catch(() => {})
   try {
-    const jobs = [W.a.jobId, W.b.jobId].filter(Boolean).map(lit).join(',') || "'-'"
-    const quotes = [W.a.quoteId, W.b.quoteId].map(lit).join(',')
-    const contacts = [W.a.contactId, W.b.contactId].map(lit).join(',')
+    const jobs = [W.a.jobId, W.b.jobId, W.c.jobId].filter(Boolean).map(lit).join(',') || "'-'"
+    const quotes = [W.a.quoteId, W.b.quoteId, W.c.quoteId].map(lit).join(',')
+    const contacts = [W.a.contactId, W.b.contactId, W.c.contactId].map(lit).join(',')
     sql(`BEGIN;
       DELETE FROM "PortalFile" WHERE "crmCustomerId" IN (${contacts});
       DELETE FROM "Receipt" WHERE "jobId" IN (${jobs});
@@ -223,17 +288,21 @@ try {
       DELETE FROM "Permit" WHERE "jobId" IN (${jobs});
       DELETE FROM "CrmAuditLog" WHERE "entityId" IN (${jobs}, ${quotes}, ${contacts});
       DELETE FROM "JobQuotedCost" WHERE "quoteId" IN (${quotes});
-      DELETE FROM "AutomationEvent" WHERE "entityId" IN (${jobs}, ${quotes}, ${contacts}, ${lit(W.a.cardId)}, ${lit(W.b.cardId)});
+      DELETE FROM "AutomationEvent" WHERE "entityId" IN (${jobs}, ${quotes}, ${contacts}, ${lit(W.a.cardId)}, ${lit(W.b.cardId)}, ${lit(W.c.cardId)});
+      DELETE FROM "ScheduledGridJob" WHERE "stagingJobId" IN (${jobs});
+      DELETE FROM "PendingTouch" WHERE "cardId" IN (${lit(W.a.cardId)}, ${lit(W.b.cardId)}, ${lit(W.c.cardId)});
       DELETE FROM "SavedJob" WHERE id IN (${jobs});
       DELETE FROM "SavedQuote" WHERE id IN (${quotes});
       DELETE FROM "Notification" WHERE body LIKE ${lit(`%E2E Truth ${stamp}%`)} OR title LIKE ${lit(`%E2E Truth ${stamp}%`)};
       COMMIT;`)
     // The milestone ticks of these jobs.
-    sql(`UPDATE "BusinessState" SET "jobChecklists" = "jobChecklists" - ${lit(W.a.jobId)} - ${lit(W.b.jobId)}, version = version + 1 WHERE "jobChecklists" ? ${lit(W.a.jobId)} OR "jobChecklists" ? ${lit(W.b.jobId)}`)
+    for (const id of [W.a.jobId, W.b.jobId, W.c.jobId].filter(Boolean)) sql(`UPDATE "BusinessState" SET "jobChecklists" = "jobChecklists" - ${lit(id)}, version = version + 1 WHERE "jobChecklists" ? ${lit(id)}`)
+    // C's pending order and pull sheet (made by Mark as Sold).
+    sql(`UPDATE "BusinessState" SET "pendingOrders" = COALESCE((SELECT jsonb_agg(x) FROM jsonb_array_elements("pendingOrders") x WHERE x->>'quoteId' IS DISTINCT FROM ${lit(W.c.quoteId)}), '[]'::jsonb), "pullSheets" = COALESCE((SELECT jsonb_agg(x) FROM jsonb_array_elements("pullSheets") x WHERE x->>'quoteId' IS DISTINCT FROM ${lit(W.c.quoteId)}), '[]'::jsonb), version = version + 1 WHERE "pendingOrders"::text LIKE ${lit(`%${W.c.quoteId}%`)} OR "pullSheets"::text LIKE ${lit(`%${W.c.quoteId}%`)}`)
     const pl = (await call('GET', '/api/pipeline')).json
-    const mine = (pl?.data?.leads ?? []).filter(l => [W.a.contactId, W.b.contactId].includes(l.customerId) || [W.a.cardId, W.b.cardId].includes(l.id)).map(l => l.id)
+    const mine = (pl?.data?.leads ?? []).filter(l => [W.a.contactId, W.b.contactId, W.c.contactId].includes(l.customerId) || [W.a.cardId, W.b.cardId, W.c.cardId].includes(l.id)).map(l => l.id)
     if (mine.length) await call('PATCH', '/api/pipeline', { upsert: [], remove: mine, baseVersion: pl.data.version })
-    for (const x of [W.a, W.b]) await call('DELETE', `/api/crm-contacts/${x.contactId}`)
+    for (const x of [W.a, W.b, W.c]) await call('DELETE', `/api/crm-contacts/${x.contactId}`)
     sql(`DELETE FROM "DeletionLog" WHERE "entityId" IN (${contacts}); DELETE FROM "CrmContact" WHERE id IN (${contacts})`)
     const left = Number(sql(`SELECT (SELECT count(*) FROM "SavedJob" WHERE id IN (${jobs})) + (SELECT count(*) FROM "CrmContact" WHERE id IN (${contacts})) + (SELECT count(*) FROM "SavedQuote" WHERE id IN (${quotes})) + (SELECT count(*) FROM "ContractPayment" WHERE "jobId" IN (${jobs}))`))
     check('cleaned up', left === 0, `${left} left`)
