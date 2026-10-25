@@ -17,6 +17,7 @@ import QuoteDetailDrawer from './QuoteDetailDrawer'
 import { getQuotes, updateQuote } from './quoteStore'
 import { averageMargin } from './quoteStats'
 import { useBackLayer, BackClose, useScreenMemory, useNav, takeOpenedParam } from './nav'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 export interface SavedQuote {
   id: string
@@ -443,7 +444,7 @@ function QuoteDrawer({
                   <tbody className="divide-y divide-gray-100">
                     {quote.pullSheet.map((item, i) => (
                       <tr key={i} className="hover:bg-gray-50">
-                        <td className="px-3 py-2 text-gray-800 font-medium">{item.item}</td>
+                        <td className="px-3 py-2 text-gray-800 font-medium">{partWithPair(item.item)}</td>
                         <td className="px-3 py-2 text-right text-gray-600">{item.qty}</td>
                         <td className="px-3 py-2 text-right text-gray-400">${item.unitCost}</td>
                         <td className="px-3 py-2 text-right font-semibold text-gray-900">${item.total.toFixed(2)}</td>

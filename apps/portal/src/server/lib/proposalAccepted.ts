@@ -16,6 +16,7 @@ import { loadOpsStages } from './opsStages.js'
 import { firstStage } from './opsStageModel.js'
 import { loadPipelineStages } from './pipelineStages.js'
 import { roleStageId, stageNameOf, isFinishedStage } from './pipelineStageModel.js'
+import { nyDay } from './warranties.js'
 
 export async function onProposalAccepted(q: { id: string; accountId: string; crmContactId: string | null; customerName: string; customerPhone: string; customerEmail: string; customerAddress: string; leadSource: string; salesRep: string }, chosen: { label: string; fenceStyle: string; finalPrice: number; sections: number }, acceptedBy: string): Promise<void> {
   const price = '$' + Math.round(chosen.finalPrice).toLocaleString('en-US')
@@ -35,7 +36,7 @@ export async function onProposalAccepted(q: { id: string; accountId: string; crm
     const state = await prisma.pipelineState.findUnique({ where: { accountId: q.accountId } })
     if (!state) return
     const leads = (state.leads as any[]) ?? []
-    const today = new Date().toISOString().slice(0, 10)
+    const today = nyDay(new Date())
     const mine = leads.filter(l => q.crmContactId && l?.customerId === q.crmContactId)
     const card = mine.find(l => !isFinishedStage(stages, l.stage)) ?? mine[0]
     let lead: any

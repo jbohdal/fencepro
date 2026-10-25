@@ -468,7 +468,24 @@ Every list that Settings owns has one source, and every screen reads that source
 * Customer portal steps (811, permit, materials) are ticked only when the job really has them. The month fits 1280 and 1440 wide. The pipeline card shows "Install Thu 3/4". Dispatch has a date picker. The crew packet lists each crew day. Operations cards say "Thu, Mar 4 to Fri, Mar 5" and list one entry per crew. After booking it says what happened with Google Calendar. A customer without a yes to texts: "To tell them anyway, call them: (352) …". Rain day: pick the day first, then confirm the list. **DEV**
 * One way to schedule: the job page's Crew & Schedule (now near the top) shows the days and crew with Schedule install / Move install (the raw date and crew boxes are gone); the pipeline card window has an Install section; Dispatch drags and Smart Schedule book through the same step. Month view hides days off, with "Show days off". Tests: tests/installDays.test.ts, tests/installScheduling.db.test.ts, tests/calendarSync.test.ts, e2e/schedule-install.mjs. **DEV**
 
-## 9ac. One source of truth on the job (Oct 25, walkthrough round 1)
+## 9ac. Walkthrough round 1 fixes (Oct 25)
+
+From the Oct 24 workflow walkthrough (items 5, 14, 15). Tests: tests/round1Fixes.test.ts, e2e/round1-fixes.mjs (phone and computer).
+
+* Website lead to quote: "Ready to quote" on the phone and a pipeline card's New quote open the customer's draft instead of a blank quote: the website quote they drew (yard on the aerial photo, sides, gates) first, else the newest draft for a new fence. It opens on the Yard step with "Opened the website quote"; the visit's footage and notes go into its notes once. No second draft is made. **DEV**
+* The quote's Yard step shows the site visit: day, who, measured footage, notes and the photos the visit uploaded (also on the customer's Photos). **DEV**
+* A Salesman's or Installer's phone showed "Invalid Date" on Today's tasks and photo dates: the filter that takes costs out of their answers turned every date into nothing. Dates now pass through (it was every browser, not only the iPhone). **DEV**
+* The warranty certificate (and a signed contract) in the customer portal shows the Florida day; an evening walkthrough showed the next day. Signing late in the evening moves the card with the Florida day too. **DEV**
+* The "Website quote" notification opens the lead's card window; a phone or website lead's notification opens the customer. **DEV**
+* Inventory > Invoices says what happened to every upload: uploaded and being read, not uploaded (the reason, with Remove), or waiting for signal (Try now). A picture picked under PDF files (or a PDF under photos) is caught at once. Picked photos say "Not uploaded yet" until Upload is tapped. A file the server turns down no longer holds up the files after it (photos and video too). **DEV**
+* Text the receipt: on a phone it is recorded as texted when the texting app opens; on a computer it asks "Did you send it?" (with the words to copy) and records it only on Yes. **DEV**
+* Smart Schedule says "26 sections" (it said "26 sec", read as drive time; it has no drive times). A job with no sections shows none. **DEV**
+* Repair quote: "Broken or sagging gate" (and the other answers) says what it added to the list and marks that row, so the rehang is not added twice. A repair or move job's Scope of Work lists the quote's items instead of "0 ft, 0 sections". **DEV**
+* Job costing: actual sub labor includes the sub's walk and double gate pay (and tear out, extra hours) as quoted; a 2 gate job read $20 under the quote. An approved takeoff keeps the numbers it was approved with. **DEV**
+* Gate hinges come as a pair (Jonathan, Oct 25): "*Vinyl, Gate, Hinge" ($29.03) is one pair, 2 hinges on each leaf at every height, so one per gate leaf. 8 ft tall vinyl had 2 per leaf; now 1 per leaf like every other vinyl gate (new quotes only; saved quotes keep their price). Pull sheets, the quote's pull sheet and the crew packet show it as "*Vinyl, Gate, Hinge (pair)"; the Inventory item keeps its name. **DEV**
+* Address lookup: when the county list lacks an address, the Census lookup offers only matches within 60 miles of Ocala, nearest first (it offered Homestead or Okeechobee for an Ocala street). **DEV**
+
+## 9ad. One source of truth on the job (Oct 25, walkthrough round 1)
 
 * 811 locate, one record on the job: ticket number, called in, good to dig, expires. The status (Not called, Called, Clear to dig, Expired) is worked out from the dates. Edited in the job page's "811 locate" section (Operations side panel; full screen on a phone) and on the crew packet; both save the same fields, each sees the other's. **DEV**
 * 811 warnings: no ticket, the install starting before the good to dig date, the ticket running out before the install, before its last crew day, or within 3 days of the start. On the job page, in Schedule install, on Ready to schedule ("811: Called, clear to dig 10/27") and on the install's first day on the Schedule month. **DEV**

@@ -165,6 +165,13 @@ export interface DrawnResult {
 
 class PipelineBusy extends Error {}
 
+/** Where the "Website quote" notification goes: the lead's card window, else the customer. */
+export function leadLink(cardId: string | null, contactId: string | null): string | null {
+  if (cardId) return `/pipeline?card=${encodeURIComponent(cardId)}`
+  if (contactId) return `/customers?customer=${encodeURIComponent(contactId)}`
+  return null
+}
+
 export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnResult> {
   const accountId = await resolveIntakeAccountId()
   if (!accountId) throw new Error('No company is set up on this server yet')
@@ -285,7 +292,8 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
   }
   if (!out) throw new Error('The pipeline was busy; try again')
   await prisma.notification.create({
-    data: { title: `Website quote: ${input.name}`, body: `${SOURCE_TEXT} · ${choice} · ${q.footageFt} ft · ${money(price)}`.slice(0, 400), type: 'info' },
+    // Tapping it opens the lead: its card window on the Sales Pipeline (?card=, SalesPipelineBoard.tsx).
+    data: { title: `Website quote: ${input.name}`, body: `${SOURCE_TEXT} · ${choice} · ${q.footageFt} ft · ${money(price)}`.slice(0, 400), type: 'info', link: leadLink(out.cardId, out.contactId) },
   }).catch(err => console.error('[widget] notification failed:', err))
   return out
 }

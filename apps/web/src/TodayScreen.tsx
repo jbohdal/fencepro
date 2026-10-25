@@ -43,11 +43,16 @@ export function useAppointmentList(): Appointment[] {
   return list
 }
 
-/** Open the quote builder for a customer, with the property and what was measured. */
+/**
+ * Open the quote builder for a customer, with the property and what was
+ * measured. The customer's draft opens when there is one (a website quote
+ * with their drawing, or a draft already started; App.tsx openQuoteFor,
+ * quoteReuse.ts), never a blank second quote.
+ */
 export function startQuote(a: Appointment) {
   window.dispatchEvent(new CustomEvent('ezbiz:new-quote', {
     detail: {
-      customerId: a.crmContactId, address: a.address,
+      customerId: a.crmContactId, address: a.address, reuseDraft: true,
       notes: [a.measuredFeet ? `Measured on site: about ${a.measuredFeet} ft.` : '', a.outcomeNotes].filter(Boolean).join(' '),
     },
   }))

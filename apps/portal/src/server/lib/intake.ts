@@ -173,6 +173,8 @@ async function recordIntakeNow(accountId: string, input: IntakeInput): Promise<I
       title: `${label}: ${displayName || input.phone || 'new lead'}`,
       body: input.summary.split('\n').slice(0, 3).join(' · ').slice(0, 400),
       type: 'info',
+      // Tapping it opens the lead's customer.
+      link: `/customers?customer=${encodeURIComponent(contact.id)}`,
     },
   }).catch(err => console.error('[intake] notification failed:', err))
 

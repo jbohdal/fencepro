@@ -170,7 +170,40 @@ export function addressParts(address: string): AddressParts {
   return out
 }
 
-/** A complete address the county list lacks: the US Census lookup (free), as one suggestion. */
+/** Ocala, the middle of the area the company works in (Marion County and its neighbours). */
+export const SERVICE_CENTER = { lat: 29.1872, lng: -82.1401 }
+/** How far from Ocala a Census match may be and still be offered (miles). Okeechobee, with the same SE street names, is about 170. */
+export const SERVICE_RADIUS_MILES = 60
+
+const milesBetween = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2
+  return 3958.8 * 2 * Math.asin(Math.sqrt(h))
+}
+
+/**
+ * The Census answer's matches as suggestions: in Florida and in the work
+ * area only, nearest to Ocala first. Typed without a city, a Marion County
+ * street the county list lacks ("2715 SE 3rd St") was matched to the same
+ * street in Okeechobee and offered first (Oct 24, 2026 walkthrough).
+ */
+export function censusSuggestions(matches: unknown, center = SERVICE_CENTER, maxMiles = SERVICE_RADIUS_MILES): Suggestion[] {
+  if (!Array.isArray(matches)) return []
+  const out: Array<Suggestion & { miles: number }> = []
+  for (const m of matches as any[]) {
+    const x = Number(m?.coordinates?.x), y = Number(m?.coordinates?.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    const [line1, city, state, zip] = String(m?.matchedAddress ?? '').split(',').map((s: string) => s.trim())
+    if (state !== 'FL' || !line1) continue
+    const miles = milesBetween(center, { lat: y, lng: x })
+    if (miles > maxMiles) continue
+    const l1 = streetText(line1), c = cityText(city ?? '')
+    out.push({ line1: l1, city: c, state, zip: zip ?? '', lat: y, lng: x, source: 'census', formatted: `${l1}, ${c}, ${state} ${zip ?? ''}`.trim(), miles })
+  }
+  return out.sort((a, b) => a.miles - b.miles).map(({ miles: _m, ...s }) => s)
+}
+
+/** A complete address the county list lacks: the US Census lookup (free), the nearest match in the work area. */
 export async function suggestCensus(q: string): Promise<Suggestion | null> {
   const words = q.trim().split(/\s+/)
   if (words.length < 3 || !/^\d+$/.test(words[0])) return null
@@ -178,12 +211,7 @@ export async function suggestCensus(q: string): Promise<Suggestion | null> {
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000)
   try {
     const r = await fetch(url, { signal: ctl.signal })
-    const m = (await r.json())?.result?.addressMatches?.[0]
-    if (!m?.coordinates) return null
-    const [line1, city, state, zip] = String(m.matchedAddress).split(',').map((s: string) => s.trim())
-    if (state !== 'FL') return null
-    const l1 = streetText(line1), c = cityText(city)
-    return { line1: l1, city: c, state, zip, lat: m.coordinates.y, lng: m.coordinates.x, source: 'census', formatted: `${l1}, ${c}, ${state} ${zip}` }
+    return censusSuggestions((await r.json())?.result?.addressMatches)[0] ?? null
   } catch { return null } finally { clearTimeout(t) }
 }
 
