@@ -35,7 +35,7 @@ import { floridaDay } from './automations/context.js'
 import { calendarStatus } from './calendarSync/index.js'
 import {
   crewDaysOfWeek, installDays, isCrewDay, wholeCrewDays, daysForSections, rainDayMoves, installText, customerPhoneToGive, isYmd,
-  type Ymd, type ReadyFacts,
+  sameCrewClashes, namesWords, shortDayWords, type Ymd, type ReadyFacts,
 } from './installDays.js'
 
 type Json = any
@@ -382,6 +382,8 @@ export interface RainMove {
   startTo: Ymd
   days: Array<{ id: string; from: Ymd; to: Ymd }>
   text: PreparedText | null
+  /** "Daniel King and Rick Rocco would both be on Crew 1, Wed 12/9." after the move (still allowed). */
+  clashes: string[]
 }
 
 async function rainPlan(accountId: string, from: Ymd, shift: number) {
@@ -397,13 +399,22 @@ async function rainPlan(accountId: string, from: Ymd, shift: number) {
     const row = dated.find(r => r.id === mv.id)!
     const all = dated.filter(r => keyOf(r) === mv.jobKey).map(r => r.date).sort()
     let g = byKey.get(mv.jobKey)
-    if (!g) { g = { jobId: row.stagingJobId ?? null, customerName: row.clientName, startFrom: all[0], startTo: all[0], days: [], text: null }; byKey.set(mv.jobKey, g) }
+    if (!g) { g = { jobId: row.stagingJobId ?? null, customerName: row.clientName, startFrom: all[0], startTo: all[0], days: [], text: null, clashes: [] }; byKey.set(mv.jobKey, g) }
     g.days.push({ id: mv.id, from: mv.date, to: mv.to })
   }
   for (const [key, g] of byKey) {
     const moved = new Map(g.days.map(d => [d.id, d.to]))
     const after = dated.filter(r => keyOf(r) === key).map(r => moved.get(r.id) ?? r.date).sort()
     g.startTo = after[0]
+  }
+  // Two installs on one crew the same day after the move (one of them moved): said on the move's card, still allowed.
+  const newDate = new Map(moves.map(m => [m.id, m.to]))
+  const crewName = (id: string) => settings.crews.find(c => c.id === id)?.name || id
+  const clashes = sameCrewClashes(dated.map(r => ({ id: r.id, jobKey: keyOf(r), clientName: r.clientName, crewId: r.crewId, date: newDate.get(r.id) ?? r.date })))
+    .filter(c => c.ids.some(id => newDate.has(id)))
+  for (const [key, g] of byKey) {
+    const mine = new Set(dated.filter(r => keyOf(r) === key).map(r => r.id))
+    g.clashes = clashes.filter(c => c.ids.some(id => mine.has(id))).map(c => `${namesWords(c.names)} would both be on ${crewName(c.crewId)}, ${shortDayWords(c.date)}.`)
   }
   return { settings, moves: [...byKey.values()].sort((a, b) => a.startFrom.localeCompare(b.startFrom) || a.customerName.localeCompare(b.customerName)), rows: dated }
 }

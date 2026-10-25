@@ -14,7 +14,7 @@ import { can, REFUSAL } from './permissions'
 import { toast } from './toast'
 import { businessDate } from './businessDate'
 import { ReadyPanel, useReadyJobs, ScheduleInstallDialog, MoveInstallConfirm, RainDayDialog, READY_DRAG_TYPE } from './ScheduleInstall'
-import { crewDaysOfWeek, isCrewDay, plusDays, nextCrewDay, holidayOn, weekWords } from '../../portal/src/server/lib/installDays'
+import { crewDaysOfWeek, isCrewDay, plusDays, nextCrewDay, holidayOn, weekWords, sameCrewClashes, namesWords } from '../../portal/src/server/lib/installDays'
 import { fetchWeekendJobs } from './installScheduleApi'
 import { crewHex } from './dispatchPins'
 
@@ -255,6 +255,14 @@ function SettingsModal({
 // ── Main Schedule Page ───────────────────────────────────────────────────────
 
 /** Which job an entry belongs to: its job, else (an entry made by hand) its client's name. */
+/** The name on a month card: in full (two lines at most); a long one as "D. King". */
+function cardName(name: string): string {
+  const n = (name || '').trim()
+  if (n.length <= 22) return n
+  const w = n.split(/\s+/)
+  return w.length > 1 ? `${w[0][0]}. ${w.slice(1).join(' ')}` : n
+}
+
 const jobKeyOf = (j: ScheduledJob) => (j.stagingJobId ? `job:${j.stagingJobId}` : `name:${j.clientName.trim().toLowerCase()}`)
 
 export default function SchedulePage() {
@@ -354,6 +362,9 @@ export default function SchedulePage() {
   function nextMonth() { setViewMonth(new Date(year, month + 1, 1)) }
 
   const readyCount = ready.jobs?.length
+  // One crew with two installs (different jobs) on a day.
+  const clashes = sameCrewClashes(jobs.filter(j => j.date && j.status !== 'Complete' && j.status !== 'Rolled Over').map(j => ({ id: j.id, jobKey: jobKeyOf(j), clientName: j.clientName, crewId: j.crewId, date: j.date })))
+  const clashIds = new Set(clashes.flatMap(c => c.ids))
 
   return (
     <div className="space-y-4">
@@ -452,6 +463,12 @@ export default function SchedulePage() {
                               )
                             })()}
                           </div>
+                          {/* One crew with two installs this day: said on the day, and both cards edged red. */}
+                          {clashes.filter(c => c.date === dateStr).map(c => (
+                            <p key={c.crewId} className="mb-1 text-[11px] font-semibold text-white bg-red-600 rounded px-1.5 py-0.5 leading-tight" data-day-clash={`${dateStr}|${c.crewId}`} title={namesWords(c.names)}>
+                              {c.names.length} jobs on {settings.crews.find(x => x.id === c.crewId)?.name ?? c.crewId}
+                            </p>
+                          ))}
                           <div className="space-y-1">
                             {dayJobs.map(j => {
                               const crew = settings.crews.find(c => c.id === j.crewId)
@@ -470,24 +487,28 @@ export default function SchedulePage() {
                                   data-install-entry={j.stagingJobId || j.id}
                                   data-install-day={`${nth}/${own.length}`}
                                   data-install-offday={offDay ? 'yes' : undefined}
-                                  style={{ borderLeftColor: crewColor, backgroundColor: `${crewColor}1f` }}
-                                  className={`border-l-4 rounded px-1.5 lg:px-2 py-1 ${readOnly ? '' : 'cursor-grab'} ${j.stagingJobId ? 'cursor-pointer' : ''} group`}
+                                  data-install-clash={clashIds.has(j.id) ? 'yes' : undefined}
+                                  // Everything on hover; a tap opens the job (Move install).
+                                  title={[j.clientName, j.area, styleLabel(j.fenceType), j.sections ? `${j.sections} sections` : '', own.length > 1 ? `day ${nth} of ${own.length}` : '', crew?.name].filter(Boolean).join('\n')}
+                                  style={{ borderLeftColor: clashIds.has(j.id) ? '#dc2626' : crewColor, backgroundColor: `${crewColor}1f` }}
+                                  className={`border-l-4 rounded px-1.5 py-1 ${clashIds.has(j.id) ? 'ring-2 ring-red-500' : ''} ${readOnly ? '' : 'cursor-grab'} ${j.stagingJobId ? 'cursor-pointer' : ''} group`}
                                 >
-                                  <div className="flex items-start justify-between gap-1">
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-xs font-semibold text-gray-900 truncate">
-                                        {j.status === 'Rain Day' && <span title="Rain Day">🌧 </span>}
-                                        {j.clientName}
-                                      </p>
-                                      {j.area && <p className="text-[11px] text-gray-600 truncate">{j.area}</p>}
-                                      <p className="text-[11px] text-gray-500 truncate" title={styleLabel(j.fenceType)}>{[j.sections ? `${j.sections} sec` : '', own.length > 1 ? `day ${nth} of ${own.length}` : '', styleLabel(j.fenceType)].filter(Boolean).join(' · ')}</p>
-                                      {offDay && <p className="text-[11px] font-semibold text-red-700" data-offday-warning>{DAY_FULL[day.getDay()]} is not a work day any more. Move this day?</p>}
-                                    </div>
-                                    {!readOnly && <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition">
-                                      <button onClick={e => { e.stopPropagation(); setRainDay(j.date) }} title="Rain day from this day" aria-label="Rain day from this day" className="text-gray-300 hover:text-blue-500 text-sm leading-none">🌧</button>
-                                      {!j.stagingJobId && <button onClick={e => { e.stopPropagation(); removeJob(j.id) }} aria-label="Remove" className="text-gray-300 hover:text-red-400 text-sm leading-none ml-0.5">&times;</button>}
-                                    </div>}
+                                  {/* The day of the job first, always readable; the hover buttons beside it. */}
+                                  <div className="flex items-center justify-between gap-1 min-h-[16px]">
+                                    {own.length > 1
+                                      ? <span className="text-[10px] font-bold text-gray-800 bg-white/80 border border-gray-300 rounded px-1 leading-tight whitespace-nowrap" data-install-daybadge>{nth}/{own.length}</span>
+                                      : <span />}
+                                    {!readOnly && <span className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition">
+                                      <button onClick={e => { e.stopPropagation(); setRainDay(j.date) }} title="Rain day from this day" aria-label="Rain day from this day" className="text-gray-400 hover:text-blue-500 text-xs leading-none">🌧</button>
+                                      {!j.stagingJobId && <button onClick={e => { e.stopPropagation(); removeJob(j.id) }} aria-label="Remove" className="text-gray-400 hover:text-red-400 text-xs leading-none ml-0.5">&times;</button>}
+                                    </span>}
                                   </div>
+                                  <p className="text-xs font-semibold text-gray-900 leading-tight break-words line-clamp-2" data-install-name>
+                                    {j.status === 'Rain Day' && <span title="Rain Day">🌧 </span>}
+                                    {cardName(j.clientName)}
+                                  </p>
+                                  {j.sections > 0 && <p className="text-[11px] text-gray-600 leading-tight">{j.sections} sec</p>}
+                                  {offDay && <p className="text-[11px] font-semibold text-red-700 leading-tight" data-offday-warning>{DAY_FULL[day.getDay()]} is not a work day any more. Move this day?</p>}
                                 </div>
                               )
                             })}

@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   crewDaysOfWeek, installDays, nextCrewDay, addCrewDays, wholeCrewDays, daysForSections, rainDayMoves, scheduleWarnings,
-  installText, customerPhoneToGive, usDate, locatesWords, holidaysOf, holidayOn, crewConflicts, weekWords, shortDayWords,
+  installText, customerPhoneToGive, usDate, locatesWords, holidaysOf, holidayOn, crewConflicts, weekWords, shortDayWords, sameCrewClashes, namesWords,
 } from '../src/server/lib/installDays'
 
 // Oct 2026: Mon 26, Tue 27, Wed 28, Thu 29, Fri 30, Sat 31; Nov: Sun 1, Mon 2, Tue 3, Wed 4, Thu 5, Fri 6, Mon 9.
@@ -171,6 +171,19 @@ describe('double booking', () => {
     ]
     expect(crewConflicts(board, 'rick', 'c1', ['2026-12-15', '2026-12-16', '2026-12-17'])).toEqual([{ date: '2026-12-16', clientName: 'Kristi Murphy' }, { date: '2026-12-17', clientName: 'Kristi Murphy' }])
     expect(crewConflicts(board, 'rick', 'c2', ['2026-12-15'])).toEqual([])
+  })
+})
+
+describe('one crew, two installs on a day (the month and the rain day)', () => {
+  it('lists the days where a crew has two jobs, not one job on two crews, not one job twice', () => {
+    const e = [
+      { id: 'd1', jobKey: 'daniel', clientName: 'Daniel King', crewId: 'c1', date: '2026-12-09' },
+      { id: 'r1', jobKey: 'rick', clientName: 'Rick Rocco', crewId: 'c1', date: '2026-12-09' },
+      { id: 'd2', jobKey: 'daniel', clientName: 'Daniel King', crewId: 'c1', date: '2026-12-10' },
+      { id: 'k1', jobKey: 'kristi', clientName: 'Kristi Murphy', crewId: 'c2', date: '2026-12-10' },
+    ]
+    expect(sameCrewClashes(e)).toEqual([{ date: '2026-12-09', crewId: 'c1', names: ['Daniel King', 'Rick Rocco'], ids: ['d1', 'r1'] }])
+    expect(namesWords(['Daniel King', 'Rick Rocco'])).toBe('Daniel King and Rick Rocco')
   })
 })
 

@@ -67,6 +67,7 @@ export interface RainMove {
   startTo: Ymd
   days: Array<{ id: string; from: Ymd; to: Ymd }>
   text: PreparedText | null
+  clashes?: string[]
 }
 
 export type Answer<T> = { ok: true; data: T } | { ok: false; error: string }

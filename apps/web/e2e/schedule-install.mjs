@@ -137,6 +137,16 @@ const fitCheck = async (page, label) => {
   check(`${label}: the month fits (no sideways scroll; the last work day in view)`, r.table <= r.box + 1 && r.lastRight <= r.boxRight + 1 && r.page <= r.win + 1, JSON.stringify(r))
 }
 
+/** Each month card of a job: the whole name shows (two lines at most, nothing cut), and its "1/2" day badge is fully visible. */
+const cardsReadable = async (page, jobId, days, label) => {
+  const cards = await page.locator(`[data-install-entry="${jobId}"]`).evaluateAll(els => els.map(el => {
+    const n = el.querySelector('[data-install-name]'); const b = el.querySelector('[data-install-daybadge]')
+    return { name: n?.textContent?.trim(), nameCut: n ? n.scrollWidth > n.clientWidth + 1 || n.scrollHeight > n.clientHeight + 1 : true,
+      badge: b?.textContent?.trim() ?? null, badgeCut: b ? b.scrollWidth > b.clientWidth + 1 || b.getBoundingClientRect().right > el.getBoundingClientRect().right + 1 : false }
+  }))
+  check(`${label}: each card shows the whole name and its day (${cards.map(c => c.badge).join(', ')})`, cards.length === days && cards.every((c, i) => !c.nameCut && c.name && c.badge === `${i + 1}/${days}` && !c.badgeCut), JSON.stringify(cards))
+}
+
 let packetId = null
 try {
   setWorkDays([1, 2, 3, 4, 5])
@@ -210,8 +220,10 @@ try {
   await until(async () => (await p.locator(`[data-install-entry="${W.a.jobId}"]`).count()) === daysA)
   await shot(p, 'computer-scheduled-on-calendar')
   await fitCheck(p, 'computer 1440')
+  await cardsReadable(p, W.a.jobId, daysA, 'computer 1440')
   await p.setViewportSize({ width: 1280, height: 900 }); await sleep(500)
   await fitCheck(p, 'computer 1280')
+  await cardsReadable(p, W.a.jobId, daysA, 'computer 1280')
   // While dragging over a day (the "Drop here" line shows), still no sideways scroll.
   await p.locator(`td[data-day="${planA[1]}"]`).dispatchEvent('dragenter')
   await fitCheck(p, 'computer 1280 while dragging')
@@ -343,8 +355,37 @@ try {
   await p2.locator('[data-install-text-skip]').click()
   const movedPlan = fill(MOVE_TO, 2, week)
 
+  // ── 6b. Two installs on one crew the same day: marked on the month ──
+  const clashB = await call('POST', '/api/schedule/install', { jobId: W.b.jobId, start: movedPlan[0], crew: crews[0].id })
+  check(`B moved onto ${movedPlan[0]}, the day A starts on the same crew (allowed)`, clashB.status === 200, JSON.stringify(clashB.json).slice(0, 160))
+  for (const [w, label] of [[1440, 'computer 1440'], [1280, 'computer 1280']]) {
+    await p2.setViewportSize({ width: w, height: 900 })
+    await p2.reload(); await p2.waitForSelector('[data-month-next]', { timeout: 60000 })
+    for (let i = 0; i < 12 && (await p2.locator('[data-month]').getAttribute('data-month')) !== '2027-03'; i++) { await p2.locator('[data-month-next]').click(); await sleep(150) }
+    const chip = p2.locator(`[data-day-clash="${movedPlan[0]}|${crews[0].id}"]`)
+    await until(async () => (await chip.count()) === 1, 15000)
+    const both = await p2.locator(`td[data-day="${movedPlan[0]}"] [data-install-clash="yes"]`).count()
+    check(`${label}: ${short(movedPlan[0])} says "2 jobs on ${crews[0].name}" and both cards are edged red`, (await chip.innerText()).includes(`2 jobs on ${crews[0].name}`) && both === 2, `${await chip.innerText().catch(() => '')} ${both}`)
+    await fitCheck(p2, `${label} with two jobs on a day`)
+    await cardsReadable(p2, W.a.jobId, 2, `${label} with two jobs on a day`)
+    await shot(p2, `two-jobs-one-crew-${w}`)
+  }
+  await p2.setViewportSize({ width: 1440, height: 950 })
+  {
+    const q3 = await ph.ctx.newPage()
+    await q3.goto(`${APP}/schedule`); await q3.waitForSelector('[data-month-next]', { timeout: 60000 })
+    for (let i = 0; i < 12 && (await q3.locator('[data-month]').getAttribute('data-month')) !== '2027-03'; i++) { await q3.locator('[data-month-next]').tap(); await sleep(150) }
+    const pchip = q3.locator(`[data-day-clash="${movedPlan[0]}|${crews[0].id}"]`)
+    const ok = await until(async () => (await pchip.count()) === 1, 15000)
+    check('phone: the month marks the day with two jobs on one crew, the cards readable', !!ok && (await q3.locator(`td[data-day="${movedPlan[0]}"] [data-install-clash="yes"]`).count()) === 2 && await q3.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
+    await cardsReadable(q3, W.a.jobId, 2, 'phone')
+    await shot(q3, 'phone-two-jobs-one-crew')
+    await q3.close()
+  }
+
   // ── 7. Rain day ──
-  const RAIN = movedPlan[1]
+  // From A's first day: A and B (both on that day) move one crew day, and A's first day lands on B's: warned.
+  const RAIN = movedPlan[0]
   const pv = (await call('POST', '/api/schedule/rain-day/preview', { date: RAIN, shift: 1 })).json.data || []
   const onlyMine = pv.length > 0 && pv.every(m => /E2E (Sched|Phone)/.test(m.customerName))
   check(`rain day ${RAIN}: the preview (API) lists only this test's installs`, onlyMine, pv.map(m => m.customerName).join(', '))
@@ -355,13 +396,16 @@ try {
     check('rain day: nothing listed until the day is picked; the button waits for it', (await rd.locator('[data-rain-pick]').count()) === 1 && (await rd.locator('[data-rain-move]').count()) === 0 && await rd.locator('[data-rain-apply]').isDisabled())
     await rd.locator('[data-rain-date]').fill(RAIN)
     await until(async () => (await rd.locator('[data-rain-move]').count()) === pv.length)
+    const clashText = await rd.locator('[data-rain-clash]').allInnerTexts()
+    const nextDay = fill(plus(RAIN, 1), 1, week)[0]
+    check(`rain day: the preview warns "${nameOf(W.a)} and ${nameOf(W.b)} would both be on ${crews[0].name}, ${short(nextDay)}"`, clashText.some(t => t.includes(nameOf(W.a)) && t.includes(nameOf(W.b)) && t.includes(`would both be on ${crews[0].name}, ${short(nextDay)}`)), clashText.join(' | '))
     await rd.locator('[data-rain-apply]').click()
     check('rain day: it asks to confirm the list before moving', await rd.locator('[data-rain-confirm]').isVisible())
     await shot(p2, 'rain-day-confirm')
     await rd.locator('[data-rain-confirm]').click()
     await p2.waitForSelector('[data-rain-day="done"]', { timeout: 20000 })
     const after = (await call('GET', `/api/saved-jobs/${W.a.jobId}`)).json.data
-    check(`rain day: ${RAIN} moved one crew day`, after?.scheduledDate === movedPlan[0] && after?.scheduledEndDate === fill(plus(RAIN, 1), 1, week)[0], JSON.stringify(after && [after.scheduledDate, after.scheduledEndDate]))
+    check(`rain day: ${RAIN} moved one crew day`, after?.scheduledDate === fill(plus(RAIN, 1), 1, week)[0] && after?.scheduledEndDate === fill(plus(movedPlan[1], 1), 1, week)[0], JSON.stringify(after && [after.scheduledDate, after.scheduledEndDate]))
     await p2.locator('[data-rain-close]').click()
   }
 

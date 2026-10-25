@@ -215,6 +215,33 @@ export function crewConflicts(entries: BoardEntry[], jobId: string, crewId: stri
   return out.sort((a, b) => a.date.localeCompare(b.date))
 }
 
+/**
+ * Days where one crew has two or more installs (different jobs) on the board.
+ * Each: the day, the crew, the customers' names, and the entry ids involved.
+ */
+export function sameCrewClashes(entries: Array<{ id: string; jobKey: string; clientName: string; crewId: string; date: Ymd }>): Array<{ date: Ymd; crewId: string; names: string[]; ids: string[] }> {
+  const by = new Map<string, Map<string, { name: string; ids: string[] }>>()
+  for (const e of entries) {
+    if (!e.crewId || !isYmd(e.date)) continue
+    const k = `${e.date}|${e.crewId}`
+    const jobs = by.get(k) ?? by.set(k, new Map()).get(k)!
+    const j = jobs.get(e.jobKey) ?? jobs.set(e.jobKey, { name: e.clientName, ids: [] }).get(e.jobKey)!
+    j.ids.push(e.id)
+  }
+  const out: Array<{ date: Ymd; crewId: string; names: string[]; ids: string[] }> = []
+  for (const [k, jobs] of by) {
+    if (jobs.size < 2) continue
+    const [date, crewId] = k.split('|')
+    out.push({ date, crewId, names: [...jobs.values()].map(j => j.name).sort(), ids: [...jobs.values()].flatMap(j => j.ids) })
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || a.crewId.localeCompare(b.crewId))
+}
+
+/** "Daniel King and Rick Rocco", "A, B and C". */
+export function namesWords(names: string[]): string {
+  return names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
 /* ── Words ──────────────────────────────────────────────────────────────── */
 
 const DAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']

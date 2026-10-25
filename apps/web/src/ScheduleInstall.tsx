@@ -438,6 +438,7 @@ export function RainDayDialog({ date: dateAt, onClose }: { date?: string; onClos
   }
 
   const list = done ?? preview
+  const clashes = [...new Set((list ?? []).flatMap(m => m.clashes ?? []))]
   return (
     <Sheet onClose={onClose} label="Rain day" attr={{ 'data-rain-day': done ? 'done' : 'preview' }}>
       <Head title={done ? 'Rain day: moved' : 'Rain day'} onClose={onClose} />
@@ -469,6 +470,13 @@ export function RainDayDialog({ date: dateAt, onClose }: { date?: string; onClos
         {!date && <p className="text-sm text-gray-600" data-rain-pick>Pick the rain day to see what moves.</p>}
         {date && !list && !error && <p className="text-sm text-gray-500">Working it out…</p>}
         {list && list.length === 0 && <p className="text-sm text-gray-600" data-rain-none>No installs on or after {usDate(date)}.</p>}
+        {clashes.length > 0 && (
+          <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-900" data-rain-clashes={clashes.length}>
+            <p className="font-semibold">Two installs on one crew after the move:</p>
+            <ul className="list-disc pl-5 mt-1">{clashes.map(c => <li key={c} data-rain-clash>{c}</li>)}</ul>
+            <p className="text-xs mt-1">You can still move them, then move one of the two on the Schedule.</p>
+          </div>
+        )}
         {list && list.length > 0 && (
           <ul className="space-y-3" data-rain-moves={list.length}>
             {list.map((m, i) => (
@@ -484,7 +492,7 @@ export function RainDayDialog({ date: dateAt, onClose }: { date?: string; onClos
         )}
         {!done && confirming && preview?.length ? (
           <div className="rounded-xl border border-blue-300 bg-blue-50 p-3 space-y-2" data-rain-confirm-box>
-            <p className="text-sm text-blue-900">Move these {preview.length} install{preview.length === 1 ? '' : 's'}, from {shortDay(date)} on, {shift === 1 ? 'one crew day' : `${shift} crew days`} later?</p>
+            <p className="text-sm text-blue-900">Move these {preview.length} install{preview.length === 1 ? '' : 's'}, from {shortDay(date)} on, {shift === 1 ? 'one crew day' : `${shift} crew days`} later?{clashes.length ? ` ${clashes.length === 1 ? 'One day has' : `${clashes.length} days have`} two installs on one crew (above).` : ''}</p>
             <div className="flex gap-2">
               <button type="button" className="btn btn-primary flex-1 min-h-[48px]" disabled={saving} onClick={apply} data-rain-confirm>{saving ? 'Moving…' : 'Yes, move them'}</button>
               <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => setConfirming(false)}>Go back</button>
