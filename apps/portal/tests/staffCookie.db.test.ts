@@ -333,7 +333,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('staff sign in by cookie (dev dat
     expect(m2.status).toBe(200)
     // An access token whose session ended, and no good refresh token: sign in again.
     expect((await call('POST', '/api/crm-auth/move-over', { bearer: accessToken, body: {} })).status).toBe(401)
-  })
+  }, 15_000) // two real password sign ins (bcrypt, slow on purpose) and ten requests: ~5 s on this Mac
 
   test('read only session: every save refused, reads work, only on this machine, listed in Team with its end', async () => {
     const value = crypto.randomBytes(32).toString('base64url')
