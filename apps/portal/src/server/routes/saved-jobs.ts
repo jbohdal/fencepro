@@ -28,6 +28,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { checkJobMove, refuseBlocked } from '../lib/automations/stageRules.js'
 import { recordJobChanges } from '../lib/automations/hooks.js'
 import { roleOf, requireCan } from '../lib/permissions.js'
+import { repForJob } from '../lib/salesRep.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { loadOpsStages } from '../lib/opsStages.js'
 import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage } from '../lib/opsStageModel.js'
@@ -175,6 +176,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
       const q = data.quoteId ? await prisma.savedQuote.findFirst({ where: { id: data.quoteId, accountId: req.user.crmAccountId }, select: { gmPct: true } }) : null
       ;(data as any).gmPct = q?.gmPct ?? 0
     }
+    // Who sold it: as sent, else its quote's rep (lib/salesRep.ts).
+    data.salesRep = (await repForJob(req, data.salesRep, data.quoteId)) ?? ''
     const clientId = clientIdSchema.parse(data.id)
     const decision = await decideClientId(clientId, req.user.crmAccountId, id => prisma.savedJob.findUnique({ where: { id } }))
     if (decision.kind === 'exists') {
@@ -241,6 +244,11 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     if (!existing || existing.accountId !== req.user.crmAccountId || existing.deletedAt) {
       res.status(404).json({ success: false, error: 'Job not found' })
       return
+    }
+    // A rep already on the job stays when a blank one is sent (an older copy); a job with none takes its quote's (lib/salesRep.ts).
+    if (data.salesRep !== undefined && !data.salesRep.trim()) {
+      if (existing.salesRep?.trim()) delete (data as any).salesRep
+      else data.salesRep = (await repForJob(req, data.salesRep, data.quoteId === undefined ? existing.quoteId : data.quoteId)) ?? ''
     }
     // The stage, by id (Settings > Operations Stages): moved on purpose, or as a status change moves it.
     const { stages } = await loadOpsStages(req.user.crmAccountId)

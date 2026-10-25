@@ -24,7 +24,7 @@ import LayoutEditor, { nextEmptySide } from './LayoutEditor'
 import CustomerDrawing from './CustomerDrawing'
 import VoicePanel, { type VoiceHandle } from './VoicePanel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
-import { fetchCurrentUser } from './crmAuth'
+import { fetchCurrentUser, currentUser } from './crmAuth'
 import { saveConfig } from './configStore'
 import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type NamedRun } from './quoteChecks'
 import { getQuotes } from './quoteStore'
@@ -415,6 +415,14 @@ type StepKey = 'customer' | 'yard' | 'style' | 'price'
 const STEPS: Array<{ key: StepKey; label: string }> = [
   { key: 'customer', label: 'Customer' }, { key: 'yard', label: 'Yard' }, { key: 'style', label: 'Style' }, { key: 'price', label: 'Price' },
 ]
+
+
+/** The signed in Salesman's name, for a quote of hers with no rep; blank for any other login. */
+function mySalesRepName(): string {
+  if (signedInRole() !== 'sales_rep') return ''
+  const u = currentUser()
+  return `${u?.firstName ?? ''} ${u?.lastName ?? ''}`.replace(/\s+/g, ' ').trim()
+}
 
 export default function QuoteBuilder({
   onClose,
@@ -897,7 +905,8 @@ export default function QuoteBuilder({
       customerEmail: data.customerEmail,
       customerAddress: data.customerAddress,
       leadSource: data.leadSource,
-      salesRep: data.salesRep,
+      // A Salesman's quote with no rep is hers (the server does the same: lib/salesRep.ts).
+      salesRep: data.salesRep || mySalesRepName(),
       fenceStyle: style?.name ?? '',
       runs: effRuns.map(r => r.ft).filter(f => f > 0),
       // Persist per-run rail decisions for auto-mix quotes so reload reproduces

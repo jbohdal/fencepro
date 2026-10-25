@@ -32,6 +32,7 @@ import { audit } from '../lib/auditLog.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
+import { repForSave } from '../lib/salesRep.js'
 import { requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
@@ -255,7 +256,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
         customerEmail: data.customerEmail,
         customerAddress: data.customerAddress,
         leadSource: data.leadSource,
-        salesRep: data.salesRep,
+        // A Salesman's own quote is hers when no rep is given (lib/salesRep.ts).
+        salesRep: (await repForSave(req, data.salesRep)) ?? '',
         fenceStyle: data.fenceStyle,
         runs: toJsonValue(data.runs),
         runRails: toNullableJson(data.runRails),
@@ -331,7 +333,8 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         customerEmail: data.customerEmail,
         customerAddress: data.customerAddress,
         leadSource: data.leadSource,
-        salesRep: data.salesRep,
+        // A rep already on the quote stays when a blank one is sent (a phone's older copy); a Salesman's own quote with none is hers (lib/salesRep.ts).
+        salesRep: data.salesRep?.trim() ? data.salesRep : existing.salesRep?.trim() ? undefined : await repForSave(req, data.salesRep, existing.ownerId ?? null),
         fenceStyle: data.fenceStyle,
         runs: toJsonValue(data.runs),
         runRails: toNullableJson(data.runRails),

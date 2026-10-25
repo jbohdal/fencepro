@@ -58,6 +58,7 @@ export default function QuoteDetailDrawer({
 }) {
   // Costs, margin and the pull sheet's costs: the owner, admin, manager and office only (a Salesman's or Installer's copy has none).
   const internalView = wantInternal && can('costs.view')
+  const canSend = can('quotes.change')
   // The newest copy: a customer may accept online while this is open (it shows Sold then).
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -150,7 +151,8 @@ export default function QuoteDetailDrawer({
           </section>
 
 
-          {internalView && (
+          {/* Sending the proposal is quote work (quotes.change): the Salesman sends her own (walkthrough, Oct 24, 2026). No cost is on it. */}
+          {wantInternal && canSend && (
             <section>
               <p className="text-xs font-bold text-gray-500 mb-2">Proposal</p>
               <ProposalSend quote={quote} />
