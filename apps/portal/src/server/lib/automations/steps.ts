@@ -10,6 +10,7 @@
  * is not sent again by itself (Jonathan checks and presses Run again).
  */
 
+import { customerText } from '../customerText.js'
 import { loadPipelineStages } from '../pipelineStages.js'
 import { stageById as pipelineStageById, stageNameOf } from '../pipelineStageModel.js'
 import prisma from '../prisma.js'
@@ -133,11 +134,19 @@ async function textPermissionOf(accountId: string, e: EntityContext) {
   return no ? { ...own, allowed: false, reason: no, consent: 'no' as const } : own
 }
 
+/** The company name texts start with (Settings > Company). */
+async function companyNameOf(accountId: string): Promise<string> {
+  const b = await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } })
+  return String(((b?.config as any)?.company?.name ?? '') || 'Getter Done Fence')
+}
+
 async function preparedText(r: StepRun, part: string, body: string, assignTo: string): Promise<StepOutcome> {
   if (!r.entity.phone) throw new PermanentStepError(`${r.entity.name} has no phone number on file, so there is no text to prepare.`)
   // Only a customer who said yes to texts gets one; otherwise the step says why and the run goes on.
   const ok = await textPermissionOf(r.accountId, r.entity)
   if (!ok.allowed) return { detail: `text not prepared. ${ok.reason}` }
+  // The text in the registered form: "Company: ... Reply STOP to opt out." (lib/customerText.ts).
+  body = customerText(body, await companyNameOf(r.accountId))
   const link = smsLink(r.entity.phone, body)
   await makeTask(r, part, { title: `Text ${r.entity.name}`, description: `${body}\n\nTap to send from your phone: ${link}`, assignTo, dueInDays: 0 })
   await bell(r, `${part}:bell`, `Text ready for ${r.entity.name}`, body, entityLink(r.entity))

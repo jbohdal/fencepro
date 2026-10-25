@@ -18,12 +18,15 @@
  *   invoice amount or adjusts the contract amount. Every change is in History.
  */
 
+import { customerText } from '../../portal/src/server/lib/customerText'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useBackLayer } from './nav'
 import { can } from './permissions'
 import { toast } from './toast'
 import { canTextHere } from './textingDevice'
 import { smsLink } from './appointmentLogic'
+import { invoiceDue } from '../../portal/src/server/lib/jobReadiness'
+import { businessDate } from './businessDate'
 import { hasSignal } from './outbox'
 import {
   METHODS, money, centsOf, todayOcala, loadJob, loadCustomer, makeSchedule, scheduleOf, subscribe, paymentsVersion,
@@ -114,6 +117,7 @@ function ScheduleCard({ s, showJob, compact }: { s: Schedule; showJob: boolean; 
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-gray-900">{i.label}{i.legacyNumber ? <span className="text-xs text-gray-500 font-normal"> ({i.legacyNumber}, typed in Billing)</span> : null}</p>
                 <p className="text-xs text-gray-500">{dueText(i)}</p>
+                {(() => { const d = invoiceDue({ balanceCents: i.shownBalance, dueOn: i.dueOn, dueDate: i.dueDate }, s.completedDate, businessDate(new Date())); return d.state === 'overdue' ? <p className="text-xs font-semibold text-red-700" data-invoice-overdue={d.daysOver}>Overdue {d.daysOver} day{d.daysOver === 1 ? '' : 's'}</p> : null })()}
                 {i.amountCents !== i.originalCents && <p className="text-xs text-gray-500">Was {money(i.originalCents)}; see History.</p>}
               </div>
               <div className="text-right text-sm shrink-0">
@@ -320,7 +324,8 @@ export function ReceiptScreen({ paymentId, jobId, onClose }: { paymentId: string
   // On a computer: the number "Did you send it?" is asked about (nothing is recorded until Yes).
   const [ask, setAsk] = useState<string | null>(null)
   if (!snap) return null
-  const body = `${snap.company.name}: receipt for your ${money(snap.amountCents)} payment (${snap.forText.toLowerCase()}). Thank you! ${link}`
+  // "Company: ... Reply STOP to opt out." (lib/customerText.ts).
+  const body = customerText(`Receipt for your ${money(snap.amountCents)} payment (${snap.forText.toLowerCase()}). Thank you! ${link}`, snap.company.name)
   return (
     <div className="fixed inset-0 z-[95] bg-white overflow-y-auto" data-receipt-screen>
       <div className="max-w-lg mx-auto p-5 space-y-4">

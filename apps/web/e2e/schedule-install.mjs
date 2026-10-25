@@ -153,6 +153,8 @@ try {
   // ── 1. Two sold jobs ──
   const okA = await makeSoldJob(W.a, { estimatedDays: 5 })
   const okB = await makeSoldJob(W.b, { materialsStatus: 'ordered', locatesDate: '2027-03-01', locatesExpDate: '2027-03-31' })
+  // B's 811 locate, the job's one record (ticket, good to dig, expires): saved as the job page saves it.
+  if (W.b.jobId) await call('PUT', `/api/saved-jobs/${W.b.jobId}/locate`, { ticket: '294610232', calledDate: today, goodDate: '2027-03-01', expDate: '2027-03-31' })
   if (W.b.jobId) sql(`INSERT INTO "Permit" (id, "accountId", "jobId", status, "approvedAt", "updatedAt") SELECT ${lit(crypto.randomUUID())}, "accountId", id, 'approved', '2027-02-20', now() FROM "SavedJob" WHERE id = ${lit(W.b.jobId)}`)
   check('setup: two customers, quotes marked Sold, their jobs; Schedule Settings Monday to Friday for this run', okA && okB, `${W.a.jobId} ${W.b.jobId}`)
   let week = [1, 2, 3, 4, 5]

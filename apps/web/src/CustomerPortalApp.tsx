@@ -319,7 +319,7 @@ function LoginPage({ company, accent, offline, onSignedIn }: { company: PortalCo
         </form>
         {showForgot && (
           <div className="mt-4 text-xs text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-center">
-            Please contact {company.name || 'your contractor'} at {company.portal?.supportEmail || company.email || company.portal?.supportPhone || company.phone || 'the number on your last invoice'} to reset your password.
+            Please contact {company.name || 'your contractor'} at {company.portal?.supportEmail || company.email || (company.portal?.supportPhone || company.phone ? formatPhone(company.portal?.supportPhone || company.phone) : '') || 'the number on your last invoice'} to reset your password.
           </div>
         )}
         <p className="text-[10px] text-gray-400 text-center mt-4">

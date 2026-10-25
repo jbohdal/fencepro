@@ -4,6 +4,10 @@
  * salesman's own phone or mail app; nothing is sent by a service.
  */
 
+import { fetchTextConsent } from './TextConsent'
+import { asTextConsent, describeTextConsent } from '../../portal/src/server/lib/textConsentModel'
+import { formatPhone, telHref } from './phoneFormat'
+import { customerText } from '../../portal/src/server/lib/customerText'
 import { useEffect, useState } from 'react'
 import { ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import type { SavedQuote } from './QuotesPage'
@@ -34,6 +38,8 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   const [override, setOverride] = useState(quote.work?.photoOverride ?? null)
   const [asking, setAsking] = useState(false)
   const [reason, setReason] = useState('')
+  // No yes to texts on record: the text is not opened (as with the install text); the reason and a call link show instead.
+  const [noText, setNoText] = useState<string | null>(null)
   useEffect(() => {
     if (!isWork) return
     let live = true
@@ -84,13 +90,23 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
     toast.success('Link turned off')
   }
   const message = (u: string) => `Hi ${first}, here is your fence proposal from ${company}. You can pick an option and sign right on your phone: ${u}`
+  // The text: "Company: ... Reply STOP to opt out." (lib/customerText.ts); the email is the plain message.
+  const textOf = (u: string) => customerText(message(u), company)
 
   async function go(kind: 'open' | 'text' | 'email' | 'copy') {
     if (kind !== 'open' && photoBlock) { toast.error(`Take at least ${need} photos of the fence first, or tap Send anyway.`); return }
     if (kind === 'open') { await openOwn(); return }
     const u = await link()
     if (!u) return
-    if (kind === 'text') window.location.href = smsLink(quote.customerPhone || '', message(u))
+    if (kind === 'text') {
+      const c = quote.customerId ? await fetchTextConsent(quote.customerId) : null
+      if (!c || asTextConsent(c.textConsent) !== 'yes') {
+        setNoText(!quote.customerId ? 'Not texted: this quote has no customer record with a yes to texts.' : !c ? 'Not texted: the texting answer could not be read (no signal?). Try again.' : `Not texted: ${quote.customerName || 'the customer'} has not agreed to texts yet (Texts: ${describeTextConsent(c)}). Record their yes on the customer page first.`)
+        return
+      }
+      setNoText(null)
+      window.location.href = smsLink(quote.customerPhone || '', textOf(u))
+    }
     if (kind === 'email') window.location.href = `mailto:${encodeURIComponent(quote.customerEmail || '')}?subject=${encodeURIComponent(`Your fence proposal from ${company}`)}&body=${encodeURIComponent(message(u))}`
     if (kind === 'copy') { await navigator.clipboard?.writeText(u).catch(() => {}); toast.success('Link copied') }
     // Given to the customer (texted, emailed or copied to send): the quote is Sent. Opening it yourself (above) is not.
@@ -100,7 +116,7 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   }
 
   const chosen = quote.acceptedAt != null && quote.chosenOption != null ? p.options[quote.chosenOption] : null
-  const day = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const day = (d: string) => { const t = new Date(typeof d === 'string' ? d : NaN); return Number.isNaN(t.getTime()) ? 'its end date' : t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
   const expired = !offAt && !!expiresAt && new Date(expiresAt).getTime() < Date.now()
   const linkLine = offAt ? `Link turned off ${day(offAt)}. Sending it again makes a new link.`
     : expired ? `Link ran out ${day(expiresAt!)}. Sending it again makes a new link.`
@@ -139,6 +155,12 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
         <button type="button" className="btn btn-primary" disabled={busy || !quote.customerPhone || photoBlock} onClick={() => go('text')} data-proposal-text><MessageSquare size={16} aria-hidden="true" /> Text it</button>
         <button type="button" className="btn btn-secondary" disabled={busy || !quote.customerEmail || photoBlock} onClick={() => go('email')}><Mail size={16} aria-hidden="true" /> Email it</button>
       </div>
+      {noText && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-sm space-y-1" data-proposal-text-blocked>
+          <p className="text-red-800">{noText}</p>
+          {quote.customerPhone && <p className="text-gray-800">To tell them anyway, call them: <a href={telHref(quote.customerPhone)} className="font-semibold text-orange-700 underline" data-proposal-call>{formatPhone(quote.customerPhone)}</a></p>}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-gray-600" data-link-state>{linkLine}</p>
         {hasLink && !offAt && !expired && <button type="button" className="btn btn-quiet btn-sm" disabled={busy} onClick={turnOff} data-link-off>Turn off link</button>}

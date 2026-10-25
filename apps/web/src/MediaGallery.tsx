@@ -91,7 +91,8 @@ export default function MediaGallery({ where, layout, onLayout, defaultCategory 
     const [loc, srv] = await Promise.all([localMedia(where), (where.quoteKey || where.jobId || where.customerId) ? listMedia(where) : Promise.resolve([])])
     const onServer = new Set(srv.map(s => s.clientId))
     const list = [...srv.map(shownServer), ...loc.filter(l => !onServer.has(l.clientId)).map(l => shownLocal(l, me))]
-      .sort((a, b) => a.takenAt.localeCompare(b.takenAt))
+      // A date that arrived as anything but text (an old redacted answer gave {}) never breaks the list (WebKit, Oct 25 2026).
+      .sort((a, b) => String(a.takenAt ?? '').localeCompare(String(b.takenAt ?? '')))
     setItems(list)
     onItems?.(list)
   }, [whereKey, me])  // eslint-disable-line react-hooks/exhaustive-deps

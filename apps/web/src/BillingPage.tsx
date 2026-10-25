@@ -2,7 +2,9 @@
  * Accounts Receivable / Billing Dashboard
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { sendJson } from './syncHttp'
+import { navigate } from './nav'
 import jsPDF from 'jspdf'
 import { getInvoices, getPayments, getARSummary, type Invoice, type Payment } from './billingStore'
 import { PaymentsToConfirm } from './Payments'
@@ -12,6 +14,27 @@ import { getConfig } from './configStore'
 const fmtD = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })
 
 type Tab = 'ar' | 'invoices' | 'overdue' | 'payments'
+
+/** An open invoice on a job's payment schedule (portal lib/jobTruth.ts receivables). */
+interface Receivable {
+  invoiceId: string; jobId: string; customerId: string | null; customerName: string; address: string; fenceStyle: string
+  label: string; kind: string; amountCents: number; balanceCents: number; state: 'not_due' | 'due' | 'overdue' | 'paid'; dueDate: string | null; daysOver: number
+}
+type Aging = { agingCurrent: number; aging1to30: number; aging31to60: number; aging61to90: number; aging90plus: number; outstandingCents: number; overdueCents: number }
+const usDay = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : d || '')
+const emptyAging = (): Aging => ({ agingCurrent: 0, aging1to30: 0, aging31to60: 0, aging61to90: 0, aging90plus: 0, outstandingCents: 0, overdueCents: 0 })
+
+/** What is owed on the payment schedules, from the server (one source with the job's Financial and Payments). */
+function useReceivables(): { rows: Receivable[] | null; error: string } {
+  const [rows, setRows] = useState<Receivable[] | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let live = true
+    sendJson('GET', '/api/payments/receivables').then(r => { if (!live) return; if (r.result.ok && Array.isArray(r.json?.data)) setRows(r.json.data); else setError(r.json?.error || 'What is owed needs signal to load.') })
+    return () => { live = false }
+  }, [])
+  return { rows, error }
+}
 
 const statusColors: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700',
@@ -356,18 +379,40 @@ export default function BillingPage() {
   const [tab, setTab] = useState<Tab>('ar')
   const [invSearch, setInvSearch] = useState('')
   const [invStatus, setInvStatus] = useState('all')
-  const invoices = useMemo(() => getInvoices(), [])
+  // The old hand-typed invoices, except those taken into a job's payment schedule (they are counted there).
+  const invoices = useMemo(() => getInvoices().filter(i => !i.adoptedJobId), [])
   const payments = useMemo(() => getPayments(), [])
-  const arData = useMemo(() => getARSummary(), [])
+  const legacyAr = useMemo(() => getARSummary(), [])
+  const { rows: owed, error: owedError } = useReceivables()
+  const today = businessDate(new Date())
+
+  // Accounts receivable: the payment schedules (what every job owes, due and overdue by the same rule as the
+  // job's Financial), plus hand-typed invoices still open. By customer, aged by days past due.
+  const arData = useMemo(() => {
+    const by = new Map<string, { customerId: string; customerName: string; summary: Aging }>()
+    const row = (id: string, name: string) => by.get(id) ?? by.set(id, { customerId: id, customerName: name, summary: emptyAging() }).get(id)!
+    for (const r of owed ?? []) {
+      const a = row(r.customerId || r.jobId, r.customerName).summary
+      const cents = r.balanceCents
+      a.outstandingCents += cents
+      if (r.state !== 'overdue') a.agingCurrent += cents
+      else { a.overdueCents += cents; if (r.daysOver <= 30) a.aging1to30 += cents; else if (r.daysOver <= 60) a.aging31to60 += cents; else if (r.daysOver <= 90) a.aging61to90 += cents; else a.aging90plus += cents }
+    }
+    const adoptedCustomers = new Set(getInvoices().filter(i => i.adoptedJobId).map(i => i.customerId))
+    for (const l of legacyAr) {
+      if (adoptedCustomers.has(l.customerId)) continue
+      const a = row(l.customerId, l.customerName).summary
+      for (const k of ['agingCurrent', 'aging1to30', 'aging31to60', 'aging61to90', 'aging90plus', 'outstandingCents', 'overdueCents'] as const) a[k] += l.summary[k]
+    }
+    return [...by.values()].filter(r => r.summary.outstandingCents > 0).sort((a, b) => b.summary.overdueCents - a.summary.overdueCents || b.summary.outstandingCents - a.summary.outstandingCents)
+  }, [owed, legacyAr])
 
   const totalOutstanding = arData.reduce((s, r) => s + r.summary.outstandingCents, 0)
   const totalOverdue = arData.reduce((s, r) => s + r.summary.overdueCents, 0)
-  const dueThisWeek = invoices.filter(i => {
-    const due = new Date(i.dueDate)
-    const now = new Date()
-    const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-    return i.balanceDueCents > 0 && due >= now && due <= weekEnd
-  }).reduce((s, i) => s + i.balanceDueCents, 0)
+  const weekEnd = (() => { const t = new Date(`${today}T12:00:00Z`); t.setUTCDate(t.getUTCDate() + 7); return t.toISOString().slice(0, 10) })()
+  const dueThisWeek = (owed ?? []).filter(r => r.state !== 'overdue' && r.dueDate && r.dueDate >= today && r.dueDate <= weekEnd).reduce((s, r) => s + r.balanceCents, 0)
+    + invoices.filter(i => i.balanceDueCents > 0 && i.dueDate >= today && i.dueDate <= weekEnd).reduce((s, i) => s + i.balanceDueCents, 0)
+  const overdueOwed = (owed ?? []).filter(r => r.state === 'overdue')
 
   const overdueInvoices = invoices.filter(i => {
     if (i.status === 'void' || i.status === 'paid') return false
@@ -411,13 +456,14 @@ export default function BillingPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Outstanding</p><p className="text-2xl font-bold text-gray-900">{fmtD(totalOutstanding)}</p></div>
-        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Overdue</p><p className="text-2xl font-bold text-red-600">{fmtD(totalOverdue)}</p></div>
+        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Outstanding</p><p className="text-2xl font-bold text-gray-900" data-ar-outstanding={totalOutstanding}>{owed ? fmtD(totalOutstanding) : '…'}</p></div>
+        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Overdue</p><p className="text-2xl font-bold text-red-600" data-ar-overdue={totalOverdue}>{owed ? fmtD(totalOverdue) : '…'}</p></div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Due This Week</p><p className="text-2xl font-bold text-orange-600">{fmtD(dueThisWeek)}</p></div>
-        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Total Invoices</p><p className="text-2xl font-bold text-gray-900">{invoices.length}</p></div>
+        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Open invoices</p><p className="text-2xl font-bold text-gray-900">{(owed?.length ?? 0) + invoices.filter(i => i.balanceDueCents > 0 && i.status !== 'void').length}</p></div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Customers w/ Balance</p><p className="text-2xl font-bold text-gray-900">{arData.length}</p></div>
       </div>
 
+      {owedError && <p className="text-sm text-red-700">{owedError}</p>}
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
         {([['ar', 'Aging Report'], ['invoices', 'Invoices'], ['overdue', 'Overdue'], ['payments', 'Payments']] as const).map(([k, label]) => (
@@ -436,8 +482,8 @@ export default function BillingPage() {
           ) : (
             <div className="divide-y divide-gray-50">
               {arData.map(r => (
-                <div key={r.customerId} className="px-6 py-3 grid grid-cols-8 gap-2 items-center text-sm hover:bg-gray-50">
-                  <div className="col-span-2 font-medium text-gray-900">{r.customerName}</div>
+                <div key={r.customerId} className="px-6 py-3 grid grid-cols-8 gap-2 items-center text-sm hover:bg-gray-50" data-ar-row={r.customerName}>
+                  <div className="col-span-2 font-medium text-gray-900">{r.customerName}{r.summary.overdueCents > 0 && <span className="ml-2 text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">Overdue</span>}</div>
                   <div className="text-right text-gray-600">{r.summary.agingCurrent > 0 ? fmtD(r.summary.agingCurrent) : '—'}</div>
                   <div className="text-right text-yellow-600">{r.summary.aging1to30 > 0 ? fmtD(r.summary.aging1to30) : '—'}</div>
                   <div className="text-right text-orange-600">{r.summary.aging31to60 > 0 ? fmtD(r.summary.aging31to60) : '—'}</div>
@@ -537,10 +583,23 @@ export default function BillingPage() {
       {/* Overdue */}
       {tab === 'overdue' && (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          {overdueInvoices.length === 0 ? (
+          {overdueInvoices.length === 0 && overdueOwed.length === 0 ? (
             <div className="text-center py-8 text-gray-400 text-sm">No overdue invoices</div>
           ) : (
             <div className="divide-y divide-gray-50">
+              {/* The payment schedules: a deposit is due at signing, the Final once the job is complete. */}
+              {overdueOwed.map(r => (
+                <button key={r.invoiceId} type="button" onClick={() => navigate(`/operations?job=${encodeURIComponent(r.jobId)}`, { from: 'Billing' })} className="w-full text-left px-6 py-3 flex items-center justify-between hover:bg-gray-50 min-h-[48px]" data-overdue-invoice={r.invoiceId}>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{r.customerName}</p>
+                    <p className="text-xs text-gray-500">{r.label} · due {usDay(r.dueDate)}{r.address ? ` · ${r.address}` : ''}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-red-600">{fmtD(r.balanceCents)}</span>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">{r.daysOver}d overdue</span>
+                  </div>
+                </button>
+              ))}
               {overdueInvoices.map(inv => {
                 const daysOver = Math.floor((Date.now() - new Date(inv.dueDate).getTime()) / (1000 * 60 * 60 * 24))
                 return (

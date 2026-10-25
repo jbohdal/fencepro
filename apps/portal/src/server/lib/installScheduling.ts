@@ -142,7 +142,7 @@ async function factsFor(accountId: string, jobs: Json[]): Promise<ReadyJob[]> {
       scheduledDate: j.scheduledDate, scheduledEndDate: j.scheduledEndDate, crewAssigned: j.crewAssigned,
       bookedDays: grid.filter(g => g.stagingJobId === j.id && isYmd(g.date)).map(g => g.date).sort(),
       permitStatus: permits.find(p => p.jobId === j.id)?.status ?? null,
-      locatesDate: j.locatesDate || null, locatesExpDate: j.locatesExpDate || null,
+      locatesDate: j.locatesDate || null, locatesExpDate: j.locatesExpDate || null, locateTicket: j.locateTicket || null, locateCalledDate: j.locateCalledDate || null,
       deposit, depositCents, depositPaidCents, materialsStatus: j.materialsStatus, allowWeekend: weekend.has(j.id),
     })
   }
@@ -153,9 +153,12 @@ async function factsFor(accountId: string, jobs: Json[]): Promise<ReadyJob[]> {
 export async function readyToSchedule(accountId: string): Promise<ReadyJob[]> {
   const { stages } = await loadOpsStages(accountId)
   const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null, status: { in: ['staging', 'scheduled'] } }, orderBy: { createdAt: 'asc' } })
+  // A job with an install date is on the schedule (the month shows it from its dates even before it has
+  // board entries), never "ready to schedule" (Oct 25 2026: Manuel's 10/26 install was listed here).
   const waiting = jobs.filter(j => {
+    if (isYmd(j.scheduledDate)) return false
     const p = phaseOf(stages, stageOfJob(stages, j as Json))
-    return p === 'staging' || (p === 'scheduled' && !isYmd(j.scheduledDate))
+    return p === 'staging' || p === 'scheduled'
   })
   return factsFor(accountId, waiting)
 }
@@ -457,4 +460,58 @@ export async function applyRainDay(accountId: string, from: Ymd, shift: number, 
     await bumpBoard(tx, accountId, settings)
   })
   return withTexts(accountId, moves)
+}
+
+/* ── Jobs with install dates and no board entries ───────────────────────── */
+
+export interface MissingEntries { jobId: string; customerName: string; crewId: string; crewName: string; crewFound: boolean; days: Ymd[]; status: string }
+
+/**
+ * Jobs that have an install date but no board entries (scheduled the old way,
+ * before Schedule install made one entry per crew day): the crew days their
+ * dates fill (start to end, else the estimated crew days, on crew days; every
+ * day for a "weekends too" job) and their crew (by id or name; the first crew
+ * when it is not found, said so). The month shows these from the dates
+ * (apps/web SchedulePage datedJobsWithoutEntries); the backfill makes the
+ * entries (scripts/job-truth-backfill.ts).
+ */
+export async function jobsMissingEntries(accountId: string): Promise<MissingEntries[]> {
+  const settings = await settingsOf(accountId)
+  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null, NOT: { status: 'on_hold' } }, orderBy: { scheduledDate: 'asc' } })
+  const dated = jobs.filter(j => isYmd(j.scheduledDate))
+  if (!dated.length) return []
+  const have = new Set((await prisma.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, stagingJobId: { in: dated.map(j => j.id) } }, select: { stagingJobId: true } })).map(e => e.stagingJobId))
+  const weekend = new Set(await weekendJobIds(accountId))
+  const out: MissingEntries[] = []
+  for (const j of dated) {
+    if (have.has(j.id)) continue
+    const week = crewDaysOfWeek(settings.workDays, weekend.has(j.id))
+    const end = isYmd(j.scheduledEndDate) && j.scheduledEndDate! >= j.scheduledDate ? j.scheduledEndDate! : null
+    let days = installDays(j.scheduledDate, end ? 60 : Math.max(1, j.estimatedDays || 1), week)
+    if (end) days = days.filter(d => d <= end)
+    if (!days.length) days = [j.scheduledDate]
+    const key = j.crewAssigned.trim().toLowerCase()
+    const found = settings.crews.find(c => c.id.toLowerCase() === key) ?? settings.crews.find(c => c.name.trim().toLowerCase() === key)
+    const crew = found ?? settings.crews[0]
+    out.push({ jobId: j.id, customerName: j.customerName, crewId: crew?.id ?? '', crewName: crew?.name ?? '', crewFound: !!found, days, status: j.status })
+  }
+  return out
+}
+
+/** Make the board entries of one such job (once: a job that has entries by now is left alone). Returns how many were made. */
+export async function makeMissingEntries(accountId: string, m: MissingEntries): Promise<number> {
+  const settings = await settingsOf(accountId)
+  return prisma.$transaction(async tx => {
+    const j = await tx.savedJob.findFirst({ where: { id: m.jobId, accountId, ...LIVE } })
+    if (!j || await tx.scheduledGridJob.count({ where: { accountId, deletedAt: null, stagingJobId: j.id } })) return 0
+    const done = ['completed', 'invoiced', 'paid'].includes(j.status)
+    for (const d of m.days) {
+      await tx.scheduledGridJob.create({ data: {
+        accountId, stagingJobId: j.id, clientName: j.customerName, area: j.customerAddress, sections: j.sections, fenceType: j.fenceStyle,
+        jobPrice: j.contractValue || j.quotePrice, tearout: j.tearOutSections > 0, crewId: m.crewId, date: d, notes: '', status: done ? 'Complete' : 'Scheduled',
+      } })
+    }
+    await bumpBoard(tx, accountId, settings)
+    return m.days.length
+  })
 }

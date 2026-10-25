@@ -51,21 +51,50 @@ async function settingsOf(accountId: string): Promise<{ pricing: PricingSettings
  * Save the quote's cost as it is now, once. Called where a quote becomes
  * signed; a second call (the same signing sent twice) keeps the first.
  */
-export async function snapshotQuotedCost(accountId: string, quoteId: string, signedVia: 'proposal' | 'share' | 'app'): Promise<boolean> {
-  const exists = await prisma.jobQuotedCost.findUnique({ where: { accountId_quoteId: { accountId, quoteId } }, select: { id: true } })
-  if (exists) return false
+/**
+ * Does a saved quoted cost belong to the option the quote is signed at? The
+ * quote's style and price are the accepted option's (routes/proposal.ts
+ * acceptQuote makes the quote the chosen option; Sold in the app signs it as
+ * it is). A quoted cost saved for another option (Manuel Cotrich, Oct 20
+ * 2026: marked Sold in the app at the white option, $6,072.01, then he signed
+ * the tan option online at $7,113.83) does not.
+ */
+export function quotedMatchesQuote(row: { fenceStyle: string; priceCents: number }, q: { fenceStyle: string; finalPrice: number }): boolean {
+  return row.fenceStyle === q.fenceStyle && row.priceCents === toCents(q.finalPrice)
+}
+
+/**
+ * Save the quote's cost as signed, once. Called where a quote becomes signed;
+ * a second call for the same signing keeps the first. One saved for a
+ * different option than the one now signed is replaced by the accepted
+ * option's (`replaced` in the log), so the job's Quoted cost is always the
+ * option the customer signed.
+ */
+export async function snapshotQuotedCost(accountId: string, quoteId: string, signedVia: 'proposal' | 'share' | 'app', opts: { replaceMismatch?: boolean } = { replaceMismatch: true }): Promise<boolean> {
+  const exists = await prisma.jobQuotedCost.findUnique({ where: { accountId_quoteId: { accountId, quoteId } }, select: { id: true, fenceStyle: true, priceCents: true } })
   const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } })
   if (!q || q.status !== 'SOLD') return false
+  if (exists && (quotedMatchesQuote(exists, q) || !opts.replaceMismatch)) return false
   const s = await settingsOf(accountId)
   const snap = quotedCostOf(q as any, { inventory: s.items, pricing: s.pricing, style: s.styles.find(x => x?.name === q.fenceStyle), signedVia, signedAt: q.acceptedAt ?? new Date() })
+  const data = {
+    accountId, quoteId, signedVia, signedAt: new Date(snap.signedAt), fenceStyle: snap.fenceStyle, salesRep: snap.salesRep, jobType: snap.jobType,
+    sections: snap.sections, footage: snap.footage, priceCents: snap.priceCents, materialCents: snap.materialCents, laborCents: snap.laborCents,
+    tearOutCents: snap.tearOutCents, totalCents: snap.totalCents, lines: snap.lines as any, labor: snap.labor as any,
+  }
   try {
-    await prisma.jobQuotedCost.create({
-      data: {
-        accountId, quoteId, signedVia, signedAt: new Date(snap.signedAt), fenceStyle: snap.fenceStyle, salesRep: snap.salesRep, jobType: snap.jobType,
-        sections: snap.sections, footage: snap.footage, priceCents: snap.priceCents, materialCents: snap.materialCents, laborCents: snap.laborCents,
-        tearOutCents: snap.tearOutCents, totalCents: snap.totalCents, lines: snap.lines as any, labor: snap.labor as any,
-      },
-    })
+    if (exists) {
+      // Saved for another option: the accepted option's cost takes its place (only while it is still the other one).
+      const n = await prisma.jobQuotedCost.updateMany({ where: { id: exists.id, fenceStyle: exists.fenceStyle, priceCents: exists.priceCents }, data: { ...data, createdAt: new Date() } })
+      if (n.count === 1) {
+        console.log(`[job-costing] quoted cost for quote ${quoteId} replaced: was ${exists.fenceStyle} ${exists.priceCents}c, now the accepted ${snap.fenceStyle} ${snap.priceCents}c`)
+        // A takeoff started from the other option and not submitted yet follows the signed one.
+        const job = await prisma.savedJob.findFirst({ where: { accountId, quoteId, deletedAt: null }, select: { id: true } })
+        if (job) await rebuildDraftTakeoff(accountId, job.id, 'the signed option changed').catch(e => console.error('[job-costing] takeoff rebuild:', e))
+      }
+      return n.count === 1
+    }
+    await prisma.jobQuotedCost.create({ data })
     await markSignedNow(accountId, quoteId)
     return true
   } catch (e) {
@@ -188,6 +217,37 @@ export async function startTakeoff(accountId: string, jobId: string, by: string,
     }
     throw e
   }
+}
+
+/**
+ * Does a takeoff list the parts of the work as signed? False when its planned
+ * lines (not the ones added on the job) are a different pull sheet: started
+ * from another option (Manuel Cotrich's, Oct 22 2026: white vinyl parts on a
+ * tan job).
+ */
+export function takeoffMatchesQuoted(t: { lines: unknown }, quoted: QuotedCost | null): boolean {
+  if (!quoted) return true
+  const planned = linesOf(t).filter(l => !l.extra).map(l => `${l.part}|${l.plannedQty}`).sort()
+  const want = quoted.lines.map(l => `${l.part}|${l.qty}`).sort()
+  return planned.length === want.length && planned.every((x, i) => x === want[i])
+}
+
+/**
+ * A takeoff still in draft whose lines are not the signed work: its lines and
+ * labor made again from the signed pull sheet (what startTakeoff would make
+ * now). Submitted or approved takeoffs are never changed. True when rebuilt.
+ */
+export async function rebuildDraftTakeoff(accountId: string, jobId: string, why: string): Promise<boolean> {
+  const t = await prisma.jobTakeoff.findUnique({ where: { jobId } })
+  if (!t || t.accountId !== accountId || t.status !== 'draft') return false
+  const job = await jobOf(accountId, jobId)
+  const quoted = await quotedNow(accountId, job.quoteId)
+  if (!quoted || takeoffMatchesQuoted(t, quoted)) return false
+  const lines = linesFromQuoted(quoted.lines, key => `${t.id}:${key}`)
+  const labor = laborFromQuoted(quoted.labor, { mode: 'sub', subUnit: 'section', subUnits: job.sections })
+  const n = await prisma.jobTakeoff.updateMany({ where: { id: t.id, status: 'draft' }, data: { lines: lines as any, labor: labor as any, installDate: job.completedDate || job.scheduledDate || t.installDate, note: `${t.note ? `${t.note}\n` : ''}Lines made again from the signed quote (${quoted.fenceStyle}): ${why}.`.slice(0, 2000) } })
+  if (n.count === 1) console.log(`[job-costing] draft takeoff ${t.id} rebuilt from the signed quote (${quoted.fenceStyle}): ${why}`)
+  return n.count === 1
 }
 
 /** Change one takeoff under a row lock (two phones saving at once never lose each other's line). */

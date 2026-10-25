@@ -1944,8 +1944,15 @@ model SavedJob {
   // Operations — staging
   materialsStatus SavedJobMaterialsStatus @default(not_ordered)
   pullSheetPulled Boolean                 @default(false)
+  /// The 811 locate, one record on the job (lib/locates.ts; edited on the job page and the crew packet):
+  /// locatesDate = good to dig (start) date, locatesExpDate = when the ticket expires,
+  /// locateTicket = the Sunshine 811 ticket number, locateCalledDate = the day it was called in.
   locatesDate     String?
   locatesExpDate  String?
+  locateTicket    String?
+  locateCalledDate String?
+  locateUpdatedBy String?
+  locateUpdatedAt DateTime?
   drawingComplete Boolean                 @default(false)
 
   // Operations — scheduling

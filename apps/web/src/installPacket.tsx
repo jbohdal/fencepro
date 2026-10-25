@@ -5,6 +5,9 @@
  * at /p/i/<link> (routes/installPacket.ts); it never shows prices.
  */
 
+import { locateOf, locateWords } from '../../portal/src/server/lib/locates'
+import { getJob } from './jobStore'
+import { businessDate } from './businessDate'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -120,7 +123,7 @@ export function packetUrl(token: string): string {
   return hostname.endsWith('.ts.net') ? `${protocol}//${hostname}:8443/p/i/${token}` : `${origin}/p/i/${token}`
 }
 
-export interface Packet { id: string; token: string; disabledAt: string | null; locateTicket: string | null; locateDate: string | null; sentAt: string; changedBy?: { number: number; what: string } | null }
+export interface Packet { id: string; token: string; disabledAt: string | null; sentAt: string; changedBy?: { number: number; what: string } | null }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T | null> {
   const r = await fetchWithAuth(`${API}${path}`, { ...init, headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) } }).catch(() => null)
@@ -192,7 +195,8 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
         </>
       )}
       {packet?.disabledAt && <p className="text-xs text-gray-600" data-packet-state>Link turned off. Sending again makes a new link.</p>}
-      <p className="text-xs text-gray-700" data-packet-locate>811 locate: {packet?.locateTicket ? `ticket ${packet.locateTicket}${packet.locateDate ? ` on ${packet.locateDate}` : ''}` : 'not entered on the packet yet'}</p>
+      {/* The packet shows and edits the job's own 811 locate (the 811 locate section on this page). */}
+      {live && <p className="text-xs text-gray-700" data-packet-locate>811 locate on the packet: {locateWords(locateOf(getJob(jobId)), businessDate(new Date())).text}. The crew can fill it in there; it is the same locate as on this page.</p>}
     </div>
   )
 }

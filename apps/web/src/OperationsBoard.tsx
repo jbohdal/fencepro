@@ -17,7 +17,7 @@
 
 import { stageName as pipelineStageName, roleId as pipelineRoleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
-import { loadSchedule } from './scheduleStore'
+import { loadSchedule, crewName } from './scheduleStore'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type UnifiedJob,
@@ -25,12 +25,12 @@ import {
 } from './OperationsPage'
 import { type Job, type JobStatus, updateJob, advanceJob, holdJob, unholdJob } from './jobStore'
 import {
-  useOpsStages, OPS_STAGES_UPDATED_EVENT, stageInfo, stagePhase, nextOpsStage, stageFields, getCompleteOpsStage, type OpsStageDef,
+  useOpsStages, OPS_STAGES_UPDATED_EVENT, stageInfo, stagePhase, nextOpsStage, advanceStage, stageFields, getCompleteOpsStage, type OpsStageDef,
 } from './opsStagesStore'
 import { boardStages, sideStages, sortedStages, pickableStages, isDonePhase } from './opsStageModel'
 import { fireOpsStageChange } from './automationTrigger'
 import { onJobCompleted } from './jobCompleteFlow'
-import { getChecklistProgress } from './checklistStore'
+import { useMilestoneSummary } from './jobTruthApi'
 import { toast } from './toast'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 import PopMenu, { PopItem } from './PopMenu'
@@ -97,14 +97,8 @@ type ViewMode = 'board' | 'list'
 
 const UNSCHEDULED_KEY = '__unscheduled__'
 
-/** A crew as Schedule > Settings names it: an id ("crew1") or a name in any spacing or capitals ("crew 1") gives "Crew 1"; anything else as typed. */
-function crewLabel(v: string | null | undefined): string {
-  const t = (v || '').trim()
-  if (!t) return ''
-  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, '')
-  const c = loadSchedule().settings.crews.find(x => x.id === t || norm(x.name) === norm(t))
-  return c ? c.name : t
-}
+/** A crew's name (Schedule > Settings), never its id. */
+const crewLabel = crewName
 
 /** "Thu, Dec 3" or "Thu, Dec 3 to Mon, Dec 7". */
 function cardDays(start: string, end?: string | null): string {
@@ -153,6 +147,7 @@ export default function OperationsBoard() {
     if (j) setSelected(j)
   }, [nav])  // eslint-disable-line react-hooks/exhaustive-deps
   const [confirmComplete, setConfirmComplete] = useState<UnifiedJob | null>(null)
+  const milestoneCounts = useMilestoneSummary()
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
   const [isMobile, setIsMobile] = useState(isMobileViewport)
 
@@ -193,6 +188,9 @@ export default function OperationsBoard() {
       window.removeEventListener('storage', h)
     }
   }, [])
+
+  // The open job as the list has it now (null once it leaves the list: archived, deleted).
+  const selectedNow = selected ? (jobs.find(j => j.id === selected.id) ?? selected) : null
 
   /* ── filter ── */
   const filtered = useMemo(() => {
@@ -502,13 +500,14 @@ export default function OperationsBoard() {
           renderCard={j => (
             <OpsCard
               job={j}
+              progress={milestoneCounts[j.id]}
               onClick={() => setSelected(j)}
               isMobile={isMobile}
               highlightToday={highlightToday}
               showStageBadge={!j.scheduledDate}
               faded={matchesSearch !== null && !matchesSearch.has(j.id)}
               onNextStage={() => {
-                const next = nextOpsStage(j.opsStage)
+                const next = advanceStage(j.opsStage)
                 if (next) {
                   if (next.isComplete) setConfirmComplete(j)
                   else moveJobToStage(j, next.id)
@@ -554,16 +553,21 @@ export default function OperationsBoard() {
         >+</button>
       )}
 
-      {/* Detail panel: a full screen of its own on a phone (it has its own Close), a side panel on a wide screen */}
-      {selected && (
+      {/* Detail panel: a full screen of its own on a phone (it has its own Close), a side panel on a wide screen.
+          It shows the job as it is now (the list), not the copy from when it was opened: a stage picked in it
+          (Complete too), a note typed, a save from another phone all show at once. */}
+      {selectedNow && (
         <DetailPanel
-          job={selected}
+          job={selectedNow}
           onClose={() => setSelected(null)}
-          onAdvance={() => { onAdvance(selected); setSelected(null) }}
-          onHold={() => onHold(selected)}
-          onUnhold={() => onUnhold(selected)}
-          onMoveStage={(stage) => moveJobToStage(selected, stage)}
-          onUpdate={(updates) => onUpdateJob(selected, updates)}
+          onAdvance={() => { onAdvance(selectedNow); setSelected(null) }}
+          onHold={() => onHold(selectedNow)}
+          onUnhold={() => onUnhold(selectedNow)}
+          onMoveStage={(stage) => {
+            // Complete by hand on a job never scheduled: asked first (it closes the job and moves its card).
+            if (stageInfo(stage)?.isComplete && !selectedNow.scheduledDate && !window.confirm(`${selectedNow.customerName} has no install date. Mark it complete anyway? Its pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}.`)) return
+            moveJobToStage(selectedNow, stage); const st = stageInfo(stage); if (st) toast.success(`Moved to ${st.name}`, st.isComplete ? `${selectedNow.customerName}'s pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}.` : undefined) }}
+          onUpdate={(updates) => onUpdateJob(selectedNow, updates)}
         />
       )}
 
@@ -586,9 +590,11 @@ export default function OperationsBoard() {
 function slug(s: string) { return s.replace(/[^a-z0-9]+/gi, '-').toLowerCase() }
 
 function OpsCard({
-  job, onClick, isMobile, highlightToday, showStageBadge, faded, onNextStage, onRainDay, onComplete,
+  job, progress: shown, onClick, isMobile, highlightToday, showStageBadge, faded, onNextStage, onRainDay, onComplete,
 }: {
   job: UnifiedJob
+  /** The job's milestones from its records (portal lib/jobReadiness.ts), from one request for the board. */
+  progress?: { complete: number; total: number }
   onClick: () => void
   isMobile: boolean
   highlightToday: boolean
@@ -601,15 +607,7 @@ function OpsCard({
 }) {
   const stage = stageInfo(job.opsStage)
   const hex = stage?.color ?? '#9ca3af'
-  const [progress, setProgress] = useState<{ total: number; complete: number }>({ total: 0, complete: 0 })
-
-  useEffect(() => {
-    if (job.source !== 'job') return
-    setProgress(getChecklistProgress(job.id))
-    const reload = () => setProgress(getChecklistProgress(job.id))
-    window.addEventListener('fencepro:checklist:updated', reload)
-    return () => window.removeEventListener('fencepro:checklist:updated', reload)
-  }, [job.id, job.source])
+  const progress = shown ?? { total: 0, complete: 0 }
 
   const pct = progress.total > 0 ? (progress.complete / progress.total) * 100 : 0
   const today = highlightToday && isToday(job.scheduledDate)
@@ -655,7 +653,7 @@ function OpsCard({
         <div className="mt-2">
           <div className="flex items-center justify-between text-[10px] text-gray-500 mb-0.5">
             <span>Milestones</span>
-            <span>{progress.complete} of {progress.total}</span>
+            <span data-ops-card-milestones={`${progress.complete}/${progress.total}`}>{progress.complete} of {progress.total}</span>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-1.5">
             <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: hex }} />
@@ -674,7 +672,7 @@ function OpsCard({
             triggerProps={{ 'aria-label': 'Card actions' }}>
             {close => <>
               <PopItem onClick={() => { close(); onClick() }}>View / Edit</PopItem>
-              {nextOpsStage(job.opsStage) && <PopItem onClick={() => { close(); onNextStage() }}>Move to {nextOpsStage(job.opsStage)!.name}</PopItem>}
+              {advanceStage(job.opsStage) && <PopItem onClick={() => { close(); onNextStage() }}>Move to {advanceStage(job.opsStage)!.name}</PopItem>}
               {job.source === 'job' && !stage?.isComplete && <PopItem className="font-semibold !text-green-700" onClick={() => { close(); onComplete() }}>Mark complete</PopItem>}
               <PopItem danger onClick={() => { close(); onRainDay() }}>Flag Rain Day</PopItem>
             </>}
@@ -928,12 +926,12 @@ function OpsListView({
                   <td className="px-3 py-2 text-xs text-gray-600">{fenceText(j) || '—'}</td>
                   <td className="px-3 py-2"><span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: hex }}>{j.opsStageLabel}</span></td>
                   <td className="px-3 py-2 text-xs">{j.scheduledDate ? <span className="text-gray-700">{j.scheduledDate}</span> : <span className="text-amber-700 font-semibold">Unscheduled</span>}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{j.crewAssigned || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{crewLabel(j.crewAssigned) || '—'}</td>
                   <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{fmtUSD(j.contractValue)}</td>
                   <td className="px-3 py-2"><MiniProgress jobId={j.id} colorHex={hex} /></td>
                   <td className="px-3 py-2 text-xs text-gray-500">{daysSince(j.rawJob?.updatedAt || '')}d</td>
                   <td className="px-3 py-2 text-right">
-                    {j.source === 'job' && nextOpsStage(j.opsStage) && stagePhase(j.opsStage) !== 'on_hold' && (
+                    {j.source === 'job' && advanceStage(j.opsStage) && stagePhase(j.opsStage) !== 'on_hold' && (
                       <button onClick={e => { e.stopPropagation(); onAdvance(j) }}
                         className="text-xs text-orange-600 font-semibold hover:underline">Advance →</button>
                     )}
@@ -986,13 +984,8 @@ function OpsListView({
 }
 
 function MiniProgress({ jobId, colorHex }: { jobId: string; colorHex: string }) {
-  const [p, setP] = useState<{ total: number; complete: number }>({ total: 0, complete: 0 })
-  useEffect(() => {
-    setP(getChecklistProgress(jobId))
-    const reload = () => setP(getChecklistProgress(jobId))
-    window.addEventListener('fencepro:checklist:updated', reload)
-    return () => window.removeEventListener('fencepro:checklist:updated', reload)
-  }, [jobId])
+  // The job's milestones from its records (portal lib/jobReadiness.ts), one request for the whole list.
+  const p = useMilestoneSummary()[jobId] ?? { total: 0, complete: 0 }
   if (p.total === 0) return <span className="text-xs text-gray-400">—</span>
   const pct = (p.complete / p.total) * 100
   return (

@@ -137,7 +137,7 @@ export function readRows(text: string): MbqRow[] {
 // ── Small rules ──────────────────────────────────────────────────────────────
 
 export const digits10 = (s: string | null | undefined) => { const d = String(s || '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : '' }
-export const fmtPhone = (s: string) => { const d = digits10(s); return d ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : s.trim() }
+export const fmtPhone = (s: string) => { const d = digits10(s); return d ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : s.trim() }
 export const money = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })
 const street = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 

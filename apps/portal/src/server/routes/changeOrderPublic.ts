@@ -16,6 +16,7 @@ import express from 'express'
 import crypto from 'crypto'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { phoneWords } from '../lib/installDays.js'
 import { plainZod } from '../lib/plainZod.js'
 import { byLink, linesOf, signByCustomer, needsSignature } from '../lib/changeOrders.js'
 import { CSS, esc, safeSvg } from './proposal.js'
@@ -52,7 +53,7 @@ changeOrderPublic.get('/:token', async (req, res) => {
   const co = await byLink(token)
   const q = co ? await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId: co.accountId }, select: { customerName: true, customerAddress: true, fenceStyle: true, finalPrice: true, archivedAt: true, deletedAt: true } }) : null
   const company = co ? await companyOf(co.accountId) : { name: 'Getter Done Fence', phone: '' }
-  const call = company.phone ? `Call us at <a href="tel:${esc(company.phone.replace(/[^\d+]/g, ''))}"><b>${esc(company.phone)}</b></a>.` : 'Please call us.'
+  const call = company.phone ? `Call us at <a href="tel:${esc(company.phone.replace(/[^\d+]/g, ''))}"><b>${esc(phoneWords(company.phone))}</b></a>.` : 'Please call us.'
   const top = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(company.name)}</p><p class="small">Change order</p></div></header>`
   // Never sent (still a draft) counts as not available: the customer sees only what the office sent.
   if (!co || !q || q.archivedAt || q.deletedAt || co.deletedAt || (co.status === 'draft')) {

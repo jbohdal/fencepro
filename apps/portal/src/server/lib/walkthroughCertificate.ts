@@ -47,8 +47,8 @@ function plain(html: string): string {
 }
 
 export const when = (iso: string | Date) => new Date(iso).toLocaleString('en-US', { timeZone: TZ, month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
-/** 3527894314 → (352) 789-4314; anything else as typed. */
-const phoneText = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p }
+/** 3527894314 → (352) 789 4314; anything else as typed. */
+const phoneText = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : p }
 const day = (iso: string | Date) => new Date(iso).toLocaleDateString('en-US', { timeZone: TZ, month: 'long', day: 'numeric', year: 'numeric' })
 
 /** A file pdfkit can draw (JPEG or PNG), checked by its first bytes. */

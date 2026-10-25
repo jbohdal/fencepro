@@ -354,11 +354,14 @@ function CustomerBillingTab({ customerId, customerName, customerEmail }: { custo
     overdue: 'bg-red-100 text-red-700', void: 'bg-gray-100 text-gray-400',
   }
 
+  // The payment schedules are what is owed (one source with the job's Financial and Billing); the old
+  // hand-typed invoices show only for a customer who has some, so a $0.00 block never contradicts them.
+  if (!invoices.length && !payments.length) return <div className="space-y-4"><PaymentsPanel customerId={customerId} /></div>
   return (
     <div className="space-y-4">
       {/* The payment schedules of this customer's sold jobs: due, paid, balance, Payment received (Payments.tsx). */}
       <PaymentsPanel customerId={customerId} />
-      <p className="text-xs font-semibold text-gray-400">Invoices typed in Billing</p>
+      <p className="text-xs font-semibold text-gray-400">Invoices typed in Billing before payment schedules</p>
       {/* Sub-nav */}
       <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 w-fit">
         {(['overview', 'invoices', 'payments'] as const).map(t => (
@@ -906,6 +909,21 @@ function ArchivedOfCustomer({ customerId, customerArchived }: { customerId: stri
   )
 }
 
+/** A sold quote's worth: its job's contract value (signed price plus change orders) when it has a job, else the quote's price. */
+function soldValueOf(q: { id: string; price: number }): number {
+  const j = getJobs().find(x => x.quoteId === q.id) ?? getArchivedJobs().find(x => x.quoteId === q.id)
+  return j && j.contractValue > 0 ? j.contractValue : q.price
+}
+
+/** The customer's status as their records say it: newest job's stage (Operations), else their open pipeline card's stage, else the stored status. */
+function customerStatusWords(customer: Customer): string {
+  const job = [...getJobs(), ...getArchivedJobs()].filter(j => j.customerId === customer.id).sort((x, y) => String(y.createdAt).localeCompare(String(x.createdAt)))[0]
+  if (job) return `Job: ${stageName(stageOf(job)) || job.status}`
+  const card = (getPipeline().leads || []).find((l: any) => l.customerId === customer.id)
+  if (card?.stage) return pipelineStageName(card.stage) || card.stage
+  return customer.jobStatus ? (pipelineStageName(customer.jobStatus) || customer.jobStatus) : ''
+}
+
 function CustomerDetail({
   customer, quotes, importedQuotes, jobs, files,
   onEdit, onNewQuote, onDelete, onDeleteFile, onQuoteClick, onFileClick, initialTab, onTabConsumed, archived = false, onArchive,
@@ -941,7 +959,7 @@ function CustomerDetail({
     }
   }, [initialTab, customer.id, onTabConsumed])
 
-  const totalRevenue = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.price, 0)
+  const totalRevenue = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + soldValueOf(q), 0)
     + importedQuotes.reduce((s, q) => s + q.quotedPrice, 0)
   const allQuoteCount = quotes.length + importedQuotes.length
   // A phone gets the action bar at the bottom; a wide screen keeps them in the header.
@@ -1068,7 +1086,8 @@ function CustomerDetail({
                 { label: 'Lead Source', value: sourceLabel(customer.leadSource) },
                 { label: 'Sales Rep',   value: customer.salesRep },
                 { label: 'First Appt',  value: customer.firstApptDate },
-                { label: 'Job Status',  value: customer.jobStatus },
+                // Where the customer really is: their newest job's Operations stage, else their pipeline card's stage; the typed or imported status only when there is neither.
+                { label: 'Job Status',  value: customerStatusWords(customer) },
               ].filter(Boolean).map((row: any) => row?.value ? (
                 <div key={row.label} className="flex gap-4">
                   <span className="text-xs text-gray-400 w-28 sm:w-32 shrink-0 pt-0.5">{row.label}</span>
@@ -1394,9 +1413,10 @@ export default function CustomersPage({ onNewQuote }: {
   // Sold revenue per customer, worked out once per quote list (not one search of every quote per row).
   const soldRevenue = useMemo(() => {
     const m = new Map<string, number>()
-    for (const q of quotes) if (q.customerId && q.status === 'SOLD') m.set(q.customerId, (m.get(q.customerId) ?? 0) + q.price)
+    // The contract (signed price plus change orders, the job's contract value), not the signed price alone.
+    for (const q of quotes) if (q.customerId && q.status === 'SOLD') m.set(q.customerId, (m.get(q.customerId) ?? 0) + soldValueOf(q))
     return m
-  }, [quotes])
+  }, [quotes, jobs])
   // The list draws a page at a time: ~5,400 rows at once cost a phone seconds.
   const [listLimit, setListLimit] = useState(CUSTOMER_LIST_PAGE)
   useEffect(() => { setListLimit(CUSTOMER_LIST_PAGE) }, [search, listFilter])
