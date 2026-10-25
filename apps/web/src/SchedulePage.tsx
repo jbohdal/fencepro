@@ -494,11 +494,12 @@ export default function SchedulePage() {
                                   className={`border-l-4 rounded px-1.5 py-1 ${clashIds.has(j.id) ? 'ring-2 ring-red-500' : ''} ${readOnly ? '' : 'cursor-grab'} ${j.stagingJobId ? 'cursor-pointer' : ''} group`}
                                 >
                                   {/* The day of the job first, always readable; the hover buttons beside it. */}
-                                  <div className="flex items-center justify-between gap-1 min-h-[16px]">
+                                  {/* On a phone (no hover) the buttons are left off, and the row only shows for a day badge: no empty band. */}
+                                  <div className={`${own.length > 1 ? 'flex' : 'hidden md:flex'} items-center justify-between gap-1 min-h-[16px]`}>
                                     {own.length > 1
                                       ? <span className="text-[10px] font-bold text-gray-800 bg-white/80 border border-gray-300 rounded px-1 leading-tight whitespace-nowrap" data-install-daybadge>{nth}/{own.length}</span>
                                       : <span />}
-                                    {!readOnly && <span className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition">
+                                    {!readOnly && <span className="hidden md:flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition">
                                       <button onClick={e => { e.stopPropagation(); setRainDay(j.date) }} title="Rain day from this day" aria-label="Rain day from this day" className="text-gray-400 hover:text-blue-500 text-xs leading-none">🌧</button>
                                       {!j.stagingJobId && <button onClick={e => { e.stopPropagation(); removeJob(j.id) }} aria-label="Remove" className="text-gray-400 hover:text-red-400 text-xs leading-none ml-0.5">&times;</button>}
                                     </span>}
