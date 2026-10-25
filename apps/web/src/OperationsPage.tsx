@@ -26,6 +26,8 @@ import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, pickable, useO
 import { ChangeOrderPanel, ChangeOrderButton, JobTimeline } from './ChangeOrders'
 import { can } from './permissions'
 import { archiveRecord, deleteRecord } from './recordArchive'
+import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
+import { loadSchedule } from './scheduleStore'
 
 // Unified job type for display
 export interface UnifiedJob {
@@ -141,6 +143,24 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           {job.rawJob?.customerEmail && <Field label="Email" value={job.rawJob.customerEmail} />}
         </Section>
 
+        {/* Crew & Schedule: near the top, the install is what the office does next with a sold job */}
+        <Section title="Crew & Schedule">
+          {isJobSource ? (
+            <div data-job-schedule>
+              {/* One way to schedule: the Schedule install window (start day, crew, crew days on work days, the stage, the text). */}
+              <Field label="Install" value={job.scheduledDate ? bookedWords(job.scheduledDate, job.rawJob?.scheduledEndDate, loadSchedule().settings.workDays) : 'Not scheduled'} />
+              <Field label="Crew" value={job.crewAssigned || 'Not assigned'} />
+              <Field label="Sales Rep" value={job.salesRep} />
+              {can('schedule.change') && !inSideLane && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} /></div>}
+            </div>
+          ) : (
+            <>
+              <Field label="Crew" value={job.crewAssigned || 'Not assigned'} />
+              <Field label="Scheduled" value={job.scheduledDate || 'Not scheduled'} />
+            </>
+          )}
+        </Section>
+
         {/* Scope */}
         <Section title="Scope of Work">
           <Field label="Fence Type" value={styleLabel(job.fenceType)} />
@@ -205,32 +225,6 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           <CheckItem label="Drawing" done={job.drawingComplete} />
           <CheckItem label="Materials" done={job.materialsStatus === 'received' || job.materialsStatus === 'loaded'} detail={MATERIALS_WORDS[job.materialsStatus] ?? job.materialsStatus} />
           <CheckItem label="Pull Sheet" done={job.rawJob?.pullSheetPulled || false} />
-        </Section>
-
-        {/* Crew & Schedule */}
-        <Section title="Crew & Schedule">
-          {isJobSource ? (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Crew</label>
-                  <input type="text" value={job.crewAssigned} onChange={e => onUpdate({ crewAssigned: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Scheduled Date</label>
-                  <input type="date" value={job.scheduledDate} onChange={e => onUpdate({ scheduledDate: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
-                </div>
-              </div>
-              <Field label="Sales Rep" value={job.salesRep} />
-            </>
-          ) : (
-            <>
-              <Field label="Crew" value={job.crewAssigned || 'Not assigned'} />
-              <Field label="Scheduled" value={job.scheduledDate || 'Not scheduled'} />
-            </>
-          )}
         </Section>
 
         {/* Pricing & Payment */}

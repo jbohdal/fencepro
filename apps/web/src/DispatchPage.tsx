@@ -17,6 +17,10 @@ import {
 import { loadSchedule as storeLoadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
 import { stageOf, stageInfo, useOpsStages } from './opsStagesStore'
 import { dispatchCrews, findCrew, pinLook, pinElement, crewInitials, type DispatchCrew } from './dispatchPins'
+import { scheduleInstall, type PreparedText } from './installScheduleApi'
+import { InstallTextSheet } from './ScheduleInstall'
+import { toast } from './toast'
+import { crewDaysOfWeek, isCrewDay, plusDays } from '../../portal/src/server/lib/installDays'
 
 /* ═══════════════════════════════════════════════
    DISPATCH COMMAND CENTER
@@ -47,7 +51,18 @@ const HOUR_LABELS = HOURS.map(h => {
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
-const toDateStr = (d: Date) => d.toISOString().slice(0, 10)
+// The day as the office reads it here (local), not in UTC: after 8 pm the UTC date is already tomorrow.
+const toDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+/** A job's crew days: its start to its end, crew working days only (a one day job: its start). */
+function jobDays(j: Job, workDays: number[]): string[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(j.scheduledDate || '')) return []
+  const end = j.scheduledEndDate && j.scheduledEndDate > j.scheduledDate ? j.scheduledEndDate : j.scheduledDate
+  const week = crewDaysOfWeek(workDays)
+  const out: string[] = []
+  for (let d = j.scheduledDate, i = 0; d <= end && i < 90; d = plusDays(d, 1), i++) if (d === j.scheduledDate || isCrewDay(d, week)) out.push(d)
+  return out
+}
 
 function addDays(d: Date, n: number): Date {
   const result = new Date(d)
@@ -85,7 +100,11 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lng: numb
 // ═══ MAIN COMPONENT ══════════════════════════════
 
 export default function DispatchPage() {
-  const [currentDate, setCurrentDate] = useState(new Date())
+  // ?date=YYYY-MM-DD opens on that day (a link from a scheduled install); else today.
+  const [currentDate, setCurrentDate] = useState(() => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(new URLSearchParams(window.location.search).get('date') || '')
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12) : new Date()
+  })
   const [viewMode, setViewMode] = useState<ViewMode>('day')
   const [jobs, setJobs] = useState<Job[]>(getJobs)
   // Schedule's crew list, kept current (a crew added or recolored on Schedule shows here).
@@ -96,6 +115,7 @@ export default function DispatchPage() {
     return () => window.removeEventListener(SCHEDULE_UPDATED_EVENT, h)
   }, [])
   const crews = useMemo(() => loadCrews(jobs), [jobs, scheduleRev])
+  const workDays = useMemo(() => storeLoadSchedule().settings.workDays, [scheduleRev])
   // Settings > Operations Stages: the pins' colors, kept current.
   const opsStages = useOpsStages()
   const [legendOpen, setLegendOpen] = useState(() => typeof window === 'undefined' || !window.matchMedia?.('(max-width: 767px)').matches)
@@ -103,6 +123,7 @@ export default function DispatchPage() {
   const [mapReady, setMapReady] = useState(false)
   const [geocodedJobs, setGeocodedJobs] = useState<Map<string, { lat: number; lng: number }>>(new Map())
   const [dragJob, setDragJob] = useState<Job | null>(null)
+  const [done, setDone] = useState<{ text: PreparedText; title: string; summary: string } | null>(null)
 
   // The map: OpenStreetMap tiles drawn by Leaflet, free and with no key (as on Appointments).
   const mapRef = useRef<L.Map | null>(null)
@@ -137,8 +158,9 @@ export default function DispatchPage() {
   // Jobs for the current view (scheduled on visible dates + unassigned)
   const scheduledJobs = useMemo(() => {
     const dateStrs = new Set(visibleDates.map(toDateStr))
-    return jobs.filter(j => j.scheduledDate && dateStrs.has(j.scheduledDate))
-  }, [jobs, visibleDates])
+    // A job of several crew days shows on each of them.
+    return jobs.filter(j => jobDays(j, workDays).some(d => dateStrs.has(d)))
+  }, [jobs, visibleDates, workDays])
 
   const unassignedJobs = useMemo(
     () => jobs.filter(j =>
@@ -297,7 +319,7 @@ export default function DispatchPage() {
 
       for (const crew of crews) {
         const crewJobs = scheduledJobs
-          .filter(j => j.scheduledDate === ds && findCrew(crews, j.crewAssigned)?.id === crew.id)
+          .filter(j => jobDays(j, workDays).includes(ds) && findCrew(crews, j.crewAssigned)?.id === crew.id)
           .sort((a, b) => a.customerName.localeCompare(b.customerName))
 
         const blocks: TimeBlock[] = []
@@ -335,7 +357,7 @@ export default function DispatchPage() {
     }
 
     return data
-  }, [scheduledJobs, visibleDates, crews, getJobCoords])
+  }, [scheduledJobs, visibleDates, crews, getJobCoords, workDays])
 
   // ── Drag & drop handlers ───────────────────────
 
@@ -343,30 +365,39 @@ export default function DispatchPage() {
     setDragJob(job)
   }
 
+  // Every change of day or crew is the Schedule install step (installScheduleApi.ts): crew days on
+  // work days, the Scheduled stage, the Schedule board and the calendar, the same as on the Schedule.
+  async function book(jobId: string, start: string, crew: string, what: string) {
+    if (!can('schedule.change')) { toast.error('Not saved', 'Your role cannot change the crew schedule. Ask Jonathan.'); return }
+    const r = await scheduleInstall({ jobId, start, crew })
+    if (!r.ok) { toast.error(`Not ${what}`, r.error); return }
+    setJobs(getJobs())
+    setSelectedJobId(jobId)
+    // The customer's text, prepared and shown: sent from this phone, or not.
+    setDone({ text: r.data.text, title: r.data.rescheduled ? 'Install moved' : 'Install scheduled', summary: `${r.data.text.customerName}: ${r.data.days.length} crew day${r.data.days.length === 1 ? '' : 's'} from ${r.data.days[0]}, ${r.data.crew.name}.` })
+  }
+
   function handleDropOnTimeline(crewId: string, date: string) {
     if (!dragJob) return
-    const updated = updateJob(dragJob.id, {
-      crewAssigned: crewId,
-      scheduledDate: date,
-      status: dragJob.status === 'staging' ? 'scheduled' : dragJob.status,
-    })
-    if (updated) {
-      setJobs(getJobs())
-      setSelectedJobId(dragJob.id)
-    }
+    const j = dragJob
     setDragJob(null)
+    void book(j.id, date, crewId, 'scheduled')
   }
 
   // ── Quick actions ──────────────────────────────
 
   function handleReassign(jobId: string, crewId: string) {
-    updateJob(jobId, { crewAssigned: crewId })
-    setJobs(getJobs())
+    const j = jobs.find(x => x.id === jobId)
+    if (!j) return
+    // No date yet: the crew is kept on the job until it is booked.
+    if (!j.scheduledDate) { updateJob(jobId, { crewAssigned: crewId }); setJobs(getJobs()); return }
+    void book(jobId, j.scheduledDate, crewId, 'changed')
   }
 
   function handleReschedule(jobId: string, newDate: string) {
-    updateJob(jobId, { scheduledDate: newDate })
-    setJobs(getJobs())
+    const j = jobs.find(x => x.id === jobId)
+    if (!j || !newDate) return
+    void book(jobId, newDate, j.crewAssigned, 'moved')
   }
 
   // ── Today's summary stats ──────────────────────
@@ -539,6 +570,7 @@ export default function DispatchPage() {
           </div>
         </div>
       </div>
+      {done && <InstallTextSheet text={done.text} title={done.title} summary={done.summary} onClose={() => setDone(null)} />}
     </div>
   )
 }
@@ -703,6 +735,8 @@ function DayTimeline({
                     {/* Job block */}
                     <div
                       onClick={() => onSelectJob(block.job.id)}
+                      data-dispatch-block={block.job.id}
+                      data-dispatch-block-day={date}
                       className={`absolute top-1 bottom-1 rounded-lg cursor-pointer transition-all overflow-hidden flex flex-col justify-center px-2.5 ${
                         isSelected
                           ? 'ring-2 ring-orange-500 shadow-lg z-20'

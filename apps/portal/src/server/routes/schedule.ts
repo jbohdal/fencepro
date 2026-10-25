@@ -22,6 +22,8 @@ import { resolveSecret } from '../lib/secrets.js'
 import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
 import { can, refuse, requireCan, roleOf, sameJson } from '../lib/permissions.js'
+import { readyToSchedule, jobScheduleFacts, scheduleInstall, unscheduleInstall, rainDayPreview, applyRainDay, ScheduleError } from '../lib/installScheduling.js'
+import { afterJobSaved } from '../lib/contractBilling.js'
 
 const router = Router()
 
@@ -460,6 +462,73 @@ router.post('/rain-log/sync', requireCan('schedule.change'), async (req: any, re
     console.error('[schedule] rain log sync error:', err)
     res.status(500).json({ success: false, error: 'Failed to sync rain log' })
   }
+})
+
+// ── Scheduling installs (lib/installScheduling.ts) ──
+//   GET  /ready              every sold job not scheduled yet, with its crew days, permit, 811, deposit, materials
+//   GET  /ready/:jobId       the same for one job (scheduled or not): its Schedule install window
+//   POST /install            { jobId, start, crew?, days?, allowWeekend? }: book it (or move it) on crew days
+//   POST /install/:jobId/off off the schedule, back to waiting
+//   POST /rain-day/preview   { date, shift? }: what would move, and the prepared texts
+//   POST /rain-day           { date, shift?, reason? }: move it
+// Texts are prepared, never sent: the office sends them from their own phone.
+
+function scheduleFail(res: any, err: unknown, what: string) {
+  if (err instanceof ScheduleError) { res.status(err.status).json({ success: false, error: err.message, ...err.extra }); return }
+  if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+  console.error(`[schedule] ${what}:`, err)
+  res.status(500).json({ success: false, error: `Could not ${what}. Try again.` })
+}
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a day.')
+
+router.get('/ready', async (req: any, res) => {
+  try { res.json({ success: true, data: await readyToSchedule(req.user.crmAccountId) }) }
+  catch (err) { scheduleFail(res, err, 'load the jobs ready to schedule') }
+})
+
+router.get('/ready/:jobId', async (req: any, res) => {
+  try {
+    const row = await jobScheduleFacts(req.user.crmAccountId, String(req.params.jobId))
+    if (!row) { res.status(404).json({ success: false, error: 'That job is not there any more.' }); return }
+    res.json({ success: true, data: row })
+  } catch (err) { scheduleFail(res, err, 'load the job') }
+})
+
+router.post('/install', requireCan('schedule.change'), async (req: any, res) => {
+  try {
+    const b = z.object({ jobId: z.string().min(1), start: day, crew: z.string().optional().nullable(), days: z.number().int().min(1).max(60).optional().nullable(), allowWeekend: z.boolean().optional() }).parse(req.body)
+    const accountId = req.user.crmAccountId
+    const r = await scheduleInstall(accountId, { accountId, userId: req.user.id ?? null }, b)
+    await audit(req, 'update', 'SavedJob', r.job.id, { newValues: { scheduledDate: r.days[0], scheduledEndDate: r.days[r.days.length - 1], crewAssigned: r.crew.name, opsStage: r.job.opsStage, days: r.days } })
+    // The Final's due date and the payment schedule follow the job (lib/contractBilling.ts).
+    await afterJobSaved(accountId, r.job.id, { userId: req.user.id ?? null, name: req.user.email ?? '' })
+    res.json({ success: true, data: r })
+  } catch (err) { scheduleFail(res, err, 'schedule the install') }
+})
+
+router.post('/install/:jobId/off', requireCan('schedule.change'), async (req: any, res) => {
+  try {
+    const accountId = req.user.crmAccountId
+    const row = await unscheduleInstall(accountId, { accountId, userId: req.user.id ?? null }, String(req.params.jobId))
+    await audit(req, 'update', 'SavedJob', row.id, { newValues: { scheduledDate: '', opsStage: row.opsStage } })
+    res.json({ success: true, data: row })
+  } catch (err) { scheduleFail(res, err, 'take the install off the schedule') }
+})
+
+router.post('/rain-day/preview', async (req: any, res) => {
+  try {
+    const b = z.object({ date: day, shift: z.number().int().min(1).max(10).optional() }).parse(req.body)
+    res.json({ success: true, data: await rainDayPreview(req.user.crmAccountId, b.date, b.shift ?? 1) })
+  } catch (err) { scheduleFail(res, err, 'work out the rain day') }
+})
+
+router.post('/rain-day', requireCan('schedule.change'), async (req: any, res) => {
+  try {
+    const b = z.object({ date: day, shift: z.number().int().min(1).max(10).optional(), reason: z.string().max(200).optional() }).parse(req.body)
+    const moves = await applyRainDay(req.user.crmAccountId, b.date, b.shift ?? 1, (b.reason || 'Weather — rain').trim())
+    await audit(req, 'update', 'ScheduleRainDay', null, { newValues: { date: b.date, shift: b.shift ?? 1, moved: moves.length } })
+    res.json({ success: true, data: moves })
+  } catch (err) { scheduleFail(res, err, 'move the schedule for the rain day') }
 })
 
 export default router

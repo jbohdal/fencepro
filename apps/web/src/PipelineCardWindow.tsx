@@ -44,6 +44,10 @@ import { DateChips, TextTemplatesSheet, dayLabel, kindWord } from './FollowUpPro
 import PaymentsPanel from './Payments'
 import { ChangeOrderButton, isSignedForChange } from './ChangeOrders'
 import { PastCustomerBadge, ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
+import { getJobByQuoteId, type Job } from './jobStore'
+import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
+import { loadSchedule } from './scheduleStore'
+import { can } from './permissions'
 
 const fmtUSD = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const STATUS: Record<string, string> = { DRAFT: 'bg-gray-100 text-gray-700', SENT: 'bg-blue-100 text-blue-800', SOLD: 'bg-green-100 text-green-800', LOST: 'bg-red-100 text-red-800' }
@@ -98,6 +102,15 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
     if (made) { setDraft(''); setAdding(false); load() }
   }
   const lastNotes = (notes ?? []).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 3)
+
+  // The jobs of this customer's sold quotes (made when a quote is marked Sold), kept current.
+  const [, setJobTick] = useState(0)
+  useEffect(() => {
+    const on = () => setJobTick(t => t + 1)
+    window.addEventListener('fencepro:jobs:updated', on)
+    return () => window.removeEventListener('fencepro:jobs:updated', on)
+  }, [])
+  const soldJobs = quotes.filter(q => q.status === 'SOLD').map(q => getJobByQuoteId(q.id)).filter((j): j is Job => !!j)
 
   // Follow up: as the server has it, with this phone's answers on top.
   useFollowUpBoard()
@@ -216,6 +229,22 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
             <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3" data-card-payments>
               <h3 className="text-sm font-semibold text-gray-900 mb-2">Payments</h3>
               <PaymentsPanel customerId={lead.customerId} compact />
+            </section>
+          )}
+
+          {/* The install of a sold deal: its date, or Schedule install (ScheduleInstall.tsx). */}
+          {soldJobs.length > 0 && (
+            <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3 space-y-2" data-card-install>
+              <h3 className="text-sm font-semibold text-gray-900">Install</h3>
+              {soldJobs.map(j => (
+                <div key={j.id} className="space-y-2" data-card-install-job={j.id}>
+                  <p className="text-sm text-gray-800">
+                    {j.scheduledDate ? <>Scheduled: <span className="font-semibold">{bookedWords(j.scheduledDate, j.scheduledEndDate, loadSchedule().settings.workDays)}</span>{j.crewAssigned ? `, ${j.crewAssigned}` : ''}</> : 'Not scheduled yet.'}
+                    {soldJobs.length > 1 && <span className="block text-xs text-gray-600">{styleLabel(j.fenceStyle)}</span>}
+                  </p>
+                  {can('schedule.change') && <ScheduleInstallButton jobId={j.id} scheduledDate={j.scheduledDate} />}
+                </div>
+              ))}
             </section>
           )}
 

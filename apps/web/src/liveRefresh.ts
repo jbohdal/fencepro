@@ -16,6 +16,7 @@ import { refreshAppointments } from './appointmentsStore'
 import { refreshOpsStages } from './opsStagesStore'
 import { refreshPipelineStages } from './pipelineStagesStore'
 import { refreshBookingTeam } from './bookingTeamStore'
+import { refreshSchedule } from './scheduleStore'
 
 let started = false
 let last = 0
@@ -27,7 +28,7 @@ async function readAgain(force = false) {
   if (!force && Date.now() - last < 15_000) return
   last = Date.now()
   // Small checks every time; appointments (a bigger list) when the app comes back on screen or is asked.
-  await Promise.allSettled([refreshQuotes(), refreshJobs(), refreshPipeline(), refreshCustomers(), refreshOpsStages(), refreshPipelineStages(), refreshOptionLists(), refreshBookingTeam(), ...(force || appointmentsDue() ? [refreshAppointments()] : [])])
+  await Promise.allSettled([refreshQuotes(), refreshJobs(), refreshPipeline(), refreshCustomers(), refreshOpsStages(), refreshPipelineStages(), refreshOptionLists(), refreshBookingTeam(), refreshSchedule(), ...(force || appointmentsDue() ? [refreshAppointments()] : [])])
 }
 
 export function startLiveRefresh() {

@@ -40,6 +40,13 @@ import {
   type PortalChangeOrder, type PortalFileRow, type PortalPhotoRow, type PortalMediaRow, type PortalMessage, type PortalServiceRequest,
 } from './portalApiClient'
 
+/** "Monday, Nov 2, 2026" for a YYYY-MM-DD install date (as typed otherwise). */
+function installDayWords(day: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || '')
+  if (!m) return day
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 const DEFAULT_COMPANY: PortalCompany = { name: 'Getter Done Fence', phone: '', email: '', portal: { accentColor: '', supportEmail: '', supportPhone: '', welcomeMessage: '' } }
 
 /** The company's name, phone and portal color, from the server. */
@@ -461,7 +468,7 @@ function DashboardPage({ session, customer, accent }: { session: PortalAccount; 
             <p className="text-xs font-bold" style={{ color: accent }}>Active Project</p>
             <p className="text-lg font-bold text-gray-900 mt-1">{activeJob.style || 'Project'}</p>
             <p className="text-sm text-gray-500 mt-1">{friendlyStage(activeJob.status)}</p>
-            {activeJob.scheduledDate && <p className="text-xs text-gray-500 mt-2">📅 Scheduled {activeJob.scheduledDate}</p>}
+            {activeJob.scheduledDate && <p className="text-xs text-gray-500 mt-2" data-portal-install-date={activeJob.scheduledDate}>📅 Install starts {installDayWords(activeJob.scheduledDate)}</p>}
             <a href="#/portal/projects" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>View Project →</a>
           </div>
         )}
@@ -710,8 +717,9 @@ function ProjectsPage({ accent }: { session: PortalAccount; customer: PortalAcco
                 <p className="text-sm mt-1 font-medium" style={{ color: accent }}>{friendlyStage(j.status)}</p>
               </div>
               {j.scheduledDate && (
-                <div className="text-right text-xs text-gray-500">
-                  <p className="font-bold text-gray-900">📅 {j.scheduledDate}</p>
+                <div className="text-right text-xs text-gray-500" data-portal-install-date={j.scheduledDate}>
+                  <p>Install starts</p>
+                  <p className="font-bold text-gray-900">📅 {installDayWords(j.scheduledDate)}</p>
                 </div>
               )}
             </div>

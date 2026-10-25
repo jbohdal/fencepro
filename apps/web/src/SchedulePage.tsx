@@ -1,17 +1,21 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { styleLabel } from './fenceCatalog'
-import { fireRainDayFlagged } from './automationTrigger'
 import {
   loadSchedule as storeLoadSchedule,
   saveSchedule as storeSaveSchedule,
   loadRainLog as storeLoadRainLog,
-  saveRainLog as storeSaveRainLog,
+  SCHEDULE_UPDATED_EVENT,
+  RAIN_LOG_UPDATED_EVENT,
 } from './scheduleStore'
 import { useMergedRefresh } from './useMergedRefresh'
-import { useBackLayer, BackClose } from './nav'
+import { useBackLayer } from './nav'
 import ScheduleDay from './ScheduleDay'
 import { can, REFUSAL } from './permissions'
 import { toast } from './toast'
+import { businessDate } from './businessDate'
+import { ReadyPanel, useReadyJobs, ScheduleInstallDialog, MoveInstallConfirm, RainDayDialog, READY_DRAG_TYPE } from './ScheduleInstall'
+import { crewDaysOfWeek, isCrewDay, plusDays } from '../../portal/src/server/lib/installDays'
+import { crewHex } from './dispatchPins'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -53,7 +57,6 @@ export interface RainDayEntry {
 }
 
 const loadRainLog = (): RainDayEntry[] => storeLoadRainLog()
-const saveRainLog = (log: RainDayEntry[]) => storeSaveRainLog(log)
 
 // ── Weather (OpenWeatherMap free tier) ──
 interface WeatherDay { date: string; temp: number; description: string; icon: string; rain: boolean }
@@ -199,7 +202,7 @@ function SettingsModal({
                 >{DAY_NAMES[d]}</button>
               ))}
             </div>
-            <p className="text-xs text-gray-400 mt-2">{workDays.length} days selected</p>
+            <p className="text-xs text-gray-400 mt-2">{workDays.length} days selected. Installs are booked Monday to Thursday, and Friday when it is ticked. Saturday and Sunday are never crew days unless a job is booked with "The crew works weekends on this job".</p>
           </div>
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -249,33 +252,53 @@ function SettingsModal({
 
 // ── Main Schedule Page ───────────────────────────────────────────────────────
 
+/** Which job an entry belongs to: its job, else (an entry made by hand) its client's name. */
+const jobKeyOf = (j: ScheduledJob) => (j.stagingJobId ? `job:${j.stagingJobId}` : `name:${j.clientName.trim().toLowerCase()}`)
+
 export default function SchedulePage() {
   const [data, setData] = useState(() => loadSchedule())
   const readOnly = !can('schedule.change')
   // Another device's schedule changes were merged into a save from this tab.
   useMergedRefresh('Schedule', () => setData(loadSchedule()))
+  // The board read again (an install scheduled here or elsewhere, a rain day).
+  useEffect(() => {
+    const on = () => setData(loadSchedule())
+    window.addEventListener(SCHEDULE_UPDATED_EVENT, on)
+    window.addEventListener(RAIN_LOG_UPDATED_EVENT, on)
+    return () => { window.removeEventListener(SCHEDULE_UPDATED_EVENT, on); window.removeEventListener(RAIN_LOG_UPDATED_EVENT, on) }
+  }, [])
   const [showSettings, setShowSettings] = useState(false)
   const [viewMonth, setViewMonth] = useState(() => new Date())
   const [dragJob, setDragJob] = useState<ScheduledJob | null>(null)
   const [dragOverDate, setDragOverDate] = useState<string | null>(null)
-  const [rainDayJob, setRainDayJob] = useState<ScheduledJob | null>(null)
-  // Flag Rain Day tapped twice before the dialog closes: the second tap does nothing.
-  const flaggedFor = useRef<string | null>(null)
-  const [rainReason, setRainReason] = useState('Weather — rain')
-  const [rainReschedule, setRainReschedule] = useState('')
   const [showRainLog, setShowRainLog] = useState(false)
-  const [rainLog, setRainLog] = useState<RainDayEntry[]>(() => loadRainLog())
   const [forecast, setForecast] = useState<WeatherDay[]>([])
+  const ready = useReadyJobs()
+  // Phone: the calendar and Ready to schedule are two tabs. Computer: side by side.
+  const [tab, setTab] = useState<'calendar' | 'ready'>('calendar')
+  // Days off (Friday to Sunday by default) are left out of the month unless asked for.
+  const [showDaysOff, setShowDaysOff] = useState(false)
+  const [booking, setBooking] = useState<{ jobId: string; start?: string } | null>(null)
+  const [moving, setMoving] = useState<{ jobId: string; name: string; from: string; to: string } | null>(null)
+  const [rainDay, setRainDay] = useState<string | null>(null)
 
   // Load weather forecast
   useEffect(() => { fetchForecast().then(setForecast) }, [])
 
   const { jobs, settings } = data
+  const rainLog = loadRainLog()
+  const crewWeek = crewDaysOfWeek(settings.workDays)
+  const shownWeek = showDaysOff ? [1, 2, 3, 4, 5, 6, 0] : crewWeek
 
   const year = viewMonth.getFullYear()
   const month = viewMonth.getMonth()
-  const weeks = getMonthWeeks(year, month, settings.workDays)
+  const weeks = getMonthWeeks(year, month, shownWeek)
   const monthName = viewMonth.toLocaleString('default', { month: 'long', year: 'numeric' })
+
+  // Each job's booked days, in order: "Day 2 of 3" on its card, and a drag of any day moves the whole job.
+  const daysOfJob = new Map<string, ScheduledJob[]>()
+  for (const j of jobs) { if (!j.date) continue; const k = jobKeyOf(j); daysOfJob.set(k, [...(daysOfJob.get(k) ?? []), j]) }
+  for (const list of daysOfJob.values()) list.sort((a, b) => a.date.localeCompare(b.date))
 
   function updateData(jobs: ScheduledJob[], s?: ScheduleSettings) {
     // A salesman or the crew sees the schedule; only the office and up change it (the server refuses anyone else).
@@ -285,11 +308,27 @@ export default function SchedulePage() {
     setData(updated)
   }
 
-  function handleDrop(dateStr: string, crewId: string) {
-    if (!dragJob) return
-    const updated = jobs.map(j => j.id === dragJob.id ? { ...j, date: dateStr, crewId } : j)
-    updateData(updated)
+  /** A drop on a day: a Ready card opens Schedule install on that day; a booked install asks to move. */
+  function handleDrop(e: React.DragEvent, dateStr: string) {
+    if (readOnly) { toast.error('Not saved', REFUSAL['schedule.change']); return }
+    const readyId = e.dataTransfer.getData(READY_DRAG_TYPE)
+    if (readyId) { setBooking({ jobId: readyId, start: dateStr }); return }
+    const dragged = dragJob
     setDragJob(null)
+    if (!dragged || dragged.date === dateStr) return
+    if (dragged.stagingJobId) {
+      // The whole job moves: dropping its second day on Thursday makes Wednesday its first.
+      const own = daysOfJob.get(jobKeyOf(dragged)) ?? [dragged]
+      const at = Math.max(0, own.findIndex(x => x.id === dragged.id))
+      const week = own.some(x => !isCrewDay(x.date, crewWeek)) ? [0, 1, 2, 3, 4, 5, 6] : crewWeek
+      let start = dateStr
+      for (let left = at; left > 0;) { start = plusDays(start, -1); if (isCrewDay(start, week)) left-- }
+      if (start === own[0].date) return
+      setMoving({ jobId: dragged.stagingJobId, name: dragged.clientName, from: own[0].date, to: start })
+      return
+    }
+    // An entry made by hand (no job behind it): just its day.
+    updateData(jobs.map(j => j.id === dragged.id ? { ...j, date: dateStr } : j))
   }
 
   function removeJob(id: string) {
@@ -299,378 +338,207 @@ export default function SchedulePage() {
   function prevMonth() { setViewMonth(new Date(year, month - 1, 1)) }
   function nextMonth() { setViewMonth(new Date(year, month + 1, 1)) }
 
-  // ── Cascading reschedule state ──
-  const [showCascade, setShowCascade] = useState(false)
-  const [cascadeShiftDays, setCascadeShiftDays] = useState(1)
-  const [cascadeSelections, setCascadeSelections] = useState<Set<string>>(new Set())
-
-  // Find next available workday from a date, skipping non-work days
-  function nextWorkday(from: string, daysToShift: number): string {
-    let d = new Date(from + 'T12:00:00')
-    let shifted = 0
-    while (shifted < daysToShift) {
-      d.setDate(d.getDate() + 1)
-      if (settings.workDays.includes(d.getDay())) shifted++
-    }
-    return toDateStr(d)
-  }
-
-  // Get all jobs affected by a rain day on a specific date (same date + downstream)
-  function getAffectedJobs(): { job: ScheduledJob; newDate: string }[] {
-    if (!rainDayJob) return []
-    const rainDate = rainDayJob.date
-    // All jobs on or after the rain date that are scheduled
-    const affected = jobs
-      .filter(j => j.date >= rainDate && j.id !== rainDayJob.id && (j.status === 'Scheduled' || j.status === 'In Progress'))
-      .sort((a, b) => a.date.localeCompare(b.date))
-    return affected.map(j => ({
-      job: j,
-      newDate: nextWorkday(j.date, cascadeShiftDays),
-    }))
-  }
-
-  function flagRainDay() {
-    if (!rainDayJob) return
-    if (flaggedFor.current === rainDayJob.id) return
-    flaggedFor.current = rainDayJob.id
-    setTimeout(() => { flaggedFor.current = null }, 1500)
-    const entry: RainDayEntry = {
-      // Its own id, sent with it: the server keeps one entry however often it is sent.
-      id: crypto.randomUUID(),
-      jobId: rainDayJob.id,
-      clientName: rainDayJob.clientName,
-      originalDate: rainDayJob.date,
-      rescheduleDate: rainReschedule,
-      reason: rainReason,
-      flaggedAt: new Date().toISOString(),
-    }
-    const newLog = [entry, ...rainLog]
-    setRainLog(newLog)
-    saveRainLog(newLog)
-
-    // Update the rained-out job
-    let updated = jobs.map(j => {
-      if (j.id !== rainDayJob.id) return j
-      return {
-        ...j,
-        status: (rainReschedule ? 'Scheduled' : 'Rain Day') as ScheduledJob['status'],
-        ...(rainReschedule ? { date: rainReschedule } : {}),
-      }
-    })
-
-    // Apply cascade selections
-    if (showCascade && cascadeSelections.size > 0) {
-      const affected = getAffectedJobs()
-      for (const { job, newDate } of affected) {
-        if (!cascadeSelections.has(job.id)) continue
-        // Log each cascaded job
-        const cascadeEntry: RainDayEntry = {
-          id: crypto.randomUUID(),
-          jobId: job.id,
-          clientName: job.clientName,
-          originalDate: job.date,
-          rescheduleDate: newDate,
-          reason: `Cascaded from ${rainDayJob.clientName} rain day`,
-          flaggedAt: new Date().toISOString(),
-        }
-        newLog.push(cascadeEntry)
-
-        updated = updated.map(j => j.id === job.id ? { ...j, date: newDate } : j)
-      }
-      saveRainLog(newLog)
-      setRainLog(newLog)
-    }
-
-    updateData(updated)
-
-    // Fire automation
-    fireRainDayFlagged(rainDayJob.id, {
-      jobName: rainDayJob.clientName,
-      scheduledDate: rainDayJob.date,
-      extraData: {
-        reason: rainReason,
-        rescheduleDate: rainReschedule,
-        cascadedJobs: showCascade ? cascadeSelections.size : 0,
-      },
-    })
-
-    setRainDayJob(null)
-    setRainReason('Weather — rain')
-    setRainReschedule('')
-    setShowCascade(false)
-    setCascadeSelections(new Set())
-  }
+  const readyCount = ready.jobs?.length
 
   return (
-    <div className="space-y-6">
-      {/* One day at a time: installs and that day's appointments (the phone's Schedule tab lands here). */}
-      <ScheduleDay jobs={jobs} crews={settings.crews} />
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <button onClick={prevMonth} className="btn btn-secondary">&larr;</button>
-          <h2 className="text-lg font-bold text-gray-900 flex-1 lg:w-48 text-center">{monthName}</h2>
-          <button onClick={nextMonth} className="btn btn-secondary">&rarr;</button>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <div className="flex gap-1.5 items-center flex-wrap mr-2 lg:mr-4">
-            {settings.crews.map(c => (
-              <div key={c.id} className="flex items-center gap-1.5">
-                <div className={`w-3 h-3 rounded-full ${c.color}`} />
-                <span className="text-xs text-gray-500">{c.name}</span>
-              </div>
-            ))}
-          </div>
-          {can('settings.change') && <button onClick={() => setShowSettings(true)} className="btn btn-secondary">Settings</button>}
-          {readOnly && <span className="text-xs text-gray-500" data-view-only>View only</span>}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm calendar-table">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              {settings.workDays.map(d => (
-                <th key={d} className="text-left px-4 py-3 text-xs font-semibold text-gray-500">
-                  {DAY_FULL[d]}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {weeks.map((week, wi) => (
-              <tr key={wi} className="border-b border-gray-100">
-                {week.map(day => {
-                  const dateStr = toDateStr(day)
-                  const isThisMonth = day.getMonth() === month
-                  const dayJobs = jobs.filter(j => j.date === dateStr)
-                  return (
-                    <td
-                      key={dateStr}
-                      className={`align-top px-3 py-2 border-r border-gray-100 transition-colors ${
-                        dragOverDate === dateStr
-                          ? (dayJobs.length >= 3 ? 'bg-red-50 border-2 border-red-300' : 'bg-orange-50 border-2 border-orange-400')
-                          : (isThisMonth ? '' : 'bg-gray-50')
-                      }`}
-                      style={{ minHeight: 80, width: `${100 / settings.workDays.length}%` }}
-                      onDragOver={e => { e.preventDefault(); setDragOverDate(dateStr) }}
-                      onDragEnter={e => { e.preventDefault(); setDragOverDate(dateStr) }}
-                      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDate(null) }}
-                      onDrop={e => {
-                        e.preventDefault()
-                        setDragOverDate(null)
-                        const crewId = settings.crews[0]?.id || 'crew1'
-                        handleDrop(dateStr, crewId)
-                      }}
-                    >
-                      {dragOverDate === dateStr && (
-                        <div className={`text-center text-xs font-medium mb-1 ${dayJobs.length >= 3 ? 'text-red-500' : 'text-orange-500'}`}>
-                          {dayJobs.length >= 3 ? '⚠ Full day' : '↓ Drop here'}
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between mb-1">
-                        <p className={`text-xs font-medium ${isThisMonth ? 'text-gray-900' : 'text-gray-400'}`}>
-                          {day.getDate()}
-                        </p>
-                        {(() => {
-                          const wx = forecast.find(f => f.date === dateStr)
-                          if (!wx) return null
-                          return (
-                            <span title={wx.description} className={`text-xs ${wx.rain ? 'text-blue-500 font-semibold' : 'text-gray-400'}`}>
-                              {wx.rain ? '🌧' : '☀'} {wx.temp}°
-                            </span>
-                          )
-                        })()}
-                      </div>
-                      <div className="space-y-1">
-                        {dayJobs.map(j => {
-                          const crew = settings.crews.find(c => c.id === j.crewId)
-                          const colorClass = crew?.color ?? 'bg-gray-400'
-                          return (
-                            <div
-                              key={j.id}
-                              draggable={!readOnly}
-                              onDragStart={() => setDragJob(j)}
-                              className={`${colorClass} bg-opacity-15 border-l-[3px] ${colorClass.replace('bg-', 'border-')} rounded px-2 py-1 cursor-grab group`}
-                            >
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <p className="text-xs font-semibold text-gray-900 truncate">
-                                    {j.status === 'Rain Day' && <span title="Rain Day">🌧 </span>}
-                                    {j.clientName}
-                                  </p>
-                                  <p className="text-xs text-gray-500">{styleLabel(j.fenceType)} &middot; {j.sections}sec &middot; {fmt(j.jobPrice)}</p>
-                                </div>
-                                {!readOnly && <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
-                                  <button onClick={() => { setRainDayJob(j); setRainReschedule('') }} title="Flag Rain Day" className="text-gray-300 hover:text-blue-500 text-sm leading-none">🌧</button>
-                                  <button onClick={() => removeJob(j.id)} className="text-gray-300 hover:text-red-400 text-sm leading-none ml-0.5">&times;</button>
-                                </div>}
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Weather Forecast Strip */}
-      {forecast.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">5-Day Forecast</h3>
-          <div className="flex gap-3">
-            {forecast.slice(0, 5).map(wx => (
-              <div key={wx.date} className={`flex-1 rounded-xl p-3 text-center ${wx.rain ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50'}`}>
-                <p className="text-xs font-medium text-gray-500">{new Date(wx.date + 'T12:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
-                <p className="text-2xl my-1">{wx.rain ? '🌧' : wx.description.includes('cloud') ? '⛅' : '☀️'}</p>
-                <p className="text-sm font-bold text-gray-900">{wx.temp}°F</p>
-                <p className="text-xs text-gray-500 capitalize">{wx.description}</p>
-                {wx.rain && <p className="text-xs font-semibold text-blue-600 mt-1">Rain Expected</p>}
-              </div>
-            ))}
-          </div>
-          {!OWM_KEY && <p className="text-xs text-gray-400 mt-2">Set VITE_OPENWEATHER_API_KEY for live weather data</p>}
-        </div>
-      )}
-
-      {/* Rain Day Log */}
-      <div className="bg-white rounded-2xl border border-gray-200">
-        <button onClick={() => setShowRainLog(!showRainLog)} className="w-full px-5 py-3 flex items-center justify-between hover:bg-gray-50 transition">
-          <h3 className="text-sm font-semibold text-gray-700">🌧 Rain Day Log ({rainLog.length})</h3>
-          <span className="text-xs text-gray-400">{showRainLog ? '▲ Hide' : '▼ Show'}</span>
+    <div className="space-y-4">
+      {/* Phone: two tabs. */}
+      <div className="lg:hidden grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1" role="tablist" data-schedule-tabs>
+        <button type="button" role="tab" aria-selected={tab === 'calendar'} onClick={() => setTab('calendar')} data-schedule-tab="calendar"
+          className={`min-h-[44px] rounded-lg text-sm font-semibold ${tab === 'calendar' ? 'bg-white shadow text-gray-900' : 'text-gray-600'}`}>Calendar</button>
+        <button type="button" role="tab" aria-selected={tab === 'ready'} onClick={() => setTab('ready')} data-schedule-tab="ready"
+          className={`min-h-[44px] rounded-lg text-sm font-semibold ${tab === 'ready' ? 'bg-white shadow text-gray-900' : 'text-gray-600'}`}>
+          Ready to schedule{readyCount !== undefined ? ` (${readyCount})` : ''}
         </button>
-        {showRainLog && (
-          <div className="border-t border-gray-100">
-            {rainLog.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No rain days logged yet</p>
-            ) : (
-              <div className="divide-y divide-gray-50">
-                {rainLog.map(entry => (
-                  <div key={entry.id} className="px-5 py-3 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{entry.clientName}</p>
-                      <p className="text-xs text-gray-500">
-                        Original: {entry.originalDate} • Reason: {entry.reason}
-                        {entry.rescheduleDate ? ` • Rescheduled: ${entry.rescheduleDate}` : ' • TBD'}
-                      </p>
-                    </div>
-                    <span className="text-xs text-gray-400">{new Date(entry.flaggedAt).toLocaleDateString()}</span>
+      </div>
+
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-4 lg:items-start">
+        <div className={`space-y-6 min-w-0 ${tab === 'ready' ? 'hidden lg:block' : ''}`}>
+          {/* One day at a time: installs and that day's appointments (the phone's Schedule tab lands here). */}
+          <ScheduleDay jobs={jobs} crews={settings.crews} />
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <button onClick={prevMonth} className="btn btn-secondary" aria-label="Month before" data-month-prev>&larr;</button>
+              <h2 className="text-lg font-bold text-gray-900 flex-1 lg:w-48 text-center" data-month={`${year}-${String(month + 1).padStart(2, '0')}`}>{monthName}</h2>
+              <button onClick={nextMonth} className="btn btn-secondary" aria-label="Next month" data-month-next>&rarr;</button>
+            </div>
+            <div className="flex gap-2 flex-wrap items-center">
+              <div className="flex gap-1.5 items-center flex-wrap mr-2 lg:mr-4">
+                {settings.crews.map(c => (
+                  <div key={c.id} className="flex items-center gap-1.5">
+                    <div className={`w-3 h-3 rounded-full ${c.color}`} />
+                    <span className="text-xs text-gray-500">{c.name}</span>
                   </div>
                 ))}
               </div>
+              <label className="flex items-center gap-2 text-xs text-gray-700 min-h-[44px]">
+                <input type="checkbox" checked={showDaysOff} onChange={e => setShowDaysOff(e.target.checked)} className="w-4 h-4 accent-orange-500" data-show-days-off />
+                Show days off
+              </label>
+              {!readOnly && <button onClick={() => setRainDay(businessDate(new Date()))} className="btn btn-secondary" data-rain-day-open>🌧 Rain day</button>}
+              {can('settings.change') && <button onClick={() => setShowSettings(true)} className="btn btn-secondary">Settings</button>}
+              {readOnly && <span className="text-xs text-gray-500" data-view-only>View only</span>}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
+            <table className="w-full text-sm calendar-table" data-month-days={shownWeek.join(',')}>
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  {shownWeek.map(d => (
+                    <th key={d} className={`text-left px-2 lg:px-4 py-3 text-xs font-semibold ${crewWeek.includes(d) ? 'text-gray-500' : 'text-gray-400'}`}>
+                      <span className="hidden lg:inline">{DAY_FULL[d]}</span><span className="lg:hidden">{DAY_NAMES[d]}</span>
+                      {!crewWeek.includes(d) && <span className="block font-normal">day off</span>}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {weeks.map((week, wi) => (
+                  <tr key={wi} className="border-b border-gray-100">
+                    {week.map(day => {
+                      const dateStr = toDateStr(day)
+                      const isThisMonth = day.getMonth() === month
+                      const dayOff = !crewWeek.includes(day.getDay())
+                      const dayJobs = jobs.filter(j => j.date === dateStr)
+                      return (
+                        <td
+                          key={dateStr}
+                          data-day={dateStr}
+                          className={`align-top px-1.5 lg:px-3 py-2 border-r border-gray-100 transition-colors ${
+                            dragOverDate === dateStr
+                              ? (dayJobs.length >= 3 ? 'bg-red-50 border-2 border-red-300' : 'bg-orange-50 border-2 border-orange-400')
+                              : (dayOff ? 'bg-gray-100' : isThisMonth ? '' : 'bg-gray-50')
+                          }`}
+                          style={{ minHeight: 80, width: `${100 / shownWeek.length}%` }}
+                          onDragOver={e => { e.preventDefault(); setDragOverDate(dateStr) }}
+                          onDragEnter={e => { e.preventDefault(); setDragOverDate(dateStr) }}
+                          onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDate(null) }}
+                          onDrop={e => { e.preventDefault(); setDragOverDate(null); handleDrop(e, dateStr) }}
+                        >
+                          {dragOverDate === dateStr && (
+                            <div className={`text-center text-xs font-medium mb-1 ${dayJobs.length >= 3 ? 'text-red-500' : 'text-orange-500'}`}>
+                              {dayJobs.length >= 3 ? '⚠ Full day' : '↓ Drop here'}
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between mb-1">
+                            <p className={`text-xs font-medium ${isThisMonth ? 'text-gray-900' : 'text-gray-400'}`}>
+                              {day.getDate()}
+                            </p>
+                            {(() => {
+                              const wx = forecast.find(f => f.date === dateStr)
+                              if (!wx) return null
+                              return (
+                                <span title={wx.description} className={`text-xs ${wx.rain ? 'text-blue-500 font-semibold' : 'text-gray-400'}`}>
+                                  {wx.rain ? '🌧' : '☀'} {wx.temp}°
+                                </span>
+                              )
+                            })()}
+                          </div>
+                          <div className="space-y-1">
+                            {dayJobs.map(j => {
+                              const crew = settings.crews.find(c => c.id === j.crewId)
+                              // The crew's color down the left edge; the card itself light, so the words read.
+                              const crewColor = crew ? crewHex(crew.color, crew.name) : '#9ca3af'
+                              const own = daysOfJob.get(jobKeyOf(j)) ?? [j]
+                              const nth = own.findIndex(x => x.id === j.id) + 1
+                              return (
+                                <div
+                                  key={j.id}
+                                  draggable={!readOnly}
+                                  onDragStart={() => setDragJob(j)}
+                                  onClick={() => { if (j.stagingJobId) setBooking({ jobId: j.stagingJobId }) }}
+                                  data-install-entry={j.stagingJobId || j.id}
+                                  data-install-day={`${nth}/${own.length}`}
+                                  style={{ borderLeftColor: crewColor, backgroundColor: `${crewColor}1f` }}
+                                  className={`border-l-4 rounded px-1.5 lg:px-2 py-1 ${readOnly ? '' : 'cursor-grab'} ${j.stagingJobId ? 'cursor-pointer' : ''} group`}
+                                >
+                                  <div className="flex items-start justify-between gap-1">
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-semibold text-gray-900 truncate">
+                                        {j.status === 'Rain Day' && <span title="Rain Day">🌧 </span>}
+                                        {j.clientName}
+                                      </p>
+                                      {j.area && <p className="text-[11px] text-gray-600 truncate">{j.area}</p>}
+                                      <p className="text-[11px] text-gray-500">{[styleLabel(j.fenceType), j.sections ? `${j.sections} sec` : '', own.length > 1 ? `day ${nth} of ${own.length}` : ''].filter(Boolean).join(' · ')}</p>
+                                    </div>
+                                    {!readOnly && <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                                      <button onClick={e => { e.stopPropagation(); setRainDay(j.date) }} title="Rain day from this day" aria-label="Rain day from this day" className="text-gray-300 hover:text-blue-500 text-sm leading-none">🌧</button>
+                                      {!j.stagingJobId && <button onClick={e => { e.stopPropagation(); removeJob(j.id) }} aria-label="Remove" className="text-gray-300 hover:text-red-400 text-sm leading-none ml-0.5">&times;</button>}
+                                    </div>}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Weather Forecast Strip */}
+          {forecast.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-200 p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">5-Day Forecast</h3>
+              <div className="flex gap-3">
+                {forecast.slice(0, 5).map(wx => (
+                  <div key={wx.date} className={`flex-1 rounded-xl p-3 text-center ${wx.rain ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50'}`}>
+                    <p className="text-xs font-medium text-gray-500">{new Date(wx.date + 'T12:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
+                    <p className="text-2xl my-1">{wx.rain ? '🌧' : wx.description.includes('cloud') ? '⛅' : '☀️'}</p>
+                    <p className="text-sm font-bold text-gray-900">{wx.temp}°F</p>
+                    <p className="text-xs text-gray-500 capitalize">{wx.description}</p>
+                    {wx.rain && <p className="text-xs font-semibold text-blue-600 mt-1">Rain Expected</p>}
+                  </div>
+                ))}
+              </div>
+              {!OWM_KEY && <p className="text-xs text-gray-400 mt-2">Set VITE_OPENWEATHER_API_KEY for live weather data</p>}
+            </div>
+          )}
+
+          {/* Rain Day Log */}
+          <div className="bg-white rounded-2xl border border-gray-200">
+            <button onClick={() => setShowRainLog(!showRainLog)} className="w-full px-5 py-3 flex items-center justify-between hover:bg-gray-50 transition">
+              <h3 className="text-sm font-semibold text-gray-700">🌧 Rain Day Log ({rainLog.length})</h3>
+              <span className="text-xs text-gray-400">{showRainLog ? '▲ Hide' : '▼ Show'}</span>
+            </button>
+            {showRainLog && (
+              <div className="border-t border-gray-100">
+                {rainLog.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-6">No rain days logged yet</p>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {rainLog.map(entry => (
+                      <div key={entry.id} className="px-5 py-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{entry.clientName}</p>
+                          <p className="text-xs text-gray-500">
+                            Original: {entry.originalDate} • Reason: {entry.reason}
+                            {entry.rescheduleDate ? ` • Rescheduled: ${entry.rescheduleDate}` : ' • TBD'}
+                          </p>
+                        </div>
+                        <span className="text-xs text-gray-400">{new Date(entry.flaggedAt).toLocaleDateString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        )}
+        </div>
+
+        {/* Ready to schedule: a side panel on a computer, its own tab on a phone. */}
+        <aside className={`lg:sticky lg:top-4 ${tab === 'calendar' ? 'hidden lg:block' : ''}`}>
+          <ReadyPanel ready={ready} canDrag={!readOnly} onPick={j => { if (readOnly) { toast.error('Not saved', REFUSAL['schedule.change']); return } setBooking({ jobId: j.id }) }} />
+        </aside>
       </div>
 
-      {/* Rain Day Modal with Cascade */}
-      {rainDayJob && <BackClose name="rain-day" onClose={() => setRainDayJob(null)} />}
-      {rainDayJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[560px] max-h-[85vh] overflow-y-auto p-4 lg:p-6 mx-4 lg:mx-0 space-y-4 modal-responsive">
-            <h2 className="font-bold text-gray-900 text-lg">🌧 Flag Rain Day</h2>
-            <p className="text-sm text-gray-500">
-              <span className="font-medium text-gray-900">{rainDayJob.clientName}</span> — scheduled for {rainDayJob.date}
-            </p>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Reason</label>
-              <select value={rainReason} onChange={e => setRainReason(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                <option>Weather — rain</option>
-                <option>Weather — storm</option>
-                <option>Weather — extreme heat</option>
-                <option>Weather — cold/freeze</option>
-                <option>Ground conditions — too wet</option>
-                <option>Other weather delay</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Reschedule to</label>
-              <div className="flex gap-2">
-                <input type="date" value={rainReschedule} onChange={e => setRainReschedule(e.target.value)}
-                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                <button onClick={() => setRainReschedule('')}
-                  className="text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50">
-                  TBD
-                </button>
-              </div>
-              <p className="text-xs text-gray-400 mt-1">{rainReschedule ? `Will move to ${rainReschedule}` : 'No reschedule date — marked as TBD'}</p>
-            </div>
-
-            {/* Cascade Reschedule */}
-            <div className="border-t border-gray-100 pt-4">
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-900 cursor-pointer">
-                <input type="checkbox" checked={showCascade} onChange={e => {
-                  setShowCascade(e.target.checked)
-                  if (e.target.checked) {
-                    const affected = getAffectedJobs()
-                    setCascadeSelections(new Set(affected.map(a => a.job.id)))
-                  }
-                }} className="w-4 h-4 accent-orange-500" />
-                Cascade Reschedule — shift other affected jobs
-              </label>
-
-              {showCascade && (() => {
-                const affected = getAffectedJobs()
-                return (
-                  <div className="mt-3 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-gray-500">Shift by:</label>
-                      <input type="number" min={1} max={7} value={cascadeShiftDays} onChange={e => setCascadeShiftDays(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-sm text-center" />
-                      <span className="text-xs text-gray-500">work day{cascadeShiftDays > 1 ? 's' : ''}</span>
-                      <button onClick={() => setCascadeSelections(new Set(affected.map(a => a.job.id)))} className="text-xs text-orange-600 ml-auto">Select all</button>
-                      <button onClick={() => setCascadeSelections(new Set())} className="text-xs text-gray-500">Clear</button>
-                    </div>
-
-                    {affected.length === 0 ? (
-                      <p className="text-xs text-gray-400 text-center py-2">No other jobs affected on or after this date.</p>
-                    ) : (
-                      <div className="border border-gray-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
-                        <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 grid grid-cols-12 text-xs font-medium text-gray-500">
-                          <div className="col-span-1"></div><div className="col-span-4">Job</div><div className="col-span-3">Current</div><div className="col-span-1">→</div><div className="col-span-3">New Date</div>
-                        </div>
-                        {affected.map(({ job, newDate }) => (
-                          <div key={job.id} className="px-3 py-2 border-b border-gray-50 grid grid-cols-12 items-center text-sm">
-                            <div className="col-span-1">
-                              <input type="checkbox" checked={cascadeSelections.has(job.id)}
-                                onChange={e => {
-                                  const s = new Set(cascadeSelections)
-                                  e.target.checked ? s.add(job.id) : s.delete(job.id)
-                                  setCascadeSelections(s)
-                                }} className="w-3.5 h-3.5 accent-orange-500" />
-                            </div>
-                            <div className="col-span-4 truncate font-medium text-gray-900">{job.clientName}</div>
-                            <div className="col-span-3 text-gray-500">{job.date}</div>
-                            <div className="col-span-1 text-gray-400">→</div>
-                            <div className="col-span-3 font-medium text-orange-600">{newDate}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-xs text-gray-400">{cascadeSelections.size} job{cascadeSelections.size !== 1 ? 's' : ''} will be moved</p>
-                  </div>
-                )
-              })()}
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button onClick={() => { setRainDayJob(null); setShowCascade(false); setCascadeSelections(new Set()) }}
-                className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50">
-                Cancel
-              </button>
-              <button onClick={flagRainDay}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2.5 rounded-xl">
-                Flag Rain Day{showCascade && cascadeSelections.size > 0 ? ` + Move ${cascadeSelections.size} Jobs` : ''}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {booking && <ScheduleInstallDialog jobId={booking.jobId} start={booking.start} onClose={() => setBooking(null)} onDone={() => ready.reload()} />}
+      {moving && <MoveInstallConfirm {...moving} onClose={() => setMoving(null)} />}
+      {rainDay && <RainDayDialog date={rainDay} onClose={() => setRainDay(null)} />}
 
       {showSettings && (
         <SettingsModal

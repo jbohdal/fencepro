@@ -8,7 +8,9 @@ import { clusterByDistance } from './geoUtils'
 import type { LatLng } from './geoUtils'
 import { stageOf, stageName, stagePhase } from './opsStagesStore'
 import { loadSchedule } from './scheduleStore'
-import { addWorkDays, onWorkDay } from './workDays'
+import { scheduleInstall } from './installScheduleApi'
+import { toast } from './toast'
+import { addCrewDays, crewDaysOfWeek } from '../../portal/src/server/lib/installDays'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -331,28 +333,32 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
   useEffect(() => { renderMap() }, [renderMap])
 
   // Schedule actions
-  function scheduleJob(jobId: string) {
+  // Booked the same way as everywhere (installScheduleApi.ts): crew days from the quote on crew working days,
+  // the Scheduled stage, the Schedule board and the calendar. The crew box names a Schedule crew (or the first one).
+  async function scheduleJob(jobId: string) {
     if (!crewName || !startDate) return
     const job = allJobs.find(j => j.id === jobId)
     if (!job) return
-    // Never on a crew day off (Settings: Monday to Thursday by default).
-    updateJob(jobId, { status: 'scheduled', crewAssigned: crewName, scheduledDate: onWorkDay(startDate, loadSchedule().settings.workDays) })
-    setApplied(`Scheduled ${job.customerName}`)
+    const r = await scheduleInstall({ jobId, start: startDate, crew: crewName })
+    if (!r.ok) { toast.error('Not scheduled', r.error); return }
+    setApplied(`Scheduled ${job.customerName}: ${r.data.days.length} crew day${r.data.days.length === 1 ? '' : 's'} from ${r.data.days[0]}`)
     setTimeout(() => { setApplied(''); setAllJobs(loadSchedulableJobs()) }, 1500)
   }
 
-  function scheduleCluster(ci: number) {
+  async function scheduleCluster(ci: number) {
     if (!crewName || !startDate) return
     const cluster = clusters[ci]
     if (!cluster) return
-    // Each job starts after the one before it, counted in crew working days only.
-    const workDays = loadSchedule().settings.workDays
-    let dateOffset = 0
-    cluster.items.forEach(job => {
-      updateJob(job.id, { status: 'scheduled', crewAssigned: crewName, scheduledDate: addWorkDays(startDate, dateOffset, workDays) })
-      dateOffset += Math.max(1, job.estimatedDays || 1)
-    })
-    setApplied(`Scheduled ${cluster.items.length} jobs`)
+    // Each job starts the crew day after the one before it ends.
+    let start = startDate
+    let n = 0
+    for (const job of cluster.items) {
+      const r = await scheduleInstall({ jobId: job.id, start, crew: crewName })
+      if (!r.ok) { toast.error(`${job.customerName} not scheduled`, r.error); break }
+      n++
+      start = addCrewDays(r.data.days[r.data.days.length - 1], 1, crewDaysOfWeek(loadSchedule().settings.workDays))
+    }
+    setApplied(`Scheduled ${n} job${n === 1 ? '' : 's'}`)
     setTimeout(() => { setApplied(''); setAllJobs(loadSchedulableJobs()); setSelectedCluster(null) }, 1500)
   }
 

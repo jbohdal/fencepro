@@ -93,7 +93,7 @@ try {
   const html = await cp.content()
   const text = (await cp.locator('body').textContent()).replace(/\s+/g, ' ')
   check('opens with no login, strict security policy', res.status() === 200 && /default-src 'none'/.test(res.headers()['content-security-policy'] || ''))
-  check('customer, phone, map link, install date and crew', text.includes(NAME) && text.includes('Install: 2026-10-27') && text.includes('Crew: Crew A') && /google\.com\/maps\/search\/\?api=1&amp;query=5708/.test(html))
+  check('customer, phone, map link, install date and crew', text.includes(NAME) && text.includes('Install: 10/27/2026') && text.includes('Crew: Crew A') && /google\.com\/maps\/search\/\?api=1&amp;query=5708/.test(html))
   check('gate codes, notes and crew notes', text.includes('Gate code 4512') && text.includes('Crew notes') && text.includes('sprinkler heads along the back') && text.includes('(352) 555-0100'))
   check('site plan with the photo pin', await cp.locator('.plan svg [data-plan-pin]').count() === 1)
   check('every run with post to post spacing', text.includes("Left return (1 of 2)") && text.includes("6' 6\"") && text.includes("7' 10 3/4\""), text.slice(text.indexOf('Run'), text.indexOf('Run') + 200))
