@@ -96,6 +96,32 @@ function phone(p: string): string {
   return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : p
 }
 
+/**
+ * A packet's snapshot with the newest approved change order's work on it
+ * (footage, sections, gates, runs, pull sheet; quantities only), unless the
+ * snapshot already is that work (the office's phone builds it with the change
+ * order). Oct 25 2026: the installer's packet for WT Robert Hayes came out
+ * 150 ft / 17 sections from the original quote instead of 170 ft / 19.
+ */
+export async function withSignedWork<S extends Record<string, any>>(accountId: string, quoteId: string | null | undefined, s: S): Promise<S> {
+  const co = await packetChange(accountId, quoteId, new Date(0)).catch(() => null)
+  if (!co) return s
+  const w = co.work
+  const same = Number(s.sections) === Number(w.sections) && Math.round(Number(s.footageFt) || 0) === Math.round(Number(w.footage) || 0)
+    && sheetChanges((s.pullSheet ?? []) as any, (w.pullSheet ?? []).filter((l: any) => !l.moneyOnly) as any).length === 0
+  if (same) return s
+  return { ...packetWithChange(s, co), changeOrder: co.number }
+}
+
+/** A pull sheet line that is work, not a part (tear out, haul away, removal, labor). */
+export const isWorkLine = (item: string) => /\b(tear ?out|haul[- ]?away|remov(e|al)|labor|disposal)\b/i.test(item || '')
+/** "Tear out and haul away the old fence (13 sections)" */
+export function workStepText(item: string, qty: number | string): string {
+  const n = Number(qty)
+  if (/tear ?out/i.test(item)) return `Tear out and haul away the old fence${n > 0 ? ` (${n} section${n === 1 ? '' : 's'})` : ''}`
+  return `${item}${n > 0 ? ` (${n})` : ''}`
+}
+
 export const packetPublic = Router()
 export const packetStaff = Router()
 
@@ -181,9 +207,12 @@ packetStaff.post('/', express.json({ limit: '1mb' }), async (req: any, res) => {
     const existing = await prisma.installPacket.findUnique({ where: { jobId: job.id } })
     if (!can(roleOf(req), 'packets.change') && existing) { refuse(res, 'packets.change'); return }
     const token = !existing || existing.disabledAt ? crypto.randomBytes(24).toString('base64url') : existing.token
+    // The work as signed plus the approved change orders, whoever taps it: a phone that may not read change
+    // orders (the installer has no prices) sends the original quote's work; the server puts the change on it.
+    const snapshot = await withSignedWork(accountId, job.quoteId, body.snapshot)
     const p = existing
-      ? await prisma.installPacket.update({ where: { id: existing.id }, data: { token, snapshot: body.snapshot as any, disabledAt: null, sentAt: new Date() } })
-      : await prisma.installPacket.create({ data: { accountId, jobId: job.id, token, snapshot: body.snapshot as any } }).catch(async e => {
+      ? await prisma.installPacket.update({ where: { id: existing.id }, data: { token, snapshot: snapshot as any, disabledAt: null, sentAt: new Date() } })
+      : await prisma.installPacket.create({ data: { accountId, jobId: job.id, token, snapshot: snapshot as any } }).catch(async e => {
         // Sent at the same moment twice: the packet made first is the packet.
         if (!isUniqueViolation(e)) throw e
         return (await prisma.installPacket.findUnique({ where: { jobId: job.id } }))!
@@ -294,6 +323,9 @@ packetPublic.get('/:token', async (req, res) => {
 
   const job_ = job!
   const loc = locateOf(job_)
+  // Work (tear out and haul away) is a step for the crew, not a material to pull.
+  const parts = (s.pullSheet ?? []).filter(i => !isWorkLine(i.item))
+  const workLines = (s.pullSheet ?? []).filter(i => isWorkLine(i.item))
   const map = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job_.customerAddress)}`
   // The crew never sees a price: a dollar amount typed in a note is left out (lib/costRedact.ts).
   const crewNotes = (s.crewNotes ?? []).filter(Boolean).map(withoutMoney)
@@ -327,7 +359,8 @@ packetPublic.get('/:token', async (req, res) => {
       ${s.gates?.length ? `<h3>Gates</h3><ul>${s.gates.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
       ${s.skips?.length ? `<h3>Skips (not included)</h3><ul>${s.skips.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
     </section>
-    ${s.pullSheet?.length ? `<section><h2>Pull sheet</h2><table><thead><tr><th>Material</th><th>Qty</th></tr></thead><tbody>${s.pullSheet.map(i => `<tr><td>${esc(partWithPair(i.item))}</td><td>${esc(i.qty)}</td></tr>`).join('')}</tbody></table></section>` : ''}
+    ${workLines.length ? `<section class="notes" data-packet-work-steps><h2>Work on this job</h2><ul>${workLines.map(i => `<li>${esc(workStepText(i.item, i.qty))}</li>`).join('')}</ul></section>` : ''}
+    ${parts.length ? `<section><h2>Pull sheet</h2><table><thead><tr><th>Material</th><th>Qty</th></tr></thead><tbody>${parts.map(i => `<tr><td>${esc(partWithPair(i.item))}</td><td>${esc(i.qty)}</td></tr>`).join('')}</tbody></table></section>` : ''}
     <section><h2>Photos and video</h2>
       ${items.length ? `<div class="media">${items.map(m => {
         const src = fix(m.markupUrl ?? m.url)
@@ -350,6 +383,10 @@ packetPublic.get('/:token', async (req, res) => {
   (function(){
     document.getElementById('print').addEventListener('click',function(){window.print()});
     var tok=${JSON.stringify(String(req.params.token))};
+    // An empty date box shows "Not set" (Safari greys in today's date, which reads as filled in); a tap opens the picker.
+    ['lcalled','ldate','lexp'].forEach(function(id){var el=document.getElementById(id);if(!el||el.value)return;el.type='text';el.placeholder='Not set';el.classList.add('unset');
+      el.addEventListener('focus',function(){if(el.type!=='date'){el.type='date';el.classList.remove('unset');try{el.showPicker&&el.showPicker()}catch(e){}}});
+      el.addEventListener('blur',function(){if(!el.value){el.type='text';el.classList.add('unset')}})});
     document.getElementById('saveLocate').addEventListener('click',function(){
       var m=document.getElementById('locMsg');m.textContent='Saving...';
       var v=function(id){return document.getElementById(id).value};
@@ -484,5 +521,6 @@ h3{font-size:15px;margin:14px 0 6px}.row{display:grid;grid-template-columns:1fr 
 .media{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}.media figure{margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
 .media img,.media video{width:100%;max-height:320px;object-fit:cover;display:block;background:#000}.media figcaption{padding:8px;font-size:13px;color:var(--g)}
 .filebtn{display:flex;align-items:center;justify-content:center}
+.unset{color:#9ca3af}
 @media print{.noprint{display:none!important}body{background:#fff}section{break-inside:avoid;border:0;padding:8px 0}.media{grid-template-columns:repeat(2,1fr)}.media video{display:none}}
 `
