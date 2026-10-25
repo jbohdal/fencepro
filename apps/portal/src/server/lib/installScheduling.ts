@@ -142,7 +142,7 @@ async function factsFor(accountId: string, jobs: Json[]): Promise<ReadyJob[]> {
       scheduledDate: j.scheduledDate, scheduledEndDate: j.scheduledEndDate, crewAssigned: j.crewAssigned,
       bookedDays: grid.filter(g => g.stagingJobId === j.id && isYmd(g.date)).map(g => g.date).sort(),
       permitStatus: permits.find(p => p.jobId === j.id)?.status ?? null,
-      locatesDate: j.locatesDate || null, locatesExpDate: j.locatesExpDate || null,
+      locatesDate: j.locatesDate || null, locatesExpDate: j.locatesExpDate || null, locateTicket: j.locateTicket || null, locateCalledDate: j.locateCalledDate || null,
       deposit, depositCents, depositPaidCents, materialsStatus: j.materialsStatus, allowWeekend: weekend.has(j.id),
     })
   }

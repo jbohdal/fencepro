@@ -17,6 +17,8 @@ import { ReadyPanel, useReadyJobs, ScheduleInstallDialog, MoveInstallConfirm, Ra
 import { crewDaysOfWeek, isCrewDay, plusDays, nextCrewDay, holidayOn, weekWords, sameCrewClashes, namesWords } from '../../portal/src/server/lib/installDays'
 import { fetchWeekendJobs } from './installScheduleApi'
 import { crewHex } from './dispatchPins'
+import { locateOf, locateShortWarning } from '../../portal/src/server/lib/locates'
+import { getJob } from './jobStore'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -510,6 +512,12 @@ export default function SchedulePage() {
                                   </p>
                                   {j.sections > 0 && <p className="text-[11px] text-gray-600 leading-tight">{j.sections} sec</p>}
                                   {offDay && <p className="text-[11px] font-semibold text-red-700 leading-tight" data-offday-warning>{DAY_FULL[day.getDay()]} is not a work day any more. Move this day?</p>}
+                                  {/* The 811 locate against this install's days, on its first day (the job's one locate record). */}
+                                  {nth === 1 && (() => {
+                                    const job = j.stagingJobId ? getJob(j.stagingJobId) : null
+                                    const w = job && j.status !== 'Complete' ? locateShortWarning(locateOf(job), own[0]?.date || j.date, own[own.length - 1]?.date || j.date) : null
+                                    return w ? <p className="text-[11px] font-semibold text-amber-800 leading-tight" data-install-locate-warning title={w}>⚠ {w}</p> : null
+                                  })()}
                                 </div>
                               )
                             })}

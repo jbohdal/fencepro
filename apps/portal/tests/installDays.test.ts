@@ -103,7 +103,7 @@ describe('rain day', () => {
 })
 
 describe('warnings before booking', () => {
-  const ready = { permitStatus: 'approved', locatesDate: '2026-10-20', locatesExpDate: '2026-11-19', deposit: 'paid' as const, materialsStatus: 'ordered' }
+  const ready = { permitStatus: 'approved', locatesDate: '2026-10-20', locatesExpDate: '2026-11-19', locateTicket: '294610232', deposit: 'paid' as const, materialsStatus: 'ordered' }
   it('nothing when everything is ready', () => {
     expect(scheduleWarnings(ready, '2026-11-02', '2026-11-04')).toEqual([])
     expect(scheduleWarnings({ ...ready, permitStatus: 'not_needed' }, '2026-11-02', '2026-11-04')).toEqual([])

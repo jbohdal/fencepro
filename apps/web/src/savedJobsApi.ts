@@ -92,6 +92,11 @@ export interface SavedJobRecord {
   pullSheetPulled: boolean
   locatesDate: string | null
   locatesExpDate: string | null
+  /** The 811 locate (portal lib/locates.ts): ticket number, day called in; saved by PUT /api/saved-jobs/:id/locate only. */
+  locateTicket?: string | null
+  locateCalledDate?: string | null
+  locateUpdatedBy?: string | null
+  locateUpdatedAt?: string | null
   drawingComplete: boolean
   crewAssigned: string
   scheduledDate: string

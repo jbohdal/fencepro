@@ -15,6 +15,9 @@
  * Under /p, so the same public door as proposals serves it.
  */
 
+import { locateOf, locateStatus, locateWords } from '../lib/locates.js'
+import { saveLocate } from '../lib/jobTruth.js'
+import { floridaDay } from '../lib/automations/context.js'
 import { Router } from 'express'
 import express from 'express'
 import crypto from 'crypto'
@@ -35,6 +38,7 @@ import { packetChange, packetWithChange, sheetChanges } from '../lib/changeOrder
 import { coveredWorkOn } from '../lib/serviceTickets.js'
 import { issueLabel } from '../lib/serviceTicketModel.js'
 import { isYmd, usDate, shortDayWords } from '../lib/installDays.js'
+const todayFl = () => floridaDay(new Date())
 
 /**
  * The crew days, each one: "3 crew days: Thu 12/3, Mon 12/7, Tue 12/8" (from the Schedule), else
@@ -122,7 +126,8 @@ packetStaff.get('/', async (req: any, res) => {
   // Changed since it was sent: the change order that changed the work (send the packet again for the new site plan).
   const job = p ? await prisma.savedJob.findUnique({ where: { id: p.jobId }, select: { quoteId: true } }) : null
   const co = p ? await packetChange(p.accountId, job?.quoteId, p.sentAt).catch(() => null) : null
-  res.json({ success: true, data: p ? { id: p.id, token: p.token, disabledAt: p.disabledAt, locateTicket: p.locateTicket, locateDate: p.locateDate, sentAt: p.sentAt, changedBy: co ? { number: co.number, what: co.what } : null } : null })
+  // The 811 locate is the job's (lib/locates.ts): the job page shows and edits it; the packet saves the same fields.
+  res.json({ success: true, data: p ? { id: p.id, token: p.token, disabledAt: p.disabledAt, sentAt: p.sentAt, changedBy: co ? { number: co.number, what: co.what } : null } : null })
 })
 
 // Send (or refresh) a job's packet. A packet that was turned off gets a new link.
@@ -141,7 +146,7 @@ packetStaff.post('/', requireCan('packets.change'), express.json({ limit: '1mb' 
         if (!isUniqueViolation(e)) throw e
         return (await prisma.installPacket.findUnique({ where: { jobId: job.id } }))!
       })
-    res.json({ success: true, data: { id: p.id, token: p.token, disabledAt: p.disabledAt, locateTicket: p.locateTicket, locateDate: p.locateDate, sentAt: p.sentAt } })
+    res.json({ success: true, data: { id: p.id, token: p.token, disabledAt: p.disabledAt, sentAt: p.sentAt } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[packet] send:', err); res.status(500).json({ success: false, error: 'Could not make the packet' })
@@ -210,6 +215,7 @@ packetPublic.get('/:token', async (req, res) => {
   const fix = (u: string | null) => (u ? u.replace(/^\/api\/media\/f\//, 'm/') : null)
 
   const job_ = job!
+  const loc = locateOf(job_)
   const map = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job_.customerAddress)}`
   const crewNotes = (s.crewNotes ?? []).filter(Boolean)
   const body = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.companyName || 'Getter Done Fence')}</p><p class="small">Install packet${s.companyPhone ? ` · Office <a href="tel:${esc(s.companyPhone.replace(/[^\d+]/g, ''))}">${esc(phone(s.companyPhone))}</a>` : ''}</p></div>
@@ -223,10 +229,13 @@ packetPublic.get('/:token', async (req, res) => {
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${await workOrders(work)}
     ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
-    <section><h2>811 locate</h2>${s.work?.needs811 ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
-      <div class="row"><label class="field">Ticket number<input id="ticket" value="${esc(p.locateTicket ?? '')}" maxlength="60" inputmode="numeric"></label>
-      <label class="field">Date<input id="ldate" type="date" value="${esc(p.locateDate ?? '')}"></label></div>
-      <button type="button" id="saveLocate" class="btn noprint">Save locate</button><p id="locMsg" class="small"></p>
+    <section data-packet-locate-section><h2>811 locate</h2>${s.work?.needs811 ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
+      <p class="facts" id="locStatus" data-packet-locate-status="${esc(locateStatus(loc, todayFl()))}">${esc(locateWords(loc, todayFl()).text)}</p>
+      <div class="row"><label class="field">Ticket number<input id="ticket" value="${esc(loc.ticket ?? '')}" maxlength="40" inputmode="numeric" autocomplete="off"></label>
+      <label class="field">Called in<input id="lcalled" type="date" value="${esc(loc.calledDate ?? '')}"></label></div>
+      <div class="row"><label class="field">Good to dig<input id="ldate" type="date" value="${esc(loc.goodDate ?? '')}"></label>
+      <label class="field">Expires<input id="lexp" type="date" value="${esc(loc.expDate ?? '')}"></label></div>
+      <button type="button" id="saveLocate" class="btn noprint">Save locate</button><p id="locMsg" class="small" aria-live="polite">The office sees it on the job right away.</p>
     </section>
     <section><h2>The fence</h2>
       <p class="facts">${esc(styleText)}${s.footageFt ? ` · ${Math.round(s.footageFt)} ft` : ''}${s.sections ? ` · ${s.sections} sections` : ''}</p>
@@ -261,8 +270,12 @@ packetPublic.get('/:token', async (req, res) => {
     var tok=${JSON.stringify(String(req.params.token))};
     document.getElementById('saveLocate').addEventListener('click',function(){
       var m=document.getElementById('locMsg');m.textContent='Saving...';
-      fetch(tok+'/locate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticket:document.getElementById('ticket').value,date:document.getElementById('ldate').value})})
-        .then(function(r){return r.json()}).then(function(j){m.textContent=j.success?'Saved.':(j.error||'Could not save.')}).catch(function(){m.textContent='No connection. Try again.'});
+      var v=function(id){return document.getElementById(id).value};
+      fetch(tok+'/locate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticket:v('ticket'),calledDate:v('lcalled'),goodDate:v('ldate'),expDate:v('lexp')})})
+        .then(function(r){return r.json()}).then(function(j){
+          if(j.success){m.textContent='Saved. The office sees it on the job.';var st=document.getElementById('locStatus');if(j.data&&j.data.text){st.textContent=j.data.text;st.setAttribute('data-packet-locate-status',j.data.status)}}
+          else m.textContent=j.error||'Could not save.'
+        }).catch(function(){m.textContent='No connection. Try again.'});
     });
     var files=document.getElementById('files'),msg=document.getElementById('upMsg');
     files.addEventListener('change',function(){
@@ -323,10 +336,19 @@ function rank(m: { kind: string; category: string; markupUrl: string | null }): 
 packetPublic.post('/:token/locate', express.json({ limit: '8kb' }), async (req, res) => {
   const found = await load(String(req.params.token))
   if (!found || packetClosed(found.p, found.job, Date.now(), found.work.length)) { res.status(410).json({ success: false, error: 'This packet is not active.' }); return }
-  const b = z.object({ ticket: z.string().max(60), date: z.string().max(20) }).safeParse(req.body)
-  if (!b.success) { res.status(400).json({ success: false, error: 'Check the ticket and date.' }); return }
-  await prisma.installPacket.update({ where: { id: found.p.id }, data: { locateTicket: b.data.ticket.trim() || null, locateDate: b.data.date.trim() || null } })
-  res.json({ success: true })
+  const b = z.object({ ticket: z.string().max(60).optional(), calledDate: z.string().max(20).optional(), goodDate: z.string().max(20).optional(), expDate: z.string().max(20).optional(), date: z.string().max(20).optional() }).safeParse(req.body)
+  if (!b.success) { res.status(400).json({ success: false, error: 'Check the ticket and the dates.' }); return }
+  try {
+    // The job's one locate record (lib/locates.ts), the same the job page edits. A packet page opened before
+    // the four fields sends { ticket, date }: its date is the good to dig date.
+    const row = await saveLocate(found.p.accountId, found.p.jobId, { ticket: b.data.ticket, calledDate: b.data.calledDate, goodDate: b.data.goodDate ?? b.data.date, expDate: b.data.expDate }, 'Crew (install packet)')
+    const w = locateWords(locateOf(row), todayFl())
+    res.json({ success: true, data: { status: w.status, text: w.text } })
+  } catch (err: any) {
+    if (err?.status) { res.status(err.status).json({ success: false, error: err.message }); return }
+    console.error('[packet] locate:', err)
+    res.status(500).json({ success: false, error: 'Could not save. Try again.' })
+  }
 })
 
 const crewUpload = multer({

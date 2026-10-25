@@ -64,8 +64,13 @@ export interface Job {
   // Operations — staging
   materialsStatus: MaterialsStatus
   pullSheetPulled: boolean
-  locatesDate?: string         // call-before-you-dig date
+  /** The 811 locate, one record on the job (portal lib/locates.ts): good to dig date, expiration, ticket, day called in. Saved only by saveJobLocate. */
+  locatesDate?: string
   locatesExpDate?: string
+  locateTicket?: string
+  locateCalledDate?: string
+  locateUpdatedBy?: string
+  locateUpdatedAt?: string
   drawingComplete: boolean
 
   // Operations — scheduling
@@ -136,6 +141,10 @@ function fromApi(r: SavedJobRecord): Job {
     pullSheetPulled: r.pullSheetPulled,
     locatesDate: r.locatesDate || undefined,
     locatesExpDate: r.locatesExpDate || undefined,
+    locateTicket: r.locateTicket || undefined,
+    locateCalledDate: r.locateCalledDate || undefined,
+    locateUpdatedBy: r.locateUpdatedBy || undefined,
+    locateUpdatedAt: r.locateUpdatedAt || undefined,
     drawingComplete: r.drawingComplete,
     crewAssigned: r.crewAssigned,
     scheduledDate: r.scheduledDate,
@@ -185,8 +194,7 @@ function toApiPayload(j: Partial<Job>) {
     gmPct: j.gmPct,
     materialsStatus: j.materialsStatus,
     pullSheetPulled: j.pullSheetPulled,
-    locatesDate: j.locatesDate ?? null,
-    locatesExpDate: j.locatesExpDate ?? null,
+    // The 811 locate is never sent with a job save: it has its own (saveJobLocate), shared with the crew packet.
     drawingComplete: j.drawingComplete,
     crewAssigned: j.crewAssigned,
     scheduledDate: j.scheduledDate,
@@ -453,6 +461,22 @@ export function updateJob(id: string, updates: Partial<Job>): Job | null {
   }
 
   return job
+}
+
+/* ───────── the 811 locate ───────── */
+
+/**
+ * Save the job's 811 locate (ticket, called in, good to dig, expires) on the
+ * server, the one record the crew packet edits too. Needs signal; the job
+ * shows the server's answer.
+ */
+export async function saveJobLocate(id: string, input: { ticket: string; calledDate: string; goodDate: string; expDate: string }): Promise<{ ok: true; job: Job } | { ok: false; error: string }> {
+  const r = await sendJson('PUT', `/api/saved-jobs/${encodeURIComponent(id)}/locate`, input)
+  if (!r.result.ok || !r.json?.data) return { ok: false, error: r.json?.error || (r.status === 0 ? 'No signal. Try again when the phone has signal.' : 'Could not save the locate.') }
+  const job = fromApi(r.json.data as SavedJobRecord)
+  cache = cache.map(j => j.id === id ? { ...j, locatesDate: job.locatesDate, locatesExpDate: job.locatesExpDate, locateTicket: job.locateTicket, locateCalledDate: job.locateCalledDate, locateUpdatedBy: job.locateUpdatedBy, locateUpdatedAt: job.locateUpdatedAt, updatedAt: job.updatedAt } : j)
+  emit()
+  return { ok: true, job: cache.find(j => j.id === id) ?? job }
 }
 
 /* ───────── status transitions ───────── */
