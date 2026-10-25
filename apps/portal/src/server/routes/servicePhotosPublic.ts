@@ -46,7 +46,7 @@ async function companyOf(accountId: string) {
   return { name: String(c.name || 'Getter Done Fence'), phone: String(c.phone || '') }
 }
 
-const shownPhone = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p }
+const shownPhone = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : p }
 const callUs = (phone: string) => phone ? `Call us at <a href="tel:${esc(phone.replace(/[^\d+]/g, ''))}"><b>${esc(shownPhone(phone))}</b></a>.` : 'Please call us.'
 
 function headers(res: any, nonce: string) {

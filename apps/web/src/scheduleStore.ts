@@ -224,3 +224,12 @@ export function saveRainLog(log: RainDayEntry[]): void {
 
 export const SCHEDULE_UPDATED_EVENT = SETTINGS_EVT
 export const RAIN_LOG_UPDATED_EVENT = RAIN_EVT
+
+/** A crew as Schedule > Settings names it: an id ("crew1") or a name in any spacing or capitals gives its name ("Crew 1"); anything else as typed. */
+export function crewName(v: string | null | undefined): string {
+  const t = (v || '').trim()
+  if (!t) return ''
+  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, '')
+  const c = loadSchedule().settings.crews.find(x => x.id === t || norm(x.name) === norm(t))
+  return c ? c.name : t
+}

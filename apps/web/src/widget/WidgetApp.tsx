@@ -55,8 +55,8 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 const jsonInit = (method: string, body: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
-/** (352) 789-4314 for a 10 digit number, else as typed in Settings. */
-const showPhone = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p }
+/** (352) 789 4314 for a 10 digit number, else as typed in Settings. */
+const showPhone = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : p }
 
 /** The county's lot lines around a point (free, public), or null. */
 async function parcelAt(p: LatLng): Promise<LatLng[] | null> {

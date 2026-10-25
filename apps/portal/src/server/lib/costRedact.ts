@@ -131,11 +131,10 @@ export function redactCosts<T>(value: T, h: Hide = {}): T {
 }
 
 function walk(v: unknown, h: Hide): unknown {
-  // A date (or a Prisma decimal) is sent as what it turns into on the way out:
-  // walked as an object it came out as {}, and a Salesman's card window drew
-  // that {} and blanked the app (walkthrough, Oct 24, 2026). Dates showed as
-  // "Invalid Date" on her Today screen the same way.
-  if (v && typeof v === 'object' && typeof (v as { toJSON?: unknown }).toJSON === 'function') v = (v as { toJSON: () => unknown }).toJSON()
+  // A Date, Decimal or Buffer is kept whole (isObj below: walked as an object a date came out as {} and
+  // blanked a Salesman's card window, Oct 24, 2026). A plain object with its own toJSON is walked as what it
+  // turns into on the way out, so a cost inside that is left out too.
+  if (isObj(v) && typeof (v as { toJSON?: unknown }).toJSON === 'function') v = (v as { toJSON: () => unknown }).toJSON()
   if (Array.isArray(v)) return v.map(x => walk(x, h))
   // The Installer: a dollar amount typed in a note is left out too.
   if (h.prices && typeof v === 'string') return v.includes('$') ? withoutMoney(v) : v

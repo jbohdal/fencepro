@@ -58,7 +58,7 @@ export function inScope(kind: ScopedKind, s: CrewScope, item: any): boolean {
 }
 
 /** Words in a path that are routes, not record ids. */
-const NOT_IDS = new Set(['sync', 'notes', 'geo', 'team', 'share', 'cards', 'board', 'column', 'search', 'pages', 'words', 'archived'])
+const NOT_IDS = new Set(['sync', 'notes', 'geo', 'team', 'share', 'cards', 'board', 'column', 'search', 'pages', 'words', 'archived', 'milestones'])
 
 /**
  * Middleware for one record kind. For the Installer: a list answer keeps only

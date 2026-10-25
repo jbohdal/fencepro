@@ -35,6 +35,7 @@ import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage } from '../lib
 import { floridaDay } from '../lib/automations/context.js'
 import { jobTotalsFor } from '../lib/changeOrders.js'
 import { afterJobSaved } from '../lib/contractBilling.js'
+import { saveLocate, jobMilestones, milestoneSummary, setHandTick } from '../lib/jobTruth.js'
 
 const router = Router()
 
@@ -126,6 +127,11 @@ const jobSchema = z.object({
 
 const jobUpdateSchema = jobSchema.partial()
 
+/** A job save never writes these: the 811 locate has its own save (PUT /:id/locate), from the job page and the crew packet. */
+const LOCATE_KEYS = ['locatesDate', 'locatesExpDate', 'locateTicket', 'locateCalledDate'] as const
+/** With a payment schedule, the paid figures come from it (lib/contractBilling.ts settleIn), never from a screen's copy. */
+const PAID_KEYS = ['amountPaid', 'paymentStatus', 'paymentDate', 'paymentMethod'] as const
+
 // ── List ──
 router.get('/', requireUser, requireAccount, async (req: any, res) => {
   try {
@@ -147,6 +153,16 @@ router.get('/', requireUser, requireAccount, async (req: any, res) => {
   } catch (err) {
     console.error('[saved-jobs] list error:', err)
     res.status(500).json({ success: false, error: 'Failed to list jobs' })
+  }
+})
+
+// ── Milestones of every open job (the board cards' count; lib/jobTruth.ts) ──
+router.get('/milestones/summary', requireUser, requireAccount, async (req: any, res) => {
+  try {
+    res.json({ success: true, data: await milestoneSummary(req.user.crmAccountId) })
+  } catch (err) {
+    console.error('[saved-jobs] milestone summary error:', err)
+    res.status(500).json({ success: false, error: 'Could not read the milestones' })
   }
 })
 
@@ -241,6 +257,9 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     // A login that never had the margin, or the prices (the Installer), leaves them as saved.
     if (hidesCosts(roleOf(req))) delete (data as any).gmPct
     if (hidesPrices(roleOf(req))) for (const k of Object.keys(data)) if (isPriceKey(k)) delete (data as any)[k]
+    // One record each: the locate (its own save) and the paid figures (the payment schedule).
+    for (const k of LOCATE_KEYS) delete (data as any)[k]
+    if (await prisma.paymentSchedule.findFirst({ where: { accountId: req.user.crmAccountId, jobId: req.params.id }, select: { id: true } })) for (const k of PAID_KEYS) delete (data as any)[k]
     const existing = await prisma.savedJob.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.accountId !== req.user.crmAccountId || existing.deletedAt) {
       res.status(404).json({ success: false, error: 'Job not found' })
@@ -299,6 +318,48 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-jobs] update error:', err)
     res.status(500).json({ success: false, error: 'Failed to update job' })
+  }
+})
+
+// ── The 811 locate: one record on the job (lib/locates.ts); the crew packet saves the same fields ──
+/** The person, by name (Settings > Team), for "Ticked by hand by ..." and the locate's "Last saved by". */
+async function whoOf(req: any): Promise<string> {
+  const u = req.user?.id ? await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } }).catch(() => null) : null
+  return `${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim() || String(req.user?.email || 'staff')
+}
+router.put('/:id/locate', requireUser, requireAccount, requireCan('schedule.change'), async (req: any, res) => {
+  try {
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const row = await saveLocate(req.user.crmAccountId, String(req.params.id), { ticket: b.ticket, calledDate: b.calledDate, goodDate: b.goodDate, expDate: b.expDate }, await whoOf(req))
+    res.json({ success: true, data: row })
+  } catch (err: any) {
+    if (err?.status) { res.status(err.status).json({ success: false, error: err.message }); return }
+    console.error('[saved-jobs] locate error:', err)
+    res.status(500).json({ success: false, error: 'Could not save the locate' })
+  }
+})
+
+// ── Milestones: worked out from the job's records; a tick by hand where allowed (lib/jobReadiness.ts) ──
+router.get('/:id/milestones', requireUser, requireAccount, async (req: any, res) => {
+  try {
+    res.json({ success: true, data: await jobMilestones(req.user.crmAccountId, String(req.params.id)) })
+  } catch (err: any) {
+    if (err?.status) { res.status(err.status).json({ success: false, error: err.message }); return }
+    console.error('[saved-jobs] milestones error:', err)
+    res.status(500).json({ success: false, error: 'Could not read the milestones' })
+  }
+})
+router.post('/:id/milestones', requireUser, requireAccount, requireCan('schedule.change'), async (req: any, res) => {
+  try {
+    const b = z.object({ label: z.string().min(1).max(200), ticked: z.boolean() }).parse(req.body)
+    await setHandTick(req.user.crmAccountId, String(req.params.id), b.label, b.ticked, await whoOf(req))
+    await audit(req, 'update', 'SavedJob', String(req.params.id), { newValues: { milestone: b.label, tickedByHand: b.ticked } })
+    res.json({ success: true, data: await jobMilestones(req.user.crmAccountId, String(req.params.id)) })
+  } catch (err: any) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    if (err?.status) { res.status(err.status).json({ success: false, error: err.message }); return }
+    console.error('[saved-jobs] milestone tick error:', err)
+    res.status(500).json({ success: false, error: 'Could not save the tick' })
   }
 })
 

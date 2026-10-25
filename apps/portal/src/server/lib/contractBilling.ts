@@ -173,6 +173,8 @@ export async function makeScheduleIn(tx: any, accountId: string, jobId: string, 
     kind: 'made', by,
     text: `Payment schedule made from the contract (${moneyText(contractCents)}${handMade.length ? `, around ${handMade.length} invoice${handMade.length === 1 ? '' : 's'} typed in Billing` : `, ${depositPct}% deposit`}).`,
   })
+  // The job's payment status follows the schedule from the moment it is made: invoiced (the deposit is due), not "Not invoiced yet".
+  await settleIn(tx, accountId, jobId, 'payment schedule made', by)
   return schedule
 }
 

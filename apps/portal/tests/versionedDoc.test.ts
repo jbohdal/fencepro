@@ -136,3 +136,29 @@ describe('two tabs, one record', () => {
     expect(server.stats().saves).toBe(2)
   })
 })
+
+describe('the merge says whether the other save touched the same part', () => {
+  test('the server saved another field (a new job\'s milestone list): no overlap; the same field: overlap', async () => {
+    type Biz = { jobChecklists: Record<string, unknown>; pendingOrders: unknown[] }
+    let server: { data: Biz; version: number } = { data: { jobChecklists: {}, pendingOrders: [] }, version: 1 }
+    let local: Biz = copy(server.data)
+    const seen: boolean[] = []
+    const doc = createVersionedDoc<Biz>({
+      get: () => local, apply: n => { local = n },
+      save: async (s, v): Promise<SaveResult<Biz>> => {
+        if (v !== server.version) return { status: 'stale', server: copy(server.data), version: server.version }
+        server = { data: copy(s), version: v + 1 }
+        return { status: 'saved', version: server.version }
+      },
+      onMerged: ({ overlap }) => seen.push(overlap),
+    })
+    doc.loaded(copy(server.data), 1)
+    server = { data: { ...server.data, jobChecklists: { j1: [] } }, version: 2 }  // the server, on its own
+    local = { ...local, pendingOrders: [{ id: 'po1' }] }
+    expect(await doc.push()).toBe(true)
+    server = { data: { ...server.data, pendingOrders: [{ id: 'po1' }, { id: 'po2' }] }, version: server.version + 1 }  // someone else, same field
+    local = { ...local, pendingOrders: [{ id: 'po1' }, { id: 'po3' }] }
+    await doc.push()
+    expect(seen).toEqual([false, true])
+  })
+})

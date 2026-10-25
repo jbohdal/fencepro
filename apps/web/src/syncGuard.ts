@@ -146,7 +146,7 @@ export function createVersionedFlusher<T>(opts: {
       if (r.status === 'refused' && r.server !== undefined) serverCopy = JSON.parse(JSON.stringify(r.server ?? null))
       return r
     },
-    onMerged: ({ problems }) => {
+    onMerged: ({ problems, overlap }) => {
       // A screen holding its own copy of this record needs to read it again.
       // One that can do so in place says so (useMergedRefresh); otherwise the
       // app shell remounts the open page.
@@ -155,7 +155,9 @@ export function createVersionedFlusher<T>(opts: {
         if (!handled) window.dispatchEvent(new CustomEvent('ezbiz:reload-page-data'))
       } catch {}
       if (problems.length > 0) toast.error(`${opts.name}: not everything could be saved`, problems.join(' '))
-      else toast.info(`${opts.name} updated`, 'Someone changed this on another phone or computer at the same time. Both changes are kept.')
+      // Only when the other save touched the same part: the server's own saves alongside this one (a new job's
+      // milestone list when a quote is marked Sold) are not "someone else" and need no word (Oct 25 2026).
+      else if (overlap) toast.info(`${opts.name} updated`, 'Someone changed this on another phone or computer at the same time. Both changes are kept.')
     },
   })
   docs.set(opts.name, { push: () => doc.push(), isHydrated: opts.isHydrated })

@@ -55,10 +55,10 @@ export const stylePhotos = Router()
 
 // ── Helpers ──
 
-/** A phone number to tap: (352) 789-4314. */
+/** A phone number to tap: (352) 789 4314. */
 function tel(p: string): string {
   const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
-  const shown = d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p
+  const shown = d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : p
   return `<a href="tel:${esc(p.replace(/[^\d+]/g, ''))}" style="white-space:nowrap;display:inline-block;padding:14px 4px;margin:-14px 0">${esc(shown)}</a>`
 }
 

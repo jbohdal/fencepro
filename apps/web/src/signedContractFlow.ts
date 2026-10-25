@@ -14,7 +14,8 @@
  * Throws on failure so the caller can roll back the UI transition.
  */
 
-import { stageHasRole, stageName } from './pipelineStagesStore'
+import { stageHasRole, stageName, roleId, isSold, isOpen } from './pipelineStagesStore'
+import { businessDate } from './businessDate'
 import { getPipeline, savePipeline } from './pipelineStore'
 import type { SavedQuote } from './QuotesPage'
 import { getCustomerById, logCustomerActivity, upsertCustomer, type Customer } from './customerStore'
@@ -110,9 +111,46 @@ export function markQuoteSold(quoteId: string, opts?: { actor?: string }): Signe
     } catch {}
   }
 
+  // Marked Sold here (not by dropping the card on Signed): the customer's card goes to the Signed stage too, with
+  // the quote and job on it, so close out later finds it (Oct 25 2026: it stayed in First Contact).
+  if (opts?.actor !== 'pipeline') { try { moveCardToSigned(updatedQuote, job?.id ?? null) } catch { /* the card can be moved by hand */ } }
+
   try { window.dispatchEvent(new CustomEvent(JOBS_UPDATED_EVENT)) } catch {}
 
   return { quote: updatedQuote, job: job!, alreadySold }
+}
+
+/**
+ * The card of a quote marked Sold: the card carrying the quote, else the
+ * customer's only open card (by customer id; never by name, phone or email).
+ * Moved to the Signed stage (Settings > Pipeline Stages) with the quote and job
+ * stamped; a card already in a Sold stage keeps its stage. Null when no single
+ * card is found (the customer's activity says so).
+ */
+export function cardForSoldQuote(leads: any[], quote: { id: string; customerId?: string }): any | null {
+  const own = leads.filter(l => l?.quoteId === quote.id)
+  if (own.length === 1) return own[0]
+  if (own.length > 1 || !quote.customerId) return null
+  const open = leads.filter(l => l?.customerId === quote.customerId && (isOpen(l.stage) || isSold(l.stage)) && !l.quoteId)
+  return open.length === 1 ? open[0] : null
+}
+
+function moveCardToSigned(quote: SavedQuote, jobId: string | null) {
+  const target = roleId('signed')
+  if (!target) return
+  const leads = getPipeline().leads || []
+  const card = cardForSoldQuote(leads, quote)
+  if (!card) {
+    if (quote.customerId) logCustomerActivity(quote.customerId, `Quote marked SOLD; no single pipeline card found to move to ${stageName(target)}. Move it by hand if needed.`, { kind: 'stage_change' })
+    return
+  }
+  const stage = isSold(card.stage) ? card.stage : target
+  if (card.stage === stage && card.quoteId === quote.id && (!jobId || card.jobId === jobId)) return
+  savePipeline(leads.map((l: any) => (l.id === card.id ? { ...l, stage, quoteId: quote.id, ...(jobId ? { jobId } : {}), lastMoved: stage !== card.stage ? businessDate(new Date()) : l.lastMoved } : l)))
+  if (stage !== card.stage) {
+    try { fireSalesStageChange(card.customerId || card.id, card.stage, stage, { customerName: `${card.firstName ?? ''} ${card.lastName ?? ''}`.trim(), customerPhone: card.phone, customerEmail: card.email, jobAddress: card.address }) } catch { /* recorded server side */ }
+    try { window.dispatchEvent(new CustomEvent(PIPELINE_UPDATED_EVENT)) } catch {}
+  }
 }
 
 /**

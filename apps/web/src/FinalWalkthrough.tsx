@@ -10,6 +10,7 @@
  * (walkthroughStore), photos through the media queue (mediaStore).
  */
 
+import { customerText } from '../../portal/src/server/lib/customerText'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Camera, Images, Check, AlertTriangle, PenLine, FileText, Copy, MessageSquare, Mail, ExternalLink, X, Minus, Plus, MapPin, Eye, EyeOff, Wrench } from 'lucide-react'
 import type { Job } from './jobStore'
@@ -506,7 +507,8 @@ function SendToHomeowner({ w, job, compact = false }: { w: Walkthrough; job: Job
     if (!u) return
     if (kind === 'open') window.open(u, '_blank', 'noopener')
     // Texts and emails go from this phone's own apps: nothing is sent by a service.
-    if (kind === 'text') window.location.href = smsLink(job.customerPhone || '', message(u))
+    // The text in the registered form: "Company: ... Reply STOP to opt out." (lib/customerText.ts).
+    if (kind === 'text') window.location.href = smsLink(job.customerPhone || '', customerText(message(u), company))
     if (kind === 'email') window.location.href = mailtoLink(job.customerEmail || '', `Your final walkthrough from ${company}`, message(u))
     if (kind === 'copy') { await navigator.clipboard?.writeText(u).catch(() => {}); toast.success('Link copied') }
   }
@@ -517,7 +519,7 @@ function SendToHomeowner({ w, job, compact = false }: { w: Walkthrough; job: Job
     setBusy(false)
     if (ok) { setUrl(null); toast.success('Link turned off') } else toast.error('Could not turn the link off. Try again.')
   }
-  const day = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const day = (d: string) => { const t = new Date(typeof d === 'string' ? d : NaN); return Number.isNaN(t.getTime()) ? 'its end date' : t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
   const state = w.link?.state === 'off' ? 'Link turned off. Sending it again makes a new link.'
     : w.link?.state === 'expired' ? 'Link ran out. Sending it again makes a new link.'
     : w.link?.expiresAt ? `Link works until ${day(w.link.expiresAt)}.` : 'No link sent yet.'

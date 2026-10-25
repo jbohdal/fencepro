@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react'
 import { sendJson } from './syncHttp'
 import {
   normalizeStages, START_OPS_STAGES, stageOfJob, stageById, phaseOf, nextStage, pickableStages, boardStages, sideStages,
-  fieldsForStage, firstStage, completeStage, reconcileOpsStage,
+  fieldsForStage, firstStage, completeStage, reconcileOpsStage, isDonePhase,
   type OpsStageDef, type OpsJobLike,
 } from './opsStageModel'
 
@@ -82,6 +82,8 @@ export const stageName = (id: string | null | undefined) => stageById(list, id)?
 export const stageColor = (id: string | null | undefined) => stageById(list, id)?.color ?? '#9ca3af'
 export const stagePhase = (id: string) => phaseOf(list, id)
 export const nextOpsStage = (id: string) => nextStage(list, id)
+/** Advance from here: none from a done stage (Complete, Invoiced, Paid): a finished job is not pushed on by hand (Oct 25 2026: a paid, Complete job offered "Advance to Invoiced"). */
+export const advanceStage = (id: string) => (isDonePhase(phaseOf(list, id)) ? null : nextStage(list, id))
 export const pickable = () => pickableStages(list)
 export const columns = () => boardStages(list)
 export const sideLanes = () => sideStages(list)

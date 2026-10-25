@@ -50,9 +50,9 @@ describe('the Installer: no price and no cost', () => {
 
 describe('reading: dates stay dates', () => {
   // A Salesman's card window drew a note's createdAt that had come out as {} and blanked the app (walkthrough, Oct 24, 2026).
-  test('a Date is sent as its ISO text, not {}', () => {
+  test('a Date stays a date (sent as its ISO text), not {}', () => {
     const at = new Date('2026-10-24T18:30:00Z')
-    const r = redactCosts({ notes: [{ id: 'n1', body: 'Has 2 dogs', createdAt: at, updatedAt: at, deletedAt: null }], when: at }) as any
+    const r = JSON.parse(JSON.stringify(redactCosts({ notes: [{ id: 'n1', body: 'Has 2 dogs', createdAt: at, updatedAt: at, deletedAt: null }], when: at }))) as any
     expect(r.notes[0].createdAt).toBe('2026-10-24T18:30:00.000Z')
     expect(r.when).toBe('2026-10-24T18:30:00.000Z')
     expect(r.notes[0].deletedAt).toBeNull()

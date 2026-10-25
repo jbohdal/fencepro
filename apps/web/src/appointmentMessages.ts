@@ -26,6 +26,7 @@
  * be edited away; the email and the calendar invite do not get them.
  */
 
+import { customerText } from '../../portal/src/server/lib/customerText'
 import { formatPhone } from './phoneFormat'
 import { longWhen, type Appointment, type AppointmentType } from './appointmentLogic'
 
@@ -206,15 +207,9 @@ export function messageValues(a: MessageAppointment, ctx: MessageContext, extra:
   }
 }
 
-const STOP = 'Reply STOP to opt out.'
-
-/** A text as it goes out: "Company: ..." and "Reply STOP to opt out." (once each). */
+/** A text as it goes out: "Company: ..." and "Reply STOP to opt out." (once each), the one function every customer text uses (portal lib/customerText.ts). */
 export function asText(body: string, company: MessageContext['company']): string {
-  const name = companyName(company)
-  let t = body.trim()
-  if (!t.toLowerCase().startsWith(`${name.toLowerCase()}:`)) t = `${name}: ${t}`
-  if (!/reply stop to opt out\.?$/i.test(t)) t = `${t} ${STOP}`
-  return t
+  return customerText(body, companyName(company))
 }
 
 /** The confirmation as written (the email body). */

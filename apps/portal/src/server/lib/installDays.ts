@@ -1,7 +1,7 @@
 /**
  * Scheduling an install: the crew days it fills, the warnings before it is
- * booked, the rain day shift, and the customer's confirmation text. Pure, no
- * imports: the server (lib/installScheduling.ts) and the web app
+ * booked, the rain day shift, and the customer's confirmation text. Pure (it
+ * imports only the pure lib/locates.ts and lib/customerText.ts): the server (lib/installScheduling.ts) and the web app
  * (apps/web/src/ScheduleInstall.tsx) use this one file.
  *
  * Crew working days (CLAUDE.md, "Working days"): crews work Monday to
@@ -10,6 +10,9 @@
  * job itself is booked "weekends too" (allowWeekend), which makes every day a
  * crew day for that job. Dates are plain YYYY-MM-DD calendar days.
  */
+
+import { locateOf, locateWarnings, locateWords, type LocateStatus } from './locates.js'
+import { customerText } from './customerText.js'
 
 export type Ymd = string
 
@@ -101,9 +104,11 @@ export function rainDayMoves(booked: BookedDay[], from: Ymd, shift: number, sett
 export interface ReadyFacts {
   /** The job's Permit record status (lib/automations/permits.ts), or null when it has none. */
   permitStatus: string | null
-  /** The 811 locate ticket: when it was called in / good from, and when it runs out. */
+  /** The 811 locate (lib/locates.ts): good to dig date, expiration date, ticket number, day called in. */
   locatesDate: Ymd | null
   locatesExpDate: Ymd | null
+  locateTicket?: string | null
+  locateCalledDate?: Ymd | null
   /** none: no payment schedule yet. */
   deposit: 'paid' | 'part' | 'unpaid' | 'none'
   materialsStatus: string
@@ -119,9 +124,8 @@ export function scheduleWarnings(f: ReadyFacts, start: Ymd, end: Ymd): ScheduleW
   if (f.permitStatus !== 'not_needed' && !PERMIT_ISSUED.includes(f.permitStatus ?? '')) {
     out.push({ key: 'permit', text: f.permitStatus ? `Permit not issued yet (${permitWords(f.permitStatus).toLowerCase()}).` : 'No permit on the job yet: mark it issued, or Not needed, on the job page.' })
   }
-  if (!f.locatesDate && !f.locatesExpDate) out.push({ key: 'locates', text: 'No 811 locate ticket on the job.' })
-  else if (f.locatesExpDate && f.locatesExpDate < start) out.push({ key: 'locates', text: `The 811 ticket ran out on ${usDate(f.locatesExpDate)}, before the install starts.` })
-  else if (f.locatesExpDate && f.locatesExpDate < end) out.push({ key: 'locates', text: `The 811 ticket runs out on ${usDate(f.locatesExpDate)}, before the last crew day (${usDate(end)}).` })
+  // The 811 locate: no ticket, the install before the good to dig date, or the ticket running out before or within 3 days of it.
+  out.push(...locateWarnings(locateOf(f), start, end))
   if (f.deposit === 'unpaid' || f.deposit === 'none') out.push({ key: 'deposit', text: f.deposit === 'none' ? 'No deposit recorded (no payment schedule on the job yet).' : 'Deposit not paid yet.' })
   else if (f.deposit === 'part') out.push({ key: 'deposit', text: 'Deposit only partly paid.' })
   if (!f.materialsStatus || f.materialsStatus === 'not_ordered') out.push({ key: 'materials', text: 'Materials not ordered yet.' })
@@ -133,11 +137,11 @@ export function permitWords(status: string | null | undefined): string {
   return status ? (w[status] ?? status) : 'Not set'
 }
 
-/** 811 in words, as of `day`. */
-export function locatesWords(f: Pick<ReadyFacts, 'locatesDate' | 'locatesExpDate'>, day: Ymd): { state: 'missing' | 'ok' | 'expired'; text: string } {
-  if (!f.locatesDate && !f.locatesExpDate) return { state: 'missing', text: 'No ticket' }
-  if (f.locatesExpDate && f.locatesExpDate < day) return { state: 'expired', text: `Expired ${usDate(f.locatesExpDate)}` }
-  return { state: 'ok', text: f.locatesExpDate ? `Good to ${usDate(f.locatesExpDate)}` : `Called ${usDate(f.locatesDate!)}` }
+/** 811 in words, as of `day` (lib/locates.ts): missing (not called), waiting (called, not clear yet), ok (clear to dig), expired. */
+export function locatesWords(f: Pick<ReadyFacts, 'locatesDate' | 'locatesExpDate' | 'locateTicket' | 'locateCalledDate'>, day: Ymd): { state: 'missing' | 'waiting' | 'ok' | 'expired'; status: LocateStatus; text: string } {
+  const w = locateWords(locateOf(f), day)
+  const state = w.status === 'not_called' ? 'missing' : w.status === 'called' ? 'waiting' : w.status === 'clear' ? 'ok' : 'expired'
+  return { state, status: w.status, text: w.text }
 }
 
 /* ── The customer's text ────────────────────────────────────────────────── */
@@ -279,10 +283,11 @@ export function customerPhoneToGive(repPhone: string | null | undefined, company
 export function installText(kind: 'scheduled' | 'moved' | 'off', o: { company: string; firstName: string; start: Ymd; phone: string }): string {
   const name = (o.firstName || '').trim() || 'there'
   const when = usDate(o.start)
-  const call = o.phone ? ` Questions? Call ${o.phone}.` : ''
-  if (kind === 'off') return `${(o.company || 'Getter Done Fence').trim()}: Hi ${name}, your fence installation date is being changed. We'll call you with a new date.${call} Reply STOP to opt out.`
+  const call = o.phone ? ` Questions? Call ${phoneWords(o.phone)}.` : ''
+  // The company name in front and "Reply STOP to opt out." at the end, once each (lib/customerText.ts).
+  if (kind === 'off') return customerText(`Hi ${name}, your fence installation date is being changed. We'll call you with a new date.${call}`, o.company)
   const what = kind === 'scheduled'
     ? `your fence installation is scheduled to start on ${when}.`
     : `your fence installation has moved and is now scheduled to start on ${when}.`
-  return `${(o.company || 'Getter Done Fence').trim()}: Hi ${name}, ${what} Our crew will arrive in the morning.${call} Reply STOP to opt out.`
+  return customerText(`Hi ${name}, ${what} Our crew will arrive in the morning.${call}`, o.company)
 }

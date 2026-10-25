@@ -19,6 +19,7 @@ import {
   type WalkItem, type PhotoSlot, type Signature, type PunchLike, type LayoutSides,
 } from './walkthroughRules.js'
 import { makeCertificate } from './walkthroughCertificate.js'
+import { closeOutIfDone } from './jobTruth.js'
 import { serializeMedia } from './media.js'
 
 export type WalkthroughRow = NonNullable<Awaited<ReturnType<typeof prisma.walkthrough.findUnique>>>
@@ -113,6 +114,8 @@ export async function afterSignature(w: WalkthroughRow): Promise<void> {
     data: { walkthroughId: w.id, homeowner: sig(w.homeownerSig)!.name, rep: sig(w.repSig)!.name, repRole: sig(w.repSig)!.role },
     dedupeKey: `walkthrough:${w.id}:signed`,
   })
+  // Signed and paid in full: the job moves to Complete by itself (lib/jobTruth.ts).
+  await closeOutIfDone(w.accountId, w.jobId, 'final walkthrough signed')
 }
 
 /** After a punch item is fixed: the last one fixed clears the punch list (an event, once). */

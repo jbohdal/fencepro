@@ -29,7 +29,7 @@ export interface VersionedDocOptions<T> {
    *  server's copy at that version, for stores that send only what changed. */
   save: (state: T, baseVersion: number, base: T) => Promise<SaveResult<T>>
   /** Told each time a refused save was merged; `problems` lists anything that could not be reapplied. */
-  onMerged?: (info: { problems: string[] }) => void
+  onMerged?: (info: { problems: string[]; overlap: boolean }) => void
 }
 
 export interface VersionedDoc<T> {
@@ -42,6 +42,14 @@ export interface VersionedDoc<T> {
 
 const clone = <T>(v: T): T => (v === undefined ? (null as unknown as T) : JSON.parse(JSON.stringify(v)))
 const MAX_ROUNDS = 6
+
+/** The top level fields that differ (a record); '*' for anything that is not a plain record. */
+function changedKeys(a: unknown, b: unknown): string[] {
+  const rec = (v: unknown) => !!v && typeof v === 'object' && !Array.isArray(v)
+  if (!rec(a) || !rec(b)) return deepEqual(a, b) ? [] : ['*']
+  const keys = new Set([...Object.keys(a as object), ...Object.keys(b as object)])
+  return [...keys].filter(k => !deepEqual((a as any)[k], (b as any)[k]))
+}
 
 export function createVersionedDoc<T>(opts: VersionedDocOptions<T>): VersionedDoc<T> {
   let base: T = clone(opts.get())
@@ -71,11 +79,14 @@ export function createVersionedDoc<T>(opts: VersionedDocOptions<T>): VersionedDo
           continue                                     // edited again while that save was in flight
         }
         // Refused: someone else saved first. Put my change on top of their copy and go again.
-        const { merged, problems } = merge3(base, clone(opts.get()), r.server)
+        const mine = clone(opts.get())
+        const { merged, problems } = merge3(base, mine, r.server)
+        // Did the other save change the same parts as mine? (Top level fields of a record; anything else: yes.)
+        const overlap = changedKeys(base, mine).some(k => changedKeys(base, r.server as T).includes(k))
         base = clone(r.server)
         version = r.version
         opts.apply(merged)
-        opts.onMerged?.({ problems })
+        opts.onMerged?.({ problems, overlap })
       }
       return false
     },

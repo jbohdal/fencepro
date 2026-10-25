@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { api, openPdf, type Permit } from './automationsApi'
 import { toast } from './toast'
+import { milestonesChanged } from './jobTruthApi'
 import { can } from './permissions'
 
 const STATUSES: Array<[string, string]> = [['not_needed', 'Not needed'], ['needed', 'Needed'], ['applied', 'Applied'], ['approved', 'Approved'], ['inspection_scheduled', 'Inspection scheduled'], ['passed', 'Passed']]
@@ -42,6 +43,8 @@ export default function PermitPanel({ jobId }: { jobId: string }) {
     try {
       const d = await api<{ permit: Permit; portal: Portal }>('PUT', `/permits/${encodeURIComponent(jobId)}`, form)
       setSaved(d.permit); setPortal(d.portal); toast.success('Permit saved')
+      // The Permit Approved milestone follows the permit (portal lib/jobReadiness.ts).
+      milestonesChanged()
     } catch (err) { setError((err as Error).message) } finally { setBusy('') }
   }
   async function lookUp() {

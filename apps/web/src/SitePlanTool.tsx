@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import L from 'leaflet'
+import { formatPhone } from './phoneFormat'
 import { createFreeMap, centeredIcon, BaseToggle, type BaseKind, type FreeMap } from './freeMap'
 import { warmAerial } from './aerialTiles'
 import AddressAutocomplete from './AddressAutocomplete'
@@ -817,7 +818,7 @@ ${notes ? `<div class="notes"><strong>Notes:</strong><br>${notes.replace(/\n/g, 
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
                 <option value="">— Not linked to a customer —</option>
                 {customers.map(c => (
-                  <option key={c.id} value={c.id}>{c.firstName} {c.lastName}{c.phone ? ` · ${c.phone}` : ''}</option>
+                  <option key={c.id} value={c.id}>{c.firstName} {c.lastName}{c.phone ? ` · ${formatPhone(c.phone)}` : ''}</option>
                 ))}
               </select>
             </div>

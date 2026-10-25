@@ -16,7 +16,7 @@ import { logoPath } from '../routes/proposal.js'
 import { moneyText } from './paymentMath.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC', GREEN = '#167A3E', RED = '#B42318'
-const phoneText = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p }
+const phoneText = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : p }
 
 /** What a receipt says, frozen when it is made (integer cents). */
 export interface ReceiptSnapshot {
