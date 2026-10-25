@@ -35,3 +35,18 @@ asking him first and getting his OK for that specific thing. This applies to
 every agent and script. If an investigation needs it, stop and ask; say what
 you want to read and why. (Set by Jonathan on Oct 20, 2026, after an agent
 read a copy of his Chrome Beta history while tracing a Settings change.)
+
+## Hard rule: done means used for real, start to finish
+
+A feature is NOT done until it has been used for its real purpose, start to
+finish, as the real user (owner, office, salesman or installer), on a phone
+where that is how it is used, with realistic data, through every step before
+and after it (how you get to it, and what happens next). Passing tests is
+required but not enough. For every change, show Jonathan a short screen
+recording or step by step screenshots of that real use, and give him a
+"try this" list of 3 to 5 real tasks he can do in 5 minutes after the deploy
+to check it himself. Through Oct 31, 2026: make existing features work end to
+end before building anything new, unless he says otherwise. After every big
+round, rerun the full workflow walkthrough (an agent that did not build the
+features, on a copy of live data, each step as the right person). (Set by
+Jonathan on Oct 24, 2026.)
