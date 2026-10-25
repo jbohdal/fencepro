@@ -53,22 +53,19 @@ export interface QuotedLabor {
   /** Settings' hourly rate when it was signed. */
   hourlyCostCents: number
   /**
-   * Sub labor the quote paid besides the sections or feet: walk and double
-   * gates, tear out and extra hours (pricingEngine.ts). Older saved costs
-   * have none: subOtherOf works it out from the quote's labor.
+   * Sub labor the quote paid besides the sections or feet, at signing: walk
+   * and double gates, tear out and extra hours, at the rates in Settings then
+   * (as pricingEngine.ts prices them), never more than the quote's labor
+   * beyond the sections. Costs saved before Oct 25, 2026 have none (0).
    */
   subOtherCents?: number
 }
 
-/**
- * The sub labor a quote paid beyond units x rate (gates, tear out, extra
- * hours), in cents, never below 0. The quote's own labor less the sections
- * (or feet) at the sub rate it was priced with.
- */
-export function subOtherOf(q: Pick<QuotedCost, 'laborCents' | 'labor'> | null | undefined): number {
+/** The sub labor a quote paid beyond units x rate (gates, tear out, extra hours), in cents; 0 when not sub labor or not saved. */
+export function subOtherOf(q: Pick<QuotedCost, 'labor'> | null | undefined): number {
   if (!q || q.labor?.mode !== 'sub') return 0
-  if (typeof q.labor.subOtherCents === 'number' && Number.isFinite(q.labor.subOtherCents)) return Math.max(0, Math.round(q.labor.subOtherCents))
-  return Math.max(0, Math.round(q.laborCents - qty(q.labor.subUnits) * qty(q.labor.subRateCostCents)))
+  const v = q.labor.subOtherCents
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0
 }
 
 export interface QuotedCost {
@@ -200,6 +197,12 @@ export interface QuoteForSnapshot {
   pullSheet: unknown
   pricing: unknown
   work: unknown
+  /** Gates, tear out and extra hours: the sub's pay for them is part of its labor (subOtherCents). */
+  walkGates?: number | null
+  dblGates?: number | null
+  tearOutSections?: number | null
+  tearOutGates?: number | null
+  adjLaborHrs?: number | null
 }
 
 export interface PricingSettings {
@@ -208,6 +211,10 @@ export interface PricingSettings {
   manHourRate?: number
   subRateDefault?: number
   subRateByCategory?: Record<string, number>
+  subWalkGate?: number
+  subDblGate?: number
+  subTearOutSection?: number
+  subTearOutGate?: number
 }
 
 export interface StyleForRate { name?: string; category?: string; subRate?: number }
@@ -261,7 +268,12 @@ export function quotedCostOf(q: QuoteForSnapshot, ctx: {
     labor: {
       mode: laborMode, subUnit, subUnits, subRateCostCents, hourlyCostCents: toCents(ctx.pricing.manHourRate),
       // The gates (and tear out, extra hours) the sub is paid for besides the sections, as priced.
-      ...(laborMode === 'sub' ? { subOtherCents: Math.max(0, laborCents - Math.round(subUnits * subRateCostCents)) } : {}),
+      ...(laborMode === 'sub' ? { subOtherCents: Math.min(
+        Math.max(0, laborCents - Math.round(subUnits * subRateCostCents)),
+        toCents(num(q.walkGates) * num(ctx.pricing.subWalkGate) + num(q.dblGates) * num(ctx.pricing.subDblGate)
+          + num(q.tearOutSections) * num(ctx.pricing.subTearOutSection) + num(q.tearOutGates) * num(ctx.pricing.subTearOutGate)
+          + num(q.adjLaborHrs) * num(ctx.pricing.manHourRate)),
+      ) } : {}),
     },
   }
 }

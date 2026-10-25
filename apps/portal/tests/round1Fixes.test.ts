@@ -203,9 +203,16 @@ describe('the sub\'s gate pay is in the actual labor (2 gate job came out $20 un
     expect(a.laborCents).toBe(61800)
     expect(a.laborMath).toBe('26 sections paid × $23.00 + $20.00 gates and other sub work as quoted (sub rate saved at signing)')
   })
-  test('a cost saved before this (no subOtherCents) works it out from the quote\'s labor', () => {
+  test('a cost saved before this (no subOtherCents) stays as it was', () => {
     const { subOtherCents: _drop, ...older } = quoted.labor
-    expect(subOtherOf({ ...quoted, labor: older })).toBe(2000)
+    expect(subOtherOf({ ...quoted, labor: older })).toBe(0)
+  })
+  test('never more than the quote\'s labor beyond the sections (a quote priced before a gate rate was set)', () => {
+    const q = quotedCostOf({ ...quote, laborCost: 598 }, { inventory: [], pricing, signedVia: 'proposal', signedAt: new Date() })
+    expect(q.labor.subOtherCents).toBe(0)
+    // Settings' rate changed after the quote was priced: the difference is not taken for gates.
+    const noGates = quotedCostOf({ ...quote, walkGates: 0, laborCost: 624 }, { inventory: [], pricing, signedVia: 'proposal', signedAt: new Date() })
+    expect(noGates.labor.subOtherCents).toBe(0)
   })
   test('"Sub paid $" still replaces it all; crew and flat labor have no gate pay added', () => {
     const paid = actualCostOf({ lines: [], labor: { mode: 'sub', subUnit: 'section', subUnits: 26, subPaidCents: 60000, crew: [] }, installDate: '2026-10-29' }, { quoted, unitCostOf: none, hourlyCostCents: 2500, subRateCostCents: 2300, otherLaborCostCents: 0, frozen: false })
