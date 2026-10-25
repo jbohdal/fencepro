@@ -173,7 +173,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('appointment messages (dev databa
     expect(read.json.data.config.appointmentMessages.confirm.estimate).toMatch(/^Hey \{customer_first_name\}/)
     const b = await book(`Testrep Alpha ${tag}`)
     expect(confirmationSms(b.json.data, { company, templates: read.json.data.config.appointmentMessages }))
-      .toBe('Getter Done Fence: Hey Kristi, Testrep here. See you Tuesday, November 3 at 10:00 AM. (352) 555 0143 Reply STOP to opt out.')
+      .toBe('Getter Done Fence: Hey Kristi, Testrep here. See you Tuesday, November 3 at 10:00 AM. (352) 555 0143. Reply STOP to opt out.')
     const log = await prisma.crmAuditLog.findMany({ where: { userId: users.owner, action: 'settings_changed', entityId: 'business-state/config' }, orderBy: { createdAt: 'asc' } })
     expect(log.at(-1).newValues.changes.join('\n')).toMatch(/appointmentMessages/)
     // A save built on the old copy is refused.
