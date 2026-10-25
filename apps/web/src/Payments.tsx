@@ -25,6 +25,8 @@ import { can } from './permissions'
 import { toast } from './toast'
 import { canTextHere } from './textingDevice'
 import { smsLink } from './appointmentLogic'
+import { invoiceDue } from '../../portal/src/server/lib/jobReadiness'
+import { businessDate } from './businessDate'
 import { hasSignal } from './outbox'
 import {
   METHODS, money, centsOf, todayOcala, loadJob, loadCustomer, makeSchedule, scheduleOf, subscribe, paymentsVersion,
@@ -115,6 +117,7 @@ function ScheduleCard({ s, showJob, compact }: { s: Schedule; showJob: boolean; 
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-gray-900">{i.label}{i.legacyNumber ? <span className="text-xs text-gray-500 font-normal"> ({i.legacyNumber}, typed in Billing)</span> : null}</p>
                 <p className="text-xs text-gray-500">{dueText(i)}</p>
+                {(() => { const d = invoiceDue({ balanceCents: i.shownBalance, dueOn: i.dueOn, dueDate: i.dueDate }, s.completedDate, businessDate(new Date())); return d.state === 'overdue' ? <p className="text-xs font-semibold text-red-700" data-invoice-overdue={d.daysOver}>Overdue {d.daysOver} day{d.daysOver === 1 ? '' : 's'}</p> : null })()}
                 {i.amountCents !== i.originalCents && <p className="text-xs text-gray-500">Was {money(i.originalCents)}; see History.</p>}
               </div>
               <div className="text-right text-sm shrink-0">

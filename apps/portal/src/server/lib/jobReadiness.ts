@@ -118,10 +118,14 @@ export function fromRecords(key: MilestoneKey, f: ReadinessFacts): { done: boole
       if (f.crewAssigned && dated) return { done: true, detail: `${f.crewAssigned}, starts ${mdy(f.scheduledDate)}` }
       return { done: false, detail: f.crewAssigned ? `${f.crewAssigned}, no install date` : dated ? `Install ${mdy(f.scheduledDate)}, no crew` : 'Not scheduled' }
     }
-    case 'started':
+    case 'started': {
+      // From the install itself: the job In Progress (or done), or its first crew day reached on a scheduled job.
+      // Never a takeoff started early (Oct 25 2026: Manuel's draft takeoff showed "started" the day before his install).
       if (STARTED.includes(phase)) return { done: true, detail: DONE.includes(phase) ? 'The work is done' : 'In progress' }
-      if (f.takeoffStarted) return { done: true, detail: 'The takeoff is started' }
-      return { done: false, detail: 'Not started' }
+      const dated = /^\d{4}-\d{2}-\d{2}$/.test(f.scheduledDate)
+      if (dated && phase === 'scheduled' && f.scheduledDate <= f.today) return { done: true, detail: `First crew day ${mdy(f.scheduledDate)}` }
+      return { done: false, detail: dated ? `Starts ${mdy(f.scheduledDate)}` : 'Not started' }
+    }
     case 'walkthrough':
       if (f.walkthrough?.signed) return { done: true, detail: `Signed${f.walkthrough.homeowner ? ` by ${f.walkthrough.homeowner}` : ''}${f.walkthrough.signedAt ? ` on ${mdy(f.walkthrough.signedAt)}` : ''}` }
       return { done: false, detail: f.walkthrough ? 'Started, not signed yet' : 'Not started' }
@@ -195,6 +199,30 @@ export interface BillingStatus {
   finalCents: number
   finalDue: boolean
   paidInFull: boolean
+  /** The invoice due now is past its due date (as of `today`), and by how many days. */
+  overdue: boolean
+  daysOver: number
+}
+
+/** Whole days from a to b (b - a), YYYY-MM-DD. */
+const daysFrom = (a: string, b: string) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000)
+
+export type InvoiceDueState = 'paid' | 'not_due' | 'due' | 'overdue'
+
+/**
+ * One invoice of a payment schedule as of `today`: paid; not due yet (the
+ * Final before the job is complete, a date ahead); due today; or overdue (its
+ * due date has passed: a deposit is due at signing, so it is overdue from the
+ * day after). Billing (Accounts Receivable), the job's Financial and Payments
+ * use this one rule.
+ */
+export function invoiceDue(i: { balanceCents: number; dueOn: string; dueDate: string | null }, completedDate: string | null | undefined, today: string): { state: InvoiceDueState; dueDate: string | null; daysOver: number } {
+  if (i.balanceCents <= 0) return { state: 'paid', dueDate: i.dueDate, daysOver: 0 }
+  const dueDate = i.dueOn === 'completion' ? (completedDate ? (i.dueDate ?? completedDate) : null) : i.dueDate
+  if (i.dueOn === 'completion' && !completedDate) return { state: 'not_due', dueDate: null, daysOver: 0 }
+  if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return { state: 'due', dueDate: null, daysOver: 0 }
+  const over = daysFrom(dueDate, today)
+  return over > 0 ? { state: 'overdue', dueDate, daysOver: over } : over === 0 ? { state: 'due', dueDate, daysOver: 0 } : { state: 'not_due', dueDate, daysOver: 0 }
 }
 
 
@@ -203,8 +231,8 @@ export interface BillingStatus {
  * the job's Financial section, Payments and Billing show these words, the
  * server's job status follows the same view in lib/contractBilling.ts settleIn).
  */
-export function billingStatusOf(v: { contractCents: number; paidCents: number; invoices: Array<{ kind: string; label: string; amountCents: number; balanceCents: number; dueOn: string; dueDate: string | null }>; completedDate?: string | null } | null): BillingStatus {
-  if (!v) return { state: 'none', text: 'No payment schedule yet', contractCents: 0, paidCents: 0, balanceCents: 0, due: null, finalCents: 0, finalDue: false, paidInFull: false }
+export function billingStatusOf(v: { contractCents: number; paidCents: number; invoices: Array<{ kind: string; label: string; amountCents: number; balanceCents: number; dueOn: string; dueDate: string | null }>; completedDate?: string | null } | null, today: string = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })): BillingStatus {
+  if (!v) return { state: 'none', text: 'No payment schedule yet', contractCents: 0, paidCents: 0, balanceCents: 0, due: null, finalCents: 0, finalDue: false, paidInFull: false, overdue: false, daysOver: 0 }
   const balance = v.contractCents - v.paidCents
   const final = v.invoices.find(i => i.kind === 'final')
   const finalCents = final?.amountCents ?? 0
@@ -214,12 +242,14 @@ export function billingStatusOf(v: { contractCents: number; paidCents: number; i
   const open = v.invoices.filter(i => i.balanceCents > 0 && (i.dueOn !== 'completion' || complete))
   const first = open[0] ?? null
   const due = first ? { label: first.label, balanceCents: first.balanceCents, dueDate: first.dueOn === 'completion' ? (first.dueDate ?? v.completedDate ?? null) : first.dueDate } : null
-  const base = { contractCents: v.contractCents, paidCents: v.paidCents, balanceCents: balance, due, finalCents, finalDue: complete && !!final, paidInFull }
+  const when0 = first ? invoiceDue(first, v.completedDate, today) : null
+  const overdue = when0?.state === 'overdue'
+  const base = { contractCents: v.contractCents, paidCents: v.paidCents, balanceCents: balance, due, finalCents, finalDue: complete && !!final, paidInFull, overdue, daysOver: when0?.daysOver ?? 0 }
   if (paidInFull) return { ...base, state: 'paid', text: 'Paid in full' }
   if (due) {
-    const when = due.dueDate ? ` ${mdy(due.dueDate)}` : ' now'
+    const when = overdue ? ` overdue since ${mdy(due.dueDate!)} (${base.daysOver} day${base.daysOver === 1 ? '' : 's'})` : due.dueDate ? ` due ${mdy(due.dueDate)}` : ' due now'
     const isDeposit = first!.kind === 'deposit'
-    return { ...base, state: isDeposit ? 'deposit_due' : 'due', text: `${due.label} ${money(due.balanceCents)} due${when}${v.paidCents > 0 ? ` (paid ${money(v.paidCents)} so far)` : ''}` }
+    return { ...base, state: isDeposit ? 'deposit_due' : 'due', text: `${due.label} ${money(due.balanceCents)}${when}${v.paidCents > 0 ? ` (paid ${money(v.paidCents)} so far)` : ''}` }
   }
   return { ...base, state: 'not_due', text: `Paid ${money(v.paidCents)}; Final ${money(final?.balanceCents ?? 0)} due on completion` }
 }

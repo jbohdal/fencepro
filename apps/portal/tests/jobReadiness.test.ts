@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { milestones, staleTicks, fromRecords, billingStatusOf, progressOf, type ReadinessFacts } from '../src/server/lib/jobReadiness.js'
+import { milestones, staleTicks, fromRecords, billingStatusOf, invoiceDue, progressOf, type ReadinessFacts } from '../src/server/lib/jobReadiness.js'
 
 const base: ReadinessFacts = {
   today: '2026-10-25', status: 'staging', previousStatus: null,
@@ -51,7 +51,10 @@ describe('each milestone from its record', () => {
   })
   it('started, walkthrough, photos', () => {
     expect(fromRecords('started', { ...base, status: 'in_progress' }).done).toBe(true)
-    expect(fromRecords('started', { ...base, takeoffStarted: true }).detail).toBe('The takeoff is started')
+    // From the install, never a takeoff started early (Manuel, Oct 25: a draft takeoff the day before his install).
+    expect(fromRecords('started', { ...base, takeoffStarted: true, scheduledDate: '2026-10-26' })).toEqual({ done: false, detail: 'Starts 10/26/2026' })
+    expect(fromRecords('started', { ...base, status: 'scheduled', scheduledDate: '2026-10-25' })).toEqual({ done: true, detail: 'First crew day 10/25/2026' })
+    expect(fromRecords('started', { ...base, status: 'scheduled', scheduledDate: '2026-10-26' }).done).toBe(false)
     expect(fromRecords('started', { ...base, status: 'on_hold', previousStatus: 'in_progress' }).done).toBe(true)
     expect(fromRecords('walkthrough', { ...base, walkthrough: { signed: false, signedAt: null, homeowner: null, open: true } })).toEqual({ done: false, detail: 'Started, not signed yet' })
     expect(fromRecords('walkthrough', { ...base, walkthrough: { signed: true, signedAt: '2026-10-24', homeowner: 'Maria Lopez', open: false } }).detail).toBe('Signed by Maria Lopez on 10/24/2026')
@@ -90,12 +93,23 @@ describe('payment status from the payment schedule', () => {
       { kind: 'final', label: 'Final', amountCents: 355691, balanceCents: 355691 - Math.max(0, paid - 355692), dueOn: 'completion', dueDate: completedDate },
     ],
   })
-  it('the deposit due, not "Not invoiced yet" (Manuel Cotrich)', () => {
-    expect(billingStatusOf(schedule(0))).toMatchObject({ state: 'deposit_due', text: 'Deposit $3,556.92 due 10/20/2026' })
+  it('the deposit due, not "Not invoiced yet" (Manuel Cotrich); overdue from the day after it was due', () => {
+    expect(billingStatusOf(schedule(0), '2026-10-20')).toMatchObject({ state: 'deposit_due', overdue: false, text: 'Deposit $3,556.92 due 10/20/2026' })
+    expect(billingStatusOf(schedule(0), '2026-10-25')).toMatchObject({ state: 'deposit_due', overdue: true, daysOver: 5, text: 'Deposit $3,556.92 overdue since 10/20/2026 (5 days)' })
+  })
+  it('one invoice\'s due state: not due, due, overdue, paid; the Final only once complete', () => {
+    const dep = { balanceCents: 100, dueOn: 'signing', dueDate: '2026-10-20' }
+    expect(invoiceDue(dep, null, '2026-10-19').state).toBe('not_due')
+    expect(invoiceDue(dep, null, '2026-10-20').state).toBe('due')
+    expect(invoiceDue(dep, null, '2026-10-21')).toEqual({ state: 'overdue', dueDate: '2026-10-20', daysOver: 1 })
+    expect(invoiceDue({ ...dep, balanceCents: 0 }, null, '2026-10-30').state).toBe('paid')
+    const fin = { balanceCents: 100, dueOn: 'completion', dueDate: null }
+    expect(invoiceDue(fin, null, '2026-12-01').state).toBe('not_due')
+    expect(invoiceDue(fin, '2026-10-28', '2026-10-30')).toEqual({ state: 'overdue', dueDate: '2026-10-28', daysOver: 2 })
   })
   it('deposit paid: the Final due on completion, then due once complete, then paid in full', () => {
     expect(billingStatusOf(schedule(355692))).toMatchObject({ state: 'not_due', text: 'Paid $3,556.92; Final $3,556.91 due on completion' })
-    expect(billingStatusOf(schedule(355692, '2026-10-28'))).toMatchObject({ state: 'due', finalDue: true, text: 'Final $3,556.91 due 10/28/2026 (paid $3,556.92 so far)' })
+    expect(billingStatusOf(schedule(355692, '2026-10-28'), '2026-10-28')).toMatchObject({ state: 'due', finalDue: true, text: 'Final $3,556.91 due 10/28/2026 (paid $3,556.92 so far)' })
     expect(billingStatusOf(schedule(711383, '2026-10-28'))).toMatchObject({ state: 'paid', paidInFull: true, text: 'Paid in full' })
   })
   it('no schedule', () => {

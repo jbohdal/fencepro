@@ -23,13 +23,13 @@ import PaymentsPanel from './Payments'
 import { useState } from 'react'
 import { getJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
-import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, pickable, useOpsStages, getCompleteOpsStage } from './opsStagesStore'
+import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, advanceStage, pickable, useOpsStages, getCompleteOpsStage } from './opsStagesStore'
 import { isDonePhase } from './opsStageModel'
 import { ChangeOrderPanel, ChangeOrderButton, JobTimeline } from './ChangeOrders'
 import { can } from './permissions'
 import { archiveRecord, deleteRecord } from './recordArchive'
 import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
-import { loadSchedule } from './scheduleStore'
+import { loadSchedule, crewName } from './scheduleStore'
 import { CustomerContact, LocatePanel, JobMilestones, JobFinancial, OpenCustomerProfile } from './JobTruth'
 
 // Unified job type for display
@@ -114,7 +114,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   useOpsStages()
   const stage = stageInfo(job.opsStage)
   const inSideLane = stagePhase(job.opsStage) === 'on_hold'
-  const canAdvance = !inSideLane && !!nextOpsStage(job.opsStage)
+  const canAdvance = !inSideLane && !!advanceStage(job.opsStage)
   // The stages a job can go to; a hidden stage the job is in still shows, so you can see where it is.
   const choices = pickable()
   if (stage && !choices.some(s => s.id === stage.id)) choices.push(stage)
@@ -154,13 +154,13 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
             <div data-job-schedule>
               {/* One way to schedule: the Schedule install window (start day, crew, crew days on work days, the stage, the text). */}
               <Field label="Install" value={job.scheduledDate ? bookedWords(job.scheduledDate, job.rawJob?.scheduledEndDate, loadSchedule().settings.workDays) : 'Not scheduled'} />
-              <Field label="Crew" value={job.crewAssigned || 'Not assigned'} />
+              <Field label="Crew" value={crewName(job.crewAssigned) || 'Not assigned'} />
               <Field label="Sales Rep" value={job.salesRep} />
               {can('schedule.change') && !inSideLane && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} /></div>}
             </div>
           ) : (
             <>
-              <Field label="Crew" value={job.crewAssigned || 'Not assigned'} />
+              <Field label="Crew" value={crewName(job.crewAssigned) || 'Not assigned'} />
               <Field label="Scheduled" value={job.scheduledDate || 'Not scheduled'} />
             </>
           )}
@@ -292,10 +292,15 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
             <button onClick={onUnhold} className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium">Resume</button>
           ) : (
             <>
-              <button onClick={onAdvance} disabled={!canAdvance} data-ops-advance
-                className="btn btn-primary flex-1 disabled:opacity-40">
-                {canAdvance ? `Advance to ${nextOpsStage(job.opsStage)!.name} →` : 'Advance Stage →'}
-              </button>
+              {/* A finished job (Complete, Invoiced, Paid) is not advanced by hand; it says where it is. */}
+              {isDonePhase(stagePhase(job.opsStage)) ? (
+                <p className="flex-1 self-center text-sm font-semibold text-green-700" data-ops-done>{stage?.name ?? 'Complete'}</p>
+              ) : (
+                <button onClick={onAdvance} disabled={!canAdvance} data-ops-advance
+                  className="btn btn-primary flex-1 disabled:opacity-40">
+                  {canAdvance ? `Advance to ${advanceStage(job.opsStage)!.name} →` : 'Advance Stage →'}
+                </button>
+              )}
               <button onClick={onHold}
                 className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50">
                 Hold

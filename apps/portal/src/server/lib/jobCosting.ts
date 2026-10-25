@@ -86,7 +86,12 @@ export async function snapshotQuotedCost(accountId: string, quoteId: string, sig
     if (exists) {
       // Saved for another option: the accepted option's cost takes its place (only while it is still the other one).
       const n = await prisma.jobQuotedCost.updateMany({ where: { id: exists.id, fenceStyle: exists.fenceStyle, priceCents: exists.priceCents }, data: { ...data, createdAt: new Date() } })
-      if (n.count === 1) console.log(`[job-costing] quoted cost for quote ${quoteId} replaced: was ${exists.fenceStyle} ${exists.priceCents}c, now the accepted ${snap.fenceStyle} ${snap.priceCents}c`)
+      if (n.count === 1) {
+        console.log(`[job-costing] quoted cost for quote ${quoteId} replaced: was ${exists.fenceStyle} ${exists.priceCents}c, now the accepted ${snap.fenceStyle} ${snap.priceCents}c`)
+        // A takeoff started from the other option and not submitted yet follows the signed one.
+        const job = await prisma.savedJob.findFirst({ where: { accountId, quoteId, deletedAt: null }, select: { id: true } })
+        if (job) await rebuildDraftTakeoff(accountId, job.id, 'the signed option changed').catch(e => console.error('[job-costing] takeoff rebuild:', e))
+      }
       return n.count === 1
     }
     await prisma.jobQuotedCost.create({ data })
@@ -212,6 +217,37 @@ export async function startTakeoff(accountId: string, jobId: string, by: string,
     }
     throw e
   }
+}
+
+/**
+ * Does a takeoff list the parts of the work as signed? False when its planned
+ * lines (not the ones added on the job) are a different pull sheet: started
+ * from another option (Manuel Cotrich's, Oct 22 2026: white vinyl parts on a
+ * tan job).
+ */
+export function takeoffMatchesQuoted(t: { lines: unknown }, quoted: QuotedCost | null): boolean {
+  if (!quoted) return true
+  const planned = linesOf(t).filter(l => !l.extra).map(l => `${l.part}|${l.plannedQty}`).sort()
+  const want = quoted.lines.map(l => `${l.part}|${l.qty}`).sort()
+  return planned.length === want.length && planned.every((x, i) => x === want[i])
+}
+
+/**
+ * A takeoff still in draft whose lines are not the signed work: its lines and
+ * labor made again from the signed pull sheet (what startTakeoff would make
+ * now). Submitted or approved takeoffs are never changed. True when rebuilt.
+ */
+export async function rebuildDraftTakeoff(accountId: string, jobId: string, why: string): Promise<boolean> {
+  const t = await prisma.jobTakeoff.findUnique({ where: { jobId } })
+  if (!t || t.accountId !== accountId || t.status !== 'draft') return false
+  const job = await jobOf(accountId, jobId)
+  const quoted = await quotedNow(accountId, job.quoteId)
+  if (!quoted || takeoffMatchesQuoted(t, quoted)) return false
+  const lines = linesFromQuoted(quoted.lines, key => `${t.id}:${key}`)
+  const labor = laborFromQuoted(quoted.labor, { mode: 'sub', subUnit: 'section', subUnits: job.sections })
+  const n = await prisma.jobTakeoff.updateMany({ where: { id: t.id, status: 'draft' }, data: { lines: lines as any, labor: labor as any, installDate: job.completedDate || job.scheduledDate || t.installDate, note: `${t.note ? `${t.note}\n` : ''}Lines made again from the signed quote (${quoted.fenceStyle}): ${why}.`.slice(0, 2000) } })
+  if (n.count === 1) console.log(`[job-costing] draft takeoff ${t.id} rebuilt from the signed quote (${quoted.fenceStyle}): ${why}`)
+  return n.count === 1
 }
 
 /** Change one takeoff under a row lock (two phones saving at once never lose each other's line). */

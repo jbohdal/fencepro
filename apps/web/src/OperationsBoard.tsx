@@ -17,7 +17,7 @@
 
 import { stageName as pipelineStageName, roleId as pipelineRoleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
-import { loadSchedule } from './scheduleStore'
+import { loadSchedule, crewName } from './scheduleStore'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type UnifiedJob,
@@ -25,7 +25,7 @@ import {
 } from './OperationsPage'
 import { type Job, type JobStatus, updateJob, advanceJob, holdJob, unholdJob } from './jobStore'
 import {
-  useOpsStages, OPS_STAGES_UPDATED_EVENT, stageInfo, stagePhase, nextOpsStage, stageFields, getCompleteOpsStage, type OpsStageDef,
+  useOpsStages, OPS_STAGES_UPDATED_EVENT, stageInfo, stagePhase, nextOpsStage, advanceStage, stageFields, getCompleteOpsStage, type OpsStageDef,
 } from './opsStagesStore'
 import { boardStages, sideStages, sortedStages, pickableStages, isDonePhase } from './opsStageModel'
 import { fireOpsStageChange } from './automationTrigger'
@@ -97,14 +97,8 @@ type ViewMode = 'board' | 'list'
 
 const UNSCHEDULED_KEY = '__unscheduled__'
 
-/** A crew as Schedule > Settings names it: an id ("crew1") or a name in any spacing or capitals ("crew 1") gives "Crew 1"; anything else as typed. */
-function crewLabel(v: string | null | undefined): string {
-  const t = (v || '').trim()
-  if (!t) return ''
-  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, '')
-  const c = loadSchedule().settings.crews.find(x => x.id === t || norm(x.name) === norm(t))
-  return c ? c.name : t
-}
+/** A crew's name (Schedule > Settings), never its id. */
+const crewLabel = crewName
 
 /** "Thu, Dec 3" or "Thu, Dec 3 to Mon, Dec 7". */
 function cardDays(start: string, end?: string | null): string {
@@ -513,7 +507,7 @@ export default function OperationsBoard() {
               showStageBadge={!j.scheduledDate}
               faded={matchesSearch !== null && !matchesSearch.has(j.id)}
               onNextStage={() => {
-                const next = nextOpsStage(j.opsStage)
+                const next = advanceStage(j.opsStage)
                 if (next) {
                   if (next.isComplete) setConfirmComplete(j)
                   else moveJobToStage(j, next.id)
@@ -569,7 +563,10 @@ export default function OperationsBoard() {
           onAdvance={() => { onAdvance(selectedNow); setSelected(null) }}
           onHold={() => onHold(selectedNow)}
           onUnhold={() => onUnhold(selectedNow)}
-          onMoveStage={(stage) => { moveJobToStage(selectedNow, stage); const st = stageInfo(stage); if (st) toast.success(`Moved to ${st.name}`, st.isComplete ? `${selectedNow.customerName}'s pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}.` : undefined) }}
+          onMoveStage={(stage) => {
+            // Complete by hand on a job never scheduled: asked first (it closes the job and moves its card).
+            if (stageInfo(stage)?.isComplete && !selectedNow.scheduledDate && !window.confirm(`${selectedNow.customerName} has no install date. Mark it complete anyway? Its pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}.`)) return
+            moveJobToStage(selectedNow, stage); const st = stageInfo(stage); if (st) toast.success(`Moved to ${st.name}`, st.isComplete ? `${selectedNow.customerName}'s pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}.` : undefined) }}
           onUpdate={(updates) => onUpdateJob(selectedNow, updates)}
         />
       )}
@@ -675,7 +672,7 @@ function OpsCard({
             triggerProps={{ 'aria-label': 'Card actions' }}>
             {close => <>
               <PopItem onClick={() => { close(); onClick() }}>View / Edit</PopItem>
-              {nextOpsStage(job.opsStage) && <PopItem onClick={() => { close(); onNextStage() }}>Move to {nextOpsStage(job.opsStage)!.name}</PopItem>}
+              {advanceStage(job.opsStage) && <PopItem onClick={() => { close(); onNextStage() }}>Move to {advanceStage(job.opsStage)!.name}</PopItem>}
               {job.source === 'job' && !stage?.isComplete && <PopItem className="font-semibold !text-green-700" onClick={() => { close(); onComplete() }}>Mark complete</PopItem>}
               <PopItem danger onClick={() => { close(); onRainDay() }}>Flag Rain Day</PopItem>
             </>}
@@ -929,12 +926,12 @@ function OpsListView({
                   <td className="px-3 py-2 text-xs text-gray-600">{styleLabel(j.fenceType) || '—'}</td>
                   <td className="px-3 py-2"><span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: hex }}>{j.opsStageLabel}</span></td>
                   <td className="px-3 py-2 text-xs">{j.scheduledDate ? <span className="text-gray-700">{j.scheduledDate}</span> : <span className="text-amber-700 font-semibold">Unscheduled</span>}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{j.crewAssigned || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{crewLabel(j.crewAssigned) || '—'}</td>
                   <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{fmtUSD(j.contractValue)}</td>
                   <td className="px-3 py-2"><MiniProgress jobId={j.id} colorHex={hex} /></td>
                   <td className="px-3 py-2 text-xs text-gray-500">{daysSince(j.rawJob?.updatedAt || '')}d</td>
                   <td className="px-3 py-2 text-right">
-                    {j.source === 'job' && nextOpsStage(j.opsStage) && stagePhase(j.opsStage) !== 'on_hold' && (
+                    {j.source === 'job' && advanceStage(j.opsStage) && stagePhase(j.opsStage) !== 'on_hold' && (
                       <button onClick={e => { e.stopPropagation(); onAdvance(j) }}
                         className="text-xs text-orange-600 font-semibold hover:underline">Advance →</button>
                     )}

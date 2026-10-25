@@ -40,6 +40,13 @@ import { issueLabel } from '../lib/serviceTicketModel.js'
 import { isYmd, usDate, shortDayWords } from '../lib/installDays.js'
 import { partWithPair } from '../lib/partNames.js'
 const todayFl = () => floridaDay(new Date())
+/** The crew's name (Schedule > Settings), never its id ("crew1"). */
+async function crewNameFor(accountId: string, v: string): Promise<string> {
+  const s = await prisma.scheduleSettings.findUnique({ where: { accountId }, select: { crews: true } }).catch(() => null)
+  const norm = (x: string) => String(x || '').toLowerCase().replace(/\s+/g, '')
+  const c = ((Array.isArray(s?.crews) ? s!.crews : []) as Array<{ id: string; name: string }>).find(x => x.id === v.trim() || norm(x.name) === norm(v))
+  return c?.name || v
+}
 
 /**
  * The crew days, each one: "3 crew days: Thu 12/3, Mon 12/7, Tue 12/8" (from the Schedule), else
@@ -52,10 +59,10 @@ function installWhen(start: string | null | undefined, end: string | null | unde
   return isYmd(end) && end > start ? `starts ${usDate(start)}, ${n} crew day${n === 1 ? '' : 's'} to ${usDate(end)}` : usDate(start)
 }
 
-/** 3527894314 → (352) 789-4314; anything else as typed. */
+/** 3527894314 → (352) 789 4314; anything else as typed. */
 function phone(p: string): string {
   const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
-  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : p
 }
 
 export const packetPublic = Router()
@@ -224,7 +231,7 @@ packetPublic.get('/:token', async (req, res) => {
   <main class="wrap">
     <h1>${esc(job_.customerName)}</h1>
     <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
-    <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">Install: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(job_.crewAssigned)}` : ''}</p>
+    <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">Install: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(await crewNameFor(job_.accountId, job_.crewAssigned))}` : ''}</p>
     ${coChange ? `<section class="notes" data-packet-change-order><h2>Changed: change order CO-${coChange.number}</h2><p><b>${esc(coChange.what)}</b> (approved ${esc(coChange.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${coChange.rev ? `, contract rev ${coChange.rev}` : ''}). The fence, runs and pull sheet below are the new ones.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(partWithPair(l.item))}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
     ${s.notes ? `<section class="notes"><h2>Gate codes and notes</h2><p>${esc(s.notes).replace(/\n/g, '<br>')}</p></section>` : ''}
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}

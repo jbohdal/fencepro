@@ -38,7 +38,7 @@ import {
 } from '../lib/contractBilling.js'
 import { METHODS } from '../lib/paymentMath.js'
 import { isSignedQuote } from '../lib/quoteLock.js'
-import { closeOutIfDone } from '../lib/jobTruth.js'
+import { closeOutIfDone, receivables } from '../lib/jobTruth.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -71,6 +71,11 @@ router.get('/job/:jobId', async (req: any, res) => {
     const schedule = await scheduleView(accountId, job.id)
     res.json({ success: true, data: { schedule, canMake: !schedule && await canMakeFor(accountId, job) } })
   } catch (e) { fail(res, e, 'load the payment schedule') }
+})
+
+// Accounts Receivable: every open invoice on the payment schedules, due and overdue (lib/jobTruth.ts receivables).
+router.get('/receivables', async (req: any, res) => {
+  try { res.json({ success: true, data: await receivables(req.user.crmAccountId) }) } catch (e) { fail(res, e, 'load what is owed') }
 })
 
 router.get('/customer/:contactId', async (req: any, res) => {

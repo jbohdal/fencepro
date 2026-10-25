@@ -22,13 +22,13 @@ import { loadOpsStages } from './opsStages.js'
 import { completeStage, fieldsForStage, isDonePhase, stageOfJob, stageById } from './opsStageModel.js'
 import { floridaDay } from './automations/context.js'
 import { cleanLocate, locateFields, locateOf, type LocateInput } from './locates.js'
-import { milestones, milestoneOfLabel, labelKey, progressOf, billingStatusOf, type Milestone, type ReadinessFacts, type StoredTick } from './jobReadiness.js'
+import { milestones, milestoneOfLabel, labelKey, progressOf, billingStatusOf, invoiceDue, type InvoiceDueState, type Milestone, type ReadinessFacts, type StoredTick } from './jobReadiness.js'
 export { billingStatusOf } from './jobReadiness.js'
 import { applyPayments } from './paymentMath.js'
 import { findOrCreate } from './once.js'
 import { defaultChecklist, milestoneLabels, milestoneId } from './seeds.js'
 import { loadPipelineStages } from './pipelineStages.js'
-import { cardForCompletedJob, roleStageId } from './pipelineStageModel.js'
+import { cardForCompletedJob, roleStageId, isSoldStage, isOpenStage, stageNameOf, hasRole } from './pipelineStageModel.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
 
 type Json = any
@@ -38,7 +38,7 @@ const err = (status: number, message: string) => Object.assign(new Error(message
 
 /** Save the job's 811 locate (job page or crew packet). Returns the job row. */
 export async function saveLocate(accountId: string, jobId: string, input: LocateInput, by: string): Promise<Json> {
-  const c = cleanLocate(input)
+  const c = cleanLocate(input, floridaDay(new Date()))
   if (!c.ok) throw err(400, c.error)
   const existing = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null } })
   if (!existing) throw err(404, 'Job not found')
@@ -80,6 +80,47 @@ export async function billingViewFor(accountId: string, jobId: string): Promise<
   }
 }
 
+// ── Accounts receivable ─────────────────────────────────────────────────────
+
+export interface Receivable {
+  invoiceId: string; jobId: string; customerId: string | null; customerName: string; address: string; fenceStyle: string
+  label: string; kind: string; amountCents: number; balanceCents: number
+  state: InvoiceDueState; dueDate: string | null; daysOver: number
+}
+
+/**
+ * Every open invoice on the payment schedules (lib/contractBilling.ts): what
+ * the Billing page (Accounts Receivable) lists, with the same due and overdue
+ * rule as the job's Financial section (jobReadiness.invoiceDue). Jobs deleted
+ * are left out; archived ones still owe.
+ */
+export async function receivables(accountId: string, today = floridaDay(new Date())): Promise<Receivable[]> {
+  const [invoices, payments, jobs] = await Promise.all([
+    prisma.contractInvoice.findMany({ where: { accountId, voidedAt: null } }),
+    prisma.contractPayment.findMany({ where: { accountId } }),
+    prisma.savedJob.findMany({ where: { accountId, deletedAt: null }, select: { id: true, crmContactId: true, customerName: true, customerAddress: true, fenceStyle: true, completedDate: true } }),
+  ])
+  const byJob = new Map(jobs.map(j => [j.id, j]))
+  const out: Receivable[] = []
+  const ids = [...new Set(invoices.map(i => i.jobId))]
+  for (const jobId of ids) {
+    const j = byJob.get(jobId)
+    if (!j) continue
+    const inv = invoices.filter(i => i.jobId === jobId)
+    const a = applyPayments(
+      inv.map(i => ({ id: i.id, amountCents: i.amountCents, sortOrder: i.sortOrder, createdAt: i.createdAt, voided: false })),
+      payments.filter(p => p.jobId === jobId).map(p => ({ id: p.id, amountCents: p.amountCents, paidOn: p.paidOn, createdAt: p.createdAt, voided: !!p.voidedAt })),
+    )
+    for (const i of inv.sort((x, y) => x.sortOrder - y.sortOrder)) {
+      const balanceCents = i.amountCents - (a.paidByInvoice.get(i.id) ?? 0)
+      if (balanceCents <= 0) continue
+      const d = invoiceDue({ balanceCents, dueOn: i.dueOn, dueDate: i.dueDate }, j.completedDate, today)
+      out.push({ invoiceId: i.id, jobId, customerId: j.crmContactId, customerName: j.customerName, address: j.customerAddress, fenceStyle: j.fenceStyle, label: i.label, kind: i.kind, amountCents: i.amountCents, balanceCents, state: d.state, dueDate: d.dueDate, daysOver: d.daysOver })
+    }
+  }
+  return out.sort((x, y) => y.daysOver - x.daysOver || x.customerName.localeCompare(y.customerName))
+}
+
 // ── Milestones ──────────────────────────────────────────────────────────────
 
 async function checklistState(accountId: string) {
@@ -93,15 +134,21 @@ export async function readinessFactsFor(accountId: string, jobs: Json[], today =
   const ids = jobs.map(j => j.id)
   const out = new Map<string, ReadinessFacts>()
   if (!ids.length) return out
-  const [permits, vendor, takeoffs, walks, media, invoices, payments] = await Promise.all([
+  const quoteKeys = jobs.map(j => j.quoteId).filter(Boolean) as string[]
+  const [permits, vendor, takeoffs, walks, media, invoices, payments, sched] = await Promise.all([
     prisma.permit.findMany({ where: { accountId, jobId: { in: ids } }, select: { jobId: true, status: true } }),
     prisma.vendorInvoice.groupBy({ by: ['jobId'], where: { accountId, jobId: { in: ids }, docType: 'invoice', status: { notIn: ['refused', 'undone', 'failed', 'replaced'] } }, _count: { _all: true } }),
     prisma.jobTakeoff.findMany({ where: { accountId, jobId: { in: ids } }, select: { jobId: true } }),
     prisma.walkthrough.findMany({ where: { accountId, jobId: { in: ids } }, select: { jobId: true, homeownerSig: true, repSig: true, signedAt: true, status: true } }),
-    prisma.mediaItem.groupBy({ by: ['jobId'], where: { accountId, jobId: { in: ids }, deletedAt: null }, _count: { _all: true } }),
+    // Counted as the job's gallery counts them: the job's own and its quote's (routes/media.ts).
+    prisma.mediaItem.findMany({ where: { accountId, deletedAt: null, OR: [{ jobId: { in: ids } }, ...(quoteKeys.length ? [{ quoteKey: { in: quoteKeys } }] : [])] }, select: { id: true, jobId: true, quoteKey: true } }),
     prisma.contractInvoice.findMany({ where: { accountId, jobId: { in: ids }, voidedAt: null } }),
     prisma.contractPayment.findMany({ where: { accountId, jobId: { in: ids } } }),
+    prisma.scheduleSettings.findUnique({ where: { accountId }, select: { crews: true } }),
   ])
+  const crews = (Array.isArray(sched?.crews) ? sched!.crews : []) as Array<{ id: string; name: string }>
+  const norm = (x: string) => String(x || '').toLowerCase().replace(/\s+/g, '')
+  const crewNameOf = (v: string) => { const t = (v || '').trim(); const c = crews.find(x => x.id === t || norm(x.name) === norm(t)); return c ? c.name : t }
   for (const j of jobs) {
     const w = walks.find(x => x.jobId === j.id)
     const inv = invoices.filter(i => i.jobId === j.id).sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.getTime() - b.createdAt.getTime())
@@ -123,10 +170,10 @@ export async function readinessFactsFor(accountId: string, jobs: Json[], today =
       today, status: j.status, previousStatus: j.previousStatus ?? null, locate: locateOf(j),
       permitStatus: permits.find(p => p.jobId === j.id)?.status ?? null,
       materialsStatus: j.materialsStatus, vendorInvoices: vendor.find(v => v.jobId === j.id)?._count._all ?? 0,
-      crewAssigned: j.crewAssigned || '', scheduledDate: j.scheduledDate || '',
+      crewAssigned: crewNameOf(j.crewAssigned || ''), scheduledDate: j.scheduledDate || '',
       takeoffStarted: takeoffs.some(t => t.jobId === j.id),
       walkthrough: w ? { signed: !!w.homeownerSig && !!w.repSig, signedAt: w.signedAt ? floridaDay(w.signedAt) : null, homeowner, open: w.status === 'open' } : null,
-      photos: media.find(m => m.jobId === j.id)?._count._all ?? 0,
+      photos: media.filter(m => m.jobId === j.id || (j.quoteId && m.quoteKey === j.quoteId)).length,
       billing,
     })
   }
@@ -234,6 +281,57 @@ export async function moveCardToJobComplete(accountId: string, job: Json): Promi
     }
   } catch (e) { console.error('[close out] pipeline card:', e) }
   return null
+}
+
+export interface CardBehind { jobId: string; customerName: string; jobStatus: string; cardId: string; from: string; fromName: string; to: string; toName: string }
+
+/**
+ * Pipeline cards behind their job: a sold job whose card is still in a
+ * selling stage (First Contact ...) goes to Signed Contract; a job whose work
+ * is done whose card is not in Job Complete goes there. The card is the one
+ * carrying the job's quote or id, else the customer's only open card with no
+ * quote (never by name, phone or email). Listed by the backfill, moved with
+ * --apply (moveCardTo).
+ */
+export async function cardsBehind(accountId: string): Promise<CardBehind[]> {
+  const { stages } = await loadPipelineStages(accountId)
+  const signed = roleStageId(stages, 'signed')
+  const complete = roleStageId(stages, 'complete')
+  const state = await prisma.pipelineState.findUnique({ where: { accountId } })
+  const leads = ((state?.leads as Json[]) ?? []).filter(Boolean)
+  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null }, select: { id: true, quoteId: true, crmContactId: true, customerName: true, status: true } })
+  const out: CardBehind[] = []
+  for (const j of jobs) {
+    const own = leads.filter(l => (j.quoteId && l.quoteId === j.quoteId) || l.jobId === j.id)
+    const card = own.length === 1 ? own[0] : own.length === 0 && j.crmContactId ? (() => { const o = leads.filter(l => l.customerId === j.crmContactId && !l.quoteId && isOpenStage(stages, l.stage)); return o.length === 1 ? o[0] : null })() : null
+    if (!card) continue
+    const done = isDonePhase(j.status)
+    const to = done ? (hasRole(stages, card.stage, 'complete') ? null : complete) : (isOpenStage(stages, card.stage) ? signed : null)
+    if (!to || to === card.stage) continue
+    out.push({ jobId: j.id, customerName: j.customerName, jobStatus: j.status, cardId: card.id, from: card.stage, fromName: stageNameOf(stages, card.stage), to, toName: stageNameOf(stages, to) })
+  }
+  return out
+}
+
+/** Move one pipeline card to a stage (version checked, retried), with the job's quote and id on it. True when moved. */
+export async function moveCardTo(accountId: string, cardId: string, stage: string, stamp: { quoteId?: string | null; jobId?: string | null } = {}): Promise<boolean> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const state = await prisma.pipelineState.findUnique({ where: { accountId } })
+    if (!state) return false
+    const leads = (state.leads as Json[]) ?? []
+    const card = leads.find(l => l?.id === cardId)
+    if (!card) return false
+    if (card.stage === stage) return false
+    const lead = { ...card, stage, lastMoved: floridaDay(new Date()), ...(stamp.quoteId && !card.quoteId ? { quoteId: stamp.quoteId } : {}), ...(stamp.jobId && !card.jobId ? { jobId: stamp.jobId } : {}) }
+    const next = applyPipelineDelta({ leads, stages: (state.stages as Json[]) ?? [] }, { upsert: [{ lead }], remove: [] })
+    const done = await prisma.$transaction(async tx => {
+      const d = await tx.pipelineState.updateMany({ where: { accountId, version: state.version }, data: { leads: JSON.parse(JSON.stringify(next.leads)), version: { increment: 1 } } })
+      if (d.count === 1) await recordCardMoves(accountId, leads, next.leads, state.version + 1, tx)
+      return d
+    })
+    if (done.count === 1) return true
+  }
+  return false
 }
 
 export type CloseOut = { moved: true; stage: string } | { moved: false; why: string }
