@@ -48,11 +48,19 @@ export interface OptionDef {
 export const LIST_LABEL: Record<OptionListKind, string> = { leadSources: 'Lead Sources', customerTags: 'Customer Tags' }
 export const ONE_LABEL: Record<OptionListKind, string> = { leadSources: 'lead source', customerTags: 'tag' }
 
-/** The words the app saves on its own. */
+/** The words the app saves on its own, and the office's everyday ones. */
 export const BUILT_IN_OPTIONS: Record<OptionListKind, string[]> = {
-  leadSources: ['Website Quote', 'Phone (AI receptionist)', 'Website chat'],
+  leadSources: ['Website Quote', 'Phone (AI receptionist)', 'Website chat', 'Phone call', 'Walk-in'],
   customerTags: ['Imported', 'JobNimbus', 'From schedule', 'MyBudgetQuote import', 'MyBudgetQuote dropoff'],
 }
+
+/**
+ * Built-ins picked by hand, so offered in pickers when first added: the
+ * office enters phone and walk-in leads (walkthrough round 1, Oct 25, 2026).
+ * The other built-ins are saved by the app itself and start hidden. Either
+ * kind can be hidden or renamed in Settings > Lead Sources, never deleted.
+ */
+export const SHOWN_BUILT_INS: ReadonlySet<string> = new Set(['Phone call', 'Walk-in'])
 
 const lc = (s: string) => s.trim().toLowerCase()
 
@@ -100,7 +108,7 @@ export function normalizeOptions(raw: unknown, kind: OptionListKind): OptionDef[
   for (const w of BUILT_IN_OPTIONS[kind]) {
     const has = out.find(o => o.id === w)
     if (has) has.builtIn = true
-    else out.push({ id: w, name: w, order: out.length, hidden: true, builtIn: true, alsoMatches: [] })
+    else out.push({ id: w, name: w, order: out.length, hidden: !SHOWN_BUILT_INS.has(w), builtIn: true, alsoMatches: [] })
   }
   for (const o of out) if (!BUILT_IN_OPTIONS[kind].includes(o.id)) o.builtIn = false
   return out
@@ -265,8 +273,8 @@ export function optionsFromOld(kind: OptionListKind, settingsWords: unknown, rec
   }
   for (const w of BUILT_IN_OPTIONS[kind]) {
     const has = options.find(o => o.id === w)
-    if (has) { has.builtIn = true; has.hidden = true }
-    else options.push({ id: w, name: w, order: options.length, hidden: true, builtIn: true, alsoMatches: [] })
+    if (has) { has.builtIn = true; has.hidden = !SHOWN_BUILT_INS.has(w) }
+    else options.push({ id: w, name: w, order: options.length, hidden: !SHOWN_BUILT_INS.has(w), builtIn: true, alsoMatches: [] })
   }
   let list = renumber(options)
   const merged: Array<{ from: string; into: string }> = []

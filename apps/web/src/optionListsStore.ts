@@ -16,7 +16,7 @@
 import { useEffect, useState } from 'react'
 import { sendJson } from './syncHttp'
 import {
-  normalizeOptions, labelFor, groupKeyFor, pickerOptions, optionFor, BUILT_IN_OPTIONS,
+  normalizeOptions, labelFor, groupKeyFor, pickerOptions, optionFor, BUILT_IN_OPTIONS, SHOWN_BUILT_INS,
   type OptionDef, type OptionListKind,
 } from './optionListModel'
 
@@ -97,7 +97,7 @@ export const tagPicker = (current: string[] = []) => pickerOptions(lists.custome
 /** The option a typed word is (exact id, a linked word, or a name in any capital letters), or null. */
 export const sourceFor = (word: string | null | undefined) => optionFor(lists.leadSources, word)
 /** The words the app saves on its own (website quote, phone agent, chat). */
-export const AUTOMATIC_SOURCES = new Set(BUILT_IN_OPTIONS.leadSources)
+export const AUTOMATIC_SOURCES = new Set(BUILT_IN_OPTIONS.leadSources.filter(w => !SHOWN_BUILT_INS.has(w)))
 
 export type SaveAnswer = { ok: true } | { ok: false; error: string; stale?: boolean }
 

@@ -315,7 +315,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty and service requests (d
     const page = await (await fetch(`${base}/p/i/${p.token}`)).text()
     expect(page).toContain('Warranty work order: $0, no charge to the customer')
     expect(page).toContain(`data-packet-warranty-work="${ticketId}"`)
-    // Covered work is costed: owner and office, with hours.
+    // Covered work is costed: the owner and the office enter the hours and parts; only logins that see costs see the cost (the office not, since Oct 25, 2026).
     expect((await call('sales_rep', 'POST', `/api/service-tickets/${ticketId}/fixed`, { fixedOn: '2026-10-22', crew: [{ name: 'Crew A', hours: 2 }] })).status).toBe(403)
     expect((await call('office_staff', 'POST', `/api/service-tickets/${ticketId}/fixed`, { fixedOn: '2026-10-22', crew: [] })).status).toBe(400)
     const fixed = await call('office_staff', 'POST', `/api/service-tickets/${ticketId}/fixed`, {
@@ -324,9 +324,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty and service requests (d
     })
     expect(fixed.status).toBe(200)
     expect(fixed.json.data.stage).toBe('fixed')
+    expect(fixed.json.data.cost).toBeNull()
     // 2.5 hours × $30.00 (Settings, no quoted cost) + 2 × $12.50.
-    expect(fixed.json.data.cost).toMatchObject({ hours: 2.5, hourlyCostCents: 3000, laborCents: 7500, materialCents: 2500, totalCents: 10000 })
-    expect(fixed.json.data.cost.materials).toHaveLength(1)
+    const costed = (await call('super_admin', 'GET', `/api/service-tickets/${ticketId}`)).json.data
+    expect(costed.cost).toMatchObject({ hours: 2.5, hourlyCostCents: 3000, laborCents: 7500, materialCents: 2500, totalCents: 10000 })
+    expect(costed.cost.materials).toHaveLength(1)
     // A Salesman sees the ticket, not its cost.
     expect((await call('sales_rep', 'GET', `/api/service-tickets/${ticketId}`)).json.data.cost).toBeNull()
     // Fixed: off the packet.
@@ -361,7 +363,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty and service requests (d
     expect(mine).toHaveLength(2)
     expect(mine.find((t: any) => t.id === ticketId).photoCount).toBe(3)
     expect((await call('sales_rep', 'GET', '/api/service-tickets/report')).status).toBe(403)
-    const rep = (await call('office_staff', 'GET', '/api/service-tickets/report')).json.data
+    expect((await call('office_staff', 'GET', '/api/service-tickets/report')).status).toBe(403)
+    const rep = (await call('super_admin', 'GET', '/api/service-tickets/report')).json.data
     expect(rep.totals).toMatchObject({ tickets: 2, covered: 1, notCovered: 1, undecided: 0, open: 1, coveredCostCents: 10000, costed: 1 })
     expect(rep.byMonth[0]).toMatchObject({ tickets: 2, covered: 1, notCovered: 1, coveredCostCents: 10000 })
     expect(rep.byInstaller).toEqual([{ key: 'Crew A', tickets: 1, costed: 1, costCents: 10000, laborCents: 7500, materialCents: 2500, averageCents: 10000 }])

@@ -1,4 +1,5 @@
-// Prices only for a Salesman or Installer: their phones never receive a cost.
+// Prices only for the office, a Salesman or Installer: they never receive a cost
+// (the office since Oct 25, 2026: walkthrough round 1).
 //
 //   cd apps/web && pnpm -s build
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev owner token> \
@@ -18,7 +19,11 @@
 //   4. Their saves keep every cost: a quote the salesman saves gets its costs
 //      on the server (and its price matches the owner's quote builder on the
 //      same quote); a stage change and the voice switch leave every cost as saved.
-//   5. The owner still sees all of it.
+//   5. The office (Office Staff, on a computer) opens the Dashboard, Sales
+//      Pipeline, Customers, Quotes and a quote, Billing, Portal, Schedule,
+//      Operations, Inventory and Vendors: no answer holds a cost, and no
+//      screen shows a margin or cost line.
+//   6. The owner still sees all of it.
 // Screenshot (E2E_SHOTS): dev-salesman-quote-no-costs.png (phone).
 // Dev only (port 4001). Removes both logins, the customer and every quote it made.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
@@ -129,21 +134,25 @@ try {
   // ── 1. A Salesman and an Installer ──
   const sales = await invite('sales_rep', `Salesman ${stamp}`)
   const crew = await invite('field_crew', `Installer ${stamp}`)
-  check('logins: a Salesman and an Installer signed in', !!sales.token && !!crew.token)
+  const office = await invite('office_staff', `Office ${stamp}`)
+  check('logins: a Salesman, an Installer and an Office Staff signed in', !!sales.token && !!crew.token && !!office.token)
+  const who = t => (t === sales ? 'salesman' : t === crew ? 'installer' : 'office')
 
   // ── 2a. Straight to the server with their logins ──
   const direct = []
-  for (const t of [sales, crew]) {
+  for (const t of [sales, crew, office]) {
     for (const p of ['/api/business-state', '/api/inventory-state', '/api/saved-quotes', '/api/saved-jobs', '/api/kv', '/api/vendor-state', '/api/tier-sets', '/api/pipeline']) {
       const r = await call(t.token, 'GET', p)
-      direct.push({ method: 'GET', url: API + p + ` (${t === sales ? 'salesman' : 'installer'})`, text: r.text })
+      direct.push({ method: 'GET', url: API + p + ` (${who(t)})`, text: r.text })
     }
     const view = await call(t.token, 'POST', '/api/quote-pricing', { request: { fenceStyle: "WV-ND 6'x8' Privacy", runs: [{ ft: 120, rail: 'auto' }], corners: 2, ends: 2, walkGates: 1, dblGates: 0, overrides: {}, jobType: 'new', compare: true } })
     direct.push({ method: 'POST', url: API + '/api/quote-pricing', text: view.text })
-    check(`server prices for the ${t === sales ? 'salesman' : 'installer'}: a price, no costs`, view.status === 200 && view.json.data?.price > 0 && Array.isArray(view.json.data?.compare) && view.json.data.compare.length > 1, `${view.status} ${view.json.data?.price}`)
+    check(`server prices for the ${who(t)}: a price, no costs`, view.status === 200 && view.json.data?.price > 0 && Array.isArray(view.json.data?.compare) && view.json.data.compare.length > 1, `${view.status} ${view.json.data?.price}`)
   }
   const directLeaks = leaks(direct)
-  check('API answers to both logins hold no cost field or real cost', directLeaks.length === 0, directLeaks.slice(0, 5).join(' | '))
+  check('API answers to all three logins hold no cost field or real cost', directLeaks.length === 0, directLeaks.slice(0, 5).join(' | '))
+  // Vendor invoices are supplier prices: not the office's either.
+  check('office: vendor invoices refused', (await call(office.token, 'GET', '/api/vendor-invoices')).status === 403)
   const ownerInv = (await owner('GET', '/api/inventory-state')).text
   check('the owner gets the same answers with costs', fieldRe.test(ownerInv) && valueHits(ownerInv).length > 5)
 
@@ -254,8 +263,22 @@ try {
   const c = await signedIn(crew, { width: 390, height: 844 })
   for (const p of ['/', '/operations', '/inventory', '/schedule', `/quotes?quote=${nq.id}`]) await go(c.page, p)
 
+  // ── 2d. The office, on a computer ──
+  const of = await signedIn(office, { width: 1440, height: 900 })
+  const shown = [], landed = {}
+  for (const p of ['/', '/pipeline', '/customers', '/quotes', `/quotes?qv=${nq.id}`, '/billing', '/portal-inbox', '/schedule', '/operations', '/inventory', '/vendors']) {
+    await go(of.page, p)
+    landed[p] = new URL(of.page.url()).pathname
+    shown.push(`${p}: ${await of.page.locator('body').innerText().catch(() => '')}`)
+  }
+  const officeText = shown.join('\n')
+  const marginWords = officeText.match(/Average margin|Target Margin|Gross Margin|\d% margin|Material cost|Labor cost|Total cost|Budget Targets|Pricing \(Internal\)/i)
+  check('office: no margin, cost line or budget share on any screen it opened', !marginWords, marginWords ? marginWords[0] : '')
+  check('office: Sales Pipeline, Customers, Quotes, Billing and Portal open (not sent back to Today)', ['/pipeline', '/customers', '/quotes', '/billing', '/portal-inbox'].every(p => landed[p] === p), JSON.stringify(landed))
+
   // ── 3. Nothing reached their phones ──
-  const sl = leaks(s.bodies), cl = leaks(c.bodies)
+  const sl = leaks(s.bodies), cl = leaks(c.bodies), ol = leaks(of.bodies)
+  check(`office: ${of.bodies.length} answers recorded, none holds a cost field or a real cost`, of.bodies.length > 20 && ol.length === 0, ol.slice(0, 6).join(' | '))
   check(`salesman: ${s.bodies.length} answers recorded, none holds a cost field or a real cost`, s.bodies.length > 20 && sl.length === 0, sl.slice(0, 6).join(' | '))
   check(`installer: ${c.bodies.length} answers recorded, none holds a cost field or a real cost`, c.bodies.length > 10 && cl.length === 0, cl.slice(0, 6).join(' | '))
   check('the phones asked the server to price (quote-pricing answers recorded)', s.bodies.filter(x => x.url.includes('/api/quote-pricing')).length >= 3)

@@ -135,9 +135,9 @@ export function damagePctFor(s: MoveRepairSettings, styleName: string): number {
 
 // ── Who sees costs ───────────────────────────────────────────────────────────
 
-/** The internal breakdown (every cost line) is for the owner, admins, managers and the office; never a salesman, the crew or a customer. */
+/** The internal breakdown (every cost line) is for the owner, admins and managers (costs.view); never the office, a salesman, the crew or a customer. */
 export function seesCosts(role: string | null | undefined): boolean {
-  return role === 'super_admin' || role === 'admin' || role === 'manager' || role === 'office_staff'
+  return role === 'super_admin' || role === 'admin' || role === 'manager'
 }
 
 // ── Parts ────────────────────────────────────────────────────────────────────

@@ -5,7 +5,9 @@
  *   manager                                     everything except users, system tools and
  *                                               deleting records (Archive instead)
  *   office_staff                                runs the office: schedule, billing, vendors,
- *                                               stock counts, permits, crew links, quotes;
+ *                                               stock counts, permits, crew links, quotes,
+ *                                               customers, leads and the pipeline; prices
+ *                                               only, never a cost or margin;
  *                                               may remove operational entries (schedule
  *                                               entries, rain days, photos, files, notes);
  *                                               archives customers, cards and jobs.
@@ -70,13 +72,13 @@ export type Action =
   /**
    * See costs: material and labor cost, sub rates, wages, overhead, margins,
    * profit, Target Profit, commission and "where every dollar goes". Without
-   * it (Salesman, Installer) the server sends prices only (lib/costRedact.ts).
+   * it (office, Salesman, Installer) the server sends prices only (lib/costRedact.ts).
    */
   | 'costs.view'
   /**
    * Vendor invoices: upload them, fix and match their lines, OK a big price
-   * change, undo one; see vendor price history. Owner, admin, manager and
-   * office; never a Salesman or Installer (they see no costs).
+   * change, undo one; see vendor price history. Owner, admin and manager;
+   * never the office, a Salesman or an Installer (they see no costs).
    */
   | 'invoices.manage'
   /**
@@ -106,7 +108,9 @@ const ALLOWED: Record<StaffRole, ReadonlySet<Action>> = {
   super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   manager: new Set(FULL),
-  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage', 'payments.record', 'service.decide']),
+  // The office never sees a cost or a margin (walkthrough round 1, Oct 25, 2026): no costs.view, and no
+  // vendor invoices (supplier prices). The server sends it prices only, as for a Salesman (lib/costRedact.ts).
+  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'payments.record', 'service.decide']),
   sales_rep: new Set(['quotes.change', 'records.archive', 'payments.record']),
   field_crew: new Set([]),
 }

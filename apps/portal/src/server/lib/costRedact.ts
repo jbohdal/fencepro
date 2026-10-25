@@ -1,8 +1,8 @@
 /**
- * Prices only for a Salesman or Installer (Jonathan, Oct 2026): their phones
- * never receive a cost, margin, profit, sub rate, wage, overhead, commission,
- * Target Profit or "where every dollar goes" figure. The owner, admins,
- * managers and the office (permission costs.view) see everything.
+ * Prices only for the office, a Salesman or Installer (Jonathan, Oct 2026):
+ * they never receive a cost, margin, profit, sub rate, wage, overhead,
+ * commission, Target Profit or "where every dollar goes" figure. The owner,
+ * admins and managers (permission costs.view) see everything.
  *
  * Reading: every JSON answer under /api to a login without costs.view goes
  * through redactCosts (index.ts wraps res.json), so a route added later is

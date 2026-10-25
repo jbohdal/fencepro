@@ -19,9 +19,9 @@ const quote = {
 }
 
 describe('who sees costs', () => {
-  test('owner, admin, manager and office see costs; Salesman and Installer do not', () => {
-    for (const r of ['super_admin', 'admin', 'manager', 'office_staff']) { expect(serverCan(r, 'costs.view')).toBe(true); expect(hidesCosts(r)).toBe(false) }
-    for (const r of ['sales_rep', 'field_crew']) { expect(serverCan(r, 'costs.view')).toBe(false); expect(hidesCosts(r)).toBe(true) }
+  test('owner, admin and manager see costs; office, Salesman and Installer do not', () => {
+    for (const r of ['super_admin', 'admin', 'manager']) { expect(serverCan(r, 'costs.view')).toBe(true); expect(hidesCosts(r)).toBe(false) }
+    for (const r of ['office_staff', 'sales_rep', 'field_crew']) { expect(serverCan(r, 'costs.view')).toBe(false); expect(hidesCosts(r)).toBe(true) }
     // Not a CRM login (a customer, a portal login, no login): left to its own route.
     for (const r of [null, undefined, 'customer', 'support_agent']) expect(hidesCosts(r as any)).toBe(false)
   })

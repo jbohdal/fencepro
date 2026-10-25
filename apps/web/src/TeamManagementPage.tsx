@@ -43,7 +43,7 @@ const ROLES = [
   { value: 'manager', label: 'Manager', desc: 'Everything except the team, system tools and deleting (archives instead)', color: 'bg-purple-100 text-purple-700' },
   { value: 'sales_rep', label: 'Salesman', desc: 'Leads, customers, quotes and proposals, notes, appointments, moving pipeline cards, photos. No settings, prices, team or deleting. Archives customers and cards.', color: 'bg-blue-100 text-blue-700' },
   { value: 'field_crew', label: 'Field Crew', desc: 'Jobs, photos, notes, walkthroughs, checklists. No quotes, settings, prices or deleting.', color: 'bg-green-100 text-green-700' },
-  { value: 'office_staff', label: 'Office Staff', desc: 'Customers, quotes, jobs, schedule, billing, vendors, stock. No settings, prices, team, or deleting customers, quotes or jobs (archives them instead).', color: 'bg-orange-100 text-orange-700' },
+  { value: 'office_staff', label: 'Office Staff', desc: 'Customers, leads, the pipeline, quotes and proposals, portal messages, jobs, schedule, billing, stock. Prices only: never a cost or margin. No settings, prices, team, or deleting customers, quotes or jobs (archives them instead).', color: 'bg-orange-100 text-orange-700' },
 ]
 
 const STATUS_BADGES: Record<string, string> = {

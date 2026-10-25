@@ -16,9 +16,9 @@ export type Action =
   | 'prices.change' | 'users.manage' | 'system' | 'automations.change'
   | 'records.delete' | 'records.archive' | 'ops.delete' | 'schedule.change' | 'billing.change' | 'finance.change'
   | 'quotes.change' | 'permits.change' | 'packets.change' | 'inventory.stock' | 'records.import'
-  /** See costs, margins, sub rates and profit; Salesman and Installer see prices only (the server never sends them costs). */
+  /** See costs, margins, sub rates and profit; office, Salesman and Installer see prices only (the server never sends them costs). */
   | 'costs.view'
-  /** Vendor invoices: upload, review, match, OK, undo; vendor price history. Owner, admin, manager and office. */
+  /** Vendor invoices: upload, review, match, OK, undo; vendor price history. Owner, admin and manager. */
   | 'invoices.manage'
   /** Record a customer's payment and hand them the receipt: owner, admin, manager, office and Salesman. */
   | 'payments.record'
@@ -42,7 +42,9 @@ export const ALLOWED: Record<CrmRole, ReadonlySet<Action>> = {
   super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   manager: new Set(FULL),
-  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'invoices.manage', 'payments.record', 'service.decide']),
+  // The office never sees a cost or a margin (walkthrough round 1, Oct 25, 2026): no costs.view, and no
+  // vendor invoices (supplier prices). The server sends it prices only, as for a Salesman (lib/costRedact.ts).
+  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'payments.record', 'service.decide']),
   sales_rep: new Set(['quotes.change', 'records.archive', 'payments.record']),
   field_crew: new Set([]),
 }

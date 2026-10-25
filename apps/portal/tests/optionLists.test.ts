@@ -41,8 +41,10 @@ describe('one model, two copies', () => {
 
 describe('the one-time lead source list (live words)', () => {
   test('Settings words first and shown; record words after, most used first', () => {
-    expect(L.map(o => o.id)).toEqual(['Facebook', 'Instagram', 'Yard Sign', 'Referral', 'Door Hanger', 'Nextdoor', 'Other', 'website/google', 'mysalesman', 'repeat business', 'canvassing', 'Billboard maricamp', 'billboard 441', 'vehicle wrap', 'Website Quote', 'Phone (AI receptionist)', 'Website chat'])
+    expect(L.map(o => o.id)).toEqual(['Facebook', 'Instagram', 'Yard Sign', 'Referral', 'Door Hanger', 'Nextdoor', 'Other', 'website/google', 'mysalesman', 'repeat business', 'canvassing', 'Billboard maricamp', 'billboard 441', 'vehicle wrap', 'Website Quote', 'Phone (AI receptionist)', 'Website chat', 'Phone call', 'Walk-in'])
     expect(L.filter(o => o.hidden).map(o => o.id)).toEqual(['vehicle wrap', 'Website Quote', 'Phone (AI receptionist)', 'Website chat'])
+    // The office's phone and walk-in leads (Oct 25, 2026): built in, and offered in the pickers.
+    expect(L.filter(o => o.id === 'Phone call' || o.id === 'Walk-in').map(o => [o.id, o.hidden, o.builtIn])).toEqual([['Phone call', false, true], ['Walk-in', false, true]])
     expect(L.find(o => o.id === 'Instagram')!.hidden).toBe(false)     // a Settings word stays in the forms (Jonathan)
   })
   test('capital letter twins are linked; Google and Repeat Customer merged; built-ins hidden', () => {

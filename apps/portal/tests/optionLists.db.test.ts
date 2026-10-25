@@ -99,7 +99,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Lead sources and tags (dev datab
     expect(await O.ensureOptionLists(accountId)).toBeNull()
     const ls = await O.loadOptionList(accountId, 'leadSources')
     const tg = await O.loadOptionList(accountId, 'customerTags')
-    expect(ls.options.filter(o => o.builtIn).map(o => [o.id, o.hidden])).toEqual([['Website Quote', true], ['Phone (AI receptionist)', true], ['Website chat', true]])
+    expect(ls.options.filter(o => o.builtIn).map(o => [o.id, o.hidden])).toEqual([['Website Quote', true], ['Phone (AI receptionist)', true], ['Website chat', true], ['Phone call', false], ['Walk-in', false]])
     expect(tg.options.filter(o => o.builtIn).map(o => [o.id, o.hidden])).toEqual([['Imported', true], ['JobNimbus', true], ['From schedule', true], ['MyBudgetQuote import', true], ['MyBudgetQuote dropoff', true]])
     expect(tg.options.find(o => o.id === 'VIP')!.hidden).toBe(true)     // only on a card, no customer has it
     expect(await snapshot()).toEqual(before)
