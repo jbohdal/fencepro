@@ -52,6 +52,23 @@ export interface QuotedLabor {
   subRateCostCents: number
   /** Settings' hourly rate when it was signed. */
   hourlyCostCents: number
+  /**
+   * Sub labor the quote paid besides the sections or feet: walk and double
+   * gates, tear out and extra hours (pricingEngine.ts). Older saved costs
+   * have none: subOtherOf works it out from the quote's labor.
+   */
+  subOtherCents?: number
+}
+
+/**
+ * The sub labor a quote paid beyond units x rate (gates, tear out, extra
+ * hours), in cents, never below 0. The quote's own labor less the sections
+ * (or feet) at the sub rate it was priced with.
+ */
+export function subOtherOf(q: Pick<QuotedCost, 'laborCents' | 'labor'> | null | undefined): number {
+  if (!q || q.labor?.mode !== 'sub') return 0
+  if (typeof q.labor.subOtherCents === 'number' && Number.isFinite(q.labor.subOtherCents)) return Math.max(0, Math.round(q.labor.subOtherCents))
+  return Math.max(0, Math.round(q.laborCents - qty(q.labor.subUnits) * qty(q.labor.subRateCostCents)))
 }
 
 export interface QuotedCost {
@@ -232,6 +249,8 @@ export function quotedCostOf(q: QuoteForSnapshot, ctx: {
   const materialCents = toCents(q.materialCost)
   const laborCents = toCents(q.laborCost)
   const tearOutCents = toCents(q.tearOutCost)
+  const subUnits = subUnit === 'section' ? Math.max(0, Math.round(num(q.sections))) : footage
+  const subRateCostCents = toCents(subRateFor(ctx.style, ctx.pricing, pricing.subRate))
   return {
     quoteId: q.id, signedAt: ctx.signedAt.toISOString(), signedVia: ctx.signedVia, fenceStyle: q.fenceStyle, salesRep: q.salesRep,
     jobType: work && (work.type === 'move' || work.type === 'repair') ? String(work.type) : 'new',
@@ -240,8 +259,9 @@ export function quotedCostOf(q: QuoteForSnapshot, ctx: {
     totalCents: toCents(q.totalCOGS) || materialCents + laborCents + tearOutCents,
     lines,
     labor: {
-      mode: laborMode, subUnit, subUnits: subUnit === 'section' ? Math.max(0, Math.round(num(q.sections))) : footage,
-      subRateCostCents: toCents(subRateFor(ctx.style, ctx.pricing, pricing.subRate)), hourlyCostCents: toCents(ctx.pricing.manHourRate),
+      mode: laborMode, subUnit, subUnits, subRateCostCents, hourlyCostCents: toCents(ctx.pricing.manHourRate),
+      // The gates (and tear out, extra hours) the sub is paid for besides the sections, as priced.
+      ...(laborMode === 'sub' ? { subOtherCents: Math.max(0, laborCents - Math.round(subUnits * subRateCostCents)) } : {}),
     },
   }
 }
@@ -319,8 +339,10 @@ export function actualCostOf(t: { lines: TakeoffLine[]; labor: TakeoffLabor; ins
   } else if (t.labor.mode === 'sub') {
     const rate = typeof savedSub === 'number' && savedSub > 0 ? savedSub : ctx.subRateCostCents
     const units = qty(t.labor.subUnits)
-    laborCents = Math.round(units * rate)
-    laborMath = `${units} ${t.labor.subUnit === 'section' ? 'sections' : 'ft'} paid × ${usd(rate)}`
+    // Gates, tear out and extra hours the sub is paid for besides the sections, as the quote priced them.
+    const gates = subOtherOf(ctx.quoted)
+    laborCents = Math.round(units * rate) + gates
+    laborMath = `${units} ${t.labor.subUnit === 'section' ? 'sections' : 'ft'} paid × ${usd(rate)}${gates ? ` + ${usd(gates)} gates and other sub work as quoted` : ''}`
     source = typeof savedSub === 'number' && savedSub > 0 ? 'sub rate saved at signing' : "Settings' sub rate today (none saved at signing)"
   } else {
     const rate = typeof savedHourly === 'number' && savedHourly > 0 ? savedHourly : ctx.hourlyCostCents
