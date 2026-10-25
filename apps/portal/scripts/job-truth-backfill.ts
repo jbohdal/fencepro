@@ -23,6 +23,16 @@
  *      figures and status set from the schedule (lib/contractBilling.ts settleIn).
  *   5. Jobs signed off at the final walkthrough and paid in full that are not
  *      Complete: moved to Complete (lib/jobTruth.ts closeOutIfDone).
+ *   6. Jobs with an install date and no Schedule entries (scheduled the old way):
+ *      one entry per crew day made from the start, end and crew
+ *      (lib/installScheduling.ts jobsMissingEntries).
+ *   7. Pipeline cards behind their job: a sold job's card still in a selling
+ *      stage goes to Signed Contract; a finished job's card to Job Complete
+ *      (lib/jobTruth.ts cardsBehind).
+ *   8. Job costing takeoffs still in draft whose lines are not the signed work
+ *      (started from another option): made again from the signed quote after
+ *      3 (lib/jobCosting.ts rebuildDraftTakeoff). Submitted or approved ones are
+ *      never changed.
  *
  * The milestone list (2) is worked out as the jobs will be after 1, so the
  * locates moved in count. Nothing is texted or emailed. Run on live only
@@ -54,6 +64,9 @@ async function main() {
   const { readinessFactsFor, clearStaleTicks, saveLocate, billingViewFor, billingStatusOf, closeOutIfDone } = await import('../src/server/lib/jobTruth.js')
   const { quotedMatchesQuote, snapshotQuotedCost } = await import('../src/server/lib/jobCosting.js')
   const { settleIn } = await import('../src/server/lib/contractBilling.js')
+  const { jobsMissingEntries, makeMissingEntries } = await import('../src/server/lib/installScheduling.js')
+  const { cardsBehind, moveCardTo } = await import('../src/server/lib/jobTruth.js')
+  const { quotedNow, takeoffMatchesQuoted, rebuildDraftTakeoff, linesOf } = await import('../src/server/lib/jobCosting.js')
   console.log(`Job truth backfill, database "${dbName}", ${APPLY ? 'APPLY' : 'report only (nothing is written)'}\n`)
 
   const jobs = await prisma.savedJob.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'asc' } })
@@ -155,6 +168,32 @@ async function main() {
   console.log(`\n5. Signed off at the walkthrough and paid in full, not Complete yet: ${close.length}`)
   for (const j of close) console.log(`   ${name(j)}: ${j.status} (${j.opsStage || 'no stage'}) -> Complete`)
 
+  // ── 6. Install dates with no Schedule entries ──
+  const missing: Array<{ accountId: string; m: Awaited<ReturnType<typeof jobsMissingEntries>>[number] }> = []
+  for (const accountId of accounts) for (const m of await jobsMissingEntries(accountId)) missing.push({ accountId, m })
+  console.log(`\n6. Jobs with an install date and no Schedule entries (entries to make, one per crew day): ${missing.length}`)
+  for (const { m } of missing) console.log(`   ${m.customerName} (job ${m.jobId}, ${m.status}): ${m.days.map(mdy).join(', ')} on ${m.crewName || '(no crew)'}${m.crewFound ? '' : ' (the job\'s crew was not found in Schedule > Settings: the first crew)'}`)
+
+  // ── 7. Pipeline cards behind their job ──
+  const behind: Array<{ accountId: string; c: Awaited<ReturnType<typeof cardsBehind>>[number] }> = []
+  for (const accountId of accounts) for (const c of await cardsBehind(accountId)) behind.push({ accountId, c })
+  console.log(`\n7. Pipeline cards behind their job: ${behind.length}`)
+  for (const { c } of behind) console.log(`   ${c.customerName} (job ${c.jobId}, ${c.jobStatus}): card ${c.fromName} -> ${c.toName}`)
+
+  // ── 8. Draft takeoffs not of the signed work ──
+  const drafts = await prisma.jobTakeoff.findMany({ where: { status: 'draft' } })
+  const wrong: Array<{ t: typeof drafts[number]; job: typeof jobs[number]; style: string; parts: string }> = []
+  for (const t of drafts) {
+    const j = byId.get(t.jobId)
+    if (!j) continue
+    // As it will be after 3: the signed option's cost, when 3 replaces it.
+    const mis = qMis.find(m => m.q.id === j.quoteId)
+    const quoted = mis ? { fenceStyle: mis.q.fenceStyle, lines: (Array.isArray(mis.q.pullSheet) ? mis.q.pullSheet : []).filter((l: any) => l && typeof l.item === 'string' && l.item.trim()).map((l: any) => ({ part: String(l.item), qty: Number(l.qty) || 0 })) } as any : await quotedNow(t.accountId, j.quoteId)
+    if (quoted && !takeoffMatchesQuoted(t, quoted)) wrong.push({ t, job: j, style: quoted.fenceStyle, parts: linesOf(t).slice(0, 3).map((l: any) => l.part).join('; ') })
+  }
+  console.log(`\n8. Draft takeoffs whose lines are not the signed work (made again from the signed quote): ${wrong.length}`)
+  for (const w of wrong) console.log(`   ${name(w.job)}: takeoff started ${w.t.createdAt.toISOString().slice(0, 10)}, ${linesOf(w.t).length} lines (${w.parts}...) -> the signed ${w.style}`)
+
   if (!APPLY) { console.log('\nReport only. Nothing was written. Run with --apply to make these changes.'); await prisma.$disconnect(); return }
 
   // ── Apply ──
@@ -174,7 +213,15 @@ async function main() {
     n4++
   }
   for (const j of close) if ((await closeOutIfDone(j.accountId, j.id, 'backfill: signed off and paid in full')).moved) n5++
-  console.log(`\nApplied: ${n1} locates moved, ${n2} milestone ticks cleared, ${n3} quoted costs replaced, ${n4} payment statuses set, ${n5} jobs closed out.`)
+  let n6 = 0, n7 = 0, n8 = 0
+  for (const { accountId, m } of missing) n6 += await makeMissingEntries(accountId, m)
+  for (const { accountId, c } of behind) {
+    const j = byId.get(c.jobId)
+    if (await moveCardTo(accountId, c.cardId, c.to, { quoteId: j?.quoteId ?? null, jobId: c.jobId })) n7++
+  }
+  // After 3, so the signed option's cost is the one the takeoff is made from (3 may have rebuilt some already).
+  for (const w of wrong) if (await rebuildDraftTakeoff(w.t.accountId, w.t.jobId, 'backfill: started from another option')) n8++
+  console.log(`\nApplied: ${n1} locates moved, ${n2} milestone ticks cleared, ${n3} quoted costs replaced, ${n4} payment statuses set, ${n5} jobs closed out, ${n6} Schedule entries made, ${n7} pipeline cards moved, ${n8} draft takeoffs made again.`)
   await prisma.$disconnect()
 }
 

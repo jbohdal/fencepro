@@ -89,6 +89,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     await prisma.walkthrough.deleteMany({ where: { jobId: { in: jobs } } })
     await prisma.permit.deleteMany({ where: { accountId } })
     await prisma.installPacket.deleteMany({ where: { accountId } })
+    await prisma.scheduledGridJob.deleteMany({ where: { accountId } })
+    await prisma.scheduleSettings.deleteMany({ where: { accountId } })
     await prisma.automationEvent.deleteMany({ where: { accountId } })
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: [...jobs, ...pays.map(p => p.id)] } } })
     await prisma.savedJob.deleteMany({ where: { accountId } })
@@ -113,6 +115,26 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     const r = await call('PATCH', `/api/saved-jobs/${ids.job}`, { notes: 'gate code 1234', paymentStatus: 'not_invoiced', amountPaid: 0, locatesDate: null, locateTicket: null })
     expect(r.status).toBe(200)
     expect(r.json.data).toMatchObject({ notes: 'gate code 1234', paymentStatus: 'invoiced' })
+  })
+
+  test('Accounts Receivable lists the deposit from the payment schedule; overdue the day after it is due', async () => {
+    const r = (await call('GET', '/api/payments/receivables')).json.data.filter((x: any) => x.jobId === ids.job)
+    expect(r.map((x: any) => [x.label, x.balanceCents, x.state])).toEqual([['Deposit', 355692, 'due'], ['Final', 355691, 'not_due']])
+    const later = await truth.receivables(accountId, '2099-01-01')
+    expect(later.find(x => x.jobId === ids.job)).toMatchObject({ state: 'overdue' })
+  })
+
+  test('an install date with no Schedule entries: listed, and its entries made once', async () => {
+    const S = await import('../src/server/lib/installScheduling.js')
+    await prisma.scheduleSettings.create({ data: { accountId, workDays: [1, 2, 3, 4], crews: [{ id: 'crew1', name: 'Crew 1', color: 'bg-blue-500' }] as any } })
+    await prisma.savedJob.update({ where: { id: ids.job }, data: { scheduledDate: '2099-03-02', scheduledEndDate: '2099-03-03', crewAssigned: 'crew1' } })
+    const m = (await S.jobsMissingEntries(accountId)).find(x => x.jobId === ids.job)!
+    expect(m).toMatchObject({ days: ['2099-03-02', '2099-03-03'], crewId: 'crew1', crewName: 'Crew 1', crewFound: true })
+    expect(await S.makeMissingEntries(accountId, m)).toBe(2)
+    expect(await S.makeMissingEntries(accountId, m)).toBe(0)
+    expect((await S.jobsMissingEntries(accountId)).some(x => x.jobId === ids.job)).toBe(false)
+    // It has a date: never "ready to schedule".
+    expect((await S.readyToSchedule(accountId)).some(x => x.id === ids.job)).toBe(false)
   })
 
   test('the 811 locate: one record, from the crew packet and the job page', async () => {
