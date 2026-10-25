@@ -72,6 +72,8 @@ function installSpan(job: Job): { start: string; end: string } | null {
 
 /** The 811 warnings for a job's install days ([] when it is not scheduled, or nothing is wrong). */
 export function jobLocateWarnings(job: Job): string[] {
+  // A job whose work is done needs no 811 warning (Maria, paid in full, said "No 811 locate ticket").
+  if (job.status === 'completed' || job.status === 'invoiced' || job.status === 'paid') return []
   const span = installSpan(job)
   return span ? locateWarnings(locateOf(job), span.start, span.end).map(w => w.text) : []
 }
@@ -102,7 +104,7 @@ export function LocatePanel({ job }: { job: Job }) {
     <div className="space-y-2" data-job-locate={words.status}>
       <div className="flex flex-wrap items-center gap-2">
         <span className={`text-xs font-semibold border rounded-full px-2 py-1 ${TONE[words.status]}`} data-locate-status={words.status}>{LOCATE_STATUS_WORDS[words.status]}</span>
-        <span className="text-sm text-gray-800" data-locate-text>{words.text}</span>
+        {words.text !== LOCATE_STATUS_WORDS[words.status] && <span className="text-sm text-gray-800" data-locate-text>{words.text}</span>}
       </div>
       {!editing && (
         <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">

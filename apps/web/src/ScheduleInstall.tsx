@@ -21,6 +21,7 @@
  * Everything is saved on the server (installScheduleApi.ts).
  */
 
+import { locateOf, locateShortWarning } from '../../portal/src/server/lib/locates'
 import { useEffect, useMemo, useState } from 'react'
 import { styleLabel } from './fenceCatalog'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
@@ -61,9 +62,11 @@ export function readyChips(j: ReadyJob): Array<{ key: string; label: string; ton
   const today = businessDate(new Date())
   const permitOk = j.permitStatus === 'not_needed' || PERMIT_ISSUED.includes(j.permitStatus ?? '')
   const loc = locatesWords(j, today)
+  // Booked: the ticket against its own install days, so a "Clear to dig" chip never sits above a warning about the same ticket.
+  const locWarn = /^\d{4}-\d{2}-\d{2}$/.test(j.scheduledDate || '') ? locateShortWarning(locateOf(j), j.scheduledDate, j.scheduledEndDate || j.scheduledDate) : null
   return [
     { key: 'permit', label: `Permit: ${permitWords(j.permitStatus)}`, tone: permitOk ? 'ok' : 'warn' },
-    { key: 'locates', label: `811: ${loc.text}`, tone: loc.state === 'ok' ? 'ok' : loc.state === 'expired' ? 'bad' : 'warn' },
+    { key: 'locates', label: locWarn && loc.state === 'ok' ? `⚠ ${locWarn}` : `811: ${loc.text}`, tone: loc.state === 'expired' ? 'bad' : loc.state === 'ok' && !locWarn ? 'ok' : 'warn' },
     { key: 'deposit', label: j.deposit === 'paid' ? `Deposit paid${j.depositCents ? ` (${money(j.depositCents)})` : ''}` : j.deposit === 'part' ? `Deposit part paid (${money(j.depositPaidCents)} of ${money(j.depositCents)})` : j.deposit === 'unpaid' ? `Deposit not paid (${money(j.depositCents)})` : 'No deposit recorded', tone: j.deposit === 'paid' ? 'ok' : 'warn' },
     { key: 'materials', label: `Materials: ${j.materialsStatus === 'not_ordered' ? 'not ordered' : j.materialsStatus.replace('_', ' ')}`, tone: j.materialsStatus === 'not_ordered' ? 'warn' : 'ok' },
   ]

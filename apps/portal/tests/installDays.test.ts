@@ -114,7 +114,7 @@ describe('warnings before booking', () => {
     expect(scheduleWarnings({ ...ready, permitStatus: null }, '2026-11-02', '2026-11-02')[0].text).toMatch(/No permit/)
   })
   it('811 ticket expired before the start, or running out before the last crew day', () => {
-    expect(scheduleWarnings({ ...ready, locatesExpDate: '2026-11-01' }, '2026-11-02', '2026-11-04')[0].text).toBe('The 811 ticket ran out on 11/01/2026, before the install starts.')
+    expect(scheduleWarnings({ ...ready, locatesExpDate: '2026-11-01' }, '2026-11-02', '2026-11-04')[0].text).toBe('The 811 ticket runs out 11/01/2026, before the install starts.')
     expect(scheduleWarnings({ ...ready, locatesExpDate: '2026-11-03' }, '2026-11-02', '2026-11-04')[0].text).toMatch(/before the last crew day \(11\/04\/2026\)/)
     expect(locatesWords({ locatesDate: '2026-09-01', locatesExpDate: '2026-10-01' }, '2026-10-24').state).toBe('expired')
   })

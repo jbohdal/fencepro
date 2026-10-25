@@ -12,6 +12,7 @@
  * only.
  */
 
+import { phoneWords } from '../lib/installDays.js'
 import { Router } from 'express'
 import express from 'express'
 import fs from 'fs'
@@ -295,7 +296,7 @@ walkthroughPublic.get('/:token', async (req, res) => {
   const w = await byToken(token)
   const co = w ? await companyOf(w.accountId) : { name: 'Getter Done Fence', phone: '' }
   const top = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(co.name)}</p><p class="small">Final walkthrough</p></div></header>`
-  const call = co.phone ? `<p>Call us at <a href="tel:${esc(co.phone.replace(/[^\d+]/g, ''))}"><b>${esc(co.phone)}</b></a>.</p>` : ''
+  const call = co.phone ? `<p>Call us at <a href="tel:${esc(co.phone.replace(/[^\d+]/g, ''))}"><b>${esc(phoneWords(co.phone))}</b></a>.</p>` : ''
   const closed = w ? linkState(w) : null
   if (!w || closed) {
     res.status(w ? 410 : 404).type('html').send(page('Final walkthrough', `${top}<main class="wrap"><section><h1>This link is no longer active</h1><p>${closed === 'expired' ? 'Walkthrough links are good for a limited time, and this one has run out.' : closed === 'off' ? 'This link was turned off.' : 'This walkthrough is not available.'}</p>${call}</section></main>`, nonce))
@@ -333,7 +334,7 @@ walkthroughPublic.get('/:token', async (req, res) => {
       <div class="sigwrap"><canvas id="sig" width="600" height="200" aria-label="Sign here"></canvas><button type="button" id="clear" class="link">Clear</button></div>
       <p id="err" class="err" role="alert"></p>
       <button type="button" id="go" class="btn">Sign the walkthrough</button></section>`}
-    <p class="small foot">Questions? ${co.phone ? `Call <a href="tel:${esc(co.phone.replace(/[^\d+]/g, ''))}">${esc(co.phone)}</a>.` : 'Call us.'}</p>
+    <p class="small foot">Questions? ${co.phone ? `Call <a href="tel:${esc(co.phone.replace(/[^\d+]/g, ''))}">${esc(phoneWords(co.phone))}</a>.` : 'Call us.'}</p>
   </main>`
   // The same finger signature pad as the proposal page.
   const script = home || w.status === 'completed' ? '' : `

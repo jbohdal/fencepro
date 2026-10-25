@@ -76,7 +76,7 @@ export function locateWords(r: LocateRecord, today: Ymd): { status: LocateStatus
     case 'not_called': return { status, text: 'Not called' }
     case 'expired': return { status, text: `Expired ${locateDay(r.expDate!)}` }
     case 'clear': return { status, text: `Clear to dig${exp}` }
-    case 'called': return { status, text: r.goodDate ? `Called, clear to dig ${locateDay(r.goodDate)}${exp}` : `Called${r.calledDate ? ` ${locateDay(r.calledDate)}` : ''}, good to dig date not entered` }
+    case 'called': return { status, text: r.goodDate ? `Called · clear to dig from ${locateDay(r.goodDate)}${exp}` : `Called${r.calledDate ? ` ${locateDay(r.calledDate)}` : ''} · good to dig date not entered` }
   }
 }
 
@@ -98,9 +98,9 @@ export function locateWarnings(r: LocateRecord, start: Ymd, end: Ymd): LocateWar
   if (r.goodDate && start < r.goodDate) w(`The install starts ${locateDay(start)}, before the 811 good to dig date (${locateDay(r.goodDate)}).`)
   if (!r.goodDate) w('No 811 good to dig date on the job.')
   if (r.expDate) {
-    if (r.expDate < start) w(`The 811 ticket ran out on ${locateDay(r.expDate)}, before the install starts.`)
-    else if (end && r.expDate < end) w(`The 811 ticket runs out on ${locateDay(r.expDate)}, before the last crew day (${locateDay(end)}).`)
-    else if (dayNumber(r.expDate) - dayNumber(start) <= 3) w(`The 811 ticket runs out on ${locateDay(r.expDate)}, within 3 days of the install start.`)
+    if (r.expDate < start) w(`The 811 ticket runs out ${locateDay(r.expDate)}, before the install starts.`)
+    else if (end && r.expDate < end) w(`The 811 ticket runs out ${locateDay(r.expDate)}, before the last crew day (${locateDay(end)}).`)
+    else if (dayNumber(r.expDate) - dayNumber(start) <= 3) w(`The 811 ticket runs out ${locateDay(r.expDate)}, within 3 days of the install start.`)
   } else w('No 811 expiration date on the job.')
   return out
 }
@@ -108,7 +108,7 @@ export function locateWarnings(r: LocateRecord, start: Ymd, end: Ymd): LocateWar
 export interface LocateInput { ticket?: unknown; calledDate?: unknown; goodDate?: unknown; expDate?: unknown }
 
 /** A locate as typed, checked: the record to save, or why not (a plain sentence). */
-export function cleanLocate(input: LocateInput): { ok: true; record: LocateRecord } | { ok: false; error: string } {
+export function cleanLocate(input: LocateInput, today?: Ymd): { ok: true; record: LocateRecord } | { ok: false; error: string } {
   const ticket = clean(input.ticket)
   if (ticket && (ticket.length > 40 || !/^[A-Za-z0-9 -]+$/.test(ticket))) return { ok: false, error: 'The ticket number can only have letters, numbers, spaces and dashes.' }
   const day = (v: unknown, what: string): Ymd | null | { error: string } => {
@@ -121,6 +121,7 @@ export function cleanLocate(input: LocateInput): { ok: true; record: LocateRecor
   const expDate = day(input.expDate, 'expiration date')
   for (const d of [calledDate, goodDate, expDate]) if (d && typeof d === 'object') return { ok: false, error: d.error }
   const r: LocateRecord = { ticket, calledDate: calledDate as Ymd | null, goodDate: goodDate as Ymd | null, expDate: expDate as Ymd | null }
+  if (today && r.calledDate && r.calledDate > today) return { ok: false, error: 'The called in date is after today. Enter the day the ticket was called in.' }
   if (r.goodDate && r.calledDate && r.goodDate < r.calledDate) return { ok: false, error: 'The good to dig date is before the day it was called in.' }
   if (r.expDate && r.goodDate && r.expDate < r.goodDate) return { ok: false, error: 'The expiration date is before the good to dig date.' }
   return { ok: true, record: r }
@@ -150,7 +151,7 @@ export function locateFromPacket(job: LocateRecord, packet: { locateTicket?: str
 export function locateShortWarning(r: LocateRecord, start: Ymd, end: Ymd): string | null {
   const md = (d: Ymd) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`
   if (!r.ticket && !r.goodDate && !r.expDate) return 'No 811 ticket'
-  if (r.expDate && r.expDate < start) return `811 expired ${md(r.expDate)}`
+  if (r.expDate && r.expDate < start) return `811 runs out ${md(r.expDate)}, before the install`
   if (r.goodDate && start < r.goodDate) return `811 not clear until ${md(r.goodDate)}`
   if (r.expDate && end && r.expDate < end) return `811 runs out ${md(r.expDate)}`
   if (r.expDate && dayNumber(r.expDate) - dayNumber(start) <= 3) return `811 runs out ${md(r.expDate)}`

@@ -23,12 +23,19 @@ async function call(method: 'GET' | 'POST', customerId: string, body?: unknown):
       method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
     })
     const json = await res.json().catch(() => ({}))
-    if (!res.ok || json?.success === false) throw new Error(plainError(res.status, json?.error).message)
+    if (!res.ok || json?.success === false) throw Object.assign(new Error(plainError(res.status, json?.error).message), { status: res.status })
     return json.data as ConsentData
   } catch (err) {
-    throw new Error(plainThrown(err).message)
+    throw Object.assign(new Error(plainThrown(err).message), { status: (err as any)?.status ?? 0 })
   }
 }
+
+/** The customer's texting answer (null when it cannot be read). Used before any customer text is opened. */
+export async function fetchTextConsent(customerId: string): Promise<ConsentData | null> {
+  try { return await call('GET', customerId) } catch { return null }
+}
+
+const pause = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 const COLOR = { yes: 'bg-green-100 text-green-800 border-green-200', no: 'bg-red-50 text-red-800 border-red-200', unknown: 'bg-gray-100 text-gray-700 border-gray-200' }
@@ -40,8 +47,15 @@ export default function TextConsent({ customerId }: { customerId: string }) {
   const [showHistory, setShowHistory] = useState(false)
 
   const load = useCallback(async () => {
-    try { setData(await call('GET', customerId)); setError('') }
-    catch (err) { setError((err as Error).message) }
+    // A customer just made on this phone may not be on the server yet (it is on its way): wait and ask again
+    // rather than saying "could not load" (Oct 25 2026: three 404s right after saving a new customer).
+    for (let attempt = 0; ; attempt++) {
+      try { setData(await call('GET', customerId)); setError(''); return }
+      catch (err) {
+        if ((err as any)?.status === 404 && attempt < 6) { await pause(1500); continue }
+        setError((err as Error).message); return
+      }
+    }
   }, [customerId])
   useEffect(() => { setData(null); setShowHistory(false); void load() }, [load])
 

@@ -72,7 +72,7 @@ async function companyOf(accountId: string, p?: any) {
   return { name: String(p?.company?.name || c.name || 'Getter Done Fence'), phone: String(p?.company?.phone || c.phone || '') }
 }
 
-const shownPhone = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p }
+const shownPhone = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : p }
 const callUs = (phone: string) => phone ? `Call us at <a href="tel:${esc(phone.replace(/[^\d+]/g, ''))}" style="white-space:nowrap"><b>${esc(shownPhone(phone))}</b></a>.` : 'Please call us.'
 
 /** The option this signed customer acknowledges: the signed one, as it is on the update. */

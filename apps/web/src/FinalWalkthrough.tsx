@@ -519,7 +519,7 @@ function SendToHomeowner({ w, job, compact = false }: { w: Walkthrough; job: Job
     setBusy(false)
     if (ok) { setUrl(null); toast.success('Link turned off') } else toast.error('Could not turn the link off. Try again.')
   }
-  const day = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const day = (d: string) => { const t = new Date(typeof d === 'string' ? d : NaN); return Number.isNaN(t.getTime()) ? 'its end date' : t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
   const state = w.link?.state === 'off' ? 'Link turned off. Sending it again makes a new link.'
     : w.link?.state === 'expired' ? 'Link ran out. Sending it again makes a new link.'
     : w.link?.expiresAt ? `Link works until ${day(w.link.expiresAt)}.` : 'No link sent yet.'
