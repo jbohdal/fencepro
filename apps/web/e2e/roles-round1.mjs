@@ -29,6 +29,9 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium, webkit, devices } from 'playwright'
 import crypto from 'crypto'
+import { execFileSync } from 'child_process'
+const sql = q => execFileSync('psql', ['-d', 'ezbiz_dev', '-At', '-c', q]).toString().trim()
+const lit = s => `'${String(s).replace(/'/g, "''")}'`
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -108,6 +111,8 @@ try {
   made.jobId = job.json.data?.id ?? null
   const grid = await owner('POST', '/api/schedule/jobs', { stagingJobId: made.jobId, clientName: NAME, crewId: 'crew1', date: today, sections: 15, status: 'Scheduled' })
   made.gridId = grid.json.data?.id ?? null
+  // An approved change order on the quote (Oct 25 review: the installer's packet left it out): 140 ft, 18 sections, a walk gate.
+  if (quote.json.data?.id) sql(`INSERT INTO "ChangeOrder" (id, "accountId", "quoteId", number, status, "approvedAt", "totalCents", work, "createdAt", "updatedAt") SELECT ${lit(crypto.randomUUID())}, "accountId", id, 1, 'approved', now(), 0, ${lit(JSON.stringify({ fenceStyle: "WV-ND 6'x8' Privacy", footage: 140, sections: 18, runs: [120, 20], walkGates: 1, dblGates: 0, layout: { runSections: [15, 3] }, pullSheet: [{ item: 'E2E change order post', qty: 7 }] }))}::jsonb, now(), now() FROM "SavedQuote" WHERE id = ${lit(quote.json.data.id)}`)
   check('setup: customer with notes, quote, pipeline card, job and today\'s crew day', !!made.contactId && !!quote.json.data?.id && addCard.status === 200 && !!made.jobId && !!made.gridId, `${contact.status} ${quote.status} ${addCard.status} ${job.status} ${grid.status}`)
 
   const sales = await invite('sales_rep', `Salesman ${stamp}`)
@@ -222,6 +227,7 @@ try {
       check('crew packet: the customer\'s notes are on it', /Customer notes/.test(t) && /have 2 dogs/.test(t) && !/Estimate shown/.test(t) && !/4000/.test(t))
       check('crew packet: the job\'s and the quote\'s note printed once', (t.match(/Gate code 1234/g) || []).length === 1, `${(t.match(/Gate code 1234/g) || []).length} times`)
       check('crew packet: no price', !/\$\s*\d/.test(t))
+      check('crew packet made by the installer carries the approved change order (140 ft, 18 sections, walk gate, its pull sheet)', /140 ft/.test(t) && /18 sections/.test(t) && /1 walk gate/.test(t) && /E2E change order post/.test(t), (t.match(/\d+ ft · \d+ sections/) || [''])[0])
       await packet.close()
     }
     // The job page: the work, no price (no Financial, Payments, Change Orders or contract).
@@ -260,6 +266,7 @@ try {
 } finally {
   if (made.gridId) await owner('DELETE', `/api/schedule/jobs/${made.gridId}`).catch(() => {})
   if (made.jobId) await owner('DELETE', `/api/saved-jobs/${made.jobId}`).catch(() => {})
+  for (const id of made.quotes.filter(Boolean)) { try { sql(`DELETE FROM "ChangeOrder" WHERE "quoteId" = ${lit(id)}`) } catch { /* none */ } }
   for (const id of made.quotes.filter(Boolean)) await owner('DELETE', `/api/saved-quotes/${id}`).catch(() => {})
   if (made.cardId) await owner('DELETE', `/api/pipeline/cards/${encodeURIComponent(made.cardId)}`).catch(() => {})
   if (made.contactId) await owner('DELETE', `/api/crm-contacts/${made.contactId}`).catch(() => {})

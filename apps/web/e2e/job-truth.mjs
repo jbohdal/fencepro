@@ -106,6 +106,8 @@ const minTap = async (loc) => { const b = await loc.boundingBox(); return b ? Ma
 try {
   const okA = await makeSoldJob(W.a)
   const okB = await makeSoldJob(W.b)
+  // A said yes to texts (B and C did not).
+  await call('POST', `/api/crm-contacts/${W.a.contactId}/text-consent`, { consent: 'yes' })
   const cc = await call('POST', '/api/crm-contacts', { id: W.c.contactId, firstName: W.c.first, lastName: W.c.last, phone: W.c.phone, email: `e2e-truth-${stamp}-cal@example.invalid`, serviceAddress: W.c.addr, leadSource: 'Other',
     lead: { id: W.c.cardId, customerId: W.c.contactId, firstName: W.c.first, lastName: W.c.last, phone: W.c.phone, address: W.c.addr, stage: 'First Contact', leadSource: 'Other', createdAt: today, lastMoved: today }, leadBefore: null })
   const cq = await call('POST', '/api/saved-quotes', { id: W.c.quoteId, crmContactId: W.c.contactId, customerName: nameOf(W.c), customerPhone: W.c.phone, customerAddress: W.c.addr, fenceStyle: "WV-ND 6'x8' Privacy", runs: [96], sections: 12, corners: 0, ends: 2, walkGates: 0, materialCost: 1000, laborCost: 600, totalCOGS: 1600, finalPrice: W.c.price, gmPct: 0.35, pullSheet: [], status: 'SENT', date: today, salesRep: 'E2E Salesman', leadSource: 'Other' })
@@ -127,7 +129,10 @@ try {
   check('phone: Financial says the deposit is due (from the payment schedule), not "Not invoiced yet"', !!fin && /^Deposit \$3,556\.92 due \d{2}\/\d{2}\/\d{4}$/.test(fin.trim()) && !(await ph.page.content()).includes('Not invoiced yet'), fin)
   check('phone: Payments shows the same deposit left', (await ph.page.locator('[data-payment-schedule] [data-invoice="deposit"] [data-invoice-balance]').first().getAttribute('data-invoice-balance')) === '355692')
   const call1 = ph.page.locator('[data-job-call]')
-  check('phone: the number reads (352) 555 0171, taps to call and to text', (await call1.textContent()).includes('(352) 555 0171') && (await call1.getAttribute('href')) === 'tel:3525550171' && (await ph.page.locator('[data-job-text]').getAttribute('href')).startsWith('sms:3525550171'))
+  // Text: framed "Getter Done Fence: Hi Manny, " ... "Reply STOP to opt out." and only with a yes on record (recorded in setup).
+  const textHref = await until(async () => ph.page.locator('[data-job-text]').getAttribute('href'))
+  const textBody = textHref ? decodeURIComponent(textHref.split('body=')[1] || '') : ''
+  check('phone: the number reads (352) 555 0171, taps to call and to text (framed, with STOP)', (await call1.textContent()).includes('(352) 555 0171') && (await call1.getAttribute('href')) === 'tel:3525550171' && !!textHref && textHref.startsWith('sms:3525550171') && textBody === 'Getter Done Fence: Hi Manny,  Reply STOP to opt out.', textBody)
   check('phone: call and text are big enough to tap (44 px)', (await minTap(call1)) >= 44 && (await minTap(ph.page.locator('[data-job-text]'))) >= 44)
   const loc0 = await ph.page.locator('[data-job-locate]').getAttribute('data-job-locate')
   const locMs0 = await until(async () => ph.page.locator('[data-milestone="locate"]').getAttribute('data-milestone-done'))
@@ -239,8 +244,8 @@ try {
   pc.page.on('response', r => { if (/\/api\/(saved-|pipeline|business)/.test(r.url()) && r.request().method() !== 'GET') { const line = `${r.request().method()} ${r.url().replace(API, '')} ${r.status()}`; if (r.status() >= 400) r.text().then(t => net.push(line + ' ' + t.slice(0, 300))).catch(() => net.push(line)); else net.push(line) } })
   pc.page.on('console', m => { if (/quote|job|sold/i.test(m.text())) net.push('console: ' + m.text().slice(0, 200)) })
   await pc.page.locator('button:text-is("Mark as Sold")').click()
-  const cardC = await until(async () => { const l = ((await call('GET', '/api/pipeline')).json.data?.leads ?? []).find(x => x.id === W.c.cardId); return l?.stage === 'Signed Contract' ? l : null }, 30000)
-  check('Mark as Sold: the card moves from First Contact to Signed Contract, with the quote on it', !!cardC && cardC.quoteId === W.c.quoteId)
+  const cardC = await until(async () => { const l = ((await call('GET', '/api/pipeline')).json.data?.leads ?? []).find(x => x.id === W.c.cardId); return l?.stage === 'Job Prep' ? l : null }, 30000)
+  check('Mark as Sold: the card moves from First Contact to Signed Contract, then follows the job to Job Prep, with the quote on it', !!cardC && cardC.quoteId === W.c.quoteId)
   await sleep(3000)
   const falseToast = await pc.page.locator('text=Someone changed this on another phone').count()
   check('Mark as Sold: no "Someone changed this on another phone" toast', falseToast === 0)
@@ -253,6 +258,8 @@ try {
   check('packet: phones written (352) 555 0171, never with a dash', pkt.includes('(352) 555 0171') && !/\(\d{3}\) \d{3}-\d{4}/.test(pkt))
 
   // ── Close out (job A): walkthrough signed, then the final payment ──
+  // Installed: its crew days are past (a job never installed is not closed out by itself; tests/jobTruth.db.test.ts).
+  sql(`UPDATE "SavedJob" SET "scheduledDate" = ${lit(plus(today, -2))}, "scheduledEndDate" = ${lit(plus(today, -1))} WHERE id = ${lit(W.a.jobId)}`)
   const sig = n => `'{"name":"${n}","role":"Homeowner","signedAt":"${new Date().toISOString()}"}'::jsonb`
   sql(`INSERT INTO "Walkthrough" (id, "accountId", "jobId", status, items, photos, "homeownerSig", "repSig", "signedAt", "createdAt", "updatedAt") SELECT ${lit(crypto.randomUUID())}, "accountId", id, 'open', '[]', '[]', ${sig('Manny')}, ${sig('Jonathan')}, now(), now(), now() FROM "SavedJob" WHERE id = ${lit(W.a.jobId)}`)
   const p1 = await call('POST', '/api/payments', { id: `e2etruth${stamp}a`, jobId: W.a.jobId, amountCents: 355692, method: 'check', checkNumber: '101' })
@@ -262,7 +269,7 @@ try {
   const done = (await call('GET', `/api/saved-jobs/${W.a.jobId}`)).json.data
   check('close out: signed and paid in full: Complete by itself', p2.status === 201 && done.status === 'completed' && done.opsStage === 'completed' && done.paymentStatus === 'paid' && /^\d{4}-\d{2}-\d{2}$/.test(done.completedDate || ''), `${done.status} ${done.opsStage} ${done.paymentStatus}`)
   const card = ((await call('GET', '/api/pipeline')).json.data?.leads ?? []).find(l => l.id === W.a.cardId)
-  check('close out: the pipeline card is in Job Complete', card?.stage === 'Job Complete', card?.stage)
+  check('close out: paid in full and done, the pipeline card is in Paid & Closed', card?.stage === 'Paid & Closed', card?.stage)
   await pc.page.goto(`${APP}/customers/${W.a.contactId}`)
   const status = await until(async () => { const t = await pc.page.locator('text=Job Status').locator('xpath=following-sibling::span[1]').textContent(); return /Complete/.test(t || '') ? t : null })
   check('close out: the customer page says Job: Complete', status === 'Job: Complete', status || '')
@@ -284,6 +291,8 @@ try {
       DELETE FROM "BillingLog" WHERE "jobId" IN (${jobs});
       DELETE FROM "PaymentSchedule" WHERE "jobId" IN (${jobs});
       DELETE FROM "Walkthrough" WHERE "jobId" IN (${jobs});
+      DELETE FROM "CrmTextConsent" WHERE "crmContactId" IN (${contacts});
+      DELETE FROM "ActivityLog" WHERE "entityId" IN (${jobs});
       DELETE FROM "InstallPacket" WHERE "jobId" IN (${jobs});
       DELETE FROM "Permit" WHERE "jobId" IN (${jobs});
       DELETE FROM "CrmAuditLog" WHERE "entityId" IN (${jobs}, ${quotes}, ${contacts});

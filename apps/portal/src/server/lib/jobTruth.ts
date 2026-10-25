@@ -350,12 +350,14 @@ export async function cardsBehind(accountId: string, onlyJobId?: string): Promis
   const leads = ((state?.leads as Json[]) ?? []).filter(Boolean)
   // One job: it and its customer's other jobs (so a card two jobs could claim is never moved).
   const one = onlyJobId ? await prisma.savedJob.findFirst({ where: { id: onlyJobId, accountId }, select: { crmContactId: true } }) : null
-  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, ...(onlyJobId ? { OR: [{ id: onlyJobId }, ...(one?.crmContactId ? [{ crmContactId: one.crmContactId }] : [])] } : {}) }, select: { id: true, quoteId: true, crmContactId: true, customerName: true, status: true, previousStatus: true, scheduledDate: true } })
+  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, ...(onlyJobId ? { OR: [{ id: onlyJobId }, ...(one?.crmContactId ? [{ crmContactId: one.crmContactId }] : [])] } : {}) }, select: { id: true, quoteId: true, crmContactId: true, customerName: true, status: true, previousStatus: true, scheduledDate: true, paymentStatus: true } })
   const out: CardBehind[] = []
   for (const j of jobs) {
     const card = cardOfJob(stages, leads, j)
     if (!card) continue
-    const paid = isDonePhase(j.status) ? billingStatusOf(await billingViewFor(accountId, j.id)).paidInFull : false
+    // Paid in full: by the payment schedule; a job from before schedules by its own Paid status.
+    const view = isDonePhase(j.status) ? await billingViewFor(accountId, j.id) : null
+    const paid = isDonePhase(j.status) ? (view ? billingStatusOf(view).paidInFull : j.status === 'paid' || j.paymentStatus === 'paid') : false
     const to = behindTarget(stages, card, cardStageForJob(stages, j, paid))
     if (!to) continue
     out.push({ jobId: j.id, customerName: j.customerName, jobStatus: j.status, cardId: card.id, from: card.stage, fromName: stageNameOf(stages, card.stage), to, toName: stageNameOf(stages, to) })

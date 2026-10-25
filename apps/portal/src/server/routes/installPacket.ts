@@ -384,9 +384,10 @@ packetPublic.get('/:token', async (req, res) => {
     document.getElementById('print').addEventListener('click',function(){window.print()});
     var tok=${JSON.stringify(String(req.params.token))};
     // An empty date box shows "Not set" (Safari greys in today's date, which reads as filled in); a tap opens the picker.
-    ['lcalled','ldate','lexp'].forEach(function(id){var el=document.getElementById(id);if(!el||el.value)return;el.type='text';el.placeholder='Not set';el.classList.add('unset');
-      el.addEventListener('focus',function(){if(el.type!=='date'){el.type='date';el.classList.remove('unset');try{el.showPicker&&el.showPicker()}catch(e){}}});
-      el.addEventListener('blur',function(){if(!el.value){el.type='text';el.classList.add('unset')}})});
+    ['lcalled','ldate','lexp'].forEach(function(id){var el=document.getElementById(id);if(!el)return;
+      var hint=document.createElement('span');hint.className='small unsethint';hint.textContent='Not set';el.parentNode.appendChild(hint);
+      function show(){var empty=!el.value;el.classList.toggle('unset',empty);hint.style.display=empty?'block':'none'}
+      el.addEventListener('input',show);el.addEventListener('change',show);show()});
     document.getElementById('saveLocate').addEventListener('click',function(){
       var m=document.getElementById('locMsg');m.textContent='Saving...';
       var v=function(id){return document.getElementById(id).value};
@@ -521,6 +522,6 @@ h3{font-size:15px;margin:14px 0 6px}.row{display:grid;grid-template-columns:1fr 
 .media{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}.media figure{margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
 .media img,.media video{width:100%;max-height:320px;object-fit:cover;display:block;background:#000}.media figcaption{padding:8px;font-size:13px;color:var(--g)}
 .filebtn{display:flex;align-items:center;justify-content:center}
-.unset{color:#9ca3af}
+.unset{color:transparent}.unset::-webkit-datetime-edit{color:transparent}.unset:focus{color:inherit}.unset:focus::-webkit-datetime-edit{color:inherit}.unsethint{display:block;color:#6b7280;margin-top:2px}
 @media print{.noprint{display:none!important}body{background:#fff}section{break-inside:avoid;border:0;padding:8px 0}.media{grid-template-columns:repeat(2,1fr)}.media video{display:none}}
 `
