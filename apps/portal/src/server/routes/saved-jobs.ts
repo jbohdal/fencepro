@@ -304,11 +304,15 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
 })
 
 // ── The 811 locate: one record on the job (lib/locates.ts); the crew packet saves the same fields ──
-const whoOf = (req: any) => String(req.user?.email || 'staff')
+/** The person, by name (Settings > Team), for "Ticked by hand by ..." and the locate's "Last saved by". */
+async function whoOf(req: any): Promise<string> {
+  const u = req.user?.id ? await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } }).catch(() => null) : null
+  return `${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim() || String(req.user?.email || 'staff')
+}
 router.put('/:id/locate', requireUser, requireAccount, requireCan('schedule.change'), async (req: any, res) => {
   try {
     const b = (req.body ?? {}) as Record<string, unknown>
-    const row = await saveLocate(req.user.crmAccountId, String(req.params.id), { ticket: b.ticket, calledDate: b.calledDate, goodDate: b.goodDate, expDate: b.expDate }, whoOf(req))
+    const row = await saveLocate(req.user.crmAccountId, String(req.params.id), { ticket: b.ticket, calledDate: b.calledDate, goodDate: b.goodDate, expDate: b.expDate }, await whoOf(req))
     res.json({ success: true, data: row })
   } catch (err: any) {
     if (err?.status) { res.status(err.status).json({ success: false, error: err.message }); return }
@@ -330,7 +334,7 @@ router.get('/:id/milestones', requireUser, requireAccount, async (req: any, res)
 router.post('/:id/milestones', requireUser, requireAccount, requireCan('schedule.change'), async (req: any, res) => {
   try {
     const b = z.object({ label: z.string().min(1).max(200), ticked: z.boolean() }).parse(req.body)
-    await setHandTick(req.user.crmAccountId, String(req.params.id), b.label, b.ticked, whoOf(req))
+    await setHandTick(req.user.crmAccountId, String(req.params.id), b.label, b.ticked, await whoOf(req))
     await audit(req, 'update', 'SavedJob', String(req.params.id), { newValues: { milestone: b.label, tickedByHand: b.ticked } })
     res.json({ success: true, data: await jobMilestones(req.user.crmAccountId, String(req.params.id)) })
   } catch (err: any) {

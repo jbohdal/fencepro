@@ -120,7 +120,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   const isJobSource = job.source === 'job'
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full lg:w-[480px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col overflow-hidden">
+    <div className="fixed inset-y-0 right-0 w-full lg:w-[480px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col overflow-hidden" data-job-panel={job.id}>
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
         <div>

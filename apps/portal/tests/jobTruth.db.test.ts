@@ -153,7 +153,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     const t = await call('POST', `/api/saved-jobs/${ids.job}/milestones`, { label: 'Photos Uploaded', ticked: true })
     expect(t.status).toBe(200)
     m = t.json.data
-    expect(by('photos')).toMatchObject({ done: true, by: 'hand', tickedBy: `${tag}@example.invalid` })
+    expect(by('photos')).toMatchObject({ done: true, by: 'hand', tickedBy: `${tag}@example.invalid` /* no Team login: the email */ })
     const sum = (await call('GET', '/api/saved-jobs/milestones/summary')).json.data
     expect(sum[ids.job]).toEqual({ complete: m.complete, total: 8 })
   })

@@ -108,9 +108,12 @@ try {
   if (SHOTS) await cp.screenshot({ path: `${SHOTS}/2-phone-packet-top.png` })
   if (SHOTS) await cp.screenshot({ path: `${SHOTS}/3-phone-packet-full.png`, fullPage: true })
 
-  await cp.locator('#ticket').fill('A2610-1234'); await cp.locator('#ldate').fill('2026-10-20')
+  // The job's one 811 locate: ticket, called in, good to dig, expires (lib/locates.ts).
+  await cp.locator('#ticket').fill('A2610-1234'); await cp.locator('#lcalled').fill('2026-10-16'); await cp.locator('#ldate').fill('2026-10-20'); await cp.locator('#lexp').fill('2099-11-19')
   await cp.locator('#saveLocate').click(); await sleep(800)
-  check('the crew saves the 811 ticket', (await cp.locator('#locMsg').textContent()) === 'Saved.')
+  check('the crew saves the 811 ticket', (await cp.locator('#locMsg').textContent()).startsWith('Saved.') && (await cp.locator('#locStatus').getAttribute('data-packet-locate-status')) === 'clear', await cp.locator('#locMsg').textContent())
+  const lj = await api(`/api/saved-jobs/${jobId}`)
+  check('the packet saved the job\'s own locate', lj.locateTicket === 'A2610-1234' && lj.locatesDate === '2026-10-20' && lj.locatesExpDate === '2099-11-19' && lj.locateCalledDate === '2026-10-16', JSON.stringify([lj.locateTicket, lj.locatesDate, lj.locatesExpDate]))
   await cp.locator('#cat').selectOption('Completed'); await cp.locator('#note').fill('All done, gate swings fine')
   await cp.locator('#files').setInputFiles(PHOTO); await sleep(2500)
   check('the crew uploads a photo from the link', (await cp.locator('#upMsg').textContent()).includes('1 uploaded'))
@@ -131,7 +134,7 @@ try {
   await page.locator('span:text-is("Operations"):visible').first().click(); await sleep(1200)
   await page.locator('input[aria-label="Search jobs"]').fill(NAME); await sleep(800)
   await page.locator(`text=${NAME}`).first().click(); await sleep(1200)
-  check('the job shows the 811 ticket from the crew', (await page.locator('[data-packet-locate]').textContent()).includes('A2610-1234 on 2026-10-20'))
+  check('the job shows the 811 ticket from the crew', (await page.locator('[data-locate-ticket]').textContent()) === 'A2610-1234' && (await page.locator('[data-locate-status]').getAttribute('data-locate-status')) === 'clear')
   await page.locator('[data-packet-off]').click(); await sleep(800)
   const offRes = await fetch(`${API}/p/i/${token}`)
   check('a turned off link shows a page with the office phone', offRes.status === 410 && (await offRes.text()).includes('This install packet is not active'))
