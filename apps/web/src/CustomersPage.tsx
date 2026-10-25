@@ -906,6 +906,15 @@ function ArchivedOfCustomer({ customerId, customerArchived }: { customerId: stri
   )
 }
 
+/** The customer's status as their records say it: newest job's stage (Operations), else their open pipeline card's stage, else the stored status. */
+function customerStatusWords(customer: Customer): string {
+  const job = [...getJobs(), ...getArchivedJobs()].filter(j => j.customerId === customer.id).sort((x, y) => String(y.createdAt).localeCompare(String(x.createdAt)))[0]
+  if (job) return `Job: ${stageName(stageOf(job)) || job.status}`
+  const card = (getPipeline().leads || []).find((l: any) => l.customerId === customer.id)
+  if (card?.stage) return pipelineStageName(card.stage) || card.stage
+  return customer.jobStatus ? (pipelineStageName(customer.jobStatus) || customer.jobStatus) : ''
+}
+
 function CustomerDetail({
   customer, quotes, importedQuotes, jobs, files,
   onEdit, onNewQuote, onDelete, onDeleteFile, onQuoteClick, onFileClick, initialTab, onTabConsumed, archived = false, onArchive,
@@ -1068,7 +1077,8 @@ function CustomerDetail({
                 { label: 'Lead Source', value: sourceLabel(customer.leadSource) },
                 { label: 'Sales Rep',   value: customer.salesRep },
                 { label: 'First Appt',  value: customer.firstApptDate },
-                { label: 'Job Status',  value: customer.jobStatus },
+                // Where the customer really is: their newest job's Operations stage, else their pipeline card's stage; the typed or imported status only when there is neither.
+                { label: 'Job Status',  value: customerStatusWords(customer) },
               ].filter(Boolean).map((row: any) => row?.value ? (
                 <div key={row.label} className="flex gap-4">
                   <span className="text-xs text-gray-400 w-28 sm:w-32 shrink-0 pt-0.5">{row.label}</span>

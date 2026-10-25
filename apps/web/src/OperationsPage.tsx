@@ -19,15 +19,17 @@ import JobWarranty from './JobWarranty'
 import { ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
 import SignedDocuments from './SignedDocuments'
 import PaymentsPanel from './Payments'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { getJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
-import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, pickable, useOpsStages } from './opsStagesStore'
+import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, pickable, useOpsStages, getCompleteOpsStage } from './opsStagesStore'
+import { isDonePhase } from './opsStageModel'
 import { ChangeOrderPanel, ChangeOrderButton, JobTimeline } from './ChangeOrders'
 import { can } from './permissions'
 import { archiveRecord, deleteRecord } from './recordArchive'
 import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
 import { loadSchedule } from './scheduleStore'
+import { CustomerContact, LocatePanel, JobMilestones, JobFinancial, OpenCustomerProfile } from './JobTruth'
 
 // Unified job type for display
 export interface UnifiedJob {
@@ -96,7 +98,6 @@ const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', c
 
 // Said in words, not codes.
 const MATERIALS_WORDS: Record<string, string> = { not_ordered: 'Not ordered yet', ordered: 'Ordered', received: 'Received', loaded: 'Loaded on the truck' }
-const PAYMENT_WORDS: Record<string, string> = { not_invoiced: 'Not invoiced yet', invoiced: 'Invoiced', deposit_paid: 'Deposit paid', partial: 'Partly paid', paid: 'Paid in full' }
 
 export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveStage, onUpdate }: {
   job: UnifiedJob
@@ -139,7 +140,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         <Section title="Customer">
           <Field label="Name" value={job.customerName} />
           <Field label="Address" value={job.address} />
-          {job.rawJob?.customerPhone && <Field label="Phone" value={job.rawJob.customerPhone} />}
+          {/* "(352) 671 8083": tap to call or text (JobTruth.tsx). */}
+          {job.rawJob ? <CustomerContact job={job.rawJob} /> : null}
           {job.rawJob?.customerEmail && <Field label="Email" value={job.rawJob.customerEmail} />}
         </Section>
 
@@ -211,28 +213,25 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           </Section>
         )}
 
+        {/* The 811 locate: one record, the crew packet edits the same (JobTruth.tsx, portal lib/locates.ts). */}
+        {isJobSource && job.rawJob && <Section title="811 locate"><LocatePanel job={job.rawJob} /></Section>}
         {isJobSource && <Section title="Permit"><PermitPanel jobId={job.id} /></Section>}
         {isJobSource && <AutomationRunLog entityId={job.id} />}
 
-        {/* Readiness Checklist */}
+        {/* The milestones, from the job's records: the locate, the permit, materials, the schedule, the walkthrough, photos, the payment schedule (portal lib/jobReadiness.ts). */}
         <Section title="Milestone Checklist">
-          {isJobSource ? <MilestoneChecklist jobId={job.id} /> : <p className="text-xs text-gray-400">Only available for Job records.</p>}
+          {isJobSource && job.rawJob ? <JobMilestones job={job.rawJob} /> : <p className="text-xs text-gray-400">Only available for Job records.</p>}
         </Section>
 
-        {/* Derived readiness hints (from legacy job fields) */}
+        {/* What the milestones do not cover. */}
         <Section title="Readiness Signals">
-          <CheckItem label="Locates" done={!!job.locatesDate} detail={job.locatesDate ? `Good: ${job.locatesDate} • Exp: ${job.locatesExpDate}` : 'Not called'} />
           <CheckItem label="Drawing" done={job.drawingComplete} />
-          <CheckItem label="Materials" done={job.materialsStatus === 'received' || job.materialsStatus === 'loaded'} detail={MATERIALS_WORDS[job.materialsStatus] ?? job.materialsStatus} />
-          <CheckItem label="Pull Sheet" done={job.rawJob?.pullSheetPulled || false} />
+          <CheckItem label="Pull Sheet" done={job.rawJob?.pullSheetPulled || false} detail={MATERIALS_WORDS[job.materialsStatus] ? `Materials: ${MATERIALS_WORDS[job.materialsStatus]}` : undefined} />
         </Section>
 
-        {/* Pricing & Payment */}
+        {/* Pricing & Payment: from the payment schedule, the same as Payments below and Billing. */}
         <Section title="Financial">
-          <Field label="Contract Value" value={fmt(job.contractValue)} />
-          <Field label="Amount Paid" value={fmt(job.amountPaid)} />
-          <Field label="Outstanding" value={fmt(job.contractValue - job.amountPaid)} />
-          <Field label="Payment Status" value={PAYMENT_WORDS[job.paymentStatus] ?? job.paymentStatus} />
+          {job.rawJob ? <JobFinancial job={job.rawJob} /> : <Field label="Contract Value" value={fmt(job.contractValue)} />}
         </Section>
 
         {/* Change orders: the signed quote is locked, changes to the work go here; approved ones are in the contract value. */}
@@ -264,11 +263,16 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         )}
 
         {isJobSource && <JobArchiveDelete job={job} onClose={onClose} />}
+        {/* The customer's page, as on the Sales Pipeline card window. */}
+        {isJobSource && job.rawJob && <OpenCustomerProfile job={job.rawJob} />}
       </div>
 
       {/* Footer actions */}
+      {isJobSource && !isDonePhase(job.rawJob?.status) && !inSideLane && (
+        <p className="px-6 pt-2 text-[11px] text-gray-500 border-t border-gray-200" data-job-closeout-hint>It moves to {getCompleteOpsStage()?.name ?? 'Complete'} by itself once the final walkthrough is signed and it is paid in full.</p>
+      )}
       {isJobSource && (
-        <div className="px-6 py-4 border-t border-gray-200 flex gap-2">
+        <div className="px-6 py-4 flex gap-2">
           {inSideLane ? (
             <button onClick={onUnhold} className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium">Resume</button>
           ) : (
@@ -356,65 +360,7 @@ function CheckItem({ label, done, detail }: { label: string; done: boolean; deta
   )
 }
 
-import { getChecklistForJob, toggleChecklistItem, type ChecklistItem } from './checklistStore'
 import { toast } from './toast'
-
-function MilestoneChecklist({ jobId }: { jobId: string }) {
-  const [items, setItems] = useState<ChecklistItem[]>([])
-  const [busyId, setBusyId] = useState<string | null>(null)
-
-  function reload() { setItems(getChecklistForJob(jobId)) }
-  useEffect(() => {
-    reload()
-    const onUpdate = () => reload()
-    window.addEventListener('fencepro:checklist:updated', onUpdate)
-    return () => window.removeEventListener('fencepro:checklist:updated', onUpdate)
-  }, [jobId])
-
-  function handleToggle(item: ChecklistItem) {
-    setBusyId(item.id)
-    // Optimistic
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, isComplete: !i.isComplete } : i))
-    try {
-      const updated = toggleChecklistItem(jobId, item.id, 'user')
-      if (!updated) throw new Error('Item not found')
-    } catch (err: any) {
-      // Revert
-      setItems(prev => prev.map(i => i.id === item.id ? { ...i, isComplete: item.isComplete } : i))
-      toast.error('Could not update milestone', err?.message || 'Unknown error')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const complete = items.filter(i => i.isComplete).length
-  const pct = items.length > 0 ? (complete / items.length) * 100 : 0
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs mb-1">
-        <span className="text-gray-500">{complete} of {items.length} complete</span>
-        <div className="flex-1 mx-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-          <div className="h-1.5 bg-orange-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-        </div>
-        <span className="text-gray-500">{Math.round(pct)}%</span>
-      </div>
-      {items.map(item => (
-        <label key={item.id}
-          className={`flex items-center gap-3 px-2 min-h-[48px] rounded-lg cursor-pointer transition-colors ${item.isComplete ? 'bg-green-50' : 'hover:bg-gray-50'} ${busyId === item.id ? 'opacity-60' : ''}`}>
-          <input type="checkbox" checked={item.isComplete}
-            onChange={() => handleToggle(item)}
-            disabled={busyId === item.id}
-            className="w-6 h-6 accent-orange-500 cursor-pointer" />
-          <span className={`text-sm flex-1 ${item.isComplete ? 'text-gray-900 line-through' : 'text-gray-700'}`}>{item.label}</span>
-          {item.isComplete && item.completedAt && (
-            <span className="text-[10px] text-gray-400">{new Date(item.completedAt).toLocaleDateString()}</span>
-          )}
-        </label>
-      ))}
-    </div>
-  )
-}
 
 /** A job's photos and video, with pins on its quote's site plan. */
 function JobMedia({ job }: { job: UnifiedJob }) {

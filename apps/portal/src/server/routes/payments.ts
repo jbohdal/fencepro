@@ -38,6 +38,7 @@ import {
 } from '../lib/contractBilling.js'
 import { METHODS } from '../lib/paymentMath.js'
 import { isSignedQuote } from '../lib/quoteLock.js'
+import { closeOutIfDone } from '../lib/jobTruth.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -128,6 +129,8 @@ router.post('/', requireCan('payments.record'), async (req: any, res) => {
       if (out.receipt) await fileReceipt(out.receipt.id).catch(err => console.error('[payments] receipt to Documents:', err))
       // Asked for on the receipt screen (maybe with no signal): sent once, with the first save only.
       if (body.email?.to && out.receipt) email = await emailReceipt(accountId, out.receipt.id, body.email.to, body.email.link, by).catch(e => ({ status: 'failed', error: (e as Error).message }))
+      // Paid in full with the final walkthrough signed: the job moves to Complete by itself (lib/jobTruth.ts).
+      await closeOutIfDone(accountId, out.payment.jobId, 'final payment recorded')
     }
     const receipt = out.receipt ? await prisma.receipt.findUnique({ where: { id: out.receipt.id } }) : null
     res.status(out.created ? 201 : 200).json({ success: true, data: { payment: out.payment, receipt: receipt ? receiptView(receipt) : null, email, again: !out.created, schedule: await scheduleView(accountId, out.payment.jobId) } })
@@ -238,6 +241,8 @@ router.post('/job/:jobId/adjustments', requireCan('billing.amounts'), async (req
     const body = z.object({ amountCents: z.number().int().min(-100_000_000).max(100_000_000), reason: z.string().max(500) }).parse(req.body)
     const row = await addAdjustment(req.user.crmAccountId, req.params.jobId, body.amountCents, body.reason, await actor(req))
     await audit(req, 'create', 'ContractAdjustment', row.id, { newValues: row })
+    // A credit that leaves it paid in full closes it out like a payment does.
+    await closeOutIfDone(req.user.crmAccountId, req.params.jobId, 'contract adjusted to what was paid')
     res.json({ success: true, data: await scheduleView(req.user.crmAccountId, req.params.jobId) })
   } catch (e) { fail(res, e, 'adjust the contract amount') }
 })
