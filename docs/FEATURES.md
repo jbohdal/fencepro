@@ -468,6 +468,22 @@ Every list that Settings owns has one source, and every screen reads that source
 * Customer portal steps (811, permit, materials) are ticked only when the job really has them. The month fits 1280 and 1440 wide. The pipeline card shows "Install Thu 3/4". Dispatch has a date picker. The crew packet lists each crew day. Operations cards say "Thu, Mar 4 to Fri, Mar 5" and list one entry per crew. After booking it says what happened with Google Calendar. A customer without a yes to texts: "To tell them anyway, call them: (352) …". Rain day: pick the day first, then confirm the list. **DEV**
 * One way to schedule: the job page's Crew & Schedule (now near the top) shows the days and crew with Schedule install / Move install (the raw date and crew boxes are gone); the pipeline card window has an Install section; Dispatch drags and Smart Schedule book through the same step. Month view hides days off, with "Show days off". Tests: tests/installDays.test.ts, tests/installScheduling.db.test.ts, tests/calendarSync.test.ts, e2e/schedule-install.mjs. **DEV**
 
+## 9ac. Walkthrough round 1 fixes (Oct 25)
+
+From the Oct 24 workflow walkthrough (items 5, 14, 15). Tests: tests/round1Fixes.test.ts, e2e/round1-fixes.mjs (phone and computer).
+
+* Website lead to quote: "Ready to quote" on the phone and a pipeline card's New quote open the customer's draft instead of a blank quote: the website quote they drew (yard on the aerial photo, sides, gates) first, else the newest draft for a new fence. It opens on the Yard step with "Opened the website quote"; the visit's footage and notes go into its notes once. No second draft is made. **DEV**
+* The quote's Yard step shows the site visit: day, who, measured footage, notes and the photos the visit uploaded (also on the customer's Photos). **DEV**
+* A Salesman's or Installer's phone showed "Invalid Date" on Today's tasks and photo dates: the filter that takes costs out of their answers turned every date into nothing. Dates now pass through (it was every browser, not only the iPhone). **DEV**
+* The warranty certificate (and a signed contract) in the customer portal shows the Florida day; an evening walkthrough showed the next day. Signing late in the evening moves the card with the Florida day too. **DEV**
+* The "Website quote" notification opens the lead's card window; a phone or website lead's notification opens the customer. **DEV**
+* Inventory > Invoices says what happened to every upload: uploaded and being read, not uploaded (the reason, with Remove), or waiting for signal (Try now). A picture picked under PDF files (or a PDF under photos) is caught at once. Picked photos say "Not uploaded yet" until Upload is tapped. A file the server turns down no longer holds up the files after it (photos and video too). **DEV**
+* Text the receipt: on a phone it is recorded as texted when the texting app opens; on a computer it asks "Did you send it?" (with the words to copy) and records it only on Yes. **DEV**
+* Smart Schedule says "26 sections" (it said "26 sec", read as drive time; it has no drive times). A job with no sections shows none. **DEV**
+* Repair quote: "Broken or sagging gate" (and the other answers) says what it added to the list and marks that row, so the rehang is not added twice. A repair or move job's Scope of Work lists the quote's items instead of "0 ft, 0 sections". **DEV**
+* Job costing: actual sub labor includes the sub's walk and double gate pay (and tear out, extra hours) as quoted; a 2 gate job read $20 under the quote. An approved takeoff keeps the numbers it was approved with. **DEV**
+* Address lookup: when the county list lacks an address, the Census lookup offers only matches within 60 miles of Ocala, nearest first (it offered Homestead or Okeechobee for an Ocala street). **DEV**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)
