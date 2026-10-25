@@ -22,7 +22,7 @@ import {
   isInvoicePdf, isInvoicePhoto, uploadOutcome, money, unitPrice, toCents, toHc,
   type InvoiceSummary, type InvoiceDetail, type InvoiceLine, type WaitingLine, type MatchLine, type HistoryRow, type VendorMonths, type Problem, type Box,
 } from './vendorInvoicesApi'
-import { localInvoiceFiles, uploadAll, uploadRefusedWhy, discardLocal, MEDIA_EVENT } from './mediaStore'
+import { localInvoiceFiles, uploadAll, uploadRefusedWhy, uploadedAs, discardLocal, MEDIA_EVENT } from './mediaStore'
 import { getInventory, refreshInventory, INVENTORY_UPDATED_EVENT } from './inventoryStore'
 import { getVendors, initVendors } from './vendorStore'
 import { useCan } from './permissions'
@@ -165,13 +165,31 @@ export default function VendorInvoicesTab() {
 
 interface OnPhoneFile { clientId: string; name: string; why: string | null }
 
+/** The invoice the Mac made of files just uploaded, once it is past Uploading and Reading (up to about 20 seconds). */
+async function readOutcome(ids: string[]): Promise<{ status: string; message: string } | null> {
+  const invoiceId = ids.map(uploadedAs).find((x): x is string => !!x)
+  if (!invoiceId) return null
+  for (let i = 0; i < 20; i++) {
+    const inv = await getInvoice(invoiceId).catch(() => null)
+    if (inv && inv.status !== 'receiving' && inv.status !== 'reading') return { status: inv.status, message: inv.message || '' }
+    await new Promise(r => setTimeout(r, 1000))
+  }
+  return null
+}
+
 /** Sends the files just saved, then says in plain words what happened to them. */
 async function sendAndTell(ids: string[], what: string): Promise<void> {
   // A run already going does not include files added after it started: one more run sends them.
   await uploadAll().catch(() => {})
   await uploadAll().catch(() => {})
   const out = uploadOutcome(ids, await localInvoiceFiles().catch(() => []), uploadRefusedWhy, typeof navigator === 'undefined' || navigator.onLine !== false)
-  if (out.kind === 'uploaded') toast.success(`${what} uploaded`, 'It is being read now and shows in the list below.')
+  if (out.kind === 'uploaded') {
+    // What the Mac then made of it: an "already uploaded" refusal is not a success.
+    const outcome = await readOutcome(ids)
+    if (outcome?.status === 'refused') toast.error(`${what} was not added`, outcome.message || 'This file was already uploaded. Nothing was changed.')
+    else if (outcome?.status === 'needs_review' && outcome.message) toast.warning(`${what} uploaded: it needs review`, outcome.message)
+    else toast.success(`${what} uploaded`, 'It is being read now and shows in the list below.')
+  }
   else if (out.kind === 'refused') toast.error(`${what} was not uploaded`, out.why)
   else toast.warning(`${what} is not uploaded yet`, out.why)
 }
@@ -195,7 +213,13 @@ function UploadCard({ onPhone, onQueued }: { onPhone: OnPhoneFile[]; onQueued: (
     const pdfs = all.filter(isInvoicePdf)
     const other = all.filter(f => !isInvoicePdf(f))
     if (other.length) toast.error(`${other.map(f => f.name || 'A file').join(', ')} ${other.length === 1 ? 'is' : 'are'} not a PDF`, 'Use Pick photos for pictures of a paper invoice.')
-    if (!pdfs.length) return
+    // Named .pdf but not one inside (a photo renamed): said now, not uploaded.
+    const heads = await Promise.all(pdfs.map(f => f.slice(0, 5).text().catch(() => '')))
+    const fake = pdfs.filter((_, i) => heads[i] && !heads[i].startsWith('%PDF'))
+    if (fake.length) toast.error(`${fake.map(f => f.name).join(', ')} ${fake.length === 1 ? 'is' : 'are'} named .pdf but ${fake.length === 1 ? 'is not a PDF' : 'are not PDFs'}`, 'If it is a photo of the invoice, use Pick photos.')
+    const real = pdfs.filter(f => !fake.includes(f))
+    if (!real.length) return
+    pdfs.length = 0; pdfs.push(...real)
     setSaving(true)
     try {
       // Each PDF is its own invoice (all its pages are in the one file).

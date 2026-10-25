@@ -8,7 +8,11 @@ import { redactCosts } from '../src/server/lib/costRedact'
 import { certificateDay } from '../src/server/lib/portalCustomer'
 import { leadLink } from '../src/server/lib/widgetDrawQuote'
 import { quotedCostOf, actualCostOf, subOtherOf, type TakeoffLine } from '../src/server/lib/jobCostingMath'
-import { censusSuggestions } from '../src/server/lib/addressIndex'
+import { censusSuggestions, streetEstimate, censusQueries, namesTown, addressCount } from '../src/server/lib/addressIndex'
+import { reviewReason } from '../src/server/lib/vendorInvoices'
+import { optionOverrides } from '../../web/src/proposal'
+import { thanksText } from '../../web/src/widget/thanksText'
+import { shownToast, bottomAbove, TOAST_MS } from '../../web/src/toastQueue'
 import { phoneCanText } from '../../web/src/textingDevice'
 import { refusalOf, uploadOutcome, isInvoicePdf, isInvoicePhoto } from '../../web/src/uploadOutcome'
 import { starterNote, isStarterItem, workScope } from '../../web/src/moveRepair'
@@ -256,5 +260,74 @@ describe('the vinyl gate hinge is shown as a pair to the crew', () => {
     expect(partWithPair('*Vinyl, Gate, Hinge (pair)')).toBe('*Vinyl, Gate, Hinge (pair)')
     expect(partWithPair('*Vinyl, Gate, Latch')).toBe('*Vinyl, Gate, Latch')
     expect(partWithPair('Alum, Gate, Hinge, Self-Closing')).toBe('Alum, Gate, Hinge, Self-Closing')
+  })
+})
+
+// ── Review round A (Oct 25, 2026) ────────────────────────────────────────────
+
+describe('Good / Better / Best on an opened draft are priced like the website', () => {
+  test('another style never takes the quote\'s own cost factor or typed price; its own style keeps the factor', () => {
+    const input = { style: { name: "WV-ND 6'x8' Privacy" }, overrides: { costFactor: 0.56, overheadPct: 30, finalPrice: 9999, laborMode: 'subcontractor' } } as any
+    expect(optionOverrides(input, { name: "WV-DS 6'x8' Privacy" })).toEqual({ costFactor: undefined, overheadPct: 30, finalPrice: undefined, laborMode: 'subcontractor' })
+    expect(optionOverrides(input, { name: "WV-ND 6'x8' Privacy" })).toEqual({ costFactor: 0.56, overheadPct: 30, finalPrice: undefined, laborMode: 'subcontractor' })
+  })
+})
+
+describe('the website thank-you follows the free visit box', () => {
+  test('a visit only when it was ticked', () => {
+    expect(thanksText('352-555-0161', true)).toBe('We will call you at 352-555-0161 to set up a free visit and confirm the price.')
+    expect(thanksText('352-555-0161', false)).not.toMatch(/set up a free visit/)
+    expect(thanksText('', false)).toMatch(/^We will call you about your estimate/)
+  })
+})
+
+describe('an Ocala address typed without a city', () => {
+  test('the Census is asked with Ocala first; a typed city or ZIP is asked as typed', () => {
+    expect(censusQueries('2715 SE 3rd St')).toEqual(['2715 SE 3rd St, Ocala, FL', '2715 SE 3rd St, FL'])
+    expect(censusQueries('2715 SE 3rd St, Belleview')).toEqual(['2715 SE 3rd St, Belleview, FL'])
+    expect(censusQueries('2715 SE 3rd St, Ocala, FL 34471')).toEqual(['2715 SE 3rd St, Ocala, FL 34471'])
+    expect(namesTown('2715 SE 3rd St')).toBe(false)
+    expect(namesTown('2715 SE 3rd St 34471')).toBe(true)
+  })
+  test('Marion County first, then nearest (Webster, 40 miles, after an Ocala match)', () => {
+    const out = censusSuggestions([
+      { matchedAddress: '3300 SE 24TH ST, WEBSTER, FL, 33597', coordinates: { x: -82.06, y: 28.61 } },
+      { matchedAddress: '3300 NE 24TH ST, OCALA, FL, 34470', coordinates: { x: -82.0887, y: 29.2117 } },
+    ], undefined, undefined, zip => zip.startsWith('344'))
+    expect(out.map(s => s.city)).toEqual(['Ocala', 'Webster'])
+  })
+  test.skipIf(addressCount() === 0)('a street the county lists places a house number it lacks between its neighbours, with their city and ZIP', () => {
+    const a = streetEstimate('2715 SE 3rd St')
+    expect(a).toMatchObject({ line1: '2715 SE 3rd St', city: 'Ocala', zip: '34471', state: 'FL', source: 'street' })
+    expect(Math.abs(a!.lat - 29.18)).toBeLessThan(0.05)
+    expect(streetEstimate('3300 SE 24th St, Ocala 34471')).toMatchObject({ line1: '3300 SE 24th St', city: 'Ocala', zip: '34471' })
+    // A street the county does not have: nothing made up.
+    expect(streetEstimate('2715 Nosuch Street Rd')).toBeNull()
+  })
+})
+
+describe('one toast at a time, never over the quote bar', () => {
+  test('the oldest is shown; the rest wait their turn', () => {
+    const m = [{ id: 'a', kind: 'info' as const }, { id: 'b', kind: 'error' as const }, { id: 'c', kind: 'info' as const }]
+    expect(shownToast(m)).toEqual({ shown: m[0], waiting: 2 })
+    expect(shownToast([m[1], m[2]]).shown?.id).toBe('b')
+    expect(shownToast([])).toEqual({ shown: null, waiting: 0 })
+    expect(TOAST_MS.info).toBeLessThanOrEqual(3000)
+  })
+  test('placed just above the bar', () => {
+    expect(bottomAbove(700, 844)).toBe(152)
+    expect(bottomAbove(null, 844)).toBeNull()
+    expect(bottomAbove(0, 844)).toBeNull()
+  })
+})
+
+describe('a vendor invoice that needs review says why', () => {
+  test('a photo renamed .pdf', () => {
+    expect(reviewReason({ files: [{ mime: 'application/pdf', head: '\xFF\xD8\xFF\xE0' }], vendorName: null, lines: 0, rows: 0 })).toMatch(/named \.pdf but is not a PDF \(it is a photo\)/)
+  })
+  test('nothing read, or no vendor and no lines; a good read says nothing', () => {
+    expect(reviewReason({ files: [{ mime: 'image/jpeg', head: '\xFF\xD8' }], vendorName: null, lines: 0, rows: 0 })).toMatch(/Nothing on this invoice could be read/)
+    expect(reviewReason({ files: [{ mime: 'application/pdf', head: '%PDF-1.7' }], vendorName: '', lines: 0, rows: 12 })).toMatch(/vendor and the lines could not be read/)
+    expect(reviewReason({ files: [{ mime: 'application/pdf', head: '%PDF-1.7' }], vendorName: 'GULF COAST', lines: 4, rows: 30 })).toBe('')
   })
 })

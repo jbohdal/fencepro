@@ -22,6 +22,12 @@
 //   [SHOTS=<folder>] [ONLY=phone|computer] node e2e/round1-fixes.mjs
 //   (the cookie: cd apps/portal && npx tsx scripts/dev-session-token.ts --cookie --out <file>)
 //
+// Review round A (Oct 25): the draft's Good / Better / Best equal the website's three prices (owner on a computer,
+// a Salesman on a phone); the website's free visit box ticks from its words and the thank-you follows it; the
+// customer's yard photo is on the quote and their Photos; one toast at a time, never over the quote's bar; the
+// address lookup and Smart Schedule place Ocala streets the county list lacks; a duplicate invoice is not called
+// uploaded; a photo renamed .pdf says why; a repair job's Fence Type says Repair.
+//
 // Dev only (devOnly.mjs refuses port 4000 and anything not on this Mac). The test lead, its
 // card, quote, visit, photo and notification are removed at the end; WT records are only read.
 
@@ -31,6 +37,7 @@ import { webkit, chromium, devices } from 'playwright'
 import { signInByCookie } from './lib.mjs'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -81,10 +88,21 @@ const quotesOf = id => Number(psql(`select count(*) from "SavedQuote" where "crm
 async function setup() {
   const d = await widget('/draft', { method: 'PUT', body: JSON.stringify({ id: null, data: { step: 2, address: drawing.address, at, drawing, pick: null } }) })
   made.draft = d.body.id
-  const s = await widget('/submit', { method: 'POST', body: JSON.stringify({ draftId: made.draft, name: NAME, phone: '352-555-0161', email: 'e2e.round1@example.invalid', address: drawing.address, drawing, pick, wantsVisit: true }) })
+  // A photo of the yard, sent with the quote as the website sends it.
+  const fd = new FormData()
+  fd.append('file', new Blob([fs.readFileSync(PHOTO)], { type: 'image/jpeg' }), 'yard.jpg')
+  const up = await (await fetch(`${API}/p/quote/api/photo`, { method: 'POST', body: fd })).json()
+  made.photo = up.url || ''
+  const s = await widget('/submit', { method: 'POST', body: JSON.stringify({ draftId: made.draft, name: NAME, phone: '352-555-0161', email: 'e2e.round1@example.invalid', address: drawing.address, drawing, pick, wantsVisit: true, photos: made.photo ? [made.photo] : [] }) })
   // The page is told prices only: the customer, card and quote are found from the website lead.
   const [contact = '', quote = '', card = ''] = psql(`select "crmContactId" || '|' || (payload->>'quoteId') || '|' || (payload->>'cardId') from "IntakeLead" where source='ez_quote' and "sourceRef"='${q(made.draft)}'`).split('|')
   Object.assign(made, { contact, quote, card })
+  // The three prices the website showed the customer (Good, Better, Best).
+  made.web = Object.fromEntries((s.body.options ?? []).map(o => [o.key, Math.round(o.price * 100)]))
+  check('setup: the customer\'s yard photo is on their Photos (from the customer) and on the quote', !!made.photo
+    && psql(`select count(*) from "PortalPhoto" where "crmCustomerId"='${q(made.contact)}' and "fileUrl"='${q(made.photo)}' and source='portal_customer' and "deletedAt" is null`) === '1'
+    && psql(`select layout::jsonb->'widgetDrawing'->'photos'->>0 from "SavedQuote" where id='${q(made.quote)}'`) === made.photo, made.photo)
+  check('setup: the lead\'s notes carry no raw file links', !/\/api\/portal\/files\//.test(psql(`select coalesce(string_agg(body, ' '), '') from "CrmContactNote" where "crmContactId"='${q(made.contact)}'`) + psql(`select notes from "SavedQuote" where id='${q(made.quote)}'`)))
   check('setup: the website lead landed (one customer, one card, one draft quote)', s.status < 300 && made.contact && made.card && made.quote && quotesOf(made.contact) === 1, `${s.status} ${JSON.stringify(s.body).slice(0, 160)}`)
   // A site visit today, for the owner, starting now (Florida day).
   const me = await api('/api/crm-auth/me')
@@ -115,11 +133,21 @@ async function phone(browser) {
   await shot(page, 'phone-1-ready-to-quote')
   await page.locator('[data-save-outcome]').click()
   await page.waitForSelector('[data-step-panel="yard"]:not(.hidden)', { timeout: 30000 })
-  await sleep(2500)
+  await sleep(700)
+  // One message at a time, sitting above the quote's bar (never over Next or most of the drawing).
+  const t = await page.evaluate(() => {
+    const ts = [...document.querySelectorAll('[data-toast]')].map(e => e.getBoundingClientRect())
+    const bar = document.querySelector('[data-quote-bar]')?.getBoundingClientRect()
+    return { n: ts.length, bottom: ts[0]?.bottom ?? 0, height: ts[0]?.height ?? 0, barTop: bar?.top ?? 0, vh: innerHeight }
+  })
+  check('phone: one toast at a time after "Save and start the quote", above the quote bar, small', t.n === 1 && t.bottom <= t.barTop + 1 && t.height < t.vh * 0.2, JSON.stringify(t))
+  await shot(page, 'phone-1b-one-toast')
+  await sleep(1800)
   const url = new URL(page.url())
   check('phone: Ready to quote opens the website draft (the same quote, not a new one)', url.searchParams.get('quote') === made.quote, page.url())
   check('phone: it opens on the Yard step', await page.locator('[data-step="yard"][aria-selected="true"]').count() === 1)
   check('phone: the customer\'s drawing is there', await page.locator('[data-customer-drawing]').isVisible())
+  check('phone: the customer\'s own yard photo is on the quote', await page.locator('[data-customer-drawing-photos="1"]').count() === 1)
   check('phone: the yard is drawn (the website\'s sides)', await page.locator('[data-step-panel="yard"] svg').count() > 0)
   const visit = page.locator(`[data-site-visit="${made.appt}"]`)
   await visit.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
@@ -129,6 +157,56 @@ async function phone(browser) {
   await shot(page, 'phone-2-draft-with-visit')
   check('phone: still one quote for the customer', quotesOf(made.contact) === 1, String(quotesOf(made.contact)))
   check('phone: no page errors', errors.length === 0, errors.join(' | '))
+  await ctx.close()
+}
+
+// The opened draft's Good, Better, Best are the prices the website promised (owner: priced in the
+// browser; a Salesman: priced on the server). Item 1 of the review: Good read $668 more than the website.
+async function tiersMatch(browser, who, phoneSize) {
+  const ctx = await browser.newContext(phoneSize ? { ...devices['iPhone 13'] } : { viewport: { width: 1440, height: 900 } })
+  if (who === 'owner') await signIn(ctx)
+  else {
+    const r = await ctx.request.post(`${API}/api/crm-auth/login`, { headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, data: { email: 'wt-christa@example.invalid', password: 'WT-walk-2026!', cookie: true } })
+    if (!r.ok()) { check(`${who}: signed in`, false, String(r.status())); await ctx.close(); return }
+  }
+  const page = await ctx.newPage()
+  await page.goto(`${APP}/quotes?quote=${encodeURIComponent(made.quote)}`)
+  await page.waitForSelector('[data-step="price"]', { timeout: 30000 })
+  await page.locator('[data-step="price"]').click()
+  await page.waitForFunction(() => document.querySelectorAll('[data-step-panel="price"] [data-tier] [data-tier-price]').length >= 3, null, { timeout: 30000 }).catch(() => {})
+  await sleep(1500)
+  const shown = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-step-panel="price"] [data-tier]')].map(e => [e.getAttribute('data-tier'), Math.round(Number((e.querySelector('[data-tier-price]')?.textContent || '').replace(/[^\d.]/g, '')) * 100)])))
+  const keys = Object.keys(made.web)
+  check(`${who} (${phoneSize ? 'phone' : 'computer'}): the draft's Good, Better, Best are the website's prices`, keys.length === 3 && keys.every(k => shown[k] === made.web[k]), `website ${JSON.stringify(made.web)} quote ${JSON.stringify(shown)}`)
+  await shot(page, `${who}-${phoneSize ? 'phone' : 'computer'}-tiers`)
+  await ctx.close()
+}
+
+// The website's free visit box: its words tick it, and the thank-you follows the box. The page's own answers
+// are stood in for (the draft it picks up, and the send), so nothing is saved and no lead is made.
+async function websiteVisitBox(browser) {
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] })
+  const page = await ctx.newPage()
+  let sentBody = null
+  await page.route('**/p/quote/api/draft**', route => route.request().method() === 'GET'
+    ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { id: 'e2eRound1VisitBoxDraft000', step: 3, address: drawing.address, at, atSource: 'county', drawing, pick, snap: false, sent: false } }) })
+    : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, id: 'e2eRound1VisitBoxDraft000' }) }))
+  await page.route('**/p/quote/api/submit', route => { sentBody = JSON.parse(route.request().postData() || '{}'); return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ success: true, test: false, duplicate: false, options: [{ key: 'better', name: 'Better', text: '', popular: true, fenceStyle: "WV-ND 6'x8' Privacy", styleLabel: 'White Vinyl Privacy', price: 11299, perFoot: 40 }], chosen: { key: 'better', name: 'Better', text: '', popular: true, fenceStyle: "WV-ND 6'x8' Privacy", styleLabel: 'White Vinyl Privacy', price: 11299, perFoot: 40 } }) }) })
+  await page.goto(`${APP}/p/quote/?draft=e2eRound1VisitBoxDraft000`)
+  await page.waitForSelector('[data-w-visit]', { timeout: 30000 })
+  const box = page.locator('[data-w-visit]')
+  const before = await box.isChecked()
+  await page.locator('[data-w-visit-row] span').tap()
+  const afterOne = await box.isChecked()
+  check('website (phone): tapping the words "I would like a free visit" ticks or unticks the box', afterOne !== before, `${before} -> ${afterOne}`)
+  if (afterOne) await page.locator('[data-w-visit-row] span').tap()
+  await page.locator('[data-w-name]').fill('E2E Visit Box')
+  await page.locator('[data-w-phone]').fill('352-555-0162')
+  await page.locator('[data-w-send]').tap()
+  await page.waitForSelector('[data-w-sent-words]', { timeout: 15000 }).catch(() => {})
+  const words = await page.locator('[data-w-sent-words]').innerText().catch(() => '')
+  check('website (phone): no visit asked: the lead says so and the thank-you does not promise a visit', sentBody?.wantsVisit === false && !/set up a free visit/.test(words) && /about your estimate/.test(words), `${JSON.stringify(sentBody?.wantsVisit)} | ${words}`)
+  await shot(page, 'phone-0-website-no-visit')
   await ctx.close()
 }
 
@@ -184,6 +262,13 @@ async function computer(browser) {
   await sleep(1500)
   check('computer: the card\'s New quote opens the website draft, not a blank quote', new URL(page.url()).searchParams.get('quote') === made.quote && await page.locator('[data-customer-drawing]').isVisible().catch(() => false), page.url())
   check('computer: still one quote for the customer', quotesOf(made.contact) === 1)
+  const over = await page.evaluate(() => {
+    const a = document.querySelector('[data-toast]')?.getBoundingClientRect()
+    const bar = document.querySelector('[data-quote-bar]')?.getBoundingClientRect()
+    if (!a || !bar) return { toast: !!a, bar: !!bar, overlap: false }
+    return { toast: true, bar: true, overlap: a.bottom > bar.top + 1 }
+  })
+  check('computer: the toast sits above the quote bar, not over Next', !over.overlap, JSON.stringify(over))
   await shot(page, 'computer-2-card-draft')
   await page.keyboard.press('Escape').catch(() => {})
   await page.goto(`${APP}/inventory?tab=invoices`)
@@ -197,8 +282,26 @@ async function computer(browser) {
   check('computer: a picture picked under PDF files says it is not a PDF', /photo\.jpg is not a PDF/.test(await toastText()))
   ;[fc] = await Promise.all([page.waitForEvent('filechooser'), page.click('[data-upload-pdf]')])
   await fc.setFiles(path.join(FIX, 'text.pdf'))
-  await page.waitForFunction(() => /The invoice (uploaded|was not uploaded|is not uploaded yet)/.test(document.body.innerText), null, { timeout: 30000 }).catch(() => {})
-  check('computer: a PDF uploads and says so', /The invoice uploaded/.test(await toastText()))
+  await page.waitForFunction(() => /The invoice (uploaded|was not uploaded|was not added|is not uploaded yet)/.test(document.body.innerText), null, { timeout: 40000 }).catch(() => {})
+  const first = await toastText()
+  check('computer: a PDF uploads and says so', /The invoice uploaded/.test(first), first.match(/The invoice[^\n]*\n?[^\n]*/)?.[0] ?? '')
+  await sleep(3500)
+  // The same file again: the Mac refuses it, so it is not called uploaded.
+  ;[fc] = await Promise.all([page.waitForEvent('filechooser'), page.click('[data-upload-pdf]')])
+  await fc.setFiles(path.join(FIX, 'text.pdf'))
+  await page.waitForFunction(() => /The invoice (uploaded|was not added|was not uploaded)/.test(document.body.innerText), null, { timeout: 40000 }).catch(() => {})
+  const dup = await toastText()
+  check('computer: the same invoice again is "not added" (already uploaded), no green uploaded', /The invoice was not added/.test(dup) && /already uploaded/.test(dup) && !/The invoice uploaded/.test(dup), dup.match(/The invoice[^\n]*\n?[^\n]*/)?.[0] ?? '')
+  await sleep(7500)
+  // A photo renamed .pdf: said at once, not uploaded.
+  const fakePdf = path.join(os.tmpdir(), `e2e-round1-photo-renamed-${process.pid}.pdf`)
+  fs.copyFileSync(PHOTO, fakePdf)
+  ;[fc] = await Promise.all([page.waitForEvent('filechooser'), page.click('[data-upload-pdf]')])
+  await fc.setFiles(fakePdf)
+  await page.waitForFunction(() => /named \.pdf but is not a PDF/.test(document.body.innerText), null, { timeout: 20000 }).catch(() => {})
+  check('computer: a photo renamed .pdf says it is not a PDF and is not uploaded', /named \.pdf but is not a PDF/.test(await toastText()))
+  fs.rmSync(fakePdf, { force: true })
+  await sleep(7500)
   await shot(page, 'computer-3-invoice-uploaded')
   // The server turns one down (made to, here): the reason is shown, it can be removed, and nothing else is stuck.
   await page.route('**/api/media/uploads', route => route.request().method() === 'POST'
@@ -235,6 +338,8 @@ async function computer(browser) {
     await page.waitForSelector('[data-job-work-items]', { timeout: 20000 }).catch(() => {})
     const items = await page.locator('[data-job-work-items]').innerText().catch(() => '')
     check('computer: the repair job lists its items, not 0 ft and 0 sections', /Replace a post: 2/.test(items) && /Rehang a gate/.test(items), items.replace(/\n/g, ' / ').slice(0, 160))
+    const fenceType = await page.evaluate(() => [...document.querySelectorAll('div,p,dt,span')].find(e => e.textContent?.trim() === 'Fence Type')?.parentElement?.textContent ?? '')
+    check('computer: the repair job\'s Fence Type says Repair (the style as the existing fence)', /Fence Type\s*Repair/.test(fenceType) && /Existing fence/.test(await page.locator('[data-job-work-scope]').evaluate(e => e.parentElement?.textContent ?? '').catch(() => '')), fenceType.slice(0, 80))
     await shot(page, 'computer-6-repair-job')
     await page.goto(`${APP}/quotes?quote=${encodeURIComponent(linda[1])}`)
     await page.waitForSelector('[data-step="style"]', { timeout: 30000 }).catch(() => {})
@@ -250,6 +355,22 @@ async function computer(browser) {
   const sug = await api(`/api/appointments/geo/suggest?q=${encodeURIComponent('2715 SE 3rd St')}`)
   const cities = (sug.data ?? []).map(s => s.city)
   check('computer: the address lookup offers nothing far from Ocala', !cities.some(c => /Homestead|Pompano|Okeechobee/i.test(c)), JSON.stringify(cities))
+  check('computer: "2715 SE 3rd St" (no city typed) is offered in Ocala first', sug.data?.[0]?.line1 === '2715 SE 3rd St' && sug.data?.[0]?.city === 'Ocala', JSON.stringify(sug.data?.[0]))
+  const sug2 = await api(`/api/appointments/geo/suggest?q=${encodeURIComponent('3300 SE 24th St')}`)
+  check('computer: "3300 SE 24th St" is offered in Ocala first, not Webster', sug2.data?.[0]?.city === 'Ocala' && sug2.data?.[0]?.line1 === '3300 SE 24th St', JSON.stringify((sug2.data ?? []).map(s => s.formatted)))
+  for (const who of ['WT Linda Park', 'WT Robert Hayes']) {
+    const addr = psql(`select "customerAddress" from "SavedJob" where "customerName" = '${who}' and "deletedAt" is null limit 1`)
+    const p = addr ? (await api(`/api/appointments/geo/lookup?address=${encodeURIComponent(addr)}`)).data : null
+    check(`computer: ${who}'s address (${addr}) is placed on the map near Ocala`, !!p && Math.abs(p.lat - 29.18) < 0.1 && Math.abs(p.lng + 82.13) < 0.15, JSON.stringify(p))
+  }
+  await page.goto(`${APP}/schedule`)
+  await sleep(2500)
+  await page.getByRole('button', { name: /Smart Schedule/ }).first().click()
+  await page.waitForSelector('[data-smart-job]', { timeout: 30000 }).catch(() => {})
+  await sleep(3000)
+  const unplaced = await page.evaluate(() => document.body.innerText.match(/couldn.t be located[\s\S]{0,400}/)?.[0] ?? '')
+  check('computer: Smart Schedule places WT Linda Park and WT Robert Hayes', !/WT Linda Park|WT Robert Hayes/.test(unplaced), unplaced.slice(0, 160))
+  await page.keyboard.press('Escape').catch(() => {})
   check('computer: no page errors', errors.length === 0, errors.join(' | '))
   await ctx.close()
 }
@@ -271,6 +392,9 @@ async function cleanup(name = NAME) {
     for (const f of psql(`select path from "VendorInvoiceFile" where "invoiceId" in (${mine})`).split('\n').filter(Boolean)) if (fs.existsSync(f) && f.includes(`${path.sep}uploads${path.sep}invoices${path.sep}`)) fs.unlinkSync(f)
     psql(`delete from "VendorInvoice" where status = 'refused' and id in (${mine}); delete from "VendorInvoice" where id in (${mine})`)
     if (made.draft) psql(`delete from "WidgetDraft" where id='${q(made.draft)}'`)
+    // The yard photo's file, if it never reached a customer row.
+    const m = /\/intake\/([0-9a-f-]{36}\.(jpg|png|webp|heic))$/.exec(made.photo || '')
+    if (m) fs.rmSync(path.resolve(HERE, '../../portal/uploads/intake', m[1]), { force: true })
     check('test records removed', !made.contact || psql(`select count(*) from "CrmContact" where id='${q(made.contact)}'`) === '0')
   } catch (e) { check('test records removed', false, String(e?.message || e).slice(0, 200)) }
 }
@@ -289,7 +413,8 @@ const wk = await webkit.launch()
 const ch = await chromium.launch()
 try {
   await setup()
-  if (ONLY !== 'computer') { await phone(wk); await salesmanDates(wk) }
+  if (ONLY !== 'computer') { await websiteVisitBox(wk); await tiersMatch(wk, 'salesman', true); await phone(wk); await salesmanDates(wk) }
+  if (ONLY !== 'phone') await tiersMatch(ch, 'owner', false)
   if (ONLY !== 'phone') await computer(ch)
 } catch (e) {
   check('test run finished', false, String(e?.message || e).split('\n').slice(0, 3).join(' '))

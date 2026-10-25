@@ -37,6 +37,8 @@ export interface UnifiedJob {
   customerName: string
   address: string
   fenceType: string
+  /** A repair or a fence move (from its quote), else a new fence. */
+  jobKind?: 'repair' | 'move' | null
   sections: number
   opsStage: string           // unified stage key
   opsStageLabel: string
@@ -69,6 +71,7 @@ export function buildUnifiedList(): UnifiedJob[] {
       customerName: j.customerName,
       address: j.customerAddress,
       fenceType: j.fenceStyle,
+      jobKind: kindOfQuote(j.quoteId),
       sections: j.sections,
       opsStage,
       opsStageLabel: stageName(opsStage) || j.status,
@@ -89,6 +92,19 @@ export function buildUnifiedList(): UnifiedJob[] {
   }
 
   return result
+}
+
+/** A repair or a fence move, from the job's quote (moveRepair.ts); null for a new fence. */
+export function kindOfQuote(quoteId: string | null | undefined): 'repair' | 'move' | null {
+  const t = quoteId ? (getQuotes().find(q => q.id === quoteId) as { work?: { type?: string } | null } | undefined)?.work?.type : null
+  return t === 'repair' || t === 'move' ? t : null
+}
+
+/** How the board names the job's fence: "Repair · White Vinyl …" for a repair or move. */
+export function fenceText(j: { fenceType: string; jobKind?: 'repair' | 'move' | null }): string {
+  const style = styleLabel(j.fenceType)
+  if (!j.jobKind) return style
+  return [j.jobKind === 'repair' ? 'Repair' : 'Fence move', style].filter(Boolean).join(' · ')
 }
 
 const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -166,7 +182,10 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
 
         {/* Scope */}
         <Section title="Scope of Work">
-          <Field label="Fence Type" value={styleLabel(job.fenceType)} />
+          {scope ? <>
+            <Field label="Fence Type" value={scope.title} />
+            {job.fenceType && <Field label="Existing fence" value={styleLabel(job.fenceType)} />}
+          </> : <Field label="Fence Type" value={styleLabel(job.fenceType)} />}
           {scope ? (
             // A repair or a move: what the crew does, from the quote (not a new fence's feet and sections).
             <div data-job-work-scope={scope.title}>

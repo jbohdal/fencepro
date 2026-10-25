@@ -211,7 +211,8 @@ export function OutcomeForm({ a, onClose }: { a: Appointment; onClose: () => voi
     if (!saved) { setSaving(false); return }
     let up = 0
     for (const f of files) { const r = await uploadStaffPhotoForCustomer(a.crmContactId, f, `${OUTCOME_LABELS[outcome]} visit`, a.assignedTo); if (r.ok) up++ }
-    if (files.length) toast.info('Photos', `${up} of ${files.length} uploaded to the customer's Photos.`)
+    // Said only when some did not upload (one message at a time: the quote's own message comes next).
+    if (files.length && up < files.length) toast.warning('Photos', `${up} of ${files.length} uploaded to the customer's Photos. Add the others from the customer's Photos tab.`)
     applyOutcome(saved, outcome)
     setSaving(false)
     onClose()

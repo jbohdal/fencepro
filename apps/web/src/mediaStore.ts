@@ -254,6 +254,9 @@ export const uploadProgress = (clientId: string) => progress.get(clientId) ?? 0
 /** Why the server turned a capture down (it stays on the phone until it is removed); kept for this visit. */
 const refused = new Map<string, string>()
 export const uploadRefusedWhy = (clientId: string) => refused.get(clientId) ?? null
+/** What the server made of a capture sent on this visit (its media id, or a vendor invoice's id). */
+const sentAs = new Map<string, string>()
+export const uploadedAs = (clientId: string) => sentAs.get(clientId) ?? null
 
 async function json<T>(r: Response | null): Promise<T | null> {
   if (!r) return null
@@ -328,6 +331,7 @@ async function uploadOne(m: LocalMedia<AnyMeta>): Promise<'ok' | 'retry' | 'refu
   }
   await remove(m.clientId)
   progress.delete(m.clientId)
+  if (item?.id) sentAs.set(m.clientId, item.id)
   return 'ok'
 }
 

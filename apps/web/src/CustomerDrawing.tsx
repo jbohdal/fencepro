@@ -40,6 +40,15 @@ export default function CustomerDrawing({ record }: { record: WidgetDrawingRecor
               </li>
             ))}
           </ul>
+          {(record.photos ?? []).length > 0 && (
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2" data-customer-drawing-photos={(record.photos ?? []).length}>
+              {(record.photos ?? []).map(u => (
+                <a key={u} href={apiUrl(u)} target="_blank" rel="noreferrer" className="block aspect-square rounded-lg overflow-hidden border border-gray-200 bg-gray-100" aria-label="Open the customer's photo">
+                  <img src={apiUrl(u)} alt="The customer's photo of the yard" className="w-full h-full object-cover" loading="lazy" />
+                </a>
+              ))}
+            </div>
+          )}
           {record.chosen && <p className="text-sm text-gray-700">The customer picked <span className="font-semibold">{record.chosen.name}</span> at {money(record.chosen.price)}{record.shown?.length > 1 ? ` (shown: ${record.shown.map(o => `${o.name} ${money(o.price)}`).join(', ')})` : ''}.</p>}
           <p className="text-xs text-gray-500">Kept as the customer drew it. Changes to the yard above do not change this.</p>
         </div>

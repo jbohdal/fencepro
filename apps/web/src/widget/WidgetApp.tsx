@@ -28,6 +28,7 @@ import { bakePhoto } from '../aerialBake'
 import { aerialConfig, prefetchAerial } from '../aerialTiles'
 import { AerialCredit } from '../freeMap'
 import { TEXT_CONSENT_WORDING, TEXT_CONSENT_TERMS_URL } from '../../../portal/src/server/lib/textConsentModel'
+import { thanksText } from './thanksText'
 
 /** The end of the checkbox words, shown as the link to the terms. */
 const TERMS_TEXT = 'gdfencepro.com/terms.cfm'
@@ -383,7 +384,7 @@ export default function WidgetApp() {
           {sent && (
             <div className="rounded-2xl bg-green-50 border border-green-200 p-4" data-w-sent>
               <p className="text-lg font-bold text-gray-900">{name ? `Thank you, ${name.trim().split(' ')[0]}!` : 'Thank you!'}</p>
-              <p className="text-sm text-gray-800">We have your drawing{chosen ? ` and your estimate of ${money(chosen.price)}` : ''}. We will call you{phone ? ` at ${phone}` : ''} to set up a free visit and confirm the price.</p>
+              <p className="text-sm text-gray-800" data-w-sent-words>We have your drawing{chosen ? ` and your estimate of ${money(chosen.price)}` : ''}. {thanksText(phone, wantsVisit)}</p>
             </div>
           )}
 
@@ -451,8 +452,10 @@ function ContactForm(p: {
       {/* Left empty by people (hidden); form robots fill it in. */}
       <input className="absolute -left-[9999px] w-px h-px opacity-0" tabIndex={-1} autoComplete="off" aria-hidden="true" value={p.website} onChange={e => p.setWebsite(e.target.value)} name="website" />
       <textarea className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base" rows={2} placeholder="Anything we should know? (optional)" value={p.notes} onChange={e => p.setNotes(e.target.value)} />
-      <label className="flex items-center gap-2 text-sm text-gray-800 min-h-[44px]">
-        <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={p.wantsVisit} onChange={e => p.setWantsVisit(e.target.checked)} /> I would like a free visit to confirm the price
+      {/* The whole row ticks the box (the label is tied to it by id). */}
+      <label htmlFor="w-wants-visit" className="flex items-center gap-2 text-sm text-gray-800 min-h-[44px] cursor-pointer" data-w-visit-row>
+        <input id="w-wants-visit" type="checkbox" className="w-5 h-5 accent-orange-500" checked={p.wantsVisit} onChange={e => p.setWantsVisit(e.target.checked)} data-w-visit />
+        <span>I would like a free visit to confirm the price</span>
       </label>
       {/* Texting consent: unchecked unless the customer checks it; the words are stored with a yes. */}
       <label className="flex items-start gap-2 text-sm text-gray-800 min-h-[44px] py-1" data-w-text-consent>
