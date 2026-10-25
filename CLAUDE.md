@@ -38,15 +38,22 @@ read a copy of his Chrome Beta history while tracing a Settings change.)
 
 ## Hard rule: done means used for real, start to finish
 
-A feature is NOT done until it has been used for its real purpose, start to
-finish, as the real user (owner, office, salesman or installer), on a phone
-where that is how it is used, with realistic data, through every step before
-and after it (how you get to it, and what happens next). Passing tests is
-required but not enough. For every change, show Jonathan a short screen
-recording or step by step screenshots of that real use, and give him a
-"try this" list of 3 to 5 real tasks he can do in 5 minutes after the deploy
-to check it himself. Through Oct 31, 2026: make existing features work end to
-end before building anything new, unless he says otherwise. After every big
-round, rerun the full workflow walkthrough (an agent that did not build the
-features, on a copy of live data, each step as the right person). (Set by
-Jonathan on Oct 24, 2026.)
+Jonathan does not have time to test the work, so:
+- A feature is done only after it has been used for its real purpose, start
+  to finish, as the real user (owner, office, salesman or installer), on a
+  phone where that is how it is used, with realistic data, through every step
+  before and after it (how you get to it, and what happens next). Passing
+  tests is required but not enough.
+- That real use is done by a separate reviewer agent that did not build the
+  feature, acting as the user. It reports anything confusing, slow, missing or
+  broken, and it is fixed before Jonathan is told it is done.
+- Ask Jonathan to look only when it touches money, contracts or what
+  customers see, and then give him one specific 1 minute check, not a list.
+- Reports say what the reviewer did and found, in plain words. No recordings
+  unless he asks.
+- Through Oct 31, 2026: make existing features work end to end before
+  building anything new, unless he says otherwise.
+- After every big round, rerun the full workflow walkthrough (an independent
+  agent, on a copy of live data, each step as the right person) and report a
+  short ranked list of gaps, worst first, with who it affects and how often.
+(Set by Jonathan on Oct 24, 2026.)
