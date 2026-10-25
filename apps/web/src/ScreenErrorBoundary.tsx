@@ -19,7 +19,7 @@ import { sendFeedback } from './feedback'
 /** One report per error per app load: a screen that fails on every redraw is reported once. */
 const reported = new Set<string>()
 
-export function reportScreenError(name: string, error: unknown, componentStack = ''): void {
+function reportScreenError(name: string, error: unknown, componentStack = ''): void {
   const message = String((error as Error)?.message ?? error).slice(0, 300)
   const key = `${name}|${message}`
   if (reported.has(key)) return

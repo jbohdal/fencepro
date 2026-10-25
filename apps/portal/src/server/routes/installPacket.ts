@@ -29,12 +29,13 @@ import { esc, safeSvg, CSS } from './proposal.js'
 import { mediaDir, serializeMedia, processMediaQueue } from '../lib/media.js'
 import { serveSignedMedia } from './media.js'
 import { plainZod } from '../lib/plainZod.js'
-import { requireCan } from '../lib/permissions.js'
 import { plainStyleName } from '../lib/estimates.js'
 import { packetChange, packetWithChange, sheetChanges } from '../lib/changeOrderWork.js'
 import { coveredWorkOn } from '../lib/serviceTickets.js'
 import { issueLabel } from '../lib/serviceTicketModel.js'
 import { isYmd, usDate, shortDayWords } from '../lib/installDays.js'
+import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
+import { customerNotesForJob, installTimes, recordInstallTime } from '../lib/crewInstall.js'
 
 /**
  * The crew days, each one: "3 crew days: Thu 12/3, Mon 12/7, Tue 12/8" (from the Schedule), else
@@ -45,6 +46,12 @@ function installWhen(start: string | null | undefined, end: string | null | unde
   if (booked.length) return `${booked.length} crew day${booked.length === 1 ? '' : 's'}: ${booked.map(shortDayWords).join(', ')}`
   const n = Math.max(1, days || 1)
   return isYmd(end) && end > start ? `starts ${usDate(start)}, ${n} crew day${n === 1 ? '' : 's'} to ${usDate(end)}` : usDate(start)
+}
+
+/** Each line once: packets sent before Oct 25, 2026 carry the job's and the quote's notes, which were the same. */
+export function onceEach(text: string): string {
+  const seen = new Set<string>()
+  return text.split('\n').filter(l => { const k = l.trim().replace(/\s+/g, ' ').toLowerCase(); if (!k) return true; if (seen.has(k)) return false; seen.add(k); return true }).join('\n').trim()
 }
 
 /** 3527894314 → (352) 789-4314; anything else as typed. */
@@ -126,13 +133,16 @@ packetStaff.get('/', async (req: any, res) => {
 })
 
 // Send (or refresh) a job's packet. A packet that was turned off gets a new link.
-packetStaff.post('/', requireCan('packets.change'), express.json({ limit: '1mb' }), async (req: any, res) => {
+// The office sends and refreshes it (packets.change); the crew may make a job's first one from their home
+// screen, so a scheduled install always has its packet (walkthrough round 1, Oct 25, 2026).
+packetStaff.post('/', express.json({ limit: '1mb' }), async (req: any, res) => {
   try {
     const body = z.object({ jobId: z.string().min(1).max(100), snapshot: snapSchema }).parse(req.body)
     const accountId = req.user.crmAccountId
     const job = await prisma.savedJob.findFirst({ where: { id: body.jobId, accountId, deletedAt: null } })
     if (!job) { res.status(404).json({ success: false, error: 'Job not found' }); return }
     const existing = await prisma.installPacket.findUnique({ where: { jobId: job.id } })
+    if (!can(roleOf(req), 'packets.change') && existing) { refuse(res, 'packets.change'); return }
     const token = !existing || existing.disabledAt ? crypto.randomBytes(24).toString('base64url') : existing.token
     const p = existing
       ? await prisma.installPacket.update({ where: { id: existing.id }, data: { token, snapshot: body.snapshot as any, disabledAt: null, sentAt: new Date() } })
@@ -151,6 +161,42 @@ packetStaff.post('/', requireCan('packets.change'), express.json({ limit: '1mb' 
 packetStaff.post('/:id/off', requireCan('packets.change'), async (req: any, res) => {
   const n = await prisma.installPacket.updateMany({ where: { id: String(req.params.id), accountId: req.user.crmAccountId }, data: { disabledAt: new Date() } })
   res.json({ success: true, data: { updated: n.count } })
+})
+
+// ── The installer's home (Field Crew) ─────────────────────────────────────────
+
+/** A job of this company, or a 404 answer. */
+async function crewJob(req: any, res: any) {
+  const job = await prisma.savedJob.findFirst({ where: { id: String(req.params.jobId), accountId: req.user.crmAccountId, deletedAt: null }, select: { id: true, crmContactId: true } })
+  if (!job) res.status(404).json({ success: false, error: 'Job not found' })
+  return job
+}
+
+/** For an install on the installer's home: its packet link, the customer's notes, and Start and Finish so far. */
+packetStaff.get('/crew/:jobId', async (req: any, res) => {
+  try {
+    const job = await crewJob(req, res)
+    if (!job) return
+    const p = await prisma.installPacket.findUnique({ where: { jobId: job.id } })
+    res.json({ success: true, data: {
+      packet: p && !p.disabledAt ? { token: p.token } : null,
+      customerNotes: await customerNotesForJob(req.user.crmAccountId, job.crmContactId),
+      times: await installTimes(job.id),
+    } })
+  } catch (err) { console.error('[packet] crew:', err); res.status(500).json({ success: false, error: 'Could not load the install' }) }
+})
+
+/** Start or Finish on an install: who and when, on the job. */
+packetStaff.post('/crew/:jobId/:kind', async (req: any, res) => {
+  try {
+    if (req.params.kind !== 'start' && req.params.kind !== 'finish') { res.status(404).json({ success: false, error: 'Not found' }); return }
+    const job = await crewJob(req, res)
+    if (!job) return
+    const me = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true, email: true } }).catch(() => null)
+    const by = (me ? `${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.email : req.user.email) || 'Crew'
+    await recordInstallTime(job.id, req.params.kind === 'finish' ? 'finish' : 'start', by)
+    res.json({ success: true, data: { times: await installTimes(job.id) } })
+  } catch (err) { console.error('[packet] crew time:', err); res.status(500).json({ success: false, error: 'Could not save the time' }) }
 })
 
 // ── Public: the packet ────────────────────────────────────────────────────────
@@ -212,6 +258,8 @@ packetPublic.get('/:token', async (req, res) => {
   const job_ = job!
   const map = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job_.customerAddress)}`
   const crewNotes = (s.crewNotes ?? []).filter(Boolean)
+  // What the customer told us ("have 2 dogs"), read now so a note added after the packet was sent shows (lib/crewInstall.ts).
+  const fromCustomer = await customerNotesForJob(p.accountId, job_.crmContactId).catch(() => [] as string[])
   const body = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.companyName || 'Getter Done Fence')}</p><p class="small">Install packet${s.companyPhone ? ` · Office <a href="tel:${esc(s.companyPhone.replace(/[^\d+]/g, ''))}">${esc(phone(s.companyPhone))}</a>` : ''}</p></div>
     <button type="button" id="print" class="printbtn noprint">Print / PDF</button></header>
   <main class="wrap">
@@ -219,7 +267,8 @@ packetPublic.get('/:token', async (req, res) => {
     <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
     <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">Install: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(job_.crewAssigned)}` : ''}</p>
     ${coChange ? `<section class="notes" data-packet-change-order><h2>Changed: change order CO-${coChange.number}</h2><p><b>${esc(coChange.what)}</b> (approved ${esc(coChange.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${coChange.rev ? `, contract rev ${coChange.rev}` : ''}). The fence, runs and pull sheet below are the new ones.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(l.item)}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
-    ${s.notes ? `<section class="notes"><h2>Gate codes and notes</h2><p>${esc(s.notes).replace(/\n/g, '<br>')}</p></section>` : ''}
+    ${s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(onceEach(s.notes)).replace(/\n/g, '<br>')}</p></section>` : ''}
+    ${fromCustomer.length ? `<section class="notes" data-packet-customer-notes><h2>Customer notes</h2><ul>${fromCustomer.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${await workOrders(work)}
     ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}

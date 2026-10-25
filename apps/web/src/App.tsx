@@ -10,7 +10,7 @@ import { startLiveRefresh } from './liveRefresh'
 import './liveOverhead'
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment, lazy, Suspense } from 'react'
 import QuoteBuilder from './QuoteBuilder'
-import { BarChart3, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
+import { BarChart3, Building2, Calculator, CalendarClock, CalendarDays, ClipboardList, CreditCard, Globe, HardHat, Kanban, LayoutDashboard, Map, MapPin, Package, PiggyBank, Plug, Receipt, Scale, Settings, ShieldCheck, Sun, TrendingUp, UserCog, Users, Wrench, Zap, Menu, ChevronsLeft, ChevronsRight, Plus, Search, type LucideIcon } from 'lucide-react'
 import AdminPage from './AdminPage'
 const AdminSettingsPage = lazy(() => import('./AdminSettingsPage'))
 const BudgetPage = lazy(() => import('./BudgetPage'))
@@ -85,6 +85,7 @@ import { initAppointments, isAppointmentsHydrated } from './appointmentsStore'
 import { initBookingTeam, isBookingTeamLoaded } from './bookingTeamStore'
 const AppointmentsPage = lazy(() => import('./AppointmentsPage'))
 import TodayScreen from './TodayScreen'
+import InstallerHome from './InstallerHome'
 import FollowUpsPage from './FollowUpsPage'
 import { FollowUpPromptHost } from './FollowUpPrompt'
 import { startFollowUps } from './followUpStore'
@@ -116,18 +117,20 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Sales',
     items: [
-      { name: 'Sales Pipeline',  icon: Kanban, roles: ['owner', 'admin', 'salesman'] },
+      { name: 'Sales Pipeline',  icon: Kanban, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
       { name: 'Appointments',    icon: CalendarDays, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
       { name: 'Today',           icon: Sun, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
       { name: 'Follow ups',      icon: PhoneCall, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
       { name: 'Dashboard',       icon: LayoutDashboard, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
-      { name: 'Customers',       icon: Users, roles: ['owner', 'admin', 'salesman'] },
-      { name: 'Quotes',          icon: ClipboardList, roles: ['owner', 'admin', 'salesman'] },
+      { name: 'Customers',       icon: Users, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
+      { name: 'Quotes',          icon: ClipboardList, roles: ['owner', 'admin', 'salesman', 'ops_manager'] },
     ],
   },
   {
     label: 'Operations',
     items: [
+      // The installer's home: today's and upcoming installs (InstallerHome.tsx).
+      { name: 'My installs', icon: HardHat, roles: ['shop'] },
       { name: 'Operations',  icon: Wrench, roles: ['owner', 'admin', 'ops_manager', 'shop'] },
       { name: 'Schedule',    icon: CalendarClock, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
       { name: 'Service',     icon: ShieldCheck, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
@@ -142,8 +145,9 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'P&L Statement',      icon: TrendingUp, roles: ['owner', 'admin'] },
       { name: 'Balance Sheet',      icon: Scale, roles: ['owner', 'admin'] },
       // Cash Flow comes back here once its statement is built.
-      { name: 'Billing',            icon: CreditCard, roles: ['owner', 'admin'] },
-      { name: 'Accounts Payable',   icon: Receipt, roles: ['owner', 'admin', 'ops_manager'] },
+      // The office runs Billing (customer invoices and payments); vendor bills are costs, so Accounts Payable is not theirs.
+      { name: 'Billing',            icon: CreditCard, roles: ['owner', 'admin', 'ops_manager'] },
+      { name: 'Accounts Payable',   icon: Receipt, roles: ['owner', 'admin'] },
       { name: 'Vendors',            icon: Building2, roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Reports',            icon: BarChart3, roles: ['owner', 'admin'] },
       { name: 'Budget',             icon: PiggyBank, roles: ['owner'] },
@@ -156,7 +160,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'EZ Budget',      icon: Calculator, roles: ['owner', 'admin'] },
       { name: 'Automations',    icon: Zap, roles: ['owner', 'admin'] },
       { name: 'Integrations',  icon: Plug, roles: ['owner', 'admin'] },
-      { name: 'Portal',        icon: Globe, roles: ['owner', 'admin'] },
+      { name: 'Portal',        icon: Globe, roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Audit Log',     icon: ShieldCheck, roles: ['owner', 'admin'] },
       { name: 'Feedback',      icon: MessageSquarePlus, roles: ['owner', 'admin'] },
       { name: 'Settings',      icon: Settings, roles: ['owner', 'admin'] },
@@ -167,13 +171,25 @@ const NAV_GROUPS: NavGroup[] = [
 const ALL_NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items)
 // Every page the app can show, for its address (/customers, /pipeline, ...).
 const PAGE_NAMES = [...new Set([...ALL_NAV_ITEMS.map(i => i.name), 'Jobs', 'Staging'])]
-const PAGES_WITH_HEADER = new Set(['Dashboard', 'Sales Pipeline', 'Follow ups', 'Operations', 'Jobs', 'Staging', 'Appointments', 'Today', 'Settings', 'Billing', 'Inventory', 'P&L Statement'])
+const PAGES_WITH_HEADER = new Set(['Dashboard', 'Sales Pipeline', 'Follow ups', 'Operations', 'Jobs', 'Staging', 'Appointments', 'Today', 'My installs', 'Settings', 'Billing', 'Inventory', 'P&L Statement'])
+
+/** Where a login lands, and where a page its role cannot open sends it: the installer's own home, else Today. */
+const homePageOf = (role: UserRole) => (role === 'shop' ? 'My installs' : 'Today')
+
+/** The phone's bottom tabs for a role: only pages it can open (More holds the rest). */
+function tabsFor(role: UserRole): Array<[string, LucideIcon, string]> {
+  const tabs: Array<[string, LucideIcon, string]> = role === 'shop'
+    ? [['Installs', HardHat, 'My installs'], ['Jobs', Wrench, 'Operations'], ['Stock', Package, 'Inventory']]
+    : [['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Follow ups', PhoneCall, 'Follow ups'], ['Customers', Users, 'Customers'],
+      ['Schedule', CalendarDays, role !== 'salesman' && ALL_NAV_ITEMS.find(i => i.name === 'Schedule')?.roles.includes(role) ? 'Schedule' : 'Appointments']]
+  return tabs.filter(([, , page]) => role === 'owner' || role === 'admin' || !!ALL_NAV_ITEMS.find(i => i.name === page)?.roles.includes(role))
+}
 
 const ROLE_LABELS: Record<UserRole, string> = {
   owner: 'Owner',
   admin: 'Admin',
   salesman: 'Sales',
-  ops_manager: 'Operations',
+  ops_manager: 'Office',
   shop: 'Shop / Yard',
 }
 
@@ -575,15 +591,21 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     }
   }
 
-  // A limited login (salesman, crew, office) opening a page that is not in its menu, by link or address: back to Today.
+  // A limited login (salesman, crew, office) opening a page that is not in its menu, by link or address: to its
+  // home (Today; the installer's My installs). The start address (/, the Dashboard) goes there without a word.
+  // Once, per page: the installer's login used to bounce between two pages it could not open and drew nothing
+  // (and every bounce closed the More menu), walkthrough Oct 24, 2026.
   const pageItem = ALL_NAV_ITEMS.find(i => i.name === active)
   const pageBlocked = !isFullRole() && !!pageItem && !pageItem.roles.includes(role)
   const toldBlocked = useRef('')
   useEffect(() => {
     if (!pageBlocked) { toldBlocked.current = ''; return }
-    if (toldBlocked.current !== active) { toldBlocked.current = active; toast.info(`${active} is not open to your login`, 'Ask Jonathan if you need it.') }
-    setActive('Today')
-  })
+    const home = homePageOf(role)
+    if (active === home) return
+    if (toldBlocked.current !== active && active !== 'Dashboard') toast.info(`${active} is not open to your login`, 'Ask Jonathan if you need it.')
+    toldBlocked.current = active
+    navigate(pagePath(home), { replace: true })
+  }, [pageBlocked, active, role])
 
   // Filtered nav based on role
   const visibleGroups = NAV_GROUPS.map(g => ({
@@ -822,13 +844,15 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const actualNetProfit    = revenueGoal * netProfitPct
   const ytdGoal            = revenueGoal * (thisMonth + 1) / 12
 
+  const seesCostsHere = can('costs.view')
   const kpis = [
     { label: 'Revenue this year', value: fmt(ytdRevenue), sub: `${fmtPct(ytdRevenue / revenueGoal)} of the ${fmt(revenueGoal)} goal`, sub2: `Sold, not installed: ${fmt(openSold.total)} (${openSold.count} ${openSold.count === 1 ? 'job' : 'jobs'})`, tone: 'hero' as const },
     { label: 'Sold this month', value: String(monthSold), sub: `${monthQuotes.length} quoted · ${monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%'} close rate`, tone: 'plain' as const },
     { label: 'Open quotes', value: String(openQuotes), sub: fmt(quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)), tone: 'plain' as const },
     { label: 'Active pipeline', value: String(activePipeline), sub: 'leads in progress', tone: 'plain' as const },
     { label: 'Average margin', value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'Needs quotes with costs' : avgMargin >= 0.34 ? 'On target' : 'Below the 34% target', tone: avgMargin !== null && avgMargin < 0.34 ? 'bad' as const : 'plain' as const },
-  ]
+  // Margins and the budget's cost shares are for logins that see costs; the office, a Salesman and the crew see prices only.
+  ].filter(k => seesCostsHere || k.label !== 'Average margin')
 
   const budgetBuckets = [
     { label: 'Overhead', target: fmtPct(overheadPct), actual: fmtPct(actualOverheadPct), amount: fmt(totalOverhead), ok: actualOverheadPct <= overheadPct + 0.02 },
@@ -1116,6 +1140,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Service'   && <ServicePage />}
           {active === 'Appointments' && <AppointmentsPage />}
           {active === 'Today'     && <TodayScreen />}
+          {active === 'My installs' && <InstallerHome />}
           {active === 'Follow ups' && <FollowUpsPage />}
           {active === 'Dispatch'  && <DispatchPage />}
           {active === 'Reports'   && <ReportsPage quotes={revenueQuotes} />}
@@ -1212,7 +1237,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                       { label: 'Close Rate', value: monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%' },
                       { label: 'Revenue Closed', value: fmt(monthQuotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0)) },
                       { label: 'Avg Deal Size', value: monthSold > 0 ? fmt(monthQuotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0) / monthSold) : '$0' },
-                      { label: 'Target Margin', value: fmtPct(1 - magicNumber) },
+                      ...(seesCostsHere ? [{ label: 'Target Margin', value: fmtPct(1 - magicNumber) }] : []),
                     ].map(row => (
                       <div key={row.label} className="flex items-center justify-between">
                         <span className="text-sm text-gray-500">{row.label}</span>
@@ -1223,8 +1248,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 </div>
               </div>
 
-              {/* Budget buckets */}
-              <div className="bg-white rounded-2xl border border-gray-200 p-6">
+              {/* Budget buckets: cost shares, for logins that see costs */}
+              {seesCostsHere && <div className="bg-white rounded-2xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="font-semibold text-gray-900">Budget Targets</h3>
@@ -1242,7 +1267,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                     </div>
                   ))}
                 </div>
-              </div>
+              </div>}
             </div>
           )}
           </Fragment>}
@@ -1275,8 +1300,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       <FollowUpPromptHost />
 
       {/* ═══ PHONE TAB BAR ═══ */}
-      <nav data-tabbar aria-label="Main" className="md:hidden fixed inset-x-0 bottom-0 z-(--z-tabbar) bg-white border-t border-gray-200 grid grid-cols-6 pb-[env(safe-area-inset-bottom)]">
-        {([['Today', Sun, 'Today'], ['Pipeline', Kanban, 'Sales Pipeline'], ['Follow ups', PhoneCall, 'Follow ups'], ['Customers', Users, 'Customers'], ['Schedule', CalendarDays, role !== 'salesman' && ALL_NAV_ITEMS.find(i => i.name === 'Schedule')?.roles.includes(role) ? 'Schedule' : 'Appointments']] as const).map(([label, Icon, page]) => (
+      <nav data-tabbar aria-label="Main" className="md:hidden fixed inset-x-0 bottom-0 z-(--z-tabbar) bg-white border-t border-gray-200 grid pb-[env(safe-area-inset-bottom)]" style={{ gridTemplateColumns: `repeat(${tabsFor(role).length + 1}, minmax(0, 1fr))` }}>
+        {tabsFor(role).map(([label, Icon, page]) => (
           <button key={label} onClick={() => setActive(page)} aria-current={active === page ? 'page' : undefined}
             className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${active === page ? 'text-orange-500' : 'text-gray-500'}`}>
             <span className={`grid place-items-center h-8 w-14 rounded-full ${active === page ? 'bg-orange-100' : ''}`}><Icon size={22} aria-hidden="true" /></span>{label}

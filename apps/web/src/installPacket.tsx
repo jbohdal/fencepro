@@ -45,11 +45,30 @@ export interface PacketSnapshot {
   work?: { type: 'move' | 'repair'; title: string; steps: string[]; gateHardware: string[]; needs811: boolean }
 }
 
+/**
+ * The job's and the quote's notes, each line once: a job made from a quote
+ * starts with the quote's notes, so the packet printed them twice
+ * (walkthrough, Oct 24, 2026).
+ */
+export function packetNoteLines(...texts: Array<string | null | undefined>): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const t of texts) {
+    for (const line of String(t ?? '').split('\n')) {
+      const key = line.trim().replace(/\s+/g, ' ').toLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      out.push(line.trimEnd())
+    }
+  }
+  return out
+}
+
 /** Everything the crew needs from the quote, without a single price. */
 export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number }, quote: SavedQuote | undefined, media: ServerMedia[], photo: AerialBackdrop | null = null): PacketSnapshot {
   const cfg = getConfig()
   const snap: PacketSnapshot = { style: styleLabel(quote?.fenceStyle || job.fenceStyle), companyName: cfg.company?.name || 'Getter Done Fence', companyPhone: cfg.company?.phone || '' }
-  const notes = [job.notes, quote?.notes].filter(n => n && n.trim()).join('\n')
+  const notes = packetNoteLines(job.notes, quote?.notes).join('\n')
   if (notes) {
     // Notes said by voice as "Crew note: …" are listed on their own.
     const lines = notes.split('\n')
@@ -146,11 +165,27 @@ export async function sendInstallPacket(jobId: string, job: { fenceStyle?: strin
   return call<Packet>('', { method: 'POST', body: JSON.stringify({ jobId, snapshot }) })
 }
 
+// ── The installer's home (InstallerHome.tsx) ─────────────────────────────────
+
+export interface InstallTime { kind: 'start' | 'finish'; at: string; by: string; day: string }
+export interface CrewInstall { packet: { token: string } | null; customerNotes: string[]; times: InstallTime[] }
+
+/** An install's packet link, the customer's notes and Start / Finish so far; null with no signal. */
+export const fetchCrewInstall = (jobId: string) => call<CrewInstall>(`/crew/${encodeURIComponent(jobId)}`)
+
+/** Start or Finish on an install (needs signal: the time is the server's). The taps so far, or null. */
+export async function markInstall(jobId: string, kind: 'start' | 'finish'): Promise<InstallTime[] | null> {
+  const r = await call<{ times: InstallTime[] }>(`/crew/${encodeURIComponent(jobId)}/${kind}`, { method: 'POST' })
+  return r?.times ?? null
+}
+
 /** On a sold job: send the packet, then open, copy, text, email or turn it off. */
 export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: { fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number; customerName?: string }; quote: SavedQuote | undefined }) {
   const [packet, setPacket] = useState<Packet | null>(null)
   const [busy, setBusy] = useState(false)
+  const [times, setTimes] = useState<InstallTime[]>([])
   useEffect(() => { call<Packet>(`?jobId=${encodeURIComponent(jobId)}`).then(setPacket) }, [jobId])
+  useEffect(() => { fetchCrewInstall(jobId).then(r => setTimes(r?.times ?? [])) }, [jobId])
 
   async function send() {
     setBusy(true)
@@ -192,6 +227,13 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
       )}
       {packet?.disabledAt && <p className="text-xs text-gray-600" data-packet-state>Link turned off. Sending again makes a new link.</p>}
       <p className="text-xs text-gray-700" data-packet-locate>811 locate: {packet?.locateTicket ? `ticket ${packet.locateTicket}${packet.locateDate ? ` on ${packet.locateDate}` : ''}` : 'not entered on the packet yet'}</p>
+      {/* Start and Finish from the installer's home (InstallerHome.tsx). */}
+      <div className="text-xs text-gray-700" data-job-install-times>
+        <p className="font-semibold">Install times</p>
+        {times.length === 0 ? <p>The crew has not tapped Start yet.</p> : (
+          <ul>{times.map(t => <li key={t.at}>{t.kind === 'start' ? 'Started' : 'Finished'} {new Date(t.at).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {t.by}</li>)}</ul>
+        )}
+      </div>
     </div>
   )
 }
