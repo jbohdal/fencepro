@@ -34,11 +34,15 @@ import { plainStyleName } from '../lib/estimates.js'
 import { packetChange, packetWithChange, sheetChanges } from '../lib/changeOrderWork.js'
 import { coveredWorkOn } from '../lib/serviceTickets.js'
 import { issueLabel } from '../lib/serviceTicketModel.js'
-import { isYmd, usDate } from '../lib/installDays.js'
+import { isYmd, usDate, shortDayWords } from '../lib/installDays.js'
 
-/** "starts 11/02/2026, 3 crew days to 11/04/2026" (or the start alone, or not scheduled yet). */
-function installWhen(start: string | null | undefined, end: string | null | undefined, days: number | null | undefined): string {
+/**
+ * The crew days, each one: "3 crew days: Thu 12/3, Mon 12/7, Tue 12/8" (from the Schedule), else
+ * "starts 11/02/2026, 3 crew days to 11/04/2026", or the start alone, or not scheduled yet.
+ */
+function installWhen(start: string | null | undefined, end: string | null | undefined, days: number | null | undefined, booked: string[] = []): string {
   if (!isYmd(start)) return 'not scheduled yet'
+  if (booked.length) return `${booked.length} crew day${booked.length === 1 ? '' : 's'}: ${booked.map(shortDayWords).join(', ')}`
   const n = Math.max(1, days || 1)
   return isYmd(end) && end > start ? `starts ${usDate(start)}, ${n} crew day${n === 1 ? '' : 's'} to ${usDate(end)}` : usDate(start)
 }
@@ -185,6 +189,8 @@ packetPublic.get('/:token', async (req, res) => {
     return
   }
   const { p, job, work } = found
+  // The crew days as booked on the Schedule (Schedule install: one entry a day).
+  const bookedDays = [...new Set((await prisma.scheduledGridJob.findMany({ where: { accountId: p.accountId, deletedAt: null, stagingJobId: p.jobId }, select: { date: true } })).map(g => g.date).filter(isYmd))].sort()
   // An approved change order changed the work after this packet was sent: the work as it is now, what changed marked.
   const coChange = await packetChange(p.accountId, job!.quoteId, p.sentAt).catch(() => null)
   const s = packetWithChange(p.snapshot as Snapshot, coChange)
@@ -211,7 +217,7 @@ packetPublic.get('/:token', async (req, res) => {
   <main class="wrap">
     <h1>${esc(job_.customerName)}</h1>
     <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
-    <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">Install: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays))}${job_.crewAssigned ? ` · Crew: ${esc(job_.crewAssigned)}` : ''}</p>
+    <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">Install: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(job_.crewAssigned)}` : ''}</p>
     ${coChange ? `<section class="notes" data-packet-change-order><h2>Changed: change order CO-${coChange.number}</h2><p><b>${esc(coChange.what)}</b> (approved ${esc(coChange.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${coChange.rev ? `, contract rev ${coChange.rev}` : ''}). The fence, runs and pull sheet below are the new ones.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(l.item)}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
     ${s.notes ? `<section class="notes"><h2>Gate codes and notes</h2><p>${esc(s.notes).replace(/\n/g, '<br>')}</p></section>` : ''}
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}

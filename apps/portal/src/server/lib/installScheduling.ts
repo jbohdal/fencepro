@@ -25,13 +25,14 @@ import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { dataFor, requestFrom } from './quotePricing.js'
 import { loadOpsStages } from './opsStages.js'
-import { stageOfJob, phaseOf, stageById, firstStageFor, fieldsForStage, sortedStages } from './opsStageModel.js'
+import { stageOfJob, phaseOf, stageById, firstStageFor, fieldsForStage } from './opsStageModel.js'
 import { checkJobMove } from './automations/stageRules.js'
 import { recordJobChanges } from './automations/hooks.js'
 import { softDeleteLogged, type Actor } from './deletion.js'
 import { textAllowedTo } from './textConsent.js'
 import { staffLogins, loginByName } from './appointmentRep.js'
 import { floridaDay } from './automations/context.js'
+import { calendarStatus } from './calendarSync/index.js'
 import {
   crewDaysOfWeek, installDays, isCrewDay, wholeCrewDays, daysForSections, rainDayMoves, installText, customerPhoneToGive, isYmd,
   type Ymd, type ReadyFacts,
@@ -100,6 +101,8 @@ export interface ReadyJob extends ReadyFacts {
   bookedDays: Ymd[]
   depositCents: number
   depositPaidCents: number
+  /** Booked "The crew works weekends on this job" (ticked on purpose). */
+  allowWeekend: boolean
 }
 
 /** The facts the Ready list and the Schedule install window show, for these jobs. */
@@ -107,6 +110,7 @@ async function factsFor(accountId: string, jobs: Json[]): Promise<ReadyJob[]> {
   if (!jobs.length) return []
   const ids = jobs.map(j => j.id)
   const quoteIds = jobs.map(j => j.quoteId).filter(Boolean)
+  const weekend = new Set(await weekendJobIds(accountId))
   const [{ stages }, quotes, permits, invoices, payments, grid, m, data] = await Promise.all([
     loadOpsStages(accountId),
     prisma.savedQuote.findMany({ where: { accountId, deletedAt: null, id: { in: quoteIds } } }),
@@ -139,7 +143,7 @@ async function factsFor(accountId: string, jobs: Json[]): Promise<ReadyJob[]> {
       bookedDays: grid.filter(g => g.stagingJobId === j.id && isYmd(g.date)).map(g => g.date).sort(),
       permitStatus: permits.find(p => p.jobId === j.id)?.status ?? null,
       locatesDate: j.locatesDate || null, locatesExpDate: j.locatesExpDate || null,
-      deposit, depositCents, depositPaidCents, materialsStatus: j.materialsStatus,
+      deposit, depositCents, depositPaidCents, materialsStatus: j.materialsStatus, allowWeekend: weekend.has(j.id),
     })
   }
   return out
@@ -177,7 +181,7 @@ export interface PreparedText {
   callFrom: 'rep' | 'company'
 }
 
-async function textFor(accountId: string, job: Json, kind: 'scheduled' | 'moved', start: Ymd, ctx?: { staff: Json[]; company: { name: string; phone: string } }): Promise<PreparedText> {
+async function textFor(accountId: string, job: Json, kind: 'scheduled' | 'moved' | 'off', start: Ymd, ctx?: { staff: Json[]; company: { name: string; phone: string } }): Promise<PreparedText> {
   const c = ctx ?? await textContext(accountId)
   const contact = job.crmContactId ? await prisma.crmContact.findUnique({ where: { id: job.crmContactId }, select: { firstName: true, phone: true } }) : null
   const phone = contact?.phone || job.customerPhone || ''
@@ -221,6 +225,8 @@ export interface ScheduleResult {
   rescheduled: boolean
   previousStart: Ymd | null
   text: PreparedText
+  /** What happens with Google Calendar, in words. */
+  calendar: string
 }
 
 export async function scheduleInstall(accountId: string, actor: Actor & { name?: string }, r: ScheduleRequest): Promise<ScheduleResult> {
@@ -236,9 +242,9 @@ export async function scheduleInstall(accountId: string, actor: Actor & { name?:
   const crew = settings.crews.find(c => c.id === crewKey) ?? settings.crews.find(c => c.name.trim().toLowerCase() === crewKey.toLowerCase()) ?? settings.crews[0]
   if (!crew) throw new ScheduleError(400, 'There is no crew yet. Add one in Schedule > Settings.')
 
-  // Weekends: asked for, or the job was already booked over a weekend day (kept on a move).
-  const base = crewDaysOfWeek(settings.workDays)
-  const allowWeekend = r.allowWeekend ?? booked.some(b => isYmd(b.date) && !isCrewDay(b.date, base))
+  // Weekends: only when ticked on purpose (kept from the booking on a move); never guessed from the days booked.
+  const meta = await installMetaOf(accountId, existing.id)
+  const allowWeekend = r.allowWeekend ?? meta?.allowWeekend ?? false
   const week = crewDaysOfWeek(settings.workDays, allowWeekend)
   let count = Number.isFinite(r.days as number) && (r.days as number) > 0 ? Math.floor(r.days as number) : 0
   if (!count) count = booked.length || (await jobScheduleFacts(accountId, existing.id))?.crewDays || daysForSections(existing.sections)
@@ -266,11 +272,19 @@ export async function scheduleInstall(accountId: string, actor: Actor & { name?:
       else await tx.scheduledGridJob.create({ data: { accountId, ...entry, date: days[i], notes: '' } })
     }
     await softDeleteLogged(tx as Json, actor, 'scheduledGridJob', 'schedule_entry', booked.slice(days.length).map(b => b.id))
+    // What the job was before its first booking (Take off the schedule puts it back), and the weekends tick.
+    // A job booked before this was kept (no record, already Scheduled): its stage is worked out again on take off.
+    await saveInstallMeta(tx, accountId, existing.id, {
+      prevStage: meta ? meta.prevStage : (phase === 'staging' || phase === 'on_hold' ? was : null),
+      prevEstimatedDays: meta ? meta.prevEstimatedDays : existing.estimatedDays,
+      allowWeekend,
+    })
     await bumpBoard(tx, accountId, settings)
     return row
   })
   const rescheduled = isYmd(existing.scheduledDate)
   return {
+    calendar: await calendarWords(accountId),
     job, days, crew: { id: crew.id, name: crew.name },
     movedFrom: start !== r.start ? r.start : null,
     rescheduled, previousStart: rescheduled ? existing.scheduledDate : null,
@@ -284,28 +298,92 @@ async function bumpBoard(tx: Json, accountId: string, settings: { workDays: numb
   if (n.count === 0) await tx.scheduleSettings.create({ data: { accountId, workDays: settings.workDays, crews: settings.crews, version: 2 } })
 }
 
+/* ── What the job was before it was booked (no schema change: one key per job in AccountKeyValue, server only) ── */
+
+export interface InstallMeta {
+  /** The stage before its first booking; null when unknown (booked before this was kept). */
+  prevStage: string | null
+  /** The crew-day estimate before its first booking. */
+  prevEstimatedDays: number
+  /** "The crew works weekends on this job", ticked on purpose. */
+  allowWeekend: boolean
+}
+export const INSTALL_META_PREFIX = 'install:'
+const metaKey = (jobId: string) => `${INSTALL_META_PREFIX}${jobId}`
+
+export async function installMetaOf(accountId: string, jobId: string, db: Json = prisma): Promise<InstallMeta | null> {
+  const row = await db.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: metaKey(jobId) } } })
+  const v = row?.value as Json
+  if (!v || typeof v !== 'object') return null
+  return { prevStage: typeof v.prevStage === 'string' ? v.prevStage : null, prevEstimatedDays: Number.isFinite(v.prevEstimatedDays) ? v.prevEstimatedDays : 0, allowWeekend: v.allowWeekend === true }
+}
+async function saveInstallMeta(tx: Json, accountId: string, jobId: string, m: InstallMeta) {
+  await tx.accountKeyValue.upsert({ where: { accountId_key: { accountId, key: metaKey(jobId) } }, create: { accountId, key: metaKey(jobId), value: m as Json }, update: { value: m as Json, version: { increment: 1 } } })
+}
+/** Jobs booked "weekends too", for the Schedule page and the rain day. */
+export async function weekendJobIds(accountId: string): Promise<string[]> {
+  const rows = await prisma.accountKeyValue.findMany({ where: { accountId, key: { startsWith: INSTALL_META_PREFIX } }, select: { key: true, value: true } })
+  return rows.filter(r => (r.value as Json)?.allowWeekend === true).map(r => r.key.slice(INSTALL_META_PREFIX.length))
+}
+
 /**
- * Off the schedule: the job's dates and board entries are cleared and it goes
- * back to the last waiting stage before Scheduled (Ready to Pull by default).
+ * The waiting stage a job really is in, from what is recorded on it (used when
+ * the stage it came from is not known). Never one that claims a step is done
+ * when it is not: no 811 ticket → Awaiting Locates; permit not issued (or not
+ * set) → Permit Pending; drawing not done or materials not ordered → Need
+ * Drawing; materials ordered → Materials Ordered; in → Ready to Pull.
  */
-export async function unscheduleInstall(accountId: string, actor: Actor, jobId: string): Promise<Json> {
+export function waitingStageFor(stages: Json[], job: { locatesDate?: string | null; drawingComplete?: boolean | null; materialsStatus?: string | null }, permitStatus: string | null): string | null {
+  const permitOk = permitStatus === 'not_needed' || ['approved', 'inspection_scheduled', 'passed'].includes(permitStatus ?? '')
+  const want = !job.locatesDate ? 'awaiting_locates'
+    : !permitOk ? 'permit_pending'
+    : job.materialsStatus === 'received' || job.materialsStatus === 'loaded' ? 'ready_to_pull'
+    : job.materialsStatus === 'ordered' ? 'materials_ordered'
+    : 'need_drawing'
+  return stageById(stages as Json, want) ? want : firstStageFor(stages as Json, 'staging')
+}
+
+/** What happens with Google Calendar, in plain words. */
+async function calendarWords(accountId: string): Promise<string> {
+  try {
+    const s = await calendarStatus(accountId)
+    if (s.active) return 'Added to Google Calendar (it shows there within a minute).'
+    if (s.connected) return 'Google Calendar is connected but not switched on yet (Settings > Calendar: Push all upcoming).'
+    return 'Google Calendar is not connected, so it is not on Google Calendar.'
+  } catch { return 'Google Calendar: could not check.' }
+}
+
+/**
+ * Off the schedule: the job goes back to the stage it was in before it was
+ * booked (or, when that is not known, the stage its permit, 811 and materials
+ * really put it in), the crew and dates are cleared, the crew-day estimate is
+ * the one it had, and its board entries come off. The customer's text ("your
+ * install date is being changed") is prepared, never sent.
+ */
+export async function unscheduleInstall(accountId: string, actor: Actor, jobId: string): Promise<{ job: Json; text: PreparedText; stageName: string }> {
   const existing = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, ...LIVE } })
   if (!existing) throw new ScheduleError(404, 'That job is not there any more. Reload and try again.')
-  const [{ stages }, settings] = await Promise.all([loadOpsStages(accountId), settingsOf(accountId)])
+  const [{ stages }, settings, meta, permit] = await Promise.all([
+    loadOpsStages(accountId), settingsOf(accountId), installMetaOf(accountId, jobId),
+    prisma.permit.findUnique({ where: { jobId }, select: { status: true } }),
+  ])
   const was = stageOfJob(stages, existing as Json)
-  const waiting = sortedStages(stages).filter(s => s.lane === 'main' && !s.hidden && phaseOf(stages, s.id) === 'staging')
-  const back = phaseOf(stages, was) === 'scheduled' ? (waiting[waiting.length - 1]?.id ?? null) : null
-  const update: Json = { ...(back ? fieldsForStage(stages, back, existing as Json, floridaDay(new Date())) ?? {} : {}), scheduledDate: '', scheduledEndDate: null }
-  // Ready to Pull says the materials are in; going back there keeps the materials as they were.
+  const kept = meta?.prevStage && stageById(stages, meta.prevStage) && phaseOf(stages, meta.prevStage) !== 'scheduled' ? meta.prevStage : null
+  const back = phaseOf(stages, was) === 'scheduled' ? (kept ?? waitingStageFor(stages, existing, permit?.status ?? null)) : null
+  const update: Json = { ...(back ? fieldsForStage(stages, back, existing as Json, floridaDay(new Date())) ?? {} : {}), scheduledDate: '', scheduledEndDate: null, crewAssigned: '' }
+  // Going back to a stage changes nothing else on the job: the materials and drawing stay as recorded.
   if (back) { update.opsStage = back; delete update.materialsStatus; delete update.drawingComplete }
-  return prisma.$transaction(async tx => {
+  if (meta && meta.prevEstimatedDays > 0) update.estimatedDays = meta.prevEstimatedDays
+  const job = await prisma.$transaction(async tx => {
     const row = await tx.savedJob.update({ where: { id: existing.id }, data: update })
     await recordJobChanges(accountId, existing, row, tx)
     const ids = (await tx.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, stagingJobId: existing.id }, select: { id: true } })).map(g => g.id)
     await softDeleteLogged(tx as Json, actor, 'scheduledGridJob', 'schedule_entry', ids)
+    await tx.accountKeyValue.deleteMany({ where: { accountId, key: metaKey(existing.id) } })
     await bumpBoard(tx, accountId, settings)
     return row
   })
+  return { job, text: await textFor(accountId, job, 'off', existing.scheduledDate), stageName: stageById(stages, job.opsStage)?.name ?? job.opsStage }
 }
 
 /* ── Rain day ───────────────────────────────────────────────────────────── */
@@ -327,7 +405,7 @@ async function rainPlan(accountId: string, from: Ymd, shift: number) {
   ])
   const dated = rows.filter(r => isYmd(r.date))
   const keyOf = (r: Json) => r.stagingJobId ? `job:${r.stagingJobId}` : `name:${String(r.clientName).trim().toLowerCase()}`
-  const moves = rainDayMoves(dated.map(r => ({ id: r.id, jobKey: keyOf(r), date: r.date })), from, shift, settings.workDays)
+  const moves = rainDayMoves(dated.map(r => ({ id: r.id, jobKey: keyOf(r), date: r.date })), from, shift, settings.workDays, new Set((await weekendJobIds(accountId)).map(id => `job:${id}`)))
   const byKey = new Map<string, RainMove>()
   for (const mv of moves) {
     const row = dated.find(r => r.id === mv.id)!

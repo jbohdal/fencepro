@@ -36,7 +36,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Scheduling installs (dev databas
     const contact = await prisma.crmContact.create({ data: { accountId, firstName: 'Kristi', lastName: tag, phone: '3525550142' } as any })
     ids.contact = contact.id
     const mk = (k: string, f: Record<string, unknown>) => prisma.savedJob.create({ data: { accountId, crmContactId: contact.id, customerName: `Kristi ${tag}`, customerPhone: '3525550142', customerAddress: '12 Oak Rd, Ocala, FL 34470', fenceStyle: "WV-ND 6'x8' Privacy", sections: 40, totalFeet: 320, contractValue: 9000, ...f } as any }).then(j => { ids[k] = j.id })
-    await mk('ready', { status: 'staging', opsStage: 'ready_to_pull', materialsStatus: 'received', locatesDate: '2026-10-20', locatesExpDate: '2026-11-03' })
+    await mk('ready', { status: 'staging', opsStage: 'permit_pending', materialsStatus: 'received', locatesDate: '2026-10-20', locatesExpDate: '2026-11-03', estimatedDays: 4 })
     await mk('next', { status: 'scheduled', opsStage: 'scheduled', scheduledDate: '2026-11-05', scheduledEndDate: '2026-11-05', crewAssigned: 'Crew One' })
     await mk('hold', { status: 'on_hold', opsStage: 'customer_delay', previousStatus: 'staging' })
     await prisma.scheduledGridJob.create({ data: { accountId, stagingJobId: ids.next, clientName: 'Next Job', crewId: 'c1', date: '2026-11-05' } })
@@ -51,6 +51,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Scheduling installs (dev databas
     await prisma.scheduleRainDay.deleteMany({ where: { accountId } })
     await prisma.scheduledGridJob.deleteMany({ where: { accountId } })
     await prisma.scheduleSettings.deleteMany({ where: { accountId } })
+    await prisma.accountKeyValue.deleteMany({ where: { accountId } })
     await prisma.permit.deleteMany({ where: { accountId } })
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: jobIds } } })
     await prisma.savedJob.deleteMany({ where: { accountId } })
@@ -66,7 +67,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Scheduling installs (dev databas
     const list = await S.readyToSchedule(accountId)
     expect(list.map(j => j.id)).toEqual([ids.ready])
     const r = list[0]
-    expect(r).toMatchObject({ permitStatus: 'applied', locatesExpDate: '2026-11-03', deposit: 'none', materialsStatus: 'received', footage: 320, sections: 40, stage: 'ready_to_pull', crewDaysFrom: 'estimate', crewDays: 3 })
+    expect(r).toMatchObject({ permitStatus: 'applied', locatesExpDate: '2026-11-03', deposit: 'none', materialsStatus: 'received', footage: 320, sections: 40, stage: 'permit_pending', crewDaysFrom: 'estimate', crewDays: 4, allowWeekend: false })
   })
 
   test('schedule a 3 day job from Thursday: Thu, Mon, Tue on crew Two, stage Scheduled, one entry a day', async () => {
@@ -121,12 +122,40 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Scheduling installs (dev databas
     expect(await prisma.scheduleRainDay.count({ where: { accountId } })).toBe(2)
   })
 
-  test('off the schedule: dates and entries cleared, back to Ready to Pull (materials kept)', async () => {
-    await S.unscheduleInstall(accountId, actor(), ids.ready)
+  test('off the schedule: back to the stage it was in (Permit Pending), crew and dates cleared, its own crew-day estimate (4) kept, the customer text prepared', async () => {
+    const r = await S.unscheduleInstall(accountId, actor(), ids.ready)
     const job = (await prisma.savedJob.findUnique({ where: { id: ids.ready } }))!
-    expect(job).toMatchObject({ status: 'staging', opsStage: 'ready_to_pull', scheduledDate: '', scheduledEndDate: null, materialsStatus: 'received' })
+    expect(job).toMatchObject({ status: 'staging', opsStage: 'permit_pending', scheduledDate: '', scheduledEndDate: null, crewAssigned: '', estimatedDays: 4, materialsStatus: 'received' })
+    expect(r.stageName).toBe('Permit Pending')
+    expect(r.text.body).toBe('Getter Done Fence: Hi Kristi, your fence installation date is being changed. We\'ll call you with a new date. Questions? Call (352) 789 4314. Reply STOP to opt out.')
     expect((await board()).filter(g => g.stagingJobId === ids.ready)).toEqual([])
     expect((await S.readyToSchedule(accountId)).map(j => j.id)).toEqual([ids.ready])
+    expect(await S.installMetaOf(accountId, ids.ready)).toBeNull()
+  })
+
+  test('a job booked before the stage was kept: taken off, its stage comes from what is recorded (no 811 ticket: Awaiting Locates), never Ready to Pull', async () => {
+    await S.unscheduleInstall(accountId, actor(), ids.next)
+    const job = (await prisma.savedJob.findUnique({ where: { id: ids.next } }))!
+    expect(job).toMatchObject({ status: 'staging', opsStage: 'awaiting_locates', scheduledDate: '', crewAssigned: '' })
+  })
+
+  test('weekends: only when ticked; a day left on a Friday after Friday is switched off is not a weekend tick', async () => {
+    // Booked Thu, Fri with Friday on.
+    await prisma.scheduleSettings.update({ where: { accountId }, data: { workDays: [1, 2, 3, 4, 5] } })
+    const a = await S.scheduleInstall(accountId, actor(), { jobId: ids.next, start: '2026-12-03', crew: 'c1', days: 2 })
+    expect(a.days).toEqual(['2026-12-03', '2026-12-04'])
+    // Friday switched off: the job still has its Friday, the window does not tick weekends, and a move books crew days only.
+    await prisma.scheduleSettings.update({ where: { accountId }, data: { workDays: [1, 2, 3, 4] } })
+    const facts = await S.jobScheduleFacts(accountId, ids.next)
+    expect(facts).toMatchObject({ allowWeekend: false, bookedDays: ['2026-12-03', '2026-12-04'] })
+    const b = await S.scheduleInstall(accountId, actor(), { jobId: ids.next, start: '2026-12-03' })
+    expect(b.days).toEqual(['2026-12-03', '2026-12-07'])
+    // Ticked on purpose: kept on the next move.
+    const c = await S.scheduleInstall(accountId, actor(), { jobId: ids.next, start: '2026-12-04', allowWeekend: true })
+    expect(c.days).toEqual(['2026-12-04', '2026-12-05'])
+    expect((await S.scheduleInstall(accountId, actor(), { jobId: ids.next, start: '2026-12-05' })).days).toEqual(['2026-12-05', '2026-12-06'])
+    expect(await S.weekendJobIds(accountId)).toEqual([ids.next])
+    await S.unscheduleInstall(accountId, actor(), ids.next)
   })
 
   test('a job on hold, archived or missing is refused with plain words', async () => {

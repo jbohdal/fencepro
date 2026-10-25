@@ -38,7 +38,7 @@ const KEY_PATTERN = /^[a-z0-9_]{1,64}$/
  */
 const SERVER_ONLY_KEYS = new Set(['push_vapid', 'gmail_token'])
 export function isServerOnlyKey(key: string): boolean {
-  return SERVER_ONLY_KEYS.has(key) || /(token|secret|vapid|password|private)/i.test(key)
+  return SERVER_ONLY_KEYS.has(key) || key.startsWith('install:') || /(token|secret|vapid|password|private)/i.test(key)
 }
 const MAX_VALUE_BYTES = 4_000_000
 

@@ -22,7 +22,7 @@ import { resolveSecret } from '../lib/secrets.js'
 import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
 import { can, refuse, requireCan, roleOf, sameJson } from '../lib/permissions.js'
-import { readyToSchedule, jobScheduleFacts, scheduleInstall, unscheduleInstall, rainDayPreview, applyRainDay, ScheduleError } from '../lib/installScheduling.js'
+import { readyToSchedule, jobScheduleFacts, scheduleInstall, unscheduleInstall, rainDayPreview, applyRainDay, ScheduleError, weekendJobIds } from '../lib/installScheduling.js'
 import { afterJobSaved } from '../lib/contractBilling.js'
 
 const router = Router()
@@ -481,6 +481,12 @@ function scheduleFail(res: any, err: unknown, what: string) {
 }
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a day.')
 
+// The jobs booked "The crew works weekends on this job" (a booked day on a weekend is then not a warning).
+router.get('/weekend-jobs', async (req: any, res) => {
+  try { res.json({ success: true, data: await weekendJobIds(req.user.crmAccountId) }) }
+  catch (err) { scheduleFail(res, err, 'load the schedule') }
+})
+
 router.get('/ready', async (req: any, res) => {
   try { res.json({ success: true, data: await readyToSchedule(req.user.crmAccountId) }) }
   catch (err) { scheduleFail(res, err, 'load the jobs ready to schedule') }
@@ -510,7 +516,7 @@ router.post('/install/:jobId/off', requireCan('schedule.change'), async (req: an
   try {
     const accountId = req.user.crmAccountId
     const row = await unscheduleInstall(accountId, { accountId, userId: req.user.id ?? null }, String(req.params.jobId))
-    await audit(req, 'update', 'SavedJob', row.id, { newValues: { scheduledDate: '', opsStage: row.opsStage } })
+    await audit(req, 'update', 'SavedJob', row.job.id, { newValues: { scheduledDate: '', opsStage: row.job.opsStage } })
     res.json({ success: true, data: row })
   } catch (err) { scheduleFail(res, err, 'take the install off the schedule') }
 })

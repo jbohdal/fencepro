@@ -374,7 +374,7 @@ export default function DispatchPage() {
     setJobs(getJobs())
     setSelectedJobId(jobId)
     // The customer's text, prepared and shown: sent from this phone, or not.
-    setDone({ text: r.data.text, title: r.data.rescheduled ? 'Install moved' : 'Install scheduled', summary: `${r.data.text.customerName}: ${r.data.days.length} crew day${r.data.days.length === 1 ? '' : 's'} from ${r.data.days[0]}, ${r.data.crew.name}.` })
+    setDone({ text: r.data.text, title: r.data.rescheduled ? 'Install moved' : 'Install scheduled', summary: `${r.data.text.customerName}: ${r.data.days.length} crew day${r.data.days.length === 1 ? '' : 's'} from ${r.data.days[0]}, ${r.data.crew.name}. ${r.data.calendar}` })
   }
 
   function handleDropOnTimeline(crewId: string, date: string) {
@@ -447,6 +447,10 @@ export default function DispatchPage() {
               : `Week of ${weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — ${weekDates[4].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
             }
           </h3>
+          {/* Jump to a day. */}
+          <input type="date" aria-label="Go to a day" value={dateStr} data-dispatch-date
+            onChange={e => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(e.target.value); if (m) setCurrentDate(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12)) }}
+            className="ml-2 border border-gray-300 rounded-lg px-2 py-1 text-sm min-h-[40px]" />
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -521,7 +525,7 @@ export default function DispatchPage() {
               />
             ) : (
               <div className="p-5">
-                <h3 className="font-semibold text-gray-900 mb-4">Today's Dispatch</h3>
+                <h3 className="font-semibold text-gray-900 mb-4">{dateStr === toDateStr(new Date()) ? "Today's Dispatch" : `Dispatch for ${currentDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`}</h3>
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   <StatCard label="Jobs Scheduled" value={todayStats.totalJobs} />
                   <StatCard label="Total Feet" value={todayStats.totalFeet.toLocaleString()} />

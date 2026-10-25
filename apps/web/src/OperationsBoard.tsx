@@ -17,6 +17,7 @@
 
 import { stageName as pipelineStageName, roleId as pipelineRoleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
+import { loadSchedule } from './scheduleStore'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type UnifiedJob,
@@ -95,6 +96,21 @@ type SortMode = 'scheduled' | 'value' | 'name' | 'days_in_stage'
 type ViewMode = 'board' | 'list'
 
 const UNSCHEDULED_KEY = '__unscheduled__'
+
+/** A crew as Schedule > Settings names it: an id ("crew1") or a name in any spacing or capitals ("crew 1") gives "Crew 1"; anything else as typed. */
+function crewLabel(v: string | null | undefined): string {
+  const t = (v || '').trim()
+  if (!t) return ''
+  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, '')
+  const c = loadSchedule().settings.crews.find(x => x.id === t || norm(x.name) === norm(t))
+  return c ? c.name : t
+}
+
+/** "Thu, Dec 3" or "Thu, Dec 3 to Mon, Dec 7". */
+function cardDays(start: string, end?: string | null): string {
+  const one = (d: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d); return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : d }
+  return end && end > start ? `${one(start)} to ${one(end)}` : one(start)
+}
 
 export default function OperationsBoard() {
   const [jobs, setJobs] = useState<UnifiedJob[]>(() => buildUnifiedList())
@@ -189,7 +205,7 @@ export default function OperationsBoard() {
         if (arch) return false
       }
       if (stageFilter && j.opsStage !== stageFilter) return false
-      if (crewFilter && j.crewAssigned !== crewFilter) return false
+      if (crewFilter && crewLabel(j.crewAssigned) !== crewFilter) return false
       if (styleFilter && j.fenceType !== styleFilter) return false
       if (!search) return true
       const q = search.toLowerCase()
@@ -328,7 +344,8 @@ export default function OperationsBoard() {
   /* ── crew/style options ── */
   const crewOptions = useMemo(() => {
     const set = new Set<string>()
-    jobs.forEach(j => j.crewAssigned && set.add(j.crewAssigned))
+    // One entry per crew: "crew1" (an id) and "Crew 1" (its name) are the same crew.
+    jobs.forEach(j => j.crewAssigned && set.add(crewLabel(j.crewAssigned)))
     return Array.from(set)
   }, [jobs])
   const styleOptions = useMemo(() => {
@@ -619,7 +636,7 @@ function OpsCard({
       </p>
 
       <div className="flex items-center gap-1.5 mt-2 text-[11px]">
-        <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold truncate">{job.crewAssigned ? `👷 ${job.crewAssigned}` : 'No crew'}</span>
+        <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold truncate">{job.crewAssigned ? `👷 ${crewLabel(job.crewAssigned)}` : 'No crew'}</span>
         {showStageBadge && stage && (
           <span className="px-2 py-0.5 rounded-full text-white font-semibold" style={{ backgroundColor: hex }} data-ops-stage-pill={stage.id}>{stage.name}</span>
         )}
@@ -627,7 +644,7 @@ function OpsCard({
 
       <div className="flex items-center justify-between mt-2 text-[11px]">
         {job.scheduledDate ? (
-          <span className="text-gray-500">📅 {job.scheduledDate}{today ? ' • Today' : ''}</span>
+          <span className="text-gray-500" data-ops-card-date={job.scheduledDate}>📅 {cardDays(job.scheduledDate, job.rawJob?.scheduledEndDate)}{today ? ' • Today' : ''}</span>
         ) : (
           <span className="text-amber-700 font-semibold">Unscheduled</span>
         )}

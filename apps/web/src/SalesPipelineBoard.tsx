@@ -316,6 +316,22 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     return out
   }
 
+  /* ── the install date on a sold card (Schedule install), kept current ── */
+  const [jobsTick, setJobsTick] = useState(0)
+  useEffect(() => {
+    const on = () => setJobsTick(t => t + 1)
+    window.addEventListener('fencepro:jobs:updated', on)
+    return () => window.removeEventListener('fencepro:jobs:updated', on)
+  }, [])
+  const installOf = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const j of getJobs()) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(j.scheduledDate || '') || !['scheduled', 'in_progress'].includes(j.status)) continue
+      for (const k of [j.customerId, j.quoteId].filter(Boolean) as string[]) { const cur = m.get(k); if (!cur || j.scheduledDate < cur) m.set(k, j.scheduledDate) }
+    }
+    return m
+  }, [jobsTick])  // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ── appointments on the cards ── */
   const appointments = useAppointmentList()
   const apptInfo = useMemo(() => {
@@ -625,7 +641,8 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
                 }
               }}
               next={l.customerId ? apptInfo.next.get(l.customerId) ?? null : null}
-              needsOutcome={!!l.customerId && apptInfo.overdue.has(l.customerId)}
+              installDate={(l.customerId && installOf.get(l.customerId)) || (l.quoteId && installOf.get(l.quoteId)) || null}
+              needsOutcome={!!l.customerId && apptInfo.overdue.has(l.customerId) && !((l.customerId && installOf.get(l.customerId)) || (l.quoteId && installOf.get(l.quoteId)))}
               onBook={() => bookFor(l)}
               followBadge={badgeOf(l)}
               opened={openedBadgeText(openedOf(l.id))}
@@ -736,9 +753,17 @@ function slug(s: string) { return s.replace(/[^a-z0-9]+/gi, '-').toLowerCase() }
 // New leads from the website, the phone agent and the chat (the built-in lead sources) get a one tap "Book estimate".
 const fromIntake = (word: string | undefined) => AUTOMATIC_SOURCES.has(sourceFor(word)?.id ?? word ?? '')
 
+/** "Thu 12/3" */
+function installCardDay(d: string): string {
+  const [y, m, dd] = d.split('-').map(Number)
+  return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(Date.UTC(y, m - 1, dd)).getUTCDay()]} ${m}/${dd}`
+}
+
 function PipelineCard({
-  lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook, followBadge, opened,
+  lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook, followBadge, opened, installDate = null,
 }: {
+  /** The install's first day (YYYY-MM-DD) when the sold job is on the schedule. */
+  installDate?: string | null
   lead: PipelineLead
   /** From the customer's quotes; see pipelineValue. */
   value: number
@@ -820,8 +845,11 @@ function PipelineCard({
         </span>
       </div>
 
-      {(next || overdue || followBadge || opened || (!next && stageHasRole(lead.stage, 'first') && fromIntake(lead.leadSource))) && (
+      {(installDate || next || overdue || followBadge || opened || (!next && stageHasRole(lead.stage, 'first') && fromIntake(lead.leadSource))) && (
         <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          {installDate && (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800" data-card-install={installDate}><CalendarDays size={12} className="inline -mt-0.5 mr-1" aria-hidden="true" />Install {installCardDay(installDate)}</span>
+          )}
           {opened && (
             <span data-card-opened={opened} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${opened === 'Not opened yet' ? 'bg-gray-100 text-gray-600' : 'bg-purple-100 text-purple-800'}`}>{opened}</span>
           )}

@@ -224,14 +224,6 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
             ))}
           </section>
 
-          {/* Payments on a sold deal: the schedule and "Payment received" (Payments.tsx). */}
-          {lead.customerId && quotes.some(q => q.status === 'SOLD') && (
-            <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3" data-card-payments>
-              <h3 className="text-sm font-semibold text-gray-900 mb-2">Payments</h3>
-              <PaymentsPanel customerId={lead.customerId} compact />
-            </section>
-          )}
-
           {/* The install of a sold deal: its date, or Schedule install (ScheduleInstall.tsx). */}
           {soldJobs.length > 0 && (
             <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3 space-y-2" data-card-install>
@@ -245,6 +237,14 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
                   {can('schedule.change') && <ScheduleInstallButton jobId={j.id} scheduledDate={j.scheduledDate} />}
                 </div>
               ))}
+            </section>
+          )}
+
+          {/* Payments on a sold deal: the schedule and "Payment received" (Payments.tsx). */}
+          {lead.customerId && quotes.some(q => q.status === 'SOLD') && (
+            <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3" data-card-payments>
+              <h3 className="text-sm font-semibold text-gray-900 mb-2">Payments</h3>
+              <PaymentsPanel customerId={lead.customerId} compact />
             </section>
           )}
 

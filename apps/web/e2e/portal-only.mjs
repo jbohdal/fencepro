@@ -212,7 +212,7 @@ try {
     const docs = await j1('/documents')
     check(`${size}: documents: the shared one and the receipt, never the internal one`, docs?.some(d => d.id === W.sharedDoc) && !docs.some(d => d.id === W.internalDoc) && docs.some(d => /^receipt-/.test(d.name)), docs?.map(d => d.name).join(', '))
     const projects = await j1('/projects')
-    check(`${size}: the job: status and install date only (no crew)`, JSON.stringify(Object.keys(projects?.[0] || {}).sort()) === JSON.stringify(['address', 'id', 'scheduledDate', 'status', 'style']), JSON.stringify(projects?.[0]))
+    check(`${size}: the job: status and install date only (no crew)`, JSON.stringify(Object.keys(projects?.[0] || {}).sort()) === JSON.stringify(['address', 'id', 'scheduledDate', 'status', 'steps', 'style']), JSON.stringify(projects?.[0]))
     // Not the customer's: refused.
     const other = sql(`SELECT id FROM "SavedQuote" WHERE "crmContactId" IS NOT NULL AND "crmContactId" <> ${lit(W.contactId)} AND status = 'SOLD' AND "deletedAt" IS NULL LIMIT 1`)
     const refused = await x.page.evaluate(async ({ api, other, packet }) => {

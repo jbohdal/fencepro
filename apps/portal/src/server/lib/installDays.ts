@@ -71,22 +71,29 @@ export const daysForSections = (sections: number) => Math.max(1, Math.ceil(Math.
 
 /* ── Rain day ───────────────────────────────────────────────────────────── */
 
+/** The `n`th crew day strictly after `day` (a day off counts from itself: Friday off + 1 is Monday). */
+function crewDaysAfter(day: Ymd, n: number, days: number[]): Ymd {
+  let d = day
+  for (let left = n; left > 0;) { d = plusDays(d, 1); if (isCrewDay(d, days)) left-- }
+  return d
+}
+
 export interface BookedDay { id: string; jobKey: string; date: Ymd }
 
 /**
  * A rain day on `from`: every booked crew day on or after it moves `shift`
  * crew days later (one by default), so the whole schedule from that day on
- * slides back. Days before it stay. A job booked "weekends too" (one of its
- * days is not a crew day) moves over every day.
+ * slides back. Days before it stay. Only a job booked "weekends too" (its key
+ * in `weekendJobs`, ticked on purpose) moves over Saturday and Sunday; a day
+ * left on a day off (Friday switched off) moves onto crew days like any other.
  */
-export function rainDayMoves(booked: BookedDay[], from: Ymd, shift: number, settingsDays: number[] | null | undefined): Array<BookedDay & { to: Ymd }> {
+export function rainDayMoves(booked: BookedDay[], from: Ymd, shift: number, settingsDays: number[] | null | undefined, weekendJobs: Set<string> = new Set()): Array<BookedDay & { to: Ymd }> {
   const base = crewDaysOfWeek(settingsDays)
-  const weekendJobs = new Set(booked.filter(b => !isCrewDay(b.date, base)).map(b => b.jobKey))
   const n = Math.max(1, Math.min(10, Math.floor(shift) || 1))
   return booked
     .filter(b => b.date >= from)
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
-    .map(b => ({ ...b, to: addCrewDays(b.date, n, weekendJobs.has(b.jobKey) ? crewDaysOfWeek(null, true) : base) }))
+    .map(b => ({ ...b, to: crewDaysAfter(b.date, n, weekendJobs.has(b.jobKey) ? crewDaysOfWeek(null, true) : base) }))
 }
 
 /* ── Warnings before booking ────────────────────────────────────────────── */
@@ -149,6 +156,83 @@ export function phoneWords(raw: string | null | undefined): string {
   return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : String(raw ?? '').trim()
 }
 
+/* ── Holidays ───────────────────────────────────────────────────────────── */
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+/** The nth weekday (0 Sunday) of a month, as YYYY-MM-DD. */
+function nthWeekday(y: number, month: number, weekday: number, n: number): Ymd {
+  const first = new Date(Date.UTC(y, month - 1, 1)).getUTCDay()
+  return `${y}-${pad2(month)}-${pad2(1 + ((weekday - first + 7) % 7) + (n - 1) * 7)}`
+}
+function lastWeekday(y: number, month: number, weekday: number): Ymd {
+  const last = new Date(Date.UTC(y, month, 0))
+  last.setUTCDate(last.getUTCDate() - ((last.getUTCDay() - weekday + 7) % 7))
+  return last.toISOString().slice(0, 10)
+}
+
+/** US federal holidays, plus Christmas Eve and New Year's Eve, on their own dates (no observed days). */
+export function holidaysOf(year: number): Record<Ymd, string> {
+  const d = (m: number, day: number) => `${year}-${pad2(m)}-${pad2(day)}`
+  return {
+    [d(1, 1)]: 'New Year’s Day',
+    [nthWeekday(year, 1, 1, 3)]: 'Martin Luther King Jr. Day',
+    [nthWeekday(year, 2, 1, 3)]: 'Presidents’ Day',
+    [lastWeekday(year, 5, 1)]: 'Memorial Day',
+    [d(6, 19)]: 'Juneteenth',
+    [d(7, 4)]: 'Independence Day',
+    [nthWeekday(year, 9, 1, 1)]: 'Labor Day',
+    [nthWeekday(year, 10, 1, 2)]: 'Columbus Day',
+    [d(11, 11)]: 'Veterans Day',
+    [nthWeekday(year, 11, 4, 4)]: 'Thanksgiving',
+    [d(12, 24)]: 'Christmas Eve',
+    [d(12, 25)]: 'Christmas',
+    [d(12, 31)]: 'New Year’s Eve',
+  }
+}
+
+/** The holiday on a day, or null. */
+export function holidayOn(day: Ymd): string | null {
+  return isYmd(day) ? holidaysOf(Number(day.slice(0, 4)))[day] ?? null : null
+}
+
+/* ── Double booking ─────────────────────────────────────────────────────── */
+
+export interface BoardEntry { id: string; stagingJobId?: string | null; clientName: string; crewId: string; date: Ymd; status?: string }
+
+/** Other installs the same crew already has on these days (one per day and job). */
+export function crewConflicts(entries: BoardEntry[], jobId: string, crewId: string, days: Ymd[]): Array<{ date: Ymd; clientName: string }> {
+  const want = new Set(days)
+  const seen = new Set<string>()
+  const out: Array<{ date: Ymd; clientName: string }> = []
+  for (const e of entries) {
+    if (e.crewId !== crewId || !want.has(e.date) || (e.stagingJobId && e.stagingJobId === jobId)) continue
+    if (e.status === 'Complete' || e.status === 'RolledOver' || e.status === 'Rolled Over') continue
+    const k = `${e.date}|${e.stagingJobId || e.clientName}`
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push({ date: e.date, clientName: e.clientName })
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/* ── Words ──────────────────────────────────────────────────────────────── */
+
+const DAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/** "Monday to Thursday", "Monday, Tuesday and Thursday", "every day". */
+export function weekWords(days: number[]): string {
+  const d = [...new Set(days)].sort()
+  if (d.length === 7) return 'every day'
+  if (d.length > 2 && d.every((x, i) => i === 0 || x === d[i - 1] + 1)) return `${DAY_LONG[d[0]]} to ${DAY_LONG[d[d.length - 1]]}`
+  const names = d.map(x => DAY_LONG[x])
+  return names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/** "Thu 12/3" */
+export function shortDayWords(day: Ymd): string {
+  return isYmd(day) ? `${DAY_LONG[weekdayOf(day)].slice(0, 3)} ${Number(day.slice(5, 7))}/${Number(day.slice(8, 10))}` : day
+}
+
 /** Jonathan's own cell: never in anything a customer sees. */
 export const PERSONAL_CELL = '3525989785'
 const digits10 = (raw: string | null | undefined) => { const d = String(raw ?? '').replace(/\D/g, ''); return d.length === 11 && d.startsWith('1') ? d.slice(1) : d }
@@ -165,10 +249,11 @@ export function customerPhoneToGive(repPhone: string | null | undefined, company
  * The schedule confirmation (scheduled) or the new date (moved: a reschedule
  * or a rain day). Starts with the company name, ends "Reply STOP to opt out."
  */
-export function installText(kind: 'scheduled' | 'moved', o: { company: string; firstName: string; start: Ymd; phone: string }): string {
+export function installText(kind: 'scheduled' | 'moved' | 'off', o: { company: string; firstName: string; start: Ymd; phone: string }): string {
   const name = (o.firstName || '').trim() || 'there'
   const when = usDate(o.start)
   const call = o.phone ? ` Questions? Call ${o.phone}.` : ''
+  if (kind === 'off') return `${(o.company || 'Getter Done Fence').trim()}: Hi ${name}, your fence installation date is being changed. We'll call you with a new date.${call} Reply STOP to opt out.`
   const what = kind === 'scheduled'
     ? `your fence installation is scheduled to start on ${when}.`
     : `your fence installation has moved and is now scheduled to start on ${when}.`

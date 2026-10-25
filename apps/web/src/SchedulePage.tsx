@@ -14,7 +14,8 @@ import { can, REFUSAL } from './permissions'
 import { toast } from './toast'
 import { businessDate } from './businessDate'
 import { ReadyPanel, useReadyJobs, ScheduleInstallDialog, MoveInstallConfirm, RainDayDialog, READY_DRAG_TYPE } from './ScheduleInstall'
-import { crewDaysOfWeek, isCrewDay, plusDays } from '../../portal/src/server/lib/installDays'
+import { crewDaysOfWeek, isCrewDay, plusDays, nextCrewDay, holidayOn, weekWords } from '../../portal/src/server/lib/installDays'
+import { fetchWeekendJobs } from './installScheduleApi'
 import { crewHex } from './dispatchPins'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -162,7 +163,8 @@ function SettingsModal({
   onClose: () => void
 }) {
   useBackLayer(onClose, { key: 'settings-modal' })
-  const [workDays, setWorkDays] = useState<number[]>([...settings.workDays])
+  // Monday to Friday only: Saturday and Sunday are per job ("weekends too"), never a setting.
+  const [workDays, setWorkDays] = useState<number[]>(() => crewDaysOfWeek(settings.workDays))
   const [crews, setCrews]       = useState<Crew[]>([...settings.crews])
 
   function toggleDay(d: number) {
@@ -190,7 +192,7 @@ function SettingsModal({
           <div>
             <h3 className="text-sm font-semibold text-gray-700 mb-3">Work Days</h3>
             <div className="flex gap-2">
-              {[1,2,3,4,5,6,0].map(d => (
+              {[1, 2, 3, 4, 5].map(d => (
                 <button
                   key={d}
                   onClick={() => toggleDay(d)}
@@ -202,7 +204,7 @@ function SettingsModal({
                 >{DAY_NAMES[d]}</button>
               ))}
             </div>
-            <p className="text-xs text-gray-400 mt-2">{workDays.length} days selected. Installs are booked Monday to Thursday, and Friday when it is ticked. Saturday and Sunday are never crew days unless a job is booked with "The crew works weekends on this job".</p>
+            <p className="text-xs text-gray-500 mt-2" data-settings-week>Crew days: {weekWords(crewDaysOfWeek(workDays))}. Saturday and Sunday are only worked on a job booked with "The crew works weekends on this job".</p>
           </div>
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -240,7 +242,7 @@ function SettingsModal({
           <div className="flex gap-2 pt-1">
             <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
             <button
-              onClick={() => { onSave({ workDays, crews }); onClose() }}
+              onClick={() => { onSave({ workDays: crewDaysOfWeek(workDays), crews }); onClose() }}
               className="btn btn-primary flex-1"
             >Save settings</button>
           </div>
@@ -288,7 +290,13 @@ export default function SchedulePage() {
   const { jobs, settings } = data
   const rainLog = loadRainLog()
   const crewWeek = crewDaysOfWeek(settings.workDays)
-  const shownWeek = showDaysOff ? [1, 2, 3, 4, 5, 6, 0] : crewWeek
+  // Jobs booked "weekends too" (on purpose): their weekend days are not a warning.
+  const [weekendJobs, setWeekendJobs] = useState<Set<string>>(new Set())
+  useEffect(() => { fetchWeekendJobs().then(r => { if (r.ok) setWeekendJobs(new Set(r.data)) }) }, [data])
+  const monthKey = `${viewMonth.getFullYear()}-${String(viewMonth.getMonth() + 1).padStart(2, '0')}`
+  // A day off is shown when an install is booked on it this month (never hidden), else only with "Show days off".
+  const offWithJobs = [...new Set(jobs.filter(j => j.date && j.date.slice(0, 7) === monthKey && !isCrewDay(j.date, crewWeek)).map(j => new Date(`${j.date}T12:00:00Z`).getUTCDay()))]
+  const shownWeek = showDaysOff ? [1, 2, 3, 4, 5, 6, 0] : [1, 2, 3, 4, 5, 6, 0].filter(d => crewWeek.includes(d) || offWithJobs.includes(d))
 
   const year = viewMonth.getFullYear()
   const month = viewMonth.getMonth()
@@ -335,6 +343,13 @@ export default function SchedulePage() {
     updateData(jobs.filter(j => j.id !== id))
   }
 
+  /** Looking at a later month: a tapped job starts on its first crew day; this month: the next crew day. */
+  function startInView(): string | undefined {
+    const today = businessDate(new Date())
+    const first = `${monthKey}-01`
+    return first > today ? nextCrewDay(first, crewWeek) : undefined
+  }
+
   function prevMonth() { setViewMonth(new Date(year, month - 1, 1)) }
   function nextMonth() { setViewMonth(new Date(year, month + 1, 1)) }
 
@@ -352,7 +367,7 @@ export default function SchedulePage() {
         </button>
       </div>
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-4 lg:items-start">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_290px] xl:grid-cols-[minmax(0,1fr)_330px] lg:gap-4 lg:items-start">
         <div className={`space-y-6 min-w-0 ${tab === 'ready' ? 'hidden lg:block' : ''}`}>
           {/* One day at a time: installs and that day's appointments (the phone's Schedule tab lands here). */}
           <ScheduleDay jobs={jobs} crews={settings.crews} />
@@ -375,14 +390,15 @@ export default function SchedulePage() {
                 <input type="checkbox" checked={showDaysOff} onChange={e => setShowDaysOff(e.target.checked)} className="w-4 h-4 accent-orange-500" data-show-days-off />
                 Show days off
               </label>
-              {!readOnly && <button onClick={() => setRainDay(businessDate(new Date()))} className="btn btn-secondary" data-rain-day-open>🌧 Rain day</button>}
-              {can('settings.change') && <button onClick={() => setShowSettings(true)} className="btn btn-secondary">Settings</button>}
+              {!readOnly && <button onClick={() => setRainDay('')} className="btn btn-secondary" data-rain-day-open>🌧 Rain day</button>}
+              {can('settings.change') && <button onClick={() => setShowSettings(true)} className="btn btn-secondary" data-schedule-settings>Settings</button>}
               {readOnly && <span className="text-xs text-gray-500" data-view-only>View only</span>}
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
-            <table className="w-full text-sm calendar-table" data-month-days={shownWeek.join(',')}>
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            {/* Fixed columns: the work days always fit the width, whatever is on them (cards cut their words short). */}
+            <table className="w-full table-fixed text-sm calendar-table" data-month-days={shownWeek.join(',')}>
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   {shownWeek.map(d => (
@@ -421,10 +437,11 @@ export default function SchedulePage() {
                               {dayJobs.length >= 3 ? '⚠ Full day' : '↓ Drop here'}
                             </div>
                           )}
-                          <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center justify-between mb-1 min-w-0">
                             <p className={`text-xs font-medium ${isThisMonth ? 'text-gray-900' : 'text-gray-400'}`}>
                               {day.getDate()}
                             </p>
+                            {holidayOn(dateStr) && <span className="text-[10px] font-semibold text-red-700 truncate ml-1" title={holidayOn(dateStr)!} data-holiday={dateStr}>{holidayOn(dateStr)}</span>}
                             {(() => {
                               const wx = forecast.find(f => f.date === dateStr)
                               if (!wx) return null
@@ -442,6 +459,8 @@ export default function SchedulePage() {
                               const crewColor = crew ? crewHex(crew.color, crew.name) : '#9ca3af'
                               const own = daysOfJob.get(jobKeyOf(j)) ?? [j]
                               const nth = own.findIndex(x => x.id === j.id) + 1
+                              // Booked on a day that is not a crew day any more (Friday switched off), and not a "weekends too" job.
+                              const offDay = !isCrewDay(dateStr, crewWeek) && !(j.stagingJobId && weekendJobs.has(j.stagingJobId))
                               return (
                                 <div
                                   key={j.id}
@@ -450,19 +469,21 @@ export default function SchedulePage() {
                                   onClick={() => { if (j.stagingJobId) setBooking({ jobId: j.stagingJobId }) }}
                                   data-install-entry={j.stagingJobId || j.id}
                                   data-install-day={`${nth}/${own.length}`}
+                                  data-install-offday={offDay ? 'yes' : undefined}
                                   style={{ borderLeftColor: crewColor, backgroundColor: `${crewColor}1f` }}
                                   className={`border-l-4 rounded px-1.5 lg:px-2 py-1 ${readOnly ? '' : 'cursor-grab'} ${j.stagingJobId ? 'cursor-pointer' : ''} group`}
                                 >
                                   <div className="flex items-start justify-between gap-1">
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 flex-1">
                                       <p className="text-xs font-semibold text-gray-900 truncate">
                                         {j.status === 'Rain Day' && <span title="Rain Day">🌧 </span>}
                                         {j.clientName}
                                       </p>
                                       {j.area && <p className="text-[11px] text-gray-600 truncate">{j.area}</p>}
-                                      <p className="text-[11px] text-gray-500">{[styleLabel(j.fenceType), j.sections ? `${j.sections} sec` : '', own.length > 1 ? `day ${nth} of ${own.length}` : ''].filter(Boolean).join(' · ')}</p>
+                                      <p className="text-[11px] text-gray-500 truncate" title={styleLabel(j.fenceType)}>{[j.sections ? `${j.sections} sec` : '', own.length > 1 ? `day ${nth} of ${own.length}` : '', styleLabel(j.fenceType)].filter(Boolean).join(' · ')}</p>
+                                      {offDay && <p className="text-[11px] font-semibold text-red-700" data-offday-warning>{DAY_FULL[day.getDay()]} is not a work day any more. Move this day?</p>}
                                     </div>
-                                    {!readOnly && <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                                    {!readOnly && <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition">
                                       <button onClick={e => { e.stopPropagation(); setRainDay(j.date) }} title="Rain day from this day" aria-label="Rain day from this day" className="text-gray-300 hover:text-blue-500 text-sm leading-none">🌧</button>
                                       {!j.stagingJobId && <button onClick={e => { e.stopPropagation(); removeJob(j.id) }} aria-label="Remove" className="text-gray-300 hover:text-red-400 text-sm leading-none ml-0.5">&times;</button>}
                                     </div>}
@@ -532,13 +553,13 @@ export default function SchedulePage() {
 
         {/* Ready to schedule: a side panel on a computer, its own tab on a phone. */}
         <aside className={`lg:sticky lg:top-4 ${tab === 'calendar' ? 'hidden lg:block' : ''}`}>
-          <ReadyPanel ready={ready} canDrag={!readOnly} onPick={j => { if (readOnly) { toast.error('Not saved', REFUSAL['schedule.change']); return } setBooking({ jobId: j.id }) }} />
+          <ReadyPanel ready={ready} canDrag={!readOnly} onPick={j => { if (readOnly) { toast.error('Not saved', REFUSAL['schedule.change']); return } setBooking({ jobId: j.id, start: startInView() }) }} />
         </aside>
       </div>
 
       {booking && <ScheduleInstallDialog jobId={booking.jobId} start={booking.start} onClose={() => setBooking(null)} onDone={() => ready.reload()} />}
       {moving && <MoveInstallConfirm {...moving} onClose={() => setMoving(null)} />}
-      {rainDay && <RainDayDialog date={rainDay} onClose={() => setRainDay(null)} />}
+      {rainDay !== null && <RainDayDialog date={rainDay || undefined} onClose={() => setRainDay(null)} />}
 
       {showSettings && (
         <SettingsModal

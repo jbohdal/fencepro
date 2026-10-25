@@ -127,7 +127,8 @@ export interface PortalQuote {
   hasPlan: boolean
   hasContract: boolean
 }
-export interface PortalProject { id: string; style: string; status: string; scheduledDate: string; address: string }
+/** steps: the steps before the install as recorded on the job (811 locates, permit, materials). */
+export interface PortalProject { id: string; style: string; status: string; scheduledDate: string; address: string; steps?: { locates: boolean; permit: 'done' | 'not_needed' | 'not_yet'; materials: boolean } }
 export interface PortalInvoice { id: string; invoiceNumber: string; title: string; status: string; dueDate: string; issuedDate: string; totalCents: number; amountPaidCents: number; balanceDueCents: number }
 /** A job's payment schedule: the contract, each invoice with what is paid and due, each payment with its receipt. */
 export interface PortalBilling {

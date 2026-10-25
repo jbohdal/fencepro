@@ -35,12 +35,14 @@ import {
 } from './installScheduleApi'
 import {
   crewDaysOfWeek, installDays, isCrewDay, nextCrewDay, plusDays, scheduleWarnings, permitWords, locatesWords, usDate, phoneWords, PERMIT_ISSUED,
+  crewConflicts, holidayOn, weekWords, shortDayWords,
 } from '../../portal/src/server/lib/installDays'
 
 /** The drag's data type: a Ready card's job id. */
 export const READY_DRAG_TYPE = 'application/x-ezbiz-ready-job'
 
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const DAY_NAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const shortDay = (d: string) => { const [y, m, dd] = d.split('-').map(Number); return `${WEEKDAY[new Date(Date.UTC(y, m - 1, dd)).getUTCDay()]} ${m}/${dd}` }
 const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(cents / 100)
 
@@ -187,7 +189,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
   const [days, setDays] = useState(0)
   const [weekends, setWeekends] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [text, setText] = useState<{ text: PreparedText; moved: boolean; days: string[]; crew: string; note: string } | null>(null)
+  const [text, setText] = useState<{ text: PreparedText; title: string; summary: string } | null>(null)
   const [confirmOff, setConfirmOff] = useState(false)
 
   useEffect(() => {
@@ -201,16 +203,25 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
       const booked = f.bookedDays.length
       setDays(booked || f.crewDays || 1)
       setCrew(crews.find(c => c.name === f.crewAssigned || c.id === f.crewAssigned)?.id ?? crews[0]?.id ?? '')
-      setWeekends(f.bookedDays.some(d => !isCrewDay(d, crewDaysOfWeek(settings.workDays))))
+      // Only ticked when it was booked that way on purpose; never guessed from the days (a Friday switched off is not a weekend).
+      setWeekends(f.allowWeekend)
     })
     return () => { live = false }
   }, [jobId])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const week = crewDaysOfWeek(settings.workDays, weekends)
   const planned = useMemo(() => (start ? installDays(start, days || 1, week) : []), [start, days, week.join(',')])  // eslint-disable-line react-hooks/exhaustive-deps
-  const warnings = facts && planned.length ? scheduleWarnings(facts, planned[0], planned[planned.length - 1]) : []
+  const crewName = crews.find(c => c.id === crew)?.name ?? 'This crew'
+  const warnings: Array<{ key: string; text: string }> = facts && planned.length ? [
+    ...scheduleWarnings(facts, planned[0], planned[planned.length - 1]),
+    // Double booking: the crew already has another install on one of the days (still allowed).
+    ...crewConflicts(loadSchedule().jobs.map(j => ({ id: j.id, stagingJobId: j.stagingJobId, clientName: j.clientName, crewId: j.crewId, date: j.date, status: j.status })), jobId, crew, planned)
+      .map(c => ({ key: 'crew', text: `${crewName} already has ${c.clientName} on ${shortDayWords(c.date)}.` })),
+    ...planned.filter(d => holidayOn(d)).map(d => ({ key: 'holiday', text: `${shortDayWords(d)} is ${holidayOn(d)}.` })),
+  ] : []
   const scheduled = !!facts?.scheduledDate
-  const fridays = crewDaysOfWeek(settings.workDays).includes(5)
+  // Days it is booked on that are not crew days any more (Friday switched off): shown, and Move puts them on crew days.
+  const offDays = facts && !facts.allowWeekend ? facts.bookedDays.filter(d => !isCrewDay(d, crewDaysOfWeek(settings.workDays))) : []
 
   async function save() {
     if (!facts || saving || !start) return
@@ -220,8 +231,9 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
     setSaving(false)
     if (!r.ok) { toast.error('Not scheduled', r.error); return }
     const d = r.data
-    const note = d.movedFrom ? `${usDate(d.movedFrom)} is not a crew day, so it starts ${usDate(d.days[0])}.` : ''
-    setText({ text: d.text, moved: d.rescheduled, days: d.days, crew: d.crew.name, note })
+    const note = d.movedFrom ? ` ${usDate(d.movedFrom)} is not a crew day, so it starts ${usDate(d.days[0])}.` : ''
+    setText({ text: d.text, title: d.rescheduled ? 'Install moved' : 'Install scheduled',
+      summary: `${d.text.customerName}: ${d.days.length} crew day${d.days.length === 1 ? '' : 's'}, ${d.days.map(shortDay).join(', ')}, ${d.crew.name}.${note} ${d.calendar}` })
     onDone?.()
   }
 
@@ -231,15 +243,12 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
     const r = await unscheduleInstall(jobId)
     setSaving(false)
     if (!r.ok) { toast.error('Not changed', r.error); return }
-    toast.success('Off the schedule', `${facts?.customerName ?? 'The job'} is back in Ready to schedule.`)
+    setText({ text: r.data.text, title: 'Off the schedule', summary: `${facts?.customerName ?? 'The job'} is back in Ready to schedule, in ${r.data.stageName}. The crew and dates are cleared.` })
     onDone?.()
-    onClose()
   }
 
   if (text) {
-    return <InstallTextSheet text={text.text} onClose={onClose}
-      title={text.moved ? 'Install moved' : 'Install scheduled'}
-      summary={`${text.text.customerName}: ${text.days.length} crew day${text.days.length === 1 ? '' : 's'}, ${text.days.map(shortDay).join(', ')}, ${text.crew}.${text.note ? ` ${text.note}` : ''}`} />
+    return <InstallTextSheet text={text.text} onClose={onClose} title={text.title} summary={text.summary} />
   }
 
   return (
@@ -284,12 +293,18 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
             <p className="text-xs font-semibold text-gray-600">Crew days booked</p>
             <p className="text-sm font-semibold text-gray-900 mt-0.5">{planned.map(shortDay).join(' · ')}</p>
             {start && planned[0] && planned[0] !== start && <p className="text-xs text-amber-800 mt-1" data-si-moved-start>{shortDay(start)} is not a crew day: it starts {shortDay(planned[0])}.</p>}
-            <p className="text-[11px] text-gray-500 mt-1">{weekends ? 'Every day, weekends too, for this job.' : `Crew days: Monday to ${fridays ? 'Friday' : 'Thursday'} (Schedule > Settings).`}</p>
+            <p className="text-[11px] text-gray-500 mt-1" data-si-week>{weekends ? 'Every day, weekends too, for this job.' : `Crew days: ${weekWords(crewDaysOfWeek(settings.workDays))} (Schedule > Settings).`}</p>
             <label className="flex items-center gap-2 mt-2 text-sm text-gray-700 min-h-[44px]">
               <input type="checkbox" checked={weekends} onChange={e => setWeekends(e.target.checked)} className="w-5 h-5 accent-orange-500" data-si-weekends />
               The crew works weekends on this job
             </label>
           </div>
+
+          {offDays.length > 0 && (
+            <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-900" data-si-offdays={offDays.join(',')}>
+              {offDays.map(d => <p key={d}>{shortDayWords(d)}: {DAY_NAME[new Date(`${d}T12:00:00Z`).getUTCDay()]} is not a work day any more. Move install puts every day on crew days.</p>)}
+            </div>
+          )}
 
           {warnings.length > 0 && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 p-3" data-si-warnings={warnings.map(w => w.key).join(',')}>
@@ -334,7 +349,10 @@ export function TextPreview({ text }: { text: PreparedText }) {
       {text.allowed && text.phone ? (
         <a href={smsLink(text.phone, text.body)} className="btn btn-primary w-full min-h-[48px]" data-install-text-open>Open the text to send</a>
       ) : (
-        <p className="text-sm text-red-800" data-install-text-blocked>{text.reason || 'No phone number on the customer.'}</p>
+        <div className="space-y-1" data-install-text-blocked>
+          <p className="text-sm text-red-800">{text.reason || 'No phone number on the customer.'}</p>
+          {text.phone && <p className="text-sm text-gray-800">To tell them anyway, call them: <a href={`tel:${text.phone.replace(/[^\d+]/g, '')}`} className="font-semibold text-orange-700 underline" data-install-text-call>{phoneWords(text.phone)}</a></p>}
+        </div>
       )}
       {text.callFrom === 'company' && <p className="text-[11px] text-gray-500">The text gives the company number: the job's salesman has no Direct phone in Settings {'>'} Team.</p>}
     </div>
@@ -367,10 +385,10 @@ export function MoveInstallConfirm({ jobId, name, from, to, onClose }: { jobId: 
     const r = await scheduleInstall({ jobId, start: to })
     setSaving(false)
     if (!r.ok) { toast.error('Not moved', r.error); onClose(); return }
-    setDone({ text: r.data.text, days: r.data.days, crew: r.data.crew.name })
+    setDone({ text: r.data.text, days: r.data.days, crew: `${r.data.crew.name}. ${r.data.calendar}` })
   }
   if (done) return <InstallTextSheet text={done.text} onClose={onClose} title="Install moved"
-    summary={`${name}: now ${done.days.map(shortDay).join(', ')}, ${done.crew}.`} />
+    summary={`${name}: now ${done.days.map(shortDay).join(', ')}, ${done.crew}`} />
   return (
     <Sheet onClose={onClose} label="Move install" attr={{ 'data-move-install': jobId }}>
       <Head title="Move install?" onClose={onClose} />
@@ -390,7 +408,9 @@ export function MoveInstallConfirm({ jobId, name, from, to, onClose }: { jobId: 
 
 export function RainDayDialog({ date: dateAt, onClose }: { date?: string; onClose: () => void }) {
   useBackLayer(onClose, { key: 'rain-day' })
-  const [date, setDate] = useState(dateAt || businessDate(new Date()))
+  // The day is picked first (a card's 🌧 brings its own day): nothing is listed until then.
+  const [date, setDate] = useState(dateAt || '')
+  const [confirming, setConfirming] = useState(false)
   const [shift, setShift] = useState(1)
   const [reason, setReason] = useState('Weather — rain')
   const [preview, setPreview] = useState<RainMove[] | null>(null)
@@ -401,6 +421,8 @@ export function RainDayDialog({ date: dateAt, onClose }: { date?: string; onClos
   useEffect(() => {
     let live = true
     setPreview(null)
+    setConfirming(false)
+    if (!date) return
     previewRainDay(date, shift).then(r => { if (!live) return; if (r.ok) { setPreview(r.data); setError('') } else setError(r.error) })
     return () => { live = false }
   }, [date, shift])
@@ -444,7 +466,8 @@ export function RainDayDialog({ date: dateAt, onClose }: { date?: string; onClos
           </>
         )}
         {error && <p className="text-sm text-red-700">{error}</p>}
-        {!list && !error && <p className="text-sm text-gray-500">Working it out…</p>}
+        {!date && <p className="text-sm text-gray-600" data-rain-pick>Pick the rain day to see what moves.</p>}
+        {date && !list && !error && <p className="text-sm text-gray-500">Working it out…</p>}
         {list && list.length === 0 && <p className="text-sm text-gray-600" data-rain-none>No installs on or after {usDate(date)}.</p>}
         {list && list.length > 0 && (
           <ul className="space-y-3" data-rain-moves={list.length}>
@@ -459,10 +482,18 @@ export function RainDayDialog({ date: dateAt, onClose }: { date?: string; onClos
             ))}
           </ul>
         )}
-        {!done ? (
+        {!done && confirming && preview?.length ? (
+          <div className="rounded-xl border border-blue-300 bg-blue-50 p-3 space-y-2" data-rain-confirm-box>
+            <p className="text-sm text-blue-900">Move these {preview.length} install{preview.length === 1 ? '' : 's'}, from {shortDay(date)} on, {shift === 1 ? 'one crew day' : `${shift} crew days`} later?</p>
+            <div className="flex gap-2">
+              <button type="button" className="btn btn-primary flex-1 min-h-[48px]" disabled={saving} onClick={apply} data-rain-confirm>{saving ? 'Moving…' : 'Yes, move them'}</button>
+              <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => setConfirming(false)}>Go back</button>
+            </div>
+          </div>
+        ) : !done ? (
           <div className="flex gap-2">
-            <button type="button" className="btn btn-primary flex-1 min-h-[48px]" disabled={saving || !preview?.length} onClick={apply} data-rain-apply>
-              {saving ? 'Moving…' : preview?.length ? `Move ${preview.length} install${preview.length === 1 ? '' : 's'}` : 'Nothing to move'}
+            <button type="button" className="btn btn-primary flex-1 min-h-[48px]" disabled={saving || !preview?.length} onClick={() => setConfirming(true)} data-rain-apply>
+              {!date ? 'Pick the day first' : preview?.length ? `Move ${preview.length} install${preview.length === 1 ? '' : 's'}…` : 'Nothing to move'}
             </button>
             <button type="button" className="btn btn-secondary min-h-[48px]" onClick={onClose}>Cancel</button>
           </div>

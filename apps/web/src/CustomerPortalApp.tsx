@@ -468,7 +468,8 @@ function DashboardPage({ session, customer, accent }: { session: PortalAccount; 
             <p className="text-xs font-bold" style={{ color: accent }}>Active Project</p>
             <p className="text-lg font-bold text-gray-900 mt-1">{activeJob.style || 'Project'}</p>
             <p className="text-sm text-gray-500 mt-1">{friendlyStage(activeJob.status)}</p>
-            {activeJob.scheduledDate && <p className="text-xs text-gray-500 mt-2" data-portal-install-date={activeJob.scheduledDate}>📅 Install starts {installDayWords(activeJob.scheduledDate)}</p>}
+            {activeJob.scheduledDate ? <p className="text-xs text-gray-500 mt-2" data-portal-install-date={activeJob.scheduledDate}>📅 Install starts {installDayWords(activeJob.scheduledDate)}</p>
+              : (activeJob.status === 'staging' || activeJob.status === 'scheduled') && <p className="text-xs text-gray-500 mt-2" data-portal-install-date="">📅 Install date: to be set</p>}
             <a href="#/portal/projects" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>View Project →</a>
           </div>
         )}
@@ -699,7 +700,6 @@ function ProjectsPage({ accent }: { session: PortalAccount; customer: PortalAcco
   if (rows === null) return <p className="text-sm text-gray-500">Loading…</p>
   if (rows === 'error') return <EmptyState emoji="⚠️" title="Could not load your projects" body="Check your connection and try again." />
   const jobs: PortalProject[] = rows
-  const milestones = ['Quote Accepted', 'Locates Scheduled', 'Permit Approved', 'Materials Ordered', 'Installation Scheduled', 'Installation Complete', 'Invoice Sent', 'Complete']
 
   return (
     <div className="space-y-5">
@@ -707,7 +707,8 @@ function ProjectsPage({ accent }: { session: PortalAccount; customer: PortalAcco
       {jobs.length === 0 ? (
         <EmptyState emoji="🏗" title="No active projects" body="Your fence project will appear here once scheduled." />
       ) : jobs.map(j => {
-        const currentIdx = mapStatusToMilestone(j.status)
+        // Each step is done only when it really is: the steps before the install from what is recorded on the job.
+        const milestones = projectSteps(j)
         return (
           <div key={j.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm" data-portal-project={j.id}>
             <div className="flex items-start justify-between mb-4">
@@ -716,20 +717,23 @@ function ProjectsPage({ accent }: { session: PortalAccount; customer: PortalAcco
                 <p className="text-xs text-gray-500">{j.address || ''}</p>
                 <p className="text-sm mt-1 font-medium" style={{ color: accent }}>{friendlyStage(j.status)}</p>
               </div>
-              {j.scheduledDate && (
+              {j.scheduledDate ? (
                 <div className="text-right text-xs text-gray-500" data-portal-install-date={j.scheduledDate}>
                   <p>Install starts</p>
                   <p className="font-bold text-gray-900">📅 {installDayWords(j.scheduledDate)}</p>
+                </div>
+              ) : (j.status === 'staging' || j.status === 'scheduled') && (
+                <div className="text-right text-xs text-gray-500" data-portal-install-date="">
+                  <p>Install date</p>
+                  <p className="font-bold text-gray-900">To be set</p>
                 </div>
               )}
             </div>
             {/* Milestone timeline */}
             <ol className="relative border-l-2 border-gray-100 pl-6 space-y-3">
-              {milestones.map((m, i) => {
-                const done = i < currentIdx
-                const current = i === currentIdx
+              {milestones.map(({ label: m, done, current }) => {
                 return (
-                  <li key={m} className="relative">
+                  <li key={m} className="relative" data-portal-step={m} data-done={done ? 'yes' : 'no'}>
                     <span className="absolute -left-[29px] top-0.5 w-4 h-4 rounded-full border-2 border-white"
                       style={{ backgroundColor: done ? accent : current ? accent : '#e5e7eb', boxShadow: current ? `0 0 0 3px ${accent}40` : undefined }} />
                     <p className={`text-sm ${done ? 'text-gray-900' : current ? 'text-gray-900 font-bold' : 'text-gray-400'}`}>
@@ -744,6 +748,23 @@ function ProjectsPage({ accent }: { session: PortalAccount; customer: PortalAcco
       })}
     </div>
   )
+}
+
+/** The project's steps, each done only when it is: the permit, 811 and materials as recorded, the rest by the job's status. */
+function projectSteps(j: PortalProject): Array<{ label: string; done: boolean; current: boolean }> {
+  const at = mapStatusToMilestone(j.status)
+  const st = j.steps
+  const before: Array<{ label: string; done: boolean }> = [
+    { label: 'Quote Accepted', done: true },
+    { label: 'Locates Marked (811)', done: st ? st.locates : at > 1 },
+    ...(st?.permit === 'not_needed' ? [] : [{ label: 'Permit Approved', done: st ? st.permit === 'done' : at > 2 }]),
+    { label: 'Materials Ordered', done: st ? st.materials : at > 3 },
+  ]
+  const after = [{ label: 'Installation Scheduled', done: at >= 4 && !!j.scheduledDate || at >= 5 }, { label: 'Installation Complete', done: at >= 6 }, { label: 'Invoice Sent', done: at >= 7 }, { label: 'Complete', done: at >= 8 }]
+  const steps = [...before, ...after]
+  // The current step: the first one not done.
+  const cur = steps.findIndex(s => !s.done)
+  return steps.map((s, i) => ({ ...s, current: i === cur }))
 }
 
 function mapStatusToMilestone(status: string | undefined): number {

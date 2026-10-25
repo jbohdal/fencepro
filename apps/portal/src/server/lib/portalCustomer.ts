@@ -51,7 +51,7 @@ export async function jobsOf(contact: { id: string; accountId: string | null }) 
   return prisma.savedJob.findMany({
     where: { accountId: contact.accountId, deletedAt: null, archivedAt: null, OR: [{ crmContactId: contact.id }, ...(quotes.length ? [{ quoteId: { in: quotes.map(q => q.id) } }] : [])] },
     orderBy: { createdAt: 'desc' },
-    select: { id: true, quoteId: true, fenceStyle: true, status: true, scheduledDate: true, customerAddress: true, completedDate: true },
+    select: { id: true, quoteId: true, fenceStyle: true, status: true, scheduledDate: true, customerAddress: true, completedDate: true, locatesDate: true, materialsStatus: true },
   })
 }
 

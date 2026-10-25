@@ -36,6 +36,7 @@ export interface ReadyJob extends ReadyFacts {
   bookedDays: Ymd[]
   depositCents: number
   depositPaidCents: number
+  allowWeekend: boolean
 }
 
 export interface PreparedText {
@@ -56,6 +57,7 @@ export interface ScheduleResult {
   rescheduled: boolean
   previousStart: Ymd | null
   text: PreparedText
+  calendar: string
 }
 
 export interface RainMove {
@@ -88,11 +90,14 @@ export async function scheduleInstall(req: { jobId: string; start: Ymd; crew?: s
   return r
 }
 
-export async function unscheduleInstall(jobId: string): Promise<Answer<unknown>> {
-  const r = await call<unknown>('POST', `/install/${encodeURIComponent(jobId)}/off`, {})
+export async function unscheduleInstall(jobId: string): Promise<Answer<{ job: { id: string; opsStage: string }; text: PreparedText; stageName: string }>> {
+  const r = await call<{ job: { id: string; opsStage: string }; text: PreparedText; stageName: string }>('POST', `/install/${encodeURIComponent(jobId)}/off`, {})
   if (r.ok) await readAgain()
   return r
 }
+
+/** Jobs booked "The crew works weekends on this job". */
+export const fetchWeekendJobs = () => call<string[]>('GET', '/weekend-jobs')
 
 export const previewRainDay = (date: Ymd, shift = 1) => call<RainMove[]>('POST', '/rain-day/preview', { date, shift })
 

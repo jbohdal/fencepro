@@ -602,7 +602,18 @@ router.get('/projects', requirePortalAuth, async (req: PortalAuthRequest, res) =
     if (!c?.accountId) { res.json({ success: true, data: [] }); return }
     const jobs = await jobsOf(c)
     // The job's status and install date for the customer: never the crew, notes or anything of the office's.
-    res.json({ success: true, data: await Promise.all(jobs.map(async j => ({ id: j.id, style: await plainStyleName(j.fenceStyle), status: j.status, scheduledDate: j.scheduledDate, address: j.customerAddress }))) })
+    // The steps before the install, from what is really recorded on the job (never shown done when they are not).
+    const permits = await prisma.permit.findMany({ where: { jobId: { in: jobs.map(j => j.id) } }, select: { jobId: true, status: true } })
+    const installed = (st: string) => ['in_progress', 'completed', 'invoiced', 'paid'].includes(st)
+    res.json({ success: true, data: await Promise.all(jobs.map(async j => {
+      const permit = permits.find(p => p.jobId === j.id)?.status ?? null
+      const steps = {
+        locates: installed(j.status) || !!j.locatesDate,
+        permit: permit === 'not_needed' ? 'not_needed' : installed(j.status) || ['approved', 'inspection_scheduled', 'passed'].includes(permit ?? '') ? 'done' : 'not_yet',
+        materials: installed(j.status) || ['ordered', 'received', 'loaded'].includes(j.materialsStatus),
+      }
+      return { id: j.id, style: await plainStyleName(j.fenceStyle), status: j.status, scheduledDate: j.scheduledDate, address: j.customerAddress, steps }
+    })) })
   } catch (err) {
     console.error('[portal-projects]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })
