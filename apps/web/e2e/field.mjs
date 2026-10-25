@@ -24,12 +24,13 @@ import fs from 'fs'
 const DEV_API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.SHOTS || ''
-const PROXY_PORT = 4010
+const PROXY_PORT = Number(process.env.PROXY_PORT || 4010)
 const APP = `http://localhost:${PROXY_PORT}`
 const DEVICES = (process.env.DEVICES || 'desktop').split(',')
 const SIGNALS = (process.env.SIGNALS || 'good,slow3g,none,drop').split(',')
 const FLOWS = (process.env.FLOWS || 'a,b,c,d').split(',')
-if (!/localhost:4001$/.test(DEV_API)) { console.error('Refusing to run: the dev copy only (API_URL must be localhost:4001).'); process.exit(2) }
+// The dev copy (4001), or a worktree's own dev server on another local port; never live (4000).
+if (!/^http:\/\/localhost:\d+$/.test(DEV_API) || /:4000$/.test(DEV_API)) { console.error('Refusing to run: the dev copy only (API_URL must be localhost, not 4000).'); process.exit(2) }
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 
 const ADB = `${process.env.HOME}/Library/Android/sdk/platform-tools/adb`
@@ -429,7 +430,7 @@ async function flowD(dev, a, jobId) {
 }
 
 const made = []
-const proxy = await startSignal({ listen: PROXY_PORT, target: 4001 })
+const proxy = await startSignal({ listen: PROXY_PORT, target: Number(new URL(DEV_API).port) })
 const browser = await chromium.launch()
 try {
   for (const d of DEVICES) {

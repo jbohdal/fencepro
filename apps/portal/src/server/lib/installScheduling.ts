@@ -109,7 +109,7 @@ async function factsFor(accountId: string, jobs: Json[]): Promise<ReadyJob[]> {
   const quoteIds = jobs.map(j => j.quoteId).filter(Boolean)
   const [{ stages }, quotes, permits, invoices, payments, grid, m, data] = await Promise.all([
     loadOpsStages(accountId),
-    prisma.savedQuote.findMany({ where: { accountId, id: { in: quoteIds } } }),
+    prisma.savedQuote.findMany({ where: { accountId, deletedAt: null, id: { in: quoteIds } } }),
     prisma.permit.findMany({ where: { accountId, jobId: { in: ids } } }),
     prisma.contractInvoice.findMany({ where: { accountId, jobId: { in: ids }, kind: 'deposit', voidedAt: null } }),
     prisma.contractPayment.findMany({ where: { accountId, jobId: { in: ids }, voidedAt: null }, select: { jobId: true, amountCents: true } }),
@@ -148,7 +148,7 @@ async function factsFor(accountId: string, jobs: Json[]): Promise<ReadyJob[]> {
 /** Every sold job not scheduled yet: in a stage that stands for staging, or Scheduled with no date. Side lanes (on hold) are left out. */
 export async function readyToSchedule(accountId: string): Promise<ReadyJob[]> {
   const { stages } = await loadOpsStages(accountId)
-  const jobs = await prisma.savedJob.findMany({ where: { accountId, ...LIVE, status: { in: ['staging', 'scheduled'] } }, orderBy: { createdAt: 'asc' } })
+  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null, status: { in: ['staging', 'scheduled'] } }, orderBy: { createdAt: 'asc' } })
   const waiting = jobs.filter(j => {
     const p = phaseOf(stages, stageOfJob(stages, j as Json))
     return p === 'staging' || (p === 'scheduled' && !isYmd(j.scheduledDate))
@@ -353,7 +353,7 @@ export async function rainDayPreview(accountId: string, from: Ymd, shift = 1): P
 
 async function withTexts(accountId: string, moves: RainMove[]): Promise<RainMove[]> {
   const ctx = await textContext(accountId)
-  const jobs = await prisma.savedJob.findMany({ where: { accountId, id: { in: moves.map(m => m.jobId).filter((x): x is string => !!x) } } })
+  const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, id: { in: moves.map(m => m.jobId).filter((x): x is string => !!x) } } })
   for (const m of moves) {
     const job = jobs.find(j => j.id === m.jobId)
     // A customer is texted when their start day moves (a job already under way just runs a day longer).
