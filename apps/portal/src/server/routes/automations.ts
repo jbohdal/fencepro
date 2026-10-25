@@ -45,7 +45,8 @@ import { saveSubscription, sendPush, vapidKeys } from '../lib/automations/push.j
 import { disconnectGmail, gmailConsentUrl, gmailStatus } from '../lib/automations/gmail.js'
 import { ensurePermit, lookupParcel, packetInputFor, PERMIT_PORTALS, PERMIT_STATUSES, portalFor, renderPacket } from '../lib/automations/permits.js'
 import { walkthroughApi } from '../lib/automations/walkthroughAdapter.js'
-import { can, refuse, requireCan } from '../lib/permissions.js'
+import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
+import { myTasksWhere, seesCompanyTasks } from '../lib/taskScope.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -486,7 +487,8 @@ router.get('/tasks', async (req: any, res) => {
     const me = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true, email: true } }).catch(() => null)
     const names = [req.user.email, me?.email, me ? `${me.firstName} ${me.lastName}`.trim() : '', me?.firstName].filter((x): x is string => !!x)
     const status = typeof req.query.status === 'string' ? req.query.status.split(',') : ['pending', 'in_progress']
-    const mine = req.query.all === '1' ? {} : { OR: [{ assignedTo: null }, { assignedTo: '' }, ...names.map(n => ({ assignedTo: { equals: n, mode: 'insensitive' as const } }))] }
+    // A Salesman's or Installer's list is theirs only; the owner's and office's also has the company's unnamed tasks (lib/taskScope.ts).
+    const mine = req.query.all === '1' && seesCompanyTasks(roleOf(req)) ? {} : myTasksWhere(roleOf(req), names)
     const tasks = await prisma.task.findMany({ where: { status: { in: status as any }, ...mine }, orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }], take: 100 })
     res.json({ success: true, data: tasks })
   } catch (err) { fail(res, err, 'load tasks') }

@@ -27,7 +27,9 @@ import { ServiceNeedsYou } from './ServiceRequests'
 import { useOpenTickets } from './serviceStore'
 import { onMyWaySms } from './appointmentMessages'
 import { useBookingTeam } from './bookingTeamStore'
-import { defaultMemberOf, formerNamesOf, matchesPerson, memberKey } from './bookingTeamModel'
+import { defaultMemberOf, formerNamesOf, matchesPerson, memberKey, type TeamMember } from './bookingTeamModel'
+import { currentUser } from './crmAuth'
+import { signedInRole } from './permissions'
 import PersonFilter from './PersonFilter'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
@@ -53,14 +55,23 @@ export function startQuote(a: Appointment) {
   }))
 }
 
+/** The Today screen's first day: the signed in person's own when they are on the team (a Salesman always: never someone else's), else the owner's. */
+function myDayKey(team: TeamMember[], userId: string | null, role: string | null): string {
+  const me = userId ? team.find(m => m.userId === userId) : undefined
+  if (me) return memberKey(me)
+  if (userId && (role === 'sales_rep' || role === 'field_crew')) return `u:${userId}`
+  const owner = defaultMemberOf(team)
+  return owner ? memberKey(owner) : ''
+}
+
 export default function TodayScreen() {
   const list = useAppointmentList()
   const tickets = useOpenTickets()
-  // Whose day: the owner by default (the booking team, bookingTeamStore.ts), or anyone on the team, a former team member, or everyone.
+  // Whose day: your own (Christa's opened on Jonathan's, walkthrough Oct 24, 2026); the owner's for a login not on
+  // the booking team (the office); or anyone on the team, a former team member, or everyone (bookingTeamStore.ts).
   const team = useBookingTeam()
   const [picked, setPerson] = useState<string | null>(null)
-  const owner = defaultMemberOf(team)
-  const person = picked ?? (owner ? memberKey(owner) : '')
+  const person = picked ?? myDayKey(team, currentUser()?.id ?? null, signedInRole())
   const former = useMemo(() => formerNamesOf(team, list), [team, list])
   const [closing, setClosing] = useState<Appointment | null>(null)
   const today = floridaDate(new Date())
