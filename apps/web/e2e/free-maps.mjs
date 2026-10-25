@@ -1,7 +1,7 @@
 // Smart Schedule, Site Plans and the Map Quote on free maps (no Google Maps).
 // Smart Schedule also: its jobs come from Jobs with their Operations stage, a
-// job on hold shows its side lane in gray, and Schedule sends the job as
-// scheduled (the save is caught and stopped, so dev data is not changed).
+// job on hold shows its side lane in gray, and Schedule books the job through
+// Schedule install (the request is caught and stopped, so dev data is not changed).
 //
 //   E2E_ACCESS_TOKEN=<dev staff token> SHOTS=<folder, optional> node e2e/free-maps.mjs
 //
@@ -41,7 +41,8 @@ try {
     await r.fulfill({ response: res, json })
   })
   const jobSaves = []
-  p.on('request', r => { if (r.method() === 'PATCH' && /\/api\/saved-jobs\//.test(r.url())) jobSaves.push(r.postDataJSON()) })
+  // Smart Schedule books through Schedule install (POST /api/schedule/install), the same step as the Schedule page.
+  p.on('request', r => { if (r.method() === 'POST' && /\/api\/schedule\/install$/.test(r.url())) jobSaves.push(r.postDataJSON()) })
   await p.goto(`${APP}/dispatch`); await p.waitForSelector('[data-global-appointment]', { timeout: 60000 }); await sleep(1500)
   await p.locator('button:has-text("Smart Schedule")').click(); await p.waitForSelector('[data-smart-schedule-map]'); await sleep(8000)
   check('Smart Schedule: free street map with job dots', (await tiles(p, '[data-smart-schedule-map]')) > 0 && (await p.locator('[data-smart-schedule-map] .leaflet-marker-icon').count()) > 0, `${await tiles(p, '[data-smart-schedule-map]')} tiles, ${await p.locator('[data-smart-schedule-map] .leaflet-marker-icon').count()} dots`)
@@ -57,8 +58,8 @@ try {
   await p.locator('input[placeholder="Crew..."]').fill('E2E Crew')
   await p.locator('[data-smart-schedule] input[type="date"]').fill('2026-10-26')
   await target.click(); await target.locator('[data-smart-schedule-job]').click(); await sleep(1500)
-  const sent = jobSaves.find(b => b && b.status === 'scheduled')
-  check('Smart Schedule: Schedule sends the job as scheduled, with crew, date and the Scheduled stage', !!sent && sent.crewAssigned === 'E2E Crew' && sent.scheduledDate === '2026-10-26' && sent.opsStage === 'scheduled', JSON.stringify(sent && { id: sent.id === targetId ? 'the job' : sent.id, status: sent.status, crewAssigned: sent.crewAssigned, scheduledDate: sent.scheduledDate, opsStage: sent.opsStage }))
+  const sent = jobSaves.find(b => b && b.jobId === targetId)
+  check('Smart Schedule: Schedule books the job through Schedule install, with its crew and start day', !!sent && sent.crew === 'E2E Crew' && sent.start === '2026-10-26', JSON.stringify(sent))
   if (SHOTS) await p.screenshot({ path: `${SHOTS}/dev-smart-schedule.png` })
   await c.close()
 

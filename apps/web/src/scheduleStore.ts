@@ -21,6 +21,7 @@ import {
 import type { ScheduledJob, ScheduleSettings, RainDayEntry } from './SchedulePage'
 import { createVersionedFlusher, versionedSave } from './syncGuard'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { fetchWithAuth } from './crmAuth'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
@@ -164,6 +165,36 @@ export function saveSchedule(jobs: ScheduledJob[], settings: ScheduleSettings): 
   cacheSettings = settings
   emit(SETTINGS_EVT)
   flusher.schedule()
+}
+
+/**
+ * Read the board again from the server (the server changed it: an install
+ * scheduled, a rain day). Changes still waiting on this device stay on top.
+ * Quiet with no signal. The rain log comes too.
+ */
+export async function reloadSchedule(): Promise<void> {
+  if (!hydrated) { await initSchedule(); return }
+  try {
+    const [res, rain] = await Promise.all([
+      fetchWithAuth(`${AUTH_API}/api/schedule/board`, { method: 'GET' }),
+      fetchRainLog(),
+    ])
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok || !json?.data) return
+    const board = pickBoard(json.data)
+    cacheSettings = { ...cacheSettings, workDays: board.settings.workDays, crews: board.settings.crews }
+    cacheJobs = board.jobs
+    flusher.loaded(boardNow(), typeof json.data.version === 'number' ? json.data.version : 0)
+    if (rain) cacheRain = rain.map(r => ({ id: r.id, jobId: r.jobId, clientName: r.clientName, originalDate: r.originalDate, rescheduleDate: r.rescheduleDate, reason: r.reason, flaggedAt: r.flaggedAt }))
+    emit(SETTINGS_EVT)
+    emit(RAIN_EVT)
+  } catch { /* no signal: the next read gets it */ }
+}
+
+/** The every minute read (liveRefresh): only when nothing on this device is waiting to save. */
+export async function refreshSchedule(): Promise<void> {
+  if (!hydrated || flusher.isDirty()) return
+  await reloadSchedule()
 }
 
 export function loadRainLog(): RainDayEntry[] {
