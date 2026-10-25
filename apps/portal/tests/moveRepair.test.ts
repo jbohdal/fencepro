@@ -203,9 +203,9 @@ describe('checks (spec 4)', () => {
 })
 
 describe('who sees costs (spec 7)', () => {
-  test('owner, admin and manager see the breakdown; office (since Oct 25, 2026), salesman, crew and customers do not', () => {
-    expect(['super_admin', 'admin', 'manager'].map(seesCosts)).toEqual([true, true, true])
-    expect(['office_staff', 'sales_rep', 'field_crew', null, undefined, 'customer'].map(seesCosts)).toEqual([false, false, false, false, false, false])
+  test('owner, admin, manager, office and salesman see the breakdown (Oct 25, 2026); crew and customers do not', () => {
+    expect(['super_admin', 'admin', 'manager', 'office_staff', 'sales_rep'].map(seesCosts)).toEqual([true, true, true, true, true])
+    expect(['field_crew', null, undefined, 'customer'].map(seesCosts)).toEqual([false, false, false, false])
   })
   test('the customer proposal carries plain words and one price per option, the cost lines only inside the snapshot the server strips', () => {
     const w = priceMove(common(style(WV)), mv({}), straight(100))

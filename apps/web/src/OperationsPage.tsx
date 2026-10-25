@@ -117,6 +117,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   const choices = pickable()
   if (stage && !choices.some(s => s.id === stage.id)) choices.push(stage)
   const isJobSource = job.source === 'job'
+  const seesPrices = can('prices.view')
 
   return (
     <div className="fixed inset-y-0 right-0 w-full lg:w-[480px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col overflow-hidden">
@@ -128,7 +129,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         </div>
         <div className="flex items-center gap-1">
           {/* Change order on a signed job: the yard drawing or typed lines (ChangeOrders.tsx). */}
-          {isJobSource && job.rawJob?.quoteId && <ChangeOrderButton quoteId={job.rawJob.quoteId} customerName={job.customerName} className="btn btn-secondary btn-sm min-h-[48px]" />}
+          {isJobSource && seesPrices && job.rawJob?.quoteId && <ChangeOrderButton quoteId={job.rawJob.quoteId} customerName={job.customerName} className="btn btn-secondary btn-sm min-h-[48px]" />}
           <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl">×</button>
         </div>
       </div>
@@ -196,13 +197,14 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {isJobSource && job.rawJob && <FinalWalkthroughPanel job={job.rawJob} />}
         {isJobSource && <JobQuotedVsActual jobId={job.id} />}
         {/* The payment schedule from the contract, Payment received and receipts (Payments.tsx). */}
-        {isJobSource && <Section title="Payments"><PaymentsPanel jobId={job.id} /></Section>}
+        {/* The Installer sees the work, never a price (Jonathan, Oct 25, 2026): no payments, contract, change orders or history of them. */}
+        {isJobSource && seesPrices && <Section title="Payments"><PaymentsPanel jobId={job.id} /></Section>}
         {/* Warranty and service requests on this fence (ServiceRequests.tsx). */}
         {isJobSource && <Section title="Warranty and service"><div className="space-y-2" data-job-service><ServiceRequestButton jobId={job.id} /><ServiceTicketList jobId={job.id} title="Requests on this job" /></div></Section>}
         {/* The warranty it was signed with, its dates, and whether service calls on it are covered. */}
         {isJobSource && job.rawJob && <JobWarranty job={job.rawJob} />}
         {/* The signed contract and signed change orders of this job, as stored at signing (SignedDocuments.tsx). */}
-        {isJobSource && <div className="mt-3"><SignedDocuments which={{ jobId: job.id }} heading="Documents" /></div>}
+        {isJobSource && seesPrices && <div className="mt-3"><SignedDocuments which={{ jobId: job.id }} heading="Documents" /></div>}
 
         {isJobSource && (
           <Section title="Install packet">
@@ -228,22 +230,22 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         </Section>
 
         {/* Pricing & Payment */}
-        <Section title="Financial">
+        {seesPrices && <Section title="Financial">
           <Field label="Contract Value" value={fmt(job.contractValue)} />
           <Field label="Amount Paid" value={fmt(job.amountPaid)} />
           <Field label="Outstanding" value={fmt(job.contractValue - job.amountPaid)} />
           <Field label="Payment Status" value={PAYMENT_WORDS[job.paymentStatus] ?? job.paymentStatus} />
-        </Section>
+        </Section>}
 
         {/* Change orders: the signed quote is locked, changes to the work go here; approved ones are in the contract value. */}
-        {isJobSource && job.rawJob?.quoteId && (
+        {isJobSource && seesPrices && job.rawJob?.quoteId && (
           <Section title="Change Orders">
             <ChangeOrderPanel quoteId={job.rawJob.quoteId} originalPrice={job.rawJob.quotePrice || 0} customerName={job.customerName} />
           </Section>
         )}
 
         {/* The job's history: contract, change orders, payment schedule, pull sheet revisions; a schedule warning (ChangeOrders.tsx). */}
-        {isJobSource && <Section title="Job history"><JobTimeline jobId={job.id} /></Section>}
+        {isJobSource && seesPrices && <Section title="Job history"><JobTimeline jobId={job.id} /></Section>}
 
         {/* Notes */}
         <Section title="Notes">

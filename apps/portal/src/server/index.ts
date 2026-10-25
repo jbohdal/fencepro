@@ -89,7 +89,7 @@ import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
 import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
-import { hideCostsFromLimitedLogins } from './lib/costRedact.js'
+import { hideCostsFromLimitedLogins, refuseNoPrices } from './lib/costRedact.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
 import { ensureTwoOptionTiersAll } from './lib/tierSets.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
@@ -247,18 +247,18 @@ app.use('/api', requireLiveSession)
 app.use('/api/auth', authRoutes)
 app.use('/api/dashboard', dashboardRoutes)
 app.use('/api/tickets', ticketRoutes)
-app.use('/api/invoices', invoiceRoutes)
+app.use('/api/invoices', refuseNoPrices, invoiceRoutes)
 app.use('/api/documents', documentRoutes)
-app.use('/api/contracts', contractRoutes)
+app.use('/api/contracts', refuseNoPrices, contractRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/sync', syncRoutes)
 app.use('/api/chat', chatRoutes)
 app.use('/api/leads', leadRoutes)
 app.use('/api/appointments', appointmentRoutes)
-app.use('/api/pricing-rules', pricingRoutes)
+app.use('/api/pricing-rules', refuseNoPrices, pricingRoutes)
 app.use('/api/quotes', quoteApiRoutes)
 app.use('/api/saved-quotes', savedQuoteRoutes)
-app.use('/api/quote-pricing', quotePricingRoutes)
+app.use('/api/quote-pricing', refuseNoPrices, quotePricingRoutes)
 app.use('/api/style-photos', stylePhotos)
 app.use('/api/tier-sets', tierSetRoutes)
 app.use('/api/voice', voiceRoutes)
@@ -282,9 +282,9 @@ app.use('/api/job-costing', jobCostingRoutes)  // Quoted vs actual: takeoff afte
 app.use('/api/pull-sheets', pullSheetRoutes)  // A customer's pull sheets from their quotes and jobs (lib/customerPullSheets.ts)
 app.use('/api/warranties', warrantyRoutes)  // A job's warranty, service call coverage, the signed contract PDF (lib/warranties.ts)
 app.use('/api/service-tickets', serviceTicketRoutes)  // Warranty and service requests (lib/serviceTickets.ts)
-app.use('/api/signed-documents', signedDocumentRoutes)  // Stored signed contract and change order PDFs (lib/signedDocuments.ts)
-app.use('/api/change-orders', changeOrderRoutes)  // Change orders on signed quotes (lib/changeOrders.ts)
-app.use('/api/payments', paymentRoutes)  // Payment schedules, payments and receipts (lib/contractBilling.ts)
+app.use('/api/signed-documents', refuseNoPrices, signedDocumentRoutes)  // Stored signed contract and change order PDFs (lib/signedDocuments.ts)
+app.use('/api/change-orders', refuseNoPrices, changeOrderRoutes)  // Change orders on signed quotes (lib/changeOrders.ts)
+app.use('/api/payments', refuseNoPrices, paymentRoutes)  // Payment schedules, payments and receipts (lib/contractBilling.ts)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/pipeline', pipelineRoutes)
 app.use('/api/inventory-state', inventoryStateRoutes)

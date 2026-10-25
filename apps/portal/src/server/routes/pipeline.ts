@@ -21,6 +21,7 @@ import { pipelineChangeRefusal, refuse, removedIds, roleOf, requireCan } from '.
 import { DeleteError, deleteRecord, logRemovedCards, removedIdsAmong, setArchived } from '../lib/deletion.js'
 import { loadPipelineStages } from '../lib/pipelineStages.js'
 import { stageById } from '../lib/pipelineStageModel.js'
+import { hidesPrices, hideFor, restoreCosts } from '../lib/costRedact.js'
 import { boardPages, columnPage, findCard, loadBoard, loadValueInputs, searchCards } from '../lib/pipelinePages.js'
 
 const router = Router()
@@ -156,6 +157,7 @@ router.put('/', async (req: any, res) => {
     const fields = { leads: oneById(JSON.parse(JSON.stringify(data.leads)) as any[]) }
     // Stage rules: a card cannot enter a stage whose requirements are not met (the app puts it back and says what is missing).
     const prev = await prisma.pipelineState.findUnique({ where: { accountId } })
+    fields.leads = keepCardPrices(req, fields.leads, (prev?.leads as any[]) ?? [])
     const unwelcome = await cardsNotWelcome(accountId, prev, fields.leads)
     if (unwelcome.size) fields.leads = fields.leads.filter(l => !unwelcome.has(l?.id))
     // A whole board saved by a limited role may add and move cards, never drop one.
@@ -197,6 +199,13 @@ router.put('/', async (req: any, res) => {
   }
 })
 
+/** The Installer's cards came without prices (lib/costRedact.ts): each card's job value and prices are put back as saved. */
+function keepCardPrices(req: any, leads: any[], saved: any[]): any[] {
+  if (!hidesPrices(roleOf(req))) return leads
+  const byId = new Map((saved ?? []).map((l: any) => [l?.id, l]))
+  return leads.map(l => (l && byId.has(l.id) ? restoreCosts(l, byId.get(l.id), hideFor(roleOf(req))) : l))
+}
+
 // One card moved is one card sent, not the whole board (see lib/pipelineDelta).
 const deltaSchema = z.object({
   upsert: z.array(z.object({
@@ -216,6 +225,8 @@ router.patch('/', async (req: any, res) => {
     const current = await prisma.pipelineState.findUnique({ where: { accountId } })
     // Same rule as a whole save: only onto the version it was built on.
     if (!current || current.version !== base) { refuseStale(res, current, current?.version ?? 0); return }
+    const kept = keepCardPrices(req, delta.upsert.map(u => u.lead), (current.leads as any[]) ?? [])
+    delta.upsert = delta.upsert.map((u, i) => ({ ...u, lead: kept[i] }))
     const unwelcome = await cardsNotWelcome(accountId, current, delta.upsert.map(u => u.lead))
     if (unwelcome.size) delta.upsert = delta.upsert.filter(u => !unwelcome.has(u.lead.id))
     // Adding and moving cards is for everyone; removing a card is not.

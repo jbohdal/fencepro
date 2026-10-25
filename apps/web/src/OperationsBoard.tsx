@@ -15,6 +15,7 @@
  * unchanged.
  */
 
+import { can } from './permissions'
 import { stageName as pipelineStageName, roleId as pipelineRoleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
 import { loadSchedule } from './scheduleStore'
@@ -421,7 +422,8 @@ export default function OperationsBoard() {
       key: lane.key,
       label: lane.label,
       items,
-      total: unscheduled ? 0 : items.reduce((s, j) => s + (j.contractValue || 0), 0),
+      // The Installer sees no prices: no lane totals.
+      total: unscheduled || !can('prices.view') ? 0 : items.reduce((s, j) => s + (j.contractValue || 0), 0),
       colorHex: lane.color,
       icon: lane.isComplete ? '✓' : undefined,
       muted: lane.muted,
@@ -469,7 +471,7 @@ export default function OperationsBoard() {
           { label: 'Active Jobs',         value: String(analytics.activeCount) },
           { label: 'Scheduled This Week', value: String(analytics.scheduledThisWeek) },
           { label: 'Unscheduled',         value: String(analytics.unscheduledCount), highlight: analytics.unscheduledCount > 0 ? 'orange' : undefined },
-          { label: 'Avg Job Value',       value: fmtUSD(analytics.avgValue) },
+          ...(can('prices.view') ? [{ label: 'Avg Job Value', value: fmtUSD(analytics.avgValue) }] : []),
           { label: 'On-Time Rate',        value: `${analytics.onTimeRate}%` },
           { label: 'Weather Alerts',      value: String(analytics.weatherAlerts), highlight: analytics.weatherAlerts > 0 ? 'orange' : undefined },
         ]} />
@@ -627,7 +629,7 @@ function OpsCard({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-gray-900 truncate">{job.customerName}</p>
         </div>
-        <p className="text-sm font-bold text-emerald-600 shrink-0">{fmtUSD(job.contractValue)}</p>
+        {can('prices.view') && <p className="text-sm font-bold text-emerald-600 shrink-0">{fmtUSD(job.contractValue)}</p>}
       </div>
       <p className="text-xs text-gray-500 truncate">
         {city}{job.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{styleLabel(job.fenceType)}</span></> : null}

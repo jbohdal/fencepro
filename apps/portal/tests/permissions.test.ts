@@ -31,11 +31,11 @@ describe('the role table', () => {
     for (const a of ACTIONS) expect(can('manager', a)).toBe(!['users.manage', 'system', 'records.delete', 'lists.change', 'billing.amounts'].includes(a))
   })
 
-  test('salesman: quotes and recording payments among the guarded actions, no costs; crew: none; office: operations and warranty decisions, no costs', () => {
-    expect(ACTIONS.filter(a => can('sales_rep', a)).sort()).toEqual(['payments.record', 'quotes.change', 'records.archive'])
+  test('salesman: quotes, payments, costs and prices; crew: nothing, not even prices; office: operations, costs and warranty decisions', () => {
+    // Jonathan, Oct 25, 2026: the office and the Salesman see costs; the installer sees no price.
+    expect(ACTIONS.filter(a => can('sales_rep', a)).sort()).toEqual(['costs.view', 'payments.record', 'prices.view', 'quotes.change', 'records.archive'])
     expect(ACTIONS.filter(a => can('field_crew', a))).toEqual([])
-    // The office never sees a cost or a margin, and vendor invoices are supplier prices (walkthrough round 1, Oct 25, 2026).
-    expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'inventory.stock', 'ops.delete', 'packets.change', 'payments.record', 'permits.change', 'quotes.change', 'records.archive', 'schedule.change', 'service.decide'])
+    expect(ACTIONS.filter(a => can('office_staff', a)).sort()).toEqual(['billing.change', 'costs.view', 'inventory.stock', 'invoices.manage', 'ops.delete', 'packets.change', 'payments.record', 'permits.change', 'prices.view', 'quotes.change', 'records.archive', 'schedule.change', 'service.decide'])
     for (const r of ['sales_rep', 'field_crew', 'office_staff']) {
       for (const a of ['settings.change', 'lists.change', 'prices.change', 'users.manage', 'records.delete', 'automations.change', 'system'] as Action[]) expect(can(r, a)).toBe(false)
     }

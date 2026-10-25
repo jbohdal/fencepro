@@ -252,22 +252,20 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     expect(list.json.data.map((c: any) => [c.number, c.status])).toEqual([[1, 'void'], [2, 'approved']])
   })
 
-  test('a Salesman: makes a change order, cannot approve one, and never gets a cost field', async () => {
+  // A Salesman sees costs since Oct 25, 2026 (Jonathan); what is checked here is the lock and the approval.
+  test('a Salesman: makes a change order, cannot approve one', async () => {
     const q = await soldQuote()
     const made = await call(salesman, 'POST', '/api/change-orders', { quoteId: q.id, lines: [{ id: 's1', description: 'Add 8 ft', amountCents: 12_000 }] })
     expect(made.status).toBe(201)
-    expect(costKeys(made.json)).toEqual([])
     const approve = await call(salesman, 'PATCH', `/api/change-orders/${made.json.data.id}`, { baseVersion: 1, status: 'approved' })
     expect(approve.status).toBe(403)
     expect((await call(salesman, 'POST', '/api/change-orders', { quoteId: q.id, status: 'approved', lines: [{ id: 's2', description: 'x', amountCents: 1 }] })).status).toBe(403)
     const list = await call(salesman, 'GET', `/api/change-orders?quoteId=${q.id}`)
     expect(list.json.data).toHaveLength(1)
-    expect(costKeys(list.json)).toEqual([])
     // Their save that would reprice the signed quote: refused, and the answer carries no cost.
     const r = await call(salesman, 'PATCH', `/api/saved-quotes/${q.id}`, { runs: [96], priceRequest: { fenceStyle: q.fenceStyle, runs: [{ ft: 96, rail: 'auto' }], corners: 0, ends: 2, walkGates: 1, dblGates: 0 } })
     expect(r.status).toBe(409)
     expect(r.json.error).toBe(LOCKED_MESSAGE)
-    expect(costKeys(r.json)).toEqual([])
     // Their note on it: saved, costs as they were.
     expect((await call(salesman, 'PATCH', `/api/saved-quotes/${q.id}`, { notes: 'salesman note' })).status).toBe(200)
     const after = await prisma.savedQuote.findUnique({ where: { id: q.id } })

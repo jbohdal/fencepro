@@ -90,7 +90,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('staff sign in by cookie (dev dat
     secret = (await import('../src/server/lib/secrets.js')).resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
     const account = await prisma.crmAccount.create({ data: { name: `Test staff-cookie-${stamp}`, status: 'active' } })
     accountId = account.id
-    for (const [who, role] of [['owner', 'super_admin'], ['sales', 'sales_rep'], ['other', 'office_staff'], ['gone', 'office_staff']] as const) {
+    for (const [who, role] of [['owner', 'super_admin'], ['sales', 'sales_rep'], ['other', 'office_staff'], ['gone', 'office_staff'], ['crew', 'field_crew']] as const) {
       const u = await prisma.crmUser.create({ data: {
         email: emailOf(who), firstName: 'Test', lastName: who, role, status: 'active', mustChangePassword: false,
         passwordHash: await bcrypt.hash(pw, 4), crmAccountId: accountId,
@@ -377,9 +377,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('staff sign in by cookie (dev dat
     expect((await call('GET', '/api/crm-auth/me', { cookie: value })).status).toBe(401)
   })
 
-  test('THE TRAP: a salesman signed in by cookie gets no cost on any cost bearing endpoint; the owner does', async () => {
+  // Since Oct 25, 2026 the Salesman sees costs (Jonathan); the installer sees no cost and no price.
+  test('THE TRAP: an installer signed in by cookie gets no cost on any cost bearing endpoint; the owner does', async () => {
     const owner = await signIn('owner')
-    const sales = await signIn('sales')
+    const sales = await signIn('crew')
     const endpoints = [
       '/api/saved-quotes', `/api/saved-quotes/${quoteId}`,
       '/api/saved-jobs', `/api/saved-jobs/${jobId}`,
@@ -397,7 +398,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('staff sign in by cookie (dev dat
       const s = await call('GET', p, { cookie: sales })
       expect([200, 403, 404], `${p}: ${s.status} ${JSON.stringify(s.json).slice(0, 200)}`).toContain(s.status)
       const leaked = [...keysOf(s.json)].filter(isCostKey)
-      expect(leaked, `${p} leaked to the salesman: ${leaked.join(', ')}`).toEqual([])
+      expect(leaked, `${p} leaked to the installer: ${leaked.join(', ')}`).toEqual([])
       if (p === '/api/kv') expect(Object.keys(s.json.data ?? {})).not.toContain('fencepro_jobcosting')
       if (p === '/api/business-state') {
         expect(s.json.data.budget).toBeUndefined()
@@ -406,7 +407,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('staff sign in by cookie (dev dat
     }
     // The control: the same records do carry costs for the owner.
     for (const k of ['materialCost', 'laborCost', 'totalCOGS', 'gmPct', 'unitCost']) expect([...ownerSaw], k).toContain(k)
-    // The salesman is the cookie's login, whatever role a token might claim: a forged header is not mixed in.
+    // The installer is the cookie's login, whatever role a token might claim: a forged header is not mixed in.
     const forged = jwt.sign({ sub: ids.owner, role: 'super_admin', crmAccountId: accountId }, 'not-the-secret')
     const mixed = await call('GET', `/api/saved-quotes/${quoteId}`, { cookie: sales, bearer: forged })
     expect([...keysOf(mixed.json)].filter(isCostKey)).toEqual([])

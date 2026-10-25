@@ -6,8 +6,7 @@
  *                                               deleting records (Archive instead)
  *   office_staff                                runs the office: schedule, billing, vendors,
  *                                               stock counts, permits, crew links, quotes,
- *                                               customers, leads and the pipeline; prices
- *                                               only, never a cost or margin;
+ *                                               customers, leads and the pipeline; sees costs;
  *                                               may remove operational entries (schedule
  *                                               entries, rain days, photos, files, notes);
  *                                               archives customers, cards and jobs.
@@ -71,14 +70,20 @@ export type Action =
   | 'records.import'
   /**
    * See costs: material and labor cost, sub rates, wages, overhead, margins,
-   * profit, Target Profit, commission and "where every dollar goes". Without
-   * it (office, Salesman, Installer) the server sends prices only (lib/costRedact.ts).
+   * profit, Target Profit, commission and "where every dollar goes". Owner,
+   * admin, manager, office and Salesman; the Installer gets none (lib/costRedact.ts).
    */
   | 'costs.view'
   /**
+   * See prices: a quote's or job's price, job value, deposits, payments and
+   * balances. Everyone but the Installer (Field Crew), who sees the work only:
+   * the server sends that login no price and no cost (lib/costRedact.ts).
+   */
+  | 'prices.view'
+  /**
    * Vendor invoices: upload them, fix and match their lines, OK a big price
-   * change, undo one; see vendor price history. Owner, admin and manager;
-   * never the office, a Salesman or an Installer (they see no costs).
+   * change, undo one; see vendor price history. Owner, admin, manager and
+   * office; never a Salesman or Installer.
    */
   | 'invoices.manage'
   /**
@@ -101,17 +106,17 @@ export type Action =
 const FULL: Action[] = [
   'settings.change', 'prices.change', 'automations.change', 'records.archive', 'ops.delete',
   'schedule.change', 'billing.change', 'finance.change', 'quotes.change', 'permits.change',
-  'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'invoices.manage', 'payments.record', 'service.decide',
+  'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'prices.view', 'invoices.manage', 'payments.record', 'service.decide',
 ]
 
 const ALLOWED: Record<StaffRole, ReadonlySet<Action>> = {
   super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   manager: new Set(FULL),
-  // The office never sees a cost or a margin (walkthrough round 1, Oct 25, 2026): no costs.view, and no
-  // vendor invoices (supplier prices). The server sends it prices only, as for a Salesman (lib/costRedact.ts).
-  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'payments.record', 'service.decide']),
-  sales_rep: new Set(['quotes.change', 'records.archive', 'payments.record']),
+  // Jonathan, Oct 25, 2026: "office staff like me and sales i think its ok to see cost but installer and
+  // subcontractor no see price". The office and the Salesman see costs; the installer sees no price and no cost.
+  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'prices.view', 'invoices.manage', 'payments.record', 'service.decide']),
+  sales_rep: new Set(['quotes.change', 'records.archive', 'payments.record', 'costs.view', 'prices.view']),
   field_crew: new Set([]),
 }
 
@@ -144,6 +149,7 @@ export const REFUSAL: Record<Action, string> = {
   'inventory.stock': 'Your role cannot change inventory. Ask Jonathan.',
   'records.import': 'Your role cannot import records. Ask Jonathan.',
   'costs.view': 'Your role sees prices, not costs. Ask Jonathan.',
+  'prices.view': 'Your role does not see prices. Ask the office.',
   'invoices.manage': 'Only the owner and the office can see vendor invoices. Ask Jonathan.',
   'payments.record': 'Your role cannot record payments. Ask Jonathan.',
   'billing.amounts': 'Only the owner or an admin can change an invoice amount or the contract amount.',

@@ -7,17 +7,17 @@
 //     - opens a pipeline card whose customer has notes (it used to blank the
 //       whole app: dates came out as {} for a prices-only login); the notes,
 //       quotes and history show; no "Something went wrong" message;
-//     - opens the quote from the card: Proposal with Copy link / Text it / Email it;
+//     - opens the quote from the card: Proposal with Copy link / Text it / Email it, and its margin (she sees costs);
 //     - a quote she saves with no rep is hers (sales rep = her name);
 //     - Today opens on her own day; her task list has only tasks named for her.
 //   Office Staff (computer): Customers, Sales Pipeline, Quotes, Billing, Portal
 //     and Schedule open; "Phone call" and "Walk-in" lead sources in the new
-//     customer form; texting consent saves; no margin on a quote.
+//     customer form; texting consent saves; sees a quote's margin.
 //   Installer (iPhone-size Safari engine): lands on My installs; today's
 //     install with the customer's notes (no prices), Start, Finish (on the
 //     job, with who), makes and opens the crew packet (notes once, the
-//     customer's notes on it), photos; bottom tabs only to pages it can open;
-//     More opens its menu.
+//     customer's notes on it), photos; the job page has no price, payment or
+//     contract; bottom tabs only to pages it can open; More opens its menu.
 //   No page errors anywhere.
 // Dev only (port 4001). Removes the logins, customer, card, quotes, job and schedule entry it made.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
@@ -125,7 +125,8 @@ try {
     await page.locator(`[data-card-quote="${quote.json.data?.id}"]`).click()
     await page.locator('[data-quote-drawer]').waitFor({ timeout: 15000 }).catch(() => {})
     check(`${where}: the quote shows Proposal with Copy link, Text it and Email it`, await page.locator('[data-quote-drawer] [data-proposal-send]').count() === 1 && await page.locator('[data-proposal-text]').isVisible() && await page.locator('[data-proposal-copy]').isVisible() && await page.locator('[data-quote-drawer] button:has-text("Email it")').count() === 1)
-    check(`${where}: no margin on her quote`, !/margin/i.test(await page.locator('[data-quote-drawer]').innerText()))
+    // She sees costs since Oct 25, 2026 (Jonathan): the margin is on her quote.
+    check(`${where}: her quote shows its margin`, /margin/i.test(await page.locator('[data-quote-drawer]').innerText()))
     await go(page, '/today')
     await noCrash(page, `${where}: Today`)
     const me = (await call(sales.token, 'GET', '/api/crm-auth/me')).json.data
@@ -158,7 +159,7 @@ try {
     await go(page, `/quotes?qv=${quote.json.data?.id}`)
     await page.locator('[data-quote-drawer]').waitFor({ timeout: 15000 }).catch(() => {})
     const drawer = await page.locator('[data-quote-drawer]').innerText().catch(() => '')
-    check('office: the quote shows, with Proposal and no margin or cost', !!drawer && !/margin|Material cost|Total cost/i.test(drawer) && await page.locator('[data-quote-drawer] [data-proposal-send]').count() === 1)
+    check('office: the quote shows, with Proposal and its margin (the office sees costs)', /margin/i.test(drawer) && await page.locator('[data-quote-drawer] [data-proposal-send]').count() === 1)
     const ls = (await call(office.token, 'GET', '/api/option-lists/leadSources')).json.data
     check('office: "Phone call" and "Walk-in" are built-in lead sources offered in pickers', ['Phone call', 'Walk-in'].every(w => (ls?.options ?? []).some(o => o.id === w && !o.hidden && o.builtIn)))
     await ctx.close()
@@ -198,6 +199,12 @@ try {
       check('crew packet: no price', !/\$\s*\d/.test(t))
       await packet.close()
     }
+    // The job page: the work, no price (no Financial, Payments, Change Orders or contract).
+    await go(page, `/operations?job=${made.jobId}`)
+    const jobText = await page.locator('body').innerText()
+    check('installer: the job page shows no price, payment or contract', !/\$\s?(\d|NaN)|Contract Value|Amount Paid|Outstanding/.test(jobText) && /Install packet/.test(jobText), (jobText.match(/.{0,30}\$\s?(\d|NaN).{0,10}/) || [''])[0])
+    await go(page, '/my-installs')
+    await c.locator('[data-install-photos]').waitFor({ timeout: 15000 }).catch(() => {})
     await c.locator('[data-install-photos]').click()
     check('installer: photos open on the install (progress, completed)', await c.locator('text=Progress and completed photos').count() > 0)
     // Bottom tabs: only pages this login can open; each one opens.

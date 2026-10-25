@@ -146,9 +146,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     expect(co.json.data.work).toMatchObject({ footage: 124, walkGates: 1, sections: 16 })
     expect(co.json.data.work.pullSheet.some((l: any) => 'unitCost' in l)).toBe(false) // quantities only on every phone
     expect(co.json.data.costDelta.totalCents).toBeGreaterThan(0)
-    // A Salesman's phone never gets the cost difference.
+    // A Salesman sees costs since Oct 25, 2026 (Jonathan): the cost difference too.
     const asSales = await call(sales, 'GET', `/api/change-orders?jobId=${jobId}`)
-    expect(JSON.stringify(asSales.json)).not.toMatch(/costDelta|unitCost/)
+    expect(JSON.stringify(asSales.json)).toMatch(/costDelta/)
 
     // The customer signs on the office's phone.
     const signed = await call(owner, 'POST', `/api/change-orders/${co.json.data.id}/sign`, { name: 'Pat Customer', signature: SIG })

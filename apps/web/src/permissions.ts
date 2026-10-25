@@ -16,9 +16,11 @@ export type Action =
   | 'prices.change' | 'users.manage' | 'system' | 'automations.change'
   | 'records.delete' | 'records.archive' | 'ops.delete' | 'schedule.change' | 'billing.change' | 'finance.change'
   | 'quotes.change' | 'permits.change' | 'packets.change' | 'inventory.stock' | 'records.import'
-  /** See costs, margins, sub rates and profit; office, Salesman and Installer see prices only (the server never sends them costs). */
+  /** See costs, margins, sub rates and profit: owner, admin, manager, office and Salesman; never the Installer. */
   | 'costs.view'
-  /** Vendor invoices: upload, review, match, OK, undo; vendor price history. Owner, admin and manager. */
+  /** See prices (quote and job prices, job value, deposits, payments, balances): everyone but the Installer. */
+  | 'prices.view'
+  /** Vendor invoices: upload, review, match, OK, undo; vendor price history. Owner, admin, manager and office. */
   | 'invoices.manage'
   /** Record a customer's payment and hand them the receipt: owner, admin, manager, office and Salesman. */
   | 'payments.record'
@@ -35,17 +37,17 @@ export type Action =
 const FULL: Action[] = [
   'settings.change', 'prices.change', 'automations.change', 'records.archive', 'ops.delete',
   'schedule.change', 'billing.change', 'finance.change', 'quotes.change', 'permits.change',
-  'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'invoices.manage', 'payments.record', 'service.decide',
+  'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'prices.view', 'invoices.manage', 'payments.record', 'service.decide',
 ]
 
 export const ALLOWED: Record<CrmRole, ReadonlySet<Action>> = {
   super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   manager: new Set(FULL),
-  // The office never sees a cost or a margin (walkthrough round 1, Oct 25, 2026): no costs.view, and no
-  // vendor invoices (supplier prices). The server sends it prices only, as for a Salesman (lib/costRedact.ts).
-  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'payments.record', 'service.decide']),
-  sales_rep: new Set(['quotes.change', 'records.archive', 'payments.record']),
+  // Jonathan, Oct 25, 2026: "office staff like me and sales i think its ok to see cost but installer and
+  // subcontractor no see price". The office and the Salesman see costs; the installer sees no price and no cost.
+  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'prices.view', 'invoices.manage', 'payments.record', 'service.decide']),
+  sales_rep: new Set(['quotes.change', 'records.archive', 'payments.record', 'costs.view', 'prices.view']),
   field_crew: new Set([]),
 }
 
@@ -69,6 +71,7 @@ export const REFUSAL: Record<Action, string> = {
   'inventory.stock': 'Your role cannot change inventory. Ask Jonathan.',
   'records.import': 'Your role cannot import records. Ask Jonathan.',
   'costs.view': 'Your role sees prices, not costs. Ask Jonathan.',
+  'prices.view': 'Your role does not see prices. Ask the office.',
   'invoices.manage': 'Only the owner and the office can see vendor invoices. Ask Jonathan.',
   'payments.record': 'Your role cannot record payments. Ask Jonathan.',
   'billing.amounts': 'Only the owner or an admin can change an invoice amount or the contract amount.',

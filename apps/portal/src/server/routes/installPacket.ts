@@ -36,6 +36,7 @@ import { issueLabel } from '../lib/serviceTicketModel.js'
 import { isYmd, usDate, shortDayWords } from '../lib/installDays.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { customerNotesForJob, installTimes, recordInstallTime } from '../lib/crewInstall.js'
+import { withoutMoney } from '../lib/costRedact.js'
 
 /**
  * The crew days, each one: "3 crew days: Thu 12/3, Mon 12/7, Tue 12/8" (from the Schedule), else
@@ -257,7 +258,8 @@ packetPublic.get('/:token', async (req, res) => {
 
   const job_ = job!
   const map = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job_.customerAddress)}`
-  const crewNotes = (s.crewNotes ?? []).filter(Boolean)
+  // The crew never sees a price: a dollar amount typed in a note is left out (lib/costRedact.ts).
+  const crewNotes = (s.crewNotes ?? []).filter(Boolean).map(withoutMoney)
   // What the customer told us ("have 2 dogs"), read now so a note added after the packet was sent shows (lib/crewInstall.ts).
   const fromCustomer = await customerNotesForJob(p.accountId, job_.crmContactId).catch(() => [] as string[])
   const body = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.companyName || 'Getter Done Fence')}</p><p class="small">Install packet${s.companyPhone ? ` · Office <a href="tel:${esc(s.companyPhone.replace(/[^\d+]/g, ''))}">${esc(phone(s.companyPhone))}</a>` : ''}</p></div>
@@ -267,11 +269,11 @@ packetPublic.get('/:token', async (req, res) => {
     <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
     <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">Install: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(job_.crewAssigned)}` : ''}</p>
     ${coChange ? `<section class="notes" data-packet-change-order><h2>Changed: change order CO-${coChange.number}</h2><p><b>${esc(coChange.what)}</b> (approved ${esc(coChange.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${coChange.rev ? `, contract rev ${coChange.rev}` : ''}). The fence, runs and pull sheet below are the new ones.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(l.item)}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
-    ${s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(onceEach(s.notes)).replace(/\n/g, '<br>')}</p></section>` : ''}
+    ${s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(withoutMoney(onceEach(s.notes))).replace(/\n/g, '<br>')}</p></section>` : ''}
     ${fromCustomer.length ? `<section class="notes" data-packet-customer-notes><h2>Customer notes</h2><ul>${fromCustomer.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${await workOrders(work)}
-    ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
+    ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(withoutMoney(x))}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
     <section><h2>811 locate</h2>${s.work?.needs811 ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
       <div class="row"><label class="field">Ticket number<input id="ticket" value="${esc(p.locateTicket ?? '')}" maxlength="60" inputmode="numeric"></label>
       <label class="field">Date<input id="ldate" type="date" value="${esc(p.locateDate ?? '')}"></label></div>
@@ -354,7 +356,7 @@ async function workOrders(work: Awaited<ReturnType<typeof coveredWorkOn>>): Prom
     parts.push(`<section class="notes" data-packet-warranty-work="${esc(t.id)}"><h2>Warranty work order: $0, no charge to the customer</h2>
       <p><b>${esc(issueLabel(t.issue))}</b>${t.warrantyName ? ` · Covered by the ${esc(t.warrantyName)}` : ''}</p>
       <p>Visit: ${esc(visit)}${appt?.assignedTo ? ` · ${esc(appt.assignedTo)}` : ''}</p>
-      ${t.notes ? `<p>${esc(t.notes).replace(/\n/g, '<br>')}</p>` : ''}
+      ${t.notes ? `<p>${esc(withoutMoney(t.notes)).replace(/\n/g, '<br>')}</p>` : ''}
       ${media.length ? `<div class="media">${media.map(m => m.kind === 'video'
         ? `<figure><video src="${esc(fix(m.previewUrl ?? m.url))}" controls playsinline preload="none"></video><figcaption>From the customer</figcaption></figure>`
         : `<figure><a href="${esc(fix(m.url))}"><img src="${esc(fix(m.thumbUrl ?? m.url))}" alt="The customer's photo" loading="lazy"></a><figcaption>From the customer${m.caption ? `: ${esc(m.caption)}` : ''}</figcaption></figure>`).join('')}</div>` : ''}

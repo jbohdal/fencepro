@@ -145,9 +145,9 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'P&L Statement',      icon: TrendingUp, roles: ['owner', 'admin'] },
       { name: 'Balance Sheet',      icon: Scale, roles: ['owner', 'admin'] },
       // Cash Flow comes back here once its statement is built.
-      // The office runs Billing (customer invoices and payments); vendor bills are costs, so Accounts Payable is not theirs.
+      // The office runs Billing (customer invoices and payments) and Accounts Payable.
       { name: 'Billing',            icon: CreditCard, roles: ['owner', 'admin', 'ops_manager'] },
-      { name: 'Accounts Payable',   icon: Receipt, roles: ['owner', 'admin'] },
+      { name: 'Accounts Payable',   icon: Receipt, roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Vendors',            icon: Building2, roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Reports',            icon: BarChart3, roles: ['owner', 'admin'] },
       { name: 'Budget',             icon: PiggyBank, roles: ['owner'] },

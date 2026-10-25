@@ -6,15 +6,12 @@
  *   text PDF: new vendor → Needs a match → matched once (box of 100 → each)
  *     → applied at landed cost (tax and freight spread), bill in Vendors
  *   same file again → refused; same vendor and number, other file → refused
- *   price well over 20% → waits; the rest applies; a login without prices
- *     cannot OK; owner OKs. Uploads here are by a manager: since Oct 25, 2026
- *     the office sees no costs, so vendor invoices are the owner's, admins' and
- *     managers' (lib/permissions.ts)
+ *   price well over 20% → waits; the rest applies; office cannot OK; owner OKs
  *   a line that does not add up → nothing applied; fixed by tap → applied
  *   two photos of a two page invoice → one invoice, read and checked
  *   Undo → skips an item changed since; the later invoice's Undo puts it back
  *   landedCostOn by date; jobLotInvoiceLines
- *   Office, Salesman, Installer: 403 and no data, everywhere
+ *   Salesman: 403 and no data, everywhere
  *
  * Database writes happen only inside beforeAll / test / afterAll.
  */
@@ -42,8 +39,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
   let base = ''
   let accountId = ''
   const tag = `inv-${Date.now().toString(36)}`
-  // 'office' uploads and matches: a manager login (the office has no vendor invoices since Oct 25, 2026); 'clerk' is the Office Staff role.
-  type Who = 'owner' | 'office' | 'sales' | 'crew' | 'clerk'
+  type Who = 'owner' | 'office' | 'sales' | 'crew'
   const users: Record<string, { id: string; token: string }> = {}
 
   const call = (who: Who, method: string, p: string, body?: unknown) =>
@@ -84,7 +80,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
     const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
     const account = await prisma.crmAccount.create({ data: { name: `Test ${tag}`, status: 'active' } })
     accountId = account.id
-    const roles: Record<Who, string> = { owner: 'super_admin', office: 'manager', sales: 'sales_rep', crew: 'field_crew', clerk: 'office_staff' }
+    const roles: Record<Who, string> = { owner: 'super_admin', office: 'office_staff', sales: 'sales_rep', crew: 'field_crew' }
     for (const [who, role] of Object.entries(roles) as [Who, string][]) {
       const u = await prisma.crmUser.create({ data: { email: `${tag}-${who}@example.test`, firstName: 'Test', lastName: who, role, status: 'active', crmAccountId: accountId, mustChangePassword: false } })
       users[who] = { id: u.id, token: jwt.sign({ sub: u.id, email: u.email, role, firstName: 'Test', lastName: who, crmAccountId: accountId }, secret, { expiresIn: '30m' }) }
@@ -125,8 +121,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
   let textId = ''
   let vendorId = ''
 
-  test('office staff, salesman and installer: 403 and nothing, on every invoice route and on upload', async () => {
-    for (const who of ['clerk', 'sales', 'crew'] as Who[]) {
+  test('salesman and installer: 403 and nothing, on every invoice route and on upload', async () => {
+    for (const who of ['sales', 'crew'] as Who[]) {
       for (const p of ['/api/vendor-invoices', '/api/vendor-invoices/waiting', '/api/vendor-invoices/needs-match', '/api/vendor-invoices/history', '/api/vendor-invoices/vendors-by-month', '/api/vendor-invoices/x']) {
         const r = await call(who, 'GET', p)
         expect(r.status).toBe(403)
@@ -174,8 +170,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
     expect(inv.status).toBe('needs_match')
     expect((await m('TB-48G', { inventoryItemId: 't-tb48' })).status).toBe(200)
     expect((await m('PP-258', { inventoryItemId: 't-pipe' })).status).toBe(200)
-    // A login without prices may not add an Inventory item.
-    const made = await call('sales', 'POST', `/api/vendor-invoices/lines/${lineBy(inv, 'FAB-48K').id}/match`, { newItem: { name: 'Fabric roll test' } })
+    // The office may not add an Inventory item.
+    const made = await m('FAB-48K', { newItem: { name: 'Fabric roll test' } })
     expect(made.status).toBe(403)
     expect((await m('FAB-48K', { inventoryItemId: 't-fab' })).status).toBe(200)
     inv = await get(textId)
@@ -216,7 +212,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
     expect(await cost('t-hog')).toBe(25)
     const waiting = await call('office', 'GET', '/api/vendor-invoices/waiting')
     expect(waiting.json.data.map((l: any) => l.id)).toEqual([tb.id])
-    const office = await call('sales', 'POST', `/api/vendor-invoices/lines/${tb.id}/ok`)
+    const office = await call('office', 'POST', `/api/vendor-invoices/lines/${tb.id}/ok`)
     expect(office.status).toBe(403)
     expect(await cost('t-tb48')).toBe(336)
     const owner = await call('owner', 'POST', `/api/vendor-invoices/lines/${tb.id}/ok`)
@@ -256,7 +252,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
     expect(r1.json.data.restored).toEqual([])
     expect(r1.json.data.skipped.map((s: any) => s.name).sort()).toEqual(['G, Tension Bar, 48"', 'Hog Ring, Alum'])
     expect(await cost('t-tb48')).toBe(375)
-    const office = await call('sales', 'POST', `/api/vendor-invoices/${badId}/undo`)
+    const office = await call('office', 'POST', `/api/vendor-invoices/${badId}/undo`)
     expect(office.status).toBe(403)
     const r2 = await call('owner', 'POST', `/api/vendor-invoices/${badId}/undo`)
     expect(r2.status).toBe(200)
@@ -314,8 +310,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
     expect(row.byMonth['2026-10']).toBe(112000 + 54000 + 33170 + 97019)
     const h = await call('office', 'GET', '/api/vendor-invoices/history?itemId=t-tb48')
     expect(h.json.data.length).toBeGreaterThanOrEqual(4)
-    // A salesman's vendor state has no bills.
-    const vs = await call('sales', 'GET', '/api/vendor-state')
+    // An installer's vendor state has no bills.
+    const vs = await call('crew', 'GET', '/api/vendor-state')
     expect(vs.json.data.bills).toEqual([])
   })
 
@@ -373,7 +369,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
     expect((await call('owner', 'POST', `/api/vendor-invoices/lines/${hog.id}/match`, { newItem: { name: `${tag} hog ring` }, vendorPer: 1, invPer: 220 })).status).toBe(200)
     const hogItem = [...(await items()).byId.values()].find((i: any) => i.name === `${tag} hog ring`)
     expect(hogItem.unitCost).toBe(0)
-    expect((await call('sales', 'POST', `/api/vendor-invoices/${newestId}/ordered`)).status).toBe(403)
+    expect((await call('office', 'POST', `/api/vendor-invoices/${newestId}/ordered`)).status).toBe(403)
     expect((await call('owner', 'POST', `/api/vendor-invoices/${newestId}/ordered`)).status).toBe(200)
     const q = await get(newestId)
     expect(q.ordered).toBe(true)

@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { redactCosts, restoreCosts, hidesCosts } from '../src/server/lib/costRedact'
+import { redactCosts, restoreCosts, hidesCosts, hidesPrices, withMoneyBack } from '../src/server/lib/costRedact'
 import { keepSavedCosts, requestFrom } from '../src/server/lib/quotePricing'
 import { can as serverCan } from '../src/server/lib/permissions'
 
@@ -19,11 +19,32 @@ const quote = {
 }
 
 describe('who sees costs', () => {
-  test('owner, admin and manager see costs; office, Salesman and Installer do not', () => {
-    for (const r of ['super_admin', 'admin', 'manager']) { expect(serverCan(r, 'costs.view')).toBe(true); expect(hidesCosts(r)).toBe(false) }
-    for (const r of ['office_staff', 'sales_rep', 'field_crew']) { expect(serverCan(r, 'costs.view')).toBe(false); expect(hidesCosts(r)).toBe(true) }
+  test('owner, admin, manager, office and Salesman see costs and prices; the Installer neither (Jonathan, Oct 25, 2026)', () => {
+    for (const r of ['super_admin', 'admin', 'manager', 'office_staff', 'sales_rep']) { expect(serverCan(r, 'costs.view')).toBe(true); expect(hidesCosts(r)).toBe(false); expect(hidesPrices(r)).toBe(false) }
+    expect(serverCan('field_crew', 'costs.view')).toBe(false); expect(hidesCosts('field_crew')).toBe(true); expect(hidesPrices('field_crew')).toBe(true)
+    for (const r of [null, undefined, 'customer', 'support_agent']) expect(hidesPrices(r as any)).toBe(false)
     // Not a CRM login (a customer, a portal login, no login): left to its own route.
     for (const r of [null, undefined, 'customer', 'support_agent']) expect(hidesCosts(r as any)).toBe(false)
+  })
+})
+
+describe('the Installer: no price and no cost', () => {
+  test('a job, a card, a quote and payments come without a single figure; the work stays', () => {
+    const job = { id: 'j1', customerName: 'Pat', fenceStyle: 'WV', sections: 15, totalFeet: 120, quotePrice: 5000, contractValue: 5200, changeOrderTotal: 200, amountPaid: 1500, paymentStatus: 'partial', gmPct: 0.4, notes: 'Gate code 1234. Estimate shown $5,000, deposit $1,500 cash.' }
+    const r = redactCosts({ job, card: { id: 'c', jobValue: 5000, quotePrice: 5000, balanceDue: 3700, stage: 'Sold' }, quote, pay: { amountCents: 150000, depositCents: 150000, depositPaidCents: 150000, contractCents: 520000, balanceCents: 370000, receipt: { says: { amountCents: 1 } } }, grid: { jobPrice: 5000, sections: 15 } }, { prices: true }) as any
+    expect(r.job).toEqual({ id: 'j1', customerName: 'Pat', fenceStyle: 'WV', sections: 15, totalFeet: 120, paymentStatus: 'partial', notes: 'Gate code 1234. Estimate shown $ (left out), deposit $ (left out) cash.' })
+    expect(r.card).toEqual({ id: 'c', stage: 'Sold' })
+    expect(r.grid).toEqual({ sections: 15 })
+    expect(r.pay).toEqual({ receipt: { says: {} } })
+    expect(r.quote.finalPrice).toBeUndefined()
+    expect(r.quote.proposal.options[0]).toEqual({ label: 'A', fenceStyle: "CL - 4' Galv", sections: 22 })
+    expect(JSON.stringify(r)).not.toMatch(/5000|5200|1500|370000|5243/)
+  })
+  test('what the Installer sends back keeps every price and every typed amount as saved', () => {
+    const saved = { id: 'c', jobValue: 5000, quotePrice: 5000, notes: 'Estimate $5,000; deposit $1,500', stage: 'Sold' }
+    const theirs = redactCosts(saved, { prices: true }) as any
+    expect(restoreCosts({ ...theirs, stage: 'Installed', notes: theirs.notes + ' Two dogs.' }, saved, { prices: true })).toEqual({ id: 'c', jobValue: 5000, quotePrice: 5000, notes: 'Estimate $5,000; deposit $1,500 Two dogs.', stage: 'Installed' })
+    expect(withMoneyBack('no amounts', 'Estimate $5,000')).toBe('no amounts')
   })
 })
 

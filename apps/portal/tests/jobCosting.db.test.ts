@@ -211,12 +211,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     expect(paid.json.data.labor.subPaidCents).toBe(26075)
     // Left out on a later save (an older phone): kept.
     expect((await call(owner, 'PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, crew: [] })).json.data.labor.subPaidCents).toBe(26075)
-    // "Sub paid $": logins that see costs only (Jonathan, Oct 20, 2026; the office sees no costs since Oct 25, 2026).
-    // An office's, installer's or salesman's value is ignored and none of them ever gets it back.
-    const byOwner = await call(owner, 'PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, subPaidCents: 11111, crew: [] })
-    expect(byOwner.status).toBe(200)
-    expect(byOwner.json.data.labor.subPaidCents).toBe(11111)
-    for (const who of [office, installer, salesRep]) {
+    // "Sub paid $": owner and office only, not installers (Jonathan, Oct 20, 2026). The office sets and sees it;
+    // an installer's or a salesman's value is ignored and neither ever gets it back.
+    const byOffice = await call(office, 'PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, subPaidCents: 11111, crew: [] })
+    expect(byOffice.status).toBe(200)
+    expect(byOffice.json.data.labor.subPaidCents).toBe(11111)
+    expect((await call(office, 'GET', `/api/job-costing/takeoff?jobId=${job.id}`)).json.data.labor.subPaidCents).toBe(11111)
+    // A Salesman sees costs since Oct 25, 2026 (Jonathan); the installer never.
+    expect((await call(salesRep, 'GET', `/api/job-costing/takeoff?jobId=${job.id}`)).json.data.labor.subPaidCents).toBe(11111)
+    for (const who of [installer]) {
       const tried = await call(who, 'PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, subPaidCents: 99, crew: [] })
       if (tried.status === 200) expect('subPaidCents' in tried.json.data.labor).toBe(false)
       else expect(tried.status).toBe(403)

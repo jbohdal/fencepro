@@ -29,7 +29,7 @@ import { checkJobMove, refuseBlocked } from '../lib/automations/stageRules.js'
 import { recordJobChanges } from '../lib/automations/hooks.js'
 import { roleOf, requireCan } from '../lib/permissions.js'
 import { repForJob } from '../lib/salesRep.js'
-import { hidesCosts } from '../lib/costRedact.js'
+import { hidesCosts, hidesPrices, isPriceKey, withMoneyBack } from '../lib/costRedact.js'
 import { loadOpsStages } from '../lib/opsStages.js'
 import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage } from '../lib/opsStageModel.js'
 import { floridaDay } from '../lib/automations/context.js'
@@ -238,13 +238,16 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     const data = jobUpdateSchema.parse(req.body)
     // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
     if (typeof data.leadSource === 'string') data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? ''
-    // A Salesman or Installer never had the margin: it stays as saved.
+    // A login that never had the margin, or the prices (the Installer), leaves them as saved.
     if (hidesCosts(roleOf(req))) delete (data as any).gmPct
+    if (hidesPrices(roleOf(req))) for (const k of Object.keys(data)) if (isPriceKey(k)) delete (data as any)[k]
     const existing = await prisma.savedJob.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.accountId !== req.user.crmAccountId || existing.deletedAt) {
       res.status(404).json({ success: false, error: 'Job not found' })
       return
     }
+    // The Installer's notes came with dollar amounts left out: they go back in as saved (lib/costRedact.ts).
+    if (hidesPrices(roleOf(req)) && typeof data.notes === 'string') data.notes = withMoneyBack(data.notes, existing.notes ?? '')
     // A rep already on the job stays when a blank one is sent (an older copy); a job with none takes its quote's (lib/salesRep.ts).
     if (data.salesRep !== undefined && !data.salesRep.trim()) {
       if (existing.salesRep?.trim()) delete (data as any).salesRep
