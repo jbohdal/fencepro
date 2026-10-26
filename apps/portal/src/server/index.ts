@@ -5,7 +5,8 @@ import compression from 'compression'
 import { requestTiming, startTimingSummaryLog } from './lib/requestTiming.js'
 import cors from 'cors'
 import helmet from 'helmet'
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
+import { verifyStaffBearer } from './lib/secrets.js'
 import { ensureUploadDir } from './lib/storage/index.js'
 import prisma from './lib/prisma.js'
 import { printEnvValidation } from './lib/urls.js'
@@ -246,6 +247,14 @@ const apiLimiter = rateLimit({
   message: { success: false, error: 'Too many requests. Wait a moment and try again.' },
   standardHeaders: true,
   legacyHeaders: false,
+  // Counted per signed in person, not per address: phones behind one office or shop
+  // connection shared one count, and a few reloads by one (about 40 calls each) used
+  // up everyone's minute, so the next loads came up half empty (walkthrough round 2).
+  // Not signed in (the website, the customer portal): per address as before.
+  keyGenerator: (req: any) => {
+    const who = verifyStaffBearer(req)
+    return who?.sub ? `staff:${who.sub}` : ipKeyGenerator(req.ip || '')
+  },
 })
 
 // ── Apply rate limits ──
