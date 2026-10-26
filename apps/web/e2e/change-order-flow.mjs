@@ -15,7 +15,10 @@
 //      on one side from the job page, counting every tap and every key press:
 //      "Change order" opens the drawing at once (no menu; "Type the change
 //      instead" is there), the side's length label opens its length pad, the
-//      digits, "Make change order" on the pad (no Done first), Save: under 8.
+//      digits, "Make change order" on the pad (no Done first), the required
+//      "Reason for the change" (one tap into it, then the typed words, counted
+//      apart), Save: under 9 taps and pad keys (Oct 26 2026: was under 8
+//      before the reason was required).
 //      A footage change that adds no panel is $0 and still saves, saying so.
 //      "Customer signs on this phone" covers the whole screen: no cost and no
 //      staff name can be read behind it; it shows the new contract total.
@@ -179,6 +182,13 @@ try {
     const lineB = await page.locator('[data-co-line-description]').first().inputValue()
     const amtB = await page.locator('[data-co-line-amount]').first().inputValue()
     const saveB = page.locator('[data-co-save-draft]')
+    // The reason is required (Oct 26 2026): empty, nothing generic filled in; Save is grey and the Save bar says why.
+    const reasonB = page.locator('[data-co-reason]')
+    check('B: the reason is empty and required: Save is grey and the Save bar says "Type the reason for the change"',
+      (await reasonB.inputValue()) === '' && !(await saveB.isEnabled()) && /Type the reason for the change/.test(await page.locator('[data-co-save-bar] [data-co-why-not]').innerText().catch(() => '')))
+    await tap(reasonB)
+    const whyB = 'Customer wants the side longer'
+    await page.keyboard.type(whyB)
     check('B: filled in "Add 6 ft of fence": $0 with "no price change" when it is still the same panels, else priced with the panels added; Save works either way',
       /^Add 6 ft of fence/.test(lineB) && (amtB === '0' ? /still \d+ panels? on that side, no price change/.test(lineB) && await page.locator('[data-co-no-price-change]').isVisible() : /panels? more/.test(lineB) && Number(amtB) > 0) && await saveB.isEnabled(),
       `${lineB} | $${amtB}`)
@@ -192,8 +202,8 @@ try {
     const coToasts = await page.locator('[data-toast]').allInnerTexts().catch(() => [])
     const quoteAtAfter = (await call('GET', `/api/saved-quotes/${B.quoteId}`)).json.data?.updatedAt
     check('B: saving the change order from the drawing does not save the signed quote again or say "Quote sold"', !coToasts.some(t => /Quote sold|job created/i.test(t)) && quoteAtAfter === signedQuoteAt, `${coToasts.join(' | ') || 'no toast'} · quote ${signedQuoteAt} -> ${quoteAtAfter}`)
-    check(`B: job page to a change order ready to sign in ${taps} taps and key presses, every one counted (under 8)`, taps < 8 && !!coB, `${taps}`)
-    check('B: saved with the new drawing: 6 ft more', coB?.status === 'draft' && coB?.work && coB?.scope?.footageFt === 6, JSON.stringify(coB?.scope))
+    check(`B: job page to a change order ready to sign in ${taps} taps and pad key presses, every one counted, plus the typed reason (${whyB.length} letters) (under 9)`, taps < 9 && !!coB, `${taps} taps + reason "${whyB}"`)
+    check('B: saved with the new drawing: 6 ft more, and the reason as typed', coB?.status === 'draft' && coB?.work && coB?.scope?.footageFt === 6 && coB?.reason === whyB, JSON.stringify({ scope: coB?.scope, reason: coB?.reason }))
     // The customer signs on this phone: nothing of the job page can be read behind the sheet.
     await open(`${APP}/operations?job=${B.jobId}`)
     await page.waitForSelector('[data-co-row="1"] [data-co-sign-here]', { timeout: 30000 })
@@ -211,6 +221,7 @@ try {
     })
     check('B: the signing sheet covers the whole screen; no quoted cost, materials, labor or staff name in it', behind.covers && behind.all && !/Quoted cost|materials|labor|By Jonathan|By E2E/i.test(behind.text), `${JSON.stringify({ covers: behind.covers, all: behind.all, costShownOnPage: costShown })}`)
     const total0 = templateB.finalPrice * 100
+    check('B: the sheet shows "Why:" with the reason typed', (await page.locator('[data-co-sign-why]').innerText().catch(() => '')) === `Why: ${whyB}`, await page.locator('[data-co-sign-why]').innerText().catch(() => 'none'))
     check('B: the sheet shows the contract now and the new contract total', cents(await page.locator('[data-co-sign-new-contract]').innerText()) === Math.round(total0) + coB.totalCents, await page.locator('[data-co-sign-contract]').innerText())
     await shot(page, '0d-sign-sheet')
     await page.locator('[data-co-sign-name]').fill('Pat Customer')
@@ -254,6 +265,7 @@ try {
   check('the change order is filled in: 12 ft and a walk gate, priced in whole dollars', coLines.some(l => /^Add 12 ft of fence/.test(l)) && coLines.some(l => /^Add 1 walk gate/.test(l)) && total > 0 && total % 100 === 0, `${coLines.join(' | ')} ${total}`)
   check('it says the drawing goes with it', await page.locator('[data-co-from-drawing]').isVisible())
   check('phone: the change order fits the screen', await fits())
+  await page.locator('[data-co-reason]').fill('Customer asked for 12 ft more and a walk gate')
   await shot(page, '2-filled-in')
   await tap(page.locator('[data-co-save-draft]'))
   const co1 = await until(async () => ((await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data ?? []).find(x => x.number === 1), 15000)
@@ -331,6 +343,7 @@ try {
   await page.locator('[data-co-line-description]').first().fill('Credit: no caps on the end posts')
   await page.locator('[data-co-line-kind]').first().selectOption('credit')
   await page.locator('[data-co-line-amount]').first().fill('75')
+  await page.locator('[data-co-reason]').fill('End posts without caps, as the customer asked')
   check('the credit shows as −$75.00', cents(await page.locator('[data-co-total]').innerText()) === -7500, await page.locator('[data-co-total]').innerText())
   await tap(page.locator('[data-co-save-approved]'))
   await page.locator('[data-co-verbal-reason]').fill('Customer agreed on the phone')
@@ -344,6 +357,7 @@ try {
   const link = await call('POST', `/api/change-orders/${co2.id}/link`, {})
   const coPage = await fetch(`${API}/p/co/${link.json.data.token}`).then(r => r.text())
   check('the customer\'s copy: "Not signed by you yet", with the Sign button', /data-co-not-signed/.test(coPage) && /id="go"/.test(coPage) && /Contract rev 3/.test(coPage))
+  check('the customer\'s link shows "Why:" with the reason typed', /data-co-why><b>Why:<\/b> End posts without caps, as the customer asked</.test(coPage))
   check('no signed PDF until the customer signs', sql(`SELECT count(*) FROM "SignedDocument" WHERE "changeOrderId" = '${co2.id}'`) === '0')
 
   await open(`${APP}/pipeline`)
@@ -362,6 +376,7 @@ try {
   await page.waitForSelector('[data-co-modal]', { timeout: 10000 })
   await page.locator('[data-co-line-description]').first().fill('Add a 4 ft section by the shed')
   await page.locator('[data-co-line-amount]').first().fill('200')
+  await page.locator('[data-co-reason]').fill('Customer wants the shed side closed')
   await tap(page.locator('[data-co-save-approved]'))
   await page.locator('[data-co-verbal-reason]').fill('Agreed on site')
   await page.locator('[data-co-verbal-reason]').blur()
@@ -375,7 +390,7 @@ try {
   await open(`${APP}/operations?job=${jobId}`)
   const invShown = await until(async () => /Change order CO-3/.test(await page.locator(`[data-payment-schedule="${jobId}"]`).innerText()), 30000)
   check('job page Payments: the "Change order CO-3" invoice is listed', !!invShown)
-  const credit = await call('POST', '/api/change-orders', { jobId, lines: [{ id: 'c9', description: 'Credit: shorter run by the shed', amountCents: -50000 }], status: 'approved', verbalReason: 'Agreed on site' })
+  const credit = await call('POST', '/api/change-orders', { jobId, reason: 'The run by the shed came out shorter', lines: [{ id: 'c9', description: 'Credit: shorter run by the shed', amountCents: -50000 }], status: 'approved', verbalReason: 'Agreed on site' })
   const s4 = (await call('GET', `/api/payments/job/${jobId}`)).json.data.schedule
   check('a credit after it is paid: the open CO-3 invoice comes off first, the rest is a credit due back; the paid Final not cut',
     credit.status === 201 && s4.invoices.find(i => i.kind === 'final').amountCents === s2.invoices.find(i => i.kind === 'final').amountCents && s4.invoices.find(i => i.kind === 'change_order').amountCents === 0 && s4.balanceCents === -30000 && s4.creditCents === 30000,
@@ -418,6 +433,7 @@ try {
   await tap(page.locator('[data-co-add-line]'))
   await page.locator('[data-co-line-description]').last().fill('Custom: move the gate stop')
   await page.locator('[data-co-line-amount]').last().fill('40')
+  await page.locator('[data-co-reason]').fill('Two posts replaced; the part was not needed')
   const pickTotal = rp2.priceCents - part.unitCents + 4000
   check('the total: 2 posts, the part credited, the custom line', cents(await page.locator('[data-co-total]').innerText()) === pickTotal, await page.locator('[data-co-total]').innerText())
   check('phone: the change order with picked lines fits the screen', await fits())
