@@ -211,9 +211,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
     // The app was down from day 2 to day 6: on start it catches up, once.
     const made = await prisma.automationEvent.count({ where: { entityId: card, type: 'time' } })
     expect(made).toBe(0)
-    await Q.tick(later(6 * 86_400_000), { scan: true })
-    await Q.tick(later(6 * 86_400_000 + 5 * MIN), { scan: true })
-    await Q.tick(later(7 * 86_400_000), { scan: true })
+    await Q.tick(later(6 * 86_400_000), { scan: true, sweeps: false })
+    await Q.tick(later(6 * 86_400_000 + 5 * MIN), { scan: true, sweeps: false })
+    await Q.tick(later(7 * 86_400_000), { scan: true, sweeps: false })
     expect(await prisma.automationEvent.count({ where: { entityId: card, type: 'time', data: { path: ['ruleId'], equals: rule.id } } })).toBe(1)
     // Counted for this card only: any real dev card that has sat in Job Prep 3 days gets its own task, as it should.
     expect(await tasksFor(rule.id, card)).toHaveLength(1)
@@ -244,11 +244,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
     await call('PATCH', `/api/saved-jobs/${jobId}`, { scheduledDate: install, status: 'scheduled' })
     await prisma.automationEvent.updateMany({ where: { entityId: jobId, processedAt: null }, data: { processedAt: new Date() } })
     const rule = await makeRule({ name: '2 days before install', board: 'ops', trigger: { type: 'date_offset', dateField: 'install', days: 2, when: 'before' }, steps: [{ type: 'email_customer', subject: `${tag} install on {install date}`, body: 'Hi {first name}, see you {install date}.' }] })
-    await Q.tick(later(1 * 86_400_000), { scan: true })
+    await Q.tick(later(1 * 86_400_000), { scan: true, sweeps: false })
     expect(emails.filter(e => e.subject.includes(tag) && e.to === 'testy@example.com')).toHaveLength(0)
     // Down on the due day (day 3), back on day 4: it goes once.
-    await Q.tick(later(4 * 86_400_000), { scan: true })
-    await Q.tick(later(4 * 86_400_000 + 10 * MIN), { scan: true })
+    await Q.tick(later(4 * 86_400_000), { scan: true, sweeps: false })
+    await Q.tick(later(4 * 86_400_000 + 10 * MIN), { scan: true, sweeps: false })
     const sent = emails.filter(e => e.subject.includes(tag) && e.to === 'testy@example.com')
     expect(sent).toHaveLength(1)
     expect(sent[0].to).toBe('testy@example.com')
