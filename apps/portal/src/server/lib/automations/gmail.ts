@@ -7,11 +7,14 @@
  *
  * When Gmail is not connected (always the case in dev, which has no Google
  * keys on purpose) an email step fails with "Gmail is not connected".
+ * Outside the live install the send itself is held by the outbound gate
+ * (lib/outboundGate.ts): written to the dev outbox, id "held-dev-outbox".
  */
 
 import { google } from 'googleapis'
 import prisma from '../prisma.js'
 import { googleConfigured } from '../calendarSync/google.js'
+import { holdOutbound, outboundBlockReason } from '../outboundGate.js'
 
 const KEY = 'gmail_token'
 const SCOPES = ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/userinfo.email']
@@ -24,6 +27,9 @@ export interface OutgoingEmail { to: string; subject: string; text: string; /** 
 export interface EmailSender { from: string; send(mail: OutgoingEmail): Promise<{ id: string }> }
 
 let testSender: EmailSender | null | undefined
+/** The id a held (not sent) email reports. */
+export const HELD_EMAIL_ID = 'held-dev-outbox'
+
 /** Tests: a fake sender (null = act as if Gmail is not connected). Pass undefined to go back to the real one. */
 export function setEmailSenderForTests(s: EmailSender | null | undefined) { testSender = s }
 
@@ -105,6 +111,9 @@ export async function emailSenderFor(accountId: string): Promise<EmailSender> {
   return {
     from: v.email,
     async send(mail) {
+      // The outbound gate: only the live install hands mail to Gmail.
+      const blocked = outboundBlockReason()
+      if (blocked) { holdOutbound('email', mail.to, mail.subject, mail.text, `${blocked} (Gmail)`); return { id: HELD_EMAIL_ID } }
       const { data } = await gmail.users.messages.send({ userId: 'me', requestBody: { raw: rawMessage(v.email, mail) } })
       return { id: data.id || '' }
     },

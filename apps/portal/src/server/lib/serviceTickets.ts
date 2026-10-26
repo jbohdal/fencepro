@@ -33,7 +33,8 @@ import { acknowledgedUpdate } from './warrantyUpdates.js'
 import { serializeMedia } from './media.js'
 import { landedCostOn } from './priceHistory.js'
 import { toCents, qty } from './jobCostingMath.js'
-import { pushDeliveryAllowed, peopleOf } from './followUps.js'
+import { peopleOf } from './followUps.js'
+import { holdOutbound, realDeliveryAllowed } from './outboundGate.js'
 import { describeTextConsent, asTextConsent } from './textConsentModel.js'
 import {
   hintFor, hintsFor, warrantyKindOf, issueLabel, stageLabel, stageForCustomer, isOpenStage, HINT_LABEL, PHOTO_LINK_DAYS, serviceReport,
@@ -458,8 +459,8 @@ export async function photosPush(t: TicketRow, deps: { send?: (accountId: string
     })
   } catch { return { made: false, delivered: false } } // already told for this request
   const ids = to.map(p => p.id)
-  if (!(deps.allowed ?? pushDeliveryAllowed())) {
-    console.log(`[service] dev copy: push not delivered to ${to.map(p => p.name).join(' and ')}: ${title}. ${body}`)
+  if (!(deps.allowed ?? realDeliveryAllowed())) {
+    holdOutbound('push', to.map(p => p.name).join(' and '), title, body)
     return { made: true, delivered: false, to: ids }
   }
   const send = deps.send ?? (async (a, msg, userIds) => (await import('./automations/push.js')).sendPush(a, msg, { userIds }))

@@ -7,10 +7,15 @@
  * A text to a customer goes through sendCustomerSms: it is sent only when the
  * customer said yes to texts (lib/textConsent.ts); otherwise it is not sent
  * and the result says why (blocked). sendSms itself is for texts to the team.
+ *
+ * The outbound gate (lib/outboundGate.ts) sits in sendSms: outside the live
+ * install no text goes to Twilio; it is written to the dev outbox and the
+ * result says { success: false, held: true }.
  */
 
 import { customerText } from './customerText.js'
 import { textAllowedTo } from './textConsent.js'
+import { HELD_TEXT, holdOutbound, outboundBlockReason } from './outboundGate.js'
 
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || ''
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || ''
@@ -28,10 +33,17 @@ interface SmsResult {
   error?: string
   /** Not sent because the customer has not said yes to texts (error says why). */
   blocked?: boolean
+  /** Kept back by the outbound gate (not the live install): in the dev outbox, not sent. */
+  held?: boolean
 }
 
 /** Send an SMS via Twilio REST API */
 export async function sendSms(to: string, body: string): Promise<SmsResult> {
+  const gate = outboundBlockReason()
+  if (gate) {
+    holdOutbound('text', to, body.slice(0, 80), body, gate)
+    return { success: false, held: true, error: HELD_TEXT }
+  }
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER) {
     console.log(`[SMS Fallback] To: ${to} | Body: ${body}`)
     return { success: true, sid: 'fallback-no-twilio' }

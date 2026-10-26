@@ -11,6 +11,7 @@ import { google, type calendar_v3 } from 'googleapis'
 import prisma from '../prisma.js'
 import type { CalendarApi } from './engine.js'
 import { addDays, eventKey, type CalendarEventSpec } from './spec.js'
+import { holdOutbound, outboundBlockReason } from '../outboundGate.js'
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.app.created',
@@ -101,27 +102,49 @@ export interface GoogleCalendarApi extends CalendarApi {
   renameCalendar(calendarId: string, name: string): Promise<void>
 }
 
+/** The id a held "make the calendar" reports (nothing was made in Google). */
+export const HELD_CALENDAR_ID = 'held-dev-outbox'
+
+/**
+ * The outbound gate (lib/outboundGate.ts): outside the live install no event
+ * or calendar is written to Google (an event's reminder pops up on a real
+ * phone). Each write goes to the dev outbox instead. True = held.
+ */
+function heldCalendarWrite(email: string, what: string, spec?: CalendarEventSpec): boolean {
+  const blocked = outboundBlockReason()
+  if (!blocked) return false
+  const when = spec ? (spec.startDate ? `${spec.startDate}${spec.endDate && spec.endDate !== spec.startDate ? ` to ${spec.endDate}` : ''}` : spec.startAt ?? '') : ''
+  holdOutbound('calendar', `Google Calendar of ${email}`, `${what}${spec ? `: ${spec.summary}` : ''}${when ? ` (${when})` : ''}`, spec?.description, blocked)
+  return true
+}
+
 export async function googleApiFor(email: string): Promise<GoogleCalendarApi> {
   const cal = await calendarFor(email)
   return {
     async insert(calendarId, eventId, spec) {
+      if (heldCalendarWrite(email, 'add event', spec)) return
       await cal.events.insert({ calendarId, requestBody: { ...eventBody(spec), id: eventId } })
     },
     async update(calendarId, eventId, spec) {
+      if (heldCalendarWrite(email, 'change event', spec)) return
       await cal.events.update({ calendarId, eventId, requestBody: eventBody(spec) })
     },
     async remove(calendarId, eventId) {
+      if (heldCalendarWrite(email, `remove event ${eventId}`)) return
       await cal.events.delete({ calendarId, eventId })
     },
     async createCalendar(name) {
+      if (heldCalendarWrite(email, `make calendar "${name}"`)) return HELD_CALENDAR_ID
       const { data } = await cal.calendars.insert({ requestBody: { summary: name, timeZone: TIME_ZONE, description: 'Estimates and installs from EZ Biz. Managed by EZ Biz: changes made here are overwritten.' } })
       if (!data.id) throw new Error('Google did not return an id for the new calendar.')
       return data.id
     },
     async renameCalendar(calendarId, name) {
+      if (heldCalendarWrite(email, `rename calendar to "${name}"`)) return
       await cal.calendars.patch({ calendarId, requestBody: { summary: name } })
     },
     async calendarExists(calendarId) {
+      if (calendarId === HELD_CALENDAR_ID) return true
       try { await cal.calendars.get({ calendarId }); return true }
       catch (err) {
         const code = Number((err as { code?: unknown; response?: { status?: unknown } }).code ?? (err as { response?: { status?: unknown } }).response?.status)

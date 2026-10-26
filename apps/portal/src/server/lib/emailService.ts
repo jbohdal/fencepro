@@ -20,12 +20,18 @@
  *   normally worked out from the port), SMTP_FROM (the name people see),
  *   SMTP_FROM_EMAIL (the address; SMTP_USER when empty), SMTP_REPLY_TO.
  *
+ * The outbound gate (lib/outboundGate.ts) sits inside both senders: outside
+ * the live install nothing is handed to a mail server; the message goes to the
+ * dev outbox and the result says { success: false, held: true }. (Tests may
+ * still talk to a fake mail server they started on 127.0.0.1.)
+ *
  * Supports merge tags: {{customer_name}}, {{job_address}}, {{scheduled_date}},
  * {{rep_name}}, {{job_stage}}, {{company_name}}
  */
 
 import crypto from 'crypto'
 import nodemailer from 'nodemailer'
+import { HELD_TEXT, holdOutbound, isTestLoopback, outboundBlockReason } from './outboundGate.js'
 
 /** What every screen shows when there is no email backend. */
 export const EMAIL_NOT_SET_UP = 'Email is not set up yet (Settings)'
@@ -128,6 +134,8 @@ export interface EmailResult {
   error?: string
   /** No email backend in the settings file: nothing was sent. */
   notConfigured?: boolean
+  /** Kept back by the outbound gate (not the live install): in the dev outbox, not sent. */
+  held?: boolean
   provider?: 'sendgrid' | 'smtp'
   messageId?: string
 }
@@ -190,6 +198,9 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
   if (provider === 'sendgrid') return sendViaSendGrid(options, disableClickTracking)
   if (provider === 'smtp') return sendViaSmtp(options)
 
+  // Not set up and not the live install: still show what would have gone out.
+  const blocked = outboundBlockReason()
+  if (blocked) holdOutbound('email', options.to, options.subject, options.text ?? htmlToText(options.body), `${blocked}; email is not set up either`)
   if (!warnedNotSetUp) {
     warnedNotSetUp = true
     console.warn('[Email] Not set up: no SENDGRID_API_KEY and no SMTP_HOST/SMTP_USER/SMTP_PASS in the server settings file. Nothing is sent; each screen says "not sent". See GO_LIVE.md, Email.')
@@ -197,7 +208,18 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
   return { success: false, notConfigured: true, error: EMAIL_NOT_SET_UP }
 }
 
+/** The outbound gate for email: null = may send; else the held result. */
+function heldEmail(options: EmailOptions, provider: 'smtp' | 'sendgrid', host?: string): EmailResult | null {
+  const blocked = outboundBlockReason()
+  if (!blocked) return null
+  if (provider === 'smtp' && isTestLoopback(host)) return null // a test's own fake mail server on this machine
+  holdOutbound('email', options.to, options.subject, options.text ?? htmlToText(options.body), blocked)
+  return { success: false, held: true, provider, error: HELD_TEXT }
+}
+
 async function sendViaSendGrid(options: EmailOptions, disableClickTracking: boolean): Promise<EmailResult> {
+  const held = heldEmail(options, 'sendgrid')
+  if (held) return held
   const from = fromEmail('sendgrid')
   if (!from) return { success: false, provider: 'sendgrid', error: 'SendGrid needs a sender address: set SMTP_FROM_EMAIL to a verified sender.' }
   const { to, subject, body } = options
@@ -329,6 +351,8 @@ export function smtpErrorText(err: any): string {
 }
 
 async function sendViaSmtp(options: EmailOptions): Promise<EmailResult> {
+  const held = heldEmail(options, 'smtp', env('SMTP_HOST'))
+  if (held) return held
   const { to, subject, body } = options
   const html = isHtml(body)
   try {

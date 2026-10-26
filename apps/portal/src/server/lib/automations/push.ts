@@ -9,16 +9,26 @@
 import webpush from 'web-push'
 import prisma from '../prisma.js'
 import { getFrontendBase } from '../urls.js'
+import { holdOutbound, outboundBlockReason } from '../outboundGate.js'
 
 const KEY = 'push_vapid'
 
 export interface PushMessage { title: string; body: string; url?: string; tag?: string }
 export interface PushSender {
-  send(sub: { endpoint: string; p256dh: string; auth: string }, payload: string, vapid: { publicKey: string; privateKey: string; subject: string }): Promise<void>
+  /** Resolves 'held' when the outbound gate kept it back (not the live install). */
+  send(sub: { endpoint: string; p256dh: string; auth: string }, payload: string, vapid: { publicKey: string; privateKey: string; subject: string }): Promise<void | 'held'>
 }
 
 const realSender: PushSender = {
   async send(sub, payload, vapid) {
+    // The outbound gate (lib/outboundGate.ts): only the live install reaches a phone.
+    const blocked = outboundBlockReason()
+    if (blocked) {
+      let p: { title?: string; body?: string } = {}
+      try { p = JSON.parse(payload) } catch { /* not ours */ }
+      holdOutbound('push', `phone ${(sub as { userId?: string }).userId ?? ''} ${hostOf(sub.endpoint)}`.replace(/\s+/g, ' ').trim(), p.title ?? '', p.body, blocked)
+      return 'held'
+    }
     await webpush.sendNotification(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
       payload,
@@ -26,6 +36,7 @@ const realSender: PushSender = {
     )
   },
 }
+function hostOf(url: string): string { try { return new URL(url).host } catch { return '' } }
 let sender: PushSender = realSender
 export function setPushSenderForTests(s: PushSender | null) { sender = s ?? realSender }
 
@@ -69,20 +80,21 @@ async function adminUserIds(accountId: string): Promise<string[]> {
   return users.map(u => u.id)
 }
 
-export interface PushResult { sent: number; failed: number; removed: number; subscribers: number; errors: string[] }
+/** held: kept back by the outbound gate (dev copy, tests): written to the dev outbox, not sent. */
+export interface PushResult { sent: number; failed: number; removed: number; held: number; subscribers: number; errors: string[] }
 
 /** Send to every phone the owner and admins turned push on for (or to one user's phones). */
 export async function sendPush(accountId: string, msg: PushMessage, opts: { userIds?: string[] } = {}): Promise<PushResult> {
   const userIds = opts.userIds ?? await adminUserIds(accountId)
   const subs = await prisma.pushSubscription.findMany({ where: { accountId, userId: { in: userIds } } })
-  const out: PushResult = { sent: 0, failed: 0, removed: 0, subscribers: subs.length, errors: [] }
+  const out: PushResult = { sent: 0, failed: 0, removed: 0, held: 0, subscribers: subs.length, errors: [] }
   if (!subs.length) return out
   const vapid = await vapidKeys(accountId)
   const payload = JSON.stringify({ title: msg.title.slice(0, 120), body: msg.body.slice(0, 400), url: msg.url || '/', tag: msg.tag })
   for (const s of subs) {
     try {
-      await sender.send(s, payload, vapid)
-      out.sent++
+      if (await sender.send(s, payload, vapid) === 'held') out.held++
+      else out.sent++
     } catch (err) {
       const code = Number((err as any)?.statusCode)
       if (code === 404 || code === 410) { await prisma.pushSubscription.deleteMany({ where: { id: s.id } }); out.removed++; continue }

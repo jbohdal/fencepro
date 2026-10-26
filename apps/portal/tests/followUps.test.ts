@@ -10,7 +10,8 @@ import {
   addDays, applyAnswer, badgeFor, cleanConfig, defaultConfig, dueStatus, fillTemplate, keepGoing, nextDateForOutcome,
   reconcile, setNext, startState, stopsSteps, floridaDay, floridaHour,
 } from '../src/server/lib/followUpRules.js'
-import { morningKey, morningMessages, pushDeliveryAllowed, seesEveryone, type CardRow } from '../src/server/lib/followUps.js'
+import { morningKey, morningMessages, seesEveryone, type CardRow } from '../src/server/lib/followUps.js'
+import { realDeliveryAllowed } from '../src/server/lib/outboundGate.js'
 import { START_PIPELINE_STAGES, followUpStagesOf, type PipelineStageDef } from '../src/server/lib/pipelineStageModel.js'
 
 // Settings > Pipeline Stages as it starts: which stages stop the steps, need one, take Signed and Lost.
@@ -165,8 +166,9 @@ describe('the 7 am push', () => {
     expect(morningKey('a', T)).not.toBe(morningKey('b', T))
   })
   test('the dev copy never delivers to phones', () => {
-    expect(pushDeliveryAllowed({ NODE_ENV: 'development', DATABASE_URL: 'postgresql://u@localhost:5432/ezbiz_dev' } as any)).toBe(false)
-    expect(pushDeliveryAllowed({ NODE_ENV: 'production', DATABASE_URL: 'postgresql://u@localhost:5432/ezbiz_dev?x=1' } as any)).toBe(false)
-    expect(pushDeliveryAllowed({ NODE_ENV: 'production', DATABASE_URL: 'postgresql://u@localhost:5432/ezbiz' } as any)).toBe(true)
+    const live = { home: '/Users/x', codeDir: '/Users/x/ezbiz/apps/portal/dist/server/lib' }
+    expect(realDeliveryAllowed({ ...live, env: { NODE_ENV: 'development', DATABASE_URL: 'postgresql://u@localhost:5432/ezbiz_dev' } as any })).toBe(false)
+    expect(realDeliveryAllowed({ ...live, env: { NODE_ENV: 'production', DATABASE_URL: 'postgresql://u@localhost:5432/ezbiz_dev?x=1' } as any })).toBe(false)
+    expect(realDeliveryAllowed({ ...live, env: { NODE_ENV: 'production', DATABASE_URL: 'postgresql://u@localhost:5432/ezbiz' } as any })).toBe(true)
   })
 })

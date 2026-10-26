@@ -14,6 +14,8 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     exclude: ['**/node_modules/**', ...(onDevDb ? [] : ['tests/**/*.db.test.ts'])],
     environment: 'node',
+    // The outbound gate is shut for every test (tests/setup/outboundGate.ts).
+    setupFiles: ['tests/setup/outboundGate.ts'],
     globals: false,
     // On the dev database the files run one at a time: the database tests share one company's
     // records (receipt numbers, automations, the pipeline), and running them side by side made
