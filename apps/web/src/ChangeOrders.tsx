@@ -546,8 +546,11 @@ export function QuickChangeOrderModal({
   }
   const total = items.reduce((s, i) => s + centsOf(i), 0)
   // A line needs words and an amount; a line from the drawing may be $0 (still the same panels: the work changes, the price does not).
-  const canSave = items.some(i => i.description.trim() && (centsOf(i) !== 0 || (i.zeroOk && i.amount.trim() !== ''))) && !busy && !items.some(i => i.pricing)
-  const whyNot = busy || items.some(i => i.pricing) ? '' : !items.some(i => i.description.trim()) ? 'Say what changes on a line.' : !canSave ? 'Put a price on the line (a credit is a price too).' : ''
+  const linesOk = items.some(i => i.description.trim() && (centsOf(i) !== 0 || (i.zeroOk && i.amount.trim() !== '')))
+  // The reason is required (Oct 26 2026): the customer reads it under "Why" on their link, the signing sheet and the PDF.
+  const reasonOk = reason.trim().length >= 3
+  const canSave = linesOk && reasonOk && !busy && !items.some(i => i.pricing)
+  const whyNot = busy || items.some(i => i.pricing) ? '' : !items.some(i => i.description.trim()) ? 'Say what changes on a line.' : !linesOk ? 'Put a price on the line (a credit is a price too).' : !reasonOk ? 'Type the reason for the change (the customer sees it).' : ''
 
   // Tapped twice before the window closes: saved once.
   const savedOnce = useRef(false)
@@ -581,6 +584,12 @@ export function QuickChangeOrderModal({
 
         <div className="px-4 md:px-6 py-5 space-y-4 flex-1 min-h-0 overflow-y-auto overscroll-contain" data-co-modal-body>
           {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.</p>}
+          <div>
+            <label htmlFor="co-reason" className="text-xs text-gray-600 font-semibold mb-1 block">Reason for the change <span className="font-normal text-gray-500">(required; the customer sees it)</span></label>
+            <input id="co-reason" required maxLength={1000} enterKeyHint="done" autoCapitalize="sentences"
+              className="w-full border border-gray-300 rounded-lg px-3 min-h-[44px] text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              placeholder="e.g. Customer asked for a gate on the left side" value={reason} onChange={e => setReason(e.target.value)} data-co-reason />
+          </div>
           <div>
             <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
               <label className="text-xs text-gray-600 font-semibold">Lines</label>
@@ -630,22 +639,17 @@ export function QuickChangeOrderModal({
             </div>
           </div>
 
-          <div>
-            <label className="text-xs text-gray-600 font-medium mb-1 block">Reason (optional)</label>
-            <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              placeholder="e.g. Customer asked for the side yard too" value={reason} onChange={e => setReason(e.target.value)} data-co-reason />
-          </div>
-
           <div className={`rounded-xl p-4 flex items-center justify-between ${total >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
             <span className="text-sm font-semibold text-gray-700">Change to the contract</span>
             <span className={`text-xl font-bold ${total >= 0 ? 'text-green-700' : 'text-red-600'}`} data-co-total>{signed(total)}</span>
           </div>
-          {total === 0 && canSave && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-no-price-change>No price change: the work changes, the price stays the same. Save it so the customer signs the new drawing and the crew gets it.</p>}
-          {whyNot && <p className="text-xs text-amber-900" data-co-why-not>{whyNot}</p>}
+          {total === 0 && linesOk && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-no-price-change>No price change: the work changes, the price stays the same. Save it so the customer signs the new drawing and the crew gets it.</p>}
           {verbal !== null && <VerbalReason value={verbal} onChange={setVerbal} />}
         </div>
 
         <div className="px-4 md:px-6 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] border-t border-gray-200 flex flex-wrap items-center justify-end gap-2 shrink-0 bg-white" data-co-save-bar>
+          {/* In the Save bar, so a phone always sees why Save is grey (the missing reason sits above the lines). */}
+          {whyNot && <p className="w-full text-xs text-amber-900" data-co-why-not>{whyNot}</p>}
           <button onClick={onClose} className="px-4 min-h-[44px] text-sm text-gray-600 hover:text-gray-800">Cancel</button>
           <button onClick={() => void save(null)} disabled={!canSave}
             className="bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold px-5 min-h-[44px] rounded-xl text-sm" data-co-save-draft>
@@ -715,6 +719,7 @@ function SignInPersonSheet({ co, customerName, contract, onDone, onClose }: { co
           </div>
           <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 text-xl">×</button>
         </div>
+        {co.reason && <p className="text-sm text-gray-800 bg-gray-50 rounded-lg px-3 py-2 break-words" data-co-sign-why><b>Why:</b> {co.reason}</p>}
         <table className="w-full text-sm"><tbody>
           {co.lines.map(l => <tr key={l.id} className="border-b border-gray-100"><td className="py-2 pr-2 text-gray-800">{l.description || 'Change'}</td><td className="py-2 text-right font-semibold whitespace-nowrap">{signed(l.amountCents)}</td></tr>)}
           <tr><td className="pt-2 font-bold">{co.totalCents < 0 ? 'Total credit' : 'Total'}</td><td className="pt-2 text-right font-black text-lg whitespace-nowrap" data-co-sign-total>{signed(co.totalCents)}</td></tr>

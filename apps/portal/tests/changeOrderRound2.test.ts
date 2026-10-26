@@ -81,6 +81,8 @@ describe('round 3: a gate put into a side is one change the customer can read', 
     expect(d.lines[0].amountCents).toBe(two.lines[0].amountCents)
     expect(d.lines[0].amountCents).toBe(Math.round(calculateQuote({ ...gateIn, overrides: { wholeDollar: true } }).priced.price * 100) - Math.round(calculateQuote({ ...signedIn, overrides: { wholeDollar: true } }).priced.price * 100))
     expect(d.scope).toMatchObject({ footageFt: -4, walkGates: 1 })
+    // No generic reason: whoever makes it types the reason (required, Oct 26 2026).
+    expect(d.reason).toBe('')
     // A side named "Left side" is not "Left side side".
     expect(changeOrderDraft({ signed, current: gateIn, signedOverrides: signedIn.overrides, styles: [style], priceNow: 0, sectionsNow: 0, simple: false, gatesIn: { sides: ['Left side'], openingFt: 4 } }).lines[0].description).toBe('Add 1 walk gate in the Left side (4 ft of fence becomes the gate)')
   })

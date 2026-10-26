@@ -535,6 +535,17 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
   }
 }
 
+/**
+ * The reason for the change, typed by whoever makes the change order (owner,
+ * office or Salesman): required, at least 3 letters (Oct 26 2026: "Replace the
+ * generic 'Why' with a required reason"). The customer sees it on their link,
+ * the signing sheet and the signed PDF under "Why". Null: it will do.
+ */
+export const REASON_REQUIRED = 'Type the reason for the change (the customer sees it), e.g. Customer asked for a gate on the left side.'
+export function reasonProblem(reason: unknown): string | null {
+  return String(reason ?? '').trim().length >= 3 ? null : REASON_REQUIRED
+}
+
 export interface ChangeOrderEdit { reason?: string; lines?: ChangeOrderLine[]; status?: ChangeOrderStatus; verbalReason?: string }
 
 export const CHANGED_NEEDS_OK = 'Your change sends it back to Jonathan or the office to OK before it goes to the customer.'
@@ -564,7 +575,11 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
         // The lines as shown (shownLines) sent back unchanged are no change either.
         changed = JSON.stringify(lines) !== JSON.stringify(linesOf(cur)) && JSON.stringify(lines) !== JSON.stringify(shownLines(cur))
       }
-      if (edit.reason !== undefined) { data.reason = edit.reason; changed = changed || edit.reason !== cur.reason }
+      if (edit.reason !== undefined) {
+        const reason = edit.reason.trim()
+        if (reasonProblem(reason)) throw err(400, REASON_REQUIRED)
+        data.reason = reason; changed = changed || reason !== cur.reason
+      }
       // A Salesman's change to the lines, prices or words of one already OK'd (a draft or sent) sends it
       // back to "Waiting for OK" (round 2 review, Oct 26 2026: her edit stayed OK'd and could be signed).
       if (opts.needsOk && changed && cur.status !== 'needs_ok') {

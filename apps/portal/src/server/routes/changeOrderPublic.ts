@@ -89,7 +89,7 @@ changeOrderPublic.get('/:token', async (req, res) => {
     <p class="small upper">Change order CO-${co.number}${co.contractRev ? ` · Contract rev ${co.contractRev}` : ''}</p>
     <h1>${esc(q.customerName)}</h1>
     <p class="small">${esc(q.customerAddress || '')}</p>
-    ${co.reason ? `<p class="facts">${esc(co.reason)}</p>` : ''}
+    ${co.reason ? `<p class="facts" data-co-why><b>Why:</b> ${esc(co.reason)}</p>` : ''}
     <section><h2>The change</h2><table class="lines"><tbody>
       ${lines.map(l => `<tr><td>${esc(l.description || 'Change')}</td><td class="amt">${usd(l.amountCents)}</td></tr>`).join('')}
       <tr class="total"><td>${co.totalCents < 0 ? 'Total credit' : 'Total'}</td><td class="amt" data-co-total>${usd(co.totalCents)}</td></tr>

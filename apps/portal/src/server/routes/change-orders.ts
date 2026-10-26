@@ -2,7 +2,7 @@
  * Change orders at /api/change-orders (lib/changeOrders.ts).
  *
  *   GET   /?quoteId= | ?jobId=   a quote's (or a job's) change orders; no query: all of them
- *   POST  /                      make one on a signed quote { id?, quoteId | jobId, reason, lines, scope?, status? }
+ *   POST  /                      make one on a signed quote { id?, quoteId | jobId, reason (required), lines, scope?, status? }
  *   PATCH /:id                   { baseVersion, reason?, lines?, status? } (sent, approved, void)
  *   POST  /:id/link              the customer's link token (/p/co/<token>), made once; the app sends it from the phone
  *   POST  /:id/sign              the customer signs on this phone, in person { name, signature }
@@ -32,7 +32,7 @@ import { requireCan, roleOf, can, refuse } from '../lib/permissions.js'
 import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
-import { createChangeOrder, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords } from '../lib/changeOrders.js'
+import { createChangeOrder, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords, reasonProblem } from '../lib/changeOrders.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { scheduleFit, startOfChange, effectiveWork } from '../lib/changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords } from '../lib/changeOrderMerge.js'
@@ -126,7 +126,10 @@ router.post('/', requireCan('quotes.change'), async (req: any, res) => {
     const needsOk = !can(roleOf(req), 'billing.change')
     const by = await who(req)
     const known = body.id ? await prisma.changeOrder.findUnique({ where: { id: body.id }, select: { id: true } }) : null
-    const row = await createChangeOrder(accountId, { id: body.id, quoteId, reason: body.reason, lines: body.lines, scope: body.scope ?? null, status: needsOk ? 'needs_ok' : body.status, by, verbalReason: body.verbalReason ?? null, work: body.work ?? null })
+    // The reason is required on a new one (a resend of one already saved is not refused).
+    const noReason = known ? null : reasonProblem(body.reason)
+    if (noReason) { res.status(400).json({ success: false, error: noReason }); return }
+    const row = await createChangeOrder(accountId, { id: body.id, quoteId, reason: body.reason.trim(), lines: body.lines, scope: body.scope ?? null, status: needsOk ? 'needs_ok' : body.status, by, verbalReason: body.verbalReason ?? null, work: body.work ?? null })
     await audit(req, 'create', 'ChangeOrder', row.id, { newValues: view(row) })
     if (needsOk && !known) await askForOk(row, by)
     res.status(201).json({ success: true, data: viewFor(req, await siblingsOf(row))(row), ...(row.notice ? { notice: row.notice } : {}), ...(row.status === 'approved' ? { scheduleWarning: await warningFor(accountId, quoteId) } : {}) })

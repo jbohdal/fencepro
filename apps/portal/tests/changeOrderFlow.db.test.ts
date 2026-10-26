@@ -138,6 +138,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const packet = await call(owner, 'POST', '/api/install-packets', { jobId, snapshot: { style: ND, pullSheet: [{ item: 'Vinyl panel', qty: 14 }] } })
     expect(packet.status).toBe(200)
 
+    // The reason is required (Oct 26 2026): none, spaces or two letters are refused in plain words; nothing is made.
+    const noReason = { jobId, lines: [{ id: 'n1', description: 'Add 12 ft of fence', amountCents: 30000 }] }
+    for (const reason of [undefined, '   ', 'ok']) {
+      const r = await call(owner, 'POST', '/api/change-orders', { ...noReason, ...(reason === undefined ? {} : { reason }) })
+      expect([r.status, r.json.error]).toEqual([400, expect.stringMatching(/^Type the reason for the change \(the customer sees it\)/)])
+    }
+    expect(await prisma.changeOrder.count({ where: { accountId, quoteId } })).toBe(0)
     const co = await call(owner, 'POST', '/api/change-orders', {
       jobId, reason: 'Add 12 ft and a walk gate',
       lines: [{ id: 'l1', description: 'Add 12 ft of fence', amountCents: 30000 }, { id: 'l2', description: 'Add 1 walk gate', amountCents: 15000 }],
@@ -277,7 +284,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const { jobId } = await signedJob()
     const me = (await prisma.crmUser.findFirst({ where: { crmAccountId: accountId, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
     const lines = [{ id: 'r2a', description: 'Add a 4 ft section by the shed', amountCents: 20000 }]
-    const co = (await call(sales, 'POST', '/api/change-orders', { jobId, lines })).json.data
+    const co = (await call(sales, 'POST', '/api/change-orders', { jobId, reason: 'Customer asked for it', lines })).json.data
     expect(co.status).toBe('needs_ok')
     // The "to OK" notice opens the job at the change order (its OK button in view).
     const toOk = await prisma.notification.findMany({ where: { jobId, title: { startsWith: 'Change order to OK' } } })
@@ -306,6 +313,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     expect(same.json.data.status).toBe('draft')
     const words = await call(sales, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: same.json.data.version, reason: 'Customer asked by text' })
     expect(words.json.data.status).toBe('needs_ok')
+    // The reason cannot be blanked afterwards either.
+    expect((await call(sales, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: words.json.data.version, reason: '  ' })).status).toBe(400)
     // The owner's own change stays as it is (it is the OK).
     const ok3 = (await call(owner, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: words.json.data.version, status: 'draft' })).json.data
     const mine = await call(owner, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: ok3.version, lines: [{ ...lines[0], amountCents: 50000 }] })
@@ -316,6 +325,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const page = await call('', 'GET', `/p/co/${link.json.data.token}`)
     expect(page.text).toContain('data-co-new-contract>$6,500.00')
     expect(page.text).toContain('$6,000.00')
+    // The reason she typed reads under "Why" on the customer's link (Oct 26 2026).
+    expect(page.text).toContain('data-co-why><b>Why:</b> Customer asked by text</p>')
     // Signed on the link: the owner and office are told, and whoever made it.
     await call('', 'POST', `/p/co/${link.json.data.token}/sign`, { name: 'Pat Customer', signature: SIG })
     const signed = await prisma.notification.findMany({ where: { jobId, title: { startsWith: 'Signed: CO-1' } } })
@@ -336,9 +347,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const before = (await call(owner, 'GET', `/api/warranties/job/${jobId}`)).json.data.warranty.name
     const lines = [{ id: 'd1', description: 'Change to dig set', amountCents: -20000 }]
     const work = { request: request(112, 0, DS) }
-    expect((await call(owner, 'POST', '/api/change-orders', { jobId, lines, work, status: 'approved' })).status).toBe(400)
-    expect((await call(sales, 'POST', '/api/change-orders', { jobId, lines, work, status: 'approved', verbalReason: 'Agreed' })).status).toBe(403)
-    const co = await call(owner, 'POST', '/api/change-orders', { jobId, lines, work, status: 'approved', verbalReason: 'Customer agreed on the phone' })
+    expect((await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Customer asked for it', lines, work, status: 'approved' })).status).toBe(400)
+    expect((await call(sales, 'POST', '/api/change-orders', { jobId, reason: 'Customer asked for it', lines, work, status: 'approved', verbalReason: 'Agreed' })).status).toBe(403)
+    const co = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Customer asked for it', lines, work, status: 'approved', verbalReason: 'Customer agreed on the phone' })
     expect(co.status).toBe(201)
     expect(co.json.data).toMatchObject({ status: 'approved', contractRev: 2, verbalReason: 'Customer agreed on the phone', signedAt: null })
     expect(co.json.data.warrantyBefore.name).toBe(before)
@@ -371,7 +382,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const s0 = (await call(owner, 'GET', `/api/payments/job/${jobId}`)).json.data.schedule
     const pid = `e2eco${Date.now().toString(36)}`
     expect((await call(owner, 'POST', '/api/payments', { id: pid, jobId, amountCents: s0.contractCents, method: 'check', checkNumber: '77' })).status).toBe(201)
-    const up = await call(owner, 'POST', '/api/change-orders', { jobId, lines: [{ id: 'u1', description: 'Add a post', amountCents: 20000 }], status: 'approved', verbalReason: 'Agreed on site' })
+    const up = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Customer asked for a post', lines: [{ id: 'u1', description: 'Add a post', amountCents: 20000 }], status: 'approved', verbalReason: 'Agreed on site' })
     expect(up.status).toBe(201)
     let s = (await call(owner, 'GET', `/api/payments/job/${jobId}`)).json.data.schedule
     const fin = s.invoices.find((i: any) => i.kind === 'final')
@@ -385,7 +396,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const receipt = s.payments.find((p: any) => p.id === `${pid}b`).receipt
     expect(receipt.says.forText).toBe('Change order CO-1')
     // A credit after everything is paid: the paid invoices stay; the balance shows a credit due back.
-    const credit = await call(owner, 'POST', '/api/change-orders', { jobId, lines: [{ id: 'c1', description: 'Credit: one less post', amountCents: -50000 }], status: 'approved', verbalReason: 'Agreed on site' })
+    const credit = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'One post less', lines: [{ id: 'c1', description: 'Credit: one less post', amountCents: -50000 }], status: 'approved', verbalReason: 'Agreed on site' })
     expect(credit.status).toBe(201)
     s = (await call(owner, 'GET', `/api/payments/job/${jobId}`)).json.data.schedule
     expect(s.invoices.find((i: any) => i.kind === 'final').amountCents).toBe(300000)
@@ -583,7 +594,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
   test("round 4 re-check: the owner's read \"to OK\" notice is retitled when he OKs it; the maker's \"OK'd: send it\" is done once signed", async () => {
     const { jobId } = await signedJob()
     const me = (await prisma.crmUser.findFirst({ where: { crmAccountId: accountId, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
-    const co = (await call(sales, 'POST', '/api/change-orders', { jobId, lines: [{ id: 'n4', description: 'Add a 4 ft section', amountCents: 20000 }] })).json.data
+    const co = (await call(sales, 'POST', '/api/change-orders', { jobId, reason: 'Customer asked for a section', lines: [{ id: 'n4', description: 'Add a 4 ft section', amountCents: 20000 }] })).json.data
     const toOk = await prisma.notification.findMany({ where: { jobId, title: { startsWith: 'Change order to OK' } } })
     expect(toOk.length).toBe(2)
     // The owner taps his notice (it opens the job and is marked read), then OKs it there.

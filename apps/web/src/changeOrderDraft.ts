@@ -147,8 +147,8 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
 
   const sectionsDelta = d.sectionsNow - s.sections
   if (sectionsDelta) scope.sections = sectionsDelta
-  const reason = 'Changed after the quote was signed.'
-  const done = (lines: ChangeOrderLine[]): ChangeOrderPrefill => ({ reason, lines, scope: Object.keys(scope).length ? scope : null })
+  // The reason is typed by whoever makes it (required, Oct 26 2026), never a generic sentence.
+  const done = (lines: ChangeOrderLine[]): ChangeOrderPrefill => ({ reason: '', lines, scope: Object.keys(scope).length ? scope : null })
 
   if (d.simple || !signedStyle) {
     const lines = words.filter(w => w.text !== 'Other price changes').map(w => ({ id: newId(), description: w.text, amountCents: 0 }))

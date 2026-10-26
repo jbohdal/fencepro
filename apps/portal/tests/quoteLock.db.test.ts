@@ -205,7 +205,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     // Not on an unsigned quote.
     const draftQ = await prisma.savedQuote.create({ data: quoteData('SENT') as any })
     ids.quotes.push(draftQ.id)
-    expect((await call(owner, 'POST', '/api/change-orders', { quoteId: draftQ.id, lines: [{ id: 'a', description: 'x', amountCents: 100 }] })).status).toBe(409)
+    expect((await call(owner, 'POST', '/api/change-orders', { quoteId: draftQ.id, reason: 'Customer asked', lines: [{ id: 'a', description: 'x', amountCents: 100 }] })).status).toBe(409)
 
     const coId = crypto.randomUUID()
     const made = await call(owner, 'POST', '/api/change-orders', {
@@ -241,7 +241,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     j = await prisma.savedJob.findUnique({ where: { id: job.id } })
     expect([j!.notes, j!.contractValue]).toEqual(['crew note', 1635])
     // Approved at once (agreed on site), a credit: 1635.00 - 100.00.
-    const credit = await call(owner, 'POST', '/api/change-orders', { quoteId: q.id, status: 'approved', verbalReason: 'Customer agreed on site', lines: [{ id: 'c1', description: 'Credit: no tear out', amountCents: -10_000 }] })
+    const credit = await call(owner, 'POST', '/api/change-orders', { quoteId: q.id, reason: 'No tear out after all', status: 'approved', verbalReason: 'Customer agreed on site', lines: [{ id: 'c1', description: 'Credit: no tear out', amountCents: -10_000 }] })
     expect([credit.status, credit.json.data.number]).toEqual([201, 2])
     expect((await prisma.savedJob.findUnique({ where: { id: job.id } }))!.contractValue).toBe(1535)
     // Voided: off again.
@@ -255,7 +255,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
   // A Salesman sees costs since Oct 25, 2026 (Jonathan); what is checked here is the lock and the approval.
   test('a Salesman: makes a change order, cannot approve one', async () => {
     const q = await soldQuote()
-    const made = await call(salesman, 'POST', '/api/change-orders', { quoteId: q.id, lines: [{ id: 's1', description: 'Add 8 ft', amountCents: 12_000 }] })
+    const made = await call(salesman, 'POST', '/api/change-orders', { quoteId: q.id, reason: 'Customer asked for 8 ft more', lines: [{ id: 's1', description: 'Add 8 ft', amountCents: 12_000 }] })
     expect(made.status).toBe(201)
     const approve = await call(salesman, 'PATCH', `/api/change-orders/${made.json.data.id}`, { baseVersion: 1, status: 'approved' })
     expect(approve.status).toBe(403)
