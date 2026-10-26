@@ -7,8 +7,8 @@
 #   com.ezbiz.nightly  (opt in) the nightly safety net, deploy/mac/nightly-check.sh
 #                      at 19:15, from the WORKING FOLDER (never ~/ezbiz). Installed
 #                      only when EZBIZ_NIGHTLY_DIR names that folder:
-#                        EZBIZ_NIGHTLY_DIR="$HOME/Downloads/ALL MY SHIT/project for vs code/ez-biz-final" \
-#                          bash ~/ezbiz/deploy/mac/install-launch-agents.sh
+#                        W="$HOME/Downloads/ALL MY SHIT/project for vs code/ez-biz-final"
+#                        EZBIZ_NIGHTLY_DIR="$W" bash "$W/deploy/mac/install-launch-agents.sh" --nightly-only
 #                      Add --nightly-only to leave the other two as they are.
 #                      EZBIZ_NIGHTLY_DIR=off removes it. GO_LIVE.md, section 20.
 #
@@ -74,7 +74,7 @@ if [ "$NIGHTLY" = "off" ]; then
   echo "The nightly check is removed."
 elif [ -n "$NIGHTLY" ]; then
   NIGHTLY="$(cd "$NIGHTLY" && pwd)"
-  case "$NIGHTLY/" in "$LIVE/"*|"$HOME/ezbiz/"*) echo "Refusing: EZBIZ_NIGHTLY_DIR must be the working folder, not the live install ($NIGHTLY)." >&2; exit 1 ;; esac
+  case "$NIGHTLY/" in "$HOME/ezbiz/"*) echo "Refusing: EZBIZ_NIGHTLY_DIR must be the working folder, not the live install ($NIGHTLY)." >&2; exit 1 ;; esac
   [ -f "$NIGHTLY/deploy/mac/nightly-check.sh" ] || { echo "No deploy/mac/nightly-check.sh in $NIGHTLY." >&2; exit 1; }
   case "$NIGHTLY$HOME" in *[\<\>\&]*) echo "Refusing: the folder's name has < > or & in it." >&2; exit 1 ;; esac
   esc() { printf '%s' "$1" | sed -e 's/[|\\]/\\&/g'; }

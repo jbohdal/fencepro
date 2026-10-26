@@ -201,6 +201,7 @@ if [ "$SAFE" = 1 ]; then
   say "Starting its server on $PORT"
   ( cd "$WT/apps/portal" && DISABLE_CRON=1 OUTBOUND_GATE=closed NODE_ENV=development PORT="$PORT" nice -n 10 ./node_modules/.bin/tsx src/server/index.ts 2>&1 | grep --line-buffered -v '^prisma:query' > "$OUT/server.log" ) &
   echo $! > "$NH/server.pid"
+  disown $! 2>/dev/null # stopped by stop_server, without a "Terminated" line
   up=0; for _ in $(seq 1 90); do curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && { up=1; break; }; sleep 1; done
   if [ "$up" != 1 ]; then problem "its server did not start (server.log)"; SAFE=0; fi
 fi
@@ -256,14 +257,15 @@ if [ "$NEW" -gt 0 ] || [ "$FRESH" -gt 0 ]; then
   BRANCH="nightly-fix/$DATE"
   FIX="$NH/fix-$DATE"
   SUMMARY="$OUT/agent-summary.md"
-  # Every Bash command it may run is listed; anything else is refused (nobody is there to ask).
-  ALLOWED=(Read Glob Grep Edit Write TodoWrite
-    'Bash(pnpm test)' 'Bash(pnpm test *)' 'Bash(pnpm -s build)' 'Bash(pnpm build)' 'Bash(pnpm exec tsc *)' 'Bash(pnpm exec vitest *)'
+  # What it may do with nobody there to ask. Reading and editing: only inside its worktree and tonight's folder
+  # (acceptEdits with --add-dir; no bare Read / Edit / Write rule, which would reach every folder; tested
+  # Oct 26 2026: /etc/hosts and a file next to the folders were refused). Commands: only these (plain read-only
+  # commands inside its folders are allowed by Claude Code itself); anything else is refused.
+  ALLOWED=('Bash(pnpm test)' 'Bash(pnpm test *)' 'Bash(pnpm -s build)' 'Bash(pnpm build)' 'Bash(pnpm exec tsc *)' 'Bash(pnpm exec vitest *)'
     'Bash(pnpm exec prisma generate)' 'Bash(pnpm exec tsx *)' 'Bash(npx tsx *)' 'Bash(npx vitest *)' 'Bash(nice -n 10 *)'
     'Bash(node e2e/*)' 'Bash(node --check *)' 'Bash(DISABLE_CRON=1 *)' 'Bash(APP_URL=* node e2e/*)' 'Bash(APP_URL=* nice -n 10 node e2e/*)'
     'Bash(git status*)' 'Bash(git diff*)' 'Bash(git log*)' 'Bash(git show*)' 'Bash(git add *)' 'Bash(git commit *)'
     'Bash(git branch --show-current)' 'Bash(git rev-parse *)' 'Bash(git restore *)'
-    'Bash(ls *)' 'Bash(cat *)' 'Bash(head *)' 'Bash(tail *)' 'Bash(wc *)' 'Bash(grep *)' 'Bash(rg *)' 'Bash(find *)' 'Bash(sed -n *)'
     'Bash(curl -s http://localhost:*)' 'Bash(curl -fsS http://127.0.0.1:*)' 'Bash(lsof -ti *)' 'Bash(kill *)' 'Bash(sleep *)' 'Bash(mkdir *)'
     'Bash(psql -d ezbiz_dev *)')
   DENIED=('Bash(git push*)' 'Bash(git merge*)' 'Bash(git rebase*)' 'Bash(git reset --hard*)' 'Bash(git checkout main*)' 'Bash(git checkout finalize*)'

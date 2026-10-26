@@ -607,26 +607,50 @@ Sign in to Google as your gdfencepro.com account for all of this.
 ## 17. Feedback from inside the app
 
 Every signed-in page has a **Send feedback** button in the top bar (the
-speech bubble with a plus, next to the bell). One tap takes a picture of the
-screen and opens a small form; what is sent also records who, their role, the
-time, the page address, the screen size, the phone or browser, the app file it
-was running and the last few app errors. It goes through the save queue, so it
-is sent once even on weak signal. The owner and admins see it under
-**Admin > Feedback** (and get a bell notification for each new one).
+speech bubble with a plus, next to the bell), for every login: owner, office,
+Salesman (Christa) and installer, on a phone or a computer. One tap takes a
+picture of the screen and opens a small form: draw on the picture to point at
+something (**Mark it**, **Undo**), or **Remove picture**; type one line; Send.
+What is sent also records who, their role, the time, the screen's name
+(Customers, Sales Pipeline...), the record that was open (the customer, quote,
+job, pipeline card, change order or service request, with its name, from the
+page address; the name is looked up on the server), the page address, the
+screen size, the phone or browser, the app version (the git commit and build
+time), the app file and the last few app errors. It goes through the save
+queue, so it is sent once even on weak signal. The installer's screens show
+no prices, so neither do his pictures. The owner and admins see it under
+**Admin > Feedback** (and get a bell notification for each new one): it opens
+on **New**, with filters for **Looked at**, **Fixed** and **Needs Jonathan**
+(and All); each shows the picture (tap for big), the line, who, the screen and
+record (tap Open it), the device and app version, and who marked it.
+
+The daily review: the nightly check (section 20) reads new feedback from live,
+read only, every night, puts it in its report with the pictures, and hands it
+to the night agent, which fixes what is clear on its nightly branch and writes
+down what needs Jonathan. It never marks feedback on live: Jonathan marks it
+on the Feedback page, or the next deploy carries the fix.
 
 To read it from a terminal (for Claude Code too), read only:
 
 ```bash
 cd ~/ezbiz/apps/portal && npx tsx scripts/feedback-report.ts               # newest 50
 cd ~/ezbiz/apps/portal && npx tsx scripts/feedback-report.ts --status new  # only New
-#   --limit 20   --days 7   --json (one JSON object per line)
+cd ~/ezbiz/apps/portal && npx tsx scripts/feedback-report.ts --since 2026-10-26 --copy-shots ~/Downloads/feedback-shots
+#   --status new | seen (Looked at) | done (Fixed) | needs_jonathan
+#   --since <date> (from that day, Ocala time)   --limit 20   --days 7
+#   --copy-shots <folder> (copies each screenshot there)   --json (one JSON object per line)
 ```
 
 It reads `DATABASE_URL` from that folder's `.env` inside a read-only
-transaction, prints each feedback with the path of its screenshot file
-(`<UPLOAD_DIR>/feedback/<company>/<id>.jpg`, open it to see the screen), and
+transaction, prints each feedback (its line, who and role, the screen, the
+record, the page, the device, the app version) with a `file://` link to its
+screenshot (`<UPLOAD_DIR>/feedback/<company>/<id>.jpg`, or the copy), and
 prints no settings or secrets. Run from the working folder it reads the dev
 copy instead.
+
+The deploy adds five columns to Feedback (screenTitle, recordType, recordId,
+recordName, appVersion; empty for older rows). `prisma db push` in update.sh
+adds them; nothing is removed.
 
 
 ## 18. Email
@@ -789,3 +813,124 @@ Host naming the Mac. Only the script makes one; there is no web route for it.
 `localhost:4000` share cookies (cookies ignore the port): opening both in the
 same browser signs the other out. Use the Tailscale address for live.
 Renaming the Mac's Tailscale name signs everyone out.
+
+## 20. The nightly check (DEV, Oct 26, 2026)
+
+Jonathan: "make the 3 job walkthrough (vinyl no dig, chain link dig set with
+change order, repair) plus the iPhone run an automatic nightly check after
+6 pm. If anything that worked yesterday breaks, fix it before morning or tell
+me first thing."
+
+**Install it (once, one line):**
+
+```bash
+W="$HOME/Downloads/ALL MY SHIT/project for vs code/ez-biz-final"; EZBIZ_NIGHTLY_DIR="$W" bash "$W/deploy/mac/install-launch-agents.sh" --nightly-only
+```
+
+(The working folder's copy of the script, once this is on finalize there; after
+the next deploy `~/ezbiz/deploy/mac/install-launch-agents.sh` does the same.)
+`--nightly-only` leaves the server and backup agents as they are. It runs at
+19:15 every day (when the Mac is asleep then, as soon as it wakes), from the
+working folder, never from `~/ezbiz`. `EZBIZ_NIGHTLY_DIR=off` with the same
+command removes it. The first time, macOS may ask whether `bash` may use the
+Downloads folder: click Allow. If `~/Library/Logs/ezbiz/nightly.log` says
+"Operation not permitted", open System Settings > Privacy & Security > Full
+Disk Access and add `/bin/bash`.
+
+**Every morning:** open `~/Downloads/ezbiz-nightly/<date>/report.md`. The first
+lines are the summary: all passed, or the NEW FAILURES (worked the night
+before, broken now) with what the night agent did about each ("Fixed on branch
+nightly-fix/<date>: ... Deploy: ..." or "Couldn't fix: ... Needs Jonathan"),
+then the new feedback. Below: new failures with screenshots, what still fails,
+what was fixed, the night agent's summary and its exact command, the feedback
+with its pictures, every step of the walkthrough (who, which device, how long,
+PASS / FAIL / skip) and of the iPhone run, and how it ran. `results.json` has
+the same for programs. 30 nights are kept.
+
+**What it does** (`deploy/mac/nightly-check.sh`):
+
+1. Refuses before 18:00 (and from 07:00), anywhere under `~/ezbiz`, and ports
+   4000 and 4001. Runs one at a time.
+2. Stops its own leftovers (its server, anything left from an earlier night),
+   tests left running more than 3 hours, and a Simulator left on. Other test
+   runs going on are left alone and named in its log.
+3. Refreshes the dev copy (`refresh-dev-db.sh`: live is only read, the copy is
+   scrubbed) unless something else is connected to `ezbiz_dev` (the working
+   folder's dev server on 4001, another test): then it uses the dev copy as it
+   is and says so.
+4. Checks out the current `finalize` in `.nightly/finalize` (git ignores
+   `.nightly/`), applies its schema to `ezbiz_dev` (never dropping anything),
+   builds the web app and starts its own server on port 4091 with the outbound
+   gate shut (`OUTBOUND_GATE=closed`, `NODE_ENV=development`, no cron). Before
+   anything runs it checks: the settings name `ezbiz_dev`, nothing names 4000
+   or `ezbiz`, no phone push sign ups on the dev copy (it scrubs again if there
+   are), the scrub mark, and the gate's own answer. Any of these wrong: no test
+   runs and the report says why first.
+5. Runs `apps/web/e2e/nightly-walkthrough.mjs` (below) and
+   `apps/web/e2e/iphone-safari.mjs` (real Safari in the iOS Simulator, every
+   area), shuts the Simulator down, and stops its server.
+6. Reads new feedback from live, read only: `cd ~/ezbiz/apps/portal && npx tsx
+   scripts/feedback-report.ts --status new --json` (a read-only transaction;
+   it changes nothing on live), and copies each screenshot into the night's
+   folder.
+7. Writes the report, comparing with the newest earlier night.
+8. If there are new failures or new feedback: starts the night agent.
+
+**The 3 job walkthrough** (`apps/web/e2e/nightly-walkthrough.mjs`, about 4
+minutes). Each step as its person on their device: the office on a computer
+(Chromium), the Salesman, the installer, Jonathan and the customer on an
+iPhone (WebKit). It makes its own logins (`nightly-<role>-<code>@example.invalid`)
+and customers ("NIGHTLY <date> ...", `@example.invalid`, (352) 555 0101 to
+0103), and removes them all at the end, with anything an earlier run left.
+
+- Job A, white vinyl no dig: the office adds the lead and books the
+  Salesman's visit; she completes it "Ready to quote", draws the yard, picks
+  the style, saves, copies the proposal link; the customer signs (the no dig
+  option); the office takes the deposit, adds the 811 ticket and the permit,
+  schedules the install from Ready to schedule (crew days Monday to Thursday;
+  on a Friday to Sunday night it books tonight with the weekend tick so the
+  installer can work it, and says so); the installer makes the packet (no
+  prices), Start, "We finished the whole job", walks it with the homeowner
+  (every item, the photos, both signatures on his phone); the office takes the
+  final payment and the job closes itself to Paid, its card Paid & Closed.
+- Job B, 4 ft chain link dig set: the Salesman quotes from the card, the
+  customer signs; the office takes the deposit; the Salesman's typed change
+  order waits for the OK, the office OKs it on the job page, the customer signs
+  it on her phone; Jonathan adds 10 ft to the back from the job's drawing and
+  the customer signs that; the contract is the quote plus both.
+- Job C, walk-in repair: the office adds the walk-in, quotes the repair,
+  sends it with Send anyway (no photos at the counter), the customer signs;
+  scheduled; the installer starts, finishes and walks it (the homeowner signs
+  on the link on their own phone); the office takes the payment in full and it
+  closes itself to Paid.
+
+Run it by hand (dev only): `cd apps/web && APP_URL=http://localhost:4001
+API_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev owner token> node
+e2e/nightly-walkthrough.mjs` (`JOBS=A`, `SHOTS=<folder>`, `RESULTS=<file>`,
+`KEEP=1` to leave what it made).
+
+**The night agent.** Headless Claude Code (`claude -p`, the VS Code
+extension's copy when `claude` is not on the PATH; `NIGHTLY_CLAUDE` in the
+LaunchAgent picks another), with the prompt `deploy/mac/nightly-fix-prompt.md`
+filled in. It works in its own worktree `.nightly/fix-<date>` on the branch
+`nightly-fix/<date>` made from finalize, with the dev settings on port 4092.
+It may: read and edit only inside that worktree and the night's folder; run
+the tests, the builds, its own server, the walkthrough and WebKit runs, `git
+add` and `git commit`, and `psql -d ezbiz_dev`. It may not (refused, nobody is
+asked): `git push`, merge, rebase or reset, `~/ezbiz`, `update.sh`, `pm2`, the
+database `ezbiz`, `prisma db push`, the refresh, the web. Even a push that got
+through would fail: its git is pointed at no remote for pushing. It stops after
+4 hours (`NIGHTLY_AGENT_MINUTES`) or 40 dollars of use (`NIGHTLY_AGENT_BUDGET`).
+Its summary goes at the top of the report. With no commits its branch is
+removed; with commits the branch stays (not pushed, not deployed): review it,
+then merge it into finalize and main and run `bash ~/ezbiz/deploy/mac/update.sh`.
+
+**By hand:** `bash deploy/mac/nightly-check.sh` (after 18:00); `--dry-run` (no
+refresh, no Simulator, the agent's command written into the report instead of
+run), `--skip-refresh`, `--skip-simulator`, `--skip-agent`; `NIGHTLY_REF=<branch>`
+tests another branch, `NIGHTLY_OUT=<folder>` writes elsewhere,
+`NIGHTLY_FEEDBACK_DIR=<folder>/apps/portal` reads feedback from another copy.
+
+Note: the check's folders share the working folder's installed packages, so
+its `prisma generate` (finalize's schema) also applies to other worktrees until
+they generate again.

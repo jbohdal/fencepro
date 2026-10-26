@@ -35,7 +35,7 @@ Its folder, with the logs and the feedback screenshots: `{{NIGHT}}`
   after `cd apps/web && nice -n 10 pnpm -s build` (the server serves the built app).
 - A dev owner sign in for the tests: `cd apps/portal && npx tsx scripts/dev-session-token.ts --email jbohdal@example.invalid --out {{TOKEN_FILE}} --days 1`
 - Rerun only what failed, one browser run at a time, at low priority:
-  `cd apps/web && APP_URL=http://localhost:{{PORT}} API_URL=http://localhost:{{PORT}} E2E_ACCESS_TOKEN=$(cat {{TOKEN_FILE}}) JOBS=A nice -n 10 node e2e/nightly-walkthrough.mjs`
+  `cd apps/web && APP_URL=http://localhost:{{PORT}} API_URL=http://localhost:{{PORT}} E2E_ACCESS_TOKEN_FILE={{TOKEN_FILE}} JOBS=A nice -n 10 node e2e/nightly-walkthrough.mjs`
   (JOBS=A, B or C). Do not run the iOS Simulator; for an iPhone failure use
   `DRIVER=webkit AREAS=<area> node e2e/iphone-safari.mjs` against your server.
 - Before you finish: `cd apps/portal && pnpm test` and the typecheck
