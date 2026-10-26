@@ -29,7 +29,12 @@ async function readAgain(force = false, allAppointments = force) {
   last = Date.now()
   // Small checks every time; appointments (a bigger list) when the app comes back on screen or is asked.
   await Promise.allSettled([refreshQuotes(), refreshJobs(), refreshPipeline(), refreshCustomers(), refreshOpsStages(), refreshPipelineStages(), refreshOptionLists(), refreshBookingTeam(), refreshSchedule(), ...(allAppointments || appointmentsDue() ? [refreshAppointments()] : [])])
+  // What an open screen reads for itself (a job's change orders: ChangeOrders.tsx useChangeOrdersLive) reads again too.
+  try { window.dispatchEvent(new CustomEvent(LIVE_REFRESH_EVENT)) } catch { /* no window */ }
 }
+
+/** Sent after each live refresh, for what a screen reads for itself. */
+export const LIVE_REFRESH_EVENT = 'ezbiz:live-refresh'
 
 export function startLiveRefresh() {
   if (started) return

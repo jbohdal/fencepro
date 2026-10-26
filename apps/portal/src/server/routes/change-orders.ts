@@ -32,12 +32,13 @@ import { requireCan, roleOf, can, refuse } from '../lib/permissions.js'
 import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
-import { createChangeOrder, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES } from '../lib/changeOrders.js'
+import { createChangeOrder, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords } from '../lib/changeOrders.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { scheduleFit, startOfChange, effectiveWork } from '../lib/changeOrderWork.js'
-import { shapeOf, sameShape } from '../lib/changeOrderMerge.js'
+import { shapeOf, sameShape, ownChangeWords } from '../lib/changeOrderMerge.js'
 import { jobTimeline } from '../lib/changeOrderHistory.js'
 import { signSchema } from './changeOrderPublic.js'
+import { safeSvg } from './proposal.js'
 import { pickListFor, pickPriceFor } from '../lib/changeOrderPicks.js'
 import { askForOk, okGiven } from '../lib/changeOrderNotices.js'
 
@@ -173,6 +174,25 @@ router.post('/:id/sign', requireCan('quotes.change'), async (req: any, res) => {
     if (!again) await audit(req, 'update', 'ChangeOrder', row.id, { oldValues: view(cur), newValues: { ...view(row), signedInPersonWith: witness } })
     res.json({ success: true, data: viewFor(req, await siblingsOf(row))(row), scheduleWarning: await warningFor(accountId, row.quoteId) })
   } catch (e) { fail(res, e, 'save the signature') }
+})
+
+/**
+ * What the customer sees when signing on this phone, exactly as their link
+ * shows it (routes/changeOrderPublic.ts, round 3 recheck): the contract before
+ * and with it, the new layout, its own change and the other change orders the
+ * drawing also shows. Never a cost.
+ */
+router.get('/:id/for-signing', requireCan('quotes.change'), async (req: any, res) => {
+  try {
+    const accountId = req.user.crmAccountId
+    const co = await prisma.changeOrder.findUnique({ where: { id: String(req.params.id) } })
+    if (!co || co.accountId !== accountId || co.deletedAt) { res.status(404).json({ success: false, error: 'Change order not found' }); return }
+    const q = await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId }, select: { finalPrice: true } })
+    const work = co.work as any
+    const planSvg = work?.planSvg ? safeSvg(work.planSvg) || null : null
+    const also = planSvg ? alsoInDrawingWords(alsoInDrawing(co, await siblingsOf(co))) : []
+    res.json({ success: true, data: { contract: await contractAround(co, q?.finalPrice ?? 0), planSvg, own: planSvg && also.length ? ownChangeWords(work) : null, alsoInDrawing: also } })
+  } catch (e) { fail(res, e, 'load the change order to sign') }
 })
 
 /** The quote asked about: ?quoteId=, else the job's (?jobId=). */

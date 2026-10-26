@@ -28,7 +28,7 @@ import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { getConfig } from './configStore'
 import { toast } from './toast'
 import type { SavedQuote } from './QuotesPage'
-import { refreshChangeOrders, quoteWithChanges, signedQuoteOf } from './ChangeOrders'
+import { refreshChangeOrders, quoteWithChanges, signedQuoteOf, CO_EVENT } from './ChangeOrders'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 const API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/install-packets'
@@ -247,7 +247,15 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
   const [busy, setBusy] = useState(false)
   const [crewInfo, setCrewInfo] = useState<CrewInstall | null>(() => crewInstallCached(jobId))
   const times = crewInfo?.times ?? []
-  useEffect(() => { call<Packet>(`?jobId=${encodeURIComponent(jobId)}`).then(setPacket) }, [jobId])
+  useEffect(() => {
+    let live = true
+    void call<Packet>(`?jobId=${encodeURIComponent(jobId)}`).then(p => { if (live) setPacket(p) })
+    // A change order signed since the packet was sent: the notice above the packet shows it without a reload
+    // (a read that fails keeps what is on screen).
+    const again = () => { void call<Packet>(`?jobId=${encodeURIComponent(jobId)}`).then(p => { if (live && p) setPacket(p) }) }
+    window.addEventListener(CO_EVENT, again)
+    return () => { live = false; window.removeEventListener(CO_EVENT, again) }
+  }, [jobId])
   useEffect(() => {
     let live = true
     const h = (e: Event) => { if ((e as CustomEvent<{ jobId: string }>).detail?.jobId === jobId && live) setCrewInfo(crewInstallCached(jobId)) }

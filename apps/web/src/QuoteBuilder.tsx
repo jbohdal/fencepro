@@ -58,7 +58,7 @@ import { bakedBackdrop } from './aerialBake'
 // A signed quote's lock: the same rules the server checks every save with.
 import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../portal/src/server/lib/quoteLock'
 import { shapeOf, sideChanges, sideChangeWords } from '../../portal/src/server/lib/changeOrderMerge'
-import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, type ChangeOrderPrefill } from './ChangeOrders'
+import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, openChangesNote, type ChangeOrderPrefill } from './ChangeOrders'
 import { changeOrderDraft, gatesPutIn } from './changeOrderDraft'
 import { SignedDocumentLinks } from './SignedDocuments'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
@@ -1075,6 +1075,8 @@ export default function QuoteBuilder({
             <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
             {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? 'Change order: change the drawing, then tap Make change order.' : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
+            {/* Another change order still open is in this drawing and its price: said, not only in a passing toast (round 3 recheck). */}
+            {signedQuote && changeOrder && openChangesNote(init) && <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-open-in-drawing>{openChangesNote(init)}</p>}
             {signedQuote && changeOrder && init?.id && <button type="button" onClick={() => setTypeInstead(true)} className="text-sm text-orange-700 font-semibold underline min-h-[44px]" data-co-type-instead>Type the change instead</button>}
             {signedQuote && init?.id && <SignedDocumentLinks quoteId={init.id} />}
             {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({fmt(init!.finalPrice)} then, {fmt(adjPrice)} now).</p>}
@@ -1168,6 +1170,7 @@ export default function QuoteBuilder({
                   openSideId={openSide}
                   onOpenSide={setOpenSide}
                   locked={signedQuote}
+                  changeOrder={signedQuote && changeOrder}
                   teeAs={teeAs}
                   padAction={signedQuote && changeOrder ? { label: 'Make change order', onTap: () => setMakeQueued(n => n + 1) } : undefined}
                   address={init?.customerAddress || (init?.customerId ? getCustomerById(init.customerId)?.serviceAddress : '') || ''}

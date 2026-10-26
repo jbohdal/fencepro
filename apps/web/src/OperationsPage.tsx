@@ -25,7 +25,7 @@ import { getJobs, refreshJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
 import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, advanceStage, pickable, useOpsStages, getCompleteOpsStage } from './opsStagesStore'
 import { isDonePhase } from './opsStageModel'
-import { ChangeOrderPanel, ChangeOrderButton, JobTimeline } from './ChangeOrders'
+import { ChangeOrderPanel, ChangeOrderButton, JobTimeline, useChangeOrdersLive } from './ChangeOrders'
 import { can, isCrewLogin } from './permissions'
 import { archiveRecord, deleteRecord } from './recordArchive'
 import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
@@ -136,6 +136,9 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
     const t = window.setInterval(() => { void refreshJobs() }, 20_000)
     return () => window.clearInterval(t)
   }, [job.id])
+  // Its change orders too (a customer signs one on their link): the documents, packet notice, payments and
+  // contract below follow when one changes (ChangeOrders.tsx useChangeOrdersLive, CO_EVENT).
+  useChangeOrdersLive(can('prices.view') ? job.rawJob?.quoteId : null)
   const stage = stageInfo(job.opsStage)
   const inSideLane = stagePhase(job.opsStage) === 'on_hold'
   // Complete, Invoiced, Paid: closed. No Move install, no Hold, no Advance; going back is Reopen (owner, office).

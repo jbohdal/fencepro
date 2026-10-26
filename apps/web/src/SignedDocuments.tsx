@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { fetchWithAuth } from './crmAuth'
 import { API_ORIGIN } from './syncHttp'
 import { toast } from './toast'
+import { CO_EVENT } from './ChangeOrders'
 
 export interface SignedDocumentRow {
   id: string
@@ -64,6 +65,11 @@ export default function SignedDocuments({ which, heading = 'Documents', hideWhen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
   useEffect(() => { reload() }, [reload])
+  // A change order signed (on this phone, or on the customer's link and read again by the job page): its signed PDF is listed at once.
+  useEffect(() => {
+    window.addEventListener(CO_EVENT, reload)
+    return () => window.removeEventListener(CO_EVENT, reload)
+  }, [reload])
 
   if (hideWhenEmpty && (!rows || rows.length === 0)) return null
   return (

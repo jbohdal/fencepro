@@ -32,6 +32,7 @@ import { smsLink } from './appointmentLogic'
 import { invoiceDue } from '../../portal/src/server/lib/jobReadiness'
 import { businessDate } from './businessDate'
 import { hasSignal } from './outbox'
+import { CO_EVENT } from './ChangeOrders'
 import {
   METHODS, money, centsOf, todayOcala, loadJob, loadCustomer, makeSchedule, scheduleOf, subscribe, paymentsVersion,
   recordPayment, shownReceipt, emailReceipt, emailResultOf, noteTexted, waitingPayments, paymentWaiting, recorderName,
@@ -65,6 +66,12 @@ export default function PaymentsPanel({ jobId, customerId, compact }: { jobId?: 
     }
   }, [jobId, customerId])
   useEffect(() => { void reload() }, [reload])
+  // A change order signed or voided adds to (or comes off) the contract and the payment schedule: read again.
+  useEffect(() => {
+    const again = () => { void reload() }
+    window.addEventListener(CO_EVENT, again)
+    return () => window.removeEventListener(CO_EVENT, again)
+  }, [reload])
 
   const list = jobs.map(scheduleOf).filter((s): s is Schedule => !!s)
   if (loaded === null && !list.length) return <p className="text-xs text-gray-400" data-payments-loading>Loading payments…</p>

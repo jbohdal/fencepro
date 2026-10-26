@@ -31,6 +31,7 @@ import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { wholeDollarCents } from './pricingEngine'
 import { SignaturePad } from './SignaturePad'
+import { LIVE_REFRESH_EVENT } from './liveRefresh'
 import type { SavedQuote } from './QuotesPage'
 
 /* ───────── types ───────── */
@@ -152,9 +153,14 @@ const shortDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { mo
 let cache: ChangeOrder[] = []
 const emit = () => { try { window.dispatchEvent(new CustomEvent(CO_EVENT)) } catch { /* no window */ } }
 
+const byId = (a: ChangeOrder, b: ChangeOrder) => a.id.localeCompare(b.id)
 function keep(rows: ChangeOrder[], quoteId?: string) {
+  const had = quoteId ? cache.filter(c => c.quoteId === quoteId) : cache
+  // Read again on a timer (the job page, every 20 seconds): tell the screen only when something changed,
+  // so the documents, packet and payments it reads again are not asked for each time.
+  const same = JSON.stringify([...had].sort(byId)) === JSON.stringify([...rows].sort(byId))
   cache = quoteId ? [...cache.filter(c => c.quoteId !== quoteId), ...rows] : rows
-  emit()
+  if (!same) emit()
 }
 function put(row: ChangeOrder) {
   cache = cache.some(c => c.id === row.id) ? cache.map(c => (c.id === row.id ? row : c)) : [...cache, row]
@@ -252,11 +258,30 @@ export async function quoteForChange(quote: SavedQuote): Promise<SavedQuote> {
   }
   signedOf.set(out, signedQuoteOf(quote))
   if (open.length) {
+    const rows = getOrdersForQuote(quote.id)
+    openOf.set(out, open.map(o => ({ number: o.number, change: rows.find(r => r.id === o.id)?.change ?? null })).sort((a, b) => a.number - b.number))
     const names = open.map(o => `CO-${o.number}`)
     const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
     toast.info(`The drawing has ${list} in it`, `${list} ${names.length === 1 ? 'is' : 'are'} not signed yet. The new change order adds only its own change; the job keeps every change that is signed.`)
   }
   return out
+}
+
+/** The open (not signed) change orders whose change is in the drawing quoteForChange opened. */
+const openOf = new WeakMap<object, Array<{ number: number; change: string | null }>>()
+
+/**
+ * The note the change order editor keeps on screen (round 3 recheck, Oct 26
+ * 2026: the drawing showed CO-1's change and its price with nothing saying
+ * so): "This drawing includes CO-1 (Left side 40 ft → 50 ft), not signed
+ * yet." Null when no open change order is in it.
+ */
+export function openChangesNote(q: object | null | undefined): string | null {
+  const open = q ? openOf.get(q) : undefined
+  if (!open?.length) return null
+  const one = (o: { number: number; change: string | null }) => `CO-${o.number}${o.change ? ` (${o.change})` : ''}`
+  const list = open.length === 1 ? one(open[0]) : `${open.slice(0, -1).map(one).join(', ')} and ${one(open[open.length - 1])}`
+  return `This drawing includes ${list}, not signed yet. The price shown counts ${open.length === 1 ? 'it' : 'them'} too; the new change order adds only its own change.`
 }
 
 /** The quote as signed, for a quote that may be the work now (quoteWithChanges). */
@@ -337,6 +362,24 @@ export function useChangeOrders(quoteId: string): { orders: ChangeOrder[]; loade
     return () => window.removeEventListener(CO_EVENT, on)
   }, [quoteId])
   return { orders, loaded }
+}
+
+/**
+ * A screen with a quote's change orders open (the job page): read them again
+ * every 20 seconds while it is on screen, when the app comes back on screen,
+ * and on the app's live refresh (liveRefresh.ts), so a change order the
+ * customer signs on their link shows as signed (and the documents, the packet
+ * notice and the contract that listen to CO_EVENT follow) without a reload.
+ */
+export function useChangeOrdersLive(quoteId: string | null | undefined, everyMs = 20_000) {
+  useEffect(() => {
+    if (!quoteId) return
+    const again = () => { if (document.visibilityState === 'visible') void refreshChangeOrders(quoteId) }
+    const t = window.setInterval(again, everyMs)
+    document.addEventListener('visibilitychange', again)
+    window.addEventListener(LIVE_REFRESH_EVENT, again)
+    return () => { window.clearInterval(t); document.removeEventListener('visibilitychange', again); window.removeEventListener(LIVE_REFRESH_EVENT, again) }
+  }, [quoteId, everyMs])
 }
 
 /* ───────── Approved verbally: the reason ───────── */
@@ -621,6 +664,16 @@ export function QuickChangeOrderModal({
 
 /* ───────── The customer signs on this phone ───────── */
 
+/** The server's copy of what the customer's link shows (GET /api/change-orders/:id/for-signing). */
+interface ForSigning {
+  contract: { beforeCents: number; afterCents: number } | null
+  planSvg: string | null
+  /** Its own change, said when the drawing shows other change orders too. */
+  own: string | null
+  /** "The drawing also shows CO-1's change (Left side 40 ft → 50 ft): not part of this change order (CO-1, not signed yet)." */
+  alsoInDrawing: string[]
+}
+
 /**
  * The phone handed to the customer: a full screen of its own, so nothing of
  * the job page shows behind it (round 2 review, Oct 26 2026: "Quoted cost
@@ -634,6 +687,14 @@ function SignInPersonSheet({ co, customerName, contract, onDone, onClose }: { co
   const [ink, setInk] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // What their link shows (the server's words and figures): the contract, the new layout and the other open change orders in it.
+  const [shown, setShown] = useState<ForSigning | null>(null)
+  useEffect(() => {
+    let live = true
+    void sendJson('GET', `/api/change-orders/${encodeURIComponent(co.id)}/for-signing`).then(r => { if (live && r.result.ok && r.json?.data) setShown(r.json.data as ForSigning) })
+    return () => { live = false }
+  }, [co.id])
+  const contractNow = shown?.contract ?? contract
   async function sign() {
     if (!name.trim()) { setError('Type the customer\'s name.'); return }
     if (!ink) { setError('The customer signs in the box.'); return }
@@ -658,13 +719,23 @@ function SignInPersonSheet({ co, customerName, contract, onDone, onClose }: { co
           {co.lines.map(l => <tr key={l.id} className="border-b border-gray-100"><td className="py-2 pr-2 text-gray-800">{l.description || 'Change'}</td><td className="py-2 text-right font-semibold whitespace-nowrap">{signed(l.amountCents)}</td></tr>)}
           <tr><td className="pt-2 font-bold">{co.totalCents < 0 ? 'Total credit' : 'Total'}</td><td className="pt-2 text-right font-black text-lg whitespace-nowrap" data-co-sign-total>{signed(co.totalCents)}</td></tr>
         </tbody></table>
-        {contract && (
+        {contractNow && (
           <table className="w-full text-sm bg-gray-50 rounded-xl" data-co-sign-contract><tbody>
-            <tr><td className="pt-2 px-3 text-gray-700">Your contract {co.status === 'approved' ? 'before this change' : 'now'}</td><td className="pt-2 px-3 text-right whitespace-nowrap">{money(contract.beforeCents)}</td></tr>
-            <tr><td className="pb-2 pt-1 px-3 font-bold text-gray-900">{co.status === 'approved' ? 'With this change' : 'New contract total'}</td><td className="pb-2 pt-1 px-3 text-right font-black whitespace-nowrap" data-co-sign-new-contract>{money(contract.afterCents)}</td></tr>
+            <tr><td className="pt-2 px-3 text-gray-700">Your contract {co.status === 'approved' ? 'before this change' : 'now'}</td><td className="pt-2 px-3 text-right whitespace-nowrap" data-co-sign-before>{money(contractNow.beforeCents)}</td></tr>
+            <tr><td className="pt-1 px-3 text-gray-700">This change</td><td className="pt-1 px-3 text-right whitespace-nowrap">{signed(co.totalCents)}</td></tr>
+            <tr><td className="pb-2 pt-1 px-3 font-bold text-gray-900">{co.status === 'approved' ? 'With this change' : 'New contract total'}</td><td className="pb-2 pt-1 px-3 text-right font-black whitespace-nowrap" data-co-sign-new-contract>{money(contractNow.afterCents)}</td></tr>
           </tbody></table>
         )}
         {co.warrantyAfter && <p className="text-xs text-amber-900 bg-amber-50 rounded-lg px-3 py-2" data-co-sign-warranty>Warranty changes{co.warrantyBefore?.name ? ` from ${co.warrantyBefore.name}` : ''} to <b>{co.warrantyAfter.name}</b>: {co.warrantyAfter.text}</p>}
+        {/* The new layout, as the customer's link shows it (an image: the drawing cannot run anything on this phone). */}
+        {shown?.planSvg && (
+          <section className="space-y-1.5" data-co-sign-plan>
+            <h3 className="text-sm font-bold text-gray-900">The new layout</h3>
+            {shown.own && <p className="text-xs text-gray-700" data-co-sign-own><b>This change order:</b> {shown.own}.</p>}
+            {shown.alsoInDrawing.map((t, i) => <p key={i} className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5" data-co-sign-not-part>{t}</p>)}
+            <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(shown.planSvg)}`} alt={`The new layout with change order CO-${co.number}`} className="w-full h-auto rounded-xl border border-gray-200 bg-white" />
+          </section>
+        )}
         <label className="block text-sm text-gray-700">Customer's name
           <input value={name} onChange={e => setName(e.target.value)} autoComplete="off" maxLength={200} className="mt-1 w-full h-12 border border-gray-300 rounded-lg px-3 text-base" data-co-sign-name />
         </label>

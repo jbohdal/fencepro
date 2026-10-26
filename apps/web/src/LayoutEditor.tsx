@@ -41,6 +41,8 @@ const GATE_SIZES_FT: Record<GateType, number[]> = { walk: [4, 5, 6], double: [8,
 
 /** What a signed quote says when its gate is pressed. */
 export const GATE_LOCKED_TEXT = 'Signed: make a change order'
+/** The same while a change order is being made: never "make a change order" in the middle of making one. */
+export const GATE_KEPT_TEXT = 'Gates stay where they were signed'
 
 /** How a side's ends finish, in one line ("Corner at both ends"). */
 export function endsLine(start: EndFinish, end: EndFinish): string {
@@ -56,7 +58,7 @@ export function nextEmptySide(layout: YardLayout, id: string | null): YardSide |
   return order.find(s => s.on && !(s.lengthIn > 0)) ?? null
 }
 
-export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap, openSideId, onOpenSide, locked = false, teeAs = 'end', padAction }: {
+export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap, openSideId, onOpenSide, locked = false, changeOrder = false, teeAs = 'end', padAction }: {
   layout: YardLayout | null
   onChange: (l: YardLayout | null) => void
   result: LayoutResult | null
@@ -80,6 +82,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   onOpenSide?: (id: string | null) => void
   /** A signed quote: its gates cannot be moved here (a change order does that). */
   locked?: boolean
+  /** Making a change order on the signed quote: a locked gate says it stays where it was signed (not "make a change order"). */
+  changeOrder?: boolean
   /** How the quote's style posts a tee (yardLayout.ts teePostFor), for the side's note. */
   teeAs?: 'corner' | 'end' | 'line'
   /** The length pad's main button in place of Next (a change order: "Make change order"): keeps the length, then this. */
@@ -437,7 +441,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           onHouseDragEnd={() => setHouseHintDone(true)}
           onGateTap={adjusting && !onPhoto ? cycleGate : undefined}
           onGateSlide={locked ? undefined : slideTo}
-          gateLocked={locked ? GATE_LOCKED_TEXT : null}
+          gateLocked={locked ? (changeOrder ? GATE_KEPT_TEXT : GATE_LOCKED_TEXT) : null}
           onGateDistanceTap={locked ? undefined : (id, which) => { setOpen(id); setPad({ sideId: id, field: which === 'before' ? 'gateBefore' : 'gateAfter' }) }}
         />
         {photo && photoReady !== photo && !aerialMsg && (
@@ -619,7 +623,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                         </button>
                       </div>
                       <p className={`text-xs ${locked ? 'font-semibold text-amber-800' : 'text-gray-600'}`} data-gate-move-hint>
-                        {locked ? `${GATE_LOCKED_TEXT} to move the gate.` : 'Drag the gate on the drawing, or tap a distance to type it exactly.'}
+                        {locked ? (changeOrder ? `${GATE_KEPT_TEXT} on this drawing. To move one, tap Type the change instead.` : `${GATE_LOCKED_TEXT} to move the gate.`) : 'Drag the gate on the drawing, or tap a distance to type it exactly.'}
                       </p>
                     </div>
                   )
