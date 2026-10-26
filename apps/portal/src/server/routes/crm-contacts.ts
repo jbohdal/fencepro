@@ -15,6 +15,7 @@
  *   POST   /sync        — bulk upsert from a localStorage payload (best-effort migration)
  */
 
+import { plainSideWords } from '../lib/websiteSides.js'
 import { canonicalWord, canonicalTags } from '../lib/optionLists.js'
 import { loadPipelineStages } from '../lib/pipelineStages.js'
 import { stageById, roleStageId } from '../lib/pipelineStageModel.js'
@@ -459,7 +460,7 @@ router.get('/:id/notes', requireAccount, async (req: any, res) => {
     const users = await prisma.crmUser.findMany({ where: { crmAccountId: req.user.crmAccountId }, select: { id: true, email: true, firstName: true, lastName: true } })
     const nameOf = (u?: { firstName: string | null; lastName: string | null }) => (u ? `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() : '') || null
     const byId = new Map(users.map(u => [u.id, u])), byEmail = new Map(users.map(u => [u.email.toLowerCase(), u]))
-    res.json({ success: true, data: notes.map(n => ({ ...n, createdByName: nameOf((n.createdById ? byId.get(n.createdById) : undefined) ?? byEmail.get((n.createdBy || '').toLowerCase())) ?? (n.createdBy?.includes('@') ? null : n.createdBy) })) })
+    res.json({ success: true, data: notes.map(n => ({ ...n, body: plainSideWords(n.body), createdByName: nameOf((n.createdById ? byId.get(n.createdById) : undefined) ?? byEmail.get((n.createdBy || '').toLowerCase())) ?? (n.createdBy?.includes('@') ? null : n.createdBy) })) })
   } catch (err) {
     console.error('[crm-contacts] notes list error:', err)
     res.status(500).json({ success: false, error: 'Failed to list notes' })

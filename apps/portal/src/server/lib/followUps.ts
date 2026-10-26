@@ -20,6 +20,7 @@
  * Texts are never sent from here: the app opens the phone's own texting app.
  */
 
+import { plainSideWords } from './websiteSides.js'
 import prisma from './prisma.js'
 import { isQuietImportCard } from './importCards.js'
 import { isFullRole } from './permissions.js'
@@ -538,7 +539,7 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
     const staffNames = new Map((staffIds.length ? await prisma.crmUser.findMany({ where: { id: { in: staffIds } }, select: { id: true, firstName: true, lastName: true } }) : []).map(u => [u.id, `${u.firstName} ${u.lastName}`.trim()]))
     for (const n of notes) {
       const author = (n as any).createdBy && !String((n as any).createdBy).includes('@') ? String((n as any).createdBy) : 'Staff'
-      items.push({ at: n.createdAt.toISOString(), kind: 'note', title: 'Note', detail: n.body, by: author })
+      items.push({ at: n.createdAt.toISOString(), kind: 'note', title: 'Note', detail: plainSideWords(n.body), by: author })
     }
     for (const a of appts) {
       const when = a.startAt ? a.startAt.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'no date yet'
