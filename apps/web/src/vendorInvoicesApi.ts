@@ -44,6 +44,9 @@ export interface InvoiceSummary {
   taxFound: boolean
   taxOk: boolean
   taxRate: string
+  /** No tax printed: the estimated tax rate it was priced with (basis points, 722 = 7.22%), and the amount added to landed costs. */
+  estTaxBp: number | null
+  estTaxCents: number
   skipped: Array<{ page: number; row: number; text: string; why: string }>
 }
 
@@ -70,6 +73,8 @@ export interface InvoiceLine {
   invPer: number | null
   invQty: number | null
   extraCents: number | null
+  /** The part of extraCents that is estimated tax. */
+  estTaxCents: number
   landedCents: number | null
   unitLandedCents: number | null
   prevUnitCents: number | null
@@ -141,6 +146,11 @@ export const editHeader = (id: string, patch: Record<string, unknown>) => call<v
 export const editLine = (id: string, lineId: string, patch: Record<string, unknown>) => call<void>('PATCH', `/${id}/lines/${lineId}`, patch)
 export const addLine = (id: string, patch: Record<string, unknown>) => call<{ id: string }>('POST', `/${id}/lines`, patch)
 export const matchLine = (lineId: string, choice: Record<string, unknown>) => call<void>('POST', `/lines/${lineId}/match`, choice)
+export const lineSuggestions = (lineId: string) => call<Array<{ id: string; name: string; why: string }>>('GET', `/lines/${lineId}/suggestions`)
+/** Estimated tax rate in words: 722 → "7.22%". */
+export const pctOfBp = (bp: number) => `${(bp / 100).toFixed(2).replace(/\.?0+$/, '')}%`
+/** A fuel charge stays on the vendor bill, never in item prices. */
+export const isFuelFee = (label: string) => /\bfuel\b/i.test(label)
 export const okLine = (lineId: string) => call<void>('POST', `/lines/${lineId}/ok`)
 export const rejectLine = (lineId: string) => call<void>('POST', `/lines/${lineId}/reject`)
 export const undoInvoice = (id: string) => call<{ restored: Array<{ name: string; back: string }>; skipped: Array<{ name: string; reason: string }> }>('POST', `/${id}/undo`)

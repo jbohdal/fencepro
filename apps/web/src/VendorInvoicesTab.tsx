@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   listInvoices, getInvoice, listWaiting, listNeedsMatch, priceHistory, vendorsByMonth, listJobs, editHeader, editLine, addLine,
   matchLine, okLine, rejectLine, undoInvoice, markOrdered, rereadInvoice, removeInvoice, pageImageUrl, openInvoiceFile, queueInvoice,
-  isInvoicePdf, isInvoicePhoto, uploadOutcome, money, unitPrice, toCents, toHc,
+  isInvoicePdf, isInvoicePhoto, uploadOutcome, money, unitPrice, toCents, toHc, lineSuggestions, pctOfBp, isFuelFee,
   type InvoiceSummary, type InvoiceDetail, type InvoiceLine, type WaitingLine, type MatchLine, type HistoryRow, type VendorMonths, type Problem, type Box,
 } from './vendorInvoicesApi'
 import { localInvoiceFiles, uploadAll, uploadRefusedWhy, uploadedAs, discardLocal, MEDIA_EVENT } from './mediaStore'
@@ -74,7 +74,7 @@ function problemText(p: Problem): string {
     case 'new_vendor': return `"${p.name}" is not in Vendors yet. Pick the vendor or add it, once.`
     case 'no_number': return 'No invoice number was found. Type it in below.'
     case 'no_date': return 'No invoice date was found. Type it in below.'
-    case 'no_tax': return 'No tax on this document. If that is right, tap "No tax is right" below.'
+    case 'no_tax': return 'No tax on this document: estimated tax is added (see above).'
   }
 }
 
@@ -656,7 +656,7 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
   const [hints, setHints] = useState<Array<{ id: string; name: string; why: string }>>([])
   useEffect(() => {
     setHints([])
-    if (matching) listNeedsMatch().then(ls => setHints(ls.find(x => x.id === matching)?.suggestions ?? [])).catch(() => {})
+    if (matching) lineSuggestions(matching).then(setHints).catch(() => {})
   }, [matching])
   const mayPrices = useCan('prices.change')
   const [, setTick] = useState(0)
@@ -709,6 +709,18 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
             <ul className="list-disc pl-5 text-sm text-red-800 mt-1 space-y-0.5">{inv.problems.map((p, i) => <li key={i}>{problemText(p)}</li>)}</ul>
           </div>
         )}
+        {!inv.taxFound && (
+          <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2" data-est-tax>
+            {inv.taxOk
+              ? <p className="text-sm text-amber-900">No tax line on this document, and no tax is right: nothing is added for tax.</p>
+              : <p className="text-sm text-amber-900"><b>Estimated tax.</b> No tax line on this document, so {inv.estTaxBp != null ? pctOfBp(inv.estTaxBp) : 'the estimated tax rate (Settings)'}{inv.estTaxCents ? ` (${money(inv.estTaxCents)})` : ''} is added to the landed cost of its items. It is not added to the vendor bill.</p>}
+            {(inv.status === 'needs_review' || inv.status === 'quote') && (
+              <button className={secondary} onClick={() => void act(() => editHeader(inv.id, { taxOk: !inv.taxOk }), inv.taxOk ? 'Estimated tax added' : 'No tax: estimated tax taken off')} data-tax-ok>
+                {inv.taxOk ? 'Add the estimated tax' : 'No tax is right (take it off)'}
+              </button>
+            )}
+          </div>
+        )}
         {inv.status === 'quote' && (
           <div className="mt-2 rounded-lg bg-purple-50 border border-purple-200 p-3 space-y-2" data-quote-banner>
             <p className="text-sm text-purple-900">A vendor quote: saved, and it changes no Inventory price. Match its items now if you like; the prices below show what they would be.{inv.counts.needsMatch ? ` ${inv.counts.needsMatch} item${inv.counts.needsMatch === 1 ? '' : 's'} not matched yet.` : ''}</p>
@@ -753,14 +765,17 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
                     {bad && <p className="text-xs text-red-700 font-medium mt-0.5">{l.problems.map(p => PROBLEM_WORDS[p] ?? p).join(' · ') || 'Check this line'}{review ? ' — tap to fix' : ''}</p>}
                     {st?.label && <span className={`inline-block text-[11px] px-2 py-0.5 rounded-full mt-1 ${st.cls}`}>{st.label}</span>}
                     {l.inventoryName && <p className="text-xs text-gray-700 mt-0.5 break-words">→ {l.inventoryName}{l.unitLandedCents != null ? `: landed ${money(l.unitLandedCents)} each${l.prevUnitCents != null ? ` (was ${money(l.prevUnitCents)}, ${pctText(l.changePct)})` : ''}` : ''}</p>}
-                    {l.extraCents != null && l.extraCents !== 0 && <p className="text-[11px] text-gray-500">Tax, freight and fees share: {money(l.extraCents)}</p>}
+                    {l.extraCents != null && l.extraCents !== 0 && <p className="text-[11px] text-gray-500">Tax, freight and fees share: {money(l.extraCents)}{l.estTaxCents ? ` (estimated tax ${money(l.estTaxCents)})` : ''}{inv.fees.some(f => isFuelFee(f.label)) ? ' · fuel charge not included' : ''}</p>}
+                    {l.estTaxCents > 0 && <span className="inline-block text-[11px] px-2 py-0.5 rounded-full mt-1 ml-1 bg-amber-100 text-amber-800" data-line-est-tax>Estimated tax</span>}
                     {l.stateNote && <p className="text-[11px] text-gray-500 break-words">{l.stateNote}</p>}
                   </button>
                   {review && editing === l.id && <LineEditor inv={inv} line={l} onSaved={async () => { setEditing(null); await refresh() }} />}
-                  {l.state === 'needs_match' && (
+                  {(l.state === 'needs_match' || (inv.status === 'quote' && (l.state === 'quoted' || l.state === 'skipped'))) && (
                     matching === l.id
                       ? <div className="mt-2"><Matcher line={l} suggestions={hints} onDone={async () => { setMatching(null); await refresh() }} /></div>
-                      : <button className={`${primary} mt-2 w-full sm:w-auto`} onClick={() => setMatching(l.id)} data-match-line>Match to Inventory</button>
+                      : l.state === 'needs_match'
+                        ? <button className={`${primary} mt-2 w-full sm:w-auto`} onClick={() => setMatching(l.id)} data-match-line>Match to Inventory</button>
+                        : <button className={`${secondary} mt-2 w-full sm:w-auto`} onClick={() => setMatching(l.id)} data-change-match>Change match</button>
                   )}
                   {l.state === 'waiting_ok' && mayPrices && (
                     <div className="grid grid-cols-2 gap-2 mt-2">
@@ -777,10 +792,11 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
           <div className={`bg-white rounded-2xl border p-3 text-sm space-y-1 ${totalBad ? 'border-red-400' : 'border-gray-200'}`} data-totals>
             <Row k="Lines" v={money(active.reduce((s2, l) => s2 + (l.totalCents ?? 0), 0))} />
             <Row k="Subtotal" v={inv.subtotalCents == null ? 'not printed' : money(inv.subtotalCents)} />
-            <Row k="Tax" v={money(inv.taxCents)} />
+            <Row k="Tax" v={inv.taxFound ? money(inv.taxCents) : 'none printed'} />
             <Row k="Freight / delivery" v={money(inv.freightCents)} />
-            {inv.fees.map((f, i) => <Row key={i} k={f.label} v={money(f.cents)} />)}
+            {inv.fees.map((f, i) => <Row key={i} k={isFuelFee(f.label) ? `${f.label} (bill only, not in item prices)` : f.label} v={money(f.cents)} />)}
             <Row k="Total" v={money(inv.totalCents)} bold />
+            {inv.estTaxCents > 0 && <p className="text-xs text-amber-800 pt-1" data-est-tax-row>Estimated tax {inv.estTaxBp != null ? pctOfBp(inv.estTaxBp) : ''} added to item landed costs: {money(inv.estTaxCents)} (not on the document or the bill)</p>}
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -821,7 +837,6 @@ function HeaderEditor({ inv, onSaved }: { inv: InvoiceDetail; onSaved: () => Pro
   const [total, setTotal] = useState(inv.totalCents == null ? '' : (inv.totalCents / 100).toFixed(2))
   const [busy, setBusy] = useState(false)
   const needsVendor = inv.problems.some(p => p.kind === 'new_vendor' || p.kind === 'no_vendor')
-  const noTax = inv.problems.some(p => p.kind === 'no_tax')
 
   async function save(patch: Record<string, unknown>) {
     setBusy(true)
@@ -848,12 +863,6 @@ function HeaderEditor({ inv, onSaved }: { inv: InvoiceDetail; onSaved: () => Pro
             <input className={input} value={newVendor} onChange={e => setNewVendor(e.target.value)} aria-label="New vendor name" data-new-vendor-name />
             <button className={secondary} disabled={busy || newVendor.trim().length < 2} onClick={() => void save({ newVendorName: newVendor.trim() })} data-add-vendor>Add as a new vendor</button>
           </div>
-        </div>
-      )}
-      {noTax && (
-        <div className="rounded-lg bg-amber-50 p-2.5 space-y-2" data-no-tax>
-          <p className="text-sm text-gray-900">No tax line on this document. Is that right?</p>
-          <button className={secondary} disabled={busy} onClick={() => void save({ taxOk: true })} data-tax-ok>No tax is right</button>
         </div>
       )}
       <div className="grid grid-cols-2 gap-2">
@@ -915,7 +924,7 @@ function AddLine({ inv, onSaved }: { inv: InvoiceDetail; onSaved: () => Promise<
   if (!open) return <button className={`${secondary} w-full`} onClick={() => setOpen(true)}>Add a line that was missed</button>
   return (
     <div className="rounded-xl border border-gray-300 p-2.5">
-      <LineEditor inv={inv} line={{ id: '', seq: 0, page: 1, row: 0, box: null, raw: '', itemNumber: '', description: '', qty: null, unit: 'EA', unitPriceHc: null, totalCents: null, conf: 1, problems: [], ignored: false, edited: true, inventoryItemId: null, inventoryName: '', vendorPer: null, invPer: null, invQty: null, extraCents: null, landedCents: null, unitLandedCents: null, prevUnitCents: null, changePct: null, state: 'open', stateNote: '' }}
+      <LineEditor inv={inv} line={{ id: '', seq: 0, page: 1, row: 0, box: null, raw: '', itemNumber: '', description: '', qty: null, unit: 'EA', unitPriceHc: null, totalCents: null, conf: 1, problems: [], ignored: false, edited: true, inventoryItemId: null, inventoryName: '', vendorPer: null, invPer: null, invQty: null, extraCents: null, estTaxCents: 0, landedCents: null, unitLandedCents: null, prevUnitCents: null, changePct: null, state: 'open', stateNote: '' }}
         onSaved={async () => { setOpen(false); await onSaved() }} />
       <button className="text-xs underline text-gray-600 mt-2" disabled={busy} onClick={() => { setBusy(false); setOpen(false) }}>Cancel</button>
     </div>

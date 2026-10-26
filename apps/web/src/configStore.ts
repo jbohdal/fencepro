@@ -118,6 +118,8 @@ export interface PricingConfig {
   priceStaleMonths?: number
   /** An uploaded vendor invoice whose landed cost moves an Inventory price by more than this % waits for an OK (default 20). */
   invoiceJumpPct?: number
+  /** A vendor document with no tax line gets this % of its items added to their landed cost, flagged "estimated tax" (default 7.22). */
+  invoiceEstTaxPct?: number
 }
 
 export interface MarginThresholds {

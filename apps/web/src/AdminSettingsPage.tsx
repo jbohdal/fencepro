@@ -297,6 +297,12 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
               value={p.invoiceJumpPct ?? 20}
               onChange={e => { const n = Math.round(Number(e.target.value)); if (n >= 1 && n <= 500) setP('invoiceJumpPct', n) }} />
           </div>
+          <div>
+            <label className={LABEL}>Estimated tax when a vendor document has no tax line (%)</label>
+            <input type="number" min={0} max={30} step={0.01} className={inputCls} data-invoice-est-tax-pct
+              value={p.invoiceEstTaxPct ?? 7.22}
+              onChange={e => { const n = Math.round(Number(e.target.value) * 100) / 100; if (e.target.value !== '' && n >= 0 && n <= 30) setP('invoiceEstTaxPct', n) }} />
+          </div>
         </div>
       </div>
 
