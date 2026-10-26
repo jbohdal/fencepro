@@ -19,6 +19,7 @@
  * prices it and keeps it (lib/changeOrderWork.ts).
  */
 import { customerText } from '../../portal/src/server/lib/customerText'
+import { svgDataUrl } from '../../portal/src/server/lib/planSvg'
 import { useEffect, useRef, useState } from 'react'
 import { useBackLayer, useNav } from './nav'
 import { can } from './permissions'
@@ -738,7 +739,7 @@ function SignInPersonSheet({ co, customerName, contract, onDone, onClose }: { co
             <h3 className="text-sm font-bold text-gray-900">The new layout</h3>
             {shown.own && <p className="text-xs text-gray-700" data-co-sign-own><b>This change order:</b> {shown.own}.</p>}
             {shown.alsoInDrawing.map((t, i) => <p key={i} className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5" data-co-sign-not-part>{t}</p>)}
-            <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(shown.planSvg)}`} alt={`The new layout with change order CO-${co.number}`} className="w-full h-auto rounded-xl border border-gray-200 bg-white" />
+            <img src={svgDataUrl(shown.planSvg)} alt={`The new layout with change order CO-${co.number}`} className="w-full h-auto rounded-xl border border-gray-200 bg-white" />
           </section>
         )}
         <label className="block text-sm text-gray-700">Customer's name
