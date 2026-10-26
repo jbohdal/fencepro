@@ -27,6 +27,7 @@ import { getInventory, refreshInventory, INVENTORY_UPDATED_EVENT } from './inven
 import { getVendors, initVendors, refreshVendors } from './vendorStore'
 import { unitPresets, startingPreset, unitPreview, packOfName } from './invoiceUnits'
 import { useCan } from './permissions'
+import { searchInventory } from './inventorySearch'
 import { toast } from './toast'
 
 type View = 'invoices' | 'match' | 'waiting' | 'history' | 'vendors'
@@ -101,7 +102,8 @@ function errText(e: unknown) { return (e as Error)?.message || 'Something went w
 
 export default function VendorInvoicesTab() {
   const [view, setView] = useState<View>('invoices')
-  const [openId, setOpenId] = useState<string | null>(null)
+  // Opened from a voided bill in Vendors (?tab=invoices&invoice=…): that document.
+  const [openId, setOpenId] = useState<string | null>(() => { try { return new URLSearchParams(window.location.search).get('invoice') } catch { return null } })
   const [list, setList] = useState<InvoiceSummary[]>([])
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
@@ -434,8 +436,8 @@ function HistoryView() {
   const items = getInventory()
   const names = useMemo(() => new Map(items.map(i => [i.id, i.name])), [items])
   const found = useMemo(() => {
-    const t = q.trim().toLowerCase()
-    return t ? items.filter(i => i.name.toLowerCase().includes(t) || (i.sku ?? '').toLowerCase().includes(t)).slice(0, 8) : []
+    // Every word, in any order, punctuation left out ("bolt 3/8").
+    return searchInventory(items, q)
   }, [q, items])
   useEffect(() => { setRows(null); priceHistory(itemId || undefined).then(setRows).catch(e => toast.error('Could not load', errText(e))) }, [itemId])
   return (
@@ -521,7 +523,7 @@ function VendorsView() {
 
 // Unit choices (both ways, in words with the units) live in invoiceUnits.ts.
 
-function Matcher({ line, suggestions, onDone }: { line: InvoiceLine; suggestions: Array<{ id: string; name: string; why: string }>; onDone: () => Promise<void> | void }) {
+function Matcher({ line, suggestions, onDone, onCancel }: { line: InvoiceLine; suggestions: Array<{ id: string; name: string; why: string }>; onDone: () => Promise<void> | void; onCancel?: () => void }) {
   const mayAdd = useCan('prices.change')
   const items = getInventory()
   const [picked, setPicked] = useState<string>('')
@@ -536,8 +538,8 @@ function Matcher({ line, suggestions, onDone }: { line: InvoiceLine; suggestions
   const [busy, setBusy] = useState(false)
   const pickedItem = items.find(i => i.id === picked)
   const found = useMemo(() => {
-    const t = q.trim().toLowerCase()
-    return t ? items.filter(i => i.name.toLowerCase().includes(t) || (i.sku ?? '').toLowerCase().includes(t)).slice(0, 8) : []
+    // Every word, in any order, punctuation left out ("bolt 3/8").
+    return searchInventory(items, q)
   }, [q, items])
   const vp = Number(vendorPer), ip = Number(invPer)
   const unitOk = vp > 0 && ip > 0
@@ -612,7 +614,7 @@ function Matcher({ line, suggestions, onDone }: { line: InvoiceLine; suggestions
         {view && !view.zero && <p className="text-xs text-gray-700" data-unit-preview>{line.qty} {line.unit} = {view.invQty.toLocaleString('en-US', { maximumFractionDigits: 3 })} {invUnit}. Landed: {money(line.landedCents ?? line.totalCents)} = <b>{money(view.cents)}</b> per {invUnit}</p>}
         {view?.zero && <p className="text-xs font-semibold text-red-700 bg-red-50 rounded p-1.5" data-unit-zero>That makes {line.qty} {line.unit} into {view.invQty.toLocaleString('en-US', { maximumFractionDigits: 3 })} {invUnit} at $0.00 each, which cannot be right. Pick the other way round (for example {`100 ${line.unit} = 1 box`}).</p>}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+      <div className={`grid grid-cols-1 gap-2 ${onCancel ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
         {!adding ? (
           <button className={primary} disabled={busy || !picked || !unitOk || !!view?.zero} onClick={() => void save({ inventoryItemId: picked })} data-save-match>Use this item</button>
         ) : (
@@ -620,6 +622,7 @@ function Matcher({ line, suggestions, onDone }: { line: InvoiceLine; suggestions
         )}
         {mayAdd && <button className={secondary} onClick={() => setAdding(a => !a)} data-add-new>{adding ? 'Pick an existing item' : 'New Inventory item'}</button>}
         <button className={secondary} disabled={busy} onClick={() => void save({ notInventory: true })} data-not-inventory>Not an Inventory item</button>
+        {onCancel && <button className={secondary} disabled={busy} onClick={onCancel} data-cancel-match>Cancel</button>}
       </div>
     </div>
   )
@@ -739,6 +742,19 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
             )}
           </div>
         )}
+        {inv.status === 'undone' && inv.docType === 'quote' && inv.ordered && (
+          <div className="mt-2 rounded-lg bg-purple-50 border border-purple-200 p-3 space-y-2" data-order-again>
+            <p className="text-sm text-purple-900">The order was undone: its prices were put back and its bill is off Accounts Payable. If it was ordered after all, order it again: its prices go in again and the same bill comes back (never a second one).</p>
+            {mayPrices ? (
+              <button className={`${primary} w-full sm:w-auto`} data-we-ordered onClick={() => {
+                if (!confirm('Order this quote again? Its matched items update Inventory prices again (big changes still wait for your OK), and its bill is back in Accounts Payable.')) return
+                void act(() => markOrdered(inv.id), 'Ordered again: prices and bill back')
+              }}>We ordered this</button>
+            ) : (
+              <p className="text-sm text-purple-900 font-medium" data-ordered-who>If it was ordered after all, ask Jonathan to tap <b>We ordered this</b>: it changes Inventory prices, so the owner does it.</p>
+            )}
+          </div>
+        )}
         {inv.status === 'needs_match' && <p className="text-sm text-amber-800 bg-amber-50 rounded-lg p-2 mt-2">It adds up. Lines already matched are applied; match the rest below (once per vendor item).</p>}
       </div>
 
@@ -765,7 +781,7 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
               return (
                 <div key={l.id} data-line={l.itemNumber || l.description} data-bad={bad ? '1' : '0'}
                   className={`rounded-xl border p-2.5 ${l.ignored ? 'opacity-50 border-gray-200' : bad ? 'border-red-400 bg-red-50' : l.state === 'needs_match' ? 'border-amber-300' : 'border-gray-200'} ${focus === l.id ? 'ring-2 ring-blue-500' : ''}`}>
-                  <button className="w-full text-left min-w-0" onClick={() => { setFocus(l.id); if (review) setEditing(e => (e === l.id ? null : l.id)) }}>
+                  <button className="w-full text-left min-w-0" onClick={() => { setFocus(l.id); if (review) setEditing(e => (e === l.id ? null : l.id)); setMatching(m => (m === l.id ? null : m)) }}>
                     <div className="flex items-start justify-between gap-2 min-w-0">
                       <p className="text-sm text-gray-900 min-w-0 break-words"><b>{l.itemNumber || '—'}</b> {l.description}</p>
                       <p className="text-sm font-semibold shrink-0">{money(l.totalCents)}</p>
@@ -781,7 +797,7 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
                   {review && editing === l.id && <LineEditor inv={inv} line={l} onSaved={async () => { setEditing(null); await refresh() }} />}
                   {(l.state === 'needs_match' || (inv.status === 'quote' && (l.state === 'quoted' || l.state === 'skipped'))) && (
                     matching === l.id
-                      ? <div className="mt-2"><Matcher line={l} suggestions={hints} onDone={async () => { setMatching(null); await refresh() }} /></div>
+                      ? <div className="mt-2"><Matcher line={l} suggestions={hints} onDone={async () => { setMatching(null); await refresh() }} onCancel={() => setMatching(null)} /></div>
                       : l.state === 'needs_match'
                         ? <button className={`${primary} mt-2 w-full sm:w-auto`} onClick={() => setMatching(l.id)} data-match-line>Match to Inventory</button>
                         : <button className={`${secondary} mt-2 w-full sm:w-auto`} onClick={() => setMatching(l.id)} data-change-match>Change match</button>
@@ -817,7 +833,7 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
                   : 'Put back every price this invoice changed? Items changed since by something newer are left as they are.')) return
                 void act(async () => {
                   const r = await undoInvoice(inv.id)
-                  const bill = r.bill?.outcome === 'voided' ? `Bill ${r.bill.billNumber} is off Accounts Payable (voided; Restore in Vendors puts it back).`
+                  const bill = r.bill?.outcome === 'voided' ? `Bill ${r.bill.billNumber} is off Accounts Payable (voided). If it was ordered after all, tap We ordered this here.`
                     : r.bill?.outcome === 'kept_paid' ? `Bill ${r.bill.billNumber} stays: ${money(r.bill.paidCents)} was already paid on it.` : ''
                   const skipped = r.skipped.length ? `${r.skipped.length} left as they are (changed since).` : ''
                   toast.success(`Undone: ${r.restored.length} price${r.restored.length === 1 ? '' : 's'} put back`, [skipped, bill].filter(Boolean).join(' ') || undefined)
@@ -826,7 +842,13 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
             )}
             {(inv.status === 'failed' || inv.status === 'needs_review') && <button className={secondary} onClick={() => void act(() => rereadInvoice(inv.id), 'Reading again')}>Read again</button>}
             {['refused', 'failed', 'needs_review', 'undone', 'quote', 'replaced'].includes(inv.status) && (
-              <button className={danger} data-remove onClick={() => { if (confirm('Remove this invoice? Its bill in Vendors goes too (unless it has payments).')) void act(async () => { await removeInvoice(inv.id); onBack() }) }}>Remove</button>
+              <button className={danger} data-remove onClick={() => {
+                if (!confirm('Remove this invoice? Its bill in Vendors goes too (unless it has payments).')) return
+                // It is gone: back to the list (which loads again), never a read of the removed document.
+                void (async () => {
+                  try { await removeInvoice(inv.id); toast.success('Removed'); onBack(); await onChanged() } catch (e) { toast.error('Not removed', errText(e)) }
+                })()
+              }}>Remove</button>
             )}
           </div>
         </div>

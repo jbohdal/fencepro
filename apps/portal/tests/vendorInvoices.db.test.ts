@@ -547,4 +547,46 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
     expect(bill.status).not.toBe('void')
     expect((await get(newestId)).message).toMatch(/stays in Accounts Payable: \$1,000\.00 was already paid on it/)
   }, 60_000)
+
+  test.skipIf(!has(['6251608', '1473958']))('an undone order is ordered again with "We ordered this": prices and the same bill come back (never a second bill); Remove leaves no pointer to it', async () => {
+    const bills = async () => ((await prisma.vendorState.findUnique({ where: { accountId } })).bills as any[]).filter(b => b.billNumber === '06-251608')
+    // The same file again while the undone document is there: refused, pointing at it.
+    const copy = await upload('office', [sps('6251608', '1473958')])
+    expect(await get(copy.invoiceId!)).toMatchObject({ status: 'refused', duplicateOfId: order251608 })
+    // Its bill put back by hand (the old Restore in Vendors): Remove would take it off Accounts Payable, so it is refused.
+    const vs = await prisma.vendorState.findUnique({ where: { accountId } })
+    await prisma.vendorState.update({ where: { accountId }, data: { version: { increment: 1 }, bills: (vs.bills as any[]).map(b => (b.billNumber === '06-251608' ? { ...b, status: 'received', voidReason: undefined, voidedAt: undefined, statusBeforeVoid: undefined } : b)) } })
+    const refused = await call('owner', 'DELETE', `/api/vendor-invoices/${order251608}`)
+    expect(refused.status).toBe(409)
+    expect(refused.json.error).toMatch(/Its bill 06-251608 is in Accounts Payable again\. If it was ordered, tap We ordered this/)
+    // We ordered this, again: owner only; the same bill (one), its lines back in Needs a match.
+    expect((await call('office', 'POST', `/api/vendor-invoices/${order251608}/ordered`)).status).toBe(403)
+    expect((await call('owner', 'POST', `/api/vendor-invoices/${order251608}/ordered`)).status).toBe(200)
+    let q = await get(order251608)
+    expect(q).toMatchObject({ status: 'needs_match', ordered: true, undoneAt: null, message: '' })
+    expect(q.counts.needsMatch).toBe(21)
+    expect(await bills()).toHaveLength(1)
+    expect((await bills())[0]).toMatchObject({ status: 'received', totalCents: 202160 })
+    // Undo voids it; ordering again un-voids the same bill (what the undo voided, put back as it was).
+    const undo = await call('owner', 'POST', `/api/vendor-invoices/${order251608}/undo`)
+    expect(undo.json.data.bill).toEqual({ outcome: 'voided', billNumber: '06-251608', paidCents: 0 })
+    expect((await get(order251608)).message).toMatch(/If it was ordered after all, tap We ordered this here/)
+    expect((await bills())[0].status).toBe('void')
+    expect((await call('owner', 'POST', `/api/vendor-invoices/${order251608}/ordered`)).status).toBe(200)
+    const back = await bills()
+    expect(back).toHaveLength(1)
+    expect(back[0]).toMatchObject({ status: 'received', totalCents: 202160, balanceDueCents: 202160 })
+    expect(back[0].voidReason).toBeUndefined()
+    expect(back[0].statusBeforeVoid).toBeUndefined()
+    // A second "We ordered this" on an order in force: refused.
+    expect((await call('owner', 'POST', `/api/vendor-invoices/${order251608}/ordered`)).status).toBe(409)
+    // Undo, then Remove: the bill goes with it, and the refused copy no longer points at it.
+    expect((await call('owner', 'POST', `/api/vendor-invoices/${order251608}/undo`)).status).toBe(200)
+    expect((await call('owner', 'DELETE', `/api/vendor-invoices/${order251608}`)).status).toBe(200)
+    expect(await bills()).toHaveLength(0)
+    expect((await call('owner', 'GET', `/api/vendor-invoices/${order251608}`)).status).toBe(404)
+    q = await get(copy.invoiceId!)
+    expect(q.duplicateOfId).toBeNull()
+    expect(q.message).toMatch(/already uploaded .*\(That document was removed on \d{4}-\d{2}-\d{2}; this file can be uploaded again\.\)$/)
+  }, 180_000)
 })

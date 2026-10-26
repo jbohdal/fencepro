@@ -821,14 +821,43 @@ export async function matchLine(accountId: string, lineId: string, choice: Match
   }, { timeout: 60_000 })
 }
 
-/** "We ordered this": a vendor quote is treated as the invoice from now on (bill, prices). */
+/** A bill voided because its order was undone, back as it was (it counts in Accounts Payable again). */
+export function unvoidBill(b: any, now: string): any {
+  const { statusBeforeVoid, voidedAt: _at, voidedBy: _by, voidReason: _why, ...rest } = b
+  return { ...rest, status: statusBeforeVoid && statusBeforeVoid !== 'void' ? statusBeforeVoid : 'received', updatedAt: now }
+}
+
+/**
+ * "We ordered this": a vendor quote is treated as the invoice from now on (bill, prices).
+ * Also on a quote whose order was undone: it is ordered again, its prices go in again and
+ * its own bill comes back (never a second bill for one document).
+ */
 export async function markOrdered(accountId: string, invoiceId: string, actor: Actor): Promise<void> {
   const inv = await editable(invoiceId, accountId)
-  if (inv.docType !== 'quote' || inv.ordered) throw new InvoiceError('Only a vendor quote not yet ordered can be marked ordered.', 409)
-  if (inv.status !== 'quote') throw new InvoiceError('This quote needs review first (it must add up), or it was replaced by a newer revision.', 409)
+  const again = inv.docType === 'quote' && inv.ordered && inv.status === 'undone'
+  if (inv.docType !== 'quote' || (inv.ordered && !again)) throw new InvoiceError('Only a vendor quote not yet ordered can be marked ordered.', 409)
+  if (!again && inv.status !== 'quote') throw new InvoiceError('This quote needs review first (it must add up), or it was replaced by a newer revision.', 409)
   await prisma.$transaction(async (tx: any) => {
     await lockAll(tx, accountId)
-    await tx.vendorInvoice.update({ where: { id: invoiceId }, data: { ordered: true, orderedAt: new Date(), orderedBy: actor.name, status: 'needs_match' } })
+    if (again) {
+      // Another document with this number already in as the order: never twice.
+      const other = inv.vendorId && inv.invoiceKey ? await tx.vendorInvoice.findFirst({
+        where: { accountId, vendorId: inv.vendorId, invoiceKey: inv.invoiceKey, id: { not: inv.id }, status: { in: ['needs_review', 'needs_match', 'applied'] }, OR: [{ docType: { not: 'quote' } }, { ordered: true }] },
+      }) : null
+      if (other) throw new InvoiceError(`${other.invoiceNumber} is already in as ${other.docType === 'quote' ? 'an ordered quote' : 'an invoice'} (uploaded ${other.createdAt.toISOString().slice(0, 10)}). Nothing was changed.`, 409)
+      // Its own bill back on Accounts Payable (the undo voided it; a bill paid on was never voided).
+      if (inv.billId) {
+        const vs = await vendorState(tx, accountId)
+        if (vs.bills.some(b => b?.id === inv.billId && b.status === 'void')) {
+          const now = new Date().toISOString()
+          vs.bills = vs.bills.map(b => (b?.id === inv.billId ? unvoidBill(b, now) : b))
+          await saveVendorState(tx, accountId, vs)
+        }
+      }
+      // Its lines are looked at again (a match made since counts).
+      await tx.vendorInvoiceLine.updateMany({ where: { invoiceId, state: 'undone' }, data: { state: 'open', stateNote: '' } })
+    }
+    await tx.vendorInvoice.update({ where: { id: invoiceId }, data: { ordered: true, orderedAt: new Date(), orderedBy: actor.name, status: 'needs_match', undoneAt: null, undoneBy: null, message: '' } })
     await evaluateTx(tx, invoiceId, actor)
   }, { timeout: 60_000 })
 }
@@ -934,7 +963,7 @@ export async function undoInvoice(accountId: string, invoiceId: string, actor: A
     const msg = [
       out.restored.length ? `Put back: ${out.restored.map(r => `${r.name} (${r.back})`).join(', ')}.` : 'No price needed putting back.',
       ...out.skipped.map(s => `Not put back: ${s.name}. ${s.reason}`),
-      out.bill?.outcome === 'voided' ? `Its bill ${out.bill.billNumber} is off Accounts Payable (voided; it stays in Vendors, where Restore puts it back).` : '',
+      out.bill?.outcome === 'voided' ? `Its bill ${out.bill.billNumber} is off Accounts Payable (voided; it stays in Vendors). If it was ordered after all, tap We ordered this here: its prices and the same bill come back.` : '',
       out.bill?.outcome === 'kept_paid' ? `Its bill ${out.bill.billNumber} stays in Accounts Payable: ${dollars(out.bill.paidCents)} was already paid on it, so it was not voided. Sort it out with the vendor in Vendors.` : '',
     ].filter(Boolean).join(' ')
     await tx.vendorInvoice.update({ where: { id: invoiceId }, data: { status: 'undone', undoneAt: new Date(), undoneBy: actor.name, message: msg } })
@@ -952,7 +981,16 @@ export async function deleteInvoice(accountId: string, invoiceId: string): Promi
     if (inv.billId) {
       const vs = await vendorState(tx, accountId)
       const bill = vs.bills.find(b => b?.id === inv.billId)
+      // An undone order's bill put back on Accounts Payable by hand: it is not removed with the document.
+      if (bill && inv.docType === 'quote' && inv.ordered && inv.status === 'undone' && bill.status !== 'void' && !(Number(bill.amountPaidCents) > 0)) {
+        throw new InvoiceError(`Its bill ${bill.billNumber} is in Accounts Payable again. If it was ordered, tap We ordered this (its prices come back with the same bill); if not, void the bill in Vendors first.`, 409)
+      }
       if (bill && !(Number(bill.amountPaidCents) > 0)) { vs.bills = vs.bills.filter(b => b?.id !== inv.billId); await saveVendorState(tx, accountId, vs) }
+    }
+    // Files refused as a repeat of this document no longer point at it.
+    const day = new Date().toISOString().slice(0, 10)
+    for (const r of await tx.vendorInvoice.findMany({ where: { accountId, duplicateOfId: invoiceId }, select: { id: true, message: true } })) {
+      await tx.vendorInvoice.update({ where: { id: r.id }, data: { duplicateOfId: null, message: `${r.message} (That document was removed on ${day}; this file can be uploaded again.)`.trim() } })
     }
     await tx.priceHistory.deleteMany({ where: { invoiceId } })
     await tx.vendorInvoice.delete({ where: { id: invoiceId } })
@@ -970,13 +1008,52 @@ export async function rereadInvoice(accountId: string, invoiceId: string): Promi
 
 // ── Suggestions for Needs a match (a tap still decides) ─────────────────────
 
-const words = (s: string) => new Set(s.toLowerCase().replace(/(\d)-(\d)/g, '$1 $2').split(/[^a-z0-9/]+/).filter(w => w.length >= 2 && !['in', 'of', 'x', 'ft', 'ea'].includes(w)))
+const STOP_WORDS = new Set(['in', 'of', 'x', 'ft', 'ea', 'pc', 'pcs', 'w'])
 
-export function suggestItems(line: { itemNumber: string; description: string }, items: any[], n = 5): Array<{ id: string; name: string; why: string }> {
+/**
+ * The words of a vendor description or an Inventory name, alike on both sides:
+ * "BOLT/NUT 3/8x3in" → bolt nut 3/8 3; 'G, Bolt, 3/8" x 3" w/ Nut' → bolt 3/8 3 nut.
+ * A fraction (3/8) stays one word; a number counts even when it is one digit.
+ */
+export function matchWords(s: string): Set<string> {
+  const t = s.toLowerCase()
+    .replace(/(\d)-(\d)/g, '$1 $2') // 2-3/8 → 2 3/8
+    .replace(/(\d)x(?=\d)/g, '$1 ') // 3/8x3in → 3/8 3in
+    .replace(/(\d)(?=[a-z])/g, '$1 ') // 3in → 3 in, 60in → 60 in
+    .replace(/\/(?!\d)|(?<!\d)\//g, ' ') // BOLT/NUT, w/, 50ft/rll: a slash between words is a space
+  return new Set(t.split(/[^a-z0-9/.]+/).map(w => w.replace(/^[./]+|[./]+$/g, '')).filter(w => (w.length >= 2 || /^\d+$/.test(w)) && !STOP_WORDS.has(w)))
+}
+
+type Finish = 'green' | 'galv' | 'black'
+
+/**
+ * The finish most of a document's other lines have (their matched Inventory
+ * item's name, else their own words): a quote of galvanized parts suggests G
+ * and Galv items first for a line that says no finish. null when none.
+ */
+export function documentFinish(lines: Array<{ id?: string; description: string; inventoryName?: string | null; ignored?: boolean }>, exceptId?: string): Finish | null {
+  const n = new Map<Finish, number>()
+  for (const l of lines) {
+    if (l.ignored || (exceptId && l.id === exceptId)) continue
+    const f = (l.inventoryName ? finishOf(l.inventoryName) : null) ?? finishOf(l.description)
+    if (f) n.set(f, (n.get(f) ?? 0) + 1)
+  }
+  const best = [...n.entries()].sort((a, b) => b[1] - a[1])
+  return best.length && (best.length === 1 || best[0][1] > best[1][1]) ? best[0][0] : null
+}
+
+export function suggestItems(
+  line: { itemNumber: string; description: string; inventoryItemId?: string | null },
+  items: any[], n = 5, ctx: { docFinish?: Finish | null } = {},
+): Array<{ id: string; name: string; why: string }> {
   // A chain link dig set post pipe, by Jonathan's rule (lib/digSetPipeMatch): first, said why.
   const rule = digSetPipeItem(line.description, items)
-  const byWords = wordSuggestions(line, items.filter(i => i?.id !== rule?.item.id), rule ? n - 1 : n)
-  return rule ? [{ id: String(rule.item.id), name: String(rule.item.name), why: rule.rule.why }, ...byWords] : byWords
+  const byWords = wordSuggestions(line, items.filter(i => i?.id !== rule?.item.id), rule ? n - 1 : n, ctx.docFinish ?? null)
+  const out = rule ? [{ id: String(rule.item.id), name: String(rule.item.name), why: rule.rule.why }, ...byWords] : byWords
+  // The item it is matched to now (Change match) is always there, first.
+  const current = line.inventoryItemId ? items.find(i => i?.id === line.inventoryItemId) : null
+  if (!current) return out
+  return [{ id: String(current.id), name: String(current.name), why: 'matched now' }, ...out.filter(s => s.id !== current.id)].slice(0, Math.max(n, out.length))
 }
 
 /**
@@ -987,8 +1064,22 @@ export function finishOf(text: string): 'green' | 'galv' | 'black' | null {
   const t = ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `
   if (/ (grn|green|gr) /.test(t)) return 'green'
   if (/ (blk|black|b) /.test(t)) return 'black'
-  if (/ (galv|galvanized|g) /.test(t)) return 'galv'
+  if (/ (galv|galvanized|g) | hot dip /.test(t)) return 'galv'
   return null
+}
+
+/**
+ * Sizes a name gives, in inches: lengths in feet ("9'", "10'6\"", "8 ft") and
+ * whole inches ('60"', "60in", "x3in"); not a fraction's parts (3/8" is not 8).
+ * "Fabric 60in" should suggest the 60" item before the 48" one.
+ */
+export function sizesIn(text: string): number[] {
+  const out = feetIn(text).map(f => Math.round(f * 12 * 100) / 100)
+  const noFeet = text.replace(/(\d+(?:\.\d+)?)\s*(?:'|ft\b|feet\b)\s*(?:(\d+(?:\.\d+)?)\s*")?/gi, ' ')
+  const re = /(?<![\d/.\-])(\d+(?:\.\d+)?)\s*(?:"|in\b|inch(?:es)?\b)/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(noFeet))) out.push(Number(m[1]))
+  return out
 }
 
 /** Lengths in feet a name gives ("9'", "10'6\"", "8 ft"); a 9' line should not suggest 8' first. */
@@ -1000,15 +1091,17 @@ export function feetIn(text: string): number[] {
   return out
 }
 
-function wordSuggestions(line: { itemNumber: string; description: string }, items: any[], n: number): Array<{ id: string; name: string; why: string }> {
-  const want = words(line.description)
+function wordSuggestions(line: { itemNumber: string; description: string }, items: any[], n: number, docFinish: Finish | null): Array<{ id: string; name: string; why: string }> {
+  const want = matchWords(line.description)
   const code = line.itemNumber.trim().toUpperCase()
-  const finish = finishOf(line.description)
-  const lengths = feetIn(line.description)
+  // No finish word on the line: the finish of the rest of the document.
+  const own = finishOf(line.description)
+  const finish = own ?? docFinish
+  const lengths = sizesIn(line.description)
   const scored = items.filter(i => i?.id && i.status !== 'discontinued').map(i => {
     if (code && String(i.sku ?? '').trim().toUpperCase() === code) return { i, s: 100, why: 'Same item number' }
     const name = String(i.name ?? '')
-    const have = words(name)
+    const have = matchWords(name)
     let hit = 0
     for (const w of want) if (have.has(w)) hit++
     let s = want.size ? (hit / Math.max(want.size, have.size)) * 50 : 0
@@ -1016,13 +1109,14 @@ function wordSuggestions(line: { itemNumber: string; description: string }, item
     const why: string[] = [`${hit} word${hit === 1 ? '' : 's'} alike`]
     // Same color or finish first; a different one last.
     const f = finishOf(name)
-    // (Weights, not points: the words still lead, finish and length order the ones alike.)
-    if (finish && f === finish) { s *= 1.4; why.push(`same finish (${finish === 'galv' ? 'galvanized' : finish})`) }
+    // (Weights, not points: the words still lead, finish and size order the ones alike.)
+    const finishWord = finish === 'galv' ? 'galvanized' : finish
+    if (finish && f === finish) { s *= 1.4; why.push(own ? `same finish (${finishWord})` : `same finish as the rest of the document (${finishWord})`) }
     else if (finish && f && f !== finish) s *= 0.5
-    // Same length first (9' before 8' for a 9' line).
-    const ls = feetIn(name)
+    // Same length or size first (9' before 8' for a 9' line, 60" before 48" for 60in fabric).
+    const ls = sizesIn(name)
     if (lengths.length && ls.length) {
-      if (ls.some(l => lengths.some(x => Math.abs(x - l) < 0.01))) { s *= 1.3; why.push('same length') }
+      if (ls.some(l => lengths.some(x => Math.abs(x - l) < 0.01))) { s *= 1.3; why.push('same size') }
       else s *= 0.7
     }
     return { i, s, why: why.join(', ') }

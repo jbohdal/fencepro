@@ -16,7 +16,8 @@ import {
 } from './vendorStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import { toast } from './toast'
-import { useBackLayer } from './nav'
+import { useBackLayer, navigate, pagePath } from './nav'
+import { useVendorsLive } from './vendorsLive'
 import { businessDate } from './businessDate'
 import { can } from './permissions'
 
@@ -59,6 +60,7 @@ export default function VendorsPage() {
     void refreshVendors()
     return () => { window.removeEventListener(VENDORS_UPDATED_EVENT, f); if (t) clearTimeout(t) }
   }, [])
+  useVendorsLive()
 
   const vendors = useMemo(() => {
     refreshOverdueBills()
@@ -232,6 +234,9 @@ function VendorDetail({ vendor, onReload, onEdit, onDelete }: {
   )
 }
 
+/** A bill voided by "Undo the order" on its vendor document (not voided by hand here). */
+const orderUndone = (b: VendorBill) => b.status === 'void' && !!b.invoiceId && /order was undone/i.test(b.voidReason ?? '')
+
 function BillsList({ bills, onEdit, onRecordPayment, onApprove, onVoid, onRestore }: {
   bills: VendorBill[];
   onEdit: (b: VendorBill) => void;
@@ -280,8 +285,18 @@ function BillsList({ bills, onEdit, onRecordPayment, onApprove, onVoid, onRestor
                 {b.status !== 'void' && (
                   <button onClick={() => onVoid(b)} className="text-red-600 hover:underline text-xs">Void</button>
                 )}
-                {b.status === 'void' && (
+                {b.status === 'void' && !orderUndone(b) && (
                   <button onClick={() => onRestore(b)} className="text-blue-600 hover:underline text-xs" data-restore-bill={b.billNumber}>Restore</button>
+                )}
+                {orderUndone(b) && (
+                  // Its order was undone on the vendor document: ordering it again there puts the prices
+                  // and this same bill back. A Restore here would bring the bill back without the prices.
+                  <span className="block text-[11px] text-gray-600 text-right max-w-[16rem] ml-auto" data-order-undone-bill={b.billNumber}>
+                    Ordered after all? Tap <b>We ordered this</b> on{' '}
+                    <button className="text-blue-600 underline" data-open-document={b.billNumber}
+                      onClick={() => navigate(`${pagePath('Inventory')}?tab=invoices&invoice=${encodeURIComponent(b.invoiceId!)}`)}>its document</button>
+                    : its prices and this bill come back.
+                  </span>
                 )}
               </td>
             </tr>

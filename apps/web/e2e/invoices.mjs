@@ -220,6 +220,16 @@ try {
   check('tension bars would be $3.60 (freight and estimated tax, no fuel)', /landed \$3\.60 each/.test(await page.locator('[data-line^="TB-48G"]').innerText()))
   // Change match on a quote line, then back.
   const tbLine = page.locator('[data-line^="TB-48G"]').first()
+  // The picker (re-check, Oct 26): the item matched now is among its suggestions; Cancel and a tap on the line close it.
+  await tbLine.locator('[data-change-match]').click(); await sleep(1200)
+  check('Change match: the current match is suggested ("matched now")', await tbLine.locator(`[data-suggestion="${ITEMS[1].id}"]`).count() === 1 && /matched now/.test(await tbLine.locator(`[data-suggestion="${ITEMS[1].id}"]`).innerText()))
+  await tbLine.locator('[data-match-search]').fill(`bar ${stamp} e2e`)
+  check('search: every word in any order ("bar <id> e2e" finds the tension bars)', await tbLine.locator(`button:has-text("${ITEMS[1].name}")`).count() >= 1)
+  await tbLine.locator('[data-cancel-match]').click(); await sleep(400)
+  check('Cancel closes the picker', await tbLine.locator('[data-matcher]').count() === 0 && await tbLine.locator('[data-change-match]').isVisible())
+  await tbLine.locator('[data-change-match]').click(); await sleep(600)
+  await tbLine.locator('button.w-full.text-left').first().click(); await sleep(400)
+  check('a tap on the line closes the picker too', await tbLine.locator('[data-matcher]').count() === 0)
   await tbLine.locator('[data-change-match]').click(); await sleep(800)
   await tbLine.locator('[data-match-search]').fill(ITEMS[2].name)
   await tbLine.locator(`button:has-text("${ITEMS[2].name}")`).first().click()
@@ -240,6 +250,34 @@ try {
   check('We ordered this: applied; tension bars $4.40 → $3.60, hog rings $0.25 → $0.29', await cost(ITEMS[1].id) === 360 && await cost(ITEMS[0].id) === 29, `${await cost(ITEMS[1].id)} ${await cost(ITEMS[0].id)}`)
   const ntBill = (await owner('GET', '/api/vendor-state')).json.data.bills.find(b => b.billNumber === 'GQ-2201')
   check('the bill is the printed $93.00 with the $5 fuel; the estimated tax is noted, not billed', ntBill?.totalCents === 9300 && ntBill?.feesCents === 500 && /Fuel Charge \$5\.00 \(on this bill only/.test(ntBill?.notes) && /estimated tax 7\.22% \(\$5\.63\)/.test(ntBill?.notes), ntBill?.notes)
+
+  // 4c. Undo the order, then order it again (re-check, Oct 26): one bill, back and forth; Vendors
+  //     points to the document instead of a Restore; Accounts Payable open in another tab follows.
+  const gqBills = async () => ((await owner('GET', '/api/vendor-state')).json.data.bills ?? []).filter(b => b.billNumber === 'GQ-2201')
+  await page.locator('[data-undo]').click(); await sleep(2500)
+  check('Undo the order: Undone, its bill voided, prices back', await page.locator('[data-status="undone"]').isVisible() && (await gqBills()).map(b => b.status).join() === 'void' && await cost(ITEMS[1].id) === 440)
+  check('the undone order offers We ordered this again', await page.locator('[data-order-again] [data-we-ordered]').isVisible() && /tap We ordered this here/.test(await page.locator('[data-message]').innerText()))
+  const p2 = await d.ctx.newPage()
+  p2.on('pageerror', e => errors.push(String(e).slice(0, 200)))
+  await p2.goto(`${APP}/vendors`, { waitUntil: 'domcontentloaded' }); await sleep(3000)
+  const gqVendor = (await gqBills())[0]?.vendorName || VENDORS[0]
+  await p2.locator(`button:has-text("${gqVendor}")`).first().click().catch(() => {}); await sleep(1000)
+  check('Vendors: the voided bill has no Restore; it points to its document', await p2.locator('[data-order-undone-bill="GQ-2201"]').isVisible() && await p2.locator('[data-restore-bill="GQ-2201"]').count() === 0)
+  await p2.locator('[data-open-document="GQ-2201"]').click()
+  check('its document opens from Vendors', await p2.waitForSelector('[data-invoice-detail="GQ-2201"]', { timeout: 15000 }).then(() => true).catch(() => false))
+  await p2.goto(`${APP}/accounts-payable`, { waitUntil: 'domcontentloaded' }); await sleep(3000)
+  const apBefore = await p2.locator('body').innerText()
+  await page.locator('[data-order-again] [data-we-ordered]').click(); await sleep(2500)
+  const back = await gqBills()
+  check('We ordered this again: prices back, the same bill back in Accounts Payable (one bill)', back.length === 1 && back[0].status === 'received' && back[0].totalCents === 9300 && await cost(ITEMS[1].id) === 360, JSON.stringify(back.map(b => [b.id, b.status])))
+  check('Accounts Payable open in the other tab shows it without a reload', !!await waitFor(async () => (await p2.locator('body').innerText()) !== apBefore, 30000))
+  await p2.close()
+  // Remove after Undo: back to the list, never a read of the removed document.
+  await page.locator('[data-undo]').click(); await sleep(2500)
+  const gone404 = []
+  page.on('response', r => { if (r.status() === 404 && /\/api\/vendor-invoices\/[\w-]+$/.test(r.url())) gone404.push(r.url()) })
+  await page.locator('[data-remove]').click(); await sleep(2500)
+  check('Remove: back to the list, no request for the removed document', await page.locator('[data-invoice-list], [data-invoices-tab]').first().isVisible() && gone404.length === 0 && (await gqBills()).length === 0, gone404.join(' '))
   await d.ctx.close()
 
   // ── Owner on a phone ──

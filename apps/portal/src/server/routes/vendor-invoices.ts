@@ -21,7 +21,7 @@ import { can, requireCan, roleOf } from '../lib/permissions.js'
 import { audit } from '../lib/auditLog.js'
 import { plainZod } from '../lib/plainZod.js'
 import {
-  editHeader, editLine, matchLine, decideWaiting, markOrdered, undoInvoice, deleteInvoice, rereadInvoice, suggestItems,
+  editHeader, editLine, matchLine, decideWaiting, markOrdered, undoInvoice, deleteInvoice, rereadInvoice, suggestItems, documentFinish,
   vendorTotalsByMonth, InvoiceError, NOT_INVENTORY, LIVE_STATUSES, type Actor,
 } from '../lib/vendorInvoices.js'
 
@@ -105,7 +105,14 @@ router.get('/needs-match', async (req: any, res) => {
       prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true } }),
     ])
     const items = Array.isArray(inv?.items) ? (inv!.items as any[]) : []
-    res.json({ success: true, data: lines.map(l => ({ ...pick(l), invoice: l.invoice, suggestions: suggestItems(l, items) })) })
+    // A line with no finish word ranks by the finish of the rest of its document.
+    const docLines = await prisma.vendorInvoiceLine.findMany({
+      where: { invoiceId: { in: [...new Set(lines.map(l => l.invoiceId))] } },
+      select: { id: true, invoiceId: true, description: true, inventoryName: true, ignored: true },
+    })
+    const byDoc = new Map<string, typeof docLines>()
+    for (const d of docLines) byDoc.set(d.invoiceId, [...(byDoc.get(d.invoiceId) ?? []), d])
+    res.json({ success: true, data: lines.map(l => ({ ...pick(l), invoice: l.invoice, suggestions: suggestItems(l, items, 5, { docFinish: documentFinish(byDoc.get(l.invoiceId) ?? [], l.id) }) })) })
   } catch (err) { fail(res, err, 'load the lines that need a match') }
 })
 
@@ -115,8 +122,12 @@ router.get('/lines/:lineId/suggestions', async (req: any, res) => {
     const accountId = req.user.crmAccountId
     const line = await prisma.vendorInvoiceLine.findUnique({ where: { id: String(req.params.lineId) }, include: { invoice: { select: { accountId: true } } } })
     if (!line || line.invoice.accountId !== accountId) { res.status(404).json({ success: false, error: 'No such line' }); return }
-    const inv = await prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true } })
-    res.json({ success: true, data: suggestItems(line, Array.isArray(inv?.items) ? (inv!.items as any[]) : []) })
+    const [inv, docLines] = await Promise.all([
+      prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true } }),
+      prisma.vendorInvoiceLine.findMany({ where: { invoiceId: line.invoiceId }, select: { id: true, description: true, inventoryName: true, ignored: true } }),
+    ])
+    // The item it is matched to now comes first (Change match); no finish word: the document's finish.
+    res.json({ success: true, data: suggestItems(line, Array.isArray(inv?.items) ? (inv!.items as any[]) : [], 5, { docFinish: documentFinish(docLines, line.id) }) })
   } catch (err) { fail(res, err, 'load the suggestions') }
 })
 
