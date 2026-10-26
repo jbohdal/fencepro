@@ -1345,11 +1345,18 @@ router.post('/customer/:customerId/messages', requireStaffSyncKey, async (req, r
     const rid = requestIdOf(req)
     const again = rid ? await prisma.portalMessage.findUnique({ where: { id: rid } }) : null
     if (again && again.crmCustomerId === customerId) { res.json({ success: true, data: serializeMessage(again) }); return }
+    // Saved with the signed in staff member's name (the screen showed "user" for every reply before):
+    // the login's own name first, then the name the screen sent, never a login email.
+    const me = verifyStaffBearer(req)
+    const fromLogin = me?.sub ? await prisma.crmUser.findUnique({ where: { id: me.sub }, select: { firstName: true, lastName: true } }).catch(() => null) : null
+    const loginName = fromLogin ? `${fromLogin.firstName ?? ''} ${fromLogin.lastName ?? ''}`.trim() : ''
+    const typed = (sender || '').trim()
+    const senderName = loginName || (typed && !['user', 'staff'].includes(typed.toLowerCase()) && !typed.includes('@') ? typed : 'staff')
     const msg = await prisma.portalMessage.create({
       data: {
         ...(rid && !again ? { id: rid } : {}),
         crmCustomerId: customerId,
-        senderUser: sender || 'staff',
+        senderUser: senderName,
         senderType: 'staff',
         body: body.trim(),
         isReadByStaff: true,
