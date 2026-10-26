@@ -29,7 +29,8 @@
 import crypto from 'crypto'
 import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
-import { priceWork, costDeltaOf, workNow, scopeOf, workChangeable, approvedInOrder, currentWorkRow, daysFor, type StoredWork, type WorkInput } from './changeOrderWork.js'
+import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, type StoredWork, type WorkInput } from './changeOrderWork.js'
+import { shapeOf, sameShape } from './changeOrderMerge.js'
 
 /**
  * needs_ok: made by a Salesman (round 2, Oct 26 2026). It waits for the
@@ -114,7 +115,10 @@ export function view(r: Row) {
     sentAt: r.sentAt, approvedAt: r.approvedAt, approvedBy: r.approvedBy, voidedAt: r.voidedAt,
     signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null, signedVia: r.signedVia ?? null, hasLink: !!r.shareToken,
     verbalBy: r.verbalBy ?? null, verbalAt: r.verbalAt ?? null, verbalReason: r.verbalReason ?? null, contractRev: r.contractRev ?? null,
-    work: workView(r.work), warrantyBefore: warrantyOf(r.warrantyBefore), warrantyAfter: warrantyOf(r.warrantyAfter),
+    work: workView(r.work),
+    // The job's work after it, when its change was put on another change order's (rebuildJobWork); else its own.
+    jobWork: r.work && typeof r.work === 'object' && (r.work as any).applied ? workView((r.work as any).applied) : null,
+    warrantyBefore: warrantyOf(r.warrantyBefore), warrantyAfter: warrantyOf(r.warrantyAfter),
     version: r.version, createdAt: r.createdAt, updatedAt: r.updatedAt,
   }
 }
@@ -274,9 +278,11 @@ export async function applyToJob(accountId: string, quoteId: string, tx: any = p
   // The work: the newest approved change order that changed it, else the quote as signed. The job's scope
   // and crew days follow (about 15 sections a day; days typed by hand move by the same difference).
   if (rows.some((r: Row) => r.work)) {
-    const cur = currentWorkRow(rows as Row[])
+    // Rebuilt from the signed quote and every approved change order's own change, in the order approved
+    // (lib/changeOrderWork.ts rebuildJobWork): signing two in any order never drops one's change.
+    const cur = (await rebuildJobWork(accountId, quoteId, tx)).work
     const q = cur ? null : await tx.savedQuote.findFirst({ where: { id: quoteId, accountId } })
-    const w = cur ? cur.work as unknown as StoredWork : q ? { fenceStyle: q.fenceStyle, sections: q.sections, footage: (Array.isArray(q.runs) ? q.runs as number[] : []).reduce((s, f) => s + (Number(f) > 0 ? Number(f) : 0), 0), walkGates: q.walkGates, dblGates: q.dblGates, tearOutSections: q.tearOutSections } : null
+    const w = cur ? cur : q ? { fenceStyle: q.fenceStyle, sections: q.sections, footage: (Array.isArray(q.runs) ? q.runs as number[] : []).reduce((s, f) => s + (Number(f) > 0 ? Number(f) : 0), 0), walkGates: q.walkGates, dblGates: q.dblGates, tearOutSections: q.tearOutSections } : null
     if (w) {
       const oldAuto = daysFor(job.sections), newAuto = daysFor(w.sections)
       Object.assign(data, {
@@ -396,9 +402,21 @@ async function workPart(accountId: string, quoteId: string, input: WorkInput): P
   const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } })
   if (!q) throw err(404, 'Quote not found')
   if (!workChangeable(q)) return {}
-  const after = await priceWork(accountId, q, input)
-  const before = (await workNow(accountId, quoteId)).work
-  const out: Record<string, unknown> = { work: after, costDelta: await costDeltaOf(accountId, q, before, after), scope: scopeOf(before, after) }
+  const priced = await priceWork(accountId, q, input)
+  // It starts from the work with every signed and every still open change order's change in it
+  // (round 3, Oct 26 2026: a second one drawn from the signed quote dropped the first one's change).
+  const start = await startOfChange(accountId, quoteId)
+  const last = start?.steps[start.steps.length - 1]
+  let before: any = q
+  if (start && last) {
+    const known = effectiveWork(last.row) as any
+    before = sameShape(shapeOf(known), start.shape) ? known
+      : await priceWork(accountId, q, { request: requestForShape(start.shape, start.like), layout: start.shape.yard ? { yard: start.shape.yard } : null, planSvg: null })
+  }
+  const base = shapeOf(before)
+  const after = { ...priced, base }
+  const notice = start ? openNotice('This change order', start, { number: 0, base, work: shapeOf(priced) }) : null
+  const out: Record<string, unknown> = { work: after, costDelta: await costDeltaOf(accountId, q, before, priced), scope: scopeOf(before, priced), ...(notice ? { notice } : {}) }
   // No dig <-> dig set: the warranty that goes with the install changes too, and the customer signs the new words.
   const styleBefore = String(before?.fenceStyle ?? q.fenceStyle)
   if (after.fenceStyle && after.fenceStyle !== styleBefore) {
@@ -416,7 +434,7 @@ async function workPart(accountId: string, quoteId: string, input: WorkInput): P
 }
 
 /** Make one on a signed quote. Approved at once (verbally, with a reason) updates the job too. */
-export async function createChangeOrder(accountId: string, c: NewChangeOrder): Promise<Row> {
+export async function createChangeOrder(accountId: string, c: NewChangeOrder): Promise<Row & { notice?: string }> {
   if (!(await quoteIsSigned(accountId, c.quoteId))) throw err(409, 'Change orders are for signed quotes. This one is not signed: edit the quote instead.')
   if (c.id) {
     const same = await prisma.changeOrder.findUnique({ where: { id: c.id } })
@@ -425,7 +443,8 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
   const lines = linesOf({ lines: c.lines }).map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
   if (!lines.length) throw err(400, 'Add at least one line with a description or an amount.')
   const verbal = c.status === 'approved' ? verbalReasonOf(c.verbalReason) : null
-  const extra = c.work ? await workPart(accountId, c.quoteId, c.work) : {}
+  const { notice, ...extra } = c.work ? await workPart(accountId, c.quoteId, c.work) : {} as Record<string, unknown>
+  const said = (r: Row) => (typeof notice === 'string' ? Object.assign(r, { notice }) : r)
   for (let attempt = 0; ; attempt++) {
     try {
       return await prisma.$transaction(async tx => {
@@ -440,7 +459,7 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
           },
         })
         if (c.status === 'approved') await applyToJob(accountId, c.quoteId, tx, { id: row.id, by: c.by })
-        return (await tx.changeOrder.findUnique({ where: { id: row.id } })) ?? row
+        return said((await tx.changeOrder.findUnique({ where: { id: row.id } })) ?? row)
       }, { timeout: 20_000 })
     } catch (e) {
       // Two made at the same moment took the same number: try the next one.

@@ -97,7 +97,7 @@ import { BookingHost, openBooking } from './BookingDialog'
 import { ServiceHost } from './ServiceRequests'
 import ServicePage from './ServicePage'
 import GlobalSearch from './GlobalSearch'
-import { isSignedForChange, quoteWithChanges, signedQuoteOf, refreshChangeOrders } from './ChangeOrders'
+import { isSignedForChange, quoteForChange as latestDrawingQuote, signedQuoteOf } from './ChangeOrders'
 import { DashboardAppointments } from './AppointmentWidgets'
 import { businessDate } from './businessDate'
 
@@ -727,7 +727,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     // A signed quote opens with the work as approved change orders made it (ChangeOrders.tsx quoteWithChanges),
     // so the next change is priced from the work now; saving keeps the signed quote as signed.
     if (isSignedForChange(q) && signedQuoteOf(q) === q) {
-      void refreshChangeOrders(q.id).then(() => { setEditingQuote(quoteWithChanges(q)); setShowQuote(true) })
+      // The latest drawing: with every approved and every still open change order's change in it (quoteForChange).
+      void latestDrawingQuote(q).then(open => { setEditingQuote(open); setShowQuote(true) })
       return
     }
     setEditingQuote(q)

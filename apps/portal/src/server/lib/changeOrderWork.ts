@@ -25,6 +25,7 @@
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { dataFor, requestFrom } from './quotePricing.js'
+import { shapeOf, sameShape, applyChange, clashes, type WorkShape, type ChangeStep, type DeriveRuns } from './changeOrderMerge.js'
 
 type Json = any
 
@@ -127,7 +128,17 @@ export async function costDeltaOf(accountId: string, signed: Json, before: Json,
   return { materialCents: now.materialCents - was.materialCents, laborCents: now.laborCents - was.laborCents, tearOutCents: now.tearOutCents - was.tearOutCents, totalCents: now.totalCents - was.totalCents }
 }
 
-type CoRow = { id: string; number: number; status: string; approvedAt: Date | null; work: unknown; scope?: unknown; lines?: unknown; reason?: string; totalCents?: number; contractRev?: number | null; deletedAt?: Date | null }
+type CoRow = { id: string; number: number; status: string; approvedAt: Date | null; createdAt?: Date | null; work: unknown; scope?: unknown; lines?: unknown; reason?: string; totalCents?: number; contractRev?: number | null; deletedAt?: Date | null }
+
+/**
+ * The job's work after an approved change order: the change order's own
+ * drawing when it was drawn from the work as it then was, else the work
+ * rebuilt with its change put on the earlier ones' (kept as `work.applied`
+ * by rebuildJobWork; lib/changeOrderMerge.ts).
+ */
+export function effectiveWork(r: { work: unknown }): unknown {
+  return isObj(r.work) && isObj(r.work.applied) ? r.work.applied : r.work
+}
 
 /** The approved change orders of a quote in the order they were approved. */
 export function approvedInOrder<T extends CoRow>(rows: T[]): T[] {
@@ -138,7 +149,144 @@ export function approvedInOrder<T extends CoRow>(rows: T[]): T[] {
 /** The newest approved change order that changed the work (null: the work is as signed). */
 export function currentWorkRow<T extends CoRow>(rows: T[]): (T & { work: StoredWork }) | null {
   const withWork = approvedInOrder(rows).filter(r => isObj(r.work))
-  return (withWork[withWork.length - 1] as T & { work: StoredWork }) ?? null
+  const last = withWork[withWork.length - 1]
+  return last ? ({ ...last, work: effectiveWork(last) } as T & { work: StoredWork }) : null
+}
+
+// ── More than one change order with a drawing (lib/changeOrderMerge.ts) ─────
+
+const OPEN = new Set(['needs_ok', 'draft', 'sent'])
+
+/** How the server turns a yard into runs and posts (the builder's own count, through the estimate bundle). */
+export async function deriveFor(accountId: string): Promise<DeriveRuns> {
+  const m = await pricingModule()
+  const b = await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } })
+  return (yard, style) => (m.deriveYardRuns ? m.deriveYardRuns(b?.config ?? null, yard, style) : null)
+}
+
+/**
+ * The drawing a change order started from. Kept on it (`work.base`) since
+ * Oct 26 2026; one made before that started from the work as it was when it
+ * was made: the signed quote with the change orders approved by then.
+ */
+function baseOf(r: CoRow, quote: WorkShape, approvedBefore: Array<{ at: number; shape: WorkShape }>): WorkShape {
+  if (isObj(r.work) && isObj(r.work.base)) return shapeOf(r.work.base)
+  const made = r.createdAt ? new Date(r.createdAt).getTime() : Infinity
+  const before = approvedBefore.filter(a => a.at < made)
+  return before.length ? before[before.length - 1].shape : quote
+}
+
+export interface FoldedStep { row: CoRow; step: ChangeStep; shape: WorkShape; merged: boolean; conflicts: string[] }
+
+/**
+ * The work's shape after each approved change order with a drawing, in the
+ * order they were approved, then (open: true) each one still open, by number.
+ * Shapes only (no prices): what a new change order starts from, and what the
+ * job's work must be.
+ */
+export function foldShapes(quote: Json, rows: CoRow[], derive: DeriveRuns, opts: { open?: boolean } = {}): { shape: WorkShape; steps: FoldedStep[] } {
+  const start = shapeOf(quote)
+  const approved = approvedInOrder(rows).filter(r => isObj(r.work))
+  const open = opts.open ? rows.filter(r => OPEN.has(r.status) && !r.deletedAt && isObj(r.work)).sort((a, b) => a.number - b.number) : []
+  let cur = start
+  const snaps: Array<{ at: number; shape: WorkShape }> = []
+  const steps: FoldedStep[] = []
+  for (const r of [...approved, ...open]) {
+    const step: ChangeStep = { number: r.number, base: baseOf(r, start, snaps), work: shapeOf(r.work) }
+    const out = applyChange(cur, step, derive)
+    steps.push({ row: r, step, shape: out.shape, merged: out.merged, conflicts: out.conflicts })
+    cur = out.shape
+    if (r.status === 'approved' && r.approvedAt) snaps.push({ at: new Date(r.approvedAt).getTime(), shape: cur })
+  }
+  return { shape: cur, steps }
+}
+
+/** The quote builder's request for a shape, with the other choices of `like` (a stored request). */
+export function requestForShape(shape: WorkShape, like: Json): Json {
+  const rails = shape.runRails ?? []
+  const req: Json = {
+    ...(isObj(like) ? like : {}), fenceStyle: shape.fenceStyle,
+    runs: shape.runs.map((ft, i) => ({ ft, rail: rails[i] === '6ft' || rails[i] === '8ft' ? rails[i] : 'auto' })),
+    corners: shape.corners, ends: shape.ends, walkGates: shape.walkGates, dblGates: shape.dblGates,
+    tearOutSections: shape.tearOutSections, tearOutGates: shape.tearOutGates,
+  }
+  if (num(shape.teeLinePosts) > 0) req.extraLinePosts = Math.round(num(shape.teeLinePosts)); else delete req.extraLinePosts
+  return req
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+/**
+ * The job's work rebuilt from the signed quote and every approved change
+ * order, in the order they were approved, each one's own change put on the
+ * ones before it. A change order drawn from the work as it then was keeps its
+ * own priced work; one whose change had to be put on another's is priced
+ * again and kept as its `work.applied`. Returns the work now (null: as signed).
+ */
+export async function rebuildJobWork(accountId: string, quoteId: string, tx: any = prisma): Promise<{ work: StoredWork | null; conflicts: string[] }> {
+  const rows: CoRow[] = await tx.changeOrder.findMany({ where: { accountId, quoteId, deletedAt: null } })
+  if (!rows.some(r => isObj(r.work))) return { work: null, conflicts: [] }
+  const q = await tx.savedQuote.findFirst({ where: { id: quoteId, accountId } })
+  if (!q) return { work: null, conflicts: [] }
+  const { steps } = foldShapes(q, rows, await deriveFor(accountId))
+  const conflicts: string[] = []
+  let now: StoredWork | null = null
+  const done = new Set<string>()
+  for (const s of steps) {
+    const own = s.row.work as Json
+    let applied: StoredWork | null = null
+    if (s.merged) {
+      // Rebuilt already for the same work: kept as it was priced (a later approval does not price it again).
+      if (isObj(own.applied) && sameShape(shapeOf(own.applied), s.shape)) applied = own.applied as StoredWork
+      else {
+        const layout = s.shape.yard ? { yard: s.shape.yard, ...(num(s.shape.teeLinePosts) > 0 ? { teeLinePosts: s.shape.teeLinePosts } : {}) } : null
+        applied = await priceWork(accountId, q, { request: requestForShape(s.shape, own.request), layout, planSvg: null })
+      }
+      for (const c of s.conflicts) conflicts.push(`CO-${s.row.number}: ${c}`)
+    }
+    done.add(s.row.id)
+    if (!same(own.applied ?? null, applied)) await keepApplied(tx, s.row.id, own, applied)
+    now = applied ?? (own as StoredWork)
+  }
+  // One no longer approved (voided) keeps no rebuilt work.
+  for (const r of rows) if (!done.has(r.id) && isObj(r.work) && isObj((r.work as Json).applied)) await keepApplied(tx, r.id, r.work, null)
+  return { work: now, conflicts }
+}
+
+async function keepApplied(tx: any, id: string, own: Json, applied: StoredWork | null) {
+  const { applied: _old, ...rest } = own; void _old
+  await tx.changeOrder.update({ where: { id }, data: { work: (applied ? { ...rest, applied } : rest) as any } })
+}
+
+/**
+ * What a new change order with a drawing starts from: the signed quote with
+ * every approved change order's change and every still open one's (Waiting
+ * for OK, draft, sent), and the open ones it includes.
+ */
+export async function startOfChange(accountId: string, quoteId: string, tx: any = prisma): Promise<{ shape: WorkShape; like: Json; quote: Json; open: CoRow[]; steps: FoldedStep[] } | null> {
+  const q = await tx.savedQuote.findFirst({ where: { id: quoteId, accountId } })
+  if (!q) return null
+  const rows: CoRow[] = await tx.changeOrder.findMany({ where: { accountId, quoteId, deletedAt: null } })
+  const { shape, steps } = foldShapes(q, rows, await deriveFor(accountId), { open: true })
+  const last = steps[steps.length - 1]
+  const like = last && isObj(last.row.work) && isObj((last.row.work as Json).request) ? (last.row.work as Json).request : requestOfQuote(q)
+  return { shape, like, quote: q, open: steps.filter(s => OPEN.has(s.row.status)).map(s => s.row), steps }
+}
+
+/**
+ * Said when a change order is made while others with a drawing are still
+ * open: it starts from their drawing and adds only its own change; when it
+ * changes the same thing as one of them, which one is signed last decides it.
+ */
+export function openNotice(me: string, start: { steps: FoldedStep[] }, mine: ChangeStep): string | null {
+  const open = start.steps.filter(s => OPEN.has(s.row.status))
+  if (!open.length) return null
+  const names = open.map(s => `CO-${s.row.number}`)
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  const clash = open.map(s => ({ n: s.row.number, what: clashes(s.step, mine) })).filter(c => c.what.length)
+  const base = `${me} is drawn on top of ${list} (not signed yet) and adds only its own change. They can be signed in any order; the job keeps every change that is signed.`
+  if (!clash.length) return base
+  return `${base} But ${me.toLowerCase()} changes the same thing as ${clash.map(c => `CO-${c.n} (${c.what.join('; ')})`).join(' and ')}: whichever is signed last decides it. Have ${clash.map(c => `CO-${c.n}`).join(' and ')} signed first, or cancel ${clash.length === 1 ? 'it' : 'them'} and keep only this one.`
 }
 
 /** The work now: the newest approved change order's, else the signed quote's own fields. */

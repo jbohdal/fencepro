@@ -385,4 +385,63 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     expect(s.invoices.find((i: any) => i.kind === 'change_order').amountCents).toBe(20000)
     expect([s.contractCents, s.balanceCents, s.creditCents]).toEqual([570000, -50000, 50000])
   })
+
+  // Round 3 (Oct 26 2026): CO-1 made the Back 50 -> 60 ft, CO-2 put a walk gate in; CO-2 was drawn from the
+  // signed quote, and once both were signed the job, pull sheet and installer card had lost CO-1's 10 ft.
+  test('round 3: two drawing change orders open at once, signed in either order: the job keeps both changes', async () => {
+    const { pricingModule } = await import('../src/server/lib/estimates.js')
+    const m = await pricingModule()
+    const cfg = (await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }))?.config ?? null
+    const side = (id: string, name: string, lengthIn: number, start: string, end: string, gate: any = null) => ({ id, name, on: true, lengthIn, startFinish: start, endFinish: end, gate, skip: null, heading: 0 })
+    const yardOf = (back: number, gate = false) => ({ shape: 'backyard', closed: false, sides: [
+      side('r3-left', 'Left side', 600, 'house', 'corner', gate ? { type: 'walk', widthIn: 48, position: 'middle' } : null),
+      side('r3-back', 'Back', back, 'corner', 'house'),
+    ] })
+    const req = (yard: any) => { const d = m.deriveYardRuns(cfg, yard, ND)!; return { ...request(0, d.walkGates), runs: d.runs.map(ft => ({ ft, rail: 'auto' })), corners: d.corners, ends: d.ends, walkGates: d.walkGates, dblGates: d.dblGates } }
+    const work = (yard: any) => ({ request: req(yard), layout: { yard } })
+    const { contactId, quoteId, jobId } = await signedJob()
+    const q0 = req(yardOf(600))
+    await prisma.savedQuote.update({ where: { id: quoteId }, data: { runs: q0.runs.map(r => r.ft), corners: q0.corners, ends: q0.ends, layout: { yard: yardOf(600), runSections: [] } as any } })
+    expect(q0.runs.reduce((s, x) => s + x.ft, 0)).toBe(100)
+
+    // CO-1: Back 50 -> 60 ft (a draft, waiting for the customer).
+    const co1 = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Longer back', lines: [{ id: 'a', description: 'Add 10 ft of fence', amountCents: 25000 }], work: work(yardOf(720)) })
+    expect(co1.status).toBe(201)
+    expect(co1.json.notice).toBeUndefined()
+    // The next change starts from the drawing with CO-1 in it.
+    const start = (await call(owner, 'GET', `/api/change-orders/start?jobId=${jobId}`)).json.data
+    expect(start.layout.yard.sides.find((x: any) => x.name === 'Back').lengthIn).toBe(720)
+    expect(start.open.map((o: any) => o.number)).toEqual([1])
+    expect(start.runs.reduce((a: number, b: number) => a + b, 0)).toBe(110)
+    // CO-2: a walk gate in the Left side, drawn on top of CO-1: said, no clash.
+    const co2 = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Gate', lines: [{ id: 'b', description: 'Add 1 walk gate', amountCents: 30000 }], work: work(yardOf(720, true)) })
+    expect(co2.status).toBe(201)
+    expect(co2.json.notice).toMatch(/drawn on top of CO-1 \(not signed yet\)/)
+    expect(co2.json.notice).not.toMatch(/same thing/)
+    expect(co2.json.data.scope).toMatchObject({ walkGates: 1, footageFt: -4 })
+
+    // CO-2 signed first: the job has the gate, not CO-1's 10 ft (not signed yet).
+    expect((await call(owner, 'POST', `/api/change-orders/${co2.json.data.id}/sign`, { name: 'Pat Customer', signature: SIG })).status).toBe(200)
+    let job = (await prisma.savedJob.findUnique({ where: { id: jobId } }))!
+    expect([job.totalFeet, job.walkGates, job.changeOrderTotal]).toEqual([96, 1, 300])
+    // Then CO-1: both changes.
+    expect((await call(owner, 'POST', `/api/change-orders/${co1.json.data.id}/sign`, { name: 'Pat Customer', signature: SIG })).status).toBe(200)
+    job = (await prisma.savedJob.findUnique({ where: { id: jobId } }))!
+    expect([job.totalFeet, job.walkGates, job.changeOrderTotal, job.contractValue]).toEqual([106, 1, 550, 6550])
+    const rows = (await call(owner, 'GET', `/api/change-orders?jobId=${jobId}`)).json.data
+    const one = rows.find((r: any) => r.number === 1)
+    expect(one.jobWork).toMatchObject({ footage: 106, walkGates: 1 }) // the job after CO-1: both changes
+    expect(one.work).toMatchObject({ footage: 110, walkGates: 0 })    // what the customer signed for CO-1
+    // The crew's pull sheet and the install packet's work follow the job's work.
+    const sheet = (await call(owner, 'GET', `/api/pull-sheets/customer/${contactId}`)).json.data.entries.find((x: any) => x.kind === 'job')
+    expect(sheet.footageFt).toBe(106)
+    const pk = await call(owner, 'GET', `/api/install-packets/work?jobId=${jobId}`)
+    expect(pk.json.data.work).toMatchObject({ footage: 106, walkGates: 1 })
+
+    // Two open ones changing the same thing: said when the second is made.
+    const co3 = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Even longer', lines: [{ id: 'c', description: 'Add 10 ft of fence', amountCents: 25000 }], work: work(yardOf(840, true)) })
+    expect(co3.json.notice).toBeUndefined()
+    const co4 = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Longer still', lines: [{ id: 'd', description: 'Add 10 ft of fence', amountCents: 25000 }], work: work(yardOf(960, true)) })
+    expect(co4.json.notice).toMatch(/changes the same thing as CO-3 \(Back: length\)/)
+  })
 })

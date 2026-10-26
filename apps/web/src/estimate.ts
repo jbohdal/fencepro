@@ -16,6 +16,7 @@ import { isQuotable, isOnHold, NOT_QUOTABLE_MESSAGE } from './styleAvailability'
 import { priceQuoteJob, quoteView, savedWorkOf, type QuoteJob, type QuoteJobRequest } from './quoteJob'
 import { widgetCatalog, widgetOptions, widgetStyles, priceForStyle, type WidgetCatalog, type WidgetPick, type WidgetPriced } from './widgetPricing'
 import type { YardLayout } from './yardLayout'
+import { deriveRunsFor } from './changeOrderYard'
 import type { TierSet } from './tiers'
 import { pickList, pickPrice, type PickInput, type PickList } from './changeOrderPicks'
 export { importedOldPrice, keepsCents } from './pricingEngine'
@@ -49,6 +50,11 @@ export function stampWarranties(saved: Partial<AppConfig> | null, proposal: unkn
 export function styleWarranty(saved: Partial<AppConfig> | null, styleName: string, kind?: 'move' | 'repair' | null) {
   const style = estimateConfig(saved).fenceStyles.find(s => s.name === styleName) ?? { name: styleName }
   return warrantyForStyleOf(warrantySettingsFrom(saved), style, kind)
+}
+
+/** A yard's runs and posts for a style, as the quote builder counts them (change orders rebuild a job's drawing with it). */
+export function deriveYardRuns(saved: Partial<AppConfig> | null, yard: YardLayout, fenceStyle: string) {
+  return deriveRunsFor(estimateConfig(saved).fenceStyles, yard, fenceStyle)
 }
 
 export interface EstimateData {

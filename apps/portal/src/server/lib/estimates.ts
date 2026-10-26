@@ -63,6 +63,8 @@ interface EstimateModule {
   isOneYearText(text: unknown): boolean
   isNoDigStyle(style: { name: string; material?: string; choices?: Record<string, string> } | null | undefined): boolean
   dayText(day: string): string
+  /** A yard's runs and posts for a style, as the quote builder counts them (web/src/changeOrderYard.ts). */
+  deriveYardRuns(config: unknown, yard: unknown, fenceStyle: string): { runs: number[]; corners: number; ends: number; walkGates: number; dblGates: number; linePosts?: number } | null
   estimate(data: unknown, job: EstimateJob): Estimate
   estimateStyles(config: unknown, data?: unknown): Array<StyleListItem>
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }

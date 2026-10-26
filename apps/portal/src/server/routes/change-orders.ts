@@ -34,7 +34,8 @@ import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { createChangeOrder, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES } from '../lib/changeOrders.js'
 import { hidesCosts } from '../lib/costRedact.js'
-import { scheduleFit } from '../lib/changeOrderWork.js'
+import { scheduleFit, startOfChange, effectiveWork } from '../lib/changeOrderWork.js'
+import { shapeOf, sameShape } from '../lib/changeOrderMerge.js'
 import { jobTimeline } from '../lib/changeOrderHistory.js'
 import { signSchema } from './changeOrderPublic.js'
 import { pickListFor, pickPriceFor } from '../lib/changeOrderPicks.js'
@@ -125,7 +126,7 @@ router.post('/', requireCan('quotes.change'), async (req: any, res) => {
     const row = await createChangeOrder(accountId, { id: body.id, quoteId, reason: body.reason, lines: body.lines, scope: body.scope ?? null, status: needsOk ? 'needs_ok' : body.status, by, verbalReason: body.verbalReason ?? null, work: body.work ?? null })
     await audit(req, 'create', 'ChangeOrder', row.id, { newValues: view(row) })
     if (needsOk && !known) await askForOk(row, by)
-    res.status(201).json({ success: true, data: viewFor(req)(row), ...(row.status === 'approved' ? { scheduleWarning: await warningFor(accountId, quoteId) } : {}) })
+    res.status(201).json({ success: true, data: viewFor(req)(row), ...(row.notice ? { notice: row.notice } : {}), ...(row.status === 'approved' ? { scheduleWarning: await warningFor(accountId, quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }
 })
 
@@ -178,6 +179,30 @@ async function quoteAsked(req: any): Promise<string | null> {
   if (typeof req.query.jobId === 'string' && req.query.jobId) return quoteOfJob(req.user.crmAccountId, req.query.jobId)
   return null
 }
+
+/**
+ * What a change from the yard drawing starts from (round 3, Oct 26 2026): the
+ * signed quote with every approved change order's change and every still open
+ * one's (lib/changeOrderWork.ts startOfChange), quantities only, and the open
+ * ones it includes, so the quote builder opens on the latest drawing.
+ */
+router.get('/start', requireCan('quotes.change'), async (req: any, res) => {
+  try {
+    const quoteId = await quoteAsked(req)
+    if (!quoteId) { res.status(400).json({ success: false, error: 'Which quote? This job has no quote.' }); return }
+    const start = await startOfChange(req.user.crmAccountId, quoteId)
+    if (!start) { res.status(404).json({ success: false, error: 'Quote not found' }); return }
+    const last = start.steps[start.steps.length - 1]
+    const known: any = last ? effectiveWork(last.row) : start.quote
+    const same = sameShape(shapeOf(known), start.shape)
+    const layout = same && known?.layout && typeof known.layout === 'object' ? known.layout : { yard: start.shape.yard, runSections: [] }
+    res.json({ success: true, data: {
+      ...start.shape, layout, sections: same ? (known?.sections ?? null) : null,
+      planSvg: same ? (last ? known?.planSvg ?? null : known?.proposal?.planSvg ?? null) : null,
+      open: start.steps.filter(s => ['needs_ok', 'draft', 'sent'].includes(s.row.status)).map(s => ({ id: s.row.id, number: s.row.number, status: s.row.status })),
+    } })
+  } catch (e) { fail(res, e, 'load the drawing') }
+})
 
 router.get('/pick-list', requireCan('quotes.change'), async (req: any, res) => {
   try {

@@ -24,7 +24,7 @@ import { plainStyleName } from './estimates.js'
 import { toCents, qty } from './jobCostingMath.js'
 import { quotedCostFor, quotedNow, actualFor, linesOf as takeoffLinesOf } from './jobCosting.js'
 import { linesOf as coLinesOf } from './changeOrders.js'
-import { approvedInOrder, sheetChanges, type LineChange, type StoredWork } from './changeOrderWork.js'
+import { approvedInOrder, sheetChanges, effectiveWork, type LineChange, type StoredWork } from './changeOrderWork.js'
 
 export type PullSheetStatus = 'Draft' | 'Sent' | 'Signed' | 'Sold' | 'Lost' | 'Linked by hand'
 
@@ -239,7 +239,7 @@ export async function customerPullSheets(accountId: string, contactId: string): 
       revisions = [{ rev: 1, title: 'Rev 1: as signed', date: (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt), source, lines, totalCostCents: sumCost(lines), changes: [] }]
       let prev = lines
       for (const c of changed) {
-        const l = linesFromSheet((c.work as unknown as StoredWork).pullSheet)
+        const l = linesFromSheet((effectiveWork(c) as StoredWork).pullSheet)
         const rev = c.contractRev ?? revisions.length + 1
         revisions.push({ rev, title: `Rev ${rev}: change order CO-${c.number}`, date: day(c.approvedAt), source: `Change order CO-${c.number} (approved ${words(day(c.approvedAt))})`, lines: l, totalCostCents: sumCost(l), changes: sheetChanges(prev, l) })
         prev = l
@@ -267,8 +267,8 @@ export async function customerPullSheets(accountId: string, contactId: string): 
     const status: PullSheetStatus = q ? (q.acceptedAt ? 'Signed' : 'Sold') : 'Sold'
     out.push({
       id: `j_${j.id}`, kind: 'job', quoteId: j.quoteId, jobId: j.id, style: await plain(q?.fenceStyle || j.fenceStyle),
-      footageFt: changed.length ? Math.round((changed[changed.length - 1].work as unknown as StoredWork).footage) : q ? footageOf(q.runs) : j.totalFeet,
-      sections: changed.length ? (changed[changed.length - 1].work as unknown as StoredWork).sections : q?.sections || j.sections,
+      footageFt: changed.length ? Math.round((effectiveWork(changed[changed.length - 1]) as StoredWork).footage) : q ? footageOf(q.runs) : j.totalFeet,
+      sections: changed.length ? (effectiveWork(changed[changed.length - 1]) as StoredWork).sections : q?.sections || j.sections,
       status, archived: !!(j.archivedAt || q?.archivedAt), date: (revisions && revisions[0].date) || (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt) || day(j.createdAt),
       source, lines, totalCostCents: sumCost(lines),
       changeNote: j.quoteId ? changeNoteOf(approvedInOrder(cos.filter(c => c.quoteId === j.quoteId))) : null,

@@ -106,6 +106,8 @@ export interface ChangeOrder {
   contractRev?: number | null
   /** The work after it (a change from the yard drawing). */
   work?: ChangeOrderWork | null
+  /** The job's work after it, when its change was put on another change order's (server rebuildJobWork). */
+  jobWork?: ChangeOrderWork | null
   warrantyBefore?: { name: string; text: string } | null
   warrantyAfter?: { name: string; text: string } | null
   /** Owner and office only: what it does to the quoted cost, in cents. */
@@ -199,7 +201,8 @@ const signedOf = new WeakMap<object, SavedQuote>()
 export function quoteWithChanges(quote: SavedQuote, orders: ChangeOrder[] = getOrdersForQuote(quote.id)): SavedQuote {
   const approved = orders.filter(o => o.quoteId === quote.id && o.status === 'approved')
   const withWork = approved.filter(o => o.work).sort((a, b) => (a.approvedAt ?? '').localeCompare(b.approvedAt ?? '') || a.number - b.number)
-  const w = withWork[withWork.length - 1]?.work
+  const last = withWork[withWork.length - 1]
+  const w = last ? (last.jobWork ?? last.work) : null
   if (!w && !approved.length) return quote
   const total = approved.reduce((s, o) => s + o.totalCents, 0)
   const out: SavedQuote = {
@@ -213,6 +216,40 @@ export function quoteWithChanges(quote: SavedQuote, orders: ChangeOrder[] = getO
     } : {}),
   }
   signedOf.set(out, signedQuoteOf(quote))
+  return out
+}
+
+/**
+ * The quote the builder opens for the next change (round 3, Oct 26 2026): the
+ * work with every approved change order's change and every still open one's
+ * (the server's /api/change-orders/start), so a second change order never
+ * starts from the signed quote and drops the first one's change. The price is
+ * the contract with the open ones' drawing changes in it too, so the next
+ * change's price difference counts only its own change.
+ */
+export async function quoteForChange(quote: SavedQuote): Promise<SavedQuote> {
+  await refreshChangeOrders(quote.id)
+  const now = quoteWithChanges(quote)
+  const r = await sendJson('GET', `/api/change-orders/start?quoteId=${encodeURIComponent(quote.id)}`)
+  const d = r.result.ok ? r.json?.data : null
+  if (!d || !Array.isArray(d.runs)) return now
+  const open = Array.isArray(d.open) ? d.open as Array<{ id: string; number: number }> : []
+  const openCents = getOrdersForQuote(quote.id).filter(o => open.some(x => x.id === o.id)).reduce((s, o) => s + o.totalCents, 0)
+  const out: SavedQuote = {
+    ...now,
+    finalPrice: Math.round(now.finalPrice * 100 + openCents) / 100,
+    fenceStyle: d.fenceStyle || now.fenceStyle, runs: d.runs, runRails: d.runRails, corners: d.corners, ends: d.ends,
+    walkGates: d.walkGates, dblGates: d.dblGates, tearOutSections: d.tearOutSections, tearOutGates: d.tearOutGates,
+    ...(typeof d.sections === 'number' ? { sections: d.sections } : {}),
+    layout: d.layout ? { ...(now.layout ?? {}), ...d.layout } as SavedQuote['layout'] : now.layout,
+    proposal: now.proposal ? { ...now.proposal, ...(d.planSvg ? { planSvg: d.planSvg } : {}) } : now.proposal,
+  }
+  signedOf.set(out, signedQuoteOf(quote))
+  if (open.length) {
+    const names = open.map(o => `CO-${o.number}`)
+    const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+    toast.info(`The drawing has ${list} in it`, `${list} ${names.length === 1 ? 'is' : 'are'} not signed yet. The new change order adds only its own change; the job keeps every change that is signed.`)
+  }
   return out
 }
 
@@ -238,6 +275,8 @@ export async function createChangeOrder(input: { quoteId: string; reason: string
   if (!r.result.ok) { toast.error('Change order not saved', r.json?.error || 'Check the signal and try again.'); return null }
   const row = r.json.data as ChangeOrder
   put(row)
+  // Drawn while another change order with a drawing is open and changing the same thing: say so (server openNotice).
+  if (typeof r.json?.notice === 'string' && /changes the same thing/.test(r.json.notice)) toast.warning(`CO-${row.number} and another open change order change the same thing`, r.json.notice)
   if (row.status === 'approved') { void refreshJobs(); warnSchedule(r.json) }
   return row
 }
