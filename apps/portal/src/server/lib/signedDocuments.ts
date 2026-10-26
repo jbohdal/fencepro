@@ -36,7 +36,7 @@ import prisma from './prisma.js'
 import { isUniqueViolation } from './once.js'
 import { contractForQuote, acceptedOptionText, CONTRACT_SELECT } from './contractPdf.js'
 import { changeOrderPdf, changeOrderAcceptedText } from './changeOrderPdf.js'
-import { linesOf } from './changeOrders.js'
+import { linesOf, contractAround } from './changeOrders.js'
 import { plainStyleName } from './estimates.js'
 import { signedFileUrl } from './portalFiles.js'
 
@@ -178,7 +178,7 @@ export async function fileSignedChangeOrder(changeOrderId: string, madeBy: MadeB
   const pdf = await changeOrderPdf({
     company: { name: String(p.name || cfg.name || 'Getter Done Fence'), phone: String(p.phone || cfg.phone || ''), email: String(p.email || cfg.email || '') },
     number: co.number, customerName: q.customerName, address: q.customerAddress || '', reason: co.reason, lines: linesOf(co), totalCents: co.totalCents,
-    originalCents: Math.round((q.finalPrice || 0) * 100), signedBy: co.signedBy, signedVia: co.signedVia, signature: pngOf(co.signature),
+    originalCents: Math.round((q.finalPrice || 0) * 100), contract: await contractAround(co, q.finalPrice, co.signedAt), signedBy: co.signedBy, signedVia: co.signedVia, signature: pngOf(co.signature),
     contractRev: co.contractRev ?? null, warrantyBefore: (co.warrantyBefore as any) ?? null, warrantyAfter: (co.warrantyAfter as any) ?? null,
     record: { at: co.signedAt, ip, accepted: changeOrderAcceptedText(co.number, co.totalCents) },
   })

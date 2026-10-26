@@ -168,7 +168,16 @@ export function view(r: Row, siblings: Row[] = []) {
   }
 }
 
-export interface ContractAround { beforeCents: number; afterCents: number }
+export interface ContractAround {
+  beforeCents: number
+  afterCents: number
+  /** The signed quote's price, in cents. */
+  quoteCents: number
+  /** The change orders already in "before" (approved before this one), in the order approved. */
+  earlier: Array<{ number: number; totalCents: number }>
+  /** Contract adjustments on the payment schedule already in "before", in cents. */
+  adjustmentsCents: number
+}
 
 /**
  * The customer's contract total before this change order and with it, in
@@ -178,14 +187,18 @@ export interface ContractAround { beforeCents: number; afterCents: number }
  * page shows "Your contract: $X now, $Y with this change" (round 2 review,
  * Oct 26 2026: it said only "adds $1,138").
  */
-export async function contractAround(r: Row, quotePrice: number | null | undefined): Promise<ContractAround | null> {
+export async function contractAround(r: Row, quotePrice: number | null | undefined, asOf: Date | null = null): Promise<ContractAround | null> {
   if (r.status === 'void') return null
-  const others = await prisma.changeOrder.findMany({ where: { accountId: r.accountId, quoteId: r.quoteId, status: 'approved', deletedAt: null, id: { not: r.id } }, select: { totalCents: true, contractRev: true } })
+  const others = await prisma.changeOrder.findMany({ where: { accountId: r.accountId, quoteId: r.quoteId, status: 'approved', deletedAt: null, id: { not: r.id } }, select: { number: true, totalCents: true, contractRev: true } })
   const mine = r.status === 'approved' ? r.contractRev ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER
-  const before = others.filter(o => (o.contractRev ?? 0) < mine).reduce((s, o) => s + o.totalCents, 0)
+  const earlier = others.filter(o => (o.contractRev ?? 0) < mine).sort((a, b) => (a.contractRev ?? 0) - (b.contractRev ?? 0) || a.number - b.number)
+  const before = earlier.reduce((s, o) => s + o.totalCents, 0)
   const jobs = (await prisma.savedJob.findMany({ where: { accountId: r.accountId, quoteId: r.quoteId, deletedAt: null }, select: { id: true } })).map(j => j.id)
-  const base = Math.round((quotePrice ?? 0) * 100) + before + await adjustmentsOf(prisma, r.accountId, jobs)
-  return { beforeCents: base, afterCents: base + r.totalCents }
+  const quoteCents = Math.round((quotePrice ?? 0) * 100)
+  // asOf (the signed PDF): only the adjustments made by then, so it says what the customer saw when signing.
+  const adjustmentsCents = await adjustmentsOf(prisma, r.accountId, jobs, asOf)
+  const base = quoteCents + before + adjustmentsCents
+  return { beforeCents: base, afterCents: base + r.totalCents, quoteCents, earlier: earlier.map(o => ({ number: o.number, totalCents: o.totalCents })), adjustmentsCents }
 }
 
 /** What the customer sees: the lines, amounts and total; never who made it, a cost, the IP or the signature image. */
@@ -352,9 +365,9 @@ export async function applyToJob(accountId: string, quoteId: string, tx: any = p
 }
 
 /** Contract amount adjustments on the payment schedule (owner/admin, logged; lib/contractBilling.ts addAdjustment), in cents. */
-async function adjustmentsOf(db: any, accountId: string, jobIds: string[]): Promise<number> {
+async function adjustmentsOf(db: any, accountId: string, jobIds: string[], asOf: Date | null = null): Promise<number> {
   if (!jobIds.length) return 0
-  const r = await db.contractAdjustment.aggregate({ where: { accountId, jobId: { in: jobIds } }, _sum: { amountCents: true } })
+  const r = await db.contractAdjustment.aggregate({ where: { accountId, jobId: { in: jobIds }, ...(asOf ? { createdAt: { lte: asOf } } : {}) }, _sum: { amountCents: true } })
   return r._sum.amountCents ?? 0
 }
 

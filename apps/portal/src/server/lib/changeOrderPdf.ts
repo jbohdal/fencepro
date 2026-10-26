@@ -1,7 +1,9 @@
 /**
  * A signed change order as a PDF (pdfkit), in the contract's look
  * (lib/contractPdf.ts): the change order's number, the customer and property,
- * the reason, each line and its amount, the total, the original price, and on
+ * the reason, each line and its amount, the total, the contract before this
+ * change (naming the change orders in it) and the new total as the customer saw
+ * them when signing, and on
  * the last page the customer's signature with the signed record (typed name,
  * date and time with the time zone, IP, what was approved).
  *
@@ -9,10 +11,10 @@
  * order as it was signed; never a cost.
  */
 
-import PDFDocument from 'pdfkit'
+import { pdfDocument } from './pdfText.js'
 import { logoPath } from '../routes/proposal.js'
 import { drawSignedRecord, type SignedRecord } from './contractPdf.js'
-import type { ChangeOrderLine } from './changeOrders.js'
+import type { ChangeOrderLine, ContractAround } from './changeOrders.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const usd = (cents: number) => (cents < 0 ? '-' : '') + '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -28,6 +30,12 @@ export interface ChangeOrderPdfInput {
   totalCents: number
   /** The signed quote's price, in cents. */
   originalCents: number
+  /**
+   * The contract as the customer saw it when signing (lib/changeOrders.ts
+   * contractAround): before this change (the signed price, the change orders
+   * signed before it, adjustments) and the new total. Null: only the price.
+   */
+  contract?: ContractAround | null
   signedBy: string
   signedVia: string | null
   /** The contract revision it made (rev 1 is the contract as signed). */
@@ -44,9 +52,24 @@ export function changeOrderAcceptedText(number: number, totalCents: number): str
   return `Change order CO-${number}: ${totalCents < 0 ? 'total credit' : 'total'} ${usd(totalCents)}`
 }
 
+/**
+ * What "your contract before this change" is made of: "The signed price
+ * $5,640.00, plus CO-2 +$892.00 (signed earlier)." Empty when it is only the
+ * signed price.
+ */
+export function contractMadeOf(k: Pick<ContractAround, 'quoteCents' | 'earlier' | 'adjustmentsCents'>): string {
+  if (!k.earlier.length && !k.adjustmentsCents) return 'The price you signed.'
+  const sign = (c: number) => `${c < 0 ? '' : '+'}${usd(c)}`
+  const parts = k.earlier.map(e => `CO-${e.number} ${sign(e.totalCents)}`)
+  if (k.adjustmentsCents) parts.push(`contract adjustments ${sign(k.adjustmentsCents)}`)
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0]
+  const signedEarlier = k.earlier.length ? ` (${k.earlier.length > 1 ? 'change orders' : 'a change order'} approved before this one)` : ''
+  return `The price you signed, ${usd(k.quoteCents)}, plus ${list}${signedEarlier}.`
+}
+
 export function changeOrderPdf(c: ChangeOrderPdfInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: 48, info: { Title: `Signed change order #${c.number} - ${c.customerName}`, Author: c.company.name } })
+    const doc = pdfDocument({ size: 'LETTER', margin: 48, info: { Title: `Signed change order #${c.number} - ${c.customerName}`, Author: c.company.name } })
     const chunks: Buffer[] = []
     doc.on('data', b => chunks.push(b))
     doc.on('end', () => resolve(Buffer.concat(chunks)))
@@ -89,8 +112,30 @@ export function changeOrderPdf(c: ChangeOrderPdfInput): Promise<Buffer> {
     doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text(c.totalCents < 0 ? 'Total credit' : 'Total', L, ty, { width: W - 110 })
     doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text(usd(c.totalCents), L + W - 100, ty, { width: 100, align: 'right' })
     doc.moveDown(0.6)
-    doc.font('Helvetica').fontSize(10).fillColor(GRAY).text(
-      `The original price was ${usd(c.originalCents)}. This change ${c.totalCents < 0 ? 'takes off' : 'adds'} ${usd(Math.abs(c.totalCents))}. It is added to the contract.`, L, doc.y, { width: W })
+    if (c.contract) {
+      // The contract as the customer saw it when signing (lib/changeOrders.ts contractAround): before, this change, the new total.
+      const k = c.contract
+      heading('Your contract', 80)
+      const row = (label: string, amount: string, bold = false, note = '') => {
+        need(30)
+        const y = doc.y
+        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 12 : 10).fillColor(INK).text(label, L, y, { width: W - 110 })
+        const after = doc.y
+        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 12 : 10).fillColor(INK).text(amount, L + W - 100, y, { width: 100, align: 'right' })
+        doc.y = Math.max(after, doc.y)
+        if (note) doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(note, L, doc.y + 1, { width: W - 110 })
+        doc.moveDown(0.3)
+      }
+      row('Your contract before this change', usd(k.beforeCents), false, contractMadeOf(k))
+      row(c.totalCents < 0 ? 'This change (credit)' : 'This change', `${c.totalCents < 0 ? '' : '+'}${usd(c.totalCents)}`)
+      need(30)
+      doc.moveTo(L, doc.y).lineTo(L + W, doc.y).strokeColor(LINE).stroke()
+      doc.moveDown(0.3)
+      row('New contract total', usd(k.afterCents), true)
+    } else {
+      doc.font('Helvetica').fontSize(10).fillColor(GRAY).text(
+        `The original price was ${usd(c.originalCents)}. This change ${c.totalCents < 0 ? 'takes off' : 'adds'} ${usd(Math.abs(c.totalCents))}. It is added to the contract.`, L, doc.y, { width: W })
+    }
 
     if (c.warrantyAfter) {
       heading('Your warranty changes')
