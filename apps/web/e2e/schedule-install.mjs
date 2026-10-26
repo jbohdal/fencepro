@@ -14,7 +14,8 @@
 //      1280 wide (no sideways scroll), with the cards on it.
 //   3. Phone (WebKit): Ready to schedule tab, tap B: a day A's crew already
 //      has is warned (double booking, still allowed); another day books it.
-//      B has no yes to texts: no text button, "call them" instead.
+//      B has no yes to texts and still gets Open the text to send (a text the
+//      office sends from its own phone needs no yes).
 //   4. The crew packet lists the crew days, Dispatch shows each (date picker),
 //      the customer portal shows the install date and only the steps really
 //      done, the pipeline card face shows "Install Thu 3/4", the Operations
@@ -261,9 +262,10 @@ try {
   check('phone: the window fits the screen', await q.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
   await pd.locator('[data-si-save]').tap()
   await q.waitForSelector(`[data-install-done="${W.b.jobId}"]`, { timeout: 20000 })
-  const blocked = await q.locator('[data-install-text-blocked]').innerText()
-  check('phone: B has no yes to texts: no text button, and how to tell them anyway (call)', (await q.locator('[data-install-text-open]').count()) === 0 && /has not agreed to texts/.test(blocked) && /call them/i.test(blocked) && (await q.locator('[data-install-text-call]').getAttribute('href')) === `tel:${W.b.phone}`, blocked)
-  await shot(q, 'phone-text-not-allowed-call-instead')
+  const hrefB = (await q.locator('[data-install-text-open]').getAttribute('href').catch(() => null)) || ''
+  check('phone: B has no yes to texts and is still offered the text (framed, with STOP), no block, no "call them"',
+    hrefB.startsWith(`sms:${W.b.phone}?body=`) && /Reply%20STOP%20to%20opt%20out/.test(hrefB) && (await q.locator('[data-install-text-blocked], [data-install-text-call]').count()) === 0, hrefB.slice(0, 120))
+  await shot(q, 'phone-text-offered-without-a-yes')
   await q.locator('[data-install-text-skip]').tap(); await sleep(500)
 
   // ── 4. Packet, Dispatch, portal, pipeline, Operations ──

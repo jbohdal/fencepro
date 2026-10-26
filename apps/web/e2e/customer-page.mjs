@@ -8,7 +8,8 @@
 //     a scroll box of its own: the page scrolls, the header and the tabs stay put.
 //   - Long lists draw a page at a time with Show more (notes, photos, activity).
 //   - ?tab= opens that tab (a link, a reload; ?tab=messages is the Portal tab),
-//     Back closes Edit and stays on the customer, Text asks for a yes to texts.
+//     Back closes Edit and stays on the customer, Text opens the phone's texting app
+//     (framed, with STOP) with no yes to texts on record (none needed for a text you send yourself).
 //
 //   APP_URL=http://localhost:4042 API_URL=http://localhost:4042 E2E_STAFF_COOKIE=$(cat cookie) node e2e/customer-page.mjs
 //   ONLY=computer | ONLY=phone      one of the two
@@ -128,9 +129,8 @@ async function run(s) {
     await page.keyboard.press('Escape'); await sleep(300)
     if (await page.locator('[data-popup="customer-more"]').isVisible().catch(() => false)) { await tap(page.locator('[data-popup-trigger="customer-more"]')) }
   }
-  const textAllowed = async () => bar.locator('[data-customer-action="text"]').getAttribute('data-text-allowed')
-  for (let i = 0; i < 30 && await textAllowed() === 'checking'; i++) await sleep(500)
-  check(`${kind}: Text asks for a yes to texts first (no yes on record)`, await textAllowed() === 'no', await textAllowed())
+  const textHref = (await bar.locator('[data-customer-action="text"]').getAttribute('href')) || ''
+  check(`${kind}: Text opens the texting app framed, with STOP, though no yes to texts is on record`, /^sms:0005\d{6}/.test(textHref) && textHref.includes('Getter%20Done%20Fence%3A%20Hi%20E2E') && textHref.includes('Reply%20STOP%20to%20opt%20out'), textHref.slice(0, 120))
   check(`${kind}: the summary row (open quotes, jobs, balance, next appointment, last contact)`,
     (await page.locator('[data-customer-summary] [data-customer-summary-item]').evaluateAll(els => els.map(e => e.getAttribute('data-customer-summary-item')))).join(',').startsWith('open-quotes,jobs,balance,next-appointment,last-contact'))
 

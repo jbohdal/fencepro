@@ -235,14 +235,19 @@ try {
   check('Schedule: job A is not in Ready to schedule', (await pc.page.locator('[data-ready-panel]').textContent()).indexOf(nameOf(W.a)) < 0)
   await shot(pc.page, 'schedule-month')
 
-  // ── The proposal: text only with a yes on record ──
+  // ── The proposal: Text it opens the texting app for any customer with a phone (C has no yes to texts) ──
   await pc.page.goto(`${APP}/quotes?qv=${encodeURIComponent(W.c.quoteId)}`)
   const textBtn = pc.page.locator('[data-quote-drawer] [data-proposal-text]')
   await until(async () => (await textBtn.count()) > 0 && await textBtn.isEnabled(), 30000)
+  // Text it sets the page's location to the sms: link; Chrome has no texting app, so it shows as a request that goes nowhere.
+  const smsSeen = []
+  const onRequest = r => { if (r.url().startsWith('sms:')) smsSeen.push(r.url()) }
+  pc.page.on('request', onRequest)
   await textBtn.click()
-  const blocked = await until(async () => (await pc.page.locator('[data-proposal-text-blocked]').count()) > 0)
-  const opened = await pc.page.evaluate(() => (window.__links || []).filter(h => h.startsWith('sms:')).length)
-  check('proposal: no yes to texts: not texted, the reason and a call link instead', !!blocked && opened === 0 && (await pc.page.locator('[data-proposal-call]').textContent()) === '(352) 555 0173')
+  const opened = await until(async () => smsSeen.find(t => t.startsWith('sms:3525550173')) ?? null, 15000)
+  pc.page.off('request', onRequest)
+  check('proposal: no yes to texts on record, Text it still opens the text (framed, with the link), no block, no "call them"',
+    !!opened && /Getter%20Done%20Fence%3A%20Hi%20/.test(opened) && /Reply%20STOP%20to%20opt%20out/.test(opened) && (await pc.page.locator('[data-proposal-text-blocked], [data-proposal-call]').count()) === 0, (opened || smsSeen.join(' | ')).slice(0, 200))
 
   // ── Mark as Sold in the app: the card follows, no false toast ──
   const net = []
