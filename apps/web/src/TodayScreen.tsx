@@ -13,7 +13,7 @@ import { Phone, Navigation } from 'lucide-react'
 import { getAppointments, updateAppointment, APPOINTMENTS_UPDATED } from './appointmentsStore'
 import { getAppointmentSettings, getConfig } from './configStore'
 import { getQuotesForCustomer } from './quoteStore'
-import { uploadStaffPhotoForCustomer } from './portalStaffApi'
+import { addOrSend } from './mediaStore'
 import {
   TYPE_SHORT, TYPE_COLORS, STATUS_LABELS, OUTCOME_LABELS, floridaDate, isOpen, needsOutcome, statusForOutcome,
   directionsUrl, smsLink, driveMinutes, type Appointment, type AppointmentOutcome,
@@ -241,10 +241,20 @@ export function OutcomeForm({ a, onClose }: { a: Appointment; onClose: () => voi
       measuredFeet: feet ? Math.round(Number(feet)) : null,
     })
     if (!saved) { setSaving(false); return }
-    let up = 0
-    for (const f of files) { const r = await uploadStaffPhotoForCustomer(a.crmContactId, f, `${OUTCOME_LABELS[outcome]} visit`, a.assignedTo); if (r.ok) up++ }
-    // Said only when some did not upload (one message at a time: the quote's own message comes next).
-    if (files.length && up < files.length) toast.warning('Photos', `${up} of ${files.length} uploaded to the customer's Photos. Add the others from the customer's Photos tab.`)
+    // The visit's photos go with the customer's photos and video (Site walk, Internal), so they show on the quote made
+    // from this visit and count toward a repair proposal's photos (portal lib/quoteMedia.ts). Kept on the phone and
+    // uploaded in the background like the camera's, so no signal at the house loses none.
+    let lost = 0
+    for (const f of files) {
+      const r = await addOrSend(f, {
+        kind: 'photo', mime: (f.type || 'image/jpeg').split(';')[0].trim().toLowerCase(), customerId: a.crmContactId, quoteKey: null, jobId: null,
+        takenAt: new Date(f.lastModified || Date.now()).toISOString(), category: 'Site walk', visibility: 'internal',
+        caption: `${OUTCOME_LABELS[outcome]} visit`,
+      })
+      if (r === 'failed') lost++
+    }
+    // Said only when some could not be kept (one message at a time: the quote's own message comes next).
+    if (lost) toast.warning('Photos', `${files.length - lost} of ${files.length} photos saved. Add the others with the camera on the quote or the customer page.`)
     applyOutcome(saved, outcome)
     setSaving(false)
     onClose()

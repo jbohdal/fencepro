@@ -43,10 +43,11 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   useEffect(() => {
     if (!isWork) return
     let live = true
-    Promise.all([listMedia({ quoteKey: quote.id }).catch(() => []), localMedia({ quoteKey: quote.id }).catch(() => [])])
+    // The quote's photos and its site visit's (the server adds the customer's visit photos to a saved quote's list).
+    Promise.all([listMedia({ quoteKey: quote.id }).catch(() => []), localMedia({ quoteKey: quote.id, quoteCustomerId: quote.customerId ?? null }).catch(() => [])])
       .then(([server, local]) => { if (live) setPhotos(server.filter(m => m.kind === 'photo').length + local.filter(m => m.meta.kind === 'photo' && !m.serverId).length) })
     return () => { live = false }
-  }, [isWork, quote.id])
+  }, [isWork, quote.id, quote.customerId])
   const photoBlock = isWork && !override && (photos ?? 0) < need
   function sendAnyway() {
     const r = reason.trim()

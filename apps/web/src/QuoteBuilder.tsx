@@ -1875,6 +1875,7 @@ export default function QuoteBuilder({
             <div data-quote-media>
               <MediaGallery
                 where={{ quoteKey: quoteIdRef.current }}
+                quoteCustomerId={init?.customerId ?? null}
                 layout={entry === 'layout' ? yard : null}
                 onLayout={l => setYard(l)}
                 defaultCategory="Site walk"
