@@ -16,7 +16,7 @@ or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same co
 
 - **Jonathan:** "Chain link: follow the sheet (gate leaf sizes, e.g. 10 ft double gate = 2 × 4'x5', and the hardware counts)."
 - **Gate leaves by width** (sheet rows "Chainlink, Galv / Black, Gate, 1-3/8", {h}' x {w}'"): a walk gate 4, 5 or 6 ft wide is one leaf that wide; a double gate 8, 10 or 12 ft wide is two leaves of half its width (10 ft = 2 × {h}' x 5'). Every residential height and finish. Until now every leaf was 4 ft wide.
-- **Where the width comes from:** the yard drawing (each gate's width). A gate count typed in the run list has no width: a walk gate stays 4 ft and a double gate 8 ft (two 4 ft leaves), as before. A drawn width the sheet has no row for (for example a 3 ft or 7 ft walk gate, a 14 ft double gate) is priced the same way, and the quote says so.
+- **Where the width comes from:** the yard drawing (each gate's width). "Advanced: type runs" keeps each drawn gate's width and shows it there to keep or change (review, Oct 26: it had repriced a 12 ft double gate as 8 ft); a quote saved from the typed list keeps the widths (layout.gateWidths), and the server, change orders and the pull sheet price them the same. A gate added on the typed list with no width is a 4 ft walk gate or an 8 ft double gate (two 4 ft leaves), as before. A drawn width the sheet has no row for (for example a 3 ft or 7 ft walk gate, a 14 ft double gate) is priced the same way, and the quote says so.
 - **Hardware, as the sheet's rows count it** (galvanized G, black Black; commercial the G rows):
   - Hinge, Female: 2 per walk gate, 6 per double gate (was 2 and 4).
   - Hinge, Male: 2 per walk gate, 4 per double gate (unchanged).
