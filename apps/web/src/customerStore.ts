@@ -26,6 +26,8 @@ import { cloudStorage } from './cloudStorage'
 import { businessDate } from './businessDate'
 
 const EVT = 'fencepro:customers:updated'
+/** A new customer reached the server ({ id }). */
+export const CUSTOMER_SAVED_EVENT = 'ezbiz:customer:saved'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -326,6 +328,8 @@ registerKind<CreatePayload>('customer.create', {
   },
   confirmed: (op, data) => {
     const id = op.payload.customer.id
+    // On the server now: what the server says about them (their history: a walk-in's visit is their last contact) can be read.
+    try { window.dispatchEvent(new CustomEvent(CUSTOMER_SAVED_EVENT, { detail: { id } })) } catch { /* no window */ }
     if (!data || hasPending(`customer:${id}`)) return
     const fromServer = fromApi(data as CrmContactRecord)
     cache = cache.map(c => c.id === id ? { ...fromServer, id } : c)

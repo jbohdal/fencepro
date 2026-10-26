@@ -14,6 +14,7 @@ import { sendJson } from './syncHttp'
 import { useFollowUpBoard, pendingCalls, CHANGED_EVENT } from './followUpStore'
 import { OUTCOME_LABEL, LOST_REASON_LABEL } from './followUpRules'
 import { historyWhen } from './customerPage'
+import { CUSTOMER_SAVED_EVENT } from './customerStore'
 
 export interface HistoryItem { at: string; kind: string; title: string; detail: string; by: string; saving?: boolean }
 
@@ -45,6 +46,14 @@ export function useCustomerHistory(cardId: string | null, customerId: string | n
     window.addEventListener(CHANGED_EVENT, h)
     return () => window.removeEventListener(CHANGED_EVENT, h)
   }, [])
+  // A customer just saved on this phone: the history was asked for before the server had them (a walk-in
+  // showed "Last contact: None" until a reload, round 3 recheck). Read again once the save reaches it.
+  useEffect(() => {
+    if (!customerId) return
+    const h = (e: Event) => { if ((e as CustomEvent<{ id: string }>).detail?.id === customerId) setN(x => x + 1) }
+    window.addEventListener(CUSTOMER_SAVED_EVENT, h)
+    return () => window.removeEventListener(CUSTOMER_SAVED_EVENT, h)
+  }, [customerId])
   // Answers still on their way (no signal): on top, "Saving…".
   useFollowUpBoard()
   const waiting: HistoryItem[] = pendingCalls(cardId, customerId).map(c => ({

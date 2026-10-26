@@ -82,6 +82,9 @@ export default function QuoteDetailDrawer({
   const linkOpen = !!quote.shareToken && !quote.shareDisabledAt && !(quote.shareExpiresAt && new Date(quote.shareExpiresAt).getTime() < Date.now())
   const [madeUrl, setMadeUrl] = useState<string | null>(null)
   const shareUrl = madeUrl ?? (linkOpen ? proposalUrl(quote.shareToken!) : null)
+  // Mark Lost: not once the customer accepted and signed; on a sold (signed) quote only for the owner and the office,
+  // never the Salesman (round 3 recheck: Christa's sold quote offered it).
+  const canLose = quote.status !== 'LOST' && !quote.acceptedAt && (!isSignedForChange(quote) || can('billing.change'))
 
   function handleMarkSold() {
     if (!confirm(`Mark this quote as SOLD and create a job?`)) return
@@ -280,7 +283,7 @@ export default function QuoteDetailDrawer({
         </div>
 
         {/* Actions: only when there is one (a sold quote for the Salesman has none: no empty bar). */}
-        {(onEdit || !quote.proposal || (quote.status !== 'LOST' && !quote.acceptedAt) || quote.status !== 'SOLD') && <div className="sticky bottom-0 bg-white border-t border-gray-100 px-8 py-4 flex flex-wrap gap-2 justify-end" data-quote-actions>
+        {(onEdit || !quote.proposal || canLose || quote.status !== 'SOLD') && <div className="sticky bottom-0 bg-white border-t border-gray-100 px-8 py-4 flex flex-wrap gap-2 justify-end" data-quote-actions>
           {onEdit && (
             <button onClick={onEdit} className="btn btn-secondary">Edit</button>
           )}
@@ -290,7 +293,7 @@ export default function QuoteDetailDrawer({
             <button onClick={() => setSendOpen(true)} className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium">Send to Customer</button>
           )}
           {/* Not offered once the customer has accepted and signed. */}
-          {quote.status !== 'LOST' && !quote.acceptedAt && (
+          {canLose && (
             <button onClick={handleMarkLost} className="text-sm text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg">Mark Lost</button>
           )}
           {quote.status !== 'SOLD' && (
