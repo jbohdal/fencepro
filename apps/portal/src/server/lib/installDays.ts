@@ -153,6 +153,12 @@ export function usDate(day: Ymd): string {
   return `${m}/${d}/${y}`
 }
 
+/** "Tuesday, 10/27/2026" (the day of the week in Florida, from the calendar day). */
+export function weekdayDate(day: Ymd): string {
+  if (!isYmd(day)) return day
+  return `${new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}, ${usDate(day)}`
+}
+
 /** (352) 789 4314 */
 export function phoneWords(raw: string | null | undefined): string {
   let d = String(raw ?? '').replace(/\D/g, '')
@@ -282,7 +288,8 @@ export function customerPhoneToGive(repPhone: string | null | undefined, company
  */
 export function installText(kind: 'scheduled' | 'moved' | 'off', o: { company: string; firstName: string; start: Ymd; phone: string }): string {
   const name = (o.firstName || '').trim() || 'there'
-  const when = usDate(o.start)
+  // With the weekday: "Tuesday, 10/27/2026" (round 2, Oct 26 2026).
+  const when = weekdayDate(o.start)
   const call = o.phone ? ` Questions? Call ${phoneWords(o.phone)}.` : ''
   // The company name in front and "Reply STOP to opt out." at the end, once each (lib/customerText.ts).
   if (kind === 'off') return customerText(`Hi ${name}, your fence installation date is being changed. We'll call you with a new date.${call}`, o.company)

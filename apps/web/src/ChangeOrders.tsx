@@ -49,7 +49,8 @@ export interface ChangeOrderLine {
 /** "repair:<key>[:walk|double]" (the Repair price list) or "catalog:<Inventory item id>", the style it was priced for and the price the list gave. */
 export interface ChangeOrderLineSource { kind: 'repair' | 'catalog'; ref: string; label: string; fenceStyle?: string; listCents?: number }
 
-export type ChangeOrderStatus = 'draft' | 'sent' | 'approved' | 'void'
+/** needs_ok: a Salesman's, waiting for the owner's or the office's OK before it goes to the customer. */
+export type ChangeOrderStatus = 'needs_ok' | 'draft' | 'sent' | 'approved' | 'void'
 
 /** What the change does to the work (differences), from the quote builder. */
 export interface ChangeOrderScope {
@@ -131,7 +132,7 @@ export interface ChangeOrderPrefill {
 }
 
 export const CO_EVENT = 'ezbiz:changeorders:updated'
-const STATUS_WORDS: Record<ChangeOrderStatus, string> = { draft: 'Draft', sent: 'Sent', approved: 'Approved', void: 'Void' }
+const STATUS_WORDS: Record<ChangeOrderStatus, string> = { needs_ok: 'Waiting for OK', draft: 'Draft', sent: 'Sent', approved: 'Approved', void: 'Void' }
 
 export const money = (cents: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100)
@@ -465,7 +466,8 @@ export function QuickChangeOrderModal({
     const co = await createChangeOrder({ quoteId, reason: reason.trim(), lines, scope: prefill?.scope ?? null, verbalReason, work: prefill?.work ?? null })
     setBusy(false)
     if (!co) { savedOnce.current = false; return }
-    toast.success(`Change order CO-${co.number} saved`, verbalReason ? `Approved verbally: contract rev ${co.contractRev ?? ''}, ${signed(co.totalCents)}. The customer can still sign it.` : 'Saved as a draft. The customer signs it on this phone, their link or the portal.')
+    toast.success(`Change order CO-${co.number} saved`, co.status === 'needs_ok' ? 'Sent to Jonathan and the office to OK. Once they OK it, the customer signs it on your phone, their link or the portal.'
+      : verbalReason ? `Approved verbally: contract rev ${co.contractRev ?? ''}, ${signed(co.totalCents)}. The customer can still sign it.` : 'Ready to sign: the customer signs it on this phone, their link or the portal.')
     onSaved(co)
   }
 
@@ -548,7 +550,7 @@ export function QuickChangeOrderModal({
           <button onClick={onClose} className="px-4 min-h-[44px] text-sm text-gray-600 hover:text-gray-800">Cancel</button>
           <button onClick={() => void save(null)} disabled={!canSave}
             className="bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold px-5 min-h-[44px] rounded-xl text-sm" data-co-save-draft>
-            Save (customer signs next)
+            {approver ? 'Save (customer signs next)' : 'Save and send to the office to OK'}
           </button>
           {approver && (verbal === null
             ? <button onClick={() => setVerbal('')} disabled={!canSave} className="btn btn-secondary min-h-[44px]" data-co-save-approved>Approved verbally…</button>
@@ -645,7 +647,7 @@ function SendToCustomer({ co, quoteId }: { co: ChangeOrder; quoteId: string }) {
 
 const VIA_WORDS: Record<string, string> = { portal: ', in the customer portal', link: ', on their link', in_person: ', in person' }
 
-export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: { quoteId: string; originalPrice: number; customerName?: string }) {
+export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hideNew = false }: { quoteId: string; originalPrice: number; customerName?: string; hideNew?: boolean }) {
   const { orders, loaded } = useChangeOrders(quoteId)
   const [showModal, setShowModal] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
@@ -663,9 +665,11 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: 
     const row = await setChangeOrderStatus(co, status, verbalReason)
     setBusy(null)
     if (row && status === 'approved') { setVerbalFor(null); toast.success(`Change order CO-${row.number} approved verbally`, `Contract rev ${row.contractRev ?? ''}. The customer can still sign it.`) }
+    if (row && status === 'draft' && co.status === 'needs_ok') toast.success(`Change order CO-${row.number} OK'd`, 'It can go to the customer now: signed on a phone, their link or the portal.')
   }
 
   const STATUS_COLORS: Record<ChangeOrderStatus, string> = {
+    needs_ok: 'bg-amber-100 text-amber-900',
     draft: 'bg-yellow-100 text-yellow-800',
     sent: 'bg-blue-100 text-blue-800',
     approved: 'bg-green-100 text-green-800',
@@ -676,7 +680,7 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: 
     <div data-co-panel>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-semibold text-gray-600">Change orders</p>
-        {maker && (
+        {maker && !hideNew && (
           <button onClick={() => setShowModal(true)} className="text-sm bg-orange-500 hover:bg-orange-600 text-white font-semibold px-3 min-h-[44px] rounded-lg" data-co-new>
             Make a change order
           </button>
@@ -737,6 +741,11 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: 
                   Signed by the customer on {shortDay(co.signedAt)}{co.signedBy ? ` (${co.signedBy})` : ''}{VIA_WORDS[co.signedVia ?? ''] ?? ''}.
                 </p>
               )}
+              {co.status === 'needs_ok' && (
+                <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1.5" data-co-waiting-ok>
+                  {approver ? `${co.createdBy || 'The salesman'} made this. OK it to send it to the customer, or void it.` : 'Waiting for Jonathan or the office to OK it. Then the customer signs it here, on their link or in the portal.'}
+                </p>
+              )}
               {(co.status === 'draft' || awaitingSignature(co)) && maker && <SendToCustomer co={co} quoteId={quoteId} />}
               {verbalFor?.id === co.id && (
                 <div className="mt-2 space-y-2">
@@ -749,13 +758,16 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: 
               )}
               {co.status !== 'void' && (
                 <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-gray-100">
+                  {co.status === 'needs_ok' && approver && (
+                    <button disabled={busy === co.id} onClick={() => void setStatus(co, 'draft')} className="text-xs bg-green-600 hover:bg-green-700 text-white font-semibold px-3 min-h-[44px] rounded-lg" data-co-ok>OK to send</button>
+                  )}
                   {(co.status === 'draft' || awaitingSignature(co)) && maker && (
                     <button disabled={busy === co.id} onClick={() => setSigning(co)} className="text-xs bg-orange-500 hover:bg-orange-600 text-white font-semibold px-3 min-h-[44px] rounded-lg" data-co-sign-here>Customer signs on this phone</button>
                   )}
                   {co.status === 'draft' && maker && (
                     <button disabled={busy === co.id} onClick={() => void setStatus(co, 'sent')} className="text-xs border border-blue-300 text-blue-700 font-semibold px-3 min-h-[44px] rounded-lg" data-co-send>Mark sent</button>
                   )}
-                  {(co.status === 'draft' || co.status === 'sent') && approver && verbalFor?.id !== co.id && (
+                  {(co.status === 'needs_ok' || co.status === 'draft' || co.status === 'sent') && approver && verbalFor?.id !== co.id && (
                     <button disabled={busy === co.id} onClick={() => setVerbalFor({ id: co.id, reason: '' })} className="text-xs border border-green-600 text-green-700 font-semibold px-3 min-h-[44px] rounded-lg" data-co-approve>Approved verbally…</button>
                   )}
                   {((co.status !== 'approved' && maker) || (co.status === 'approved' && approver)) && (
@@ -783,6 +795,13 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '' }: 
   )
 }
 
+/** A quote's change orders, only once it has one (the pipeline card): their status, the OK, signing and sending. */
+export function ChangeOrdersIfAny({ quoteId, originalPrice, customerName }: { quoteId: string; originalPrice: number; customerName: string }) {
+  const { orders } = useChangeOrders(quoteId)
+  if (!orders.length) return null
+  return <div className="mt-3" data-card-co-list><ChangeOrderPanel quoteId={quoteId} originalPrice={originalPrice} customerName={customerName} hideNew /></div>
+}
+
 /* ───────── "Change order": easy to find ───────── */
 
 /** Is this quote signed (a change order can be made on it)? */
@@ -796,7 +815,7 @@ export const isSignedForChange = (q: { status?: string; acceptedAt?: string | nu
  */
 export async function openChangeFromDrawing(quote: SavedQuote): Promise<void> {
   await refreshChangeOrders(quote.id)
-  window.dispatchEvent(new CustomEvent('ezbiz:open-quote', { detail: { id: quote.id, quote: quoteWithChanges(quote) } }))
+  window.dispatchEvent(new CustomEvent('ezbiz:open-quote', { detail: { id: quote.id, quote: quoteWithChanges(quote), changeOrder: true } }))
 }
 
 /**

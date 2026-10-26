@@ -22,6 +22,8 @@ import { toast } from './toast'
 import { TEMPLATES, getDefaultTemplateKey, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
 import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import RunSpacingTable from './RunSpacingTable'
+import { workSummary } from './moveRepair'
+import { ChangeOrderButton, ChangeOrderPanel, isSignedForChange } from './ChangeOrders'
 import ProposalSend from './ProposalSend'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import MediaGallery from './MediaGallery'
@@ -110,7 +112,8 @@ export default function QuoteDetailDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex" data-quote-drawer>
+    // On a phone it ends above the tab bar: an open quote never covers the bottom tabs (round 2, Oct 26 2026).
+    <div className="fixed inset-x-0 top-0 bottom-0 max-md:bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 flex" data-quote-drawer>
       <div className="flex-1 bg-black/40" onClick={onClose} />
       <div className="w-full max-w-2xl bg-white shadow-2xl h-full overflow-y-auto slideover-responsive">
         {/* Header */}
@@ -135,8 +138,10 @@ export default function QuoteDetailDrawer({
               <p className="text-xs text-gray-500 mt-1">{styleLabel(quote.fenceStyle)}</p>
             </div>
             <div className="text-right text-sm">
-              <p className="text-gray-500">{totalFootage} ft total</p>
-              <p className="text-gray-500">{quote.sections} sections</p>
+              {/* A repair or a move: what is being done, not "0 ft total, 0 sections" (round 2, Oct 26 2026). */}
+              {workSummary(quote.work)
+                ? <p className="text-gray-700 max-w-[16rem]" data-quote-work-summary>{workSummary(quote.work)}</p>
+                : <><p className="text-gray-500">{totalFootage} ft total</p><p className="text-gray-500">{quote.sections} sections</p></>}
               {internalView && <p className={`mt-1 font-semibold ${quote.gmPct >= 0.34 ? 'text-green-700' : quote.gmPct >= 0.27 ? 'text-yellow-600' : 'text-red-600'}`}>{fmtPct(quote.gmPct)} margin</p>}
             </div>
           </div>
@@ -151,6 +156,14 @@ export default function QuoteDetailDrawer({
             </div>
           </section>
 
+
+          {/* A signed quote: its change orders, and a new one straight from here (the Salesman's waits for the office's OK). */}
+          {isSignedForChange(quote) && can('quotes.change') && (
+            <section data-quote-change-orders>
+              <ChangeOrderButton quoteId={quote.id} customerName={quote.customerName} className="btn btn-primary w-full min-h-[48px] mb-3" label="Make a change order" onOpened={onClose} />
+              <ChangeOrderPanel quoteId={quote.id} originalPrice={quote.finalPrice} customerName={quote.customerName} hideNew />
+            </section>
+          )}
 
           {/* Sending the proposal is quote work (quotes.change): the Salesman sends her own (walkthrough, Oct 24, 2026). No cost is on it. */}
           {wantInternal && canSend && (
@@ -253,8 +266,8 @@ export default function QuoteDetailDrawer({
           <TemplatePicker quote={quote} onChange={onChange} />
         </div>
 
-        {/* Actions */}
-        <div className="sticky bottom-0 bg-white border-t border-gray-100 px-8 py-4 flex flex-wrap gap-2 justify-end">
+        {/* Actions: only when there is one (a sold quote for the Salesman has none: no empty bar). */}
+        {(onEdit || !quote.proposal || (quote.status !== 'LOST' && !quote.acceptedAt) || quote.status !== 'SOLD') && <div className="sticky bottom-0 bg-white border-t border-gray-100 px-8 py-4 flex flex-wrap gap-2 justify-end" data-quote-actions>
           {onEdit && (
             <button onClick={onEdit} className="btn btn-secondary">Edit</button>
           )}
@@ -270,7 +283,7 @@ export default function QuoteDetailDrawer({
           {quote.status !== 'SOLD' && (
             <button onClick={handleMarkSold} className="text-sm bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold">Mark as Sold</button>
           )}
-        </div>
+        </div>}
 
         {sendOpen && <BackClose name="send-quote" onClose={() => setSendOpen(false)} />}
         {sendOpen && (

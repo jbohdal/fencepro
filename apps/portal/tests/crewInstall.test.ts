@@ -5,10 +5,39 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { customerNotesFrom, todayState, type InstallTime } from '../src/server/lib/crewInstall'
+import { customerNotesFrom, todayState, crewFinishedJob, type InstallTime } from '../src/server/lib/crewInstall'
+import { forCrew } from '../src/server/lib/costRedact'
 import { myTasksWhere, seesCompanyTasks } from '../src/server/lib/taskScope'
 import { onceEach } from '../src/server/routes/installPacket'
 import { crewDays } from '../../web/src/crewDays'
+
+describe('the crew reads no price sentence (forCrew)', () => {
+  test('"saw an estimate of $..." is dropped whole; other amounts are left out; the rest kept', () => {
+    const web = 'Website, drawn by customer. The customer drew the fence on the aerial photo of the property and saw an estimate of $4,321.50 (Better). Confirm every measurement on site.\nGate code 1234'
+    expect(forCrew(web)).toBe('Website, drawn by customer. Confirm every measurement on site.\nGate code 1234')
+    expect(forCrew(web)).not.toContain('left out')
+    expect(forCrew('Bring the $20 lock box key.')).toBe('Bring the $ (left out) lock box key.')
+    expect(forCrew('Estimate shown to the customer: $7,762')).toBe('')
+    expect(forCrew('No money here.')).toBe('No money here.')
+    // A packet made on the installer's phone: the amount was already left out on the way to him.
+    expect(forCrew('Website, drawn by customer. The customer drew the fence on the aerial photo of the property and saw an estimate of $ (left out) (Better). Confirm every measurement on site.'))
+      .toBe('Website, drawn by customer. Confirm every measurement on site.')
+  })
+})
+
+describe('the install finished: Finish on the last crew day, or "Finished the job"', () => {
+  const t = (kind: 'start' | 'finish', day: string, jobDone = false): InstallTime => ({ kind, at: `${day}T15:00:00Z`, by: 'Crew', day, ...(jobDone ? { jobDone } : {}) })
+  test('Finish for today on day 1 of 2 is not the job finished; Finish on day 2 is', () => {
+    expect(crewFinishedJob([t('start', '2026-10-26'), t('finish', '2026-10-26')], '2026-10-27')).toBe(false)
+    expect(crewFinishedJob([t('start', '2026-10-26'), t('finish', '2026-10-26'), t('start', '2026-10-27'), t('finish', '2026-10-27')], '2026-10-27')).toBe(true)
+  })
+  test('"Finished the job" on an earlier day counts; a one day job (or no days booked): any Finish', () => {
+    expect(crewFinishedJob([t('finish', '2026-10-26', true)], '2026-10-29')).toBe(true)
+    expect(crewFinishedJob([t('finish', '2026-10-26')], '2026-10-26')).toBe(true)
+    expect(crewFinishedJob([t('finish', '2026-10-26')], null)).toBe(true)
+    expect(crewFinishedJob([t('start', '2026-10-26')], '2026-10-26')).toBe(false)
+  })
+})
 
 describe("the customer's notes, for the crew", () => {
   test('the customer record\'s notes and the website\'s "Customer notes:" line; amounts masked; each once', () => {
@@ -18,9 +47,10 @@ describe("the customer's notes, for the crew", () => {
       'Customer notes: keep the side gate shut',
       null,
     ])
-    expect(notes).toEqual(['Keep the side gate shut', 'Quoted $ (left out) cash', 'Need it done before Thanksgiving, have 2 dogs.', 'have 2 dogs'])
-    // A line with an amount is kept, the amount masked (review, Oct 25, 2026).
-    expect(customerNotesFrom(null, ['Customer notes: Have 2 dogs, keep side gate shut. Budget about $4000.'])).toEqual(['Have 2 dogs, keep side gate shut. Budget about $ (left out).'])
+    // A sentence about a price is dropped for the crew (round 2, Oct 26 2026); the rest of the notes stay.
+    expect(notes).toEqual(['Keep the side gate shut', 'Need it done before Thanksgiving, have 2 dogs.', 'have 2 dogs'])
+    // A line with a price sentence keeps the rest of the line (review, Oct 25, 2026).
+    expect(customerNotesFrom(null, ['Customer notes: Have 2 dogs, keep side gate shut. Budget about $4000.'])).toEqual(['Have 2 dogs, keep side gate shut.'])
   })
   test('nothing on file: none', () => {
     expect(customerNotesFrom(null, [])).toEqual([])

@@ -200,7 +200,8 @@ try {
     check('installer: today\'s install is listed under Today', await c.count() === 1)
     await c.locator('[data-install-customer-notes]').waitFor({ timeout: 15000 }).catch(() => {})
     const notes = await c.locator('[data-install-customer-notes]').innerText().catch(() => '')
-    check('installer: the customer\'s notes are on it ("have 2 dogs"), the amount masked, not the line dropped', /have 2 dogs\. Budget about \$ \(left out\)/.test(notes) && /side gate/.test(notes) && !/4000|\$\s?\d/.test(notes), notes.replace(/\s+/g, ' '))
+    // Round 2 (Oct 26 2026): a sentence about a price ("Budget about $4000.") is dropped for the crew; the rest of the line stays.
+    check('installer: the customer\'s notes are on it ("have 2 dogs"), the price sentence dropped, the rest kept', /have 2 dogs\./.test(notes) && /side gate/.test(notes) && !/Budget|left out|4000|\$\s?\d/.test(notes), notes.replace(/\s+/g, ' '))
     // Not his: the signed contract (price and deposit), customers' messages, other customers.
     check('installer: the signed contract PDF is refused', (await call(crew.token, 'GET', `/api/warranties/quote/${quote.json.data?.id}/contract.pdf`)).status === 403)
     check('installer: customers\' portal messages are refused', (await call(crew.token, 'GET', '/api/portal/messages/inbox')).status === 403)

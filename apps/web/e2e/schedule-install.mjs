@@ -66,6 +66,7 @@ const dow = d => new Date(`${d}T12:00:00Z`).getUTCDay()
 const plus = (d, n) => { const t = new Date(`${d}T12:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10) }
 const fill = (start, n, week) => { const out = []; let d = start; while (!week.includes(dow(d))) d = plus(d, 1); out.push(d); while (out.length < n) { d = plus(d, 1); if (week.includes(dow(d))) out.push(d) } return out }
 const us = d => `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}`
+const weekdayUs = d => `${new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" })}, ${us(d)}`
 const short = d => `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dow(d)]} ${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`
 
 const stamp = Date.now().toString(36).slice(-6)
@@ -117,9 +118,9 @@ async function browserPage(kind, viewport) {
 }
 
 const textOf = (first, start, kind) => kind === 'scheduled'
-  ? `Getter Done Fence: Hi ${first}, your fence installation is scheduled to start on ${us(start)}. Our crew will arrive in the morning. Questions? Call (352) 789 4314. Reply STOP to opt out.`
+  ? `Getter Done Fence: Hi ${first}, your fence installation is scheduled to start on ${weekdayUs(start)}. Our crew will arrive in the morning. Questions? Call (352) 789 4314. Reply STOP to opt out.`
   : kind === 'moved'
-    ? `Getter Done Fence: Hi ${first}, your fence installation has moved and is now scheduled to start on ${us(start)}. Our crew will arrive in the morning. Questions? Call (352) 789 4314. Reply STOP to opt out.`
+    ? `Getter Done Fence: Hi ${first}, your fence installation has moved and is now scheduled to start on ${weekdayUs(start)}. Our crew will arrive in the morning. Questions? Call (352) 789 4314. Reply STOP to opt out.`
     : `Getter Done Fence: Hi ${first}, your fence installation date is being changed. We'll call you with a new date. Questions? Call (352) 789 4314. Reply STOP to opt out.`
 
 // Schedule Settings, kept to put back exactly: this run uses Monday to Friday, then switches Friday off.

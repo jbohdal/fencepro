@@ -38,6 +38,7 @@
 import './devOnly.mjs'
 import './sharedLock.mjs'
 import { webkit, chromium } from 'playwright'
+import { signInByCookie } from './lib.mjs'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
@@ -50,7 +51,8 @@ const OWNER = process.env.E2E_ACCESS_TOKEN || ''
 const CDP = process.env.CDP_URL || ''
 const SHOTS = process.env.E2E_SHOTS || ''
 const NAME = CDP ? 'android' : 'webkit'
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+// The dev copy only: localhost, never port 4000 (devOnly.mjs checks the same; a worktree's own dev server may use another port).
+if (!/^http:\/\/localhost:\d+$/.test(APP) || !/^http:\/\/localhost:\d+$/.test(API) || /:4000$/.test(APP) || /:4000$/.test(API)) { console.error('Refusing to run: the dev copy only (localhost, not port 4000).'); process.exit(2) }
 if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 
@@ -106,7 +108,8 @@ try {
   ctx = CDP ? browser.contexts()[0] : await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
   const setToken = t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }
   if (CDP) { const p0 = await ctx.newPage(); await p0.goto(APP); await p0.evaluate(setToken, OWNER); await p0.close() }
-  else await ctx.addInitScript(setToken, OWNER)
+  // The staff cookie, as the app signs in (nothing in the browser's storage).
+  else await signInByCookie(ctx, { cookie: '', email: '', password: '', token: OWNER, api: API })
   // A new tab for each screen (a long WebKit session can crash when a page is opened over it again).
   const open = async url => {
     if (page) await page.close().catch(() => {})
@@ -117,7 +120,8 @@ try {
     await page.goto(url)
   }
   // The phone's keyboard closes first (a field still focused keeps the Android page scrolling).
-  const tap = async loc => { await page.evaluate(() => document.activeElement?.blur?.()).catch(() => {}); await loc.scrollIntoViewIfNeeded(); await loc.waitFor({ state: 'visible', timeout: 15000 }); await (CDP ? loc.click() : loc.tap()); await sleep(300) }
+  let taps = 0
+  const tap = async loc => { taps++; await page.evaluate(() => document.activeElement?.blur?.()).catch(() => {}); await loc.scrollIntoViewIfNeeded(); await loc.waitFor({ state: 'visible', timeout: 15000 }); await (CDP ? loc.click() : loc.tap()); await sleep(300) }
   const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
   async function sign() {
     const pad = page.locator('[data-co-sign-sheet] canvas')
@@ -138,19 +142,17 @@ try {
   await shot(page, '1-menu')
   await tap(page.locator('[data-co-from-drawing-start]'))
   await page.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 }); await sleep(1200)
-  check('the quote builder opens on the signed quote, locked', await page.locator('[data-quote-locked-banner]').isVisible())
-  await tap(page.locator('[data-quote-builder] [data-step="yard"]'))
+  check('the quote builder opens on the signed quote, on the drawing, saying how to make the change order', /Change order: change the drawing, then tap Make change order/.test(await page.locator('[data-quote-locked-banner]').innerText()))
+  // Round 2 (Oct 26 2026): straight from the drawing to the change order; no "Update quote", no status, no lock message.
   const runInput = page.locator('[data-quote-builder] input[placeholder="Length in feet"]').first()
   const ftWas = parseFloat(await runInput.inputValue())
-  await runInput.fill(String(ftWas + 12)); await sleep(300)
+  taps++; await runInput.fill(String(ftWas + 12)); await sleep(300)
   const walk = page.locator('[data-quote-builder] label:text-is("Walk gates") + input')
-  await walk.fill(String((template.walkGates || 0) + 1)); await sleep(300)
-  await tap(page.locator('[data-quote-builder] [data-step="price"]')); await sleep(700)
-  await tap(page.locator('[data-save-open]'))
-  await page.waitForSelector('[data-save-submit]', { timeout: 10000 })
-  await tap(page.locator('[data-save-submit]'))
-  await page.locator('[data-quote-lock-dialog="locked"]').waitFor({ timeout: 10000 })
-  await tap(page.locator('[data-quote-lock-co]'))
+  taps++; await walk.fill(String((template.walkGates || 0) + 1)); await sleep(300)
+  check('the bar offers "Make change order" on the drawing step, never "Update quote"', (await page.locator('[data-quote-bar] [data-co-make]').isVisible()) && (await page.locator('[data-quote-bar] [data-save-open]').count()) === 0)
+  await shot(page, '1b-drawing')
+  await tap(page.locator('[data-quote-bar] [data-co-make]'))
+  check('no status picker and no "This quote is signed" detour', (await page.locator('[data-save-submit]').count()) === 0 && (await page.locator('[data-quote-lock-dialog]').count()) === 0)
   await page.waitForSelector('[data-co-modal]', { timeout: 10000 })
   const coLines = await page.locator('[data-co-line-description]').evaluateAll(els => els.map(e => e.value))
   const total = cents(await page.locator('[data-co-total]').innerText())
@@ -160,6 +162,7 @@ try {
   await shot(page, '2-filled-in')
   await tap(page.locator('[data-co-save-draft]'))
   const co1 = await until(async () => ((await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data ?? []).find(x => x.number === 1), 15000)
+  check(`job page to a change order ready to sign: ${taps} taps on the phone (under 8)`, taps < 8, `${taps} taps`)
   check('saved: CO-1, a draft, with the new work (12 ft and a walk gate more)', co1?.status === 'draft' && co1?.work && co1.scope?.footageFt === 12 && co1.scope?.walkGates === 1, JSON.stringify(co1?.scope))
   // Back on the job page: the customer signs on this phone.
   await open(`${APP}/operations?job=${jobId}`)

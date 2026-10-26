@@ -10,7 +10,7 @@ import type { QuoteLayoutRecord } from './yardLayout'
 import { useState, useMemo, useEffect } from 'react'
 import type { LineItem } from './materialCalculator'
 import type { QuotePricingOverrides } from './pricingEngine'
-import type { SavedWork } from './moveRepair'
+import { workSummary, type SavedWork } from './moveRepair'
 import { ChangeOrderPanel } from './ChangeOrders'
 import { POButton } from './PurchaseOrder'
 import { pullFromInventory, getLocations } from './inventoryStore'
@@ -323,7 +323,7 @@ function QuoteDrawer({
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900 text-lg">{quote.customerName}</h2>
-            <p className="text-sm text-gray-400">{styleLabel(quote.fenceStyle)} · {quote.sections} sections · {dayWords(quote.date)}</p>
+            <p className="text-sm text-gray-400">{styleLabel(quote.fenceStyle)} · {workSummary(quote.work) ?? `${quote.sections} sections`} · {dayWords(quote.date)}</p>
           </div>
           <div className="flex items-center gap-2">
             <POButton quote={quote} />

@@ -56,7 +56,7 @@ changeOrderPublic.get('/:token', async (req, res) => {
   const call = company.phone ? `Call us at <a href="tel:${esc(company.phone.replace(/[^\d+]/g, ''))}"><b>${esc(phoneWords(company.phone))}</b></a>.` : 'Please call us.'
   const top = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(company.name)}</p><p class="small">Change order</p></div></header>`
   // Never sent (still a draft) counts as not available: the customer sees only what the office sent.
-  if (!co || !q || q.archivedAt || q.deletedAt || co.deletedAt || (co.status === 'draft')) {
+  if (!co || !q || q.archivedAt || q.deletedAt || co.deletedAt || (co.status === 'draft' || co.status === 'needs_ok')) {
     res.status(404).type('html').send(page('Change order', `${top}<main class="wrap"><section><h1>This change order is not available</h1><p>${call}</p></section></main>`, nonce))
     return
   }

@@ -249,7 +249,20 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const ed = await call(sales, 'PATCH', `/api/change-orders/${co.json.data.id}`, { baseVersion: co.json.data.version, lines: [{ ...lines[0], amountCents: lines[0].amountCents + 100 }, lines[2]] })
     expect(ed.status).toBe(200)
     expect(ed.json.data.lines[0].source.ref).toBe('repair:replacePost')
-    await call(sales, 'PATCH', `/api/change-orders/${co.json.data.id}`, { baseVersion: ed.json.data.version, status: 'sent' })
+    // A Salesman's change order waits for the owner's or the office's OK (round 2, Oct 26 2026): not sent,
+    // no link, not signed on her phone, not on the customer's portal; the owner and the office are told.
+    expect(co.json.data.status).toBe('needs_ok')
+    expect((await call(sales, 'PATCH', `/api/change-orders/${co.json.data.id}`, { baseVersion: ed.json.data.version, status: 'sent' })).status).toBe(409)
+    expect((await call(sales, 'POST', `/api/change-orders/${co.json.data.id}/link`)).status).toBe(409)
+    expect((await call(sales, 'POST', `/api/change-orders/${co.json.data.id}/sign`, { name: 'Pat', signature: SIG })).status).toBe(409)
+    expect((await changeOrdersForContact(contactId)).some(x => x.id === co.json.data.id)).toBe(false)
+    expect(await prisma.notification.count({ where: { title: { startsWith: 'Change order to OK' }, jobId } })).toBe(2)
+    // She cannot OK her own; the owner does.
+    expect((await call(sales, 'PATCH', `/api/change-orders/${co.json.data.id}`, { baseVersion: ed.json.data.version, status: 'draft' })).status).toBe(403)
+    const ok = await call(owner, 'PATCH', `/api/change-orders/${co.json.data.id}`, { baseVersion: ed.json.data.version, status: 'draft' })
+    expect(ok.json.data.status).toBe('draft')
+    await prisma.notification.deleteMany({ where: { title: { startsWith: 'Change order to OK' }, jobId } })
+    await call(sales, 'PATCH', `/api/change-orders/${co.json.data.id}`, { baseVersion: ok.json.data.version, status: 'sent' })
     // The customer sees the words, quantity and amount, never where it was picked from.
     const theirs = (await changeOrdersForContact(contactId)).find(x => x.id === co.json.data.id)!
     expect(theirs.lines[0]).toEqual({ id: 'pick-1', description: '2 × Replace a post', amountCents: lines[0].amountCents + 100, qty: 2 })

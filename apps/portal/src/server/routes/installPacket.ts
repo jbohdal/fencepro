@@ -15,8 +15,8 @@
  * Under /p, so the same public door as proposals serves it.
  */
 
-import { locateOf, locateStatus, locateWords } from '../lib/locates.js'
-import { saveLocate } from '../lib/jobTruth.js'
+import { locateOf, locateStatus, locateWords, hasLocate, locateDay } from '../lib/locates.js'
+import { saveLocate, lastCrewDay, startedByCrew, closeOutIfDone } from '../lib/jobTruth.js'
 import { floridaDay } from '../lib/automations/context.js'
 import { Router } from 'express'
 import express from 'express'
@@ -38,8 +38,8 @@ import { coveredWorkOn } from '../lib/serviceTickets.js'
 import { issueLabel } from '../lib/serviceTicketModel.js'
 import { isYmd, usDate, shortDayWords } from '../lib/installDays.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
-import { customerNotesForJob, installTimes, recordInstallTime } from '../lib/crewInstall.js'
-import { withoutMoney } from '../lib/costRedact.js'
+import { customerNotesForJob, installTimes, recordInstallTime, crewFinishedJob } from '../lib/crewInstall.js'
+import { forCrew } from '../lib/costRedact.js'
 import { partWithPair } from '../lib/partNames.js'
 const todayFl = () => floridaDay(new Date())
 /** The crew's name (Schedule > Settings), never its id ("crew1"). */
@@ -120,6 +120,21 @@ export function workStepText(item: string, qty: number | string): string {
   const n = Number(qty)
   if (/tear ?out/i.test(item)) return `Tear out and haul away the old fence${n > 0 ? ` (${n} section${n === 1 ? '' : 's'})` : ''}`
   return `${item}${n > 0 ? ` (${n})` : ''}`
+}
+
+/**
+ * The job's 811 locate as the crew reads it (round 2, Oct 26 2026: the boxes
+ * looked empty to the crew, so the office's ticket could be typed over): the
+ * ticket and its dates in words, who saved it, and "Change the locate" to open
+ * the boxes. Nothing on file: '' (the boxes show at once).
+ */
+export function locateOnFile(loc: ReturnType<typeof locateOf>, by: string | null | undefined, at: Date | null | undefined): string {
+  if (!hasLocate(loc)) return ''
+  const row = (label: string, v: string | null, key: string) => `<tr><th>${label}</th><td data-packet-locate-${key}>${v ? esc(v) : '<span class="small">Not entered</span>'}</td></tr>`
+  const when = at ? at.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric' }) : ''
+  return `<table class="locate" data-packet-locate-on-file><tbody>${row('Ticket', loc.ticket, 'ticket')}${row('Called in', loc.calledDate ? locateDay(loc.calledDate) : null, 'called')}${row('Good to dig', loc.goodDate ? locateDay(loc.goodDate) : null, 'good')}${row('Expires', loc.expDate ? locateDay(loc.expDate) : null, 'exp')}</tbody></table>
+      ${by ? `<p class="small" data-packet-locate-by>Saved by ${esc(by)}${when ? ` on ${esc(when)}` : ''}.</p>` : ''}
+      <button type="button" id="locEdit" class="btn btn2 noprint" data-packet-locate-edit>Change the locate</button>`
 }
 
 export const packetPublic = Router()
@@ -255,7 +270,17 @@ async function crewJob(req: any, res: any) {
   return job
 }
 
-/** For an install on the installer's home: its packet link, the customer's notes, and Start and Finish so far. */
+/** What the installer's card needs about the install as a whole: its last crew day, finished or not, and the 811 locate in words. */
+async function crewFacts(accountId: string, jobId: string) {
+  const job = await prisma.savedJob.findUnique({ where: { id: jobId } })
+  if (!job) return { lastDay: null, jobDone: false, locate: null }
+  const times = await installTimes(jobId)
+  const lastDay = await lastCrewDay(accountId, job)
+  const loc = locateOf(job)
+  return { lastDay, jobDone: crewFinishedJob(times, lastDay), locate: hasLocate(loc) ? { ...locateWords(loc, todayFl()), ticket: loc.ticket } : null }
+}
+
+/** For an install on the installer's home: its packet link, the customer's notes, Start and Finish so far, and whether the job is finished. */
 packetStaff.get('/crew/:jobId', async (req: any, res) => {
   try {
     const job = await crewJob(req, res)
@@ -265,20 +290,31 @@ packetStaff.get('/crew/:jobId', async (req: any, res) => {
       packet: p && !p.disabledAt ? { token: p.token } : null,
       customerNotes: await customerNotesForJob(req.user.crmAccountId, job.crmContactId),
       times: await installTimes(job.id),
+      ...(await crewFacts(req.user.crmAccountId, job.id)),
     } })
   } catch (err) { console.error('[packet] crew:', err); res.status(500).json({ success: false, error: 'Could not load the install' }) }
 })
 
-/** Start or Finish on an install: who and when, on the job. */
+/**
+ * Start or Finish on an install: who and when, on the job. Start moves a
+ * scheduled job to In Progress. Finish with { jobDone: true } ("Finished the
+ * job"), or Finish on the job's last crew day, is the install finished: the
+ * job closes out by itself once the walkthrough is signed and it is paid in
+ * full (lib/jobTruth.ts closeOutIfDone), in any order.
+ */
 packetStaff.post('/crew/:jobId/:kind', async (req: any, res) => {
   try {
     if (req.params.kind !== 'start' && req.params.kind !== 'finish') { res.status(404).json({ success: false, error: 'Not found' }); return }
     const job = await crewJob(req, res)
     if (!job) return
+    const accountId = req.user.crmAccountId
     const me = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true, email: true } }).catch(() => null)
     const by = (me ? `${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.email : req.user.email) || 'Crew'
-    await recordInstallTime(job.id, req.params.kind === 'finish' ? 'finish' : 'start', by)
-    res.json({ success: true, data: { times: await installTimes(job.id) } })
+    const kind = req.params.kind === 'finish' ? 'finish' : 'start'
+    await recordInstallTime(job.id, kind, by, new Date(), kind === 'finish' && req.body?.jobDone === true)
+    if (kind === 'start') await startedByCrew(accountId, job.id)
+    else await closeOutIfDone(accountId, job.id, 'the crew finished the install')
+    res.json({ success: true, data: { times: await installTimes(job.id), ...(await crewFacts(accountId, job.id)) } })
   } catch (err) { console.error('[packet] crew time:', err); res.status(500).json({ success: false, error: 'Could not save the time' }) }
 })
 
@@ -345,7 +381,7 @@ packetPublic.get('/:token', async (req, res) => {
   const workLines = (s.pullSheet ?? []).filter(i => isWorkLine(i.item))
   const map = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job_.customerAddress)}`
   // The crew never sees a price: a dollar amount typed in a note is left out (lib/costRedact.ts).
-  const crewNotes = (s.crewNotes ?? []).filter(Boolean).map(withoutMoney)
+  const crewNotes = (s.crewNotes ?? []).filter(Boolean).map(forCrew)
   // What the customer told us ("have 2 dogs"), read now so a note added after the packet was sent shows (lib/crewInstall.ts).
   const fromCustomer = await customerNotesForJob(p.accountId, job_.crmContactId).catch(() => [] as string[])
   const body = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.companyName || 'Getter Done Fence')}</p><p class="small">Install packet${s.companyPhone ? ` · Office <a href="tel:${esc(s.companyPhone.replace(/[^\d+]/g, ''))}">${esc(phone(s.companyPhone))}</a>` : ''}</p></div>
@@ -355,18 +391,21 @@ packetPublic.get('/:token', async (req, res) => {
     <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
     <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">Install: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(await crewNameFor(job_.accountId, job_.crewAssigned))}` : ''}</p>
     ${coChange ? `<section class="notes" data-packet-change-order><h2>Changed: change order CO-${coChange.number}</h2><p><b>${esc(coChange.what)}</b> (approved ${esc(coChange.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${coChange.rev ? `, contract rev ${coChange.rev}` : ''}). The fence, runs and pull sheet below are the new ones.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(partWithPair(l.item))}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
-    ${s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(withoutMoney(onceEach(s.notes))).replace(/\n/g, '<br>')}</p></section>` : ''}
+    ${s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(forCrew(onceEach(s.notes))).replace(/\n/g, '<br>')}</p></section>` : ''}
     ${fromCustomer.length ? `<section class="notes" data-packet-customer-notes><h2>Customer notes</h2><ul>${fromCustomer.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${await workOrders(work)}
-    ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(withoutMoney(x))}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
+    ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(forCrew(x))}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
     <section data-packet-locate-section><h2>811 locate</h2>${s.work?.needs811 ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
       <p class="facts" id="locStatus" data-packet-locate-status="${esc(locateStatus(loc, todayFl()))}">${esc(locateWords(loc, todayFl()).text)}</p>
-      <div class="row"><label class="field">Ticket number<input id="ticket" value="${esc(loc.ticket ?? '')}" maxlength="40" inputmode="numeric" autocomplete="off"></label>
+      ${locateOnFile(loc, job_.locateUpdatedBy, job_.locateUpdatedAt)}
+      <div id="locForm" data-packet-locate-form${hasLocate(loc) ? ' hidden' : ''}>
+      <div class="row"><label class="field">Ticket number<input id="ticket" value="${esc(loc.ticket ?? '')}" data-was="${esc(loc.ticket ?? '')}" maxlength="40" autocomplete="off"></label>
       <label class="field">Called in<input id="lcalled" type="date" value="${esc(loc.calledDate ?? '')}"></label></div>
       <div class="row"><label class="field">Good to dig<input id="ldate" type="date" value="${esc(loc.goodDate ?? '')}"></label>
       <label class="field">Expires<input id="lexp" type="date" value="${esc(loc.expDate ?? '')}"></label></div>
-      <button type="button" id="saveLocate" class="btn noprint">Save locate</button><p id="locMsg" class="small" aria-live="polite">The office sees it on the job right away.</p>
+      <button type="button" id="saveLocate" class="btn noprint">Save locate</button></div>
+      <p id="locMsg" class="small" aria-live="polite">${hasLocate(loc) ? 'This is the same locate the office sees on the job.' : 'The office sees it on the job right away.'}</p>
     </section>
     <section><h2>The fence</h2>
       <p class="facts">${esc(styleText)}${s.footageFt ? ` · ${Math.round(s.footageFt)} ft` : ''}${s.sections ? ` · ${s.sections} sections` : ''}</p>
@@ -405,15 +444,20 @@ packetPublic.get('/:token', async (req, res) => {
       var hint=document.createElement('span');hint.className='small unsethint';hint.textContent='Not set';el.parentNode.appendChild(hint);
       function show(){var empty=!el.value;el.classList.toggle('unset',empty);hint.style.display=empty?'block':'none'}
       el.addEventListener('input',show);el.addEventListener('change',show);show()});
-    document.getElementById('saveLocate').addEventListener('click',function(){
+    // The office's locate on file: shown in words; the boxes open only on "Change the locate".
+    var edit=document.getElementById('locEdit');
+    if(edit)edit.addEventListener('click',function(){document.getElementById('locForm').hidden=false;edit.hidden=true;document.getElementById('ticket').focus()});
+    function saveLoc(replace){
       var m=document.getElementById('locMsg');m.textContent='Saving...';
       var v=function(id){return document.getElementById(id).value};
-      fetch(tok+'/locate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticket:v('ticket'),calledDate:v('lcalled'),goodDate:v('ldate'),expDate:v('lexp')})})
+      fetch(tok+'/locate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticket:v('ticket'),calledDate:v('lcalled'),goodDate:v('ldate'),expDate:v('lexp'),replace:!!replace})})
         .then(function(r){return r.json()}).then(function(j){
-          if(j.success){m.textContent='Saved. The office sees it on the job.';var st=document.getElementById('locStatus');if(j.data&&j.data.text){st.textContent=j.data.text;st.setAttribute('data-packet-locate-status',j.data.status)}}
+          if(j.success){m.textContent='Saved. The office sees it on the job.';document.getElementById('ticket').setAttribute('data-was',v('ticket'));var st=document.getElementById('locStatus');if(j.data&&j.data.text){st.textContent=j.data.text;st.setAttribute('data-packet-locate-status',j.data.status)}}
+          else if(j.code==='REPLACE_TICKET'){if(window.confirm(j.error))saveLoc(true);else m.textContent='Not saved. The office\\'s ticket is kept.'}
           else m.textContent=j.error||'Could not save.'
         }).catch(function(){m.textContent='No connection. Try again.'});
-    });
+    }
+    document.getElementById('saveLocate').addEventListener('click',function(){saveLoc(false)});
     var files=document.getElementById('files'),msg=document.getElementById('upMsg');
     files.addEventListener('change',function(){
       var list=[].slice.call(files.files);if(!list.length)return;var i=0,wait=3000;
@@ -455,7 +499,7 @@ async function workOrders(work: Awaited<ReturnType<typeof coveredWorkOn>>): Prom
     parts.push(`<section class="notes" data-packet-warranty-work="${esc(t.id)}"><h2>Warranty work order: $0, no charge to the customer</h2>
       <p><b>${esc(issueLabel(t.issue))}</b>${t.warrantyName ? ` · Covered by the ${esc(t.warrantyName)}` : ''}</p>
       <p>Visit: ${esc(visit)}${appt?.assignedTo ? ` · ${esc(appt.assignedTo)}` : ''}</p>
-      ${t.notes ? `<p>${esc(withoutMoney(t.notes)).replace(/\n/g, '<br>')}</p>` : ''}
+      ${t.notes ? `<p>${esc(forCrew(t.notes)).replace(/\n/g, '<br>')}</p>` : ''}
       ${media.length ? `<div class="media">${media.map(m => m.kind === 'video'
         ? `<figure><video src="${esc(fix(m.previewUrl ?? m.url))}" controls playsinline preload="none"></video><figcaption>From the customer</figcaption></figure>`
         : `<figure><a href="${esc(fix(m.url))}"><img src="${esc(fix(m.thumbUrl ?? m.url))}" alt="The customer's photo" loading="lazy"></a><figcaption>From the customer${m.caption ? `: ${esc(m.caption)}` : ''}</figcaption></figure>`).join('')}</div>` : ''}
@@ -473,12 +517,21 @@ function rank(m: { kind: string; category: string; markupUrl: string | null }): 
 packetPublic.post('/:token/locate', express.json({ limit: '8kb' }), async (req, res) => {
   const found = await load(String(req.params.token))
   if (!found || packetClosed(found.p, found.job, Date.now(), found.work.length)) { res.status(410).json({ success: false, error: 'This packet is not active.' }); return }
-  const b = z.object({ ticket: z.string().max(60).optional(), calledDate: z.string().max(20).optional(), goodDate: z.string().max(20).optional(), expDate: z.string().max(20).optional(), date: z.string().max(20).optional() }).safeParse(req.body)
+  const b = z.object({ ticket: z.string().max(60).optional(), calledDate: z.string().max(20).optional(), goodDate: z.string().max(20).optional(), expDate: z.string().max(20).optional(), date: z.string().max(20).optional(), replace: z.boolean().optional() }).safeParse(req.body)
   if (!b.success) { res.status(400).json({ success: false, error: 'Check the ticket and the dates.' }); return }
   try {
     // The job's one locate record (lib/locates.ts), the same the job page edits. A packet page opened before
-    // the four fields sends { ticket, date }: its date is the good to dig date.
-    const row = await saveLocate(found.p.accountId, found.p.jobId, { ticket: b.data.ticket, calledDate: b.data.calledDate, goodDate: b.data.goodDate ?? b.data.date, expDate: b.data.expDate }, 'Crew (install packet)')
+    // the four fields sends { ticket, date }: its date is the good to dig date. A box left empty keeps what the
+    // job has (the crew never wipes the office's dates), and a different ticket number replaces the office's
+    // only when the crew says so (round 2, Oct 26 2026).
+    const was = locateOf(found.job)
+    const keep = (v: string | undefined, old: string | null) => (v && v.trim() ? v : old ?? '')
+    const ticket = keep(b.data.ticket, was.ticket)
+    if (was.ticket && ticket.trim() !== was.ticket && !b.data.replace) {
+      res.status(409).json({ success: false, code: 'REPLACE_TICKET', error: `The job already has 811 ticket ${was.ticket}${found.job?.locateUpdatedBy ? ` (saved by ${found.job.locateUpdatedBy})` : ''}. Replace it with ${ticket.trim()}?` })
+      return
+    }
+    const row = await saveLocate(found.p.accountId, found.p.jobId, { ticket, calledDate: keep(b.data.calledDate, was.calledDate), goodDate: keep(b.data.goodDate ?? b.data.date, was.goodDate), expDate: keep(b.data.expDate, was.expDate) }, 'Crew (install packet)')
     const w = locateWords(locateOf(row), todayFl())
     res.json({ success: true, data: { status: w.status, text: w.text } })
   } catch (err: any) {
@@ -535,6 +588,7 @@ a[href^="tel:"],.maplink{white-space:nowrap;display:inline-block;padding:15px 0;
 .maplink{color:var(--p);font-weight:700}.notes{border-color:#FACC15;background:#FFFBEB}
 table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}th{color:var(--g);font-weight:600}
 h3{font-size:15px;margin:14px 0 6px}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+[hidden]{display:none!important}.btn2{background:#fff;color:var(--p);border:1px solid var(--line)}.locate th{width:40%}
 .field select{display:block;width:100%;height:48px;font-size:16px;border:1px solid #CBC4D6;border-radius:10px;margin-top:4px;padding:0 10px;background:#fff}
 .media{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}.media figure{margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
 .media img,.media video{width:100%;max-height:320px;object-fit:cover;display:block;background:#000}.media figcaption{padding:8px;font-size:13px;color:var(--g)}

@@ -11,12 +11,13 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Navigation, Phone, FileText, Play, Square, Camera } from 'lucide-react'
+import { Navigation, Phone, FileText, Play, Square, Camera, CheckCircle2 } from 'lucide-react'
 import { getJobs } from './jobStore'
 import { getQuoteById } from './quoteStore'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
 import { styleLabel } from './fenceCatalog'
-import { fetchCrewInstall, markInstall, sendInstallPacket, packetUrl, type CrewInstall, type InstallTime } from './installPacket'
+import { fetchCrewInstall, markInstall, sendInstallPacket, packetUrl, crewInstallCached, putCrewInstall, CREW_INSTALL_EVENT, type CrewInstall, type InstallTime } from './installPacket'
+import { workSummary } from './moveRepair'
 import MediaGallery from './MediaGallery'
 import { toast } from './toast'
 import { formatPhone } from './phoneFormat'
@@ -84,7 +85,8 @@ function lastTap(times: InstallTime[], kind: 'start' | 'finish', day: string): I
 
 function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
   const { job } = d
-  const [info, setInfo] = useState<CrewInstall | null>(null)
+  // One copy per job (installPacket.tsx): day 1 and day 2 of a job show the same packet and taps.
+  const [info, setInfo] = useState<CrewInstall | null>(() => crewInstallCached(job.id))
   const [loadFailed, setLoadFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [photos, setPhotos] = useState(false)
@@ -92,21 +94,27 @@ function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
 
   useEffect(() => {
     let live = true
-    fetchCrewInstall(job.id).then(r => { if (!live) return; if (r) setInfo(r); else setLoadFailed(true) })
-    return () => { live = false }
+    const h = (e: Event) => { if ((e as CustomEvent<{ jobId: string }>).detail?.jobId === job.id && live) setInfo(crewInstallCached(job.id)) }
+    window.addEventListener(CREW_INSTALL_EVENT, h)
+    fetchCrewInstall(job.id).then(r => { if (!live) return; if (!r) setLoadFailed(true) })
+    return () => { live = false; window.removeEventListener(CREW_INSTALL_EVENT, h) }
   }, [job.id])
 
   const started = info ? lastTap(info.times, 'start', d.day) : undefined
   const finished = info ? lastTap(info.times, 'finish', d.day) : undefined
   const working = !!started && (!finished || finished.at < started.at)
+  // The last crew day (or a one day job): Finish is the install finished. An earlier day: "Finish for today", and
+  // "We finished the whole job" when it went faster than booked.
+  const lastDay = d.dayNo >= d.days || (!!info?.lastDay && d.day >= info.lastDay)
+  const jobDone = !!info?.jobDone
 
-  async function tap(kind: 'start' | 'finish') {
+  async function tap(kind: 'start' | 'finish', wholeJob = false) {
+    if (wholeJob && !window.confirm(`Finished the whole job for ${job.customerName}? The office is told the install is done.`)) return
     setBusy(true)
-    const times = await markInstall(job.id, kind)
+    const r = await markInstall(job.id, kind, wholeJob)
     setBusy(false)
-    if (!times) { toast.error(kind === 'start' ? 'Start was not saved' : 'Finish was not saved', 'No signal right now. Tap it again when you have signal.'); return }
-    setInfo(i => (i ? { ...i, times } : i))
-    toast.success(kind === 'start' ? 'Started' : 'Finished', `${job.customerName}, ${timeWords(new Date().toISOString())}`)
+    if (!r) { toast.error(kind === 'start' ? 'Start was not saved' : 'Finish was not saved', 'No signal right now. Tap it again when you have signal.'); return }
+    toast.success(kind === 'start' ? 'Started' : r.jobDone ? 'Job finished' : 'Finished for today', `${job.customerName}, ${timeWords(new Date().toISOString())}`)
   }
 
   async function makePacket() {
@@ -114,10 +122,12 @@ function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
     const p = await sendInstallPacket(job.id, { fenceStyle: job.fenceStyle, notes: job.notes, walkGates: job.walkGates, dblGates: job.dblGates }, quote ?? undefined)
     setBusy(false)
     if (!p) { toast.error('Could not make the crew packet', 'Check the signal and try again, or ask the office to send it.'); return }
-    setInfo(i => (i ? { ...i, packet: { token: p.token } } : i))
+    putCrewInstall(job.id, { packet: { token: p.token } })
   }
 
-  const facts = [styleLabel(job.fenceStyle), job.totalFeet ? `${Math.round(job.totalFeet)} ft` : '', job.sections ? `${job.sections} sections` : '',
+  // A repair or a move: what is being done (the repair items), not the fence style and "0 sections" (round 2, Oct 26 2026).
+  const work = workSummary(quote?.work)
+  const facts = work ? [work] : [styleLabel(job.fenceStyle), job.totalFeet ? `${Math.round(job.totalFeet)} ft` : '', job.sections ? `${job.sections} sections` : '',
     job.walkGates ? `${job.walkGates} walk gate${job.walkGates > 1 ? 's' : ''}` : '', job.dblGates ? `${job.dblGates} double gate${job.dblGates > 1 ? 's' : ''}` : ''].filter(Boolean)
 
   return (
@@ -126,7 +136,9 @@ function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
         <p className="text-lg font-bold text-gray-900">{job.customerName}</p>
         <p className="text-sm text-gray-700">{job.customerAddress || 'No address on the job'}</p>
         <p className="text-sm text-gray-600">{[d.crew, d.days > 1 ? `day ${d.dayNo} of ${d.days}` : ''].filter(Boolean).join(' · ')}</p>
-        {facts.length > 0 && <p className="text-sm text-gray-600">{facts.join(' · ')}</p>}
+        {facts.length > 0 && <p className="text-sm text-gray-600" data-install-facts>{facts.join(' · ')}</p>}
+        {/* The job's 811 locate, the same record as the office's (the packet shows it in full). */}
+        {info?.locate && <p className="text-sm text-gray-700" data-install-locate={info.locate.status}>811{info.locate.ticket ? ` ticket ${info.locate.ticket}` : ''}: {info.locate.text}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -143,11 +155,19 @@ function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
         : info && <button type="button" className="btn btn-primary w-full min-h-[48px]" disabled={busy} onClick={makePacket} data-install-packet-make><FileText size={18} aria-hidden="true" /> Make the crew packet</button>}
 
       {today && (
-        <div className="space-y-1" data-install-times>
-          {working
-            ? <button type="button" className="btn btn-primary w-full min-h-[48px] bg-green-700 hover:bg-green-800" disabled={busy} onClick={() => tap('finish')} data-install-finish><Square size={18} aria-hidden="true" /> Finish for today</button>
-            : <button type="button" className="btn btn-primary w-full min-h-[48px]" disabled={busy || !info} onClick={() => tap('start')} data-install-start><Play size={18} aria-hidden="true" /> {finished ? 'Start again' : 'Start'}</button>}
-          {started && <p className="text-sm text-gray-700" data-install-started>Started {timeWords(started.at)} by {started.by}{finished && finished.at > started.at ? `, finished ${timeWords(finished.at)} by ${finished.by}` : ''}.</p>}
+        <div className="space-y-1" data-install-times data-install-last-day={lastDay ? 'yes' : 'no'}>
+          {jobDone && !working
+            ? <p className="rounded-xl bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-900" data-install-job-done><CheckCircle2 size={16} className="inline -mt-0.5" aria-hidden="true" /> Job finished. The office closes it out after the walkthrough and the final payment.</p>
+            : working
+              ? (lastDay
+                ? <button type="button" className="btn btn-primary w-full min-h-[48px] bg-green-700 hover:bg-green-800" disabled={busy} onClick={() => tap('finish')} data-install-finish data-install-finish-job><CheckCircle2 size={18} aria-hidden="true" /> Finish the job</button>
+                : <>
+                  <button type="button" className="btn btn-primary w-full min-h-[48px] bg-green-700 hover:bg-green-800" disabled={busy} onClick={() => tap('finish')} data-install-finish><Square size={18} aria-hidden="true" /> Finish for today (day {d.dayNo} of {d.days})</button>
+                  <button type="button" className="btn btn-secondary w-full min-h-[48px]" disabled={busy} onClick={() => tap('finish', true)} data-install-finish-whole><CheckCircle2 size={18} aria-hidden="true" /> We finished the whole job</button>
+                </>)
+              : <button type="button" className="btn btn-primary w-full min-h-[48px]" disabled={busy || !info} onClick={() => tap('start')} data-install-start><Play size={18} aria-hidden="true" /> {finished ? 'Start again' : 'Start'}</button>}
+          {started && <p className="text-sm text-gray-700" data-install-started>Started {timeWords(started.at)} by {started.by}{finished && finished.at > started.at ? `, ${finished.jobDone || lastDay ? 'finished the job' : 'finished for today'} ${timeWords(finished.at)} by ${finished.by}` : ''}.</p>}
+          {!lastDay && !jobDone && <p className="text-xs text-gray-500">Finish on the last day ({d.days > 1 ? `day ${d.days}` : 'today'}) tells the office the install is done.</p>}
         </div>
       )}
 
