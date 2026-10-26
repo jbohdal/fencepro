@@ -88,6 +88,14 @@ describe("the installer's list", () => {
       ['a', '2026-10-26', 2, 3, 'Crew 1'], ['a', '2026-10-27', 3, 3, 'Crew 1'], ['old', '2026-10-28', 1, 1, 'Crew 1'],
     ])
   })
+  test('a job closed out today keeps today\'s card only (the crew sees "Job finished and closed out"); one closed earlier is gone', () => {
+    const entries = [
+      { stagingJobId: 'today', date: '2026-10-26', crewId: 'crew1' }, { stagingJobId: 'today', date: '2026-10-27', crewId: 'crew1' },
+      { stagingJobId: 'before', date: '2026-10-26', crewId: 'crew1' },
+    ]
+    const rows = crewDays([job('today', { status: 'paid', completedDate: '2026-10-26' }), job('before', { status: 'paid', completedDate: '2026-10-25' })], entries, [{ id: 'crew1', name: 'Crew 1' }], '2026-10-26')
+    expect(rows.map(r => [r.job.id, r.day])).toEqual([['today', '2026-10-26']])
+  })
 })
 
 describe("whose tasks Today lists", () => {
