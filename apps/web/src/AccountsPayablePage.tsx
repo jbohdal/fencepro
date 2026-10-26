@@ -5,10 +5,10 @@
  * category breakdown, and export.
  */
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getBills, getAPSummary, getVendorAging,
-  refreshOverdueBills, recordVendorPayment,
+  refreshOverdueBills, recordVendorPayment, refreshVendors, VENDORS_UPDATED_EVENT,
   type VendorBill, type VendorBillCategory, type VendorPaymentMethod,
 } from './vendorStore'
 import { useBackLayer } from './nav'
@@ -33,6 +33,14 @@ const CATEGORY_COLORS: Record<VendorBillCategory, string> = {
 export default function AccountsPayablePage() {
   const [bump, setBump] = useState(0)
   const [payingBill, setPayingBill] = useState<VendorBill | null>(null)
+  // Bills the server changes (an invoice applied, a quote ordered or its order undone) show without a reload.
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null
+    const f = () => { if (t) clearTimeout(t); t = setTimeout(() => setBump(b => b + 1), 0) }
+    window.addEventListener(VENDORS_UPDATED_EVENT, f)
+    void refreshVendors()
+    return () => { window.removeEventListener(VENDORS_UPDATED_EVENT, f); if (t) clearTimeout(t) }
+  }, [])
 
   const summary = useMemo(() => { refreshOverdueBills(); return getAPSummary() }, [bump])
   const aging = useMemo(() => getVendorAging(), [bump])

@@ -22,7 +22,7 @@ import { audit } from '../lib/auditLog.js'
 import { plainZod } from '../lib/plainZod.js'
 import {
   editHeader, editLine, matchLine, decideWaiting, markOrdered, undoInvoice, deleteInvoice, rereadInvoice, suggestItems,
-  vendorTotalsByMonth, InvoiceError, NOT_INVENTORY, type Actor,
+  vendorTotalsByMonth, InvoiceError, NOT_INVENTORY, LIVE_STATUSES, type Actor,
 } from '../lib/vendorInvoices.js'
 
 const router = Router()
@@ -58,6 +58,7 @@ function summary(i: any) {
     counts: {
       lines: lines.filter((l: any) => !l.ignored).length,
       applied: lines.filter((l: any) => l.state === 'applied').length,
+      historyOnly: lines.filter((l: any) => l.state === 'history_only').length,
       needsMatch: lines.filter((l: any) => l.state === 'needs_match').length,
       waitingOk: lines.filter((l: any) => l.state === 'waiting_ok').length,
       problems: Array.isArray(i.problems) ? i.problems.length : 0,
@@ -96,7 +97,8 @@ router.get('/needs-match', async (req: any, res) => {
     const accountId = req.user.crmAccountId
     const [lines, inv] = await Promise.all([
       prisma.vendorInvoiceLine.findMany({
-        where: { state: 'needs_match', invoice: { accountId } },
+        // Only documents still in play: an undone, replaced or refused one's lines do not count.
+        where: { state: 'needs_match', invoice: { accountId, status: { in: LIVE_STATUSES } } },
         include: { invoice: { select: { id: true, vendorId: true, vendorName: true, invoiceNumber: true, invoiceDate: true } } },
         orderBy: { createdAt: 'asc' },
       }),

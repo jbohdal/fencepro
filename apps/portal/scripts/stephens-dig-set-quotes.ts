@@ -40,7 +40,7 @@ import { liveDatabaseMisuse, databaseNameOf, LIVE_DATABASE_NAME } from '../src/s
 import { assertLiveWriteAllowed } from '../src/server/lib/liveWriteGuard.js'
 import { readInvoiceFile } from '../src/server/lib/invoiceReader.js'
 import { parseInvoice, findVendor, type ParsedInvoice } from '../src/server/lib/invoiceParse.js'
-import { checkTotals, landedParts, spreadExtras, unitLanded, changePct, needsOk, matchKey, invoiceNumberKey, dollars, pctText, isFuelFee } from '../src/server/lib/invoiceMath.js'
+import { checkTotals, landedParts, spreadExtras, unitLanded, changePct, needsOk, matchKey, findLink, invoiceNumberKey, dollars, pctText, isFuelFee } from '../src/server/lib/invoiceMath.js'
 import { contentKey, estTaxBpOf, newerPriceKept, revisionOf, DEFAULT_JUMP_PCT, NOT_INVENTORY } from '../src/server/lib/vendorInvoices.js'
 import { digSetPipeFor, digSetPipeItem } from '../src/server/lib/digSetPipeMatch.js'
 
@@ -168,7 +168,7 @@ function plan(doc: Doc, st: State, existing: any | null, useRule: boolean): { li
   const byId = new Map(st.items.map(i => [String(i.id), i]))
   const lines: LinePlan[] = p.lines.map((l, k) => {
     const key = matchKey(l.itemNumber, l.description)
-    const link = st.links.get(key)
+    const link = findLink([...st.links.values()], key)
     const linked = link ? (link.inventoryItemId === NOT_INVENTORY ? 'Not an Inventory item' : String(byId.get(link.inventoryItemId)?.name ?? `${link.inventoryItemId} (gone)`)) : 'none'
     const rule = useRule ? digSetPipeItem(l.description, st.items) : null
     let target: LinePlan['target'] = null, via = ''

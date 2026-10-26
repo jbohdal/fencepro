@@ -289,7 +289,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
       expect(inv.status).toBe('applied')
       // A job lot order: items not seen before are not asked about; matched ones still update.
       expect(lineBy(inv, 'TP-158').state).toBe('skipped')
-      expect(lineBy(inv, 'TB-48G').state).toBe('applied')
+      // Tension bars already have a newer price (Oct 15): this Oct 9 invoice is history only, never shown as applied.
+      expect(lineBy(inv, 'TB-48G').state).toBe('history_only')
       const { jobLotInvoiceLines } = await import('../src/server/lib/priceHistory.js')
       const lines = await jobLotInvoiceLines(accountId, `${tag}-job`)
       expect(lines).toHaveLength(9)
@@ -329,6 +330,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
   const sps = (start: string, id: string) => path.join(SPS, spsName(start, id)!)
   const has = (...files: Array<[string, string]>) => files.every(([s, i]) => !!spsName(s, i))
   let newestId = ''
+  let order251608 = ''
   /** The first Stephens document makes the vendor (once), the way the office does. */
   async function stephensVendor(id: string) {
     const q = await get(id)
@@ -405,7 +407,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
     expect(await cost(hogItem.id)).toBe(Math.floor((6586 + 476) / 1100 + 0.5))
     // Fabric already has a newer price (Oct 9): this Oct 6 order goes into price history only.
     const f = q.lines.find((l: any) => l.unit === 'FT')
-    expect(f.stateNote).toMatch(/price history only/)
+    // Its own state, never "applied": the price was not used.
+    expect(f.state).toBe('history_only')
+    expect(f.stateNote).toMatch(/^Not applied: Inventory has a newer price from Oct 9, 2026 \(\$122\.14\)\. Kept in price history only\./)
     expect(await cost('t-fab')).toBe(12214) // the Oct 9 price, without that invoice's fuel surcharge
     expect(await prisma.priceHistory.count({ where: { invoiceId: newestId, inventoryItemId: 't-fab', changedInventory: false } })).toBe(1)
     const vs = await prisma.vendorState.findUnique({ where: { accountId } })
@@ -413,18 +417,27 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
     expect(bill).toMatchObject({ totalCents: 278527, feesCents: 2500, estTaxCents: 19929 })
     expect(bill.notes).toMatch(/Fuel Charge \$25\.00 \(on this bill only, not in item prices\)/)
     expect(bill.notes).toMatch(/estimated tax 7\.22% \(\$199\.29\)/)
+    // Vendors › Edit bill, as the older screen saved it: lines + tax only, the $25 fuel dropped.
+    // The server keeps the bill at lines + tax + freight + fees.
+    const st = (await call('office', 'GET', '/api/vendor-state')).json.data
+    const short = st.bills.map((b: any) => (b.billNumber === '06-249853' ? { ...b, totalCents: 276027, balanceDueCents: 276027 } : b))
+    const put = await call('office', 'PUT', '/api/vendor-state', { vendors: st.vendors, bills: short, payments: st.payments, baseVersion: st.version })
+    expect(put.status).toBe(200)
+    const kept = ((await prisma.vendorState.findUnique({ where: { accountId } })).bills as any[]).find(b => b.billNumber === '06-249853')
+    expect(kept).toMatchObject({ totalCents: 278527, balanceDueCents: 278527, fees: [{ label: 'Fuel Charge', cents: 2500 }] })
   }, 120_000)
 
   // 06-251126 (Oct 19), sent twice; the dig set post pipes by Jonathan's rule.
   const DS = [
-    { desc: 'PLY BLK 1-5/8" x 6\' x PP055', id: 't-ds-b4l', landed: 1174 },
-    { desc: 'PLY BLK 1-5/8" x 7\' x PP055', id: 't-ds-b5l', landed: 1370 },
-    { desc: 'PLY BLK 2-1/2" x 6\' x PP055', id: 't-ds-b4t', landed: 1694 },
-    { desc: 'PLY BLK 2-1/2" x 7\' x PP055', id: 't-ds-b5t', landed: 1977 },
-    { desc: '1-5/8" GALV x 6\' x 18ga-SPS', id: 't-ds-g4l', landed: 703 },
-    { desc: '1-5/8" GALV x 7\' x 18ga-SPS', id: 't-ds-g5l', landed: 819 },
-    { desc: '2-1/2" GALV x 6\' x 18ga-SPS', id: 't-ds-g4t', landed: 1013 },
-    { desc: '2-1/2" GALV x 7\' x 18ga-SPS', id: 't-ds-g5t', landed: 1182 },
+    // As printed (read "PLY BLK" and "1-5/8\" GALV" before the Oct 26 reader fix).
+    { desc: 'BLK PLY 1-5/8" x 6\' x PP055', id: 't-ds-b4l', landed: 1174 },
+    { desc: 'BLK PLY 1-5/8" x 7\' x PP055', id: 't-ds-b5l', landed: 1370 },
+    { desc: 'BLK PLY 2-1/2" x 6\' x PP055', id: 't-ds-b4t', landed: 1694 },
+    { desc: 'BLK PLY 2-1/2" x 7\' x PP055', id: 't-ds-b5t', landed: 1977 },
+    { desc: 'GALV 1-5/8" x 6\' x 18ga-SPS', id: 't-ds-g4l', landed: 703 },
+    { desc: 'GALV 1-5/8" x 7\' x 18ga-SPS', id: 't-ds-g5l', landed: 819 },
+    { desc: 'GALV 2-1/2" x 6\' x 18ga-SPS', id: 't-ds-g4t', landed: 1013 },
+    { desc: 'GALV 2-1/2" x 7\' x 18ga-SPS', id: 't-ds-g5t', landed: 1182 },
   ]
   test.skipIf(!has(['6251126', '1464095'], ['6251126', '1466412']))('06-251126 sent twice is one quote; its pipes match the dig set posts by the rule; "We ordered this" prices them with estimated tax, fuel on the bill only', async () => {
     // The dig set post parts, as on live: black typed by hand from this quote on Oct 20, galvanized not priced.
@@ -485,18 +498,53 @@ describe.skipIf(!process.env.DEV_DB || !onDev || !canRead)('vendor invoices upda
     let q = await stephensVendor(up.invoiceId!)
     expect(q).toMatchObject({ status: 'quote', subtotalCents: 187160, freightCents: 12500, feesCents: 2500, totalCents: 202160, estTaxBp: 722, estTaxCents: 13513 })
     expect(q.lines).toHaveLength(22)
+    // A match saved before the Oct 26 reader fix is keyed on the swapped wording ("PLY GRN BRACE BAND",
+    // printed "GRN PLY BRACE BAND"): it still finds its line. Here: "Not an Inventory item".
+    const { matchKey } = await import('../src/server/lib/invoiceMath.js')
+    const brace = q.lines.find((l: any) => l.description === 'GRN PLY BRACE BAND 2-1/2in')
+    expect(brace).toBeTruthy()
+    await prisma.vendorItemLink.create({ data: { accountId, vendorId: q.vendorId, key: matchKey('', 'PLY GRN BRACE BAND 2-1/2in'), inventoryItemId: lib.NOT_INVENTORY } })
     expect((await call('owner', 'POST', `/api/vendor-invoices/${up.invoiceId}/ordered`)).status).toBe(200)
     q = await get(up.invoiceId!)
     expect(q.status).toBe('needs_match')
-    expect(q.lines.every((l: any) => l.state === 'needs_match')).toBe(true)
+    expect(q.lines.find((l: any) => l.id === brace.id)).toMatchObject({ state: 'skipped', stateNote: expect.stringMatching(/remembered/) })
+    expect(q.lines.filter((l: any) => l.id !== brace.id).every((l: any) => l.state === 'needs_match')).toBe(true)
     // Freight + estimated tax on the lines, to the cent; the $25 fuel is not.
     expect(q.lines.reduce((s: number, l: any) => s + l.extraCents, 0)).toBe(12500 + 13513)
     expect(q.lines.reduce((s: number, l: any) => s + l.estTaxCents, 0)).toBe(13513)
-    expect(q.lines[0]).toMatchObject({ description: 'VNL Ext GRN 2x9(13core)x48in KK 50ft/rll', extraCents: 2321 + 2509 })
+    expect(q.lines[0]).toMatchObject({ description: 'GRN VNL Ext 2x9(13core)x48in KK 50ft/rll', extraCents: 2321 + 2509 })
     expect((await items()).version).toBe(before.version)
     const vs = await prisma.vendorState.findUnique({ where: { accountId } })
     expect((vs.bills as any[]).find(b => b.billNumber === '06-251608')).toMatchObject({ totalCents: 202160, freightCents: 12500, feesCents: 2500 })
     const nm = (await call('office', 'GET', '/api/vendor-invoices/needs-match')).json.data.filter((l: any) => l.invoice.id === up.invoiceId)
-    expect(nm).toHaveLength(22)
+    expect(nm).toHaveLength(21)
+    order251608 = up.invoiceId!
   }, 120_000)
+
+  test.skipIf(!has(['6251608', '1473958']))('Undo on an ordered quote: its bill comes off Accounts Payable (voided, restorable) and its lines leave Needs a match', async () => {
+    const before = (await call('office', 'GET', '/api/vendor-invoices/needs-match')).json.data.length
+    const r = await call('owner', 'POST', `/api/vendor-invoices/${order251608}/undo`)
+    expect(r.status).toBe(200)
+    expect(r.json.data.bill).toEqual({ outcome: 'voided', billNumber: '06-251608', paidCents: 0 })
+    const bill = ((await prisma.vendorState.findUnique({ where: { accountId } })).bills as any[]).find(b => b.billNumber === '06-251608')
+    expect(bill).toMatchObject({ status: 'void', statusBeforeVoid: 'received', totalCents: 202160, voidReason: expect.stringMatching(/order was undone/) })
+    const q = await get(order251608)
+    expect(q.status).toBe('undone')
+    expect(q.counts.needsMatch).toBe(0)
+    expect(q.message).toMatch(/bill 06-251608 is off Accounts Payable \(voided/)
+    const after = (await call('office', 'GET', '/api/vendor-invoices/needs-match')).json.data
+    expect(after.some((l: any) => l.invoice.id === order251608)).toBe(false)
+    expect(after.length).toBe(before - 21)
+  }, 60_000)
+
+  test.skipIf(!has(['6249853', '1429376']))('Undo on an ordered quote whose bill was paid on: the bill stays, and it says so', async () => {
+    const vs = await prisma.vendorState.findUnique({ where: { accountId } })
+    await prisma.vendorState.update({ where: { accountId }, data: { version: { increment: 1 }, bills: (vs.bills as any[]).map(b => (b.billNumber === '06-249853' ? { ...b, amountPaidCents: 100000, balanceDueCents: b.totalCents - 100000 } : b)) } })
+    const r = await call('owner', 'POST', `/api/vendor-invoices/${newestId}/undo`)
+    expect(r.status).toBe(200)
+    expect(r.json.data.bill).toEqual({ outcome: 'kept_paid', billNumber: '06-249853', paidCents: 100000 })
+    const bill = ((await prisma.vendorState.findUnique({ where: { accountId } })).bills as any[]).find(b => b.billNumber === '06-249853')
+    expect(bill.status).not.toBe('void')
+    expect((await get(newestId)).message).toMatch(/stays in Accounts Payable: \$1,000\.00 was already paid on it/)
+  }, 60_000)
 })

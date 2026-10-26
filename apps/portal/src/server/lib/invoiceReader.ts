@@ -126,12 +126,51 @@ export function measureTilt(words: Word[], aspect: number): number {
 }
 
 /**
+ * A text PDF word whose box is far wider than its letters could be. PDFKit
+ * gives nonsense places for the first word drawn after the text jumps back
+ * left (Stephens 06-249853: "HOT" in "HOT DIP" came back 312 pt wide, from
+ * the quantity column to past the description), so sorting by place swapped
+ * it with its neighbour ("DIP HOT", "BAND BRACE", "LOOP AL CAP", "TIE ALUM").
+ * Only for PDF text (`l` unset): a photo's words come from Vision or Tesseract.
+ */
+export function strayWord(w: Word, aspect: number): boolean {
+  if (w.l != null || !(w.h > 0)) return false
+  return w.w * aspect > Math.max(1, w.t.length) * w.h * 1.6 + w.h
+}
+
+/**
+ * Put stray words (above) where they are printed: a PDF gives its text in
+ * reading order, so a stray word sits just before the next word on its line
+ * (else just after the one before it), sized by its letters.
+ */
+export function placeStrayWords(words: Word[], aspect: number): Word[] {
+  const stray = words.map(w => strayWord(w, aspect))
+  if (!stray.some(Boolean)) return words
+  const sameLine = (a: Word, b: Word) => Math.abs((a.y + a.h / 2) - (b.y + b.h / 2)) < Math.max(a.h, b.h) * 0.6
+  return words.map((w, i) => {
+    if (!stray[i]) return w
+    const width = (w.t.length * w.h * 0.62) / aspect
+    const gap = (w.h * 0.3) / aspect
+    for (let j = i + 1; j < words.length; j++) {
+      if (!sameLine(w, words[j])) break
+      if (!stray[j]) return { ...w, x: words[j].x - gap - width, w: width }
+    }
+    for (let j = i - 1; j >= 0; j--) {
+      if (!sameLine(w, words[j])) break
+      if (!stray[j]) return { ...w, x: words[j].x + words[j].w + gap, w: width }
+    }
+    return w
+  })
+}
+
+/**
  * Group words into rows: straighten by the measured tilt, then put words whose
  * middles are within half a word height of each other on one row.
  * `aspect` is page width / height.
  */
-export function wordsToRows(words: Word[], page: number, aspect = 0.77): Row[] {
-  if (!words.length) return []
+export function wordsToRows(input: Word[], page: number, aspect = 0.77): Row[] {
+  if (!input.length) return []
+  const words = placeStrayWords(input, aspect)
   const tilt = measureTilt(words, aspect)
   const cos = Math.cos(-tilt), sin = Math.sin(-tilt)
   const placed = words.map(w => {

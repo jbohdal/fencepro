@@ -164,6 +164,53 @@ export function matchKey(itemNumber: string, description: string): string {
   return `desc:${description.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`
 }
 
+/**
+ * A description key with its words in any order. Until Oct 26, 2026 the PDF
+ * reader swapped some words ("DIP HOT" for "HOT DIP", "1-5/8" GALV" for
+ * "GALV 1-5/8""), and matches saved then are keyed on that wording; this
+ * lets them still find their item now that the text reads as printed.
+ */
+export function looseMatchKey(key: string): string {
+  if (!key.startsWith('desc:')) return key
+  return `desc~${key.slice(5).split(' ').filter(Boolean).sort().join(' ')}`
+}
+
+/**
+ * The remembered match for a line's key: the one saved under that exact key,
+ * else the only one saved under the same words in another order.
+ */
+export function findLink<T extends { key: string }>(links: T[], key: string): T | null {
+  const exact = links.find(l => l.key === key)
+  if (exact) return exact
+  const loose = looseMatchKey(key)
+  if (loose === key) return null
+  const same = links.filter(l => looseMatchKey(l.key) === loose)
+  return same.length === 1 ? same[0] : null
+}
+
+/**
+ * A vendor bill made from a vendor document (it has `invoiceId`) always comes
+ * to its lines + tax + freight + fees. An older Edit bill screen saved
+ * lines + tax only, dropping the fuel charge (06-249853 saved $2,760.27, not
+ * $2,785.27), so the server works the total out itself on every save. The
+ * balance follows; a bill marked paid that now has a balance is open again.
+ * Bills typed in by hand (no `invoiceId`) are left as they are.
+ */
+export function billWithCharges<T extends Record<string, any>>(b: T): T {
+  if (!b || typeof b !== 'object' || !b.invoiceId) return b
+  const int = (v: unknown) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : 0)
+  const fees = Array.isArray(b.fees) ? b.fees : []
+  const feesCents = fees.reduce((s: number, f: any) => s + int(f?.cents), 0)
+  const subtotal = b.subtotalCents != null ? int(b.subtotalCents) : (Array.isArray(b.lineItems) ? b.lineItems.reduce((s: number, l: any) => s + int(l?.totalCents), 0) : 0)
+  const totalCents = subtotal + int(b.taxCents) + int(b.freightCents) + feesCents
+  if (totalCents === int(b.totalCents) && feesCents === int(b.feesCents ?? feesCents)) return b
+  const paid = int(b.amountPaidCents)
+  const balanceDueCents = totalCents - paid
+  const out: any = { ...b, feesCents, totalCents, balanceDueCents }
+  if (out.status === 'paid' && balanceDueCents > 0) { out.status = 'received'; delete out.paidAt }
+  return out
+}
+
 /** The invoice number as compared for duplicates ("INV #00123" and "123" are the same). */
 export function invoiceNumberKey(n: string): string {
   return n.toUpperCase().replace(/^(INV(OICE)?)?[\s#:.-]*/, '').replace(/[^A-Z0-9]/g, '').replace(/^0+(?=\d)/, '')

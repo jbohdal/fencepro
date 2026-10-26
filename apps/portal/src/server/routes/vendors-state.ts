@@ -15,6 +15,7 @@ import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { can, isFullRole, refuse, removedIds, roleOf, sameJson } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
+import { billWithCharges } from '../lib/invoiceMath.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -72,13 +73,16 @@ router.put('/', async (req: any, res) => {
     const accountId = req.user.crmAccountId
     const fields = {
       vendors: oneById(JSON.parse(JSON.stringify(data.vendors)) as any[]),
-      bills: oneById(JSON.parse(JSON.stringify(data.bills)) as any[]),
+      // A bill from a vendor document always comes to lines + tax + freight + fees (lib/invoiceMath).
+      bills: oneById(JSON.parse(JSON.stringify(data.bills)) as any[]).map(billWithCharges),
       payments: oneById(JSON.parse(JSON.stringify(data.payments)) as any[]),
     }
     // Vendors and bills: the office may add and edit them; removing one is a delete, for the owner or an admin.
     const role = roleOf(req)
     const saved = await prisma.vendorState.findUnique({ where: { accountId } })
-    const changed = (['vendors', 'bills', 'payments'] as const).some(k => !sameJson((saved as any)?.[k] ?? [], fields[k]))
+    // A saved bill whose total was short (see billWithCharges) put right is not a change by this person.
+    const savedAs = (k: 'vendors' | 'bills' | 'payments') => { const v = (saved as any)?.[k] ?? []; return k === 'bills' && Array.isArray(v) ? v.map(billWithCharges) : v }
+    const changed = (['vendors', 'bills', 'payments'] as const).some(k => !sameJson(savedAs(k), fields[k]))
     const removes = (['vendors', 'bills', 'payments'] as const).some(k => removedIds((saved as any)?.[k], fields[k]).length)
     const refused = !changed ? null
       : !isFullRole(role) && !can(role, 'billing.change') ? 'billing.change' as const
