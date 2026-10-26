@@ -52,7 +52,7 @@ export interface NightInput {
   date: string
   startedAt: string
   finishedAt: string
-  /** finalize's commit tested, "abc1234 subject". */
+  /** The branch and commit tested: "finalize abc1234 subject". */
   commit: string
   dryRun: boolean
   refresh: { done: boolean; words: string }
@@ -134,7 +134,7 @@ export function morningSummary(n: NightInput, c: Comparison): string[] {
     lines.push(`**${c.newFailures.length ? `${plural(c.newFailures.length, 'NEW FAILURE')}` : 'No new failures'}** (${parts.join(', ')}${c.previousDate ? `; compared with ${c.previousDate}` : '; no earlier night to compare with'}).`)
   }
   if (n.agent?.ran && n.agent.summary.trim()) lines.push(...n.agent.summary.trim().split('\n').map(l => l.trimEnd()).filter(Boolean).slice(0, 12))
-  else if (n.agent && !n.agent.ran && (c.newFailures.length || n.feedback.fresh.length)) lines.push(`The night agent did not run: ${n.agent.why}. Needs Jonathan.`)
+  else if (n.agent && !n.agent.ran && (c.newFailures.length || n.feedback.fresh.length)) lines.push(n.dryRun ? `Dry run: the night agent was not started (${n.agent.why}).` : `The night agent did not run: ${n.agent.why}. Needs Jonathan.`)
   const fb = n.feedback
   if (fb.error) lines.push(`Feedback could not be read: ${oneLine(fb.error, 200)}.`)
   else if (fb.fresh.length) lines.push(`${plural(fb.fresh.length, 'new feedback', 'new feedback')} since the last check${fb.olderNew ? ` (and ${fb.olderNew} older still marked New)` : ''}: see Feedback below.`)
@@ -149,7 +149,7 @@ export function renderReport(n: NightInput, c: Comparison): string {
   L.push('')
   L.push(...morningSummary(n, c).map(l => `${l}  `))
   L.push('')
-  L.push(`Ran ${time(n.startedAt)} to ${time(n.finishedAt)} on the dev copy (ezbiz_dev), code: finalize ${n.commit}. Nothing was sent to anyone and live was not changed.`)
+  L.push(`Ran ${time(n.startedAt)} to ${time(n.finishedAt)} on the dev copy (ezbiz_dev), code: ${n.commit}. Nothing was sent to anyone and live was not changed.`)
   L.push('')
 
   L.push(`## New failures (worked ${c.previousDate ? `on ${c.previousDate}` : 'before'}, broken tonight)`)

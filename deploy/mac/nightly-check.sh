@@ -131,8 +131,7 @@ if [ ! -e "$WT/.git" ]; then
 fi
 git -C "$WT" checkout -q --detach "$REF" >>"$OUT/run.log" 2>&1 && git -C "$WT" reset -q --hard "$REF" && git -C "$WT" clean -qfd -e node_modules >>"$OUT/run.log" 2>&1
 COMMIT="$(git -C "$WT" log -1 --format='%h %s' 2>/dev/null)"
-[ "$REF" != "finalize" ] && COMMIT="$COMMIT (from $REF, not finalize)"
-fact commit "$COMMIT"
+fact commit "$REF $COMMIT"
 say "$REF: $COMMIT"
 for d in node_modules apps/portal/node_modules apps/web/node_modules packages/api/node_modules packages/shared/node_modules; do
   if [ -e "$REPO/$d" ] && [ ! -e "$WT/$d" ]; then ln -s "$REPO/$d" "$WT/$d"; fi
@@ -180,7 +179,8 @@ if [ "$push" != "0" ]; then
   push="$(psql -d "$DB" -Atc 'select count(*) from "PushSubscription"' 2>/dev/null || echo '?')"
 fi
 scrubbed="$(psql -d "$DB" -Atc "select count(*) from \"AccountKeyValue\" where key = 'dev:scrubbed'" 2>/dev/null || echo 0)"
-gate="$(cd "$WT/apps/portal" && OUTBOUND_GATE=closed NODE_ENV=development npx tsx -e "import('./src/server/lib/outboundGate.ts').then(m => console.log(m.outboundBlockReason() || 'OPEN'))" 2>/dev/null | tail -1)"
+# The gate, asked with the exact settings its server gets (and the code it runs).
+gate="$(cd "$WT/apps/portal" && DATABASE_URL="$dburl" OUTBOUND_GATE=closed NODE_ENV=development npx tsx -e "import('./src/server/lib/outboundGate.ts').then(m => { const f = m.outboundBlockReason ?? m.default?.outboundBlockReason; console.log(f() || 'OPEN') })" 2>/dev/null | tail -1)"
 SAFE=1
 if [ "$push" != "0" ]; then problem "the dev copy still has $push phone push sign ups: the tests were not run"; SAFE=0; fi
 if [ "${scrubbed:-0}" = "0" ]; then problem "the dev copy is not marked scrubbed (dev:scrubbed): the tests were not run"; SAFE=0; fi
@@ -189,7 +189,7 @@ fact safety "Phone push sign ups on the dev copy: ${push}; scrubbed mark: $([ "$
 fact safety "Outbound gate: shut (${gate:-unknown})"
 
 outbox="$WT/apps/portal/logs/dev-outbox.log"
-held_before=$(wc -l < "$outbox" 2>/dev/null || echo 0)
+held_before=$( (wc -l < "$outbox") 2>/dev/null || echo 0)
 
 # ── 5. Build, serve, test ──
 if [ "$SAFE" = 1 ]; then
@@ -227,7 +227,7 @@ else
   fact suite iphone not "not run: see the problems above"
 fi
 stop_server
-held_after=$(wc -l < "$outbox" 2>/dev/null || echo 0)
+held_after=$( (wc -l < "$outbox") 2>/dev/null || echo 0)
 fact outbox $((held_after - held_before))
 
 # ── 6. New feedback, from live, read only ──

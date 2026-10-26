@@ -11,7 +11,7 @@ const st = (job: string, step: string, status: StepResult['status'], extra: Part
   ({ suite: 'walkthrough', job, step, role: 'office_staff', device: 'computer (Chromium)', status, ms: 4200, detail: '', screenshot: null, ...extra })
 
 const night = (steps: StepResult[], over: Partial<NightInput> = {}): NightInput => ({
-  date: '2026-10-27', startedAt: '2026-10-27T23:15:00Z', finishedAt: '2026-10-27T23:52:00Z', commit: 'abc1234 fix(x): y', dryRun: false,
+  date: '2026-10-27', startedAt: '2026-10-27T23:15:00Z', finishedAt: '2026-10-27T23:52:00Z', commit: 'finalize abc1234 fix(x): y', dryRun: false,
   refresh: { done: true, words: 'a fresh copy of live, scrubbed' }, safety: ['Database: ezbiz_dev'],
   suites: [{ name: 'walkthrough', label: 'The 3 job walkthrough', ran: true, words: '' }, { name: 'iphone', label: 'iPhone', ran: false, words: 'dry run' }],
   steps, feedback: { source: 'live (read only)', fresh: [], olderNew: 0, error: null }, outboxHeld: 3, agent: null, problems: [], ...over,
@@ -66,6 +66,7 @@ describe('the report', () => {
     const steps = [st('A', 'x', 'fail')]
     const n = night(steps, { agent: { ran: false, why: 'the claude command was not found', command: '', exitCode: null, summary: '' } })
     expect(morningSummary(n, compareNights(null, steps))).toContain('The night agent did not run: the claude command was not found. Needs Jonathan.')
+    expect(morningSummary({ ...n, dryRun: true, agent: { ...n.agent!, why: 'dry run' } }, compareNights(null, steps))).toContain('Dry run: the night agent was not started (dry run).')
   })
   test('a check that could not run says so first', () => {
     const n = night([], { problems: ['the dev copy still has 2 phone push sign ups: the tests were not run'] })
