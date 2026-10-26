@@ -476,6 +476,12 @@ function QuoteDrawer({
   )
 }
 
+/**
+ * Quotes the list draws at first and per "Show more". All ~2,000 rows at once (each with its 5 heat
+ * buttons: about 40,000 elements) hung the iPhone engine on a reload (walkthrough round 2, item 2).
+ */
+const QUOTE_LIST_PAGE = 100
+
 export default function QuotesPage({
   quotes,
   onOpenQuote,
@@ -492,6 +498,8 @@ export default function QuotesPage({
   const [statusFilter, setStatusFilter] = useState<string>(remembered?.statusFilter ?? 'All')
   const [categoryFilter, setCategoryFilter] = useState<string>(remembered?.categoryFilter ?? 'All')
   const [selectedQuote, setSelectedQuote] = useState<SavedQuote | null>(null)
+  const [listLimit, setListLimit] = useState(QUOTE_LIST_PAGE)
+  useEffect(() => { setListLimit(QUOTE_LIST_PAGE) }, [search, statusFilter, categoryFilter])
   // A quote named in the address (?qv=<id>) opens: a reload, a link, or Back onto it.
   const nav = useNav()
   useEffect(() => {
@@ -555,6 +563,7 @@ export default function QuotesPage({
     const matchCat    = categoryFilter === 'All' || fenceCategory(q.fenceStyle) === categoryFilter
     return matchSearch && matchStatus && matchCat
   })
+  const listed = filtered.slice(0, listLimit)
 
   return (
     <div>
@@ -621,7 +630,7 @@ export default function QuotesPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtered.map(q => (
+              {listed.map(q => (
                 <tr
                   key={q.id}
                   className="hover:bg-orange-50 cursor-pointer transition-colors"
@@ -648,6 +657,12 @@ export default function QuotesPage({
               ))}
             </tbody>
           </table>
+        )}
+        {filtered.length > listed.length && (
+          <button type="button" data-quote-list-more onClick={() => setListLimit(n => n + QUOTE_LIST_PAGE)}
+            className="w-full px-4 py-3 text-sm font-semibold text-orange-700 hover:bg-orange-50 border-t border-gray-100">
+            Show {Math.min(QUOTE_LIST_PAGE, filtered.length - listed.length)} more <span className="font-normal text-gray-400">({listed.length} of {filtered.length}; search finds them all)</span>
+          </button>
         )}
       </div>
 

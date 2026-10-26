@@ -38,8 +38,17 @@
 //   home      Add to Home Screen: manifest, apple-touch-icon, apple-mobile-web-app
 //             tags, the icons load, the start URL opens; navigator.standalone is false
 //             in a Safari tab. The Share sheet itself cannot be tapped by WebDriver.
+//   reload    signed in as the owner and then as WT Christa (Salesman): Today, Pipeline,
+//             a customer, a quote and Schedule each opened by its address (a new address
+//             while signed in), then reloaded RELOADS times (default 5); each time the
+//             screen must show, and stay shown (a tab that crashed is reloaded by Safari
+//             and loses the mark the test leaves on the page). Prints the first load's
+//             size (files and API answers, the biggest answers) and the Simulator's
+//             Safari page process memory (WebContent, from `ps` on the Mac) before and
+//             after. Walkthrough round 2, item 2 (Oct 26, 2026).
 //
-// Dev copy only (localhost:4001, database ezbiz_dev). Everything it makes is removed.
+// Dev copy only (localhost:4001 or a worktree's own port, never 4000; database ezbiz_dev).
+// Everything it makes is removed.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import './sharedLock.mjs' // makes a customer, quote, job and payments on the shared dev copy
 import { spawn, execFileSync } from 'child_process'
@@ -51,14 +60,17 @@ import { fileURLToPath } from 'url'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
-if (!/^http:\/\/localhost:4001\/?$/.test(APP) || !/^http:\/\/localhost:4001\/?$/.test(API)) { console.error('Refusing to run: the dev copy only (http://localhost:4001).'); process.exit(2) }
+// The dev copy on this Mac: http://localhost:4001, or a worktree's own dev server on another port (never 4000, live).
+const devLocal = u => /^http:\/\/localhost:\d+\/?$/.test(u) && !/:4000\/?$/.test(u)
+if (!devLocal(APP) || !devLocal(API)) { console.error('Refusing to run: the dev copy only (http://localhost:4001, never port 4000).'); process.exit(2) }
 const DRIVER = process.env.DRIVER || 'safari'
 const DEVICE = process.env.DEVICE || 'iPhone 16'
 const IOS = process.env.IOS || '18.5'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PORTAL_DIR = path.resolve(HERE, '../../portal')
 const SHOTS = process.env.SHOTS || path.join(os.homedir(), 'Downloads/ezbiz-screens-2026-10-17')
-const AREAS = (process.env.AREAS || 'fit,quote,media,payments,portal,home').split(',').map(s => s.trim())
+const AREAS = (process.env.AREAS || 'fit,quote,media,payments,portal,home,reload').split(',').map(s => s.trim())
+const RELOADS = Math.max(1, Number(process.env.RELOADS || 5))
 const PHOTO = process.env.MEDIA_PHOTO || ''
 const VIDEO = process.env.MEDIA_VIDEO || ''
 const TAG = DRIVER === 'safari' ? 'iphone' : `iphone-pw-${DRIVER}`
@@ -153,6 +165,9 @@ async function safariDriver() {
   return {
     name: 'safari', caps: s.capabilities,
     goto: url => wd('POST', '/url', { url }),
+    // Safari's own reload (as pulling the page down or the reload button does).
+    refresh: () => wd('POST', '/refresh', {}),
+    crashes: () => 0, // a crashed Safari tab is reloaded by Safari itself: the reload area's page mark sees it
     exec: (script, args = []) => wd('POST', '/execute/sync', { script, args }),
     execAsync: (script, args = []) => wd('POST', '/execute/async', { script, args }),
     // A real tap: a finger (W3C touch actions) on the middle of the element, once it is
@@ -189,13 +204,17 @@ async function playwrightDriver(kind) {
   const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: kind === 'chromium', bypassCSP: true,
     userAgent: kind === 'webkit' ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1' : undefined })
   let page
-  const fresh = async () => { await page?.close().catch(() => {}); page = await ctx.newPage(); page.on('dialog', d => d.accept().catch(() => {})) }
+  let crashed = 0
+  const fresh = async () => { await page?.close().catch(() => {}); page = await ctx.newPage(); page.on('dialog', d => d.accept().catch(() => {})); page.on('crash', () => { crashed++ }) }
   await fresh()
   const run = (script, args) => page.evaluate(([s, a]) => new Function(s).apply(null, a), [script, args])
   return {
     name: kind,
     // A long session on WebKit can crash its tab: go on in a new one (as payments.mjs does).
     goto: async url => { try { await page.goto(url) } catch (e) { if (!/crash|closed/i.test(e.message)) throw e; await fresh(); await page.goto(url) } },
+    // A reload; a tab that crashed is counted (crashes()) and the reload goes on in a new tab.
+    refresh: async () => { try { await page.reload() } catch (e) { if (!/crash|closed/i.test(e.message)) throw e; const url = page.url(); await fresh(); await page.goto(url) } },
+    crashes: () => crashed,
     exec: run,
     execAsync: (script, args = []) => page.evaluate(([s, a]) => new Promise(res => new Function(s).apply(null, [...a, res])), [script, args]),
     tap: async (css, ms = 15000) => { const l = page.locator(css).first(); await l.waitFor({ state: 'attached', timeout: ms }); await l.scrollIntoViewIfNeeded().catch(() => {}); await l.tap({ timeout: ms }); await sleep(500) },
@@ -554,6 +573,78 @@ async function home() {
   }
 }
 
+// ── 7. Reload and new addresses while signed in (walkthrough round 2, item 2) ──
+// The Simulator's Safari page processes (WebContent) as the Mac sees them: their memory, in MB.
+function simPageMemory() {
+  if (DRIVER !== 'safari') return null
+  try {
+    const rows = execFileSync('ps', ['-axo', 'pid=,rss=,command=']).toString().split('\n')
+      .filter(l => /CoreSimulator/.test(l) && /com\.apple\.WebKit\.WebContent/.test(l))
+      .map(l => { const [pid, rss] = l.trim().split(/\s+/); return { pid: Number(pid), mb: Math.round(Number(rss) / 1024) } })
+    return rows
+  } catch { return null }
+}
+const memText = rows => rows ? (rows.length ? rows.map(r => `${r.mb} MB (pid ${r.pid})`).join(', ') : 'none running') : 'n/a'
+
+// What the page loaded: files and API answers (bytes as received, and as unpacked), the biggest answers.
+const LOAD_STATS = `const all = performance.getEntriesByType('resource'); const nav = performance.getEntriesByType('navigation')[0];
+  const kb = n => Math.round(n / 1024);
+  const api = all.filter(e => /\\/api\\//.test(e.name));
+  const sum = (l, k) => l.reduce((t, e) => t + (e[k] || 0), 0);
+  const big = api.slice().sort((a, b) => (b.decodedBodySize || 0) - (a.decodedBodySize || 0)).slice(0, 4).map(e => kb(e.decodedBodySize || 0) + ' KB ' + e.name.replace(location.origin, '').split('?')[0]);
+  return { files: all.length - api.length, filesKb: kb(sum(all.filter(e => !/\\/api\\//.test(e.name)), 'decodedBodySize') + (nav ? nav.decodedBodySize || 0 : 0)), apis: api.length, apiKb: kb(sum(api, 'decodedBodySize')), apiWireKb: kb(sum(api, 'encodedBodySize')), big, nodes: document.getElementsByTagName('*').length, heapMb: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null }`
+
+async function reloads() {
+  area = 'reload'
+  const screens = who => [
+    ['Today', '/today', '[data-today]'],
+    ['Pipeline', '/pipeline', '[data-kanban-board]'],
+    ['a customer', `/customers/${T.contactId}`, '[data-customer-tab]'],
+    ['a quote', `/quotes?quote=${T.quoteId}`, '[data-quote-builder]'],
+    // A Salesman has no Schedule: the app shows its own "no access" words there, which must show as well.
+    ['Schedule', '/schedule', who === 'owner' ? '[data-schedule-tabs]' : '[data-schedule-tabs], [data-no-access], main'],
+  ]
+  // Shown = the tab bar and the screen's own mark; then a mark is left on the page and must still be there
+  // 2.5 s later (Safari reloads a tab whose page process crashed, which would wipe it).
+  const shown = async sel => {
+    const ok = await waitFor('[data-tabbar]', 60000) && await waitFor(sel, 30000)
+    if (!ok) return 'not shown'
+    const mark = Math.random().toString(36).slice(2)
+    await D.exec('window.__e2eMark = arguments[0]', [mark])
+    await sleep(2500)
+    const still = await D.exec('return window.__e2eMark || null').catch(e => `driver: ${String(e.message).slice(0, 80)}`)
+    return still === mark ? '' : `the page was reloaded by itself (crash?) ${still ?? ''}`
+  }
+  for (const who of ['owner', 'christa']) {
+    if (who === 'christa') {
+      // Signed out of the owner, then WT Christa signs in the way the app does (the HttpOnly cookie from the server).
+      await D.clearCookies()
+      await D.goto(`${APP}/`); await sleep(1500)
+      const st = await D.execAsync(`const done = arguments[arguments.length - 1]; fetch('/api/crm-auth/login', { method: 'POST', credentials: 'include', headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'wt-christa@example.invalid', password: 'WT-walk-2026!', cookie: true }) }).then(r => done(r.status), e => done(String(e)))`)
+      await check('WT Christa signs in (Salesman)', st === 200, String(st))
+      if (st !== 200) continue
+    }
+    const before = simPageMemory()
+    const crashesBefore = D.crashes()
+    for (const [name, url, sel] of screens(who)) {
+      const t0 = Date.now()
+      await D.goto(`${APP}${url}`)
+      const first = await shown(sel)
+      const stats = await D.exec(LOAD_STATS).catch(() => null)
+      await check(`${who}: ${name} opens by its address while signed in`, !first, `${Date.now() - t0} ms${first ? ' ' + first : ''}${stats ? ` | ${stats.files} files ${stats.filesKb} KB, ${stats.apis} API answers ${stats.apiKb} KB (${stats.apiWireKb} KB sent), ${stats.nodes} elements${stats.heapMb != null ? `, JS heap ${stats.heapMb} MB` : ''} | biggest: ${stats.big.join('; ')}` : ''}`)
+      const times = [], bad = []
+      for (let i = 1; i <= RELOADS; i++) {
+        const t = Date.now()
+        try { await D.refresh(); const why = await shown(sel); if (why) bad.push(`#${i} ${why}`); times.push(Date.now() - t - 2500) } catch (e) { bad.push(`#${i} ${String(e.message).split('\n')[0].slice(0, 160)}`) }
+      }
+      await check(`${who}: ${name} reloaded ${RELOADS} times, shown every time, no crash`, bad.length === 0, `${times.map(t => `${(t / 1000).toFixed(1)}s`).join(' ')}${bad.length ? ' | ' + bad.join(' | ') : ''}`)
+    }
+    const after = simPageMemory()
+    await check(`${who}: no page crashed (${DRIVER})`, D.crashes() === crashesBefore, `${D.crashes() - crashesBefore} crashes`)
+    if (after) console.log(`      Safari page process memory (Simulator, ${who}): before ${memText(before)}; after ${memText(after)}`)
+  }
+}
+
 // ── Remove what this made (dev database only, named on every command) ──
 async function cleanup() {
   area = 'cleanup'
@@ -600,6 +691,8 @@ async function cleanup() {
     const ids = T.sessions.filter(s => /^[0-9a-f-]{36}$/i.test(s))
     if (ids.length) sql(`DELETE FROM "CrmUserSession" WHERE id IN (${ids.map(lit).join(',')})`)
     sql(`DELETE FROM "CrmUserSession" WHERE "userAgent" = 'dev-session-token --cookie (browser tests)' AND "createdAt" >= ${lit(startedAt)}`)
+    // WT Christa's sign in from the reload area (this run's iPhone browser).
+    if (AREAS.includes('reload')) sql(`DELETE FROM "CrmUserSession" WHERE "userId" = (SELECT id FROM "CrmUser" WHERE email = 'wt-christa@example.invalid') AND "createdAt" >= ${lit(startedAt)} AND "userAgent" LIKE '%iPhone%'`)
   })
   fs.rmSync(T.tmp, { recursive: true, force: true })
   const left = Number(sql(`SELECT (SELECT count(*) FROM "CrmContact" WHERE id = ${lit(T.contactId)}) + (SELECT count(*) FROM "SavedQuote" WHERE "crmContactId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "SavedJob" WHERE id = ${jl}) + (SELECT count(*) FROM "Receipt" WHERE "jobId" = ${jl}) + (SELECT count(*) FROM "ContractPayment" WHERE "jobId" = ${jl}) + (SELECT count(*) FROM "MediaItem" WHERE "customerId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "PortalAccount" WHERE "crmCustomerId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "IntakeLead" WHERE name LIKE ${lit('E2E iPhone Quote ' + stamp)})`))
@@ -618,13 +711,15 @@ try {
     area = name
     try { await fn() } catch (e) { await check('ran to the end', false, String(e?.message || e).split('\n')[0].slice(0, 300)) }
   }
-  if (['fit', 'media', 'payments'].some(a => AREAS.includes(a))) await signIn()
+  if (['fit', 'media', 'payments', 'reload'].some(a => AREAS.includes(a))) await signIn()
   await run('fit', fit)
   await run('media', media)
   await run('payments', payments)
   await run('portal', portal)
   await run('quote', quote)
   await run('home', home)
+  // Last: it signs the owner out and WT Christa in.
+  await run('reload', reloads)
 } catch (e) {
   if (!results.some(r => !r.ok)) await check('ran', false, String(e?.message || e).split('\n')[0])
 } finally {
