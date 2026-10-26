@@ -16,7 +16,7 @@ import { getJobs } from './jobStore'
 import { getQuoteById } from './quoteStore'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
 import { styleLabel } from './fenceCatalog'
-import { fetchCrewInstall, markInstall, sendInstallPacket, packetUrl, crewInstallCached, putCrewInstall, CREW_INSTALL_EVENT, type CrewInstall, type InstallTime } from './installPacket'
+import { fetchCrewInstall, markInstall, sendInstallPacket, packetUrl, crewInstallCached, putCrewInstall, jobDoneWords, CREW_INSTALL_EVENT, type CrewInstall, type InstallTime } from './installPacket'
 import { workSummary } from './moveRepair'
 import MediaGallery from './MediaGallery'
 import { toast } from './toast'
@@ -157,7 +157,7 @@ function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
       {today && (
         <div className="space-y-1" data-install-times data-install-last-day={lastDay ? 'yes' : 'no'}>
           {jobDone && !working
-            ? <p className="rounded-xl bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-900" data-install-job-done><CheckCircle2 size={16} className="inline -mt-0.5" aria-hidden="true" /> Job finished. The office closes it out after the walkthrough and the final payment.</p>
+            ? <p className="rounded-xl bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-900" data-install-job-done><CheckCircle2 size={16} className="inline -mt-0.5" aria-hidden="true" /> {jobDoneWords(info?.closeOut)}</p>
             : working
               ? (lastDay
                 ? <button type="button" className="btn btn-primary w-full min-h-[48px] bg-green-700 hover:bg-green-800" disabled={busy} onClick={() => tap('finish')} data-install-finish data-install-finish-job><CheckCircle2 size={18} aria-hidden="true" /> Finish the job</button>

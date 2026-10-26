@@ -7,7 +7,7 @@
 
 import { can } from './permissions'
 import { locateOf, locateWords } from '../../portal/src/server/lib/locates'
-import { getJob } from './jobStore'
+import { getJob, refreshJobs } from './jobStore'
 import { businessDate } from './businessDate'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useState } from 'react'
@@ -185,7 +185,15 @@ export interface CrewInstall {
   packet: { token: string } | null; customerNotes: string[]; times: InstallTime[]
   /** The job's last crew day; whether the crew finished the whole job; the 811 locate in words (null: none on the job). */
   lastDay?: string | null; jobDone?: boolean; locate?: { status: string; text: string; ticket: string | null } | null
+  /** The crew days booked, in order ("Finished day 1 of 2"). */
+  crewDays?: string[]
+  /** Where the close out stands: closed (Complete or Paid), the final walkthrough signed, paid in full. Never an amount. */
+  closeOut?: { closed: boolean; walkthroughSigned: boolean; paidInFull: boolean } | null
 }
+
+// Start and Finish in words, and the installer's "Job finished" from the real close out (crewWords.ts).
+export { finishWords, jobDoneWords } from './crewWords'
+import { finishWords } from './crewWords'
 
 /**
  * One copy per job for every card of it on the installer's home (day 1 and
@@ -217,6 +225,8 @@ export async function fetchCrewInstall(jobId: string): Promise<CrewInstall | nul
 export async function markInstall(jobId: string, kind: 'start' | 'finish', jobDone = false): Promise<(Partial<CrewInstall> & { times: InstallTime[] }) | null> {
   const r = await call<Partial<CrewInstall> & { times: InstallTime[] }>(`/crew/${encodeURIComponent(jobId)}/${kind}`, { method: 'POST', body: JSON.stringify(jobDone ? { jobDone: true } : {}) })
   if (r) putCrewInstall(jobId, r)
+  // Start moves the job to In Progress, Finish can close it out (on the server): read the jobs again.
+  if (r) void refreshJobs()
   return r ?? null
 }
 
@@ -224,9 +234,16 @@ export async function markInstall(jobId: string, kind: 'start' | 'finish', jobDo
 export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: { fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number; customerName?: string }; quote: SavedQuote | undefined }) {
   const [packet, setPacket] = useState<Packet | null>(null)
   const [busy, setBusy] = useState(false)
-  const [times, setTimes] = useState<InstallTime[]>([])
+  const [crewInfo, setCrewInfo] = useState<CrewInstall | null>(() => crewInstallCached(jobId))
+  const times = crewInfo?.times ?? []
   useEffect(() => { call<Packet>(`?jobId=${encodeURIComponent(jobId)}`).then(setPacket) }, [jobId])
-  useEffect(() => { fetchCrewInstall(jobId).then(r => setTimes(r?.times ?? [])) }, [jobId])
+  useEffect(() => {
+    let live = true
+    const h = (e: Event) => { if ((e as CustomEvent<{ jobId: string }>).detail?.jobId === jobId && live) setCrewInfo(crewInstallCached(jobId)) }
+    window.addEventListener(CREW_INSTALL_EVENT, h)
+    void fetchCrewInstall(jobId)
+    return () => { live = false; window.removeEventListener(CREW_INSTALL_EVENT, h) }
+  }, [jobId])
 
   async function send() {
     setBusy(true)
@@ -275,7 +292,7 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
       <div className="text-xs text-gray-700" data-job-install-times>
         <p className="font-semibold">Install times</p>
         {times.length === 0 ? <p>The crew has not tapped Start yet.</p> : (
-          <ul>{times.map(t => <li key={t.at}>{t.kind === 'start' ? 'Started' : t.jobDone ? 'Finished the job' : 'Finished'} {new Date(t.at).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {t.by}</li>)}</ul>
+          <ul>{times.map(t => <li key={t.at} data-install-time={t.kind}>{finishWords(t, crewInfo)} {new Date(t.at).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {t.by}</li>)}</ul>
         )}
       </div>
     </div>
