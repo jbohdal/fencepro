@@ -36,6 +36,7 @@ import { Phone, MessageSquare, Navigation, CalendarPlus, FilePlus2, ChevronRight
 import type { PipelineLead } from './JobsPage'
 import type { SavedQuote } from './QuotesPage'
 import type { Appointment } from './appointmentLogic'
+import { refreshAppointmentsFor } from './appointmentsStore'
 import { shortWhen, smsLink } from './appointmentLogic'
 import { getCustomerById } from './customerStore'
 import { listContactNotes, createContactNote, noteChangeFor, type CrmContactNoteRecord, noteAuthor } from './crmContactsApi'
@@ -97,6 +98,17 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
     setNotes(rows ?? [])
   }, [lead.customerId])
   useEffect(() => { load() }, [load])
+  // The customer's appointments read again while the card is open: on open, back to the window, and every 30 s,
+  // so a booking made on another phone shows as the Next appointment without a reload (round 3).
+  useEffect(() => {
+    const id = lead.customerId
+    if (!id) return
+    const again = () => { if (document.visibilityState === 'visible') void refreshAppointmentsFor(id) }
+    again()
+    const t = setInterval(again, 30_000)
+    window.addEventListener('focus', again)
+    return () => { clearInterval(t); window.removeEventListener('focus', again) }
+  }, [lead.customerId])
   // A note waiting for signal reaches the server: show the list as the server has it.
   useEffect(() => {
     if (!lead.customerId) return

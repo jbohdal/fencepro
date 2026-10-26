@@ -74,6 +74,22 @@ export async function refreshAppointments(): Promise<void> {
   if (r.ok && Array.isArray(r.data)) { cache = r.data; hydrated = true; reapply('appointment.'); emit() }
 }
 
+/**
+ * Read one customer's appointments again (small): a card or page open on that customer sees a booking made
+ * on another phone without a reload (round 3, Oct 26 2026: the Salesman's open card missed the office's booking).
+ */
+export async function refreshAppointmentsFor(customerId: string): Promise<void> {
+  if (!customerId) return
+  const r = await call<Appointment[]>('GET', asTable(`?contactId=${encodeURIComponent(customerId)}`))
+  if (!r.ok || !Array.isArray(r.data)) return
+  const fresh = r.data
+  const before = JSON.stringify(cache.filter(a => a.crmContactId === customerId))
+  if (before === JSON.stringify(fresh)) return
+  cache = [...cache.filter(a => a.crmContactId !== customerId), ...fresh]
+  reapply('appointment.')
+  emit()
+}
+
 export const getAppointments = (): Appointment[] => cache
 export const getAppointment = (id: string) => cache.find(a => a.id === id) ?? null
 export const appointmentsFor = (customerId: string) => cache.filter(a => a.crmContactId === customerId)
