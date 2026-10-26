@@ -234,7 +234,10 @@ router.get('/', async (req: any, res) => {
     if (jobs.length) or.push({ jobId: { in: jobs.map(j => j.id) } })
   }
   if (or.length === 0) { res.status(400).json({ success: false, error: 'quoteKey, jobId or customerId is required' }); return }
-  const items = await prisma.mediaItem.findMany({ where: { accountId, deletedAt: null, OR: or }, orderBy: { takenAt: 'asc' } })
+  // The installer sees only what is shared with the crew (Crew or Customer, or his own): an Internal photo can be a
+  // supplier invoice with prices on it (FEATURES 9ae: the installer sees no price).
+  const crewOnly = roleOf(req) === 'field_crew' ? [{ OR: [{ visibility: { in: ['crew', 'customer'] } }, { source: 'crew' }] }] : []
+  const items = await prisma.mediaItem.findMany({ where: { accountId, deletedAt: null, AND: [{ OR: or }, ...crewOnly] }, orderBy: { takenAt: 'asc' } })
   res.json({ success: true, data: items.map(m => serializeMedia(m)) })
 })
 

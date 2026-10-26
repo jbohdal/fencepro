@@ -9,7 +9,7 @@
  * Round 2 review (Oct 26, 2026): a new fence proposal shows its Customer
  * photos too; the customer never sees a staff caption; once sold, the job's
  * photos and the crew packet carry the quote's and the visit's photos
- * (Internal too, never a price in a caption), while the job's Photos Uploaded
+ * (the office sees all; the installer and the packet only those shared with the crew, never an Internal one), while the job's Photos Uploaded
  * milestone still counts only photos taken on the job.
  */
 
@@ -176,13 +176,21 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('visit photos on a new fence prop
     const onJob = new Set((list.data ?? []).map((m: any) => m.id))
     expect([visitInternal, visitCustomer, quoteInternal, jobInternal, jobCrew].every(i => onJob.has(i))).toBe(true)
 
-    // The crew packet: the quote's and the visit's (Internal too), the job's Crew one; never the job's own Internal one or a price.
+    // The crew packet: what is shared with the crew from the job, the quote and the visit; never an Internal one
+    // (an Internal photo can be a supplier invoice with prices on it) or a price.
     const pk = await prisma.installPacket.create({ data: { accountId: account.id, jobId: job.id, token: `pk${tag}${crypto.randomBytes(8).toString('hex')}`, snapshot: { companyName: 'Getter Done Fence' } as any } })
     made.packets.push(pk.id)
     const packet = await fetch(`${base}/p/i/${pk.token}`).then(r => r.text())
-    for (const id of [visitInternal, visitCustomer, quoteInternal, jobCrew]) expect(packet).toContain(`m/${id}/`)
-    expect(packet).not.toContain(`m/${jobInternal}/`)
+    for (const id of [visitCustomer, jobCrew]) expect(packet).toContain(`m/${id}/`)
+    for (const id of [visitInternal, quoteInternal, jobInternal]) expect(packet).not.toContain(`m/${id}/`)
     expect(packet).not.toContain('1,093.60')
+
+    // The installer's job photos: the same rule.
+    const crew = jwt.sign({ sub: crypto.randomUUID(), email: `${tag}-crew@example.invalid`, role: 'field_crew', crmAccountId: account.id }, secret, { expiresIn: '10m' })
+    const crewList = await fetch(`${base}/api/media?jobId=${job.id}`, { headers: { Authorization: `Bearer ${crew}` } }).then(r => r.json()) as any
+    const seen = new Set((crewList.data ?? []).map((m: any) => m.id))
+    expect([visitCustomer, jobCrew].every(i => seen.has(i))).toBe(true)
+    expect([visitInternal, quoteInternal, jobInternal].some(i => seen.has(i))).toBe(false)
 
     // Photos Uploaded counts only the photos taken on the job.
     const facts = await readinessFactsFor(account.id, [{ ...job, status: 'staging' } as any])

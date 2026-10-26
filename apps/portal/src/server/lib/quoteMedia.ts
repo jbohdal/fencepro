@@ -19,8 +19,9 @@
  * staff words ("Ready to quote visit").
  *
  * Once sold, the job's photos and the crew's packet carry the quote's photos
- * and its visit photos too (jobQuoteMediaOr): the crew sees the site as the
- * salesman saw it. The job's "Photos Uploaded" milestone still counts only
+ * and its visit photos too (jobQuoteMediaOr). The crew (the installer and the
+ * crew packet) gets only those set to Crew or Customer, never Internal ones:
+ * an Internal photo can be a supplier invoice with prices on it. The job's "Photos Uploaded" milestone still counts only
  * photos taken on the job itself (lib/jobTruth.ts).
  */
 

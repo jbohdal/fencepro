@@ -6,8 +6,8 @@
  * Shows the customer and address (with a map link), install date, gate codes
  * and notes, the site plan with photo pins, every run with its post to post
  * spacing, section and post counts, gates, the pull sheet quantities, the
- * job's Crew and Customer photos and video and every photo from its quote and
- * site visit, with captions (marked up first; a price in one left out), and a
+ * Crew and Customer photos and video of the job, its quote and its site
+ * visit, with captions (marked up first; a price in one left out), and a
  * field for the 811 locate ticket. Never prices, margins or sub pay.
  *
  * The crew can add Progress and Completed photos from the link; they land on
@@ -364,12 +364,12 @@ packetPublic.get('/:token', async (req, res) => {
   const coLines = coChange ? sheetChanges((p.snapshot as Snapshot).pullSheet ?? [], s.pullSheet ?? []) : []
   // The fence's plain name (packets made before plain names carry the style's code).
   const styleText = panelWords(await plainStyleName(s.style ?? job!.fenceStyle), s.runs ?? [])
-  // The job's Crew and Customer photos and video, what the crew added from here, and every photo and video from the
-  // quote and its site visit (Internal too: the crew sees the site as the salesman saw it; lib/quoteMedia.ts).
+  // The job's, its quote's and its site visit's photos and video shared with the crew (Crew or Customer), and what the
+  // crew added from here. Never Internal ones: one can be a supplier invoice with prices (lib/quoteMedia.ts).
   const ttl = 3 * 86_400_000
   const fromQuote = await jobQuoteMediaOr(p.accountId, job!.quoteId)
   const media = await prisma.mediaItem.findMany({
-    where: { accountId: p.accountId, deletedAt: null, kind: { in: ['photo', 'video'] }, OR: [{ jobId: job!.id, OR: [{ visibility: { in: ['crew', 'customer'] } }, { source: 'crew' }] }, ...fromQuote] },
+    where: { accountId: p.accountId, deletedAt: null, kind: { in: ['photo', 'video'] }, AND: [{ OR: [{ jobId: job!.id }, ...fromQuote] }, { OR: [{ visibility: { in: ['crew', 'customer'] } }, { source: 'crew' }] }] },
     orderBy: { takenAt: 'asc' },
   })
   const items = media.map(m => serializeMedia(m, ttl))
