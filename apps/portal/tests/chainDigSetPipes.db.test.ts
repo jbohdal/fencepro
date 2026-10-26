@@ -3,8 +3,10 @@
  * runs once, and side by side with the other start-up steps nothing is lost.
  *
  * A throwaway company is made from the dev company's Settings and Inventory,
- * with the 12 dig set post parts back on their first names and the dig set
- * kits back on the old hook tie count (as live is before the update).
+ * with the 12 galvanized and black dig set post parts back on their first
+ * names and the dig set kits back on the old hook tie count (as live is
+ * before the update). Parts the step never named (the Green chain link dig set
+ * posts, made Oct 26 with the 0.055 wall names already) are left as they are.
  * Database writes happen only inside beforeAll / test / afterAll.
  */
 
@@ -13,7 +15,8 @@ import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 
 const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
 const KINDS = ['corner', 'end', 'line', 'blank', 'section', 'section8', 'perFoot', 'perJob', 'walkGate', 'dblGate']
-const oldName = (n: string) => n.replace(/^(DS, Pipe, \w+, (?:Line|Terminal) Post), [^,]+ 0\.055 wall, /, '$1, ')
+const oldName = (n: string) => n.replace(/^(DS, Pipe, (?:Galv|Blk), (?:Line|Terminal) Post), [^,]+ 0\.055 wall, /, '$1, ')
+const STEP_PIPE = /^DS, Pipe, (Galv|Blk), (Line|Terminal) Post, /
 const isTie = (p: string) => /Hook Ties, 6-1\/2"/.test(p)
 
 describe.skipIf(!process.env.DEV_DB || !onDev)('chain link dig set pipe names and hook ties step (dev database)', () => {
@@ -64,6 +67,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('chain link dig set pipe names an
     const before = await prisma.inventoryState.findUnique({ where: { accountId } })
     const beforeB = await prisma.businessState.findUnique({ where: { accountId } })
     expect((before.items as any[]).filter(i => /^DS, Pipe, \w+, (Line|Terminal) Post, \d' Chain Link$/.test(i.name))).toHaveLength(12)
+    const others = (before.items as any[]).filter(i => /^DS, Pipe, /.test(i.name) && !STEP_PIPE.test(i.name))
 
     const res = await Promise.all([ensureChainDigSetPipes(accountId), ensureWood(accountId), ensureChainDigSetPipes(accountId), ensureStylesOnHold(accountId), ensureChainDigSet(accountId)])
     const ran = [res[0], res[2]].filter(Boolean) as any[]
@@ -79,7 +83,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('chain link dig set pipe names an
     const items = after.items as any[]
     // Same parts (by id), nothing lost or doubled, 12 new names; Settings untouched.
     expect(items.map(i => i.id)).toEqual((before.items as any[]).map(i => i.id))
-    expect(items.filter(i => / 0\.055 wall, \d' Chain Link$/.test(i.name))).toHaveLength(12)
+    expect(items.filter(i => STEP_PIPE.test(i.name) && / 0\.055 wall, \d' Chain Link$/.test(i.name))).toHaveLength(12)
+    // Any other dig set post part (Green, on the dev copy) is exactly as it was.
+    expect(items.filter(i => /^DS, Pipe, /.test(i.name) && !STEP_PIPE.test(i.name))).toEqual(others)
     expect(after.version).toBeGreaterThan(before.version)
     expect((afterB.config as any).fenceStyles.length).toBe((beforeB.config as any).fenceStyles.length)
     // Every dig set kit line names a part in Inventory.
