@@ -16,8 +16,8 @@
 //      Uploaded ticked by hand shows "Ticked by hand".
 //   5. The Complete stage button on the job page moves the job (job B).
 //   6. Close out (job A): walkthrough signed, then the final payment: the job
-//      is Complete by itself, its card is in Job Complete, and the customer
-//      page says "Job: Complete".
+//      is Complete and then Paid by itself, its card is in Paid & Closed, and
+//      the customer page says "Job: Paid".
 //
 //   APP_URL=http://localhost:4022 API_URL=http://localhost:4022 E2E_ACCESS_TOKEN=<dev owner> E2E_STAFF_COOKIE=<cookie> SHOTS=<folder> node e2e/job-truth.mjs
 //
@@ -168,10 +168,15 @@ try {
   const crewCtx = await (await chromium.launch().then(b => { browsers.push(b); return b })).newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
   const crew = await crewCtx.newPage()
   await crew.goto(`${API}/p/i/${packetToken}`)
+  // The locate on file is shown in words; "Change the locate" opens the boxes (round 2).
+  await crew.locator('[data-packet-locate-edit]').click()
   await crew.locator('#lexp').fill(plus(start, 20))
   await crew.locator('#saveLocate').click()
   const crewMsg = await until(async () => { const t = await crew.locator('#locMsg').textContent(); return t?.startsWith('Saved') ? t : null })
   check('packet: the crew saves the new expiration', !!crewMsg, crewMsg || '')
+  // The table on file shows the new expiration at once, the boxes closed (round 2b: it kept the old dates until a reload).
+  const expShown = await until(async () => (await crew.locator('[data-packet-locate-exp]').textContent())?.trim() === `${plus(start, 20).slice(5, 7)}/${plus(start, 20).slice(8, 10)}/${plus(start, 20).slice(0, 4)}`)
+  check('packet: the 811 table shows the saved expiration without a reload, boxes closed', !!expShown && !(await crew.locator('#locForm').isVisible()) && /Saved by Crew \(install packet\)/.test(await crew.locator('[data-packet-locate-by]').textContent() || ''))
 
   // ── Computer, a second browser: sees the crew's change ──
   const pc = await browserPage('computer')
@@ -268,12 +273,13 @@ try {
   check('close out: the deposit alone leaves the job where it is', p1.status === 201 && mid.status === 'staging', mid.status)
   const p2 = await call('POST', '/api/payments', { id: `e2etruth${stamp}b`, jobId: W.a.jobId, amountCents: 355691, method: 'check', checkNumber: '102' })
   const done = (await call('GET', `/api/saved-jobs/${W.a.jobId}`)).json.data
-  check('close out: signed and paid in full: Complete by itself', p2.status === 201 && done.status === 'completed' && done.opsStage === 'completed' && done.paymentStatus === 'paid' && /^\d{4}-\d{2}-\d{2}$/.test(done.completedDate || ''), `${done.status} ${done.opsStage} ${done.paymentStatus}`)
+  // Round 2 (Oct 26): Complete, and the balance being zero, on to Paid by itself.
+  check('close out: signed and paid in full: Complete then Paid by itself', p2.status === 201 && done.status === 'paid' && done.opsStage === 'paid' && done.paymentStatus === 'paid' && /^\d{4}-\d{2}-\d{2}$/.test(done.completedDate || ''), `${done.status} ${done.opsStage} ${done.paymentStatus}`)
   const card = ((await call('GET', '/api/pipeline')).json.data?.leads ?? []).find(l => l.id === W.a.cardId)
   check('close out: paid in full and done, the pipeline card is in Paid & Closed', card?.stage === 'Paid & Closed', card?.stage)
   await pc.page.goto(`${APP}/customers/${W.a.contactId}`)
-  const status = await until(async () => { const t = await pc.page.locator('text=Job Status').locator('xpath=following-sibling::span[1]').textContent(); return /Complete/.test(t || '') ? t : null })
-  check('close out: the customer page says Job: Complete', status === 'Job: Complete', status || '')
+  const status = await until(async () => { const t = await pc.page.locator('text=Job Status').locator('xpath=following-sibling::span[1]').textContent(); return /Paid/.test(t || '') ? t : null })
+  check('close out: the customer page says Job: Paid', status === 'Job: Paid', status || '')
   check('computer: no errors', pc.errors.length === 0, pc.errors.join(' | '))
 } catch (e) {
   check('test run finished', false, String(e).split('\n').slice(0, 3).join(' '))
