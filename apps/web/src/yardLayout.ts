@@ -147,6 +147,9 @@ export interface QuoteLayoutRecord {
   runSections: number[]
   /** Line posts priced beyond the runs' own: vinyl tees (deriveLayout `linePosts`). Absent: 0. */
   teeLinePosts?: number
+  /** A quote typed as a run list (no yard): each gate's width in feet, kept from the drawing it was typed from
+   *  or set on the run list (chain link gate leaves go by width). Absent: every walk gate 4 ft, every double gate 8 ft. */
+  gateWidths?: { walk: number[]; dbl: number[] } | null
   /** A quote from the website quote: the customer's drawing as they drew it (never changed by the builder). */
   widgetDrawing?: WidgetDrawingRecord | null
 }
@@ -425,6 +428,33 @@ export function deriveLayout(layout: YardLayout, nearIn = 96, opts: { teeAs?: Te
     totalIn: on.reduce((s, x) => s + x.lengthIn, 0),
     notes: sides.flatMap(r => r.notes.map(n => `${r.name}: ${n}`)),
   }
+}
+
+/** A typed gate's width when none is given: a walk gate 4 ft, a double gate 8 ft (DECISIONS.md, Oct 26 2026). */
+export const TYPED_WALK_GATE_FT = 4
+export const TYPED_DBL_GATE_FT = 8
+
+/**
+ * One width for every typed gate: the widths kept (from the drawing, or set on
+ * the run list) for as many gates as are typed, a gate added on the list at
+ * 4 ft (walk) or 8 ft (double).
+ */
+export function fitGateWidths(w: { walk?: unknown; dbl?: unknown } | null | undefined, walkGates: number, dblGates: number): { walk: number[]; dbl: number[] } {
+  const ok = (a: unknown) => (Array.isArray(a) ? a.filter((x): x is number => typeof x === 'number' && Number.isFinite(x) && x > 0) : [])
+  const fit = (a: number[], n: number, d: number) => Array.from({ length: Math.max(0, Math.floor(n) || 0) }, (_, i) => a[i] ?? d)
+  return { walk: fit(ok(w?.walk), walkGates, TYPED_WALK_GATE_FT), dbl: fit(ok(w?.dbl), dblGates, TYPED_DBL_GATE_FT) }
+}
+
+/** Every gate at the typed default width (4 ft walk, 8 ft double): nothing to keep. */
+export function defaultGateWidths(w: { walk: number[]; dbl: number[] }): boolean {
+  return w.walk.every(x => Math.abs(x - TYPED_WALK_GATE_FT) < 0.05) && w.dbl.every(x => Math.abs(x - TYPED_DBL_GATE_FT) < 0.05)
+}
+
+/** A saved quote's gate widths: its drawing's, else the widths kept with its typed run list; null when neither. */
+export function layoutGateWidths(layout: Pick<QuoteLayoutRecord, 'yard' | 'gateWidths'> | null | undefined): { walk: number[]; dbl: number[] } | null {
+  if (layout?.yard) return gateWidthsOf(layout.yard)
+  const g = layout?.gateWidths
+  return g && Array.isArray(g.walk) && Array.isArray(g.dbl) ? { walk: g.walk.slice(), dbl: g.dbl.slice() } : null
 }
 
 /** A saved drawing's gate widths in feet (deriveLayout gateWidthsFt), or null when there is no drawing. */

@@ -94,7 +94,7 @@ function workPart(work: unknown) {
 
 /** The yard's geometry: what changes footage, posts and gates. Names, headings and the drawing are not in it. */
 export function layoutGeometry(layout: unknown) {
-  if (!isObj(layout)) return { yard: null, runSections: null }
+  if (!isObj(layout)) return { yard: null, runSections: null } as { yard: Json | null; runSections: unknown; gateWidths?: unknown }
   const yard = isObj(layout.yard) ? layout.yard as Json : null
   return {
     yard: yard ? {
@@ -108,6 +108,8 @@ export function layoutGeometry(layout: unknown) {
       })),
     } : null,
     runSections: Array.isArray(layout.runSections) ? layout.runSections : null,
+    // A typed run list's gate widths (chain link gate leaves go by width); absent on a drawing or 4 ft / 8 ft gates.
+    ...(!yard && isObj(layout.gateWidths) ? { gateWidths: layout.gateWidths } : {}),
   }
 }
 

@@ -70,6 +70,13 @@ const cents = (dollars: unknown) => Math.round(num(dollars) * 100)
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const sumFt = (runs: number[]) => Math.round(runs.reduce((s, f) => s + (f > 0 ? f : 0), 0) * 100) / 100
 
+/** A typed run list's gate widths kept on its layout ({ walk, dbl } in feet), or null. */
+function typedGateWidths(layout: Json): { walk: number[]; dbl: number[] } | null {
+  const g = isObj(layout) ? layout.gateWidths : null
+  const ok = (a: unknown): a is number[] => Array.isArray(a) && a.every(x => typeof x === 'number' && Number.isFinite(x) && x > 0)
+  return isObj(g) && ok(g.walk) && ok(g.dbl) ? { walk: g.walk, dbl: g.dbl } : null
+}
+
 /** The quote builder's request for a saved quote (or a change order's stored work). */
 export function requestOfQuote(q: Json): Json {
   const runs: number[] = Array.isArray(q?.runs) ? q.runs.map((r: Json) => num(typeof r === 'number' ? r : r?.ft)) : []
@@ -81,6 +88,8 @@ export function requestOfQuote(q: Json): Json {
     ...(num(q?.layout?.teeLinePosts) > 0 ? { extraLinePosts: Math.round(num(q.layout.teeLinePosts)) } : {}),
     // The drawing: chain link gate leaves are priced by its gate widths (quoteJob.ts).
     ...(isObj(q?.layout?.yard) ? { yard: q.layout.yard } : {}),
+    // A typed run list: the gate widths kept with it (the drawing's when it was typed from one).
+    ...(!isObj(q?.layout?.yard) && typedGateWidths(q?.layout) ? { gateWidths: typedGateWidths(q.layout) } : {}),
     tearOutSections: num(q?.tearOutSections), tearOutGates: num(q?.tearOutGates),
     extraLaborHrs: num(q?.adjLaborHrs), hasSalesman: !!q?.hasSalesman, priceAdjust: num(q?.priceAdjust),
     overrides: {}, jobType: 'new',
@@ -105,7 +114,9 @@ export async function priceWork(accountId: string, signed: Json, input: WorkInpu
   const runs: number[] = req.runs.filter((r: Json) => r.ft > 0).map((r: Json) => r.ft)
   const rails: string[] = req.runs.filter((r: Json) => r.ft > 0).map((r: Json) => r.rail ?? 'auto')
   const t = job.totals
-  const layout = isObj(input.layout) ? { yard: input.layout.yard ?? null, runSections: Array.isArray(input.layout.runSections) ? input.layout.runSections : job.calc.perRunSections?.filter((_: unknown, i: number) => (req.runs[i]?.ft ?? 0) > 0) ?? null, ...(num(input.layout.teeLinePosts) > 0 ? { teeLinePosts: num(input.layout.teeLinePosts) } : {}) } : null
+  // A typed run list keeps its gate widths with the work (as priced: the request's), so the job's rebuilt work prices them the same.
+  const typedWidths = isObj(input.layout) && !isObj(input.layout.yard) && isObj(req.gateWidths) ? { gateWidths: req.gateWidths } : {}
+  const layout = isObj(input.layout) ? { yard: input.layout.yard ?? null, runSections: Array.isArray(input.layout.runSections) ? input.layout.runSections : job.calc.perRunSections?.filter((_: unknown, i: number) => (req.runs[i]?.ft ?? 0) > 0) ?? null, ...(num(input.layout.teeLinePosts) > 0 ? { teeLinePosts: num(input.layout.teeLinePosts) } : {}), ...typedWidths } : null
   const planSvg = typeof input.planSvg === 'string' && input.planSvg.length <= 400_000 && /^<svg[\s>]/.test(input.planSvg.trim()) ? input.planSvg : null
   return {
     request: req, fenceStyle: req.fenceStyle, runs, ...(rails.some(r => r !== 'auto') ? { runRails: rails } : {}),
@@ -213,8 +224,10 @@ export function requestForShape(shape: WorkShape, like: Json): Json {
     tearOutSections: shape.tearOutSections, tearOutGates: shape.tearOutGates,
   }
   if (num(shape.teeLinePosts) > 0) req.extraLinePosts = Math.round(num(shape.teeLinePosts)); else delete req.extraLinePosts
-  // Gate widths come from the shape's drawing (chain link gate leaves by width), never from `like`.
+  // Gate widths come from the shape's drawing (chain link gate leaves by width), or the widths a typed
+  // run list keeps (a drawn 10 ft double gate typed as a run list), never from `like`.
   delete req.gateWidths
+  if (!isObj(shape.yard) && shape.gateWidths) req.gateWidths = shape.gateWidths
   if (isObj(shape.yard)) req.yard = shape.yard; else delete req.yard
   return req
 }
@@ -244,7 +257,9 @@ export async function rebuildJobWork(accountId: string, quoteId: string, tx: any
       // Rebuilt already for the same work: kept as it was priced (a later approval does not price it again).
       if (isObj(own.applied) && sameShape(shapeOf(own.applied), s.shape)) applied = own.applied as StoredWork
       else {
-        const layout = s.shape.yard ? { yard: s.shape.yard, ...(num(s.shape.teeLinePosts) > 0 ? { teeLinePosts: s.shape.teeLinePosts } : {}) } : null
+        const layout = s.shape.yard ? { yard: s.shape.yard, ...(num(s.shape.teeLinePosts) > 0 ? { teeLinePosts: s.shape.teeLinePosts } : {}) }
+          // A run list keeps its gate widths with the work (the builder and packet read them from the layout).
+          : s.shape.gateWidths ? { yard: null, gateWidths: s.shape.gateWidths } : null
         applied = await priceWork(accountId, q, { request: requestForShape(s.shape, own.request), layout, planSvg: null })
       }
       for (const c of s.conflicts) conflicts.push(`CO-${s.row.number}: ${c}`)

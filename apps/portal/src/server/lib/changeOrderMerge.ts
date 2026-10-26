@@ -36,10 +36,12 @@ export interface WorkShape {
   yard: Json | null
   /** Line posts beyond the runs' own (vinyl tees). */
   teeLinePosts?: number
+  /** A run list (no drawing): each gate's width in feet, one per gate; absent: 4 ft walk, 8 ft double gates. */
+  gateWidths?: { walk: number[]; dbl: number[] }
 }
 
 /** A yard turned into what the calculator takes (yardLayout.ts deriveLayout at the style's width). */
-export interface DerivedRuns { runs: number[]; corners: number; ends: number; walkGates: number; dblGates: number; linePosts?: number; runNames?: string[] }
+export interface DerivedRuns { runs: number[]; corners: number; ends: number; walkGates: number; dblGates: number; linePosts?: number; runNames?: string[]; gateWidths?: { walk: number[]; dbl: number[] } }
 export type DeriveRuns = (yard: Json, fenceStyle: string) => DerivedRuns | null
 
 /** One change order's change: the drawing it started from and the one it ends with. */
@@ -56,11 +58,28 @@ export function shapeOf(x: Json): WorkShape {
   const runs: number[] = Array.isArray(x?.runs) ? x.runs.map((r: Json) => num(typeof r === 'number' ? r : r?.ft)).filter((f: number) => f > 0) : []
   const rails = Array.isArray(x?.runRails) ? x.runRails.map(String) : undefined
   const tee = num(x?.teeLinePosts, num(layout?.teeLinePosts))
+  const walkGates = num(x?.walkGates), dblGates = num(x?.dblGates)
+  // A run list's gate widths: kept on its layout, or on its stored request.
+  const widths = yard ? null : fitWidths(isObj(layout?.gateWidths) ? layout!.gateWidths : isObj(x?.gateWidths) ? x.gateWidths : isObj(x?.request?.gateWidths) ? x.request.gateWidths : null, walkGates, dblGates)
   return {
     fenceStyle: String(x?.fenceStyle ?? ''), runs, ...(rails && rails.some((r: string) => r !== 'auto') ? { runRails: rails } : {}),
-    corners: num(x?.corners), ends: num(x?.ends), walkGates: num(x?.walkGates), dblGates: num(x?.dblGates),
+    corners: num(x?.corners), ends: num(x?.ends), walkGates, dblGates,
     tearOutSections: num(x?.tearOutSections), tearOutGates: num(x?.tearOutGates), yard, ...(tee > 0 ? { teeLinePosts: tee } : {}),
+    ...(widths ? { gateWidths: widths } : {}),
   }
+}
+
+/**
+ * Gate widths for a run list, one per gate: the kept widths for as many gates as there are, a gate
+ * added at 4 ft (walk) or 8 ft (double) (web yardLayout.ts fitGateWidths). Null when every gate is 4 ft / 8 ft.
+ */
+export function fitWidths(w: Json, walkGates: number, dblGates: number): { walk: number[]; dbl: number[] } | null {
+  if (!isObj(w)) return null
+  const ok = (a: unknown) => (Array.isArray(a) ? a.filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0) : [])
+  const fit = (a: number[], n: number, d: number) => Array.from({ length: Math.max(0, Math.floor(n) || 0) }, (_, i) => a[i] ?? d)
+  const out = { walk: fit(ok(w.walk), walkGates, 4), dbl: fit(ok(w.dbl), dblGates, 8) }
+  const plain = out.walk.every(v => Math.abs(v - 4) < 0.05) && out.dbl.every(v => Math.abs(v - 8) < 0.05)
+  return plain ? null : out
 }
 
 /** The yard without the site plan's hand placed corners and photo (they do not change the work). */
@@ -68,7 +87,7 @@ const workYard = (y: Json) => (isObj(y) ? { ...y, plan: undefined } : null)
 
 /** The same work: same style, runs, posts, gates, tear out and yard. */
 export function sameShape(a: WorkShape, b: WorkShape): boolean {
-  const k = (s: WorkShape) => [s.fenceStyle, s.runs, s.corners, s.ends, s.walkGates, s.dblGates, s.tearOutSections, s.tearOutGates, workYard(s.yard)]
+  const k = (s: WorkShape) => [s.fenceStyle, s.runs, s.corners, s.ends, s.walkGates, s.dblGates, s.tearOutSections, s.tearOutGates, workYard(s.yard), s.yard ? null : s.gateWidths ?? null]
   return same(k(a), k(b))
 }
 
@@ -175,7 +194,19 @@ export function applyChange(cur: WorkShape, step: ChangeStep, derive: DeriveRuns
   out.walkGates = plus(cur.walkGates, base.walkGates, mine.walkGates)
   out.dblGates = plus(cur.dblGates, base.dblGates, mine.dblGates)
   // A drawing that no longer matches the runs is left out (the runs are the work).
-  if (out.yard && !same(out.runs, cur.runs)) out.yard = null
+  if (out.yard && !same(out.runs, cur.runs)) {
+    // Its gates keep their widths on the run list (a 10 ft double gate stays two 5 ft leaves).
+    const drawn = cur.yard ? derive(cur.yard, cur.fenceStyle) : null
+    if (drawn?.gateWidths && !out.gateWidths) out.gateWidths = drawn.gateWidths
+    out.yard = null
+  }
+  // Gate widths, one per gate: the change's when it changed them, else as now; gates added are 4 ft / 8 ft.
+  if (!out.yard) {
+    const widths = (s: WorkShape) => fitWidths(s.gateWidths ?? null, s.walkGates, s.dblGates)
+    const picked = same(widths(mine), widths(base)) ? (out.gateWidths ?? cur.gateWidths ?? null) : (mine.gateWidths ?? null)
+    const fitted = fitWidths(picked, out.walkGates, out.dblGates)
+    if (fitted) out.gateWidths = fitted; else delete out.gateWidths
+  }
   return { shape: out, conflicts, merged: true }
 }
 

@@ -223,7 +223,7 @@ router.get('/start', requireCan('quotes.change'), async (req: any, res) => {
     const last = start.steps[start.steps.length - 1]
     const known: any = last ? effectiveWork(last.row) : start.quote
     const same = sameShape(shapeOf(known), start.shape)
-    const layout = same && known?.layout && typeof known.layout === 'object' ? known.layout : { yard: start.shape.yard, runSections: [] }
+    const layout = same && known?.layout && typeof known.layout === 'object' ? known.layout : { yard: start.shape.yard, runSections: [], ...(!start.shape.yard && start.shape.gateWidths ? { gateWidths: start.shape.gateWidths } : {}) }
     res.json({ success: true, data: {
       ...start.shape, layout, sections: same ? (known?.sections ?? null) : null,
       planSvg: same ? (last ? known?.planSvg ?? null : known?.proposal?.planSvg ?? null) : null,

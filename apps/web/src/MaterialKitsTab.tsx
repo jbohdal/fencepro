@@ -14,7 +14,7 @@ import { getConfig, getRailOptimizerConfig, type AppConfig } from './configStore
 import { getInventory, getInventoryUnitCost, getKitSets, saveKitSets, INVENTORY_UPDATED_EVENT } from './inventoryStore'
 import { allKitSets, kitSetFor, withKitSets, KIT_KINDS, KIT_LABEL, isAutoKitStyle, type KitSet, type KitKind, type KitPart } from './materialKits'
 import { calculateQuote } from './quoteCalc'
-import { gateWidthsOf } from './yardLayout'
+import { layoutGateWidths } from './yardLayout'
 import { getQuotes } from './quoteStore'
 import { toast } from './toast'
 import type { SavedQuote } from './QuotesPage'
@@ -42,7 +42,7 @@ function priceQuote(q: SavedQuote, cfg: AppConfig, sets: KitSet[]) {
     const r = calculateQuote({
       style, runs: q.runs.map((ft, i) => ({ ft, rail: q.runRails?.[i] ?? 'auto' })),
       corners: q.corners || 0, ends: q.ends || 0, walkGates: q.walkGates || 0, dblGates: q.dblGates || 0,
-      gateWidths: gateWidthsOf(q.layout?.yard),
+      gateWidths: layoutGateWidths(q.layout),
       ...(q.layout?.teeLinePosts ? { extraLinePosts: q.layout.teeLinePosts } : {}),
       tearOutSections: q.tearOutSections || 0, tearOutGates: q.tearOutGates || 0,
       extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0,

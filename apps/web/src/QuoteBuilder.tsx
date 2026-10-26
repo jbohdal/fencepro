@@ -19,7 +19,7 @@ import { getRailOptimizerConfig } from './configStore'
 import { sourcePicker } from './optionListsStore'
 import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
 import { layoutPanelFt } from './gateSlide'
-import { deriveLayout, formatFtIn, postSpacing, teePostFor, type YardLayout } from './yardLayout'
+import { defaultGateWidths, deriveLayout, fitGateWidths, formatFtIn, postSpacing, teePostFor, TYPED_DBL_GATE_FT, TYPED_WALK_GATE_FT, type YardLayout } from './yardLayout'
 import LayoutEditor, { nextEmptySide } from './LayoutEditor'
 import CustomerDrawing from './CustomerDrawing'
 import SiteVisitInQuote from './SiteVisitInQuote'
@@ -497,6 +497,10 @@ export default function QuoteBuilder({
   const [ends, setEnds]                 = useState(init?.ends ?? 0)
   const [walkGates, setWalkGates]       = useState(init?.walkGates ?? 0)
   const [dblGates, setDblGates]         = useState(init?.dblGates ?? 0)
+  // The typed run list's gate widths in feet: kept from the drawing when "Advanced: type runs" is opened
+  // (a 10 ft double gate stays two 5 ft leaves), or as the saved typed quote kept them. Absent: 4 ft / 8 ft.
+  const [typedGateWidths, setTypedGateWidths] = useState<{ walk: number[]; dbl: number[] }>(() =>
+    !init?.layout?.yard && init?.layout?.gateWidths ? fitGateWidths(init.layout.gateWidths, init.walkGates ?? 0, init.dblGates ?? 0) : { walk: [], dbl: [] })
   const [tearOutSec, setTearOutSec]     = useState(init?.tearOutSections ?? 0)
   const [tearOutGates, setTearOutGates] = useState(init?.tearOutGates ?? 0)
   const [adjLaborHrs, setAdjLaborHrs]   = useState(init?.adjLaborHrs ? String(init.adjLaborHrs) : '')
@@ -579,7 +583,7 @@ export default function QuoteBuilder({
   // Back, the close button and closing the tab ask before it is dropped.
   const workRef = useRef('')
   workRef.current = JSON.stringify([customerName, styleId, runs, entry, yard, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, adjLaborHrs, priceAdjust, hasSalesman,
-    laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, adjDollarsStr, showDiscount, offer, tierPrefs, voiceNotes, jobType, move, repair, offerNewFence, offerMoveAsIs])
+    typedGateWidths, laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, adjDollarsStr, showDiscount, offer, tierPrefs, voiceNotes, jobType, move, repair, offerNewFence, offerMoveAsIs])
   const startWork = useRef<string | null>(null)
   useEffect(() => { const t = setTimeout(() => { startWork.current = workRef.current }, 400); return () => clearTimeout(t) }, [])
   const dirty = () => startWork.current !== null && workRef.current !== startWork.current
@@ -647,8 +651,11 @@ export default function QuoteBuilder({
   const effDbl = fromLayout ? layoutResult!.dblGates : dblGates
   // Vinyl tees counted as line posts (VINYL_TEE_POST): line posts beyond the runs' own.
   const effTeeLines = fromLayout ? layoutResult!.linePosts : 0
-  // Gate widths from the drawing (chain link gate leaves go by width); a typed count has none.
-  const effGateWidths = fromLayout ? layoutResult!.gateWidthsFt : null
+  // Gate widths (chain link gate leaves go by width): the drawing's, or the typed list's (kept from the drawing
+  // it was typed from, or set there). A typed list with every gate at 4 ft / 8 ft sends none, as before.
+  const typedWidths = fitGateWidths(typedGateWidths, walkGates, dblGates)
+  const keptTypedWidths = !fromLayout && !defaultGateWidths(typedWidths) ? typedWidths : null
+  const effGateWidths = fromLayout ? layoutResult!.gateWidthsFt : keptTypedWidths
   const calcInput: QuoteCalcInput = {
     style,
     runs: effRuns,
@@ -711,6 +718,8 @@ export default function QuoteBuilder({
       setRuns(layoutResult.runs.length ? layoutResult.runs.map(r => ({ ft: String(r.ft), rail: 'auto' })) : [{ ft: '', rail: 'auto' }])
       setCorners(layoutResult.corners); setEnds(layoutResult.ends)
       setWalkGates(layoutResult.walkGates); setDblGates(layoutResult.dblGates)
+      // Each drawn gate keeps its width on the run list (a 12 ft double gate is not repriced as 8 ft).
+      setTypedGateWidths(layoutResult.gateWidthsFt)
     }
     setEntry('advanced')
   }
@@ -947,7 +956,7 @@ export default function QuoteBuilder({
         : undefined,
       // The yard as drawn, and each run's sections, so the quote redraws and
       // the crew sees post spacing exactly as priced.
-      layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0), ...(effTeeLines ? { teeLinePosts: effTeeLines } : {}) },
+      layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0), ...(effTeeLines ? { teeLinePosts: effTeeLines } : {}), ...(keptTypedWidths ? { gateWidths: keptTypedWidths } : {}) },
       corners: effCorners,
       ends: effEnds,
       walkGates: effWalk,
@@ -1272,6 +1281,36 @@ export default function QuoteBuilder({
                   </div>
                 ))}
               </div>
+              {/* Each gate's width: kept from the drawing, or picked here (chain link gate leaves go by width). */}
+              {walkGates + dblGates > 0 && (
+                <div className="mt-3 grid grid-cols-2 gap-3" data-typed-gate-widths>
+                  {(['walk', 'dbl'] as const).flatMap(kind => typedWidths[kind].map((w, i) => {
+                    const choices = kind === 'walk' ? [4, 5, 6] : [8, 10, 12]
+                    const opts = choices.some(c => Math.abs(c - w) < 0.05) ? choices : [...choices, w].sort((x, y) => x - y)
+                    const label = `${kind === 'walk' ? 'Walk gate' : 'Double gate'}${typedWidths[kind].length > 1 ? ` ${i + 1}` : ''} width`
+                    return (
+                      <div key={`${kind}${i}`}>
+                        <label className="text-xs text-gray-400 mb-1 block" htmlFor={`gate-w-${kind}-${i}`}>{label}</label>
+                        <select id={`gate-w-${kind}-${i}`} data-gate-width-typed={`${kind}-${i}`}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          value={String(opts.find(c => Math.abs(c - w) < 0.05) ?? w)}
+                          onChange={e => {
+                            const v = Number(e.target.value)
+                            setTypedGateWidths(prev => {
+                              const cur = fitGateWidths(prev, walkGates, dblGates)
+                              return { ...cur, [kind]: cur[kind].map((x, j) => (j === i ? v : x)) }
+                            })
+                          }}>
+                          {opts.map(c => <option key={c} value={String(c)}>{formatFtIn(c * 12)}</option>)}
+                        </select>
+                      </div>
+                    )
+                  }))}
+                  <p className="col-span-2 text-xs text-gray-500">
+                    {yard ? 'Widths as drawn unless changed here. ' : ''}A gate added here starts at {TYPED_WALK_GATE_FT} ft (walk) or {TYPED_DBL_GATE_FT} ft (double).
+                  </p>
+                </div>
+              )}
             </div>
 
             </>)}
