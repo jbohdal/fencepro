@@ -56,6 +56,7 @@ import { getConfig } from './configStore'
 import { clearOldBrowserData } from './browserStorage'
 import { initCustomers, getCustomers, isCustomersHydrated } from './customerStore'
 import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated } from './quoteStore'
+import { sizeText } from './moveRepair'
 import { initJobs, isJobsHydrated, getJobs, getArchivedJobs } from './jobStore'
 import type { Job } from './jobStore'
 import { initSchedule, isScheduleHydrated } from './scheduleStore'
@@ -627,6 +628,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
   /* ── Quote handlers ── */
 
+  // The open quote was started from a site visit: once saved, its window opens to send it (handleSaveQuote).
+  const sendAfterSave = useRef(false)
   function handleSaveQuote(q: SavedQuote) {
     try {
       const wasSold = quotes.find(x => x.id === q.id)?.status === 'SOLD'
@@ -686,8 +689,15 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         } catch { /* silent — pull sheet link is non-critical */ }
       }
 
+      // Started from a site visit ("Save and start the quote" on Today): the saved quote's window opens on the Quotes
+      // screen with its Send box (Text it, Email it, Copy link), instead of landing back on Today with no way to it
+      // (round 2 review, Oct 26 2026).
+      const toSend = sendAfterSave.current && q.status !== 'SOLD' && !!q.id
+      sendAfterSave.current = false
+      if (toSend) navigate(`${pagePath('Quotes')}?qv=${encodeURIComponent(q.id)}`)
       // Not "saved" until the server has it: the quote shows Saved then, and the badge at the top until then.
-      toast.info(q.status === 'SOLD' ? 'Quote sold, job created' : 'Quote stored', 'Sending it now. The quote shows Saved once it has gone through; with no signal it waits on this phone and goes by itself.')
+      if (toSend) toast.info('Quote stored', 'Send the proposal from here: Text it, Email it or Copy link. The quote shows Saved once it has gone through.')
+      else toast.info(q.status === 'SOLD' ? 'Quote sold, job created' : 'Quote stored', 'Sending it now. The quote shows Saved once it has gone through; with no signal it waits on this phone and goes by itself.')
 
       // Sync to customer portal — surface errors
       syncQuote(q).catch((err: any) => {
@@ -752,9 +762,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // a not covered service request opens it in repair mode on the customer's fence.
   useEffect(() => {
     const h = (e: Event) => {
-      const d = (e as CustomEvent<{ customerId: string; address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string }; reuseDraft?: boolean }>).detail
+      const d = (e as CustomEvent<{ customerId: string; address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string }; reuseDraft?: boolean; fromVisit?: boolean }>).detail
       const c = d?.customerId ? getCustomers().find(x => x.id === d.customerId) : null
-      if (c) openQuoteFor(c, { address: d.address, notes: d.notes, repair: d.repair, reuseDraft: d.reuseDraft })
+      if (c) { openQuoteFor(c, { address: d.address, notes: d.notes, repair: d.repair, reuseDraft: d.reuseDraft }); sendAfterSave.current = !!d.fromVisit }
     }
     const open = (e: Event) => {
       const d = (e as CustomEvent<{ id: string; quote?: SavedQuote; changeOrder?: boolean }>).detail
@@ -1241,7 +1251,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                       <div key={q.id} className="px-6 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50" onClick={() => handleOpenQuote(q)}>
                         <div>
                           <p className="text-sm font-medium text-gray-900">{q.customerName}</p>
-                          <p className="text-sm text-gray-500">{[styleLabel(q.fenceStyle), q.sections ? `${q.sections} sections` : '', q.date].filter(Boolean).join(' · ')}</p>
+                          <p className="text-sm text-gray-500">{[styleLabel(q.fenceStyle), q.work || q.sections ? sizeText(q.sections, q.work) : '', q.date].filter(Boolean).join(' · ')}</p>
                         </div>
                         <div className="flex items-center gap-3">
                           {q.totalCOGS > 0 && <span className={`text-sm ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</span>}
@@ -1365,7 +1375,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       {/* ═══ QUOTE BUILDER MODAL ═══ */}
       {showQuote && (
         <ScreenErrorBoundary name="Quote" window onBack={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false) }}><QuoteBuilder
-          onClose={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false) }}
+          onClose={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false); sendAfterSave.current = false }}
           onSave={handleSaveQuote}
           initialQuote={editingQuote}
           startOnYard={quoteOnYard}
