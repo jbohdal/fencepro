@@ -119,8 +119,28 @@ export function view(r: Row) {
   }
 }
 
+export interface ContractAround { beforeCents: number; afterCents: number }
+
+/**
+ * The customer's contract total before this change order and with it, in
+ * cents: the signed price, the change orders approved before it (by contract
+ * revision; all approved ones for one not approved yet) and the contract
+ * adjustments on the payment schedule. Null for a void one. The customer's
+ * page shows "Your contract: $X now, $Y with this change" (round 2 review,
+ * Oct 26 2026: it said only "adds $1,138").
+ */
+export async function contractAround(r: Row, quotePrice: number | null | undefined): Promise<ContractAround | null> {
+  if (r.status === 'void') return null
+  const others = await prisma.changeOrder.findMany({ where: { accountId: r.accountId, quoteId: r.quoteId, status: 'approved', deletedAt: null, id: { not: r.id } }, select: { totalCents: true, contractRev: true } })
+  const mine = r.status === 'approved' ? r.contractRev ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER
+  const before = others.filter(o => (o.contractRev ?? 0) < mine).reduce((s, o) => s + o.totalCents, 0)
+  const jobs = (await prisma.savedJob.findMany({ where: { accountId: r.accountId, quoteId: r.quoteId, deletedAt: null }, select: { id: true } })).map(j => j.id)
+  const base = Math.round((quotePrice ?? 0) * 100) + before + await adjustmentsOf(prisma, r.accountId, jobs)
+  return { beforeCents: base, afterCents: base + r.totalCents }
+}
+
 /** What the customer sees: the lines, amounts and total; never who made it, a cost, the IP or the signature image. */
-export function customerView(r: Row, q?: { fenceStyle?: string | null; finalPrice?: number | null; customerName?: string | null } | null) {
+export function customerView(r: Row, q?: { fenceStyle?: string | null; finalPrice?: number | null; customerName?: string | null } | null, contract: ContractAround | null = null) {
   return {
     id: r.id, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason, lines: linesOf(r).map(customerLine), totalCents: r.totalCents,
     sentAt: r.sentAt, approvedAt: r.approvedAt, voidedAt: r.voidedAt, signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null,
@@ -128,6 +148,7 @@ export function customerView(r: Row, q?: { fenceStyle?: string | null; finalPric
     needsSignature: needsSignature(r), contractRev: r.contractRev ?? null,
     warrantyBefore: warrantyOf(r.warrantyBefore), warrantyAfter: warrantyOf(r.warrantyAfter),
     quote: q ? { fenceStyle: q.fenceStyle ?? '', priceCents: Math.round((q.finalPrice ?? 0) * 100) } : null,
+    contract,
   }
 }
 
@@ -147,7 +168,7 @@ export async function changeOrdersForContact(contactId: string) {
     orderBy: [{ createdAt: 'desc' }],
   })
   const byId = new Map(quotes.map(q => [q.id, q]))
-  return rows.map(r => customerView(r, byId.get(r.quoteId)))
+  return Promise.all(rows.map(async r => customerView(r, byId.get(r.quoteId), await contractAround(r, byId.get(r.quoteId)?.finalPrice))))
 }
 
 /** The link to send the customer: made once, kept (32 random bytes, base64url). Draft or sent change orders only get a new one. */
@@ -184,6 +205,8 @@ export interface CustomerSignature { name: string; signature: string; ip: string
  */
 export async function signByCustomer(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean }> {
   const out = await signIn(accountId, id, s)
+  // Whoever made it, and the owner and the office, are told it was signed (lib/changeOrderNotices.ts).
+  if (!out.again) { const { signedNotice } = await import('./changeOrderNotices.js'); await signedNotice(out.row) }
   // The signed change order PDF, stored once with the signed record (lib/signedDocuments.ts); a repeat makes it if the first try did not.
   const { fileSignedChangeOrder } = await import('./signedDocuments.js')
   await fileSignedChangeOrder(out.row.id).catch(e => console.error('[change-orders] signed file:', e))
@@ -432,13 +455,15 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
 
 export interface ChangeOrderEdit { reason?: string; lines?: ChangeOrderLine[]; status?: ChangeOrderStatus; verbalReason?: string }
 
+export const CHANGED_NEEDS_OK = 'Your change sends it back to Jonathan or the office to OK before it goes to the customer.'
+
 /**
  * Change one, built on `baseVersion` (refused as stale otherwise). Lines and
  * the reason change while it is a draft or sent; approved and void are final
  * (an approved one can still be voided). The office approves one verbally,
  * with a reason (the customer's own signature comes later).
  */
-export async function editChangeOrder(accountId: string, id: string, baseVersion: number, edit: ChangeOrderEdit, by: string): Promise<{ row: Row; stale: boolean }> {
+export async function editChangeOrder(accountId: string, id: string, baseVersion: number, edit: ChangeOrderEdit, by: string, opts: { needsOk?: boolean } = {}): Promise<{ row: Row; stale: boolean; backToOk?: boolean }> {
   return prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM "ChangeOrder" WHERE id = ${id} FOR UPDATE`
     const cur = await tx.changeOrder.findUnique({ where: { id } })
@@ -446,16 +471,26 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
     if (cur.version !== baseVersion) return { row: cur, stale: true }
     const data: Record<string, unknown> = { version: cur.version + 1 }
     const open = cur.status === 'needs_ok' || cur.status === 'draft' || cur.status === 'sent'
+    let backToOk = false
     if (edit.lines !== undefined || edit.reason !== undefined) {
       if (!open) throw err(409, cur.status === 'approved' ? 'This change order is approved. Void it and make a new one to change it.' : 'This change order is void.')
+      let changed = false
       if (edit.lines !== undefined) {
         const lines = linesOf({ lines: edit.lines }).map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
         if (!lines.length) throw err(400, 'Add at least one line with a description or an amount.')
         data.lines = lines; data.totalCents = totalOf(lines)
+        changed = JSON.stringify(lines) !== JSON.stringify(linesOf(cur))
       }
-      if (edit.reason !== undefined) data.reason = edit.reason
+      if (edit.reason !== undefined) { data.reason = edit.reason; changed = changed || edit.reason !== cur.reason }
+      // A Salesman's change to the lines, prices or words of one already OK'd (a draft or sent) sends it
+      // back to "Waiting for OK" (round 2 review, Oct 26 2026: her edit stayed OK'd and could be signed).
+      if (opts.needsOk && changed && cur.status !== 'needs_ok') {
+        if (edit.status !== undefined && edit.status !== 'void' && edit.status !== cur.status) throw err(409, CHANGED_NEEDS_OK)
+        data.status = 'needs_ok'
+        backToOk = true
+      }
     }
-    if (edit.status !== undefined && edit.status !== cur.status) {
+    if (edit.status !== undefined && edit.status !== cur.status && !(backToOk && edit.status !== 'void')) {
       const to = edit.status
       if (cur.status === 'void') throw err(409, 'This change order is void.')
       if (cur.status === 'approved' && to !== 'void') throw err(409, 'This change order is approved. Void it and make a new one to change it.')
@@ -469,6 +504,6 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
     }
     const row = await tx.changeOrder.update({ where: { id }, data: data as any })
     if (cur.status === 'approved' || row.status === 'approved') await applyToJob(accountId, cur.quoteId, tx, { id, by })
-    return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, stale: false }
+    return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, stale: false, backToOk: backToOk && row.status === 'needs_ok' }
   }, { timeout: 15_000 })
 }

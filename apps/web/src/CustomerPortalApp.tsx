@@ -659,7 +659,13 @@ function ChangeOrderCard({ co, accent, defaultName, onSigned }: { co: PortalChan
           </tr>
         </tbody>
       </table>
-      {co.quote && <p className="text-xs text-gray-500">The original price was {coMoney(co.quote.priceCents)}. This change {co.totalCents < 0 ? 'takes off' : 'adds'} {coMoney(Math.abs(co.totalCents))}.</p>}
+      {co.contract ? (
+        <table className="w-full text-sm" data-portal-co-contract><tbody>
+          <tr><td className="py-1 pr-3 text-gray-700">Your contract {co.status === 'approved' ? 'before this change' : 'now'}</td><td className="py-1 text-right tabular-nums whitespace-nowrap">{money(co.contract.beforeCents)}</td></tr>
+          <tr><td className="py-1 pr-3 text-gray-700">This change</td><td className="py-1 text-right tabular-nums whitespace-nowrap">{co.totalCents >= 0 ? '+' : ''}{coMoney(co.totalCents)}</td></tr>
+          <tr><td className="pt-1 pr-3 font-bold text-gray-900">{co.status === 'approved' ? 'Your contract with this change' : 'New contract total'}</td><td className="pt-1 text-right font-black tabular-nums whitespace-nowrap" data-portal-co-new-contract>{money(co.contract.afterCents)}</td></tr>
+        </tbody></table>
+      ) : co.quote && <p className="text-xs text-gray-500">The original price was {coMoney(co.quote.priceCents)}. This change {co.totalCents < 0 ? 'takes off' : 'adds'} {coMoney(Math.abs(co.totalCents))}.</p>}
       {co.warrantyAfter && (
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-900" data-portal-co-warranty>
           <p className="font-semibold">Your warranty changes{co.warrantyBefore?.name ? ` from ${co.warrantyBefore.name}` : ''} to {co.warrantyAfter.name}</p>

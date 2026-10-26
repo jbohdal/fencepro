@@ -18,7 +18,7 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { phoneWords } from '../lib/installDays.js'
 import { plainZod } from '../lib/plainZod.js'
-import { byLink, linesOf, signByCustomer, needsSignature } from '../lib/changeOrders.js'
+import { byLink, linesOf, signByCustomer, needsSignature, contractAround } from '../lib/changeOrders.js'
 import { CSS, esc, safeSvg } from './proposal.js'
 
 export const changeOrderPublic = Router()
@@ -62,6 +62,7 @@ changeOrderPublic.get('/:token', async (req, res) => {
   }
   const lines = linesOf(co)
   const toSign = needsSignature(co)
+  const contract = await contractAround(co, q.finalPrice)
   // Approved verbally with the office: part of the contract, still "not signed by you yet" with the Sign button.
   const verbal = co.status === 'approved' && !co.signedAt
   const wb = co.warrantyBefore as any, wa = co.warrantyAfter as any
@@ -88,7 +89,11 @@ changeOrderPublic.get('/:token', async (req, res) => {
       ${lines.map(l => `<tr><td>${esc(l.description || 'Change')}</td><td class="amt">${usd(l.amountCents)}</td></tr>`).join('')}
       <tr class="total"><td>${co.totalCents < 0 ? 'Total credit' : 'Total'}</td><td class="amt" data-co-total>${usd(co.totalCents)}</td></tr>
     </tbody></table>
-    <p class="small">The original price was ${usd(Math.round((q.finalPrice || 0) * 100))}. This change ${co.totalCents < 0 ? 'takes off' : 'adds'} ${usd(Math.abs(co.totalCents))}.</p></section>
+    ${contract ? `<table class="lines" data-co-contract><tbody>
+      <tr><td>Your contract ${co.status === 'approved' ? 'before this change' : 'now'}</td><td class="amt">${usd(contract.beforeCents)}</td></tr>
+      <tr><td>This change</td><td class="amt">${co.totalCents < 0 ? '' : '+'}${usd(co.totalCents)}</td></tr>
+      <tr class="total"><td>${co.status === 'approved' ? 'Your contract with this change' : 'New contract total'}</td><td class="amt" data-co-new-contract>${usd(contract.afterCents)}</td></tr>
+    </tbody></table>` : `<p class="small">The original price was ${usd(Math.round((q.finalPrice || 0) * 100))}. This change ${co.totalCents < 0 ? 'takes off' : 'adds'} ${usd(Math.abs(co.totalCents))}.</p>`}</section>
     ${warranty}
     ${plan}
     ${state}

@@ -78,7 +78,7 @@ async function softDeletePortalItem(model: 'portalPhoto' | 'portalFile', entityT
     return true
   })
 }
-import { changeOrdersForContact, signByCustomer, customerView } from '../lib/changeOrders.js'
+import { changeOrdersForContact, signByCustomer, customerView, contractAround } from '../lib/changeOrders.js'
 import { quotesOf, jobsOf, quoteRowOf, planOf, isSigned, papersOf, billingOf } from '../lib/portalCustomer.js'
 import { contractForQuote, CONTRACT_SELECT } from '../lib/contractPdf.js'
 import { plainStyleName } from '../lib/estimates.js'
@@ -759,7 +759,7 @@ router.post('/change-orders/:id/sign', requirePortalAuth, async (req: PortalAuth
     if (!co || !q || q.archivedAt || !q.crmContactId || q.crmContactId !== req.portalAccount!.crmCustomerId) { res.status(404).json({ success: false, error: 'This change order is not available.' }); return }
     const { row, again } = await signByCustomer(co.accountId, co.id, { name: b.name, signature: b.signature, ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '') || null, via: 'portal' })
     if (!again) console.log(`[portal] customer signed change order ${row.id} (#${row.number}) in the portal as "${b.name}"`)
-    res.json({ success: true, data: customerView(row, q) })
+    res.json({ success: true, data: customerView(row, q, await contractAround(row, q.finalPrice)) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     const status = (err as any)?.status

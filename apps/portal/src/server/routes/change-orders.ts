@@ -18,8 +18,10 @@
  *
  * Who: anyone who may change quotes (a Salesman too) makes, edits and sends
  * them; approving one, or voiding an approved one, changes the contract value
- * and is for billing (owner, admin, manager, office). A change order holds
- * prices only, never a cost.
+ * and is for billing (owner, admin, manager, office). A Salesman's change order
+ * waits for the owner's or office's OK, and her later change to its lines,
+ * prices or words sends it back to wait again. A change order holds prices
+ * only, never a cost.
  */
 
 import { Router } from 'express'
@@ -36,6 +38,7 @@ import { scheduleFit } from '../lib/changeOrderWork.js'
 import { jobTimeline } from '../lib/changeOrderHistory.js'
 import { signSchema } from './changeOrderPublic.js'
 import { pickListFor, pickPriceFor } from '../lib/changeOrderPicks.js'
+import { askForOk, okGiven } from '../lib/changeOrderNotices.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -88,19 +91,6 @@ async function warningFor(accountId: string, quoteId: string): Promise<string | 
   return job ? scheduleFit(accountId, job.id) : null
 }
 
-/** A Salesman's change order: the owner and the office are told in the bell, with the job to open. */
-async function askForOk(accountId: string, row: { id: string; quoteId: string; number: number; totalCents: number }, by: string): Promise<void> {
-  try {
-    const q = await prisma.savedQuote.findFirst({ where: { id: row.quoteId, accountId }, select: { customerName: true, crmContactId: true } })
-    const job = await prisma.savedJob.findFirst({ where: { accountId, quoteId: row.quoteId, deletedAt: null }, select: { id: true } })
-    const amount = `${row.totalCents < 0 ? '-' : '+'}$${Math.abs(Math.round(row.totalCents / 100)).toLocaleString('en-US')}`
-    const link = job ? `/operations?job=${encodeURIComponent(job.id)}` : q?.crmContactId ? `/?customer=${q.crmContactId}` : null
-    for (const recipientRole of ['admin', 'office_staff']) {
-      await prisma.notification.create({ data: { recipientRole, title: `Change order to OK: ${q?.customerName ?? 'a customer'}`, body: `${by} made change order CO-${row.number} (${amount}). OK it to send it to the customer.`, type: 'info', link, jobId: job?.id ?? null } })
-    }
-  } catch (e) { console.error('[change-orders] ask for OK:', e) }
-}
-
 const fail = (res: any, e: unknown, what: string) => {
   if (e instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(e) }); return }
   const status = (e as any)?.status
@@ -134,7 +124,7 @@ router.post('/', requireCan('quotes.change'), async (req: any, res) => {
     const known = body.id ? await prisma.changeOrder.findUnique({ where: { id: body.id }, select: { id: true } }) : null
     const row = await createChangeOrder(accountId, { id: body.id, quoteId, reason: body.reason, lines: body.lines, scope: body.scope ?? null, status: needsOk ? 'needs_ok' : body.status, by, verbalReason: body.verbalReason ?? null, work: body.work ?? null })
     await audit(req, 'create', 'ChangeOrder', row.id, { newValues: view(row) })
-    if (needsOk && !known) await askForOk(accountId, row, by)
+    if (needsOk && !known) await askForOk(row, by)
     res.status(201).json({ success: true, data: viewFor(req)(row), ...(row.status === 'approved' ? { scheduleWarning: await warningFor(accountId, quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }
 })
@@ -149,9 +139,14 @@ router.patch('/:id', requireCan('quotes.change'), async (req: any, res) => {
     if (!cur || cur.accountId !== accountId) { res.status(404).json({ success: false, error: 'Change order not found' }); return }
     // Approving, or taking an approved one back off the contract value, is billing's; so is the OK on a Salesman's.
     if ((edit.status === 'approved' || (edit.status === 'void' && cur.status === 'approved') || (edit.status === 'draft' && cur.status === 'needs_ok')) && !can(roleOf(req), 'billing.change')) { refuse(res, 'billing.change'); return }
-    const { row, stale } = await editChangeOrder(accountId, cur.id, base, edit as any, await who(req))
+    const by = await who(req)
+    // A Salesman's change to an OK'd one goes back to "Waiting for OK" (lib/changeOrders.ts editChangeOrder).
+    const { row, stale, backToOk } = await editChangeOrder(accountId, cur.id, base, edit as any, by, { needsOk: !can(roleOf(req), 'billing.change') })
     if (stale) { refuseStale(res, view(row), row.version); return }
     await audit(req, 'update', 'ChangeOrder', row.id, { oldValues: view(cur), newValues: view(row) })
+    if (backToOk) await askForOk(row, by, true)
+    // The OK (or a void before it): the "to OK" notices are cleared and the maker is told (lib/changeOrderNotices.ts).
+    if (cur.status === 'needs_ok' && row.status !== 'needs_ok') await okGiven(row, by, row.status === 'void')
     res.json({ success: true, data: viewFor(req)(row), ...(row.status !== cur.status ? { scheduleWarning: await warningFor(accountId, row.quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }
 })
