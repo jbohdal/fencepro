@@ -66,10 +66,21 @@ export function fakeTen(ten: string): string {
   return `0${five}${ten.slice(6)}`
 }
 
+/**
+ * The company's own published numbers (Settings > Company phone and support phone): the business line,
+ * not a person. They stay as they are, so texts, PDFs and tests on dev read like live's.
+ */
+const keptPhones = new Set<string>()
+export function keepPhones(numbers: Array<string | null | undefined>): void {
+  keptPhones.clear()
+  for (const n of numbers) { const ten = String(n ?? '').replace(/\D/g, '').slice(-10); if (ten.length === 10) keptPhones.add(ten) }
+}
+
 /** The same layout with the digits swapped for the fake ones (a leading country code 1 is kept). */
 function swapDigits(match: string): string {
   const digits = match.replace(/\D/g, '')
   const ten = digits.slice(-10)
+  if (keptPhones.has(ten)) return match
   const fake = fakeTen(ten)
   let skip = digits.length - 10 // the leading 1, kept
   let i = 0
@@ -93,8 +104,8 @@ export function scrubText(s: string, staff: Map<string, string>, counts: Counts 
     })
   }
   if (/\d{4}/.test(out)) {
-    out = out.replace(PHONE_FORMATTED, m => { counts.phones++; return swapDigits(m) })
-    out = out.replace(PHONE_DIGITS, m => { counts.phones++; return swapDigits(m) })
+    out = out.replace(PHONE_FORMATTED, m => { const f = swapDigits(m); if (f !== m) counts.phones++; return f })
+    out = out.replace(PHONE_DIGITS, m => { const f = swapDigits(m); if (f !== m) counts.phones++; return f })
   }
   return out
 }

@@ -92,3 +92,16 @@ describe('the scrub script and the refresh', () => {
     expect(scrub).toBeGreaterThan(restore)
   })
 })
+
+describe('the company\'s own number', () => {
+  test('Settings > Company phone is kept everywhere; other numbers are still made fake', async () => {
+    const { keepPhones, scrubText } = await import('../src/server/lib/devScrub.js')
+    keepPhones(['3527894314'])
+    try {
+      const out = scrubText('Questions? Call (352) 789 4314. Customer: (352) 671 8083', new Map())
+      expect(out).toContain('(352) 789 4314')
+      expect(out).not.toContain('671 8083')
+    } finally { keepPhones([]) }
+  })
+})
+

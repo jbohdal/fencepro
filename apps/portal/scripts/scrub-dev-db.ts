@@ -25,7 +25,7 @@
 import 'dotenv/config'
 import { PrismaClient, type Prisma } from '@prisma/client'
 import { databaseNameOf } from '../src/server/lib/liveGuard.js'
-import { scrubJson, scrubText, staffEmailMap, LOCAL7_RE, type Counts } from '../src/server/lib/devScrub.js'
+import { scrubJson, scrubText, staffEmailMap, keepPhones, LOCAL7_RE, type Counts } from '../src/server/lib/devScrub.js'
 
 export const DEV_DATABASE_NAME = 'ezbiz_dev'
 /** AccountKeyValue key: when the dev copy was last scrubbed. */
@@ -122,6 +122,9 @@ async function main() {
 
   const users = await prisma.crmUser.findMany({ select: { email: true } })
   const staff = staffEmailMap(users.map(u => u.email))
+  // The company's own published numbers (Settings > Company) are the business line, not a person: kept.
+  const states = await prisma.businessState.findMany({ select: { config: true } })
+  keepPhones(states.flatMap(b => { const c = (b.config as any)?.company ?? {}; return [c.phone, c.supportPhone] }))
 
   const per: Array<{ where: string; rows: number; emails: number; phones: number }> = []
   // The staff table first, so a unique email clash shows up before anything else changes.
