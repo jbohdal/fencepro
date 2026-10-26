@@ -24,7 +24,8 @@ import {
 } from './vendorInvoicesApi'
 import { localInvoiceFiles, uploadAll, uploadRefusedWhy, uploadedAs, discardLocal, MEDIA_EVENT } from './mediaStore'
 import { getInventory, refreshInventory, INVENTORY_UPDATED_EVENT } from './inventoryStore'
-import { getVendors, initVendors } from './vendorStore'
+import { getVendors, initVendors, refreshVendors } from './vendorStore'
+import { unitPresets, startingPreset, unitPreview, packOfName } from './invoiceUnits'
 import { useCan } from './permissions'
 import { toast } from './toast'
 
@@ -48,11 +49,16 @@ const LINE_STATE: Record<string, { label: string; cls: string }> = {
   needs_match: { label: 'Needs a match', cls: 'bg-amber-100 text-amber-800' },
   waiting_ok: { label: 'Waiting for OK', cls: 'bg-orange-100 text-orange-800' },
   applied: { label: 'Applied', cls: 'bg-green-100 text-green-700' },
+  history_only: { label: 'Not applied: Inventory has a newer price', cls: 'bg-sky-100 text-sky-800' },
   rejected: { label: 'Turned down', cls: 'bg-gray-100 text-gray-600' },
   skipped: { label: 'Not priced', cls: 'bg-gray-100 text-gray-600' },
   undone: { label: 'Undone', cls: 'bg-gray-100 text-gray-600' },
   quoted: { label: 'Quote: not applied', cls: 'bg-purple-100 text-purple-800' },
 }
+
+/** A line's state as shown: one priced before Oct 26 with "Kept in price history only" was saved as applied, but was not. */
+const shownState = (l: { state: string; stateNote: string }) =>
+  l.state === 'applied' && /price history only/i.test(l.stateNote) && !/→/.test(l.stateNote) ? 'history_only' : l.state
 
 const PROBLEM_WORDS: Record<string, string> = {
   math: 'Quantity × price is not the amount',
@@ -125,10 +131,11 @@ export default function VendorInvoicesTab() {
   useEffect(() => {
     // Only the list while waiting (light on the server); the counts once it is done.
     if (busy) { wasBusy.current = true; const t = setInterval(() => { listInvoices().then(setList).catch(() => {}) }, 3000); return () => clearInterval(t) }
-    if (wasBusy.current) { wasBusy.current = false; void load(); void refreshInventory() }
+    if (wasBusy.current) { wasBusy.current = false; void load(); void refreshInventory(); void refreshVendors() }
   }, [busy, load])
 
-  const afterChange = useCallback(async () => { await load(); await refreshInventory() }, [load])
+  // Accounts Payable and Vendors show a bill the server made or voided now, not after a reload.
+  const afterChange = useCallback(async () => { await load(); await refreshInventory(); await refreshVendors() }, [load])
 
   if (openId) return <InvoiceView id={openId} onBack={() => { setOpenId(null); void load() }} onChanged={afterChange} />
 
@@ -512,25 +519,7 @@ function VendorsView() {
 
 // ── Matching ──────────────────────────────────────────────────────────────────
 
-const UNIT_PRESETS: Array<{ label: string; vendorPer: number; invPer: number }> = [
-  { label: 'Same unit', vendorPer: 1, invPer: 1 },
-  { label: 'Box of 100', vendorPer: 1, invPer: 100 },
-  { label: 'Box of 50', vendorPer: 1, invPer: 50 },
-  { label: 'Bundle of 10', vendorPer: 1, invPer: 10 },
-  { label: '50 ft = 1 roll', vendorPer: 50, invPer: 1 },
-]
-
-/** Conversions printed in the vendor's description: "(220/lb)", "50ft/rll", "@1000ft". A tap still decides. */
-function unitHints(line: InvoiceLine): Array<{ label: string; vendorPer: number; invPer: number }> {
-  const d = line.description, u = line.unit.toUpperCase(), out: Array<{ label: string; vendorPer: number; invPer: number }> = []
-  let m = /(\d+)\s*\/\s*lb/i.exec(d)
-  if (m && u === 'LB') out.push({ label: `1 lb = ${m[1]} each`, vendorPer: 1, invPer: Number(m[1]) })
-  m = /(\d+)\s*ft\s*\/\s*r(?:ll|l|oll)\b/i.exec(d)
-  if (m && (u === 'FT' || u === 'LF')) out.push({ label: `${m[1]} ft = 1 roll`, vendorPer: Number(m[1]), invPer: 1 })
-  m = /@\s*(\d+)\s*ft/i.exec(d)
-  if (m && (u === 'RLL' || u === 'RL' || u === 'ROLL')) out.push({ label: `1 roll = ${m[1]} ft`, vendorPer: 1, invPer: Number(m[1]) })
-  return out
-}
+// Unit choices (both ways, in words with the units) live in invoiceUnits.ts.
 
 function Matcher({ line, suggestions, onDone }: { line: InvoiceLine; suggestions: Array<{ id: string; name: string; why: string }>; onDone: () => Promise<void> | void }) {
   const mayAdd = useCan('prices.change')
@@ -539,8 +528,11 @@ function Matcher({ line, suggestions, onDone }: { line: InvoiceLine; suggestions
   const [q, setQ] = useState('')
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState(line.description)
-  const [vendorPer, setVendorPer] = useState('1')
-  const [invPer, setInvPer] = useState('1')
+  // Starts on the unit the description prints ("50ft/rll" → 50 ft = 1 roll), else same unit.
+  const [vendorPer, setVendorPer] = useState(() => String(startingPreset(line).vendorPer))
+  const [invPer, setInvPer] = useState(() => String(startingPreset(line).invPer))
+  // Once the unit is tapped or typed, picking an item no longer changes it.
+  const [unitTouched, setUnitTouched] = useState(false)
   const [busy, setBusy] = useState(false)
   const pickedItem = items.find(i => i.id === picked)
   const found = useMemo(() => {
@@ -549,9 +541,19 @@ function Matcher({ line, suggestions, onDone }: { line: InvoiceLine; suggestions
   }, [q, items])
   const vp = Number(vendorPer), ip = Number(invPer)
   const unitOk = vp > 0 && ip > 0
-  const invQty = unitOk && line.qty ? (line.qty * ip) / vp : null
-  const preview = invQty && line.landedCents != null ? Math.round(line.landedCents / invQty) : null
-  const invUnit = pickedItem?.unitOfMeasure || 'each'
+  const view = unitOk ? unitPreview(line, vp, ip) : null
+  const pack = packOfName(pickedItem?.name)
+  const invUnit = adding ? 'each' : pickedItem?.unitOfMeasure || (pack ? `box of ${pack}` : 'each')
+  const presets = unitPresets(line, adding ? null : pickedItem?.name)
+
+  function pick(id: string) {
+    setPicked(id)
+    // An item sold by the box ("Hook Ties ... (100)") starts on "100 EA = 1 box" unless the unit was already chosen.
+    if (!unitTouched) {
+      const p = startingPreset(line, items.find(i => i.id === id)?.name)
+      setVendorPer(String(p.vendorPer)); setInvPer(String(p.invPer))
+    }
+  }
 
   async function save(choice: Record<string, unknown>) {
     setBusy(true)
@@ -570,9 +572,9 @@ function Matcher({ line, suggestions, onDone }: { line: InvoiceLine; suggestions
           {suggestions.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {suggestions.map(s => (
-                <button key={s.id} onClick={() => setPicked(s.id)} data-suggestion={s.id}
+                <button key={s.id} onClick={() => pick(s.id)} data-suggestion={s.id}
                   className={`text-left text-xs px-2.5 py-1.5 rounded-lg border min-h-[36px] max-w-full break-words ${picked === s.id ? 'bg-orange-600 text-white border-orange-600' : 'bg-white border-gray-300 text-gray-800'}`}>
-                  {s.name}{s.why ? <span className="opacity-70"> · {s.why}</span> : null}
+                  {items.find(i => i.id === s.id)?.name ?? s.name}{s.why ? <span className="opacity-70"> · {s.why}</span> : null}
                 </button>
               ))}
             </div>
@@ -580,7 +582,7 @@ function Matcher({ line, suggestions, onDone }: { line: InvoiceLine; suggestions
           <input className={input} value={q} onChange={e => setQ(e.target.value)} placeholder="Or search Inventory…" data-match-search />
           {found.length > 0 && (
             <ul className="border border-gray-200 rounded-lg divide-y bg-white">
-              {found.map(i => <li key={i.id}><button className="w-full text-left text-sm px-3 py-2 min-h-[40px] hover:bg-orange-50 break-words" onClick={() => { setPicked(i.id); setQ('') }}>{i.name}</button></li>)}
+              {found.map(i => <li key={i.id}><button className="w-full text-left text-sm px-3 py-2 min-h-[40px] hover:bg-orange-50 break-words" onClick={() => { pick(i.id); setQ('') }}>{i.name}</button></li>)}
             </ul>
           )}
           {pickedItem && <p className="text-xs text-gray-700">Inventory item: <b className="break-words">{pickedItem.name}</b></p>}
@@ -593,26 +595,28 @@ function Matcher({ line, suggestions, onDone }: { line: InvoiceLine; suggestions
         </div>
       )}
       <div className="rounded-lg bg-gray-50 p-2 space-y-1.5">
-        <p className="text-xs text-gray-600">Unit: how the vendor's <b>{line.unit}</b> turns into Inventory units ({adding ? 'each' : invUnit}).</p>
+        <p className="text-xs text-gray-600">Unit: how the vendor's <b>{line.unit}</b> turns into Inventory units ({invUnit}).</p>
         <div className="flex flex-wrap gap-1.5">
-          {[...unitHints(line), ...UNIT_PRESETS].map(p => (
-            <button key={p.label} onClick={() => { setVendorPer(String(p.vendorPer)); setInvPer(String(p.invPer)) }} data-unit-preset={p.label}
-              className={`text-xs px-2.5 py-1.5 rounded-full border min-h-[32px] ${Number(vendorPer) === p.vendorPer && Number(invPer) === p.invPer ? 'bg-gray-900 text-white border-gray-900' : 'bg-white border-gray-300'}`}>{p.label}</button>
+          {presets.map(p => (
+            <button key={p.label} onClick={() => { setUnitTouched(true); setVendorPer(String(p.vendorPer)); setInvPer(String(p.invPer)) }} data-unit-preset={p.label}
+              aria-pressed={vp === p.vendorPer && ip === p.invPer}
+              className={`text-xs px-2.5 py-1.5 rounded-full border min-h-[32px] ${vp === p.vendorPer && ip === p.invPer ? 'bg-gray-900 text-white border-gray-900' : 'bg-white border-gray-300'}`}>{p.label}</button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-1.5 text-sm">
-          <input className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-sm" inputMode="decimal" value={vendorPer} onChange={e => setVendorPer(e.target.value)} aria-label="Vendor units" />
+          <input className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-sm" inputMode="decimal" value={vendorPer} onChange={e => { setUnitTouched(true); setVendorPer(e.target.value) }} aria-label="Vendor units" data-vendor-per />
           <span>{line.unit} =</span>
-          <input className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm" inputMode="decimal" value={invPer} onChange={e => setInvPer(e.target.value)} aria-label="Inventory units" data-inv-per />
-          <span>{adding ? 'each' : invUnit}</span>
+          <input className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm" inputMode="decimal" value={invPer} onChange={e => { setUnitTouched(true); setInvPer(e.target.value) }} aria-label="Inventory units" data-inv-per />
+          <span>{invUnit}</span>
         </div>
-        {preview != null && <p className="text-xs text-gray-700">Landed: {money(line.landedCents)} for {invQty} {adding ? 'each' : invUnit} = <b>{money(preview)}</b> each</p>}
+        {view && !view.zero && <p className="text-xs text-gray-700" data-unit-preview>{line.qty} {line.unit} = {view.invQty.toLocaleString('en-US', { maximumFractionDigits: 3 })} {invUnit}. Landed: {money(line.landedCents ?? line.totalCents)} = <b>{money(view.cents)}</b> per {invUnit}</p>}
+        {view?.zero && <p className="text-xs font-semibold text-red-700 bg-red-50 rounded p-1.5" data-unit-zero>That makes {line.qty} {line.unit} into {view.invQty.toLocaleString('en-US', { maximumFractionDigits: 3 })} {invUnit} at $0.00 each, which cannot be right. Pick the other way round (for example {`100 ${line.unit} = 1 box`}).</p>}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         {!adding ? (
-          <button className={primary} disabled={busy || !picked || !unitOk} onClick={() => void save({ inventoryItemId: picked })} data-save-match>Use this item</button>
+          <button className={primary} disabled={busy || !picked || !unitOk || !!view?.zero} onClick={() => void save({ inventoryItemId: picked })} data-save-match>Use this item</button>
         ) : (
-          <button className={primary} disabled={busy || newName.trim().length < 2 || !unitOk} onClick={() => void save({ newItem: { name: newName.trim() } })} data-save-new-item>Add to Inventory</button>
+          <button className={primary} disabled={busy || newName.trim().length < 2 || !unitOk || !!view?.zero} onClick={() => void save({ newItem: { name: newName.trim() } })} data-save-new-item>Add to Inventory</button>
         )}
         {mayAdd && <button className={secondary} onClick={() => setAdding(a => !a)} data-add-new>{adding ? 'Pick an existing item' : 'New Inventory item'}</button>}
         <button className={secondary} disabled={busy} onClick={() => void save({ notInventory: true })} data-not-inventory>Not an Inventory item</button>
@@ -681,6 +685,7 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
 
   const s = STATUS[inv.status] ?? STATUS.receiving
   const review = inv.status === 'needs_review'
+  const inventoryNames = new Map(getInventory().map(i => [i.id, i.name]))
   const unclear = new Set(inv.problems.flatMap(p => (p.kind === 'unclear_lines' ? p.lines : [])))
   const active = inv.lines.filter(l => !l.ignored)
   const boxesFor = (page: number) => [
@@ -724,11 +729,13 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
         {inv.status === 'quote' && (
           <div className="mt-2 rounded-lg bg-purple-50 border border-purple-200 p-3 space-y-2" data-quote-banner>
             <p className="text-sm text-purple-900">A vendor quote: saved, and it changes no Inventory price. Match its items now if you like; the prices below show what they would be.{inv.counts.needsMatch ? ` ${inv.counts.needsMatch} item${inv.counts.needsMatch === 1 ? '' : 's'} not matched yet.` : ''}</p>
-            {mayPrices && (
+            {mayPrices ? (
               <button className={`${primary} w-full sm:w-auto`} data-we-ordered onClick={() => {
                 if (!confirm('Treat this quote as the invoice? Its matched items update Inventory prices (big changes still wait for your OK), and a bill is added in Vendors.')) return
                 void act(() => markOrdered(inv.id), 'Ordered: applied as the invoice')
               }}>We ordered this</button>
+            ) : (
+              <p className="text-sm text-purple-900 font-medium" data-ordered-who>If this was ordered, ask Jonathan to tap <b>We ordered this</b>: it changes Inventory prices, so the owner does it.</p>
             )}
           </div>
         )}
@@ -752,7 +759,9 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
             <h3 className="text-sm font-semibold text-gray-900">Lines</h3>
             {inv.lines.map(l => {
               const bad = !l.ignored && (l.problems.length > 0 || unclear.has(active.indexOf(l)))
-              const st = LINE_STATE[l.state]
+              const st = LINE_STATE[shownState(l)]
+              // The Inventory item's name now (it may have been renamed since the match).
+              const itemName = (l.inventoryItemId && inventoryNames.get(l.inventoryItemId)) || l.inventoryName
               return (
                 <div key={l.id} data-line={l.itemNumber || l.description} data-bad={bad ? '1' : '0'}
                   className={`rounded-xl border p-2.5 ${l.ignored ? 'opacity-50 border-gray-200' : bad ? 'border-red-400 bg-red-50' : l.state === 'needs_match' ? 'border-amber-300' : 'border-gray-200'} ${focus === l.id ? 'ring-2 ring-blue-500' : ''}`}>
@@ -764,7 +773,7 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
                     <p className="text-xs text-gray-600">{l.qty ?? '?'} {l.unit} × {unitPrice(l.unitPriceHc)}{l.ignored ? ' · not a line' : ''}</p>
                     {bad && <p className="text-xs text-red-700 font-medium mt-0.5">{l.problems.map(p => PROBLEM_WORDS[p] ?? p).join(' · ') || 'Check this line'}{review ? ' — tap to fix' : ''}</p>}
                     {st?.label && <span className={`inline-block text-[11px] px-2 py-0.5 rounded-full mt-1 ${st.cls}`}>{st.label}</span>}
-                    {l.inventoryName && <p className="text-xs text-gray-700 mt-0.5 break-words">→ {l.inventoryName}{l.unitLandedCents != null ? `: landed ${money(l.unitLandedCents)} each${l.prevUnitCents != null ? ` (was ${money(l.prevUnitCents)}, ${pctText(l.changePct)})` : ''}` : ''}</p>}
+                    {itemName && <p className="text-xs text-gray-700 mt-0.5 break-words">→ {itemName}{l.unitLandedCents != null ? `: landed ${money(l.unitLandedCents)} each${l.prevUnitCents != null ? ` (was ${money(l.prevUnitCents)}, ${pctText(l.changePct)})` : ''}` : ''}</p>}
                     {l.extraCents != null && l.extraCents !== 0 && <p className="text-[11px] text-gray-500">Tax, freight and fees share: {money(l.extraCents)}{l.estTaxCents ? ` (estimated tax ${money(l.estTaxCents)})` : ''}{inv.fees.some(f => isFuelFee(f.label)) ? ' · fuel charge not included' : ''}</p>}
                     {l.estTaxCents > 0 && <span className="inline-block text-[11px] px-2 py-0.5 rounded-full mt-1 ml-1 bg-amber-100 text-amber-800" data-line-est-tax>Estimated tax</span>}
                     {l.stateNote && <p className="text-[11px] text-gray-500 break-words">{l.stateNote}</p>}
@@ -802,12 +811,18 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
           <div className="flex flex-wrap gap-2">
             {(inv.status === 'applied' || inv.status === 'needs_match') && mayPrices && (
               <button className={danger} data-undo onClick={() => {
-                if (!confirm('Put back every price this invoice changed? Items changed since by something newer are left as they are.')) return
+                const orderedQuote = inv.docType === 'quote' && inv.ordered
+                if (!confirm(orderedQuote
+                  ? 'Undo this order? Every price it changed goes back (items changed since by something newer are left as they are), and its bill comes off Accounts Payable (voided, unless something was paid on it).'
+                  : 'Put back every price this invoice changed? Items changed since by something newer are left as they are.')) return
                 void act(async () => {
                   const r = await undoInvoice(inv.id)
-                  toast.success(`Undone: ${r.restored.length} price${r.restored.length === 1 ? '' : 's'} put back`, r.skipped.length ? `${r.skipped.length} left as they are (changed since).` : undefined)
+                  const bill = r.bill?.outcome === 'voided' ? `Bill ${r.bill.billNumber} is off Accounts Payable (voided; Restore in Vendors puts it back).`
+                    : r.bill?.outcome === 'kept_paid' ? `Bill ${r.bill.billNumber} stays: ${money(r.bill.paidCents)} was already paid on it.` : ''
+                  const skipped = r.skipped.length ? `${r.skipped.length} left as they are (changed since).` : ''
+                  toast.success(`Undone: ${r.restored.length} price${r.restored.length === 1 ? '' : 's'} put back`, [skipped, bill].filter(Boolean).join(' ') || undefined)
                 })
-              }}>Undo prices</button>
+              }}>{inv.docType === 'quote' && inv.ordered ? 'Undo the order' : 'Undo prices'}</button>
             )}
             {(inv.status === 'failed' || inv.status === 'needs_review') && <button className={secondary} onClick={() => void act(() => rereadInvoice(inv.id), 'Reading again')}>Read again</button>}
             {['refused', 'failed', 'needs_review', 'undone', 'quote', 'replaced'].includes(inv.status) && (

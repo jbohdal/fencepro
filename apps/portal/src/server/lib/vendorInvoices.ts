@@ -46,7 +46,7 @@ import prisma from './prisma.js'
 import { lockAccountState } from './lockState.js'
 import { readInvoiceFile, type ReadPage } from './invoiceReader.js'
 import { parseInvoice, findVendor, normalizeName, lineAddsUp, type KnownVendor, type LineProblem } from './invoiceParse.js'
-import { checkTotals, spreadExtras, toInventoryQty, unitLanded, needsOk, changePct, matchKey, invoiceNumberKey, dollars, landedParts, pctText, isFuelFee, DEFAULT_EST_TAX_BP, type CheckProblem } from './invoiceMath.js'
+import { checkTotals, spreadExtras, toInventoryQty, unitLanded, needsOk, changePct, matchKey, looseMatchKey, findLink, invoiceNumberKey, dollars, landedParts, pctText, isFuelFee, DEFAULT_EST_TAX_BP, type CheckProblem } from './invoiceMath.js'
 import { digSetPipeItem } from './digSetPipeMatch.js'
 
 export const DEFAULT_JUMP_PCT = 20
@@ -68,6 +68,12 @@ export const sha256File = (file: string) => crypto.createHash('sha256').update(f
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
 const today = () => new Date().toISOString().slice(0, 10)
+/** "2026-10-09" → "Oct 9, 2026" */
+export const dayWords = (d: string | null) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? '')
+  if (!m) return d || 'a later date'
+  return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`
+}
 const itemCents = (item: any): number | null => {
   const n = Number(item?.unitCost)
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null
@@ -99,7 +105,9 @@ export function estTaxBpOf(config: unknown): number {
  * Two files of one quote (06-251126 sent twice) give the same.
  */
 export function contentKey(inv: { invoiceDate: string; totalCents: number | null }, lines: Array<{ description: string; qty: number | null; unitPriceHc: number | null; totalCents: number | null; ignored?: boolean }>): string {
-  return JSON.stringify([inv.invoiceDate, inv.totalCents, ...lines.filter(l => !l.ignored).map(l => [normalizeName(l.description), l.qty, l.unitPriceHc, l.totalCents])])
+  // Words in any order: a file read before the Oct 26 reader fix has some words swapped.
+  const desc = (d: string) => normalizeName(d).split(' ').filter(Boolean).sort().join(' ')
+  return JSON.stringify([inv.invoiceDate, inv.totalCents, ...lines.filter(l => !l.ignored).map(l => [desc(l.description), l.qty, l.unitPriceHc, l.totalCents])])
 }
 
 async function vendorState(tx: any, accountId: string) {
@@ -308,6 +316,9 @@ export function newerRevision(a: { invoiceDate: string; revision: string; create
   return a.createdAt > b.createdAt
 }
 
+/** Documents whose lines still count (Needs a match, matching): not undone, replaced, refused or failed. */
+export const LIVE_STATUSES = ['needs_review', 'needs_match', 'applied', 'quote']
+
 const treatedAsInvoice = (i: { docType: string; ordered: boolean }) => i.docType !== 'quote' || i.ordered
 
 // ── Evaluate: checks, bill, matching, applying ───────────────────────────────
@@ -434,7 +445,7 @@ async function evaluateTx(tx: any, invoiceId: string, actor: Actor): Promise<voi
   if (asInvoice) await saveVendorState(tx, accountId, vs)
 
   // 4 and 5. Landed cost for every line, then match and apply.
-  const links = new Map<string, any>((await tx.vendorItemLink.findMany({ where: { accountId, vendorId } })).map((k: any) => [k.key, k]))
+  const links: any[] = await tx.vendorItemLink.findMany({ where: { accountId, vendorId } })
   const invState = await tx.inventoryState.findUnique({ where: { accountId } })
   const items: any[] = arr(invState?.items).map(i => ({ ...i }))
   const byId = new Map(items.map(i => [i.id, i]))
@@ -445,10 +456,10 @@ async function evaluateTx(tx: any, invoiceId: string, actor: Actor): Promise<voi
   active.forEach((l: any, k: number) => {
     const data: any = { extraCents: extras[k], estTaxCents: estShare[k], landedCents: (l.totalCents ?? 0) + extras[k] }
     lineUpdates.set(l.id, data)
-    if (['applied', 'waiting_ok', 'rejected', 'skipped', 'undone'].includes(l.state)) return
+    if (['applied', 'history_only', 'waiting_ok', 'rejected', 'skipped', 'undone'].includes(l.state)) return
     if (l.state === 'quoted' && asInvoice) data.state = 'open'
     const key = l.matchKey || matchKey(l.itemNumber, l.description)
-    const link = links.get(key)
+    const link = findLink(links, key)
     if ((l.totalCents ?? 0) <= 0) { Object.assign(data, { state: 'skipped', stateNote: 'A credit or free line: not a price.' }); return }
     if (link?.inventoryItemId === NOT_INVENTORY) { Object.assign(data, { state: 'skipped', stateNote: 'Not an Inventory item (remembered for this vendor).' }); return }
     if (!link) {
@@ -472,6 +483,11 @@ async function evaluateTx(tx: any, invoiceId: string, actor: Actor): Promise<voi
     const landed = rs.reduce((s, r) => s + r.data.landedCents, 0)
     const qty = rs.reduce((s, r) => s + r.data.invQty, 0)
     const unit = unitLanded(landed, 0, qty)
+    // Never a $0.00 price from a real amount: the unit is wrong (300 each read as 30,000), so it is matched again.
+    if (landed > 0 && unit.cents < 1) {
+      for (const r of rs) Object.assign(r.data, { state: 'needs_match', stateNote: `The unit picked makes this ${dollars(0)} each (${r.data.invQty} ${String(item.unitOfMeasure || 'each')}): match it again with the right unit.`, unitLandedCents: null, unitLandedExact: null })
+      continue
+    }
     // The price as printed, per Inventory unit (before tax, freight and fees).
     const printedCents = unitLanded(rs.reduce((s, r) => s + (r.line.totalCents ?? 0), 0), 0, qty).cents
     const est = rs.some(r => r.data.estTaxCents > 0) ? estNote : ''
@@ -491,7 +507,8 @@ async function evaluateTx(tx: any, invoiceId: string, actor: Actor): Promise<voi
     }
     const applied = await applyItem(tx, inv, vendor!, item, unit, actor, false, printedCents)
     if (applied.changed) inventoryChanged = true
-    for (const r of rs) Object.assign(r.data, { state: 'applied', stateNote: `${applied.note}${applied.changed ? est : ''}` })
+    // Not applied because Inventory has a newer price: its own state, never "Applied".
+    for (const r of rs) Object.assign(r.data, { state: applied.changed ? 'applied' : 'history_only', stateNote: `${applied.note}${applied.changed ? est : ''}` })
   }
 
   for (const [id, data] of lineUpdates) await tx.vendorInvoiceLine.update({ where: { id }, data })
@@ -539,7 +556,7 @@ async function applyItem(tx: any, inv: any, vendor: KnownVendor, item: any, unit
       appliedById: actor.id, appliedBy: actor.name, approved, changedInventory: !newer,
     },
   })
-  if (newer) return { changed: false, note: `Kept in price history only: Inventory has a newer price (${prevDate}).` }
+  if (newer) return { changed: false, note: `Not applied: Inventory has a newer price from ${dayWords(prevDate)}${prevCents != null ? ` (${dollars(prevCents)})` : ''}. Kept in price history only.` }
   item.unitCost = unit.cents / 100
   item.priceUpdatedAt = inv.invoiceDate
   item.priceImported = false
@@ -727,6 +744,19 @@ export interface MatchChoice {
   invPer?: number
 }
 
+/**
+ * Why a unit would make a real line cost $0.00 per Inventory unit ('' when it does not):
+ * 300 EA ties as "1 = 100" gives 30,000 each at $0.0018. Refused, said in words.
+ */
+export function zeroPriceWhy(line: { qty: number | null; unit: string; totalCents: number | null; landedCents?: number | null }, c: { vendorPer: number; invPer: number }): string {
+  const landed = line.landedCents ?? line.totalCents ?? 0
+  if (!(landed > 0) || !(line.qty != null && line.qty > 0)) return ''
+  const invQty = toInventoryQty(line.qty, c)
+  if (Math.floor(landed / invQty + 0.5) >= 1) return ''
+  const n = (x: number) => x.toLocaleString('en-US', { maximumFractionDigits: 3 })
+  return `That unit makes it ${dollars(0)} each: ${n(line.qty)} ${line.unit} would be ${n(invQty)} Inventory units for ${dollars(landed)}. Check the unit: for items sold in a box of 100, pick "100 ${line.unit} = 1 box".`
+}
+
 /** A line on a quote not yet ordered can have its match changed (nothing has been priced from it). */
 export const canRematch = (line: { state: string }, inv: { status: string }) => inv.status === 'quote' && ['quoted', 'skipped'].includes(line.state)
 
@@ -744,6 +774,7 @@ export async function matchLine(accountId: string, lineId: string, choice: Match
   if (!vendorId) throw new InvoiceError('Pick the vendor first.', 409)
   const vendorPer = choice.vendorPer ?? 1, invPer = choice.invPer ?? 1
   if (!(vendorPer > 0) || !(invPer > 0) || vendorPer > 100000 || invPer > 100000) throw new InvoiceError('The unit needs two numbers above zero.')
+  if (!choice.notInventory) { const why = zeroPriceWhy(line, { vendorPer, invPer }); if (why) throw new InvoiceError(why) }
   const affected = new Set<string>()
   await prisma.$transaction(async (tx: any) => {
     await lockAll(tx, accountId)
@@ -774,10 +805,16 @@ export async function matchLine(accountId: string, lineId: string, choice: Match
       create: { accountId, vendorId, key, inventoryItemId: itemId, vendorUnit: line.unit, vendorPer, invPer, createdById: actor.id },
       update: { inventoryItemId: itemId, vendorUnit: line.unit, vendorPer, invPer },
     })
-    const waitingLines = await tx.vendorInvoiceLine.findMany({
-      where: { matchKey: key, invoice: { accountId, vendorId }, OR: [{ state: 'needs_match' }, { state: { in: ['quoted', 'skipped'] }, invoice: { status: 'quote' } }] },
-      select: { id: true, invoiceId: true },
-    })
+    // A match saved under the same words in another order (read before the Oct 26 reader fix) follows.
+    const loose = looseMatchKey(key)
+    for (const old of await tx.vendorItemLink.findMany({ where: { accountId, vendorId, key: { not: key } } })) {
+      if (looseMatchKey(old.key) === loose && loose !== key) await tx.vendorItemLink.update({ where: { id: old.id }, data: { inventoryItemId: itemId, vendorUnit: line.unit, vendorPer, invPer } })
+    }
+    // The same vendor item on other documents, also when read with its words in another order.
+    const waitingLines = (await tx.vendorInvoiceLine.findMany({
+      where: { invoice: { accountId, vendorId, status: { in: LIVE_STATUSES } }, OR: [{ state: 'needs_match' }, { state: { in: ['quoted', 'skipped'] }, invoice: { status: 'quote' } }] },
+      select: { id: true, invoiceId: true, matchKey: true, itemNumber: true, description: true },
+    })).filter((w: any) => looseMatchKey(w.matchKey || matchKey(w.itemNumber, w.description)) === loose)
     for (const w of waitingLines) { affected.add(w.invoiceId); await tx.vendorInvoiceLine.update({ where: { id: w.id }, data: { state: 'open' } }) }
     affected.add(line.invoiceId)
     for (const id of affected) await evaluateTx(tx, id, actor)
@@ -818,20 +855,38 @@ export async function decideWaiting(accountId: string, lineId: string, ok: boole
     const printedQty = same.reduce((s: number, l: any) => s + (l.invQty ?? 0), 0)
     const printed = printedQty > 0 ? unitLanded(same.reduce((s: number, l: any) => s + (l.totalCents ?? 0), 0), 0, printedQty).cents : null
     const r = await applyItem(tx, inv, vendor, item, { cents: line.unitLandedCents!, exact: line.unitLandedExact ?? line.unitLandedCents! }, actor, true, printed)
-    for (const l of same) await tx.vendorInvoiceLine.update({ where: { id: l.id }, data: { state: 'applied', stateNote: `OK'd by ${actor.name}. ${r.note}` } })
+    for (const l of same) await tx.vendorInvoiceLine.update({ where: { id: l.id }, data: { state: r.changed ? 'applied' : 'history_only', stateNote: `OK'd by ${actor.name}. ${r.note}` } })
     if (r.changed) await tx.inventoryState.update({ where: { accountId }, data: { items, version: { increment: 1 } } })
   }, { timeout: 60_000 })
 }
 
-export interface UndoResult { restored: Array<{ name: string; back: string }>; skipped: Array<{ name: string; reason: string }> }
+export interface UndoResult {
+  restored: Array<{ name: string; back: string }>
+  skipped: Array<{ name: string; reason: string }>
+  /** An ordered vendor quote's bill: voided (off Accounts Payable, kept in Vendors), or kept because it was paid on. */
+  bill?: { outcome: 'voided' | 'kept_paid'; billNumber: string; paidCents: number } | null
+}
 
-/** Put every price this invoice changed back, unless something newer changed it since. */
+/** A bill voided because its order was undone: what it was is kept, so Restore in Vendors puts it back. */
+export function voidBillForUndo(b: any, actorName: string, now: string): any {
+  return {
+    ...b, status: 'void', voidedAt: now, voidedBy: actorName, statusBeforeVoid: b.status ?? 'received',
+    voidReason: 'The order was undone in Inventory > Invoices.', updatedAt: now,
+  }
+}
+
+/**
+ * Put every price this invoice changed back, unless something newer changed it since.
+ * A vendor quote marked "We ordered this" was not an order after all: its bill comes
+ * off Accounts Payable too (voided, so it stays in Vendors and can be restored there),
+ * unless something was already paid on it (then it stays, and the message says so).
+ */
 export async function undoInvoice(accountId: string, invoiceId: string, actor: Actor): Promise<UndoResult> {
   const inv = await editable(invoiceId, accountId)
   if (!['applied', 'needs_match'].includes(inv.status)) throw new InvoiceError('Only an applied invoice can be undone.', 409)
   return prisma.$transaction(async (tx: any) => {
     await lockAll(tx, accountId)
-    const out: UndoResult = { restored: [], skipped: [] }
+    const out: UndoResult = { restored: [], skipped: [], bill: null }
     const rows = await tx.priceHistory.findMany({ where: { invoiceId, undoneAt: null }, orderBy: { createdAt: 'asc' } })
     const invState = await tx.inventoryState.findUnique({ where: { accountId } })
     const items: any[] = arr(invState?.items).map(i => ({ ...i }))
@@ -860,11 +915,28 @@ export async function undoInvoice(accountId: string, invoiceId: string, actor: A
     }
     await tx.priceHistory.updateMany({ where: { id: { in: done } }, data: { undoneAt: new Date() } })
     if (changed) await tx.inventoryState.update({ where: { accountId }, data: { items, version: { increment: 1 } } })
-    await tx.vendorInvoiceLine.updateMany({ where: { invoiceId, state: { in: ['applied', 'waiting_ok'] } }, data: { state: 'undone' } })
+    // Lines waiting for a match or an OK stop waiting: an undone document no longer counts in Needs a match.
+    await tx.vendorInvoiceLine.updateMany({ where: { invoiceId, state: { in: ['applied', 'history_only', 'waiting_ok', 'needs_match'] } }, data: { state: 'undone' } })
+    if (inv.docType === 'quote' && inv.ordered && inv.billId) {
+      const vs = await vendorState(tx, accountId)
+      const bill = vs.bills.find(b => b?.id === inv.billId)
+      if (bill) {
+        const paid = Number(bill.amountPaidCents) || 0
+        if (paid > 0) out.bill = { outcome: 'kept_paid', billNumber: String(bill.billNumber ?? ''), paidCents: paid }
+        else if (bill.status !== 'void') {
+          const now = new Date().toISOString()
+          vs.bills = vs.bills.map(b => (b?.id === inv.billId ? voidBillForUndo(b, actor.name, now) : b))
+          await saveVendorState(tx, accountId, vs)
+          out.bill = { outcome: 'voided', billNumber: String(bill.billNumber ?? ''), paidCents: 0 }
+        }
+      }
+    }
     const msg = [
       out.restored.length ? `Put back: ${out.restored.map(r => `${r.name} (${r.back})`).join(', ')}.` : 'No price needed putting back.',
       ...out.skipped.map(s => `Not put back: ${s.name}. ${s.reason}`),
-    ].join(' ')
+      out.bill?.outcome === 'voided' ? `Its bill ${out.bill.billNumber} is off Accounts Payable (voided; it stays in Vendors, where Restore puts it back).` : '',
+      out.bill?.outcome === 'kept_paid' ? `Its bill ${out.bill.billNumber} stays in Accounts Payable: ${dollars(out.bill.paidCents)} was already paid on it, so it was not voided. Sort it out with the vendor in Vendors.` : '',
+    ].filter(Boolean).join(' ')
     await tx.vendorInvoice.update({ where: { id: invoiceId }, data: { status: 'undone', undoneAt: new Date(), undoneBy: actor.name, message: msg } })
     return out
   }, { timeout: 60_000 })
@@ -907,16 +979,53 @@ export function suggestItems(line: { itemNumber: string; description: string }, 
   return rule ? [{ id: String(rule.item.id), name: String(rule.item.name), why: rule.rule.why }, ...byWords] : byWords
 }
 
+/**
+ * The color or finish a name says: vendor shorthand (GRN, GALV, BLK) and
+ * Inventory names ("Green", "G, Hog Ring", "Gr, Hog Ring", "Black") alike.
+ */
+export function finishOf(text: string): 'green' | 'galv' | 'black' | null {
+  const t = ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `
+  if (/ (grn|green|gr) /.test(t)) return 'green'
+  if (/ (blk|black|b) /.test(t)) return 'black'
+  if (/ (galv|galvanized|g) /.test(t)) return 'galv'
+  return null
+}
+
+/** Lengths in feet a name gives ("9'", "10'6\"", "8 ft"); a 9' line should not suggest 8' first. */
+export function feetIn(text: string): number[] {
+  const out: number[] = []
+  const re = /(\d+(?:\.\d+)?)\s*(?:'|ft\b|feet\b)\s*(?:(\d+(?:\.\d+)?)\s*")?/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) out.push(Number(m[1]) + (m[2] ? Number(m[2]) / 12 : 0))
+  return out
+}
+
 function wordSuggestions(line: { itemNumber: string; description: string }, items: any[], n: number): Array<{ id: string; name: string; why: string }> {
   const want = words(line.description)
   const code = line.itemNumber.trim().toUpperCase()
+  const finish = finishOf(line.description)
+  const lengths = feetIn(line.description)
   const scored = items.filter(i => i?.id && i.status !== 'discontinued').map(i => {
     if (code && String(i.sku ?? '').trim().toUpperCase() === code) return { i, s: 100, why: 'Same item number' }
-    const have = words(String(i.name ?? ''))
+    const name = String(i.name ?? '')
+    const have = words(name)
     let hit = 0
     for (const w of want) if (have.has(w)) hit++
-    const s = want.size ? (hit / Math.max(want.size, have.size)) * 50 : 0
-    return { i, s, why: hit ? `${hit} word${hit === 1 ? '' : 's'} alike` : '' }
+    let s = want.size ? (hit / Math.max(want.size, have.size)) * 50 : 0
+    if (!hit) return { i, s: 0, why: '' }
+    const why: string[] = [`${hit} word${hit === 1 ? '' : 's'} alike`]
+    // Same color or finish first; a different one last.
+    const f = finishOf(name)
+    // (Weights, not points: the words still lead, finish and length order the ones alike.)
+    if (finish && f === finish) { s *= 1.4; why.push(`same finish (${finish === 'galv' ? 'galvanized' : finish})`) }
+    else if (finish && f && f !== finish) s *= 0.5
+    // Same length first (9' before 8' for a 9' line).
+    const ls = feetIn(name)
+    if (lengths.length && ls.length) {
+      if (ls.some(l => lengths.some(x => Math.abs(x - l) < 0.01))) { s *= 1.3; why.push('same length') }
+      else s *= 0.7
+    }
+    return { i, s, why: why.join(', ') }
   }).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, n)
   return scored.map(x => ({ id: x.i.id, name: String(x.i.name), why: x.why }))
 }

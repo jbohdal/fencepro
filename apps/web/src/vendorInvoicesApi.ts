@@ -13,7 +13,7 @@ const ORIGIN = typeof window !== 'undefined' && window.location.hostname === 'lo
 const API = `${ORIGIN}/api/vendor-invoices`
 
 export type InvoiceStatus = 'receiving' | 'reading' | 'needs_review' | 'needs_match' | 'applied' | 'refused' | 'undone' | 'failed' | 'quote' | 'replaced'
-export type LineState = 'open' | 'needs_match' | 'waiting_ok' | 'applied' | 'rejected' | 'skipped' | 'undone' | 'quoted'
+export type LineState = 'open' | 'needs_match' | 'waiting_ok' | 'applied' | 'history_only' | 'rejected' | 'skipped' | 'undone' | 'quoted'
 export interface Box { x: number; y: number; w: number; h: number }
 
 export interface InvoiceSummary {
@@ -153,7 +153,7 @@ export const pctOfBp = (bp: number) => `${(bp / 100).toFixed(2).replace(/\.?0+$/
 export const isFuelFee = (label: string) => /\bfuel\b/i.test(label)
 export const okLine = (lineId: string) => call<void>('POST', `/lines/${lineId}/ok`)
 export const rejectLine = (lineId: string) => call<void>('POST', `/lines/${lineId}/reject`)
-export const undoInvoice = (id: string) => call<{ restored: Array<{ name: string; back: string }>; skipped: Array<{ name: string; reason: string }> }>('POST', `/${id}/undo`)
+export const undoInvoice = (id: string) => call<{ restored: Array<{ name: string; back: string }>; skipped: Array<{ name: string; reason: string }>; bill?: { outcome: 'voided' | 'kept_paid'; billNumber: string; paidCents: number } | null }>('POST', `/${id}/undo`)
 export const markOrdered = (id: string) => call<void>('POST', `/${id}/ordered`)
 export const rereadInvoice = (id: string) => call<void>('POST', `/${id}/reread`)
 export const removeInvoice = (id: string) => call<void>('DELETE', `/${id}`)

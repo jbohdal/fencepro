@@ -149,7 +149,7 @@ try {
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/dev-invoice-needs-match.png`, fullPage: true })
   await page.locator('[data-invoice-view="invoices"]').click(); await sleep(800)
   await openRow(page, 'GC-10442')
-  await matchIn(page, 'HR-100', ITEMS[0].name, 'Box of 100')
+  await matchIn(page, 'HR-100', ITEMS[0].name, '1 BX = 100 each')
   check('hog rings: $100 + $12 share of tax and freight for 400 = $0.28 each', await cost(ITEMS[0].id) === 28, `${await cost(ITEMS[0].id)}`)
   await matchIn(page, 'TB-48G', ITEMS[1].name)
   await matchIn(page, 'PP-258', ITEMS[2].name)
