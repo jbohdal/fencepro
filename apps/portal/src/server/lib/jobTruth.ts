@@ -21,7 +21,7 @@ import prisma from './prisma.js'
 import { auditSystem } from './auditLog.js'
 import { recordJobChanges, recordCardMoves } from './automations/hooks.js'
 import { loadOpsStages } from './opsStages.js'
-import { completeStage, fieldsForStage, firstStageFor, isDonePhase, stageOfJob, stageById, waitingStageOf, sortedStages as sortedOpsStages } from './opsStageModel.js'
+import { completeStage, fieldsForStage, firstStageFor, isDonePhase, stageOfJob, stageById } from './opsStageModel.js'
 import { floridaDay } from './automations/context.js'
 import { cleanLocate, locateFields, locateOf, type LocateInput } from './locates.js'
 import { milestones, milestoneOfLabel, labelKey, progressOf, billingStatusOf, invoiceDue, type InvoiceDueState, type Milestone, type ReadinessFacts, type StoredTick } from './jobReadiness.js'
@@ -56,8 +56,7 @@ export async function saveLocate(accountId: string, jobId: string, input: Locate
     oldValues: { locateTicket: existing.locateTicket, locateCalledDate: existing.locateCalledDate, locatesDate: existing.locatesDate, locatesExpDate: existing.locatesExpDate },
     newValues: { ...fields, by },
   })
-  // Waiting on the locate: it moves on to the stage its records put it in (prepStageFollows).
-  return (await prepStageFollows(accountId, jobId, 'the 811 locate was saved')) ?? updated
+  return updated
 }
 
 // ── Payment status ──────────────────────────────────────────────────────────
@@ -530,36 +529,6 @@ export async function startedByCrew(accountId: string, jobId: string): Promise<b
     await cancelRunsLeftBehind(accountId, 'ops', jobId).catch(e => console.error('[start] cancel runs:', e))
     return true
   } catch (e) { console.error('[start] in progress:', e); return false }
-}
-
-/**
- * A job waiting on its 811 locate or its permit moves on by itself once they
- * are in (round 2b, Oct 26 2026: jobs stayed "Awaiting Locates" after the
- * office saved 811 Clear and the permit Issued): from Awaiting Locates or
- * Permit Pending to the waiting stage its records put it in (opsStageModel
- * waitingStageOf: Permit Pending, Need Drawing, Materials Ordered or Ready to
- * Pull). Forward only, never past a stage the office chose, never for a job
- * with an install date, on hold or done; its materials and drawing stay as
- * recorded. The row after, or null. Never throws.
- */
-export async function prepStageFollows(accountId: string, jobId: string, why: string): Promise<Json | null> {
-  try {
-    const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null, archivedAt: null } })
-    if (!job || job.status !== 'staging' || /^\d{4}-\d{2}-\d{2}$/.test(job.scheduledDate || '')) return null
-    const { stages } = await loadOpsStages(accountId)
-    const now = stageOfJob(stages, job as Json)
-    if (now !== 'awaiting_locates' && now !== 'permit_pending') return null
-    const permit = await prisma.permit.findUnique({ where: { jobId }, select: { status: true } })
-    const want = waitingStageOf(stages, job as Json, permit?.status ?? null)
-    const order = sortedOpsStages(stages).map(x => x.id)
-    if (!want || order.indexOf(want) <= order.indexOf(now)) return null
-    const row = await moveJobToStage(accountId, job, stages, want, ['staging'], { materialsStatus: job.materialsStatus, drawingComplete: job.drawingComplete }, why)
-    if (!row) return null
-    await cardFollowsJob(accountId, jobId)
-    const { cancelRunsLeftBehind } = await import('./automations/queue.js')
-    await cancelRunsLeftBehind(accountId, 'ops', jobId).catch(e => console.error('[prep stage] cancel runs:', e))
-    return row
-  } catch (e) { console.error('[prep stage]:', e); return null }
 }
 
 /**
