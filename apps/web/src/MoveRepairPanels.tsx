@@ -9,7 +9,7 @@ import { useState } from 'react'
 import SitePlan from './SitePlan'
 import type { LayoutResult, YardLayout } from './yardLayout'
 import {
-  REPAIR_ITEMS, REPAIR_LABEL, REPAIR_HINT, WHAT_HAPPENED, starterNote, isStarterItem, oldLine as oldLineFacts, workWidth, repairPartChoices,
+  REPAIR_ITEMS, REPAIR_LABEL, REPAIR_HINT, WHAT_HAPPENED, starterNote, starterOffer, isStarterItem, oldLine as oldLineFacts, workWidth, repairPartChoices,
   type JobType, type MoveInputs, type RepairInputs, type RepairItemKey, type WorkResult, type PostType,
 } from './moveRepair'
 import type { QuoteStyle } from './quoteCalc'
@@ -159,6 +159,9 @@ export function RepairPanel({ style, repair, setRepair, yard, layoutResult, runS
   widthFt: number
 }) {
   const [showParts, setShowParts] = useState(false)
+  // The list as it was before the offer's Add, for its Undo.
+  const [added, setAdded] = useState<{ before: RepairInputs['items']; what: RepairInputs['what'] } | null>(null)
+  const offer = starterOffer(repair.what, repair.items)
   const set = (patch: Partial<RepairInputs>) => setRepair(r => ({ ...r, ...patch }))
   const qty = (k: RepairItemKey) => repair.items[k] ?? 0
   const setQty = (k: RepairItemKey, n: number) => setRepair(r => ({ ...r, items: { ...r.items, [k]: n } }))
@@ -180,13 +183,27 @@ export function RepairPanel({ style, repair, setRepair, yard, layoutResult, runS
         <div className="grid grid-cols-2 gap-2 mt-2">
           {(Object.keys(WHAT_HAPPENED) as Array<RepairInputs['what']>).map(k => (
             <button key={k} type="button" aria-pressed={repair.what === k} data-what={k}
-              onClick={() => setRepair(r => ({ ...r, what: k, items: { ...WHAT_HAPPENED[k].items }, tapped: [] }))}
+              onClick={() => { setAdded(null); setRepair(r => ({ ...r, what: k })) }}
               className={`min-h-[52px] rounded-xl border-2 px-2 text-sm font-semibold ${repair.what === k ? 'border-orange-500 bg-white text-gray-900' : 'border-gray-200 bg-white text-gray-600'}`}>{WHAT_HAPPENED[k].label}</button>
           ))}
         </div>
       </div>
-      {starterNote(repair.what, repair.items) && (
-        <p className="text-sm text-gray-800 bg-white border-l-4 border-orange-500 rounded-lg px-3 py-2" data-repair-starter-note>{starterNote(repair.what, repair.items)}</p>
+      {/* The answer offers its items, one tap to add; nothing goes on the price without it (round 3). */}
+      {offer && (
+        <div className="flex items-center justify-between gap-2 text-sm text-gray-800 bg-white border-l-4 border-orange-500 rounded-lg px-3 py-2" data-repair-starter-offer>
+          <span className="min-w-0">{offer.text}</span>
+          <button type="button" className="btn btn-primary min-h-[44px] px-4 shrink-0" data-repair-starter-add
+            onClick={() => { const before = { ...repair.items }; setAdded({ before, what: repair.what }); setRepair(r => ({ ...r, items: { ...r.items, ...offer.add } })) }}>Add</button>
+        </div>
+      )}
+      {!offer && starterNote(repair.what, repair.items) && (
+        <div className="flex items-center justify-between gap-2 text-sm text-gray-800 bg-white border-l-4 border-orange-500 rounded-lg px-3 py-2">
+          <p className="min-w-0" data-repair-starter-note>{starterNote(repair.what, repair.items)}</p>
+          {added && added.what === repair.what && (
+            <button type="button" className="text-sm font-semibold text-orange-700 underline min-h-[44px] px-2 shrink-0" data-repair-starter-undo
+              onClick={() => { const b = added.before; setAdded(null); setRepair(r => ({ ...r, items: b })) }}>Undo</button>
+          )}
+        </div>
       )}
       {repair.what === 'storm' && (
         <Toggle data="debris-cleared" label="Tree and debris cleared before we start" hint="Or add Haul away debris below" on={!!repair.debrisCleared} onChange={v => set({ debrisCleared: v })} />

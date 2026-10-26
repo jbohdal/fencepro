@@ -599,6 +599,21 @@ export function starterNote(what: RepairInputs['what'], items: Partial<Record<Re
   return `"${start.label}" added ${list} to the list below. It is counted once: change the number there, do not add it again.`
 }
 
+/**
+ * What a "What happened?" answer offers to add (round 3, Oct 26 2026: "Leaning fence" quietly added a reset
+ * post and raised the price): its items not in the list yet, to add with one tap. Null when the answer has
+ * none, or they are all in the list already (never added twice).
+ */
+export function starterOffer(what: RepairInputs['what'], items: Partial<Record<RepairItemKey, number>>): { add: Partial<Record<RepairItemKey, number>>; text: string } | null {
+  const start = WHAT_HAPPENED[what]
+  if (!start) return null
+  const add: Partial<Record<RepairItemKey, number>> = {}
+  for (const k of Object.keys(start.items) as RepairItemKey[]) if ((items[k] ?? 0) <= 0 && (start.items[k] ?? 0) > 0) add[k] = start.items[k]
+  const keys = Object.keys(add) as RepairItemKey[]
+  if (!keys.length) return null
+  return { add, text: `Add ${keys.map(k => `${add[k]} × ${REPAIR_LABEL[k]}`).join(', ')}?` }
+}
+
 /** The items a "What happened?" answer started the list with (marked in the list). */
 export const isStarterItem = (what: RepairInputs['what'], k: RepairItemKey) => (WHAT_HAPPENED[what]?.items[k] ?? 0) > 0
 

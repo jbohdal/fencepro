@@ -15,7 +15,7 @@ import { thanksText } from '../../web/src/widget/thanksText'
 import { shownToast, bottomAbove, TOAST_MS } from '../../web/src/toastQueue'
 import { phoneCanText } from '../../web/src/textingDevice'
 import { refusalOf, uploadOutcome, isInvoicePdf, isInvoicePhoto } from '../../web/src/uploadOutcome'
-import { starterNote, isStarterItem, workScope } from '../../web/src/moveRepair'
+import { starterNote, starterOffer, isStarterItem, workScope } from '../../web/src/moveRepair'
 import { draftToReuse, withVisit, lastVisit, visitPhotos } from '../../web/src/quoteReuse'
 import { partWithPair } from '../src/server/lib/partNames'
 
@@ -121,6 +121,12 @@ describe('"Broken or sagging gate" says what it added', () => {
   test('nothing to say when the item was taken back out, or for Other', () => {
     expect(starterNote('gate', { rehangGate: 0, replacePost: 2 })).toBeNull()
     expect(starterNote('other', { replacePost: 2 })).toBeNull()
+  })
+  test('round 3: an answer offers its items (one tap), never adds them by itself, and never twice', () => {
+    expect(starterOffer('leaning', {})).toEqual({ add: { resetPost: 1 }, text: 'Add 1 × Reset a leaning post?' })
+    expect(starterOffer('leaning', { resetPost: 2 })).toBeNull()                 // already in the list
+    expect(starterOffer('storm', { replacePost: 2 })).toEqual({ add: { replaceSection: 1, haulDebris: 1 }, text: 'Add 1 × Replace a whole section, 1 × Haul away debris (per section)?' })
+    expect(starterOffer('other', {})).toBeNull()
   })
   test('storm damage lists each item it added', () => {
     expect(starterNote('storm', { replaceSection: 1, replacePost: 1, haulDebris: 1 })).toMatch(/1 × Replace a whole section, 1 × Replace a post, 1 × Haul away debris/)

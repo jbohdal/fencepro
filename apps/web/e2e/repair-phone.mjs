@@ -51,6 +51,9 @@ try {
   await b.locator('[data-style-list]').selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig' }); await sleep(300)
   await shot(`dev-repair-phone-${NAME}-1-job-type`)
   await tap(b.locator('[data-what="leaning"]'), 'Leaning fence')
+  // Round 3: the answer offers its item (nothing added until tapped).
+  check('Leaning fence: offers 1 reset post, adds nothing by itself', /Add 1 × Reset a leaning post\?/.test(await b.locator('[data-repair-starter-offer]').textContent().catch(() => '')) && await b.locator('[data-repair-item="resetPost"] [data-stepper-value]').textContent() === '0')
+  await tap(b.locator('[data-repair-starter-add]'), 'Add')
   check('Leaning fence: starts with one leaning post', await b.locator('[data-repair-item="resetPost"] [data-stepper-value]').textContent() === '1')
   await tap(b.locator('[data-repair-item="resetPost"] button[aria-label^="One more"]'), '+')
   check('the + button counts up', await b.locator('[data-repair-item="resetPost"] [data-stepper-value]').textContent() === '2')

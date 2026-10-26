@@ -232,6 +232,7 @@ try {
   await b.locator('[data-job-type-option="repair"]').click()
   await pickStyle('Tan Vinyl Privacy, 6 ft tall, 6 ft panels, Dig set')
   await b.locator('[data-what="storm"]').click(); await sleep(200)
+  await b.locator('[data-repair-starter-add]').click(); await sleep(200)
   check('Repair: "What happened?" fills a starting list (replace a section, a post, haul debris)', await b.locator('[data-repair-item="replaceSection"] [data-stepper-value]').textContent() === '1' && await b.locator('[data-repair-item="replacePost"] [data-stepper-value]').textContent() === '1')
   // A tap on a section of the plan (a straight line has no height, so the tap is sent to it directly).
   for (const k of ['0:0', '0:1', '0:2']) { await b.locator(`[data-repair-plan] [data-plan-section="${k}"]`).dispatchEvent('click'); await sleep(150) }
@@ -274,6 +275,7 @@ try {
   await b.locator('[data-job-type-option="repair"]').click()
   await pickStyle('White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig')
   await b.locator('[data-what="leaning"]').click(); await sleep(200)
+  await b.locator('[data-repair-starter-add]').click(); await sleep(200)
   await b.locator('[data-step="price"]').click(); await sleep(500)
   const leanText = await b.locator('[data-work-breakdown]').textContent().catch(() => '')
   check('Minimum: a leaning post prices at the $600.00 minimum', money(await b.locator('[data-quote-price]').textContent()) === 600, `${await b.locator('[data-quote-price]').textContent()} | ${leanText.slice(0, 300)}`)
