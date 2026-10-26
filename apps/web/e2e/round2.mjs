@@ -233,7 +233,7 @@ try {
     // ── Office (computer): told, and the OK on the job page ──
     const bell = (await call(office.token, 'GET', '/api/automations/notifications')).json.data?.notifications ?? []
     const notice = bell.find(n => /Change order to OK/.test(n.title) && n.jobId === B.jobId)
-    check('office: the bell says there is a change order to OK, linking the job', !!notice && notice.link === `/operations?job=${B.jobId}`, notice?.title)
+    check('office: the bell says there is a change order to OK, opening the job at it', !!notice && notice.link === `/operations?job=${B.jobId}&co=${co.id}`, `${notice?.title} ${notice?.link}`)
     const o = await signedIn(office, false)
     await go(o.page, `/operations?job=${B.jobId}`)
     await o.page.locator('[data-co-row="1"] [data-co-ok]').waitFor({ timeout: 30000 }).catch(() => {})
@@ -241,6 +241,11 @@ try {
     const ok = await until(async () => { const r = ((await owner('GET', `/api/change-orders?quoteId=${B.quoteId}`)).json.data ?? [])[0]; return r?.status === 'draft' ? r : null }, 15000)
     check('office: "OK to send": now a draft the customer can sign', !!ok)
     check('office: the job page now offers "Customer signs on this phone"', (await until(async () => (await o.page.locator('[data-co-row="1"] [data-co-sign-here]').count()) === 1, 15000)) === true)
+    // Round 2 review: the OK clears the office's notice and tells her, opening her card at the change order.
+    const after = (await call(office.token, 'GET', '/api/automations/notifications')).json.data?.notifications ?? []
+    check('office: the "to OK" notice is cleared once OK\'d', after.filter(n => n.jobId === B.jobId && /^Change order to OK/.test(n.title) && !n.read).length === 0 && after.some(n => n.jobId === B.jobId && /^Change order OK'd/.test(n.title) && n.read))
+    const hers = ((await call(sales.token, 'GET', '/api/automations/notifications')).json.data?.notifications ?? []).find(n => /^OK'd: send it to /.test(n.title) && n.jobId === B.jobId)
+    check('salesman: her bell says "OK\'d: send it to <customer>", opening her card at it', !!hers && hers.link === `/pipeline?card=${encodeURIComponent(B.cardId)}&co=${co.id}`, `${hers?.title} ${hers?.link}`)
     await o.ctx.close()
   }
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))

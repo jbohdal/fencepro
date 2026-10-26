@@ -395,6 +395,8 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     // Changes, photos or voice clips not on the server yet: ask first. They stay
     // (encrypted) on this phone and go the next time the same person signs in here.
     const waiting = await unsentCount(crmUser?.id ?? null).catch(() => 0)
+    // A phone: Sign out sits in the side menu near the bottom tabs, so a stray tap asks first (round 2 review, Oct 26 2026).
+    if (waiting === 0 && window.matchMedia?.('(max-width: 767px)').matches && !window.confirm('Sign out?')) return
     if (waiting > 0 && !window.confirm(`${waiting} ${waiting === 1 ? 'thing on this phone has' : 'things on this phone have'} not reached the office yet. They stay on this phone and are sent the next time you sign in here. Sign out anyway?`)) return
     // Reload after signing out so no data from this session stays in memory
     // for whoever logs in next on this browser.
@@ -1331,12 +1333,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       {/* ═══ PHONE TAB BAR ═══ */}
       <nav data-tabbar aria-label="Main" className="md:hidden fixed inset-x-0 bottom-0 z-(--z-tabbar) bg-white border-t border-gray-200 grid pb-[env(safe-area-inset-bottom)]" style={{ gridTemplateColumns: `repeat(${tabsFor(role).length + 1}, minmax(0, 1fr))` }}>
         {tabsFor(role).map(([label, Icon, page]) => (
-          <button key={label} onClick={() => setActive(page)} aria-current={active === page ? 'page' : undefined}
+          <button key={label} onClick={() => { setActive(page); setMobileMenuOpen(false) }} aria-current={active === page ? 'page' : undefined}
             className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${active === page ? 'text-orange-500' : 'text-gray-500'}`}>
             <span className={`grid place-items-center h-8 w-14 rounded-full ${active === page ? 'bg-orange-100' : ''}`}><Icon size={22} aria-hidden="true" /></span>{label}
           </button>
         ))}
-        <button onClick={() => setMobileMenuOpen(true)} aria-haspopup="menu" aria-expanded={mobileMenuOpen} data-popup-trigger="nav-drawer" className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${mobileMenuOpen ? 'text-orange-500' : 'text-gray-500'}`}>
+        <button onClick={() => setMobileMenuOpen(o => !o)} aria-haspopup="menu" aria-expanded={mobileMenuOpen} data-popup-trigger="nav-drawer" className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${mobileMenuOpen ? 'text-orange-500' : 'text-gray-500'}`}>
           <span className="grid place-items-center h-8 w-14 rounded-full"><Menu size={22} aria-hidden="true" /></span>More
         </button>
       </nav>
