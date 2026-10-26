@@ -13,6 +13,8 @@ import { getCustomerById } from './customerStore'
 import { businessDate } from './businessDate'
 import { navigate, pagePath } from './nav'
 import type { ScheduledJob, Crew } from './SchedulePage'
+import { entryWork } from './monthEntries'
+import { styleLabel } from './fenceCatalog'
 import { useOpenTickets } from './serviceStore'
 import { openTicket } from './ServiceRequests'
 
@@ -67,7 +69,7 @@ export default function ScheduleDay({ jobs, crews }: { jobs: ScheduledJob[]; cre
                 <span className={`w-3 h-3 rounded-full shrink-0 ${crewOf(j.crewId)?.color ?? 'bg-gray-300'}`} aria-hidden="true" />
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm font-semibold text-gray-900 truncate">{j.clientName}</span>
-                  <span className="block text-xs text-gray-600 truncate">{[j.fenceType, j.sections ? `${j.sections} sections` : '', j.area, crewOf(j.crewId)?.name].filter(Boolean).join(' · ')}</span>
+                  <span className="block text-xs text-gray-600 truncate">{[...(entryWork(j) ? [entryWork(j)] : [styleLabel(j.fenceType), j.sections ? `${j.sections} sections` : '']), j.area, crewOf(j.crewId)?.name].filter(Boolean).join(' · ')}</span>
                 </span>
                 <span className="text-xs text-gray-500">{j.status}</span>
               </li>

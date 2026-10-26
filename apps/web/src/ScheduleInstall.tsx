@@ -23,8 +23,11 @@
 
 import { locateOf, locateShortWarning } from '../../portal/src/server/lib/locates'
 import { useEffect, useMemo, useState } from 'react'
-import { styleLabel } from './fenceCatalog'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
+import { monthEntries } from './monthEntries'
+import { getJobs } from './jobStore'
+import { stagePhase, stageName } from './opsStagesStore'
+import { isDonePhase } from './opsStageModel'
 import { smsLink } from './appointmentLogic'
 import { businessDate } from './businessDate'
 import { useBackLayer } from './nav'
@@ -52,6 +55,10 @@ export function firstOpenDay(): string {
   const days = crewDaysOfWeek(loadSchedule().settings.workDays)
   return nextCrewDay(plusDays(businessDate(new Date()), 1), days)
 }
+
+// What the job is in a line (a repair says its work): monthEntries.ts, shared with the month and the day.
+export { jobScopeWords } from './monthEntries'
+import { jobScopeWords } from './monthEntries'
 
 /* ── Status chips ──────────────────────────────────────────────────────── */
 
@@ -136,7 +143,7 @@ export function ReadyPanel({ ready, onPick, canDrag }: { ready: ReturnType<typeo
                     <span className="block text-[11px] text-gray-500">{j.crewDaysFrom === 'quote' ? 'from the quote' : 'estimate'}</span>
                   </span>
                 </span>
-                <span className="block text-xs text-gray-700 mt-1" data-ready-scope>{[styleLabel(j.fenceStyle) || 'No style', j.footage ? `${j.footage} ft` : '', j.sections ? `${j.sections} sections` : ''].filter(Boolean).join(' · ')}</span>
+                <span className="block text-xs text-gray-700 mt-1" data-ready-scope>{jobScopeWords(j)}</span>
                 <span className="block text-[11px] text-gray-500">{j.stageName}</span>
                 <Chips job={j} />
               </button>
@@ -218,11 +225,13 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
   const warnings: Array<{ key: string; text: string }> = facts && planned.length ? [
     ...scheduleWarnings(facts, planned[0], planned[planned.length - 1]),
     // Double booking: the crew already has another install on one of the days (still allowed).
-    ...crewConflicts(loadSchedule().jobs.map(j => ({ id: j.id, stagingJobId: j.stagingJobId, clientName: j.clientName, crewId: j.crewId, date: j.date, status: j.status })), jobId, crew, planned)
+    // The same list the month shows: the entries and the jobs dated the old way with none (monthEntries.ts).
+    ...crewConflicts(monthEntries(getJobs(), loadSchedule().jobs, settings).map(j => ({ id: j.id, stagingJobId: j.stagingJobId, clientName: j.clientName, crewId: j.crewId, date: j.date, status: j.status })), jobId, crew, planned)
       .map(c => ({ key: 'crew', text: `${crewName} already has ${c.clientName} on ${shortDayWords(c.date)}.` })),
     ...planned.filter(d => holidayOn(d)).map(d => ({ key: 'holiday', text: `${shortDayWords(d)} is ${holidayOn(d)}.` })),
   ] : []
   const scheduled = !!facts?.scheduledDate
+  const closedJob = !!facts && isDonePhase(stagePhase(facts.stage))
   // Days it is booked on that are not crew days any more (Friday switched off): shown, and Move puts them on crew days.
   const offDays = facts && !facts.allowWeekend ? facts.bookedDays.filter(d => !isCrewDay(d, crewDaysOfWeek(settings.workDays))) : []
 
@@ -256,7 +265,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
 
   return (
     <Sheet onClose={onClose} label="Schedule install" attr={{ 'data-schedule-install': jobId }}>
-      <Head title={scheduled ? 'Move install' : 'Schedule install'} onClose={onClose} />
+      <Head title={closedJob ? 'Install' : scheduled ? 'Move install' : 'Schedule install'} onClose={onClose} />
       {error && <p className="p-5 text-sm text-red-700">{error}</p>}
       {!facts && !error && <p className="p-5 text-sm text-gray-500">Loading…</p>}
       {facts && (
@@ -264,11 +273,18 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
           <div>
             <p className="text-base font-semibold text-gray-900" data-si-name>{facts.customerName}</p>
             <p className="text-sm text-gray-600">{facts.address || 'No address'}</p>
-            <p className="text-sm text-gray-700 mt-1">{[styleLabel(facts.fenceStyle), facts.footage ? `${facts.footage} ft` : '', facts.sections ? `${facts.sections} sections` : ''].filter(Boolean).join(' · ')}</p>
+            <p className="text-sm text-gray-700 mt-1" data-si-scope>{jobScopeWords(facts)}</p>
             {scheduled && <p className="text-sm text-gray-700 mt-1" data-si-current>Now: {facts.bookedDays.length ? facts.bookedDays.map(shortDay).join(', ') : usDate(facts.scheduledDate)}{facts.crewAssigned ? `, ${facts.crewAssigned}` : ''}</p>}
-            <Chips job={facts} />
+            {!closedJob && <Chips job={facts} />}
           </div>
 
+          {/* A closed job (Complete, Invoiced, Paid): its days are history; nothing to move or take off. */}
+          {closedJob ? (
+            <div className="space-y-3" data-si-closed>
+              <p className="rounded-xl bg-green-50 border border-green-200 p-3 text-sm text-green-900">{facts.customerName}'s job is {stageName(facts.stage) || 'closed'}: installed and closed. Its install days stay on the month as a record.</p>
+              <button type="button" className="btn btn-secondary w-full min-h-[48px]" onClick={onClose}>Close</button>
+            </div>
+          ) : <>
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="block text-xs font-semibold text-gray-600 mb-1">Starts</span>
@@ -335,6 +351,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
           ) : (
             <button type="button" className="text-sm text-red-700 underline min-h-[44px]" onClick={() => setConfirmOff(true)} data-si-off>Take off the schedule</button>
           ))}
+          </>}
         </div>
       )}
     </Sheet>
