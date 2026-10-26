@@ -10,6 +10,9 @@
 //   2. a price well over 20% → Waiting for OK → OK it
 //   3. a line that does not add up → Needs review, nothing applied → fixed by tap → Applied
 //   4. price history for an item; vendors with totals by month; Undo puts the price back
+//   4b. a quotation with no tax line, freight and a fuel charge: estimated tax 7.22% shown and
+//       flagged per line, fuel on the bill only; Change match on a quote line; "No tax is right"
+//       and back; We ordered this → landed prices with freight and estimated tax, no fuel
 // As the owner on a phone (390x844), every screen with no sideways scroll:
 //   5. take photos of a paper invoice → saved on the phone → read by the Mac → vendor, match, applied
 //   6. no signal: a PDF waits on the phone, then uploads when signal is back
@@ -37,7 +40,7 @@ if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev ser
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 const FIX = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../portal/tests/fixtures/invoices')
 const VENDORS = ['Gulf Coast Fence Supply', 'Ocala Vinyl Wholesale']
-const NUMBERS = ['GC-10442', 'GC-10701', 'GC-10600', 'GC-10518', '58213']
+const NUMBERS = ['GC-10442', 'GC-10701', 'GC-10600', 'GC-10518', '58213', 'GQ-2201']
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
@@ -201,6 +204,42 @@ try {
   await openRow(page, 'GC-10600')
   await page.locator('[data-undo]').click(); await sleep(2000)
   check('Undo puts the price back ($4.40)', await cost(ITEMS[1].id) === 440 && await page.locator('[data-status="undone"]').isVisible())
+
+  // 4b. Jonathan's rules (Oct 26): a quotation with no tax line, $10 freight and a $5 fuel charge.
+  await page.locator('[data-back]').click(); await sleep(500)
+  await page.setInputFiles('[data-pdf-input]', path.join(FIX, 'no-tax.pdf'))
+  const nt = await waitFor(async () => { const i = await statusOf('GQ-2201'); return i && i.status !== 'reading' && i.status !== 'receiving' ? i : null })
+  check('no tax line: no waiting for an OK, a vendor quote with estimated tax 7.22%', nt?.status === 'quote' && nt?.estTaxBp === 722 && nt?.estTaxCents === 563, `${nt?.status} ${nt?.estTaxBp} ${nt?.estTaxCents}`)
+  await sleep(1200)
+  await openRow(page, 'GQ-2201')
+  check('the quote says estimated tax, and that it is not on the bill', /Estimated tax\.[\s\S]*7\.22%[\s\S]*\$5\.63[\s\S]*not added to the vendor bill/.test(await page.locator('[data-est-tax]').innerText()))
+  check('each line is flagged Estimated tax', await page.locator('[data-line-est-tax]').count() === 2)
+  const totals = await page.locator('[data-totals]').innerText()
+  check('totals: tax none printed, fuel on the bill only, estimated tax shown', /none printed/.test(totals) && /Fuel Charge \(bill only, not in item prices\)/.test(totals) && /Estimated tax 7\.22%[\s\S]*\$5\.63/.test(totals))
+  // Tension bars: $30 + $3.85 freight + $2.17 estimated tax (no fuel) = $36.02 for 10 → $3.60.
+  check('tension bars would be $3.60 (freight and estimated tax, no fuel)', /landed \$3\.60 each/.test(await page.locator('[data-line^="TB-48G"]').innerText()))
+  // Change match on a quote line, then back.
+  const tbLine = page.locator('[data-line^="TB-48G"]').first()
+  await tbLine.locator('[data-change-match]').click(); await sleep(800)
+  await tbLine.locator('[data-match-search]').fill(ITEMS[2].name)
+  await tbLine.locator(`button:has-text("${ITEMS[2].name}")`).first().click()
+  await tbLine.locator('[data-save-match]').click(); await sleep(1500)
+  check('Change match on a quote line: now the pipe', new RegExp(`→ ${ITEMS[2].name}`).test(await page.locator('[data-line^="TB-48G"]').innerText()))
+  await page.locator('[data-line^="TB-48G"] [data-change-match]').click(); await sleep(800)
+  await page.locator('[data-line^="TB-48G"] [data-match-search]').fill(ITEMS[1].name)
+  await page.locator(`[data-line^="TB-48G"] button:has-text("${ITEMS[1].name}")`).first().click()
+  await page.locator('[data-line^="TB-48G"] [data-save-match]').click(); await sleep(1500)
+  check('and back to tension bars', new RegExp(`→ ${ITEMS[1].name}`).test(await page.locator('[data-line^="TB-48G"]').innerText()))
+  // No tax is right takes it off; Add the estimated tax puts it back.
+  await page.locator('[data-tax-ok]').click(); await sleep(1500)
+  check('"No tax is right" takes the estimated tax off', /no tax is right/.test(await page.locator('[data-est-tax]').innerText()) && await page.locator('[data-line-est-tax]').count() === 0)
+  await page.locator('[data-tax-ok]').click(); await sleep(1500)
+  check('"Add the estimated tax" puts it back', await page.locator('[data-line-est-tax]').count() === 2)
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/dev-invoice-estimated-tax.png`, fullPage: true })
+  await page.locator('[data-we-ordered]').click(); await sleep(2500)
+  check('We ordered this: applied; tension bars $4.40 → $3.60, hog rings $0.25 → $0.29', await cost(ITEMS[1].id) === 360 && await cost(ITEMS[0].id) === 29, `${await cost(ITEMS[1].id)} ${await cost(ITEMS[0].id)}`)
+  const ntBill = (await owner('GET', '/api/vendor-state')).json.data.bills.find(b => b.billNumber === 'GQ-2201')
+  check('the bill is the printed $93.00 with the $5 fuel; the estimated tax is noted, not billed', ntBill?.totalCents === 9300 && ntBill?.feesCents === 500 && /Fuel Charge \$5\.00 \(on this bill only/.test(ntBill?.notes) && /estimated tax 7\.22% \(\$5\.63\)/.test(ntBill?.notes), ntBill?.notes)
   await d.ctx.close()
 
   // ── Owner on a phone ──
