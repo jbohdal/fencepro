@@ -6,6 +6,7 @@ import { requestTiming, startTimingSummaryLog } from './lib/requestTiming.js'
 import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
+import { isMediaTraffic } from './lib/rateLimitRules.js'
 import { ensureUploadDir } from './lib/storage/index.js'
 import prisma from './lib/prisma.js'
 import { printEnvValidation } from './lib/urls.js'
@@ -242,10 +243,24 @@ const apiLimiter = rateLimit({
   message: { success: false, error: 'Too many requests. Wait a moment and try again.' },
   standardHeaders: true,
   legacyHeaders: false,
+  // Photo and video files (signed links) and upload chunks have their own limit below (lib/rateLimitRules.ts).
+  skip: req => isMediaTraffic(req.method, req.originalUrl),
+})
+
+// Photos and video: a Photos tab is ~60 thumbnails, an upload of 110 photos hundreds of chunks.
+// Their own, much larger, limit, so they never use up the rest of the app's.
+const mediaLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: envInt('RATE_LIMIT_MEDIA_PER_MIN', 6000),
+  message: { success: false, error: 'Too many photo requests. Wait a moment and try again.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: req => !isMediaTraffic(req.method, req.originalUrl),
 })
 
 // ── Apply rate limits ──
 app.use('/api', apiLimiter)
+app.use('/api', mediaLimiter)
 app.use('/api/auth/login', loginLimiter)
 app.use('/api/crm-auth/login', loginLimiter)
 app.use('/api/crm-auth/forgot-password', loginLimiter)
