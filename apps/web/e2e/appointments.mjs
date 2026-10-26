@@ -112,7 +112,7 @@ async function desktop(browser) {
     made1 ? `${made1.customerName}, ${new Date(made1.startAt).toLocaleString('en-US', { timeZone: 'America/New_York' })}, ${made1.address}, with ${made1.assignedTo}, map position ${made1.lat ? 'found' : 'missing'}` : 'not found')
   check('desktop: the confirmation offers a text and a calendar invite, nothing sent', offers >= 1 && /You're all set/.test(r1.confirmText))
   check('desktop: booking an estimate moved the card from First Contact to Appointment', (await cardOf(first.customerId, first.id))?.stage === 'Appointment', `card now ${(await cardOf(first.customerId, first.id))?.stage}`)
-  await s.page.locator('button:text-is("appointments")').click(); await sleep(300)
+  await s.page.locator('[data-customer-tab="appointments"]').click(); await sleep(300)
   check('desktop: the customer header shows the next appointment and the tab lists it',
     (await s.page.locator('[data-next-badge]').count()) === 1 && (await s.page.locator(`[data-customer-appointment="${made1?.id}"]`).count()) === 1)
   await s.ctx.close()

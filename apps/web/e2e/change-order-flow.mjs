@@ -348,7 +348,7 @@ try {
   const payId = `e2eco${stamp}${NAME}`
   const paid = await call('POST', '/api/payments', { id: payId, jobId, amountCents: s2.contractCents, method: 'check', checkNumber: '5150' })
   check('deposit and Final paid', paid.status === 201)
-  await open(`${APP}/customers/${contactId}`)
+  await open(`${APP}/customers/${contactId}?tab=jobs`)
   await page.waitForSelector('[data-customer-change-orders]', { timeout: 30000 })
   await tap(page.locator(`[data-customer-change-orders] [data-co-button="${quoteId}"]`))
   await tap(page.locator('[data-co-from-lines]'))

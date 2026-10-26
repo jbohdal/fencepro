@@ -60,7 +60,7 @@ function shownServer(m: ServerMedia): ShownMedia {
   }
 }
 
-export default function MediaGallery({ where, quoteCustomerId, layout, onLayout, defaultCategory = 'Site walk', title = 'Photos and video', onItems, openKey, onOpened, cameraSignal }: {
+export default function MediaGallery({ where, quoteCustomerId, layout, onLayout, defaultCategory = 'Site walk', title = 'Photos and video', onItems, openKey, onOpened, cameraSignal, pageSize }: {
   where: Where
   /** On a quote: its customer, so the customer's visit photos show with the quote's (a draft not saved yet is not known to the server). New captures still go on the quote. */
   quoteCustomerId?: string | null
@@ -75,6 +75,8 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
   onOpened?: () => void
   /** Opens the camera each time it changes (voice: "photo"). */
   cameraSignal?: number
+  /** Set: only the newest this many are drawn, with "Show earlier" for the rest (the customer page, hundreds of photos). */
+  pageSize?: number
 }) {
   const [items, setItems] = useState<ShownMedia[]>([])
   const [me, setMe] = useState<string | null>(null)
@@ -83,6 +85,7 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
   const [open, setOpen] = useState<ShownMedia | null>(null)
   const [warn, setWarn] = useState<string | null>(null)
   const [, tick] = useState(0)
+  const [limit, setLimit] = useState(pageSize ?? Infinity)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const whereKey = JSON.stringify(where) + (quoteCustomerId ?? '')
   const lookup = where.quoteKey && quoteCustomerId ? { ...where, quoteCustomerId } : where
@@ -159,6 +162,8 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
   }
 
   const waiting = items.filter(i => !i.uploaded).length
+  // The newest ones (the list is oldest first); "Show earlier" draws more.
+  const drawn = items.length > limit ? items.slice(items.length - limit) : items
   const pins = useMemo(() => items.filter(i => i.pin), [items])
 
   return (
@@ -174,11 +179,16 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
         </label>
       </div>
       {warn && <p className="text-sm text-amber-900 bg-amber-50 rounded-lg px-3 py-2">{warn}</p>}
+      {items.length > drawn.length && pageSize && (
+        <button type="button" className="btn btn-quiet btn-sm w-full" data-show-more="media" onClick={() => setLimit(l => l + pageSize)}>
+          Show {Math.min(pageSize, items.length - drawn.length)} earlier <span className="font-normal text-gray-500">({drawn.length} of {items.length})</span>
+        </button>
+      )}
       {items.length > 0 ? (
         <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2" data-media-grid>
-          {items.map(i => (
+          {drawn.map(i => (
             <button key={i.key} type="button" onClick={() => setOpen(i)} className="relative aspect-square rounded-lg overflow-hidden bg-gray-200 text-left" data-media-item={i.uploaded ? 'uploaded' : 'waiting'}>
-              {i.thumb ? <img src={i.marked ?? i.thumb} alt={i.caption || i.category} className="w-full h-full object-cover" loading="lazy" />
+              {i.thumb ? <img src={i.marked ?? i.thumb} alt={i.caption || i.category} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                 : <span className="w-full h-full grid place-items-center bg-gray-800 text-white"><Play size={28} /></span>}
               {i.kind === 'video' && i.thumb && <span className="absolute inset-0 grid place-items-center"><Play size={28} className="text-white drop-shadow" /></span>}
               <span className={`absolute top-1 right-1 rounded-full w-6 h-6 grid place-items-center ${i.uploaded ? 'bg-green-600' : 'bg-amber-500'} text-white`} title={i.uploaded ? 'Uploaded' : 'Waiting to upload'}>

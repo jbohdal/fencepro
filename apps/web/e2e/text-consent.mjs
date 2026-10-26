@@ -24,7 +24,8 @@ import crypto from 'crypto'
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+// The dev copy (4001), or a worktree's own dev server on another local port; never live (4000).
+if (!/^http:\/\/localhost:\d+$/.test(APP) || !/^http:\/\/localhost:\d+$/.test(API) || /:4000$/.test(APP) || /:4000$/.test(API)) { console.error('Refusing to run: the dev copy only (localhost, not 4000).'); process.exit(2) }
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -62,7 +63,8 @@ async function staffSession(phone) {
 const stateOf = async page => (await page.locator('[data-text-consent]').first().getAttribute('data-text-consent'))
 const wordsOf = async page => (await page.locator('[data-text-consent-state]').first().textContent())?.trim() ?? ''
 async function openCustomer(s, id) {
-  await s.page.goto(`${APP}/customers/${id}`, { waitUntil: 'domcontentloaded' })
+  // The texting answer is with the contact details: the column on the left on a computer, the Details tab on a phone.
+  await s.page.goto(`${APP}/customers/${id}?tab=overview`, { waitUntil: 'domcontentloaded' })
   await s.page.locator('[data-customer-detail] [data-text-consent]:not([data-text-consent="loading"])').first().waitFor({ timeout: 60000 })
 }
 

@@ -153,11 +153,14 @@ async function customerFlow(browser, phone) {
   await page.locator(`text=${NAME}`).first().click(); await sleep(1000)
   check(`${tag}: a customer has its own address`, path(page) === `/customers/${contactId}`, path(page))
   await page.locator('[data-customer-tab="quotes"]').click(); await sleep(500)
-  await page.locator(`text=${'$9,876'}`).first().click(); await sleep(1000)
-  check(`${tag}: the quote opens with its own address`, path(page) === `/customers/${contactId}?qv=${quoteId}`, path(page))
+  // The quote's row on the Quotes tab (the summary row above the tabs shows the same amount).
+  await page.locator(`[data-customer-tab-panel] >> text=${'$9,876'}`).first().click(); await sleep(1000)
+  // The open tab is in the address too (?tab=quotes, customer-page.mjs).
+  const url = () => new URL(page.url())
+  check(`${tag}: the quote opens with its own address`, url().pathname === `/customers/${contactId}` && url().searchParams.get('qv') === quoteId, path(page))
   await shot(page, `${tag}-2-customer-quote`)
   await back(page)
-  check(`${tag}: Back closes the quote, the customer stays on the Quotes tab`, path(page) === `/customers/${contactId}` && /bg-white/.test(await page.locator('[data-customer-tab="quotes"]').getAttribute('class')) && await visible(page, `text=${'$9,876'}`), path(page))
+  check(`${tag}: Back closes the quote, the customer stays on the Quotes tab`, path(page) === `/customers/${contactId}?tab=quotes` && (await page.locator('[data-customer-tab="quotes"]').getAttribute('aria-selected')) === 'true' && await visible(page, `[data-customer-tab-panel] >> text=${'$9,876'}`), path(page))
   await back(page)
   check(`${tag}: Back again returns to the list, search kept`, path(page) === '/customers' && (await page.locator('input[placeholder="Search customers..."]').inputValue()) === LAST, path(page))
   if (phone) {

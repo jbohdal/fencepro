@@ -4,14 +4,18 @@ import { dayWords } from './businessDate'
 import ScreenErrorBoundary from './ScreenErrorBoundary'
 import { usePipelineStages, stageName as pipelineStageName, roleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, Fragment } from 'react'
 import { getConfig } from './configStore'
 import { sourcePicker, tagPicker, sourceLabel, tagLabel, getOptions, useOptions } from './optionListsStore'
 import { wordToSave } from './optionListModel'
-import { Phone, MessageSquare, Navigation, FilePlus2, CalendarPlus, Pencil } from 'lucide-react'
+import { Phone, MessageSquare, Navigation, FilePlus2, CalendarPlus, Pencil, MapPin } from 'lucide-react'
 import { telHref, formatPhone } from './phoneFormat'
 import PhoneLink from './PhoneLink'
-import { smsLink } from './appointmentLogic'
+import { nextFor, shortWhen, TYPE_LABELS } from './appointmentLogic'
+import { useAppointmentList } from './TodayScreen'
+import { loadCustomer as loadPaymentsOf, scheduleOf, subscribe as subscribePayments, paymentsVersion, money } from './paymentsStore'
+import { HistoryList, useCustomerHistory, lastContactOf, type HistoryItem } from './CustomerHistory'
+import { CUSTOMER_TAB_LABEL, asCustomerTab, customerTabsFor, shownCustomerTab, withTab, openQuotesOf, balanceDueCents, type CustomerTab } from './customerPage'
 import { startTouch } from './followUpStore'
 import { openBooking } from './BookingDialog'
 import { NextAppointmentBadge, CustomerAppointmentsTab } from './AppointmentWidgets'
@@ -35,7 +39,7 @@ import FileViewerModal, { type CustomerFileShape } from './FileViewerModal'
 import { getPortalAccessStatus, loadAccountsSoon, sendPortalInvite, resendPortalInvite, buildActivationLink } from './portalStaffApi'
 import { portalPageUrl } from './publicDoor'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
-import { logCustomerActivity, getCustomers, getArchivedCustomers, upsertCustomer, bulkImportCustomers } from './customerStore'
+import { logCustomerActivity, getActivityForCustomer, getCustomers, getArchivedCustomers, upsertCustomer, bulkImportCustomers } from './customerStore'
 import { archiveRecord, unarchiveRecord, deleteRecord } from './recordArchive'
 import { getQuotes, getQuoteById } from './quoteStore'
 import { sectionsCell } from './moveRepair'
@@ -585,6 +589,9 @@ function RecordPaymentModal({ invoiceId, customerId, customerName, onClose, onRe
 
 // ── Customer Notes Tab ──────────────────────────────────────────────────────
 
+/** Notes drawn at first and per "Show more". */
+const NOTES_PAGE = 30
+
 function CustomerNotesTab({ customerId }: { customerId: string }) {
   const [notes, setNotes] = useState<CrmContactNoteRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -593,6 +600,9 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editBody, setEditBody] = useState('')
   const [search, setSearch] = useState('')
+  // A page of notes at a time: a customer of many years can have hundreds.
+  const [limit, setLimit] = useState(NOTES_PAGE)
+  useEffect(() => { setLimit(NOTES_PAGE) }, [search])
 
   const [loadFailed, setLoadFailed] = useState(false)
   const load = useCallback(async () => {
@@ -673,7 +683,7 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
         <div className="text-center py-8 text-gray-400 text-sm">No notes yet</div>
       ) : (
         <div className="space-y-2">
-          {filtered.map(n => (
+          {filtered.slice(0, limit).map(n => (
             <div key={n.id} className={`bg-white rounded-xl border ${n.isPinned ? 'border-orange-300 bg-orange-50' : 'border-gray-200'} p-4`} data-note={n.id}>
               <SaveStatus keys={[`note:${n.id}`]} quietWhenSaved className="mb-2" />
               {editingId === n.id ? (
@@ -703,6 +713,11 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
               )}
             </div>
           ))}
+          {filtered.length > limit && (
+            <button type="button" className="btn btn-quiet btn-sm w-full" data-show-more="notes" onClick={() => setLimit(l => l + NOTES_PAGE)}>
+              Show {Math.min(NOTES_PAGE, filtered.length - limit)} more <span className="font-normal text-gray-500">({limit} of {filtered.length})</span>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -814,18 +829,25 @@ function PipelineStageSelect({ customerId }: { customerId: string }) {
   )
 }
 
-/** Wide enough for the side by side customer screen (Tailwind's lg). */
-function useWide(): boolean {
-  const q = '(min-width: 1024px)'
-  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia(q).matches)
+/** A media query's answer, kept up to date when the window is resized or turned. */
+function useMedia(q: string): boolean {
+  const [on, setOn] = useState(() => typeof window !== 'undefined' && window.matchMedia(q).matches)
   useEffect(() => {
     const mq = window.matchMedia(q)
-    const h = () => setWide(mq.matches)
+    const h = () => setOn(mq.matches)
+    h()
     mq.addEventListener('change', h)
     return () => mq.removeEventListener('change', h)
-  }, [])
-  return wide
+  }, [q])
+  return on
 }
+/** Wide enough for the side by side customer screen (Tailwind's lg): the actions in the header instead of the bar at the bottom. */
+const useWide = () => useMedia('(min-width: 1024px)')
+/** Wide enough for the details column beside the tabs (Tailwind's xl); narrower, the details are a tab. */
+const useDetailsColumn = () => useMedia('(min-width: 1280px)')
+
+/** Rows drawn at first and per "Show more" in the customer's tabs. */
+const LIST_PAGE = 25
 
 /** Call and Text from the customer screen ask "How'd it go?" afterwards, as the pipeline card does. */
 function touchCustomer(customer: Customer, channel: 'call' | 'text') {
@@ -930,8 +952,143 @@ function customerStatusWords(customer: Customer): string {
   return customer.jobStatus ? (pipelineStageName(customer.jobStatus) || customer.jobStatus) : ''
 }
 
+/** The property address in full: the street as typed, with the city, state and ZIP when it does not already say them. */
+function fullAddress(c: Customer): string {
+  const street = (c.serviceAddress || '').trim()
+  const rest = [c.city, [c.state, c.zip].filter(Boolean).join(' ')].map(s => (s || '').trim()).filter(Boolean)
+  const missing = rest.filter(part => !street.toLowerCase().includes(part.toLowerCase()))
+  return [street, ...missing].filter(Boolean).join(', ')
+}
+const mapsSearchUrl = (address: string) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
+const directionsTo = (address: string) => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`
+
+/** What was logged on this phone about the customer (portal invites, photo uploads), as history rows. */
+function localActivityOf(customerId: string): HistoryItem[] {
+  return getActivityForCustomer(customerId).map((a: any) => {
+    const name = a?.meta?.name ? `: ${a.meta.name}` : ''
+    const title = a.body || (a.action === 'photo_uploaded' ? `Photo uploaded${name}` : a.action === 'photo_deleted' ? `Photo deleted${name}` : String(a.action || ''))
+    return { at: String(a.at || ''), kind: 'info', title, detail: '', by: a.actor && a.actor !== 'user' && a.actor !== 'system' ? String(a.actor) : '' }
+  }).filter(h => h.title && !Number.isNaN(Date.parse(h.at)))
+}
+
+/**
+ * The customer's contact details, texting answer, pipeline stage and tags: the
+ * column on the left on a wide screen, the Details tab on a narrower one.
+ */
+function CustomerDetailsPanel({ customer, showStage }: { customer: Customer; showStage: boolean }) {
+  const name = `${customer.firstName} ${customer.lastName}`.trim()
+  const address = fullAddress(customer)
+  const rows: Array<{ label: string; value: string; node?: React.ReactNode }> = [
+    { label: 'Service Address', value: address, node: address ? <a href={mapsSearchUrl(address)} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">{address}</a> : null },
+    ...(customer.billingDifferent ? [{ label: 'Billing Address', value: customer.billingAddress }] : []),
+    { label: 'Phone', value: customer.phone, node: customer.phone ? <PhoneLink phone={customer.phone} customerId={customer.id} name={name} data-customer-phone /> : null },
+    { label: 'Email', value: customer.email, node: customer.email ? <a href={`mailto:${customer.email}`} className="text-blue-700 hover:underline">{customer.email}</a> : null },
+    { label: 'Lead Source', value: sourceLabel(customer.leadSource) },
+    { label: 'Sales Rep', value: customer.salesRep },
+    { label: 'First Appt', value: customer.firstApptDate },
+    // Where the customer really is: their newest job's Operations stage, else their pipeline card's stage; the typed or imported status only when there is neither.
+    { label: 'Job Status', value: customerStatusWords(customer) },
+    { label: 'Customer Since', value: dayWords(customer.createdAt) },
+  ]
+  return (
+    <div className="space-y-4" data-customer-details>
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
+        <h3 className="font-bold text-gray-900">Contact details</h3>
+        <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-2">
+          {rows.filter(r => r.value).map(r => (
+            <div key={r.label} className="contents">
+              <span className="text-xs text-gray-500 pt-0.5">{r.label}</span>
+              <span className="text-sm text-gray-800 min-w-0 [overflow-wrap:anywhere]">{r.node ?? r.value}</span>
+            </div>
+          ))}
+        </div>
+        {showStage && <div className="flex flex-wrap items-center gap-2"><PipelineStageSelect customerId={customer.id} /><NextAppointmentBadge customerId={customer.id} /></div>}
+        <TextConsent customerId={customer.id} />
+        {customer.tags.length > 0 && (
+          <div className="flex gap-1.5 flex-wrap">
+            {customer.tags.map(tag => (
+              <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full" data-customer-tag={tag}>{tagLabel(tag)}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The row under the header, most used first: open quotes, jobs, balance due,
+ * next appointment, last contact, total revenue, customer since. A tap opens
+ * the tab it comes from (or the booking for the appointment). Money only for a
+ * login that sees prices.
+ */
+function CustomerSummary({ customer, quotes, importedQuotes, jobs, history, onTab }: {
+  customer: Customer; quotes: Quote[]; importedQuotes: ImportedQuote[]; jobs: Job[]
+  history: HistoryItem[] | null
+  onTab: (t: CustomerTab) => void
+}) {
+  const prices = can('prices.view')
+  const appointments = useAppointmentList()
+  const next = nextFor(customer.id, appointments)
+  // Payment schedules of the customer's sold jobs (the Billing tab reads the same ones).
+  useSyncExternalStore(subscribePayments, paymentsVersion)
+  const [scheduleJobs, setScheduleJobs] = useState<string[]>([])
+  useEffect(() => {
+    if (!prices) return
+    let live = true
+    void loadPaymentsOf(customer.id).then(d => { if (live && d) setScheduleJobs(d.schedules.map(s => s.jobId)) })
+    return () => { live = false }
+  }, [customer.id, prices])
+  const balance = balanceDueCents(scheduleJobs.map(id => scheduleOf(id)?.balanceCents ?? 0), prices ? getInvoicesForCustomer(customer.id) : [])
+  const open = openQuotesOf(quotes)
+  const allQuotes = quotes.length + importedQuotes.length
+  const totalRevenue = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + soldValueOf(q), 0) + importedQuotes.reduce((s, q) => s + q.quotedPrice, 0)
+  const newestJob = [...jobs].sort((a, b) => String(b.scheduledDate).localeCompare(String(a.scheduledDate)))[0]
+  const last = lastContactOf(history)
+  const tile = 'rounded-xl bg-gray-50 hover:bg-orange-50 border border-transparent hover:border-orange-200 px-2 py-1.5 sm:px-2.5 sm:py-2 text-left min-w-0 transition-colors'
+  const Label = ({ children }: { children: React.ReactNode }) => <span className="block text-[10px] sm:text-[11px] text-gray-500 truncate">{children}</span>
+  const Value = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => <span className={`block text-[13px] sm:text-sm font-bold text-gray-900 truncate ${className}`}>{children}</span>
+  // The line under the number: on a computer only (a phone keeps the row to two lines of tiles).
+  const Sub = ({ children }: { children: React.ReactNode }) => <span className="hidden sm:block text-[11px] text-gray-500 truncate">{children}</span>
+  const sinceShort = (() => { const d = new Date(customer.createdAt); return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) })()
+  return (
+    <div className="grid grid-cols-4 lg:grid-cols-7 gap-1.5 sm:gap-2" data-customer-summary>
+      <button type="button" className={tile} onClick={() => onTab('quotes')} data-customer-summary-item="open-quotes">
+        <Label>Open quotes</Label><Value>{open.count}</Value>
+        <Sub>{prices && open.count ? fmt(open.cents / 100) : `${allQuotes} in all`}</Sub>
+      </button>
+      <button type="button" className={tile} onClick={() => onTab('jobs')} data-customer-summary-item="jobs">
+        <Label>Jobs</Label><Value>{jobs.length}</Value>
+        <Sub>{newestJob ? stageName(newestJob.stage) || 'Job' : 'None yet'}</Sub>
+      </button>
+      {prices && (
+        <button type="button" className={tile} onClick={() => onTab('billing')} data-customer-summary-item="balance" data-balance-cents={balance}>
+          <Label>Balance due</Label><Value className={balance > 0 ? 'text-orange-700' : ''}>{money(balance)}</Value>
+          <Sub>{balance > 0 ? 'Open Billing' : 'Nothing owed'}</Sub>
+        </button>
+      )}
+      <button type="button" className={tile} onClick={() => openBooking(next ? { appointmentId: next.id } : { customerId: customer.id })} data-customer-summary-item="next-appointment">
+        <Label>Next appt</Label><Value>{next ? shortWhen(next) : 'None'}</Value>
+        <Sub>{next ? TYPE_LABELS[next.type] : 'Tap to book'}</Sub>
+      </button>
+      <button type="button" className={tile} onClick={() => onTab('activity')} data-customer-summary-item="last-contact">
+        <Label>Last contact</Label><Value>{history === null ? '…' : last ? dayWords(last.at) : 'None'}</Value>
+        <Sub>{last ? last.title : 'Calls, texts, emails'}</Sub>
+      </button>
+      {prices && (
+        <button type="button" className={tile} onClick={() => onTab('quotes')} data-customer-summary-item="revenue">
+          <Label><span className="sm:hidden">Revenue</span><span className="hidden sm:inline">Total revenue</span></Label><Value>{fmt(totalRevenue)}</Value><Sub>Sold</Sub>
+        </button>
+      )}
+      <div className={`${tile.replace(/hover:\S+/g, '')}`} data-customer-summary-item="since">
+        <Label><span className="sm:hidden">Since</span><span className="hidden sm:inline">Customer since</span></Label><Value><span className="sm:hidden">{sinceShort || dayWords(customer.createdAt)}</span><span className="hidden sm:inline">{dayWords(customer.createdAt)}</span></Value>
+      </div>
+    </div>
+  )
+}
+
 function CustomerDetail({
-  customer, quotes, importedQuotes, jobs, files,
+  customer, quotes, importedQuotes, jobs, files, roundTop = true,
   onEdit, onNewQuote, onDelete, onDeleteFile, onQuoteClick, onFileClick, initialTab, onTabConsumed, archived = false, onArchive,
 }: {
   customer: Customer
@@ -942,6 +1099,8 @@ function CustomerDetail({
   importedQuotes: ImportedQuote[]
   jobs: Job[]
   files: CustomerFile[]
+  /** The header is the top of the card (no back bar above it). */
+  roundTop?: boolean
   onEdit: () => void
   onNewQuote: (customer: Customer) => void
   onDelete: (id: string) => void
@@ -953,330 +1112,411 @@ function CustomerDetail({
 }) {
   // Lead source and tag names from Settings (a rename shows at once).
   useOptions('leadSources'); useOptions('customerTags')
-  type Tab = 'overview' | 'appointments' | 'quotes' | 'jobs' | 'costing' | 'billing' | 'notes' | 'pullsheets' | 'files' | 'photos' | 'messages'
-  // Back to this customer comes back to the tab that was open.
-  const rememberedTab = useScreenMemory<{ id: string; tab: Tab }>('customer-tab', (): { id: string; tab: Tab } => ({ id: customer.id, tab: activeTab }))
-  const [activeTab, setActiveTab] = useState<Tab>(rememberedTab?.id === customer.id ? rememberedTab.tab : 'overview')
+  // A phone gets the action bar at the bottom; a wide screen keeps the actions in the header.
+  const wide = useWide()
+  // Wide enough for the details column beside the tabs; narrower, the details are a tab.
+  const detailsColumn = useDetailsColumn()
+  const tabs = customerTabsFor({ costs: can('costs.view'), detailsColumn })
 
+  // The open tab: ?tab= in the address (a link, a reload), else the one open when Back returned here, else Activity.
+  const rememberedTab = useScreenMemory<{ id: string; tab: string }>('customer-tab', (): { id: string; tab: string } => ({ id: customer.id, tab: activeTab }))
+  const [activeTab, setActiveTab] = useState<CustomerTab>(() =>
+    asCustomerTab(new URLSearchParams(window.location.search).get('tab'))
+    ?? (rememberedTab?.id === customer.id ? asCustomerTab(rememberedTab.tab) : null)
+    ?? 'activity')
+  const shown = shownCustomerTab(activeTab, tabs)
+
+  const headRef = useRef<HTMLElement | null>(null)
+  const tabsRef = useRef<HTMLDivElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const [headH, setHeadH] = useState(0)
+  // The page scrolls with padding at its top; a sticky top of 0 would leave that gap above the header.
+  const [padTop, setPadTop] = useState(0)
   useEffect(() => {
-    if (initialTab && ['overview','appointments','quotes','jobs','costing','billing','notes','pullsheets','files','photos','messages'].includes(initialTab)) {
-      setActiveTab(initialTab as any)
+    const el = headRef.current
+    if (!el) return
+    const sc = document.querySelector<HTMLElement>('[data-page-scroll]')
+    const measure = () => { setHeadH(el.offsetHeight); setPadTop(sc ? parseFloat(getComputedStyle(sc).paddingTop) || 0 : 0) }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Picking a tab while the tabs are stuck under the header: the new tab opens at its top, right under them.
+  const realign = useRef(false)
+  function pickTab(t: CustomerTab) {
+    const sc = document.querySelector<HTMLElement>('[data-page-scroll]')
+    const nav = tabsRef.current, panel = panelRef.current
+    realign.current = !!(sc && nav && panel && panel.getBoundingClientRect().top < nav.getBoundingClientRect().bottom + 1)
+    setActiveTab(t)
+    replaceUrl(withTab(window.location.pathname + window.location.search, t))
+  }
+  useLayoutEffect(() => {
+    const sc = document.querySelector<HTMLElement>('[data-page-scroll]')
+    const nav = tabsRef.current, panel = panelRef.current
+    if (realign.current && sc && nav && panel) {
+      const gap = panel.getBoundingClientRect().top - nav.getBoundingClientRect().bottom
+      if (gap < 0) sc.scrollTop += gap
+    }
+    realign.current = false
+    // The open tab in view in the row of tabs (a phone shows a few at a time).
+    const b = nav?.querySelector<HTMLElement>(`[data-customer-tab="${shown}"]`)
+    if (nav && b) {
+      const l = b.offsetLeft, r = l + b.offsetWidth
+      if (l < nav.scrollLeft) nav.scrollLeft = Math.max(0, l - 16)
+      else if (r > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = r - nav.clientWidth + 16
+    }
+  }, [shown])
+
+  // A tab asked for from elsewhere (the messages bell, search: "open this customer on Jobs").
+  useEffect(() => {
+    const t = asCustomerTab(initialTab)
+    if (t) {
+      setActiveTab(t)
+      replaceUrl(withTab(window.location.pathname + window.location.search, t))
       onTabConsumed?.()
     }
   }, [initialTab, customer.id, onTabConsumed])
 
-  const totalRevenue = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + soldValueOf(q), 0)
-    + importedQuotes.reduce((s, q) => s + q.quotedPrice, 0)
+  // The customer's pipeline card, for its history (automation emails) and the follow up's "How'd it go?".
+  const [, setPipelineTick] = useState(0)
+  useEffect(() => {
+    const bump = () => setPipelineTick(t => t + 1)
+    window.addEventListener('fencepro:pipeline:updated', bump)
+    return () => window.removeEventListener('fencepro:pipeline:updated', bump)
+  }, [])
+  const card = (getPipeline().leads || []).find((l: any) => l.customerId === customer.id) as { id: string } | undefined
+  const history = useCustomerHistory(card?.id ?? null, customer.id, shown === 'activity')
+  const activity = useMemo(() => history === null ? null : [...history, ...localActivityOf(customer.id)].sort((a, b) => b.at.localeCompare(a.at)), [history, customer.id])
+
+  const name = `${customer.firstName} ${customer.lastName}`.trim()
+  const address = fullAddress(customer)
   const allQuoteCount = quotes.length + importedQuotes.length
-  // A phone gets the action bar at the bottom; a wide screen keeps them in the header.
-  const wide = useWide()
+  const status = customerStatusWords(customer)
+  const hasCard = !!card
+  const [quoteLimit, setQuoteLimit] = useState(LIST_PAGE)
+  const [importedLimit, setImportedLimit] = useState(LIST_PAGE)
+  const [jobLimit, setJobLimit] = useState(LIST_PAGE)
+  const pad = detailsColumn ? '' : 'px-4 lg:px-6'
+  const sold = quotes.some(q => q.status === 'SOLD')
+  // Phone (calls), email, rep and lead source, with a dot between.
+  const contact = [
+    customer.phone ? <PhoneLink key="phone" phone={customer.phone} customerId={customer.id} name={name} data-customer-header-phone /> : null,
+    customer.email ? <a key="email" href={`mailto:${customer.email}`} className="text-blue-700 hover:underline" data-customer-email>{customer.email}</a> : null,
+    customer.salesRep ? <span key="rep" className="whitespace-nowrap" data-customer-rep>Rep: {customer.salesRep}</span> : null,
+    customer.leadSource ? <span key="source" className="whitespace-nowrap text-orange-700" data-customer-source={customer.leadSource}>via {sourceLabel(customer.leadSource)}</span> : null,
+  ].filter(Boolean).map((part, i) => <Fragment key={i}>{i > 0 && <span className="text-gray-300" aria-hidden="true"> · </span>}{part}</Fragment>)
+  // Sold or Quote Sent, and where they are (the job's stage when there is a job; on a phone the card's stage too).
+  const badges = <>
+    {sold && <span className="inline-block mr-1.5 align-[1px] text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full whitespace-nowrap">Signed / Sold</span>}
+    {!sold && quotes.some(q => q.status === 'SENT') && <span className="inline-block mr-1.5 align-[1px] text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap">Quote Sent</span>}
+    {status && (!wide || !hasCard || status.startsWith('Job:')) && (
+      <span className="inline-block mr-1.5 align-[1px] text-[11px] font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full whitespace-nowrap" data-customer-status>{status}</span>
+    )}
+  </>
+  // Archive is the everyday way off the lists; Delete (owner, admin) lives behind "More" and typing the name.
+  const moreMenu = (can('records.archive') || can('records.delete')) && <PopMenu name="customer-more" label="More ▾" title="More actions" width={208}
+    triggerClassName={`btn btn-quiet btn-sm${wide ? '' : ' shrink-0 ml-auto -mr-2'}`} triggerProps={{ 'aria-label': 'More actions', 'data-customer-more': true }}>
+    {close => <>
+      {can('records.archive') && onArchive && <PopItem onClick={() => { close(); onArchive(!archived) }} data-customer-archive={archived ? 'off' : 'on'}>{archived ? 'Unarchive customer' : 'Archive customer'}</PopItem>}
+      {can('records.delete') && <PopItem danger onClick={() => { close(); onDelete(customer.id) }} data-customer-delete>Delete customer…</PopItem>}
+    </>}
+  </PopMenu>
+  const more = (key: string, left: number, onClick: () => void) => (
+    <button type="button" className="btn btn-quiet btn-sm w-full rounded-none border-t border-gray-100" data-show-more={key} onClick={onClick}>
+      Show {Math.min(LIST_PAGE, left)} more
+    </button>
+  )
 
   return (
-    <div className="flex-1 flex flex-col lg:overflow-hidden max-lg:pb-[76px]" data-customer-detail>
-      {!wide && <CustomerActionBar customer={customer} onNewQuote={() => onNewQuote(customer)} onEdit={onEdit} />}
-      <div className="px-4 py-4 lg:px-8 lg:py-6 border-b border-gray-200 bg-white">
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-          <div className="flex items-center gap-4 min-w-0">
-            <div className="w-14 h-14 rounded-2xl bg-orange-500 flex items-center justify-center text-white text-xl font-black shrink-0">
+    <div className="flex-1 flex flex-col min-w-0 max-lg:pb-[76px]" data-customer-detail>
+      {/* Always at the top: who, where, how to reach them, and the main actions. */}
+      <header ref={headRef} data-customer-header style={{ top: -padTop }}
+        className={`sticky z-20 bg-white border-b border-gray-200 px-4 py-2 lg:px-6 lg:py-3 ${roundTop ? 'rounded-t-2xl' : ''}`}>
+        <div className="flex items-start gap-3">
+          {wide && (
+            <div className="w-11 h-11 rounded-xl bg-orange-500 flex items-center justify-center text-white text-base font-black shrink-0" aria-hidden="true">
               {customer.firstName?.[0] ?? ''}{customer.lastName?.[0] ?? ''}
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-xl font-bold text-gray-900 break-words">{customer.firstName} {customer.lastName}</h2>
-                <SaveStatus keys={[`customer:${customer.id}`]} also={noteChangeFor(customer.id)} />
-                {quotes.some(q => q.status === 'SOLD') && (
-                  <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Signed / Sold</span>
-                )}
-                {!quotes.some(q => q.status === 'SOLD') && quotes.some(q => q.status === 'SENT') && (
-                  <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Quote Sent</span>
-                )}
-              </div>
-              <div className="flex items-center gap-3 mt-1 flex-wrap">
-                {customer.phone && <span className="text-sm text-gray-500">📞 <PhoneLink phone={customer.phone} customerId={customer.id} name={`${customer.firstName} ${customer.lastName}`.trim()} data-customer-header-phone /></span>}
-                {customer.email && <span className="text-sm text-gray-500 break-all">✉️ {customer.email}</span>}
-              </div>
-              <div className="mt-1 empty:hidden"><PastCustomerBadge customerId={customer.id} /></div>
-              <div className="mt-2 flex flex-wrap items-center gap-2"><PipelineStageSelect customerId={customer.id} /><NextAppointmentBadge customerId={customer.id} /></div>
-              <TextConsent customerId={customer.id} />
-              {/* One tap to reach the customer or the property */}
-              {wide && <div className="flex flex-wrap gap-2 mt-3" data-contact-actions>
-                {customer.phone && <a href={telHref(customer.phone)} onClick={() => touchCustomer(customer, 'call')} className="btn btn-secondary btn-sm"><Phone size={16} aria-hidden="true" /> Call</a>}
-                {customer.phone && <TextButton phone={customer.phone} customerId={customer.id} firstName={customer.firstName} name={`${customer.firstName} ${customer.lastName}`.trim()} onTap={() => touchCustomer(customer, 'text')} className="btn btn-secondary btn-sm" data-customer-text><MessageSquare size={16} aria-hidden="true" /> Text</TextButton>}
-                {customer.serviceAddress && <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(customer.serviceAddress)}`} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm"><Navigation size={16} aria-hidden="true" /> Navigate</a>}
+          )}
+          <div className="min-w-0 flex-1">
+            <div className={`flex items-center gap-x-2 gap-y-1 min-w-0 ${wide ? 'flex-wrap' : ''}`}>
+              <h2 className="text-lg lg:text-xl font-bold text-gray-900 truncate max-w-full min-w-0" data-customer-name>{name || 'Customer'}</h2>
+              {/* On a phone "Saved" stays quiet (the header is kept small); Saving and Not saved still show. */}
+              <SaveStatus keys={[`customer:${customer.id}`]} also={noteChangeFor(customer.id)} quietWhenSaved={!wide} />
+              {wide && badges}
+              {/* The stage: changeable here on a wide screen (Details tab on a phone). */}
+              {wide && hasCard && <PipelineStageSelect customerId={customer.id} />}
+              {wide && <NextAppointmentBadge customerId={customer.id} />}
+              {!wide && moreMenu}
+              {/* A wide screen: the main actions at the right of the name (a phone has the bar at the bottom). */}
+              {wide && <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5" data-contact-actions>
+                <button onClick={() => onNewQuote(customer)} className="btn btn-primary btn-sm" data-customer-action="new-quote"><FilePlus2 size={16} aria-hidden="true" /> New quote</button>
+                {customer.phone && <a href={telHref(customer.phone)} onClick={() => touchCustomer(customer, 'call')} className="btn btn-secondary btn-sm" data-customer-action="call"><Phone size={16} aria-hidden="true" /> Call</a>}
+                {customer.phone && <TextButton phone={customer.phone} customerId={customer.id} firstName={customer.firstName} name={name} onTap={() => touchCustomer(customer, 'text')} className="btn btn-secondary btn-sm" data-customer-text data-customer-action="text"><MessageSquare size={16} aria-hidden="true" /> Text</TextButton>}
+                {address && <a href={directionsTo(address)} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" data-customer-action="navigate"><Navigation size={16} aria-hidden="true" /> Navigate</a>}
+                <button onClick={() => openBooking({ customerId: customer.id })} data-book-appointment data-customer-action="book" className="btn btn-secondary btn-sm"><CalendarPlus size={16} aria-hidden="true" /> Book</button>
+                <button onClick={onEdit} className="btn btn-quiet btn-sm" data-customer-action="edit"><Pencil size={16} aria-hidden="true" /> Edit</button>
+                {moreMenu}
               </div>}
-              <div className="flex gap-1.5 mt-2 flex-wrap">
-                {customer.tags.map(tag => (
-                  <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full" data-customer-tag={tag}>{tagLabel(tag)}</span>
-                ))}
-                {customer.leadSource && (
-                  <span className="text-xs bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded-full" data-customer-source={customer.leadSource}>via {sourceLabel(customer.leadSource)}</span>
-                )}
-              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-2 max-lg:empty:hidden">
-            {wide && <>
-            <button onClick={() => openBooking({ customerId: customer.id })} data-book-appointment className="btn btn-secondary flex-1 lg:flex-none">Book appointment</button>
-            <button onClick={() => onNewQuote(customer)} className="btn btn-primary flex-1 lg:flex-none">+ New quote</button>
-            <button onClick={onEdit} className="btn btn-quiet">Edit</button>
-            </>}
-            {/* Archive is the everyday way off the lists; Delete (owner, admin) lives behind "More" and typing the name. */}
-            {(can('records.archive') || can('records.delete')) && <PopMenu name="customer-more" label="More ▾" title="More actions" width={208}
-              triggerClassName="btn btn-quiet" triggerProps={{ 'aria-label': 'More actions', 'data-customer-more': true }}>
-              {close => <>
-                {can('records.archive') && onArchive && <PopItem onClick={() => { close(); onArchive(!archived) }} data-customer-archive={archived ? 'off' : 'on'}>{archived ? 'Unarchive customer' : 'Archive customer'}</PopItem>}
-                {can('records.delete') && <PopItem danger onClick={() => { close(); onDelete(customer.id) }} data-customer-delete>Delete customer…</PopItem>}
-              </>}
-            </PopMenu>}
+            {/* Where and how to reach them: one line on a computer, the address on its own line on a phone. */}
+            <p className="mt-0.5 text-sm leading-snug [overflow-wrap:anywhere]">
+              {/* On a phone the badges lead the address line, so the name keeps the first line to itself. */}
+              {!wide && badges}
+              {address
+                ? <a href={mapsSearchUrl(address)} target="_blank" rel="noreferrer" className="font-medium text-gray-900 hover:underline" data-customer-address title="Open in maps">
+                    <MapPin size={14} className="inline -mt-0.5 mr-1 text-orange-600" aria-hidden="true" />{address}
+                  </a>
+                : <span className="text-gray-500" data-customer-address="">No property address yet</span>}
+              {wide && contact.length > 0 && <span className="text-gray-300" aria-hidden="true"> · </span>}
+              {wide && <span className="text-gray-600" data-customer-contact>{contact}</span>}
+            </p>
+            {!wide && <p className="mt-0.5 text-xs text-gray-600 leading-relaxed [overflow-wrap:anywhere]" data-customer-contact>{contact}</p>}
           </div>
         </div>
+      </header>
+      {!wide && <CustomerActionBar customer={customer} onNewQuote={() => onNewQuote(customer)} onEdit={onEdit} />}
 
+      {/* What needs attention first: archived, a possible duplicate, a past customer's warranty. */}
+      <div className="px-4 lg:px-6 pt-3 space-y-3 empty:hidden">
         {archived && (
-          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3" data-customer-archived>
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3" data-customer-archived>
             <p className="flex-1 min-w-[12rem] text-sm text-amber-900">Archived: off the customer list and the boards, still in search and reports.</p>
             {can('records.archive') && onArchive && <button className="btn btn-secondary btn-sm min-h-[44px]" onClick={() => onArchive(false)} data-customer-unarchive>Unarchive</button>}
           </div>
         )}
-        <ArchivedOfCustomer customerId={customer.id} customerArchived={archived} />
         {/* A website or phone lead's possible match (Merge, Not the same person), "Merged into", and Undo merge. */}
-        <div className="mt-4 empty:hidden"><PossibleMatch customerId={customer.id} history onOpenCustomer={openCustomerPage} onMerged={openCustomerPage} /></div>
-        {/* Warranty and service requests on their fence (ServiceRequests.tsx). */}
-        <div className="mt-4 space-y-2 max-w-xl empty:hidden" data-customer-service><ServiceRequestButton customerId={customer.id} /><ServiceTicketList customerId={customer.id} /></div>
-        {/* A change order on a signed job: the yard drawing or typed lines (ChangeOrders.tsx). */}
-        <div className="mt-4 empty:hidden"><CustomerChangeOrderButtons customerId={customer.id} customerName={`${customer.firstName} ${customer.lastName}`.trim()} /></div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4 mt-5">
-          {[
-            { label: 'Total revenue', value: fmt(totalRevenue) },
-            { label: 'Quotes', value: String(allQuoteCount) },
-            { label: 'Jobs', value: String(jobs.length) },
-            { label: 'Customer since', value: dayWords(customer.createdAt) },
-          ].map(s => (
-            <div key={s.label} className="bg-gray-50 rounded-xl p-3">
-              <p className="text-xs text-gray-400">{s.label}</p>
-              <p className="text-sm font-bold text-gray-900 mt-0.5">{s.value}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Portal Access section — prominent, dedicated row */}
-        <PortalAccessSection customer={customer} />
-
-        <div className="flex gap-1 mt-5 bg-gray-100 rounded-xl p-1 w-full lg:w-fit overflow-x-auto">
-          {(['overview', 'appointments', 'quotes', 'jobs', 'billing', 'costing', 'notes', 'pullsheets', 'files', 'photos', 'messages'] as const).filter(t => t !== 'costing' || can('costs.view')).map(t => (
-            <button
-              key={t}
-              onClick={() => setActiveTab(t)} data-customer-tab={t}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-all whitespace-nowrap shrink-0 ${activeTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
-            >
-              {t}
-              {t === 'quotes' && allQuoteCount > 0 && <span className="ml-1.5 text-xs bg-orange-100 text-orange-600 rounded-full px-1.5">{allQuoteCount}</span>}
-              {t === 'jobs' && jobs.length > 0 && <span className="ml-1.5 text-xs bg-orange-100 text-orange-600 rounded-full px-1.5">{jobs.length}</span>}
-              {t === 'files' && files.length > 0 && <span className="ml-1.5 text-xs bg-orange-100 text-orange-600 rounded-full px-1.5">{files.length}</span>}
-            </button>
-          ))}
-        </div>
+        <div className="empty:hidden"><PossibleMatch customerId={customer.id} history onOpenCustomer={openCustomerPage} onMerged={openCustomerPage} /></div>
+        <div className="empty:hidden"><PastCustomerBadge customerId={customer.id} /></div>
       </div>
 
-      <div className="lg:flex-1 lg:overflow-y-auto px-4 py-4 lg:px-8 lg:py-6" data-customer-scroll>
-        {activeTab === 'appointments' && <CustomerAppointmentsTab customerId={customer.id} />}
-        {activeTab === 'overview' && (
-          <div className="space-y-6 max-w-2xl">
-            <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
-              <h3 className="font-bold text-gray-900">Contact details</h3>
-              {[
-                { label: 'Service Address', value: customer.serviceAddress },
-                customer.billingDifferent ? { label: 'Billing Address', value: customer.billingAddress } : null,
-                { label: 'Phone',       value: customer.phone, node: customer.phone ? <PhoneLink phone={customer.phone} customerId={customer.id} name={`${customer.firstName} ${customer.lastName}`.trim()} data-customer-phone /> : null },
-                { label: 'Email',       value: customer.email },
-                { label: 'Lead Source', value: sourceLabel(customer.leadSource) },
-                { label: 'Sales Rep',   value: customer.salesRep },
-                { label: 'First Appt',  value: customer.firstApptDate },
-                // Where the customer really is: their newest job's Operations stage, else their pipeline card's stage; the typed or imported status only when there is neither.
-                { label: 'Job Status',  value: customerStatusWords(customer) },
-              ].filter(Boolean).map((row: any) => row?.value ? (
-                <div key={row.label} className="flex gap-4">
-                  <span className="text-xs text-gray-400 w-28 sm:w-32 shrink-0 pt-0.5">{row.label}</span>
-                  <span className="text-sm text-gray-800 min-w-0 [overflow-wrap:anywhere]">{row.node ?? row.value}</span>
+      <div className="px-4 lg:px-6 pt-3">
+        <CustomerSummary customer={customer} quotes={quotes} importedQuotes={importedQuotes} jobs={jobs} history={history} onTab={pickTab} />
+      </div>
+
+      <div className={detailsColumn ? 'grid grid-cols-[272px_minmax(0,1fr)] gap-6 px-6 pb-6 pt-4 items-start' : 'pt-3 pb-4'}>
+        {detailsColumn && <aside className="min-w-0" data-customer-side><CustomerDetailsPanel customer={customer} showStage={!wide} /></aside>}
+        <section className="min-w-0">
+          {/* The tabs stay under the header while the page scrolls. */}
+          <div ref={tabsRef} role="tablist" aria-label="Customer" data-customer-tabs
+            className={`sticky z-10 bg-white border-b border-gray-200 flex gap-x-1 lg:gap-x-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] lg:flex-wrap lg:overflow-visible ${pad}`}
+            style={{ top: headH - padTop }}>
+            {tabs.map(t => (
+              <button
+                key={t} type="button" role="tab" aria-selected={shown === t}
+                onClick={() => pickTab(t)} data-customer-tab={t}
+                className={`px-3 lg:px-2 py-2.5 -mb-px border-b-2 text-sm font-semibold transition-colors whitespace-nowrap shrink-0 ${shown === t ? 'border-orange-500 text-orange-700' : 'border-transparent text-gray-600 hover:text-gray-900'}`}
+              >
+                {CUSTOMER_TAB_LABEL[t]}
+                {t === 'quotes' && allQuoteCount > 0 && <span className="ml-1.5 text-xs bg-orange-100 text-orange-600 rounded-full px-1.5">{allQuoteCount}</span>}
+                {t === 'jobs' && jobs.length > 0 && <span className="ml-1.5 text-xs bg-orange-100 text-orange-600 rounded-full px-1.5">{jobs.length}</span>}
+                {t === 'files' && files.length > 0 && <span className="ml-1.5 text-xs bg-orange-100 text-orange-600 rounded-full px-1.5">{files.length}</span>}
+              </button>
+            ))}
+          </div>
+
+          <div ref={panelRef} role="tabpanel" data-customer-tab-panel={shown} className={`min-h-[70vh] pt-4 ${pad}`}>
+            {shown === 'activity' && (
+              <div className="space-y-4">
+                <HistoryList list={activity} first={LIST_PAGE} step={LIST_PAGE} title="Activity" />
+                <ImportHistoryCard customerId={customer.id} />
+              </div>
+            )}
+
+            {shown === 'overview' && <CustomerDetailsPanel customer={customer} showStage={!wide} />}
+
+            {shown === 'appointments' && <CustomerAppointmentsTab customerId={customer.id} />}
+
+            {shown === 'quotes' && (
+              <div className="space-y-4">
+                {importedQuotes.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                      <p className="text-xs font-semibold text-gray-500">Imported Quote History</p>
+                      <p className="text-xs text-gray-400">{importedQuotes.length} records</p>
+                    </div>
+                    <table className="w-full text-sm table-responsive-cards">
+                      <thead className="border-b border-gray-100">
+                        <tr>
+                          <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400">Type</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Sections</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Quoted</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Labor</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">50% Dep</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Tear out</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Rep</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Sold</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {importedQuotes.slice(0, importedLimit).map(q => (
+                          <tr key={q.id} className="hover:bg-gray-50">
+                            <td data-label="Type" className="px-5 py-2.5 font-medium text-gray-800">{q.projectType || '—'}</td>
+                            <td data-label="Sections" className="px-4 py-2.5 text-right text-gray-600">{q.sections || '—'}</td>
+                            <td data-label="Quoted" className="px-4 py-2.5 text-right font-bold text-gray-900">{q.quotedPrice > 0 ? fmt(q.quotedPrice) : '—'}</td>
+                            <td data-label="Labor" className="px-4 py-2.5 text-right text-gray-600">{q.laborBid > 0 ? fmt(q.laborBid) : '—'}</td>
+                            <td data-label="50% Dep" className="px-4 py-2.5 text-right text-gray-600">{q.depositAmt > 0 ? fmt(q.depositAmt) : '—'}</td>
+                            <td data-label="Tear Out" className="px-4 py-2.5 text-right">
+                              {q.tearOut ? <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Yes</span> : <span className="text-xs text-gray-300">No</span>}
+                            </td>
+                            <td data-label="Rep" className="px-4 py-2.5 text-right text-gray-500 text-xs">{q.salesRep || '—'}</td>
+                            <td data-label="Sold" className="px-4 py-2.5 text-right text-gray-400 text-xs">{q.soldDate || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {importedQuotes.length > importedLimit && more('imported-quotes', importedQuotes.length - importedLimit, () => setImportedLimit(n => n + LIST_PAGE))}
+                  </div>
+                )}
+
+                {quotes.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
+                      <p className="text-sm font-semibold text-gray-600">Quotes from {getConfig().company.name || 'Getter Done Fence'}</p>
+                    </div>
+                    <table className="w-full text-sm table-responsive-cards">
+                      <thead className="border-b border-gray-100">
+                        <tr>
+                          <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400">Type</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Sections</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Price</th>
+                          {can('costs.view') && <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Margin</th>}
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Date</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {quotes.slice(0, quoteLimit).map(q => (
+                          <tr key={q.id} className="hover:bg-orange-50 cursor-pointer transition-colors" onClick={() => onQuoteClick?.(q.id)} data-customer-quote={q.id}>
+                            <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{q.type}</td>
+                            <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
+                            <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
+                            {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= 0.34 ? 'text-green-600' : q.margin >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
+                              {(q.margin * 100).toFixed(1)}%
+                            </td>}
+                            <td data-label="Date" className="px-4 py-3 text-right text-gray-400 text-xs">{dayWords(q.date)}</td>
+                            <td data-label="Status" className="px-4 py-3 text-right">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[q.status]}`}>{q.status}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {quotes.length > quoteLimit && more('quotes', quotes.length - quoteLimit, () => setQuoteLimit(n => n + LIST_PAGE))}
+                  </div>
+                )}
+
+                {quotes.length === 0 && importedQuotes.length === 0 && (
+                  <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
+                    <p className="text-gray-400 text-sm mb-3">No quotes yet</p>
+                    <button onClick={() => onNewQuote(customer)} className="text-orange-500 text-sm hover:underline">Create the first quote</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {shown === 'jobs' && (
+              <div className="space-y-4">
+                {/* Warranty and service requests on their fence (ServiceRequests.tsx). */}
+                <div className="space-y-2 max-w-xl empty:hidden" data-customer-service><ServiceRequestButton customerId={customer.id} /><ServiceTicketList customerId={customer.id} /></div>
+                {/* A change order on a signed job: the yard drawing or typed lines (ChangeOrders.tsx). */}
+                <div className="empty:hidden"><CustomerChangeOrderButtons customerId={customer.id} customerName={name} /></div>
+                {jobs.length === 0 ? (
+                  <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
+                    <p className="text-4xl mb-2">🏗</p>
+                    <p className="text-gray-700 font-medium">No jobs yet</p>
+                    <p className="text-gray-400 text-xs mt-1 max-w-sm mx-auto">Jobs are created automatically when a quote is marked as Sold — either by dragging a pipeline card to {pipelineStageName(roleId('signed'))} or clicking Mark as Sold on a quote.</p>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <table className="w-full text-sm table-responsive-cards">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">Type</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Sections</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Value</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Scheduled</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stage</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {jobs.slice(0, jobLimit).map(j => (
+                          <tr key={j.id} className="hover:bg-gray-50" data-customer-job={j.id}>
+                            <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{j.type}</td>
+                            <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{j.sections}</td>
+                            <td data-label="Value" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(j.value)}</td>
+                            <td data-label="Scheduled" className="px-4 py-3 text-right text-gray-400 text-xs">{j.scheduledDate}</td>
+                            <td data-label="Stage" className="px-4 py-3 text-right">
+                              <span className="text-xs px-2 py-1 rounded-full text-white font-semibold" style={{ backgroundColor: stageColor(j.stage) }} data-ops-stage-pill={j.stage}>
+                                {stageName(j.stage)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {jobs.length > jobLimit && more('jobs', jobs.length - jobLimit, () => setJobLimit(n => n + LIST_PAGE))}
+                  </div>
+                )}
+                <ArchivedOfCustomer customerId={customer.id} customerArchived={archived} />
+              </div>
+            )}
+
+            {shown === 'costing' && can('costs.view') && (
+              <CustomerJobCostingTab quotes={quotes} />
+            )}
+
+            {shown === 'billing' && (
+              <CustomerBillingTab customerId={customer.id} customerName={name} customerEmail={customer.email} />
+            )}
+
+            {shown === 'notes' && (
+              <div className="space-y-4">
+                {customer.notes && (
+                  <div className="bg-white rounded-2xl border border-gray-200 p-4" data-customer-record-notes>
+                    <h3 className="text-sm font-bold text-gray-900 mb-2">Notes on the customer record</h3>
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap [overflow-wrap:anywhere]">{customer.notes}</p>
+                  </div>
+                )}
+                <CustomerNotesTab customerId={customer.id} />
+              </div>
+            )}
+
+            {shown === 'pullsheets' && (
+              <CustomerPullSheetsTab customerId={customer.id} />
+            )}
+
+            {shown === 'photos' && (
+              <div className="space-y-6">
+                <MediaGallery where={{ customerId: customer.id }} defaultCategory="Site walk" title="Photos and video" pageSize={60} />
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 mb-2">Customer uploads and older photos</p>
+                  <CustomerPhotosTab customerId={customer.id} uploadedBy="user" />
                 </div>
-              ) : null)}
-            </div>
-            {customer.notes && (
-              <div className="bg-white rounded-2xl border border-gray-200 p-6">
-                <h3 className="font-bold text-gray-900 mb-3">Notes</h3>
-                <p className="text-sm text-gray-600 whitespace-pre-wrap">{customer.notes}</p>
-              </div>
-            )}
-            <ImportHistoryCard customerId={customer.id} />
-          </div>
-        )}
-
-        {activeTab === 'quotes' && (
-          <div className="space-y-4">
-            {importedQuotes.length > 0 && (
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                  <p className="text-xs font-semibold text-gray-500">Imported Quote History</p>
-                  <p className="text-xs text-gray-400">{importedQuotes.length} records</p>
-                </div>
-                <table className="w-full text-sm table-responsive-cards">
-                  <thead className="border-b border-gray-100">
-                    <tr>
-                      <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400">Type</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Sections</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Quoted</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Labor</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">50% Dep</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Tear out</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Rep</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Sold</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {importedQuotes.map(q => (
-                      <tr key={q.id} className="hover:bg-gray-50">
-                        <td data-label="Type" className="px-5 py-2.5 font-medium text-gray-800">{q.projectType || '—'}</td>
-                        <td data-label="Sections" className="px-4 py-2.5 text-right text-gray-600">{q.sections || '—'}</td>
-                        <td data-label="Quoted" className="px-4 py-2.5 text-right font-bold text-gray-900">{q.quotedPrice > 0 ? fmt(q.quotedPrice) : '—'}</td>
-                        <td data-label="Labor" className="px-4 py-2.5 text-right text-gray-600">{q.laborBid > 0 ? fmt(q.laborBid) : '—'}</td>
-                        <td data-label="50% Dep" className="px-4 py-2.5 text-right text-gray-600">{q.depositAmt > 0 ? fmt(q.depositAmt) : '—'}</td>
-                        <td data-label="Tear Out" className="px-4 py-2.5 text-right">
-                          {q.tearOut ? <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Yes</span> : <span className="text-xs text-gray-300">No</span>}
-                        </td>
-                        <td data-label="Rep" className="px-4 py-2.5 text-right text-gray-500 text-xs">{q.salesRep || '—'}</td>
-                        <td data-label="Sold" className="px-4 py-2.5 text-right text-gray-400 text-xs">{q.soldDate || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             )}
 
-            {quotes.length > 0 && (
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
-                  <p className="text-sm font-semibold text-gray-600">Quotes from {getConfig().company.name || 'Getter Done Fence'}</p>
-                </div>
-                <table className="w-full text-sm table-responsive-cards">
-                  <thead className="border-b border-gray-100">
-                    <tr>
-                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400">Type</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Sections</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Price</th>
-                      {can('costs.view') && <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Margin</th>}
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Date</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {quotes.map(q => (
-                      <tr key={q.id} className="hover:bg-orange-50 cursor-pointer transition-colors" onClick={() => onQuoteClick?.(q.id)}>
-                        <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{q.type}</td>
-                        <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
-                        <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
-                        {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= 0.34 ? 'text-green-600' : q.margin >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
-                          {(q.margin * 100).toFixed(1)}%
-                        </td>}
-                        <td data-label="Date" className="px-4 py-3 text-right text-gray-400 text-xs">{dayWords(q.date)}</td>
-                        <td data-label="Status" className="px-4 py-3 text-right">
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[q.status]}`}>{q.status}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {shown === 'files' && (
+              <CustomerFilesTab
+                customerId={customer.id}
+                uploadedBy="user"
+                legacyFiles={files as any}
+                onLegacyFileClick={(f) => onFileClick?.(f as any)}
+                onLegacyFileDelete={can('ops.delete') ? (id) => onDeleteFile(id) : undefined}
+              />
             )}
 
-            {quotes.length === 0 && importedQuotes.length === 0 && (
-              <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
-                <p className="text-gray-400 text-sm mb-3">No quotes yet</p>
-                <button onClick={() => onNewQuote(customer)} className="text-orange-500 text-sm hover:underline">Create the first quote</button>
+            {shown === 'portal' && (
+              <div className="space-y-4">
+                <PortalAccessSection customer={customer} />
+                <CustomerMessagesTab customerId={customer.id} sender="user" />
               </div>
             )}
           </div>
-        )}
-
-        {activeTab === 'jobs' && (
-          <div className="space-y-3">
-            {jobs.length === 0 ? (
-              <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
-                <p className="text-4xl mb-2">🏗</p>
-                <p className="text-gray-700 font-medium">No jobs yet</p>
-                <p className="text-gray-400 text-xs mt-1 max-w-sm mx-auto">Jobs are created automatically when a quote is marked as Sold — either by dragging a pipeline card to {pipelineStageName(roleId('signed'))} or clicking Mark as Sold on a quote.</p>
-              </div>
-            ) : (
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm table-responsive-cards">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">Type</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Sections</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Value</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Scheduled</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stage</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {jobs.map(j => (
-                      <tr key={j.id} className="hover:bg-gray-50">
-                        <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{j.type}</td>
-                        <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{j.sections}</td>
-                        <td data-label="Value" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(j.value)}</td>
-                        <td data-label="Scheduled" className="px-4 py-3 text-right text-gray-400 text-xs">{j.scheduledDate}</td>
-                        <td data-label="Stage" className="px-4 py-3 text-right">
-                          <span className="text-xs px-2 py-1 rounded-full text-white font-semibold" style={{ backgroundColor: stageColor(j.stage) }} data-ops-stage-pill={j.stage}>
-                            {stageName(j.stage)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'costing' && can('costs.view') && (
-          <CustomerJobCostingTab quotes={quotes} />
-        )}
-
-        {activeTab === 'billing' && (
-          <CustomerBillingTab customerId={customer.id} customerName={`${customer.firstName} ${customer.lastName}`} customerEmail={customer.email} />
-        )}
-
-        {activeTab === 'notes' && (
-          <CustomerNotesTab customerId={customer.id} />
-        )}
-
-        {activeTab === 'pullsheets' && (
-          <CustomerPullSheetsTab customerId={customer.id} />
-        )}
-
-        {activeTab === 'photos' && (
-          <div className="space-y-6">
-            <MediaGallery where={{ customerId: customer.id }} defaultCategory="Site walk" title="Photos and video" />
-            <div>
-              <p className="text-sm font-semibold text-gray-900 mb-2">Customer uploads and older photos</p>
-              <CustomerPhotosTab customerId={customer.id} uploadedBy="user" />
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'files' && (
-          <CustomerFilesTab
-            customerId={customer.id}
-            uploadedBy="user"
-            legacyFiles={files as any}
-            onLegacyFileClick={(f) => onFileClick?.(f as any)}
-            onLegacyFileDelete={can('ops.delete') ? (id) => onDeleteFile(id) : undefined}
-          />
-        )}
-
-        {activeTab === 'messages' && (
-          <CustomerMessagesTab customerId={customer.id} sender="user" />
-        )}
+        </section>
       </div>
     </div>
   )
@@ -1649,12 +1889,17 @@ export default function CustomersPage({ onNewQuote }: {
 
   // Master / detail responsive: on <lg the rail and detail stack — when a
   // customer is selected, the rail hides and the detail takes the full width
-  // (with a back button rendered in the detail header). Above lg both panes
-  // show side by side as before.
+  // (with a back button above it). Above lg the list and the new / edit form
+  // show side by side. A customer's own page takes the whole width at every
+  // size and scrolls with the page (no box of its own): its header and tabs
+  // stay at the top while the rest scrolls (Jonathan, Oct 26 2026).
   const detailVisible = mode !== 'view' || !!selected
+  const customerView = mode === 'view' && !!selected
   return (
-    <div className="flex flex-col lg:flex-row lg:h-full bg-white rounded-2xl border border-gray-200 lg:overflow-hidden lg:min-h-[calc(100vh-120px)]">
-      <div className={`${detailVisible ? 'hidden lg:flex' : 'flex'} w-full lg:w-72 border-b lg:border-b-0 lg:border-r border-gray-200 flex-col shrink-0`}>
+    <div className={customerView
+      ? 'flex flex-col bg-white rounded-2xl border border-gray-200'
+      : 'flex flex-col lg:flex-row lg:h-full bg-white rounded-2xl border border-gray-200 lg:overflow-hidden lg:min-h-[calc(100vh-120px)]'}>
+      <div className={`${detailVisible ? (customerView ? 'hidden' : 'hidden lg:flex') : 'flex'} w-full lg:w-72 border-b lg:border-b-0 lg:border-r border-gray-200 flex-col shrink-0`}>
         <div className="px-4 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-gray-900">Customers</h2>
@@ -1732,7 +1977,7 @@ export default function CustomersPage({ onNewQuote }: {
         {openedFrom() && detailVisible && (
           <button
             onClick={() => goBack('/customers')}
-            className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 text-sm font-semibold text-orange-600 hover:bg-orange-50"
+            className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 text-sm font-semibold text-orange-600 hover:bg-orange-50 rounded-t-2xl"
             data-back-to={openedFrom()}
           >
             <span aria-hidden>←</span>
@@ -1742,7 +1987,7 @@ export default function CustomersPage({ onNewQuote }: {
         {detailVisible && !openedFrom() && (
           <button
             onClick={() => goBack('/customers')}
-            className="lg:hidden flex items-center gap-2 px-4 py-3 border-b border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
+            className={`${customerView ? '' : 'lg:hidden '}flex items-center gap-2 px-4 py-2.5 lg:py-2 border-b border-gray-200 text-sm text-gray-600 hover:bg-gray-50 rounded-t-2xl`}
             aria-label="Back to customers list"
           >
             <span aria-hidden>←</span>
@@ -1755,6 +2000,8 @@ export default function CustomersPage({ onNewQuote }: {
         {mode === 'view' && !selected && <EmptyState onNew={() => navigate('/customers/new')} />}
         {mode === 'view' && selected && (
           <CustomerDetail
+            key={selected.id}
+            roundTop={false}
             customer={selected}
             quotes={customerQuotes}
             importedQuotes={customerImportedQuotes}
@@ -1817,8 +2064,8 @@ export default function CustomersPage({ onNewQuote }: {
     </div>
   )
 }
-// Full-width, prominent Portal Access panel rendered in the customer profile
-// header area below the stats row.
+// The customer's portal access (invite, resend, copy the link, open the
+// portal), at the top of the customer page's Portal tab.
 function PortalAccessSection({ customer }: { customer: Customer }) {
   const [bump, setBump] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -1940,7 +2187,7 @@ function PortalAccessSection({ customer }: { customer: Customer }) {
   }
 
   return (
-    <div className="mt-4 bg-gradient-to-r from-orange-50 to-white border border-orange-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+    <div className="bg-gradient-to-r from-orange-50 to-white border border-orange-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3" data-portal-access>
       <div className="flex items-center gap-3 flex-1 min-w-0">
         <div className="w-10 h-10 rounded-xl bg-white border border-orange-200 flex items-center justify-center text-orange-500 text-xl shrink-0">
           {stateIcon}

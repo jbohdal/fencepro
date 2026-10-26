@@ -29,8 +29,9 @@ const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.SHOTS || ''
-const local = u => /^https?:\/\/(localhost|127\.0\.0\.1):4001(\/|$)/.test(u)
-if (!local(APP) || !local(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+// The dev copy (4001), or a worktree's own dev server on another local port; never live (4000).
+const local = u => /^https?:\/\/(localhost|127\.0\.0\.1):\d+(\/|$)/.test(u) && !/:4000(\/|$)/.test(u)
+if (!local(APP) || !local(API)) { console.error('Refusing to run: the dev copy only (localhost, not 4000).'); process.exit(2) }
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 
@@ -72,7 +73,12 @@ try {
     // 1. A First Contact customer: tag, history card, pinned note.
     await page.goto(`${APP}/customers/${mandy.id}`)
     await page.waitForSelector('[data-customer-tab]', { timeout: 60000 }); await sleep(1200)
+    // The tags are with the contact details: the column on the left on a computer, the Details tab on a phone.
+    const detailsTab = page.locator('[data-customer-tab="overview"]')
+    if (await detailsTab.count()) { await tap(detailsTab); await sleep(500) }
     check('the customer page shows the tag "MyBudgetQuote import"', await page.locator('[data-customer-tag="MyBudgetQuote import"]').isVisible())
+    // The MyBudgetQuote history is on the Activity tab.
+    await tap(page.locator('[data-customer-tab="activity"]'))
     const hist = page.locator('[data-import-history]')
     await hist.waitFor({ timeout: 15000 }).catch(() => {})
     const histText = await hist.innerText().catch(() => '')
