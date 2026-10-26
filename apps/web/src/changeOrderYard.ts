@@ -16,6 +16,8 @@ export function deriveRunsFor(styles: StyleLike[], yard: YardLayout, fenceStyle:
   const r = deriveLayout(yard, layoutPanelFt(style) * 12, { teeAs: teePostFor(style) })
   return {
     runs: r.runs.map(x => x.ft), corners: r.corners, ends: r.ends, walkGates: r.walkGates, dblGates: r.dblGates, linePosts: r.linePosts,
+    // Each gate's width in feet (chain link gate leaves go by width).
+    gateWidths: r.gateWidthsFt,
     // Each run by its side, as the crew packet names them ("Back", "Left side (2 of 2)").
     runNames: r.runs.map(x => (x.pieces > 1 ? `${x.sideName} (${x.piece} of ${x.pieces})` : x.sideName)),
   }

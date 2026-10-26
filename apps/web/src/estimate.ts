@@ -9,7 +9,7 @@
 import { mergeSavedConfig } from './configDefaults'
 import { withTargetMargins, typedOverheadPct } from './targetMargin'
 import { calculateQuote, type QuoteCalc } from './quoteCalc'
-import { setMaterialPriceSource, inventoryPriceSource, type LineItem } from './materialCalculator'
+import { setMaterialPriceSource, inventoryPriceSource, type LineItem, type GateWidths } from './materialCalculator'
 import { setSavedKitSets, type KitSet } from './materialKits'
 import type { AppConfig, FenceStyle } from './configStore'
 import { isQuotable, isOnHold, NOT_QUOTABLE_MESSAGE } from './styleAvailability'
@@ -34,7 +34,7 @@ export { planTallVinylParts } from './tallVinylParts'
 export { planVinylColor, planArchiveVinylColor, planUndoVinylColor, inputFromColor, kitLineCounts } from './vinylColorForm'
 export { catalogOf as fenceCatalogOf, DEFAULT_CATALOG as DEFAULT_FENCE_CATALOG } from './fenceCatalog'
 // Settings → Fence styles → Add color / turn a choice off (scripts/stephens-quotes-2026-10-26b.ts: Green chain link).
-export { planAddColor, planUpdateOption, resolveFenceStyles } from './fenceCatalog'
+export { planAddColor, planUpdateOption, resolveFenceStyles, swapColor, isColorPart } from './fenceCatalog'
 export { kitSetFor } from './materialKits'
 // Warranties per option (server lib/warranties.ts).
 export {
@@ -74,6 +74,8 @@ export interface EstimateJob {
   ends: number
   walkGates: number
   dblGates: number
+  /** Each gate's width in feet (a drawing's, deriveYardRuns gateWidths): chain link gate leaves go by width. */
+  gateWidths?: GateWidths | null
   tearOutSections?: number
   tearOutGates?: number
   extraLaborHrs?: number
@@ -225,6 +227,7 @@ export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?:
     style,
     runs: job.runs.map(ft => ({ ft, rail: 'auto' as const })),
     corners: job.corners, ends: job.ends, walkGates: job.walkGates, dblGates: job.dblGates,
+    ...(job.gateWidths ? { gateWidths: job.gateWidths } : {}),
     tearOutSections: job.tearOutSections ?? 0, tearOutGates: job.tearOutGates ?? 0,
     extraLaborHrs: job.extraLaborHrs ?? 0, hasSalesman: !!job.hasSalesman, priceAdjust: job.priceAdjust ?? 0,
     pricing: cfg.pricing, overrides: undefined, optimizer: cfg.railOptimizer!,
