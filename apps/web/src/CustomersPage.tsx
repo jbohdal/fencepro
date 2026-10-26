@@ -1553,11 +1553,14 @@ function CustomerDetail({
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {jobs.slice(0, jobLimit).map(j => (
-                          <tr key={j.id} className="hover:bg-gray-50" data-customer-job={j.id}>
-                            <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{j.type}</td>
+                          // The row opens the job (Operations, its job window), like a quote row opens the quote (round 3).
+                          <tr key={j.id} className="hover:bg-orange-50 cursor-pointer transition-colors" data-customer-job={j.id} tabIndex={0} role="link" aria-label={`Open the job: ${styleLabel(j.type) || 'job'}`}
+                            onClick={() => navigate(`/operations?job=${encodeURIComponent(j.id)}`, { from: name || 'Customer' })}
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/operations?job=${encodeURIComponent(j.id)}`, { from: name || 'Customer' }) } }}>
+                            <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{styleLabel(j.type) || j.type}</td>
                             <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{j.sections}</td>
                             <td data-label="Value" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(j.value)}</td>
-                            <td data-label="Scheduled" className="px-4 py-3 text-right text-gray-400 text-xs">{j.scheduledDate}</td>
+                            <td data-label="Scheduled" className="px-4 py-3 text-right text-gray-400 text-xs">{j.scheduledDate ? dayWords(j.scheduledDate) : 'Not yet'}</td>
                             <td data-label="Stage" className="px-4 py-3 text-right">
                               <span className="text-xs px-2 py-1 rounded-full text-white font-semibold" style={{ backgroundColor: stageColor(j.stage) }} data-ops-stage-pill={j.stage}>
                                 {stageName(j.stage)}
