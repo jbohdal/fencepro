@@ -7,6 +7,7 @@ import { jobRowTarget } from '../../web/src/customerPage'
 import { canOpenOperations } from '../../web/src/permissions'
 import { shapeOf, sideChanges, sideChangeWords, ownChangeWords, ownLineWords, applyChange, type DeriveRuns } from '../src/server/lib/changeOrderMerge'
 import { shownLines, alsoInDrawing, alsoInDrawingWords } from '../src/server/lib/changeOrders'
+import { arrivalContact } from '../src/server/lib/followUps'
 import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from '../../web/src/quoteCalc'
 import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materialCalculator'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
@@ -109,5 +110,15 @@ describe('the change order made in the quote builder says its sides (item 2)', (
     const d = changeOrderDraft({ signed, current: now, signedOverrides: was.overrides, styles: [style], priceNow: calculateQuote(now).priced.price, sectionsNow: calculateQuote(now).sections, simple: false, sides: 'Left side 40 ft → 50 ft' })
     expect(d.lines[0].description).toBe('Add 10 ft of fence, 2 panels more (Left side 40 ft → 50 ft)')
     expect(d.lines[0].description).not.toMatch(/146 ft|156 ft/)
+  })
+})
+
+describe('a walk-in counts as a contact (item 5)', () => {
+  const at = new Date('2026-10-26T14:00:00Z')
+  test('Walk-in: a visit at the counter; Phone call: the call; others nothing', () => {
+    expect(arrivalContact('Walk-in', at, [])).toMatchObject({ kind: 'visit', title: 'Visit: walked in (new lead)', at: at.toISOString() })
+    expect(arrivalContact('Phone call', at, [])).toMatchObject({ kind: 'call' })
+    expect(arrivalContact('Google', at, [])).toBeNull()
+    expect(arrivalContact('Walk-in', at, [new Date(at.getTime() + 5 * 60_000)])).toBeNull()
   })
 })

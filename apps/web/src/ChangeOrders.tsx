@@ -525,8 +525,10 @@ export function QuickChangeOrderModal({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center pt-6 md:pt-12 bg-black/40" onClick={onClose} data-co-modal>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[600px] max-h-[90vh] overflow-y-auto mx-3 lg:mx-0" onClick={e => e.stopPropagation()}>
-        <div className="px-4 md:px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+      {/* The window's lines scroll; its title and its Save bar stay put, so Save is always in sight on a phone
+          (round 3 recheck: Save sat below the visible part of the sheet). */}
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[600px] max-h-[calc(100dvh-2.5rem)] md:max-h-[90vh] flex flex-col overflow-hidden mx-3 lg:mx-0" onClick={e => e.stopPropagation()} data-co-modal-window>
+        <div className="px-4 md:px-6 py-4 border-b border-gray-200 flex items-center justify-between shrink-0">
           <div>
             <h2 className="font-bold text-gray-900">Change order CO-{existingCount + 1}</h2>
             <p className="text-xs text-gray-500 mt-0.5">{customerName}{prefill ? ' · filled in from your changes, priced at today\'s costs' : ''}</p>
@@ -534,7 +536,7 @@ export function QuickChangeOrderModal({
           <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
-        <div className="px-4 md:px-6 py-5 space-y-4">
+        <div className="px-4 md:px-6 py-5 space-y-4 flex-1 min-h-0 overflow-y-auto overscroll-contain" data-co-modal-body>
           {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.</p>}
           <div>
             <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
@@ -600,7 +602,7 @@ export function QuickChangeOrderModal({
           {verbal !== null && <VerbalReason value={verbal} onChange={setVerbal} />}
         </div>
 
-        <div className="px-4 md:px-6 py-4 border-t border-gray-200 flex flex-wrap items-center justify-end gap-2">
+        <div className="px-4 md:px-6 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] border-t border-gray-200 flex flex-wrap items-center justify-end gap-2 shrink-0 bg-white" data-co-save-bar>
           <button onClick={onClose} className="px-4 min-h-[44px] text-sm text-gray-600 hover:text-gray-800">Cancel</button>
           <button onClick={() => void save(null)} disabled={!canSave}
             className="bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold px-5 min-h-[44px] rounded-xl text-sm" data-co-save-draft>

@@ -283,10 +283,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     expect(toOk.map(n => n.recipientRole).sort()).toEqual(['admin', 'office_staff'])
     for (const n of toOk) expect(n.link).toBe(`/operations?job=${jobId}&co=${co.id}`)
     // The OK clears (marks read and retitles) those notices, and tells whoever made it.
+    const okAt = Date.now() - 1000
     const ok = (await call(owner, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: co.version, status: 'draft' })).json.data
     expect(ok.status).toBe('draft')
     const after = await prisma.notification.findMany({ where: { id: { in: toOk.map(n => n.id) } } })
-    expect(after.every(n => n.read && /^Change order OK'd: /.test(n.title))).toBe(true)
+    expect(after.every(n => /^Change order OK'd: /.test(n.title))).toBe(true)
+    // At the time of the OK (round 3 recheck), read for the owner who OK'd it, unread for the office.
+    expect(after.every(n => n.createdAt.getTime() >= okAt)).toBe(true)
+    expect(after.map(n => [n.recipientRole, n.read]).sort()).toEqual([['admin', true], ['office_staff', false]])
     expect(await prisma.notification.count({ where: { jobId, recipientId: me.email, title: { startsWith: "OK'd: send it to " } } })).toBe(1)
     // Her change to the lines of an OK'd one: refused with a send, and on its own it waits for the OK again (it never stays OK'd).
     const more = [{ ...lines[0], amountCents: 90000 }]

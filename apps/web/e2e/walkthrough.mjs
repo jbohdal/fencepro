@@ -91,8 +91,9 @@ try {
   walkId = arrived?.id ?? (await api(`/api/walkthroughs?jobId=${jobId}`)).json?.data?.id ?? null
   check('back online: the walkthrough and all 6 marks arrived (hardware: Needs fixing)', !!arrived, arrived ? '' : JSON.stringify((await api(`/api/walkthroughs?jobId=${jobId}`)).json?.data?.items?.map(i => i.result)))
   check('back online: exactly one punch item, with its note', arrived?.punch?.length === 1 && arrived.punch[0].note === 'Gate hinge screws loose', JSON.stringify(arrived?.punch))
-  await until(async () => (await p.locator('[data-walkthrough-screen] [data-save-status="saved"]').count()) > 0, 15000)
-  check('the screen says Saved', await p.locator('[data-walkthrough-screen] [data-save-status="saved"]').count() > 0)
+  // Saved is quiet (round 3 recheck): no Saving or Waiting chip left on the screen.
+  await until(async () => (await p.locator('[data-walkthrough-screen] [data-save-status]').count()) === 0, 15000)
+  check('the screen no longer says Saving or Waiting (Saved is quiet)', await p.locator('[data-walkthrough-screen] [data-save-status]').count() === 0)
   for (const id of ids.slice(6)) await p.locator(`[data-wt-pass="${id}"]`).click()
 
   // Required photos: 1 side (the crew adds a second), 1 gate, the wide shot.

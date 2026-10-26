@@ -257,7 +257,8 @@ async function flowA(dev, signal, proxy) {
   check('signal back: everything sent by itself (badge gone)', synced, String(await badge(page)))
   await sleep(1000)
   await page.locator(`[data-kanban-col] >> text=${NAME}`).first().click(); await sleep(800)
-  check('the card says Saved', (await page.locator('[data-card-window] [data-save-status]').first().getAttribute('data-save-status').catch(() => null)) === 'saved')
+  // Saved is quiet (round 3 recheck): no Saving or Waiting chip on the card.
+  check('the card is saved (no Saving or Waiting chip)', (await page.locator('[data-card-window] [data-save-status]').count()) === 0)
   await shot(dev, '4-saved')
 
   if (signal === 'none') {
@@ -269,11 +270,11 @@ async function flowA(dev, signal, proxy) {
     await page.locator('[data-card-note-save]').click(); await sleep(800)
     const shown = await page.locator('[data-card-note]').allTextContents()
     check('no signal: a new note does not hide the earlier one', shown.some(t => t.includes('Gate on the left')) && shown.some(t => t.includes('Second note')), shown.join(' | '))
-    check('no signal: the card header does not say Saved while the note waits', (await page.locator('[data-card-window] [data-save-status]').first().getAttribute('data-save-status')) !== 'saved')
+    check('no signal: the card header does not say Saved while the note waits', ['waiting', 'saving', 'failed'].includes(String(await page.locator('[data-card-window] [data-save-status]').first().getAttribute('data-save-status').catch(() => null))))
     proxy.set('up'); await dev.offline(false)
     await untilSynced(page, 60_000); await sleep(1500)
     const after = await page.locator('[data-card-note]').allTextContents()
-    check('signal back: both notes shown, header Saved', after.length >= 2 && (await page.locator('[data-card-window] [data-save-status]').first().getAttribute('data-save-status')) === 'saved', after.join(' | '))
+    check('signal back: both notes shown, header saved (no chip)', after.length >= 2 && (await page.locator('[data-card-window] [data-save-status]').count()) === 0, after.join(' | '))
   }
 
   // ── On the server: everything, once ──

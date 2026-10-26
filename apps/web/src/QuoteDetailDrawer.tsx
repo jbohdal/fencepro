@@ -128,7 +128,8 @@ export default function QuoteDetailDrawer({
             </div>
             <p className="text-sm text-gray-500 mt-1">{quote.customerName} · {dayWords(quote.date)}</p>
           </div>
-          <SaveStatus keys={[`quote:${quote.id}`]} />
+          {/* "Saved" stays quiet, like the customer page (round 3 recheck); Saving and Not saved show. */}
+          <SaveStatus keys={[`quote:${quote.id}`]} quietWhenSaved />
           <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
 

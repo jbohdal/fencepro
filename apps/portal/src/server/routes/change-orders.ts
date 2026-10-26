@@ -149,7 +149,7 @@ router.patch('/:id', requireCan('quotes.change'), async (req: any, res) => {
     await audit(req, 'update', 'ChangeOrder', row.id, { oldValues: view(cur), newValues: view(row) })
     if (backToOk) await askForOk(row, by, true)
     // The OK (or a void before it): the "to OK" notices are cleared and the maker is told (lib/changeOrderNotices.ts).
-    if (cur.status === 'needs_ok' && row.status !== 'needs_ok') await okGiven(row, by, row.status === 'void')
+    if (cur.status === 'needs_ok' && row.status !== 'needs_ok') await okGiven(row, by, row.status === 'void', roleOf(req))
     res.json({ success: true, data: viewFor(req, await siblingsOf(row))(row), ...(row.status !== cur.status ? { scheduleWarning: await warningFor(accountId, row.quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }
 })

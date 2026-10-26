@@ -163,7 +163,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
             <p className="text-sm text-gray-600 truncate">{[stageName(lead.stage), address].filter(Boolean).join(' · ')}</p>
             {phone && <a href={telHref(phone)} onClick={startCall} className="flex w-fit items-center text-sm font-medium text-blue-600 hover:underline" data-card-window-phone>{formatPhone(phone)}</a>}
             <div className="mt-1 empty:hidden"><PastCustomerBadge customerId={lead.customerId} /></div>
-            <SaveStatus keys={lead.customerId ? [`customer:${lead.customerId}`] : []} also={op => cardChange(lead.id)(op) || (!!lead.customerId && noteChangeFor(lead.customerId)(op))} className="mt-1" />
+            <SaveStatus keys={lead.customerId ? [`customer:${lead.customerId}`] : []} also={op => cardChange(lead.id)(op) || (!!lead.customerId && noteChangeFor(lead.customerId)(op))} quietWhenSaved className="mt-1" />
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="btn btn-quiet btn-icon shrink-0"><X size={22} aria-hidden="true" /></button>
         </div>

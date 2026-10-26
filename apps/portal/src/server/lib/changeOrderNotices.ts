@@ -76,18 +76,26 @@ async function toOkNotices(co: Co, jobId: string | null) {
   return rows.filter(n => n.link?.includes(`co=${encodeURIComponent(co.id)}`) || new RegExp(`\\bCO-${co.number}\\b`).test(n.body))
 }
 
+/** The bell's role for a login's role (routes/automations.ts portalRole): the owner's is admin. */
+export const noticeRoleOf = (role: string | null | undefined) => (role === 'super_admin' || role === 'admin' ? 'admin' : role ?? '')
+
 /**
  * The OK was given (or the change order was voided before it): the owner's
- * and office's "to OK" notices are marked read and say so, and the maker is
- * told it can go to the customer now.
+ * and office's "to OK" notices say so, at the time of the OK (round 3
+ * recheck: they kept the time the change order was made). The one for the
+ * login that gave the OK is read; the others stay unread, so the office hears
+ * that the owner OK'd it. The maker is told it can go to the customer now.
  */
-export async function okGiven(co: Co, by: string, voided = false): Promise<void> {
+export async function okGiven(co: Co, by: string, voided = false, byRole: string | null = null): Promise<void> {
   try {
     const { customer, contactId, job } = await whereIs(co)
+    const now = new Date()
+    const mine = noticeRoleOf(byRole)
     for (const n of await toOkNotices(co, job?.id ?? null)) {
+      const read = !byRole || n.recipientRole === mine
       await prisma.notification.update({
         where: { id: n.id },
-        data: { read: true, readAt: new Date(), title: `${voided ? 'Change order voided' : "Change order OK'd"}: ${customer}`, body: `CO-${co.number} (${usd(co.totalCents)}) was ${voided ? 'voided' : "OK'd"} by ${by}.` },
+        data: { read, readAt: read ? now : null, createdAt: now, title: `${voided ? 'Change order voided' : "Change order OK'd"}: ${customer}`, body: `CO-${co.number} (${usd(co.totalCents)}) was ${voided ? 'voided' : "OK'd"} by ${by}.` },
       })
     }
     if (voided) return

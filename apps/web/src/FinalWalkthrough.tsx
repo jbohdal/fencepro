@@ -199,7 +199,8 @@ function WalkthroughScreen({ w, job, me, onClose }: { w: Walkthrough; job: Job; 
             {/* A repair or a move: headed with its work ("Repair: 2 × Replace a post"), not the fence style. */}
             <p className="text-xs text-gray-500 truncate" data-walkthrough-heading>{job.customerName} · {walkHeading(workOfJob(job)) ?? CATEGORY_LABEL[w.category]}</p>
           </div>
-          <SaveStatus keys={[]} also={isWalkOp(w.id)} />
+          {/* "Saved" stays quiet (round 3 recheck); Saving and Not saved show. */}
+          <SaveStatus keys={[]} also={isWalkOp(w.id)} quietWhenSaved />
         </div>
       </div>
 

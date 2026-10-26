@@ -194,7 +194,8 @@ try {
   await tap(ip.locator('[data-qty-plus="sub-units"]'), '+ section paid')
 
   // Everything saved, then sent to the office.
-  await until(async () => (await ip.locator('[data-takeoff-screen] [data-save-status="saved"]').count()) > 0, 20000)
+  // Saved is quiet (round 3 recheck): no Saving or Waiting chip left.
+  await until(async () => (await ip.locator('[data-takeoff-screen] [data-save-status]').count()) === 0, 20000)
   await tap(ip.locator('[data-takeoff-submit]'), 'Send to the office')
   const sent = await until(async () => (await call(INST, 'GET', `/api/job-costing/takeoff?jobId=${made.jobId}`)).json.data?.status === 'submitted' ? true : null, 20000)
   check('installer: sent to the office', !!sent)

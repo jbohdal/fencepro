@@ -134,7 +134,7 @@ function TakeoffScreen({ t, job, me, onClose }: { t: Takeoff; job: Job; me: stri
             <p className="font-bold text-gray-900 truncate">Final takeoff</p>
             <p className="text-xs text-gray-500 truncate">{job.customerName} · {STATUS_WORDS[t.status]}</p>
           </div>
-          <SaveStatus keys={[]} also={isTakeoffOp(t.id)} />
+          <SaveStatus keys={[]} also={isTakeoffOp(t.id)} quietWhenSaved />
         </div>
       </div>
 

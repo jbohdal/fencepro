@@ -511,6 +511,20 @@ export function sentAt(proposalAt: unknown, day: string, made: Date, now = new D
   return at.toISOString()
 }
 
+/**
+ * How a new lead first reached us, as a contact in their history: a phoned-in
+ * lead's call, a walk-in's visit at the counter (round 3 recheck: a walk-in
+ * showed "Last contact: None"). Null for other sources, or when a call was
+ * logged within half an hour of the customer being added.
+ */
+export function arrivalContact(leadSource: string | null | undefined, createdAt: Date, callsAt: Date[]): HistoryItem | null {
+  const src = leadSource ?? ''
+  if (callsAt.some(at => Math.abs(at.getTime() - createdAt.getTime()) < 30 * 60_000)) return null
+  if (/walk[\s-]*in|counter|in[\s-]person/i.test(src)) return { at: createdAt.toISOString(), kind: 'visit', title: 'Visit: walked in (new lead)', detail: `Lead source: ${src}.`, by: '' }
+  if (/phone|call/i.test(src)) return { at: createdAt.toISOString(), kind: 'call', title: 'Call: phoned in (new lead)', detail: `Lead source: ${src}.`, by: '' }
+  return null
+}
+
 const money = (dollars: number) => '$' + Math.round(dollars || 0).toLocaleString('en-US')
 const OUTCOME_WORDS: Record<string, string> = {
   no_answer: 'No answer', voicemail: 'Left voicemail', deciding: 'Talked, still deciding', not_now: 'Talked, not now',
@@ -548,12 +562,11 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
     items.push({ at: c.at.toISOString(), kind: c.channel === 'text' ? 'text' : 'call', title: `${what}: ${outcome}${extra}`, detail: `${c.note ? c.note + ' ' : ''}${next}`.trim(), by: c.userName })
   }
   if (customerId) {
-    // A lead that phoned in: that call is their first contact (round 3, Oct 26 2026: "Last contact: None"),
-    // unless a call was logged at the time already.
+    // A lead that phoned in or walked in: that call or visit is their first contact (round 3, Oct 26 2026:
+    // "Last contact: None"), unless a call was logged at the time already.
     const contact = await prisma.crmContact.findFirst({ where: { id: customerId, accountId }, select: { leadSource: true, createdAt: true } })
-    if (contact && /phone|call/i.test(contact.leadSource ?? '') && !calls.some(c => Math.abs(c.at.getTime() - contact.createdAt.getTime()) < 30 * 60_000)) {
-      items.push({ at: contact.createdAt.toISOString(), kind: 'call', title: 'Call: phoned in (new lead)', detail: `Lead source: ${contact.leadSource}.`, by: '' })
-    }
+    const first = contact ? arrivalContact(contact.leadSource, contact.createdAt, calls.map(c => c.at)) : null
+    if (first) items.push(first)
     const [notes, appts, quotes] = await Promise.all([
       prisma.crmContactNote.findMany({ where: { crmContactId: customerId, deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 200 }),
       prisma.appointment.findMany({ where: { accountId, crmContactId: customerId, deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 100 }),
