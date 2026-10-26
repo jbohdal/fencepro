@@ -457,7 +457,9 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
     if (follow.marked.length) say(`     already the same, marked as following: ${follow.marked.join(', ')}`)
     if (follow.items.length) say(`     green parts added to Inventory with no price: ${follow.items.join('; ')}`)
     for (const x of follow.skipped) say(`     left as it is: ${x}`)
-    if (!follow.updated.length && !follow.marked.length && !follow.items.length && !follow.skipped.length) say('     already in step: nothing changes')
+    if (follow.tidied.length) say(`     green part names with a stray space, trimmed (kits still find them): ${follow.tidied.join('; ')}`)
+    if (follow.removed.length) say(`     green parts with no price that no kit uses, taken out of Inventory: ${follow.removed.join('; ')}`)
+    if (!follow.updated.length && !follow.marked.length && !follow.items.length && !follow.skipped.length && !follow.tidied.length && !follow.removed.length) say('     already in step: nothing changes')
   }
   const opt = greenOption(gstate.fenceCatalog)
   const words = blackWords(gstate.fenceCatalog, opt)
@@ -546,7 +548,7 @@ async function apply(docs: Doc[], st: State, plans: Plans, m: any) {
     const plan = planGreenChainLink(m, st1)
     if (!plan.made) {
       const f = planGreenFollowsBlack(m, st1, { madeAt: (kv?.value as any)?.at ?? null })
-      if (f.updated.length || f.items.length || f.marked.length) await tx.inventoryState.update({ where: { accountId }, data: { items: f.state.items as any, kits: f.state.kits as any, version: { increment: 1 } } })
+      if (f.updated.length || f.items.length || f.marked.length || f.tidied.length || f.removed.length) await tx.inventoryState.update({ where: { accountId }, data: { items: f.state.items as any, kits: f.state.kits as any, version: { increment: 1 } } })
       return { message: `${plan.message} Kept in step with black: ${f.updated.length ? f.updated.map(u => `${u.kit} (${u.changes.length} kit${u.changes.length === 1 ? '' : 's'} changed)`).join(', ') : 'no kit changed'}${f.items.length ? `; added with no price: ${f.items.join('; ')}` : ''}${f.skipped.length ? `; left as they are: ${f.skipped.join('; ')}` : ''}.` }
     }
     await tx.businessState.update({ where: { accountId }, data: { config: { ...cfg, fenceStyles: plan.state.fenceStyles, fenceCatalog: plan.state.fenceCatalog } as any, version: { increment: 1 } } })

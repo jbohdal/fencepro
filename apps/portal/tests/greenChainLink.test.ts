@@ -185,4 +185,44 @@ describe('green chain link from 06-251707', () => {
     expect(s.updated.map(u => u.kit)).toEqual(['chain/4/green/res/ds'])
     expect(s.skipped).toEqual([expect.stringMatching(/^chain\/4\/green\/res\/nd: edited/)])
   })
+
+  test('tidy: no unused $0 "Drop Rod, 48\", Green"; a stray space is trimmed and the kits still find the part', () => {
+    // Made fresh (as the live --apply makes it): the 48" drop rod is black 6 ft's, no Green kit uses it, so it is never added.
+    const plan = planGreenChainLink(m, start())
+    expect(plan.items.some(n => /Drop Rod, 48/.test(n))).toBe(false)
+    expect(plan.state.items.some((i: any) => /Drop Rod, 48", Green/.test(i.name))).toBe(false)
+    expect(plan.state.items.filter((i: any) => i.madeFor === 'chain:finish:green' && i.name !== i.name.trim())).toEqual([])
+
+    // As the dev copy has it from an earlier run: the 48" drop rod at $0, and the fork with a trailing space.
+    const st = JSON.parse(JSON.stringify(plan.state))
+    st.items.push({ id: 'old-48', name: 'Drop Rod, 48", Green', unitCost: 0, category: 'Chainlink Green', madeFor: 'chain:finish:green' })
+    let fork = st.items.find((i: any) => norm(i.name) === norm('Green, Fork, PS, 1-3/8"'))
+    if (!fork) { fork = { id: 'grn-fork', name: '', category: 'Chainlink Green', madeFor: 'chain:finish:green' }; st.items.push(fork) }
+    fork.name = 'Green, Fork, PS, 1-3/8" '
+    fork.unitCost = 4.37
+    const f = planGreenFollowsBlack(m, st)
+    expect(f.removed).toEqual(['Drop Rod, 48", Green'])
+    expect(f.tidied).toEqual(['"Green, Fork, PS, 1-3/8" " → "Green, Fork, PS, 1-3/8""'])
+    expect(f.state.items.find((i: any) => i.id === fork.id).name).toBe('Green, Fork, PS, 1-3/8"')
+    expect(f.state.items.some((i: any) => i.id === 'old-48')).toBe(false)
+    // The Green dig set's double gate still finds the fork and prices it (parts are found with spacing ignored).
+    const green = plan.styles.find(x => x.install === 'ds')!.name
+    const set = kitOf(f.state, green)
+    expect(set.kits.anyDblGate.map((p: any) => p.part)).toContain('Green, Fork, PS, 1-3/8"')
+    const priced = inventoryPriceSource(f.state.items.map((i: any) => ({ ...i, unitCost: Number(i.unitCost) })))
+    expect(priced('Green, Fork, PS, 1-3/8"')).toBe(4.37)
+    // Run again: nothing more to tidy.
+    const again = planGreenFollowsBlack(m, f.state)
+    expect([again.tidied, again.removed]).toEqual([[], []])
+  })
+
+  test('a black kit part saved with a stray space gives the green part without it', () => {
+    const st = start()
+    const black = kitOf(st, 'chain/4/black/res/ds')
+    const p = black.kits.anyDblGate.find((x: any) => /Fork, PS, 1-3\/8/.test(x.part))
+    p.part = 'Black, Fork, PS, 1-3/8" '
+    const plan = planGreenChainLink(m, st)
+    const ds = kitOf(plan.state, 'chain/4/green/res/ds')
+    expect(ds.kits.anyDblGate.map((x: any) => x.part)).toContain('Green, Fork, PS, 1-3/8"')
+  })
 })

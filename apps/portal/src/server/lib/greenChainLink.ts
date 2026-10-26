@@ -124,7 +124,8 @@ const RENAME = new Map(GREEN_LINES.filter(g => g.swappedFrom).map(g => [norm(g.s
 /** The green part for a black kit part (the part itself when it has no color: concrete, galvanized parts). */
 export function greenPartFor(m: GreenModule, part: string, words: readonly string[]): string {
   if (!m.isColorPart(part, words)) return part
-  const swapped = m.swapColor(part, words, GREEN_LABEL)
+  // A black part saved with a stray space ("Black, Fork, PS, 1-3/8\" ") gives a green name without it.
+  const swapped = m.swapColor(part.trim(), words, GREEN_LABEL)
   return RENAME.get(norm(swapped)) ?? swapped
 }
 
@@ -227,6 +228,35 @@ export interface GreenFollow {
   items: string[]
   /** Kit sets only marked as following (their parts were already right). */
   marked: string[]
+  /** Green parts in Inventory whose name had a stray space at either end, trimmed ("old" → "new"). */
+  tidied: string[]
+  /** Green parts this work added to Inventory with no price that no kit uses and 06-251707 does not sell: taken out. */
+  removed: string[]
+}
+
+/**
+ * The Green work's own Inventory parts, tidied: a name with a stray space at
+ * either end is trimmed (kits find parts with spacing ignored, so they still
+ * find it), and a part it added with no price that no kit uses (and no
+ * 06-251707 line prices) is taken out (for example "Drop Rod, 48\", Green":
+ * the black 6 ft drop rod, which no 4 ft Green kit uses).
+ */
+export function tidyGreenItems(st: GreenState, tag: string): { tidied: string[]; removed: string[] } {
+  const used = new Set<string>()
+  for (const k of st.kits) if (!k?.archived) {
+    for (const parts of Object.values(k?.kits ?? {})) for (const p of arr(parts)) used.add(norm(String(p?.part ?? '')))
+    for (const p of arr(k?.roundUp)) used.add(norm(String(p)))
+  }
+  const sold = new Set(GREEN_LINES.map(g => norm(g.part)))
+  const tidied: string[] = [], removed: string[] = []
+  st.items = st.items.filter((i: any) => {
+    if (i?.madeFor !== tag) return true
+    const name = String(i.name ?? '')
+    if (!used.has(norm(name)) && !sold.has(norm(name)) && !(Number(i.unitCost) > 0)) { removed.push(name.trim()); return false }
+    if (name !== name.trim()) { tidied.push(`"${name}" → "${name.trim()}"`); i.name = name.trim() }
+    return true
+  })
+  return { tidied, removed }
 }
 
 /**
@@ -238,7 +268,7 @@ export interface GreenFollow {
  */
 export function planGreenFollowsBlack(m: GreenModule, st0: GreenState, opts: { madeAt?: string | null } = {}): GreenFollow {
   const st = clone(st0)
-  const out: GreenFollow = { state: st, updated: [], skipped: [], items: [], marked: [] }
+  const out: GreenFollow = { state: st, updated: [], skipped: [], items: [], marked: [], tidied: [], removed: [] }
   const opt = greenOption(st.fenceCatalog)
   if (!opt) return out
   const words = blackWords(st.fenceCatalog, opt)
@@ -267,6 +297,7 @@ export function planGreenFollowsBlack(m: GreenModule, st0: GreenState, opts: { m
       out.updated.push({ kit: set.name, from: s.madeFrom, changes })
     } else out.marked.push(set.name)
   }
+  Object.assign(out, tidyGreenItems(st, tag))
   return out
 }
 

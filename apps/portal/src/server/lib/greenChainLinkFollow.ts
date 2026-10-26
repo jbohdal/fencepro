@@ -32,7 +32,7 @@ export async function ensureGreenFollowsBlack(accountId: string): Promise<GreenF
     const cfg = (b.config && typeof b.config === 'object' && !Array.isArray(b.config) ? b.config : {}) as Record<string, unknown>
     const arr = (v: unknown): any[] => (Array.isArray(v) ? v : [])
     const plan = planGreenFollowsBlack(m, { fenceStyles: arr(cfg.fenceStyles), fenceCatalog: m.fenceCatalogOf(cfg), items: arr(inv.items), kits: arr(inv.kits) }, { madeAt: (made.value as any)?.at ?? null })
-    if (plan.updated.length || plan.items.length || plan.marked.length) {
+    if (plan.updated.length || plan.items.length || plan.marked.length || plan.tidied.length || plan.removed.length) {
       await tx.inventoryState.update({ where: { accountId }, data: { items: plan.state.items as any, kits: plan.state.kits as any, version: { increment: 1 } } })
     }
     return plan
@@ -48,6 +48,8 @@ export async function ensureGreenFollowsBlackAll(): Promise<void> {
       if (!out) continue
       for (const u of out.updated) console.log(`[green chain link] ${r.accountId}: ${u.kit} follows ${u.from} again: ${u.changes.join(' | ')}`)
       if (out.items.length) console.log(`[green chain link] ${r.accountId}: added with no price: ${out.items.join('; ')}`)
+      if (out.tidied.length) console.log(`[green chain link] ${r.accountId}: names trimmed: ${out.tidied.join('; ')}`)
+      if (out.removed.length) console.log(`[green chain link] ${r.accountId}: unused parts with no price taken out: ${out.removed.join('; ')}`)
       if (out.skipped.length) console.log(`[green chain link] ${r.accountId}: left as they are: ${out.skipped.join('; ')}`)
     } catch (err) { console.error('[green chain link] follow black failed:', err) }
   }

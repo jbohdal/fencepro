@@ -69,11 +69,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('green chain link follows black a
     // Parts added are unpriced green parts; nothing else in Inventory changed.
     const added = items.filter(i => !(before.items as any[]).some((b: any) => b.id === i.id))
     expect(added.every(i => i.unitCost === 0 && i.category === 'Chainlink Green' && i.madeFor === 'chain:finish:green')).toBe(true)
-    expect(items.filter(i => (before.items as any[]).some((b: any) => b.id === i.id))).toEqual(before.items)
+    // Besides the tidy (lib/greenChainLink tidyGreenItems): an unused $0 green part taken out, a stray space trimmed.
+    const tidied = (before.items as any[])
+      .filter((b: any) => !first!.removed.includes(String(b.name).trim()) || b.madeFor !== 'chain:finish:green')
+      .map((b: any) => (b.madeFor === 'chain:finish:green' ? { ...b, name: String(b.name).trim() } : b))
+    expect(items.filter(i => (before.items as any[]).some((b: any) => b.id === i.id))).toEqual(tidied)
+    expect(items.some(i => i.name === 'Drop Rod, 48", Green')).toBe(false)
+    expect(items.filter(i => i.madeFor === 'chain:finish:green' && i.name !== String(i.name).trim())).toEqual([])
     expect(after.version).toBeGreaterThan(before.version)
 
     const again = await Promise.all([ensureGreenFollowsBlack(accountId), ensureGreenFollowsBlack(accountId)])
-    for (const r of again) expect([r!.updated, r!.items, r!.marked, r!.skipped]).toEqual([[], [], [], []])
+    for (const r of again) expect([r!.updated, r!.items, r!.marked, r!.skipped, r!.tidied, r!.removed]).toEqual([[], [], [], [], [], []])
     expect((await prisma.inventoryState.findUnique({ where: { accountId } })).version).toBe(after.version)
   })
 })
