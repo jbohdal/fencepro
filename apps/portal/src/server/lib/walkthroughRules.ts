@@ -158,7 +158,7 @@ export interface LayoutSides { sides: Array<{ id: string; name: string; on: bool
  * Each side, each gate and one wide shot. From the quote's yard layout when
  * there is one; otherwise from counts the crew sets.
  */
-export function photoSlots(from: { layout?: LayoutSides | null; sideCount?: number; gateCount?: number; repairGates?: number }): PhotoSlot[] {
+export function photoSlots(from: { layout?: LayoutSides | null; sideCount?: number; gateCount?: number; repairGates?: number; repair?: boolean }): PhotoSlot[] {
   const out: PhotoSlot[] = []
   const sides = from.layout?.sides?.filter(s => s.on) ?? []
   if (sides.length) {
@@ -168,12 +168,14 @@ export function photoSlots(from: { layout?: LayoutSides | null; sideCount?: numb
     const drawn = out.filter(x => x.kind === 'gate').length
     for (let i = drawn + 1; i <= Math.min(30, Math.round(from.repairGates ?? 0)); i++) out.push({ key: `gate:${i}`, label: `Gate ${i} (repaired)`, kind: 'gate', clientId: null })
   } else {
-    const n = Math.max(1, Math.min(30, Math.round(from.sideCount ?? 1)))
+    // A repair with no drawing has no sides to photograph (round 3, Oct 26 2026: it asked for "Side 1"):
+    // its repaired gates and one wide shot of the repair.
+    const n = from.repair ? 0 : Math.max(1, Math.min(30, Math.round(from.sideCount ?? 1)))
     const g = Math.max(0, Math.min(30, Math.round(Math.max(from.gateCount ?? 0, from.repairGates ?? 0))))
     for (let i = 1; i <= n; i++) out.push({ key: `side:${i}`, label: `Side ${i}`, kind: 'side', clientId: null })
     for (let i = 1; i <= g; i++) out.push({ key: `gate:${i}`, label: `Gate ${i}`, kind: 'gate', clientId: null })
   }
-  out.push({ key: 'wide', label: 'Wide shot of the whole fence', kind: 'wide', clientId: null })
+  out.push({ key: 'wide', label: from.repair && !sides.length ? 'Wide shot of the repaired fence' : 'Wide shot of the whole fence', kind: 'wide', clientId: null })
   return out
 }
 

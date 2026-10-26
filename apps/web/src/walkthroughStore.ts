@@ -223,7 +223,7 @@ export async function startWalkthrough(job: JobForWalk, opts: { layout?: LayoutS
   const templates = templatesFrom((getConfig() as any).walkthroughTemplates)
   // A repair: its own checklist from the repair items; a move: the style's plus the old line.
   const items = itemsFromTemplate(workChecklist(opts.work, templates[category]))
-  const photos = opts.layout?.sides?.some(s => s.on) ? photoSlots({ layout: opts.layout, repairGates: opts.repairGates }) : photoSlots({ sideCount: Math.max(1, opts.runCount ?? 1), gateCount: (job.walkGates || 0) + (job.dblGates || 0), repairGates: opts.repairGates })
+  const photos = opts.layout?.sides?.some(s => s.on) ? photoSlots({ layout: opts.layout, repairGates: opts.repairGates }) : photoSlots({ sideCount: Math.max(1, opts.runCount ?? 1), gateCount: (job.walkGates || 0) + (job.dblGates || 0), repairGates: opts.repairGates, repair: (opts.work as { type?: string } | null | undefined)?.type === 'repair' })
   const id = newId()
   await queue<CreateP>('walkthrough.create', walkKey(id), { walkthroughId: id, jobId: job.id, category, items, photos, startedBy: opts.by ?? null }, 'Final walkthrough started')
   return byJob.get(job.id)!

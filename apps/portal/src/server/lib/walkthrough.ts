@@ -41,7 +41,8 @@ export async function slotsForJob(job: { quoteId: string | null; walkGates: numb
   const repairGates = repairGateCount(q?.work as any)
   if (yard?.sides?.some(s => s.on)) return photoSlots({ layout: yard, repairGates })
   const runs = Array.isArray(q?.runs) ? (q!.runs as unknown[]).length : 0
-  return photoSlots({ sideCount: Math.max(1, runs), gateCount: (job.walkGates || 0) + (job.dblGates || 0), repairGates })
+  const repair = (q?.work as any)?.type === 'repair'
+  return photoSlots({ sideCount: Math.max(1, runs), gateCount: (job.walkGates || 0) + (job.dblGates || 0), repairGates, repair })
 }
 
 export interface StartInput { id?: string; category?: string; items?: WalkItem[]; photos?: PhotoSlot[] }

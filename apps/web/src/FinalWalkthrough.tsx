@@ -186,6 +186,8 @@ function WalkthroughScreen({ w, job, me, onClose }: { w: Walkthrough; job: Job; 
   const photoUrl = (cid: string | null) => (cid ? (w.media[cid] ? photoSrc(w.media[cid]) : local.get(cid)?.url ?? null) : null)
   const sideSlots = w.photos.filter(s => s.kind === 'side'), gateSlots = w.photos.filter(s => s.kind === 'gate')
   const byCount = w.photos.some(s => /^side:\d+$/.test(s.key))
+  // A repair with no drawing has no sides: its repaired gates and one wide shot (round 3).
+  const noSides = !w.photos.some(s => s.kind === 'side')
 
   return (
     <div className="fixed inset-0 z-[70] bg-gray-50 overflow-y-auto" data-walkthrough-screen={w.status}>
@@ -221,7 +223,7 @@ function WalkthroughScreen({ w, job, me, onClose }: { w: Walkthrough; job: Job; 
           </Block>
         )}
 
-        <Block title="Required photos" sub="Each side, each gate, and one wide shot">
+        <Block title="Required photos" sub={noSides ? (w.photos.some(s => s.kind === 'gate') ? 'Each repaired gate, and one wide shot' : 'One wide shot of the repair') : 'Each side, each gate, and one wide shot'}>
           {byCount && !done && (
             <div className="grid grid-cols-2 gap-2" data-walkthrough-counts>
               <Stepper label="Sides" value={sideSlots.length} min={1} onChange={n => setCounts(w, n, gateSlots.length)} />
