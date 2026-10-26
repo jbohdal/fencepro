@@ -64,6 +64,8 @@ async function open(browser, phone, startUrl = APP, asToken = TOKEN) {
   if (asToken === TOKEN) page.on('request', r => { const a = r.headers()['authorization']; if (a && r.url().startsWith(API)) token = a.replace(/^Bearer /, '') })
   // Stage changes ask the server to run automations; the dev data holds real customers, so not here.
   await page.route('**/api/automations/trigger', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' }))
+  // A call another test started with the same login ("How'd it go?" on opening the app) is not this test's.
+  await page.route('**/api/follow-ups/pending', route => (route.request().method() === 'GET' ? route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true,"data":null}' }) : route.continue()))
   await page.goto(startUrl)
   if (!TOKEN) {
     await page.fill('input[type="email"]', EMAIL); await page.fill('input[type="password"]', PASSWORD); await page.click('button[type="submit"]')
