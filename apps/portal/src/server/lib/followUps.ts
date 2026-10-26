@@ -506,6 +506,18 @@ const OUTCOME_WORDS: Record<string, string> = {
 const LOST_WORDS: Record<string, string> = { price: 'price', competitor: 'went with someone else', not_needed: 'no longer needed', other: 'other' }
 const APPT_WORDS: Record<string, string> = { estimate: 'Estimate', follow_up: 'Follow up visit', contract_signing: 'Contract signing', install: 'Install', service: 'Service', warranty: 'Warranty', call_back: 'Call back', other: 'Appointment' }
 
+/**
+ * A note's writer by name: the login it was written with (by id, else by the
+ * email it saved), else the name it saved; "Staff" only when nothing names them.
+ */
+export function noteAuthorName(n: { createdBy?: string | null; createdById?: string | null }, users: ReadonlyArray<{ id: string; email: string; firstName: string | null; lastName: string | null }>): string {
+  const by = String(n.createdBy ?? '').trim()
+  const u = (n.createdById ? users.find(x => x.id === n.createdById) : undefined) ?? (by ? users.find(x => x.email.toLowerCase() === by.toLowerCase()) : undefined)
+  const name = u ? `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() : ''
+  if (name) return name
+  return by && !by.includes('@') ? by : 'Staff'
+}
+
 /** Calls, texts, emails, quotes sent, proposal opens, appointments and notes, newest first. */
 export async function customerHistory(accountId: string, opts: { customerId?: string | null; cardId?: string | null }): Promise<HistoryItem[]> {
   const { customerId, cardId } = opts
@@ -537,8 +549,10 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
     for (const v of allViews) viewsOf.set(v.quoteId, [...(viewsOf.get(v.quoteId) ?? []), v])
     const staffIds = [...new Set(allViews.map(v => v.staffUserId).filter(Boolean))] as string[]
     const staffNames = new Map((staffIds.length ? await prisma.crmUser.findMany({ where: { id: { in: staffIds } }, select: { id: true, firstName: true, lastName: true } }) : []).map(u => [u.id, `${u.firstName} ${u.lastName}`.trim()]))
+    // Who wrote each note, by name (a note keeps the login it was written with, often its email).
+    const users = notes.length ? await prisma.crmUser.findMany({ where: { crmAccountId: accountId }, select: { id: true, email: true, firstName: true, lastName: true } }) : []
     for (const n of notes) {
-      const author = (n as any).createdBy && !String((n as any).createdBy).includes('@') ? String((n as any).createdBy) : 'Staff'
+      const author = noteAuthorName(n, users)
       items.push({ at: n.createdAt.toISOString(), kind: 'note', title: 'Note', detail: plainSideWords(n.body), by: author })
     }
     for (const a of appts) {
