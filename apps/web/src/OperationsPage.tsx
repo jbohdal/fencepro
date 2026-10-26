@@ -24,6 +24,7 @@ import { useEffect, useState } from 'react'
 import { getJobs, refreshJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
 import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, advanceStage, pickable, useOpsStages, getCompleteOpsStage } from './opsStagesStore'
+import { useMilestoneSummary, permitOkOf } from './jobTruthApi'
 import { isDonePhase } from './opsStageModel'
 import { ChangeOrderPanel, ChangeOrderButton, JobTimeline, useChangeOrdersLive } from './ChangeOrders'
 import { can, isCrewLogin } from './permissions'
@@ -143,7 +144,10 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   const inSideLane = stagePhase(job.opsStage) === 'on_hold'
   // Complete, Invoiced, Paid: closed. No Move install, no Hold, no Advance; going back is Reopen (owner, office).
   const closed = isDonePhase(stagePhase(job.opsStage))
-  const canAdvance = !inSideLane && !!advanceStage(job.opsStage)
+  // Past Permit Pending when the permit is not needed or issued (the board's summary, read again when the permit is saved).
+  useMilestoneSummary()
+  const permitOk = permitOkOf(job.id)
+  const canAdvance = !inSideLane && !!advanceStage(job.opsStage, permitOk)
   // The stages a job can go to; a hidden stage the job is in still shows, so you can see where it is.
   const choices = pickable()
   if (stage && !choices.some(s => s.id === stage.id)) choices.push(stage)
@@ -337,7 +341,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
               ) : (
                 <button onClick={onAdvance} disabled={!canAdvance} data-ops-advance
                   className="btn btn-primary flex-1 disabled:opacity-40">
-                  {canAdvance ? `Advance to ${advanceStage(job.opsStage)!.name} →` : 'Advance Stage →'}
+                  {canAdvance ? `Advance to ${advanceStage(job.opsStage, permitOk)!.name} →` : 'Advance Stage →'}
                 </button>
               )}
               {!closed && <button onClick={onHold} data-ops-hold

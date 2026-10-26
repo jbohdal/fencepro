@@ -227,6 +227,22 @@ export function nextStage(list: OpsStageDef[], id: string): OpsStageDef | null {
   return cols[at + 1] ?? null
 }
 
+/** A permit that does not hold the job up: not needed, or issued (approved, inspection scheduled, passed). */
+export const permitIsOk = (status: string | null | undefined) => status === 'not_needed' || status === 'approved' || status === 'inspection_scheduled' || status === 'passed'
+
+/**
+ * Advance: the next stage on the board, none from a done stage (Complete,
+ * Invoiced, Paid). Permit Pending is passed over when the job's permit is not
+ * needed or already issued (a repair, round 5 review Oct 26 2026: "Advance to
+ * Permit Pending" on a repair with permit Not needed), as waitingStageOf does.
+ */
+export function advanceStageOf(list: OpsStageDef[], id: string, opts: { permitOk?: boolean } = {}): OpsStageDef | null {
+  if (isDonePhase(phaseOf(list, id))) return null
+  let next = nextStage(list, id)
+  while (next && opts.permitOk && next.id === 'permit_pending') next = nextStage(list, next.id)
+  return next
+}
+
 /**
  * What moving a job into a stage changes on the job: the stage, the status it
  * stands for, and what the old board also set (materials ordered, received,
@@ -279,7 +295,7 @@ export function reconcileOpsStage(list: OpsStageDef[], before: OpsJobLike | null
  * list: the first one that stands for staging.
  */
 export function waitingStageOf(list: OpsStageDef[], job: { locatesDate?: string | null; materialsStatus?: string | null }, permitStatus: string | null): string | null {
-  const permitOk = permitStatus === 'not_needed' || permitStatus === 'approved' || permitStatus === 'inspection_scheduled' || permitStatus === 'passed'
+  const permitOk = permitIsOk(permitStatus)
   const want = !job.locatesDate ? 'awaiting_locates'
     : !permitOk ? 'permit_pending'
     : job.materialsStatus === 'received' || job.materialsStatus === 'loaded' ? 'ready_to_pull'

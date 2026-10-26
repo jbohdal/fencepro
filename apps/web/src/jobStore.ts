@@ -11,7 +11,7 @@ import {
   listSavedJobs,
   type SavedJobRecord, lastListServerTime } from './savedJobsApi'
 import { businessDate } from './businessDate'
-import { getFirstOpsStage, reconcileStage, stageOf, nextOpsStage, stageFields } from './opsStagesStore'
+import { getFirstOpsStage, reconcileStage, stageOf, advanceStage, stageFields } from './opsStagesStore'
 
 /* ═══════════════════════════════════════════════
    JOB ENTITY — unified lifecycle from quote to paid
@@ -539,10 +539,11 @@ export const MATERIALS_STATUS_CONFIG: Record<MaterialsStatus, { label: string; c
  * Move a job to the next stage on the board (Settings > Operations Stages
  * order), setting the status that stage stands for.
  */
-export function advanceJob(id: string): Job | null {
+/** Advance a job one stage (past Permit Pending when `permitOk`: its permit is not needed or issued). */
+export function advanceJob(id: string, permitOk = false): Job | null {
   const job = getJob(id)
   if (!job || job.status === 'on_hold') return null
-  const next = nextOpsStage(stageOf(job))
+  const next = advanceStage(stageOf(job), permitOk)
   if (!next) return null
   const updates = stageFields(next.id, job, businessDate(new Date())) as Partial<Job> | null
   if (!updates) return null

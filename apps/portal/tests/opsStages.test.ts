@@ -15,7 +15,7 @@ import { describe, test, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
-  START_OPS_STAGES, legacyStageOfJob, stageOfJob, reconcileOpsStage, phaseOf, fieldsForStage, nextStage, stagesProblem,
+  START_OPS_STAGES, legacyStageOfJob, stageOfJob, reconcileOpsStage, phaseOf, fieldsForStage, nextStage, stagesProblem, advanceStageOf, permitIsOk,
   normalizeStages, cleanStages, boardStages, sideStages, firstStageFor, stageIdsInRule, swapStageInRule, newStageId, stagesFromOldList,
   ADDED_STAGE_ID, type OpsStageDef, type OpsJobLike,
 } from '../../web/src/opsStageModel'
@@ -106,6 +106,20 @@ describe('moving jobs', () => {
     expect(nextStage(l, 'permit_pending')?.id).toBe('need_drawing')
     expect(nextStage(l, 'paid')).toBeNull()
     expect(nextStage(l, 'on_hold')).toBeNull()
+  })
+  test('Advance passes over Permit Pending when the permit is not needed or issued (a repair: round 5 review); never from a done stage', () => {
+    const l = list()
+    for (const s of ['not_needed', 'approved', 'inspection_scheduled', 'passed']) expect(permitIsOk(s)).toBe(true)
+    for (const s of ['needed', 'applied', null, undefined, '']) expect(permitIsOk(s)).toBe(false)
+    expect(advanceStageOf(l, 'awaiting_locates')?.id).toBe('permit_pending')
+    expect(advanceStageOf(l, 'awaiting_locates', { permitOk: false })?.id).toBe('permit_pending')
+    expect(advanceStageOf(l, 'awaiting_locates', { permitOk: true })?.id).toBe('need_drawing')
+    // Already in Permit Pending (moved there before the permit was set): on to the next one as usual.
+    expect(advanceStageOf(l, 'permit_pending', { permitOk: true })?.id).toBe('need_drawing')
+    expect(advanceStageOf(l, 'need_drawing', { permitOk: true })?.id).toBe('materials_ordered')
+    expect(advanceStageOf(l, 'completed', { permitOk: true })).toBeNull()
+    expect(advanceStageOf(l, 'paid')).toBeNull()
+    expect(advanceStageOf(l, 'on_hold')).toBeNull()
   })
   test('a save keeps the stage, moves on purpose, or follows a status change', () => {
     const l = list()

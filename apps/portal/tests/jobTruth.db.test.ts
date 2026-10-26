@@ -183,7 +183,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     m = t.json.data
     expect(by('photos')).toMatchObject({ done: true, by: 'hand', tickedBy: `${tag}@example.invalid` /* no Team login: the email */ })
     const sum = (await call('GET', '/api/saved-jobs/milestones/summary')).json.data
-    expect(sum[ids.job]).toEqual({ complete: m.complete, total: 8 })
+    // Issued: Advance passes over Permit Pending (permitOk).
+    expect(sum[ids.job]).toEqual({ complete: m.complete, total: 8, permitOk: true })
+    await prisma.permit.update({ where: { jobId: ids.job }, data: { status: 'applied' } })
+    expect((await call('GET', '/api/saved-jobs/milestones/summary')).json.data[ids.job].permitOk).toBe(false)
+    await prisma.permit.update({ where: { jobId: ids.job }, data: { status: 'not_needed' } })
+    expect((await call('GET', '/api/saved-jobs/milestones/summary')).json.data[ids.job].permitOk).toBe(true)
+    await prisma.permit.update({ where: { jobId: ids.job }, data: { status: 'approved' } })
   })
 
   test('signed at the walkthrough and paid in full: Complete by itself, the card to Job complete', async () => {

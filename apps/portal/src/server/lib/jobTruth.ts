@@ -21,7 +21,7 @@ import prisma from './prisma.js'
 import { auditSystem } from './auditLog.js'
 import { recordJobChanges, recordCardMoves } from './automations/hooks.js'
 import { loadOpsStages } from './opsStages.js'
-import { completeStage, fieldsForStage, firstStageFor, isDonePhase, stageOfJob, stageById } from './opsStageModel.js'
+import { completeStage, fieldsForStage, firstStageFor, isDonePhase, stageOfJob, stageById, permitIsOk } from './opsStageModel.js'
 import { floridaDay } from './automations/context.js'
 import { cleanLocate, locateFields, locateOf, type LocateInput } from './locates.js'
 import { milestones, milestoneOfLabel, labelKey, progressOf, billingStatusOf, invoiceDue, type InvoiceDueState, type Milestone, type ReadinessFacts, type StoredTick } from './jobReadiness.js'
@@ -191,12 +191,12 @@ export async function jobMilestones(accountId: string, jobId: string): Promise<{
   return { milestones: list, ...progressOf(list), closeOut: await closeOutPrompt(accountId, job) }
 }
 
-/** Every open job's milestone count (the board cards). */
-export async function milestoneSummary(accountId: string): Promise<Record<string, { complete: number; total: number }>> {
+/** Every open job's milestone count (the board cards), and whether its permit holds it up (Advance passes over Permit Pending when not). */
+export async function milestoneSummary(accountId: string): Promise<Record<string, { complete: number; total: number; permitOk: boolean }>> {
   const jobs = await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null } })
   const [facts, cl] = await Promise.all([readinessFactsFor(accountId, jobs), checklistState(accountId)])
-  const out: Record<string, { complete: number; total: number }> = {}
-  for (const j of jobs) out[j.id] = progressOf(milestones(facts.get(j.id)!, cl.map[j.id], cl.labels))
+  const out: Record<string, { complete: number; total: number; permitOk: boolean }> = {}
+  for (const j of jobs) out[j.id] = { ...progressOf(milestones(facts.get(j.id)!, cl.map[j.id], cl.labels)), permitOk: permitIsOk(facts.get(j.id)!.permitStatus) }
   return out
 }
 
