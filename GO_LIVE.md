@@ -417,7 +417,7 @@ prevents.
 | API port | 4000 | 4001 |
 | Settings file | `~/ezbiz/apps/portal/.env` | `apps/portal/.env` in the working folder |
 | Web app's API port | 4000 (the default) | `VITE_API_PORT=4001` in `apps/web/.env.local` and `apps/portal/.env.local` |
-| Email, texts, calendar, phone agent | on, as set in section 3 | off: those settings are empty |
+| Email, texts, calendar, phone agent | on, as set in section 3 | off: those settings are empty, and the outbound gate holds anything that tries (dev outbox) |
 | Secrets | the live ones | its own, so a sign in made in dev is worthless on live |
 
 What enforces it:
@@ -431,6 +431,22 @@ What enforces it:
 3. **Ports.** The web app talks to `localhost:4000` unless `VITE_API_PORT`
    says otherwise. The working folder sets 4001, so a dev browser never
    reaches the live server.
+4. **Outbound gate.** Nothing but the live install can reach a real person
+   (`apps/portal/src/server/lib/outboundGate.ts`, Oct 26, 2026, after dev test
+   runs pushed "Automation failed" to the owner's phone). The gate sits inside
+   the lowest level senders: phone push (web-push), email (SMTP, SendGrid,
+   Gmail), texts (Twilio), Google Calendar writes, and webhooks (the
+   automation webhook step, Zapier). It opens only when all of these hold:
+   `NODE_ENV=production`, `DATABASE_URL` names the database `ezbiz`, the code
+   runs from `~/ezbiz`, and it is not a test (Vitest, `NODE_ENV=test`).
+   `OUTBOUND_GATE=closed` shuts it anywhere. Everywhere else a message is not
+   sent: it is appended to the dev outbox, `apps/portal/logs/dev-outbox.log`
+   (one JSON line: channel, to, title, body, why), with a `[dev outbox]` line
+   in the server log, and the screen says it was not sent. Tests start with
+   the gate shut (`apps/portal/tests/setup/outboundGate.ts`); a source check
+   (`tests/outboundGateStatic.test.ts`) fails if a new sender skips it.
+5. **Scrubbed practice data.** Every refresh of `ezbiz_dev` is scrubbed
+   before anything can use it (below).
 
 Rules for anyone (or any assistant) working in this repo:
 
@@ -446,9 +462,10 @@ Rules for anyone (or any assistant) working in this repo:
 - `psql` and `pg_dump` run as the Mac user are superuser and can open either
   database. Name the database on every command (`-d ezbiz_dev`), and treat
   `-d ezbiz` as a deliberate act on live.
-- The dev database holds real customers' names, emails and phone numbers.
-  Keep email and text settings empty in the working folder so nothing run
-  there can contact a customer.
+- The dev database holds real customers' names and street addresses; their
+  emails and phone numbers are made fake at each refresh. Keep email and text
+  settings empty in the working folder anyway; the outbound gate would hold
+  any message, but nothing should be set up to try.
 
 Fresh practice data: this throws away what is in `ezbiz_dev` and copies live
 in again. Live is only read.
@@ -457,7 +474,33 @@ in again. Live is only read.
 bash deploy/mac/refresh-dev-db.sh
 ```
 
-Run the dev copy (sign in with your normal login; it was copied with the data):
+Right after the copy it runs the scrub
+(`apps/portal/scripts/scrub-dev-db.ts`; it refuses any database but
+`ezbiz_dev`, and if it fails the refresh drops the unscrubbed copy):
+
+- Forgotten: phone push sign ups (`PushSubscription`), the push keys and the
+  Gmail sign in (`AccountKeyValue` `push_vapid`, `gmail_token` and any other
+  token or key), Google Calendar (`GoogleCalendarToken`, `CalendarSyncState`,
+  `CalendarEventLink`), staff and portal sign ins (`CrmUserSession`,
+  `RefreshToken`, `PortalSession`), API keys, integration settings, invite
+  links. Dev makes its own push keys the first time push is turned on there.
+- Made fake, in every text and JSON column of every table: email addresses
+  (staff become `<login>@example.invalid`, everyone else
+  `c-<10 letters>@example.invalid`) and phone numbers (`(0AB) CDE-WXYZ`: an
+  area code that does not exist, the last 4 digits kept, equal numbers stay
+  equal). Names and street addresses stay real; seven digit local numbers in
+  free text (`598-9785`) are counted and printed, not changed.
+- It prints the counts and the dev sign in emails, and marks the database
+  (`AccountKeyValue` `dev:scrubbed`); `tests/devDbScrubbed.db.test.ts`
+  (`DEV_DB=1`) checks nothing from before that mark can reach anybody.
+- To scrub again without a fresh copy: `cd apps/portal && npx tsx scripts/scrub-dev-db.ts`
+  (safe to repeat: fakes stay as they are).
+
+Run the dev copy. Sign in with your normal password and the dev login email:
+`jbohdal@example.invalid`, `christaf0920@example.invalid`,
+`wt-office@example.invalid`, `wt-christa@example.invalid`,
+`wt-installer@example.invalid` (as of Oct 26, 2026; the scrub prints the
+current list). Every sign in ends at each refresh.
 
 ```bash
 cd apps/portal && pnpm dev:server     # API on http://localhost:4001
