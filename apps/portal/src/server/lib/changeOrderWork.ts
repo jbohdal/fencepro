@@ -79,6 +79,8 @@ export function requestOfQuote(q: Json): Json {
     runs: runs.map((ft, i) => ({ ft, rail: rails[i] === '6ft' || rails[i] === '8ft' ? rails[i] : 'auto' })),
     corners: num(q?.corners), ends: num(q?.ends), walkGates: num(q?.walkGates), dblGates: num(q?.dblGates),
     ...(num(q?.layout?.teeLinePosts) > 0 ? { extraLinePosts: Math.round(num(q.layout.teeLinePosts)) } : {}),
+    // The drawing: chain link gate leaves are priced by its gate widths (quoteJob.ts).
+    ...(isObj(q?.layout?.yard) ? { yard: q.layout.yard } : {}),
     tearOutSections: num(q?.tearOutSections), tearOutGates: num(q?.tearOutGates),
     extraLaborHrs: num(q?.adjLaborHrs), hasSalesman: !!q?.hasSalesman, priceAdjust: num(q?.priceAdjust),
     overrides: {}, jobType: 'new',
@@ -211,6 +213,9 @@ export function requestForShape(shape: WorkShape, like: Json): Json {
     tearOutSections: shape.tearOutSections, tearOutGates: shape.tearOutGates,
   }
   if (num(shape.teeLinePosts) > 0) req.extraLinePosts = Math.round(num(shape.teeLinePosts)); else delete req.extraLinePosts
+  // Gate widths come from the shape's drawing (chain link gate leaves by width), never from `like`.
+  delete req.gateWidths
+  if (isObj(shape.yard)) req.yard = shape.yard; else delete req.yard
   return req
 }
 

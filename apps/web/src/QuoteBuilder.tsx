@@ -647,10 +647,13 @@ export default function QuoteBuilder({
   const effDbl = fromLayout ? layoutResult!.dblGates : dblGates
   // Vinyl tees counted as line posts (VINYL_TEE_POST): line posts beyond the runs' own.
   const effTeeLines = fromLayout ? layoutResult!.linePosts : 0
+  // Gate widths from the drawing (chain link gate leaves go by width); a typed count has none.
+  const effGateWidths = fromLayout ? layoutResult!.gateWidthsFt : null
   const calcInput: QuoteCalcInput = {
     style,
     runs: effRuns,
     corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
+    ...(effGateWidths ? { gateWidths: effGateWidths } : {}),
     ...(effTeeLines ? { extraLinePosts: effTeeLines } : {}),
     tearOutSections: tearOutSec, tearOutGates,
     extraLaborHrs: parseFloat(adjLaborHrs) || 0,
@@ -676,6 +679,7 @@ export default function QuoteBuilder({
   // What the server prices for a Salesman or Installer (and what their save sends).
   const priceRequest: QuoteJobRequest = {
     fenceStyle: style?.name ?? '', runs: effRuns.map(r => ({ ft: r.ft, rail: r.rail ?? 'auto' })), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
+    ...(effGateWidths ? { gateWidths: effGateWidths } : {}),
     ...(effTeeLines ? { extraLinePosts: effTeeLines } : {}),
     tearOutSections: tearOutSec, tearOutGates, extraLaborHrs: parseFloat(adjLaborHrs) || 0, hasSalesman, priceAdjust,
     overrides: pricingOverrides, jobType,

@@ -10,7 +10,8 @@
  */
 
 import { calculateQuote, widthComparison, type QuoteCalc, type QuoteCalcInput, type QuoteStyle } from './quoteCalc'
-import { totalMaterialCost, type LineItem } from './materialCalculator'
+import { totalMaterialCost, type GateWidths, type LineItem } from './materialCalculator'
+import { gateWidthsOf, type YardLayout } from './yardLayout'
 import { resolveTiers, tierOptions, type ResolvedTier, type TierPrefs, type TierSet } from './tiers'
 import { compareStyles, priceOption, workOption, type ProposalOption } from './proposal'
 import {
@@ -30,6 +31,10 @@ export interface QuoteJobRequest {
   extraLinePosts?: number
   walkGates: number
   dblGates: number
+  /** Each gate's width in feet (the drawing's, yardLayout.ts gateWidthsOf). */
+  gateWidths?: GateWidths | null
+  /** The saved drawing, when the request comes from a saved quote: its gate widths are read from it when `gateWidths` is not sent. */
+  yard?: YardLayout | null
   tearOutSections: number
   tearOutGates: number
   extraLaborHrs: number
@@ -119,6 +124,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
   const style = styles.find(s => s.name === req.fenceStyle)
   const calcInput: QuoteCalcInput = {
     style, runs: req.runs, corners: req.corners, ends: req.ends, walkGates: req.walkGates, dblGates: req.dblGates,
+    gateWidths: req.gateWidths ?? gateWidthsOf(req.yard),
     ...(req.extraLinePosts ? { extraLinePosts: req.extraLinePosts } : {}),
     tearOutSections: req.tearOutSections, tearOutGates: req.tearOutGates, extraLaborHrs: req.extraLaborHrs,
     hasSalesman: req.hasSalesman, priceAdjust: req.priceAdjust, pricing: cfg.pricing, overrides: req.overrides,
