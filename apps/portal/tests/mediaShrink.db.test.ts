@@ -68,4 +68,24 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('media shrink (dev database)', as
     expect((await prisma.mediaItem.findUnique({ where: { id: f.id } }))!.shrunkAt).toBeNull()
     await prisma.savedJob.delete({ where: { id: recent.id } })
   }, 120_000)
+
+  test('Make smaller after: Never leaves a long finished job\'s originals alone', async () => {
+    const { SHRINK_NEVER_DAYS } = await import('../src/server/lib/mediaShrink.js')
+    const state = (await prisma.businessState.findUnique({ where: { accountId: account.id }, select: { config: true } }))!
+    const config = (state.config ?? {}) as any
+    await prisma.businessState.update({ where: { accountId: account.id }, data: { config: { ...config, media: { ...(config.media ?? {}), shrinkAfterDays: SHRINK_NEVER_DAYS } } } })
+    try {
+      const old = await prisma.savedJob.create({ data: { accountId: account.id, customerName: 'E2E Shrink never', status: 'completed', completedDate: '2020-01-02' } as any })
+      const big = path.join(dir, 'never.jpg'); ff('-f', 'lavfi', '-i', 'testsrc2=size=4000x3000', '-frames:v', '1', big)
+      const bytes = fs.statSync(big).size
+      const m = await prisma.mediaItem.create({ data: { accountId: account.id, jobId: old.id, takenAt: new Date(), status: 'ready', clientId: `e2e-shrink-n-${Date.now()}`, kind: 'photo', mime: 'image/jpeg', path: big, width: 4000, height: 3000, bytes } })
+      made.media.push(m.id)
+      await shrinkDueMedia()
+      expect((await prisma.mediaItem.findUnique({ where: { id: m.id } }))!.shrunkAt).toBeNull()
+      expect(fs.statSync(big).size).toBe(bytes)
+      await prisma.savedJob.delete({ where: { id: old.id } })
+    } finally {
+      await prisma.businessState.update({ where: { accountId: account.id }, data: { config } })
+    }
+  }, 60_000)
 })

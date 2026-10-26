@@ -53,12 +53,15 @@ const CARDS = 'space-y-4 [&>div]:bg-white [&>div]:rounded-2xl [&>div]:border [&>
 const TITLE = 'text-base font-semibold text-gray-900 mb-1'
 const HELP = 'text-sm text-gray-500 mb-4'
 const LABEL = 'text-sm font-medium text-gray-700 mb-1 block'
+/** "Never" for Make smaller after: 100 years (server lib/mediaShrink.ts SHRINK_NEVER_DAYS). */
+const SHRINK_NEVER_DAYS = 36500
 const FIELD = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400'
 
 // ── Company Tab ──────────────────────────────────────────────────────────────
 
 function CompanyTab({ config, onChange }: { config: AppConfig; onChange: (c: AppConfig) => void }) {
   const co = config.company
+  const shrinkNever = (config.media?.shrinkAfterDays ?? 0) >= SHRINK_NEVER_DAYS
 
   function set(field: keyof CompanyInfo, value: string) {
     onChange({ ...config, company: { ...co, [field]: value } })
@@ -119,12 +122,24 @@ function CompanyTab({ config, onChange }: { config: AppConfig; onChange: (c: App
 
       <div>
         <h3 className={TITLE}>Photos and video</h3>
-        <p className={HELP}>To save space on the Mac: this many days after a job is Complete, each video keeps only its small viewing copy and photos are made 2400 px on the long side. Marked up photos are never changed.</p>
-        <label className={LABEL}>Make smaller after (days)</label>
-        <input type="number" min={30} max={3650} step={1} data-media-shrink-days
-          className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-          value={config.media?.shrinkAfterDays ?? 90}
-          onChange={e => { const n = Math.round(Number(e.target.value)); if (n >= 30 && n <= 3650) onChange({ ...config, media: { ...(config.media ?? {}), shrinkAfterDays: n } }) }} />
+        <p className={HELP}>To save space on the Mac: this many days after a job is Complete, each video keeps only its small viewing copy and photos are made 2400 px on the long side. Marked up photos are never changed. Never keeps every original.</p>
+        <label className={LABEL}>Make smaller after</label>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-sm">
+            <input type="checkbox" data-media-shrink-never checked={shrinkNever}
+              onChange={e => onChange({ ...config, media: { ...(config.media ?? {}), shrinkAfterDays: e.target.checked ? SHRINK_NEVER_DAYS : 90 } })} />
+            Never
+          </label>
+          {!shrinkNever && (
+            <>
+              <input type="number" min={30} max={3650} step={1} data-media-shrink-days
+                className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                value={config.media?.shrinkAfterDays ?? 90}
+                onChange={e => { const n = Math.round(Number(e.target.value)); if (n >= 30 && n <= 3650) onChange({ ...config, media: { ...(config.media ?? {}), shrinkAfterDays: n } }) }} />
+              <span className="text-sm text-gray-600">days</span>
+            </>
+          )}
+        </div>
       </div>
 
       <div>

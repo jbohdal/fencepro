@@ -15,6 +15,8 @@ import { FFMPEG_BIN } from './voiceTranscribe.js'
 
 const run = promisify(execFile)
 export const DEFAULT_SHRINK_AFTER_DAYS = 90
+/** "Never" in Settings (Jonathan, Oct 26 2026: no more originals removed). Saved as 100 years, which an older build also reads as never. */
+export const SHRINK_NEVER_DAYS = 36500
 export const PHOTO_MAX_PX = 2400
 
 const ymd = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d)
@@ -38,7 +40,9 @@ export async function shrinkDueMedia(now = new Date()): Promise<{ videos: number
   if (!fs.existsSync(FFMPEG_BIN)) return out
   const accounts = await prisma.crmAccount.findMany({ select: { id: true } })
   for (const { id: accountId } of accounts) {
-    const cutoff = shrinkCutoff(now, await settingDays(accountId))
+    const days = await settingDays(accountId)
+    if (days >= SHRINK_NEVER_DAYS) continue
+    const cutoff = shrinkCutoff(now, days)
     // all rows: photos of a deleted job are kept (and shrunk) so a restore gets them back.
     const jobs = await prisma.savedJob.findMany({
       where: { accountId, completedDate: { not: null, lte: cutoff }, NOT: { completedDate: '' } },
