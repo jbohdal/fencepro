@@ -9,8 +9,9 @@
  *   bad-line.pdf      a line whose quantity x price is not its amount
  *   jump.pdf          tension bars well over 20% dearer than text.pdf's landed $3.36
  *   text-again.pdf    text.pdf drawn again: a different file, the same vendor and number
+ *   no-tax.pdf        a QUOTATION with no tax line, $10 freight and a $5 fuel charge
  *
- *   pnpm exec tsx scripts/make-test-invoices.ts
+ *   pnpm exec tsx scripts/make-test-invoices.ts [--only no-tax]
  *
  * The photo is drawn with the Mac's own tools: the PDF page is turned into a
  * picture (tools/invoice-reader.swift), then ffmpeg tilts it and adds grain.
@@ -33,10 +34,13 @@ export interface FixtureInvoice {
   date: string
   lines: FixtureLine[]
   subtotal: string
-  tax: string
+  /** No tax line at all when left out. */
+  tax?: string
   freight?: string
   fuel?: string
   total: string
+  /** A QUOTATION instead of an INVOICE. */
+  doc?: 'quote'
   /** Lines per page; the rest go on the next page. */
   perPage?: number
 }
@@ -103,6 +107,21 @@ export const JUMP: FixtureInvoice = {
   subtotal: '540.00', tax: '0.00', total: '540.00',
 }
 
+/**
+ * A vendor QUOTATION with no tax line, freight and a fuel charge (Jonathan's
+ * rules, Oct 2026: estimated tax 7.22%, freight spread, fuel on the bill only).
+ * Lines with item numbers already matched in e2e/invoices.mjs.
+ */
+export const NO_TAX: FixtureInvoice = {
+  vendor: ['GULF COAST FENCE SUPPLY', '1200 SW College Rd, Ocala FL 34471'],
+  number: 'GQ-2201', date: '10/20/2026', doc: 'quote',
+  lines: [
+    { item: 'TB-48G', desc: 'Tension Bar Galv 48in', qty: 10, um: 'EA', price: '3.00', amount: '30.00' },
+    { item: 'HR-100', desc: 'Hog Rings Alum 1/2in Box of 100', qty: 2, um: 'BX', price: '24.00', amount: '48.00' },
+  ],
+  subtotal: '78.00', freight: '10.00', fuel: '5.00', total: '93.00',
+}
+
 function drawInvoice(inv: FixtureInvoice, file: string, title = inv.number): Promise<void> {
   return new Promise(resolve => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 48, info: { Title: title } })
@@ -116,9 +135,9 @@ function drawInvoice(inv: FixtureInvoice, file: string, title = inv.number): Pro
       doc.font('Helvetica-Bold').fontSize(16).text(inv.vendor[0], 48, 48)
       doc.font('Helvetica').fontSize(9)
       inv.vendor.slice(1).forEach((l, i) => doc.text(l, 48, 70 + i * 12))
-      doc.font('Helvetica-Bold').fontSize(14).text('INVOICE', 430, 48)
+      doc.font('Helvetica-Bold').fontSize(14).text(inv.doc === 'quote' ? 'QUOTATION' : 'INVOICE', 430, 48)
       doc.font('Helvetica').fontSize(10)
-      doc.text(`Invoice No: ${inv.number}`, 430, 70)
+      doc.text(`${inv.doc === 'quote' ? 'Quotation' : 'Invoice'} No: ${inv.number}`, 430, 70)
       doc.text(`Invoice Date: ${inv.date}`, 430, 84)
       doc.text(`Page ${p + 1} of ${pages}`, 430, 98)
       doc.text('Sold To: Getter Done Fence', 48, 120)
@@ -139,9 +158,9 @@ function drawInvoice(inv: FixtureInvoice, file: string, title = inv.number): Pro
         y += 20
         const tot = (label: string, v: string) => { doc.text(label, 400, y); doc.text(v, cols.amount, y, { width: 60, align: 'right' }); y += 16 }
         tot('Subtotal', inv.subtotal)
-        tot('Sales Tax', inv.tax)
+        if (inv.tax != null) tot('Sales Tax', inv.tax)
         if (inv.freight) tot('Freight', inv.freight)
-        if (inv.fuel) tot('Fuel Surcharge', inv.fuel)
+        if (inv.fuel) tot(inv.doc === 'quote' ? 'Fuel Charge' : 'Fuel Surcharge', inv.fuel)
         doc.font('Helvetica-Bold')
         tot('TOTAL', inv.total)
         doc.font('Helvetica')
@@ -157,6 +176,15 @@ function drawInvoice(inv: FixtureInvoice, file: string, title = inv.number): Pro
 
 async function main() {
   fs.mkdirSync(OUT, { recursive: true })
+  // --only no-tax: just the quotation with no tax line (the others stay as they are).
+  if (process.argv.includes('--only')) {
+    const which = process.argv[process.argv.indexOf('--only') + 1]
+    if (which !== 'no-tax') throw new Error('--only takes: no-tax')
+    await drawInvoice(NO_TAX, path.join(OUT, 'no-tax.pdf'))
+    console.log('Written', path.join(OUT, 'no-tax.pdf'))
+    return
+  }
+  await drawInvoice(NO_TAX, path.join(OUT, 'no-tax.pdf'))
   await drawInvoice(TEXT, path.join(OUT, 'text.pdf'))
   await drawInvoice(TWO_PAGE, path.join(OUT, 'two-page.pdf'))
   await drawInvoice(BAD_LINE, path.join(OUT, 'bad-line.pdf'))

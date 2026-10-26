@@ -15,7 +15,7 @@
  * The table: vendor, document type (invoice or quote), number, revision (a
  * quote number seen twice: the newer revision is kept, the older one would be
  * marked replaced), date, lines, rows skipped (*Fab notes, separators, $0.00),
- * fuel and other fees, freight, tax (or "none: needs OK"), total, and whether
+ * fuel and other fees, freight, tax (or "none: estimated", 7.22% added to landed costs), total, and whether
  * it reconciles (lines + fees + freight + tax = total, to the penny).
  */
 
@@ -24,7 +24,7 @@ import os from 'os'
 import path from 'path'
 import { readInvoiceFile, type ReadPage } from '../src/server/lib/invoiceReader.js'
 import { parseInvoice, type ParsedInvoice } from '../src/server/lib/invoiceParse.js'
-import { checkTotals, dollars, type CheckProblem } from '../src/server/lib/invoiceMath.js'
+import { checkTotals, dollars, isFuelFee, type CheckProblem } from '../src/server/lib/invoiceMath.js'
 import { revisionOf, newerRevision } from '../src/server/lib/vendorInvoices.js'
 
 const FILE = /\.(pdf|jpe?g|png|heic|heif|webp|tiff?)$/i
@@ -78,7 +78,8 @@ function show(p: ParsedInvoice, label: string, quiet = false) {
   }
   log(`    subtotal ${p.subtotalCents == null ? '(none)' : dollars(p.subtotalCents)} · tax ${dollars(p.taxCents)} · freight ${dollars(p.freightCents)}${p.fees.map(f => ` · ${f.label} ${dollars(f.cents)}`).join('')} · total ${p.totalCents == null ? '?' : dollars(p.totalCents)}`)
   if (p.skipped.length) log(`    skipped: ${p.skipped.map(x => `${x.why} "${x.text.slice(0, 40)}"`).join('; ')}`)
-  if (!p.taxFound) log('    no tax line on this document: waits for an OK')
+  if (!p.taxFound) log('    no tax line on this document: estimated tax (7.22%, Settings) would be added to the landed costs')
+  if (p.fees.some(f => isFuelFee(f.label))) log('    fuel charge: on the vendor bill only, never in item prices')
   if (p.problems.length) log(`    header: missing ${p.problems.join(', ')}`)
   log(`    TOTAL CHECK: ${c.ok && !p.problems.length ? 'PASSES (would go on to matching)' : `FAILS → Needs review: ${[...c.problems.map(plain), ...p.problems].join('; ')}`}`)
   return c.ok && !p.problems.length
@@ -127,7 +128,7 @@ async function main() {
     x.file.replace(/ Getter Done LLC/, ''), x.p.vendorName.slice(0, 26), x.p.docType === 'quote' ? 'QUOTE' : 'INVOICE', x.p.invoiceNumber || '?',
     x.revision ? `${x.revision}${x.status ? ` (${x.status})` : ''}` : (x.status ?? '-'), x.p.invoiceDate || '?', String(x.p.lines.length), String(x.p.skipped.length),
     x.p.fees.map(f => `${f.label.replace(/ Charge$/, '')} ${dollars(f.cents)}`).join(', ') || '-', x.p.freightCents ? dollars(x.p.freightCents) : '-',
-    x.p.taxFound ? `${dollars(x.p.taxCents)}${x.p.taxRate ? ` (${x.p.taxRate})` : ''}` : 'none: needs OK', x.p.totalCents == null ? '?' : dollars(x.p.totalCents), x.ok ? 'yes' : 'NO',
+    x.p.taxFound ? `${dollars(x.p.taxCents)}${x.p.taxRate ? ` (${x.p.taxRate})` : ''}` : 'none: estimated', x.p.totalCents == null ? '?' : dollars(x.p.totalCents), x.ok ? 'yes' : 'NO',
   ])
   const head = ['File', 'Vendor', 'Type', 'Number', 'Revision', 'Date', 'Lines', 'Skipped', 'Fuel/fees', 'Freight', 'Tax', 'Total', 'Reconciled']
   const width = head.map((h, i) => Math.max(h.length, ...rows.map(r => r[i].length)))
