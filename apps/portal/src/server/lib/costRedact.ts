@@ -92,6 +92,27 @@ export function withoutMoney(text: string): string {
   return text.replace(MONEY, MONEY_MARK)
 }
 
+/** A sentence about what something costs: an estimate, a quote, a price, a budget, a deposit, a payment. */
+const PRICE_WORDS = /\b(estimate|estimated|quote[ds]?|quoted|price[ds]?|pricing|budget|cost[s]?|deposit|paid|pay|payment|total|balance)\b/i
+
+/**
+ * Text for the crew to read (the packet, the installer's card; never saved
+ * back): a sentence that is about a price ("... and saw an estimate of $4,321
+ * (Better).", "Budget about $4000.") is dropped whole, so the crew never reads
+ * "saw an estimate of $ (left out)" (round 2, Oct 26 2026); any other dollar
+ * amount is left out as withoutMoney does. The rest of the line is kept.
+ */
+export function forCrew(text: string): string {
+  if (!text.includes('$')) return text
+  const out: string[] = []
+  for (const line of text.split('\n')) {
+    if (!line.includes('$')) { out.push(line); continue }
+    const kept = line.split(/(?<=[.!?])\s+/).filter(p => !(new RegExp(MONEY.source).test(p) && PRICE_WORDS.test(p)))
+    if (kept.length) out.push(withoutMoney(kept.join(' ')))
+  }
+  return out.join('\n')
+}
+
 /**
  * Text the Installer sends back: each "$ (left out)" becomes the amount that
  * was there, in order, so a note they did not change (or added to) keeps its

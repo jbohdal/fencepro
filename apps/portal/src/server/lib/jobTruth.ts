@@ -10,9 +10,10 @@
  *   billingStatusOf   the job's payment status in words, from its payment
  *                     schedule: the same on the job's Financial section,
  *                     Payments and Billing.
- *   closeOutIfDone    a job whose final walkthrough is signed and that is paid
- *                     in full moves to the Complete stage by itself, with its
- *                     pipeline card to Job complete.
+ *   closeOutIfDone    a job the crew finished, whose final walkthrough is
+ *                     signed and that is paid in full moves to Complete and on
+ *                     to Paid by itself, with its card to Paid & Closed.
+ *   startedByCrew     the crew's Start moves a scheduled job to In Progress.
  */
 
 import { onCardMoves } from './followUps.js'
@@ -20,7 +21,7 @@ import prisma from './prisma.js'
 import { auditSystem } from './auditLog.js'
 import { recordJobChanges, recordCardMoves } from './automations/hooks.js'
 import { loadOpsStages } from './opsStages.js'
-import { completeStage, fieldsForStage, isDonePhase, stageOfJob, stageById } from './opsStageModel.js'
+import { completeStage, fieldsForStage, firstStageFor, isDonePhase, stageOfJob, stageById } from './opsStageModel.js'
 import { floridaDay } from './automations/context.js'
 import { cleanLocate, locateFields, locateOf, type LocateInput } from './locates.js'
 import { milestones, milestoneOfLabel, labelKey, progressOf, billingStatusOf, invoiceDue, type InvoiceDueState, type Milestone, type ReadinessFacts, type StoredTick } from './jobReadiness.js'
@@ -457,18 +458,24 @@ export async function moveCardTo(accountId: string, cardId: string, stage: strin
   return false
 }
 
+/** The job's last crew day: the Schedule's entries, else its end or start date; null when not booked. */
+export async function lastCrewDay(accountId: string, job: { id: string; scheduledDate: string; scheduledEndDate: string | null }): Promise<string | null> {
+  const ymd = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+  const days = (await prisma.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, stagingJobId: job.id }, select: { date: true } })).map(d => d.date).filter(ymd).sort()
+  return days[days.length - 1] ?? (ymd(job.scheduledEndDate) ? job.scheduledEndDate : ymd(job.scheduledDate) ? job.scheduledDate : null)
+}
+
 /**
- * Did the install happen? The job was In Progress, the crew tapped Finish, or
- * its last crew day (the Schedule's entries, else its end or start date) is
- * today or past.
+ * Did the install happen? The crew finished the whole job (Finish on its last
+ * crew day, or "Finished the job"; lib/crewInstall.ts crewFinishedJob), or its
+ * last crew day is past (the crew forgot to tap). Start alone, or "Finish for
+ * today" on day 1 of 2, is not the install done (round 2, Oct 26 2026).
  */
 export async function installHappened(accountId: string, job: { id: string; status: string; scheduledDate: string; scheduledEndDate: string | null }, today = floridaDay(new Date())): Promise<boolean> {
-  if (job.status === 'in_progress') return true
-  const { installTimes } = await import('./crewInstall.js')
-  if ((await installTimes(job.id)).some(t => t.kind === 'finish')) return true
-  const days = (await prisma.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, stagingJobId: job.id }, select: { date: true } })).map(d => d.date).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort()
-  const last = days[days.length - 1] ?? (/^\d{4}-\d{2}-\d{2}$/.test(job.scheduledEndDate || '') ? job.scheduledEndDate! : /^\d{4}-\d{2}-\d{2}$/.test(job.scheduledDate || '') ? job.scheduledDate : null)
-  return !!last && last <= today
+  const { installTimes, crewFinishedJob } = await import('./crewInstall.js')
+  const last = await lastCrewDay(accountId, job)
+  if (crewFinishedJob(await installTimes(job.id), last)) return true
+  return !!last && last < today
 }
 
 /** Signed off and paid in full but not installed by the records: the owner is asked to mark it installed. */
@@ -483,51 +490,101 @@ export async function closeOutPrompt(accountId: string, job: { id: string; statu
 export type CloseOut = { moved: true; stage: string } | { moved: false; why: string }
 
 /**
- * A job whose final walkthrough is signed (homeowner and us) and that is paid
- * in full moves to the Complete stage, once, by itself; its pipeline card
- * goes to Job complete. A job already done, on hold, or missing either is left
- * where it is. Never throws (a payment or a signature is never stopped by it).
+ * Move a job to a stage on the server, once (only from `from`), as a move on
+ * the board does: the stage's status and fields, automations told, audited.
+ * The row after, or null when it was not in one of `from` any more.
+ */
+async function moveJobToStage(accountId: string, job: Json, stages: Parameters<typeof fieldsForStage>[0], stageId: string, from: string[], extra: Record<string, unknown>, why: string): Promise<Json | null> {
+  const fields = fieldsForStage(stages, stageId, job as Json, floridaDay(new Date()))
+  if (!fields) return null
+  const updated = await prisma.$transaction(async tx => {
+    // Only while it is still where it was: two of these at once move it once.
+    const n = await tx.savedJob.updateMany({ where: { id: job.id, status: { in: from as any } }, data: { ...(fields as Json), ...extra } })
+    if (n.count !== 1) return null
+    const row = await tx.savedJob.findUnique({ where: { id: job.id } })
+    await recordJobChanges(accountId, job, row, tx)
+    return row
+  })
+  if (!updated) return null
+  await auditSystem('update', 'SavedJob', job.id, { oldValues: { status: job.status, opsStage: job.opsStage }, newValues: { status: updated.status, opsStage: updated.opsStage, completedDate: updated.completedDate, why } })
+  return updated
+}
+
+/**
+ * The crew tapped Start: a job still waiting (scheduled, or staging with its
+ * install date) moves to In Progress, with its card (Jobs In Progress). A job
+ * already under way, done or on hold is left alone. Never throws.
+ */
+export async function startedByCrew(accountId: string, jobId: string): Promise<boolean> {
+  try {
+    const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null, archivedAt: null } })
+    if (!job || !(job.status === 'scheduled' || (job.status === 'staging' && /^\d{4}-\d{2}-\d{2}$/.test(job.scheduledDate || '')))) return false
+    const { stages } = await loadOpsStages(accountId)
+    const to = firstStageFor(stages, 'in_progress')
+    if (!to) return false
+    const row = await moveJobToStage(accountId, job, stages, to, ['scheduled', 'staging'], {}, 'The crew tapped Start')
+    if (!row) return false
+    await cardFollowsJob(accountId, jobId)
+    const { cancelRunsLeftBehind } = await import('./automations/queue.js')
+    await cancelRunsLeftBehind(accountId, 'ops', jobId).catch(e => console.error('[start] cancel runs:', e))
+    return true
+  } catch (e) { console.error('[start] in progress:', e); return false }
+}
+
+/**
+ * A job moves on by itself (Jonathan, round 2, Oct 26 2026), in any order of
+ * the three: the crew finished the install (installHappened), the final
+ * walkthrough is signed (homeowner and us), and it is paid in full. Then it
+ * goes to Complete and, the balance being zero, on to Paid, with its pipeline
+ * card to the last Sold, work done stage (Paid & Closed). A job already
+ * Complete (by hand) moves to Paid once the balance is zero. A job on hold, or
+ * missing any of the three, is left where it is. Never throws (a payment, a
+ * signature or a tap is never stopped by it).
  */
 export async function closeOutIfDone(accountId: string, jobId: string, why: string): Promise<CloseOut> {
   try {
     const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null, archivedAt: null } })
     if (!job) return { moved: false, why: 'no job' }
-    if (isDonePhase(job.status)) return { moved: false, why: 'already done' }
+    if (job.status === 'paid') return { moved: false, why: 'already done' }
     if (job.status === 'on_hold') return { moved: false, why: 'on hold' }
-    const w = await prisma.walkthrough.findUnique({ where: { jobId }, select: { accountId: true, homeownerSig: true, repSig: true } })
-    if (!w || w.accountId !== accountId || !w.homeownerSig || !w.repSig) return { moved: false, why: 'walkthrough not signed' }
-    const status = billingStatusOf(await billingViewFor(accountId, jobId))
-    if (!status.paidInFull) return { moved: false, why: 'not paid in full' }
-    // Only a job that was really installed (Oct 25 2026: a job never scheduled closed out on a signature and a
-    // payment). Not installed: the job page asks the owner "Paid and signed off: mark installed?".
-    if (!(await installHappened(accountId, job))) return { moved: false, why: 'not installed' }
     const { stages } = await loadOpsStages(accountId)
-    const done = completeStage(stages)
-    if (!done) return { moved: false, why: 'no Complete stage' }
-    const fields = fieldsForStage(stages, done.id, job as Json, floridaDay(new Date()))
-    if (!fields) return { moved: false, why: 'no Complete stage' }
-    const updated = await prisma.$transaction(async tx => {
-      // Only while it is still not done: two of these at once move it once.
-      const n = await tx.savedJob.updateMany({ where: { id: jobId, status: { notIn: ['completed', 'invoiced', 'paid'] } }, data: { ...(fields as Json), completedBy: 'Automatic: walkthrough signed and paid in full' } })
-      if (n.count !== 1) return null
-      const row = await tx.savedJob.findUnique({ where: { id: jobId } })
-      await recordJobChanges(accountId, job, row, tx)
-      return row
-    })
-    if (!updated) return { moved: false, why: 'already done' }
-    await auditSystem('update', 'SavedJob', jobId, { oldValues: { status: job.status, opsStage: job.opsStage }, newValues: { status: updated.status, opsStage: updated.opsStage, completedDate: updated.completedDate, why: `Closed out by itself: ${why}` } })
-    // The Final's due date is the install date (lib/contractBilling.ts afterJobSaved).
-    const { afterJobSaved } = await import('./contractBilling.js')
-    await afterJobSaved(accountId, jobId, { userId: null, name: 'Close out' })
-    // The card follows: Job Complete, or the last Sold, work done stage (Paid & Closed) when paid in full.
+    const paidStage = firstStageFor(stages, 'paid')
+    const status = billingStatusOf(await billingViewFor(accountId, jobId))
+    let row: Json = job
+    if (isDonePhase(job.status)) {
+      // Complete already (by hand, or before it was paid): on to Paid once the balance is zero.
+      if (!status.paidInFull || !paidStage) return { moved: false, why: 'already done' }
+    } else {
+      const w = await prisma.walkthrough.findUnique({ where: { jobId }, select: { accountId: true, homeownerSig: true, repSig: true } })
+      if (!w || w.accountId !== accountId || !w.homeownerSig || !w.repSig) return { moved: false, why: 'walkthrough not signed' }
+      if (!status.paidInFull) return { moved: false, why: 'not paid in full' }
+      // Only a job that was really installed (Oct 25 2026: a job never scheduled closed out on a signature and a
+      // payment). Not installed: the job page asks the owner "Paid and signed off: mark installed?".
+      if (!(await installHappened(accountId, job))) return { moved: false, why: 'not installed' }
+      const done = completeStage(stages)
+      if (!done) return { moved: false, why: 'no Complete stage' }
+      const completed = await moveJobToStage(accountId, job, stages, done.id, ['staging', 'scheduled', 'in_progress'], { completedBy: 'Automatic: install finished, walkthrough signed and paid in full' }, `Closed out by itself: ${why}`)
+      if (!completed) return { moved: false, why: 'already done' }
+      row = completed
+      // The Final's due date is the install date (lib/contractBilling.ts afterJobSaved).
+      const { afterJobSaved } = await import('./contractBilling.js')
+      await afterJobSaved(accountId, jobId, { userId: null, name: 'Close out' })
+      // Its crew days: done; any still ahead off the Schedule.
+      const { finishScheduleRows } = await import('./installScheduling.js')
+      await finishScheduleRows(accountId, jobId, { accountId, userId: null }, completed.completedDate || floridaDay(new Date()))
+    }
+    // Paid in full: on to Paid (the balance is zero).
+    if (paidStage && status.paidInFull) {
+      const paid = await moveJobToStage(accountId, row, stages, paidStage, ['completed', 'invoiced'], { paymentStatus: 'paid' }, `Paid in full: ${why}`)
+      if (paid) row = paid
+    }
+    // The card follows: the last Sold, work done stage (Paid & Closed) when paid in full, else Job complete.
     await cardFollowsJob(accountId, jobId)
     // Its queued Operations runs for stages it has moved on from: cancelled.
     const { cancelRunsLeftBehind } = await import('./automations/queue.js')
     await cancelRunsLeftBehind(accountId, 'ops', jobId).catch(e => console.error('[close out] cancel runs:', e))
-    // Its crew days: done; any still ahead off the Schedule.
-    const { finishScheduleRows } = await import('./installScheduling.js')
-    await finishScheduleRows(accountId, jobId, { accountId, userId: null }, updated.completedDate || floridaDay(new Date()))
-    return { moved: true, stage: stageById(stages, stageOfJob(stages, updated as Json))?.name ?? done.name }
+    if (row === job) return { moved: false, why: 'already done' }
+    return { moved: true, stage: stageById(stages, stageOfJob(stages, row as Json))?.name ?? String(row.opsStage) }
   } catch (e) {
     console.error('[close out]', e)
     return { moved: false, why: 'error' }

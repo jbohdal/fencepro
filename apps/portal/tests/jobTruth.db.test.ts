@@ -197,12 +197,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     expect(f.status).toBe(201)
     expect((await prisma.savedJob.findUnique({ where: { id: ids.job } }))?.status).toBe('staging')
     expect((await call('GET', `/api/saved-jobs/${ids.job}/milestones`)).json.data.closeOut).toBe('mark_installed')
-    // The install happened (the crew tapped Finish): it closes out.
+    // The install happened (the crew tapped "We finished the whole job"): it closes out.
     const { recordInstallTime } = await import('../src/server/lib/crewInstall.js')
-    await recordInstallTime(ids.job, 'finish', 'Crew test')
+    await recordInstallTime(ids.job, 'finish', 'Crew test', new Date(), true)
     expect(await truth.closeOutIfDone(accountId, ids.job, 'finish tapped')).toMatchObject({ moved: true })
     const job = await prisma.savedJob.findUnique({ where: { id: ids.job } })
-    expect(job).toMatchObject({ status: 'completed', opsStage: 'completed', paymentStatus: 'paid' })
+    // Paid in full: on to Paid (round 2, Oct 26 2026).
+    expect(job).toMatchObject({ status: 'paid', opsStage: 'paid', paymentStatus: 'paid' })
     expect(job?.completedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     const leads = (await prisma.pipelineState.findUnique({ where: { accountId } }))?.leads as any[]
     // Paid in full and done: the last Sold, work done stage (Paid & Closed on the start list).

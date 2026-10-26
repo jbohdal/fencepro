@@ -37,7 +37,7 @@ import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage } from '../lib
 import { floridaDay } from '../lib/automations/context.js'
 import { jobTotalsFor } from '../lib/changeOrders.js'
 import { afterJobSaved } from '../lib/contractBilling.js'
-import { saveLocate, jobMilestones, milestoneSummary, setHandTick, cardFollowsJob } from '../lib/jobTruth.js'
+import { saveLocate, jobMilestones, milestoneSummary, setHandTick, cardFollowsJob, closeOutIfDone } from '../lib/jobTruth.js'
 
 const router = Router()
 
@@ -326,6 +326,11 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     const DONE = ['completed', 'invoiced', 'paid']
     if (!DONE.includes(existing.status) && DONE.includes(updated.status)) {
       await finishScheduleRows(req.user.crmAccountId, updated.id, { accountId: req.user.crmAccountId, userId: req.user.id ?? null }, updated.completedDate || floridaDay(new Date())).catch(e => console.error('[saved-jobs] finish schedule rows:', e))
+      // Marked Complete by hand and already paid in full: on to Paid by itself (lib/jobTruth.ts closeOutIfDone).
+      if (updated.status !== 'paid') {
+        const out = await closeOutIfDone(req.user.crmAccountId, updated.id, 'marked complete, already paid in full')
+        if (out.moved) { res.json({ success: true, data: await prisma.savedJob.findUnique({ where: { id: updated.id } }) }); return }
+      }
     }
     res.json({ success: true, data: updated })
   } catch (err) {

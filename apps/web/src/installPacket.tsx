@@ -180,16 +180,44 @@ export async function sendInstallPacket(jobId: string, job: { fenceStyle?: strin
 
 // ── The installer's home (InstallerHome.tsx) ─────────────────────────────────
 
-export interface InstallTime { kind: 'start' | 'finish'; at: string; by: string; day: string }
-export interface CrewInstall { packet: { token: string } | null; customerNotes: string[]; times: InstallTime[] }
+export interface InstallTime { kind: 'start' | 'finish'; at: string; by: string; day: string; jobDone?: boolean }
+export interface CrewInstall {
+  packet: { token: string } | null; customerNotes: string[]; times: InstallTime[]
+  /** The job's last crew day; whether the crew finished the whole job; the 811 locate in words (null: none on the job). */
+  lastDay?: string | null; jobDone?: boolean; locate?: { status: string; text: string; ticket: string | null } | null
+}
 
-/** An install's packet link, the customer's notes and Start / Finish so far; null with no signal. */
-export const fetchCrewInstall = (jobId: string) => call<CrewInstall>(`/crew/${encodeURIComponent(jobId)}`)
+/**
+ * One copy per job for every card of it on the installer's home (day 1 and
+ * day 2 of a job are two cards): a packet made, or a tap, on one card shows
+ * on the other at once (round 2, Oct 26 2026: day 2 still said "Make the crew
+ * packet" after day 1's was made).
+ */
+const crewCache = new Map<string, CrewInstall>()
+export const CREW_INSTALL_EVENT = 'ezbiz:crew-install'
+export function crewInstallCached(jobId: string): CrewInstall | null { return crewCache.get(jobId) ?? null }
+export function putCrewInstall(jobId: string, patch: Partial<CrewInstall>): void {
+  const was = crewCache.get(jobId)
+  crewCache.set(jobId, { packet: null, customerNotes: [], times: [], ...was, ...patch })
+  window.dispatchEvent(new CustomEvent(CREW_INSTALL_EVENT, { detail: { jobId } }))
+}
 
-/** Start or Finish on an install (needs signal: the time is the server's). The taps so far, or null. */
-export async function markInstall(jobId: string, kind: 'start' | 'finish'): Promise<InstallTime[] | null> {
-  const r = await call<{ times: InstallTime[] }>(`/crew/${encodeURIComponent(jobId)}/${kind}`, { method: 'POST' })
-  return r?.times ?? null
+/** An install's packet link, the customer's notes, Start / Finish so far and the job's finish; null with no signal. */
+export async function fetchCrewInstall(jobId: string): Promise<CrewInstall | null> {
+  const r = await call<CrewInstall>(`/crew/${encodeURIComponent(jobId)}`)
+  if (r) putCrewInstall(jobId, r)
+  return r
+}
+
+/**
+ * Start or Finish on an install (needs signal: the time is the server's).
+ * `jobDone`: "Finished the job" on a day before the last one (Finish on the
+ * last crew day is the job finished anyway). What the server has after, or null.
+ */
+export async function markInstall(jobId: string, kind: 'start' | 'finish', jobDone = false): Promise<(Partial<CrewInstall> & { times: InstallTime[] }) | null> {
+  const r = await call<Partial<CrewInstall> & { times: InstallTime[] }>(`/crew/${encodeURIComponent(jobId)}/${kind}`, { method: 'POST', body: JSON.stringify(jobDone ? { jobDone: true } : {}) })
+  if (r) putCrewInstall(jobId, r)
+  return r ?? null
 }
 
 /** On a sold job: send the packet, then open, copy, text, email or turn it off. */
@@ -247,7 +275,7 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
       <div className="text-xs text-gray-700" data-job-install-times>
         <p className="font-semibold">Install times</p>
         {times.length === 0 ? <p>The crew has not tapped Start yet.</p> : (
-          <ul>{times.map(t => <li key={t.at}>{t.kind === 'start' ? 'Started' : 'Finished'} {new Date(t.at).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {t.by}</li>)}</ul>
+          <ul>{times.map(t => <li key={t.at}>{t.kind === 'start' ? 'Started' : t.jobDone ? 'Finished the job' : 'Finished'} {new Date(t.at).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {t.by}</li>)}</ul>
         )}
       </div>
     </div>

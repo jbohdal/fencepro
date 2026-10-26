@@ -169,7 +169,7 @@ export function JobMilestones({ job, onMarkInstalled }: { job: Job; onMarkInstal
       {data.closeOut === 'mark_installed' && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm space-y-2" data-closeout-ask>
           <p className="font-semibold text-amber-900">Paid and signed off. Mark it installed?</p>
-          <p className="text-amber-900">The walkthrough is signed and it is paid in full, but the job has no install day reached, no Finish from the crew and was never In Progress, so it did not move to Complete by itself.</p>
+          <p className="text-amber-900">The walkthrough is signed and it is paid in full, but the crew has not tapped Finish on the last install day (or "Finished the job") and its last install day has not passed, so it did not move to Complete by itself.</p>
           {can('billing.amounts') && onMarkInstalled
             ? <button type="button" className="btn btn-primary min-h-[48px]" onClick={() => { if (window.confirm('Mark this job installed and complete?')) onMarkInstalled() }} data-closeout-mark>Mark installed and complete</button>
             : <p className="text-xs text-amber-800">The owner marks it installed.</p>}

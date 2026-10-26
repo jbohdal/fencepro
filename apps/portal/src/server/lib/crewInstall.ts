@@ -14,13 +14,20 @@
  */
 
 import prisma from './prisma.js'
-import { withoutMoney } from './costRedact.js'
+import { forCrew } from './costRedact.js'
 
 export type InstallTimeKind = 'start' | 'finish'
-export interface InstallTime { kind: InstallTimeKind; at: string; by: string; day: string }
+/**
+ * A tap. `jobDone`: the crew said the whole job is finished ("Finished the
+ * job", or Finish on the job's last crew day), not only "Finish for today" on
+ * a day of a longer job (round 2, Oct 26 2026).
+ */
+export interface InstallTime { kind: InstallTimeKind; at: string; by: string; day: string; jobDone?: boolean }
 
 const KIND: Record<InstallTimeKind, string> = { start: 'install.start', finish: 'install.finish' }
 const SAID: Record<InstallTimeKind, string> = { start: 'Install started', finish: 'Install finished' }
+/** Finish that ends the whole job (the last crew day, or "Finished the job" on an earlier one). */
+const SAID_DONE = 'Install finished: job done'
 
 /** YYYY-MM-DD in Florida. */
 export const floridaYmd = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -33,7 +40,7 @@ export const floridaYmd = (d: Date) => d.toLocaleDateString('en-CA', { timeZone:
  */
 export function customerNotesFrom(contactNotes: string | null | undefined, noteBodies: Array<string | null | undefined>): string[] {
   const out: string[] = []
-  const add = (s: string) => { const t = withoutMoney(s.trim().replace(/\s+/g, ' ')); if (t && !out.some(x => x.toLowerCase() === t.toLowerCase())) out.push(t) }
+  const add = (s: string) => { const t = forCrew(s.trim().replace(/\s+/g, ' ')); if (t && !out.some(x => x.toLowerCase() === t.toLowerCase())) out.push(t) }
   for (const line of String(contactNotes ?? '').split('\n')) add(line)
   for (const body of noteBodies) {
     for (const line of String(body ?? '').split('\n')) {
@@ -55,17 +62,27 @@ export async function customerNotesForJob(accountId: string, crmContactId: strin
 
 /** Start and Finish taps on a job, oldest first. */
 export async function installTimes(jobId: string): Promise<InstallTime[]> {
-  const rows = await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: jobId, body: { in: Object.values(SAID) } }, orderBy: { createdAt: 'asc' } })
+  const rows = await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: jobId, body: { in: [...Object.values(SAID), SAID_DONE] } }, orderBy: { createdAt: 'asc' } })
   return rows.map(r => {
-    const kind: InstallTimeKind = r.body === SAID.finish ? 'finish' : 'start'
-    return { kind, at: r.createdAt.toISOString(), by: r.actor, day: floridaYmd(r.createdAt) }
+    const kind: InstallTimeKind = r.body === SAID.start ? 'start' : 'finish'
+    return { kind, at: r.createdAt.toISOString(), by: r.actor, day: floridaYmd(r.createdAt), ...(r.body === SAID_DONE ? { jobDone: true } : {}) }
   })
 }
 
-/** Record a Start or Finish tap. */
-export async function recordInstallTime(jobId: string, kind: InstallTimeKind, by: string, at = new Date()): Promise<InstallTime> {
-  const r = await prisma.activityLog.create({ data: { entityType: 'job', entityId: jobId, actor: by || 'Crew', body: SAID[kind], metadata: { kind: KIND[kind] }, createdAt: at } })
-  return { kind, at: r.createdAt.toISOString(), by: r.actor, day: floridaYmd(r.createdAt) }
+/** Record a Start or Finish tap; a Finish that ends the whole job with `jobDone`. */
+export async function recordInstallTime(jobId: string, kind: InstallTimeKind, by: string, at = new Date(), jobDone = false): Promise<InstallTime> {
+  const done = kind === 'finish' && jobDone
+  const r = await prisma.activityLog.create({ data: { entityType: 'job', entityId: jobId, actor: by || 'Crew', body: done ? SAID_DONE : SAID[kind], metadata: { kind: KIND[kind], ...(done ? { jobDone: true } : {}) }, createdAt: at } })
+  return { kind, at: r.createdAt.toISOString(), by: r.actor, day: floridaYmd(r.createdAt), ...(done ? { jobDone: true } : {}) }
+}
+
+/**
+ * Did the crew finish the whole job? A Finish marked job done, or a Finish on
+ * or after the job's last crew day (a one day job: any Finish). "Finish for
+ * today" on day 1 of 2 is not the install finished.
+ */
+export function crewFinishedJob(times: InstallTime[], lastCrewDay: string | null): boolean {
+  return times.some(t => t.kind === 'finish' && (t.jobDone || !lastCrewDay || t.day >= lastCrewDay))
 }
 
 /** Where a job is today, from its taps: not started, working (started, not finished), or finished today. */
