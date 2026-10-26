@@ -16,7 +16,7 @@ import { getQuotesForCustomer } from './quoteStore'
 import { addOrSend } from './mediaStore'
 import {
   TYPE_SHORT, TYPE_COLORS, STATUS_LABELS, OUTCOME_LABELS, floridaDate, isOpen, needsOutcome, statusForOutcome,
-  directionsUrl, smsLink, driveMinutes, type Appointment, type AppointmentOutcome,
+  directionsUrl, smsLink, driveMinutes, visitWords, type Appointment, type AppointmentOutcome,
 } from './appointmentLogic'
 import { applyOutcome } from './appointmentPipeline'
 import { openBooking } from './BookingDialog'
@@ -137,7 +137,7 @@ export default function TodayScreen() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-bold text-gray-900 tabular-nums whitespace-nowrap">{a.allDay ? 'All day' : fmtTime(a.startAt!)}</span>
-                  <span className="text-sm text-gray-600 truncate">{TYPE_SHORT[a.type]} · {a.outcome ? OUTCOME_LABELS[a.outcome] : STATUS_LABELS[a.status]}</span>
+                  <span className="text-sm text-gray-600 truncate" data-today-visit-state>{TYPE_SHORT[a.type]} · {visitWords(a, getQuotesForCustomer(a.crmContactId))}</span>
                   <span className="ml-auto flex gap-1.5 shrink-0">
                     {a.customerPhone && <a href={`tel:${a.customerPhone.replace(/[^\d+]/g, '')}`} aria-label={`Call ${a.customerName}`} className="btn btn-secondary btn-icon"><Phone size={18} aria-hidden="true" /></a>}
                     <a href={directionsUrl(a)} target="_blank" rel="noreferrer" aria-label={`Navigate to ${a.customerName}`} className="btn btn-secondary btn-icon"><Navigation size={18} aria-hidden="true" /></a>

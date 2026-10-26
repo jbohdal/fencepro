@@ -17,8 +17,9 @@ import { getAppointmentSettings } from './configStore'
 import { getPipeline } from './pipelineStore'
 import {
   APPOINTMENT_TYPES, TYPE_SHORT, TYPE_COLORS, STATUS_LABELS, OUTCOME_LABELS, floridaDate, floridaHM, floridaTime, minutesOf, hmOf,
-  addDays, weekdayOf, isOpen, needsOutcome, routeUrl, type Appointment, type AppointmentType,
+  addDays, weekdayOf, isOpen, needsOutcome, routeUrl, visitWords, type Appointment, type AppointmentType,
 } from './appointmentLogic'
+import { getQuotesForCustomer } from './quoteStore'
 import { openBooking } from './BookingDialog'
 import { useAppointmentList, OutcomeForm } from './TodayScreen'
 import MapView from './MapView'
@@ -264,7 +265,7 @@ function Agenda({ from, list, onClose }: { from: string; list: Appointment[]; on
                   <span className="block text-sm font-semibold text-gray-900">{a.allDay ? 'All day' : fmtTime(a.startAt!)} · {a.customerName}</span>
                   <span className="block text-xs text-gray-500 truncate">{TYPE_SHORT[a.type]} · {a.address || 'no address'} · {a.assignedTo || 'nobody'}</span>
                 </button>
-                <span className="text-[11px] text-gray-500 text-right">{a.outcome ? OUTCOME_LABELS[a.outcome] : STATUS_LABELS[a.status]}</span>
+                <span className="text-[11px] text-gray-500 text-right">{visitWords(a, getQuotesForCustomer(a.crmContactId))}</span>
                 {isOpen(a) && <button onClick={() => onClose(a)} className="text-xs px-2 py-1 rounded-lg border border-gray-200 text-gray-600">Close out</button>}
               </div>
             ))}

@@ -147,6 +147,24 @@ const hmFmt = new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, hour: '2-d
 export const floridaDate = (d: Date | string) => dayFmt.format(typeof d === 'string' ? new Date(d) : d)
 /** HH:MM (24 hour) in Florida. */
 export const floridaHM = (d: Date | string) => hmFmt.format(typeof d === 'string' ? new Date(d) : d)
+/**
+ * What a visit's line says on Today: its outcome, or once it was quoted, where
+ * that quote is (re-check, Oct 26 2026: a repair visit still read "Ready to
+ * quote" after the quote was signed). The quote is the customer's newest one
+ * dated on or after the visit's day: "Quoted · Signed", "Quoted · Sent",
+ * "Quoted · Lost", "Quote started" (a draft). Else the outcome, else the
+ * status.
+ */
+export function visitWords(a: Pick<Appointment, 'outcome' | 'status' | 'startAt'>, quotes: Array<{ status: string; date?: string | null }>): string {
+  if (a.outcome === 'ready_to_quote' && a.startAt) {
+    const day = floridaDate(a.startAt)
+    const q = quotes.filter(x => (x.date || '') >= day).sort((x, y) => (y.date || '').localeCompare(x.date || ''))
+    const pick = q.find(x => x.status === 'SOLD') ?? q[0]
+    if (pick) return pick.status === 'SOLD' ? 'Quoted · Signed' : pick.status === 'SENT' ? 'Quoted · Sent' : pick.status === 'LOST' ? 'Quoted · Lost' : 'Quote started'
+  }
+  return a.outcome ? OUTCOME_LABELS[a.outcome] : STATUS_LABELS[a.status]
+}
+
 export const minutesOf = (hm: string) => { const [h, m] = hm.split(':').map(Number); return h * 60 + (m || 0) }
 export const hmOf = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
 
