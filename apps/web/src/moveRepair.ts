@@ -42,8 +42,16 @@ import { woodPartName } from './wood'
 export type JobType = 'new' | 'move' | 'repair'
 export type PostType = 'nd' | 'ds'
 // The repair items' names, and a repair's or move's work in words: one file for the server and the app.
-import { REPAIR_ITEMS, REPAIR_LABEL, workScope, workSummary, type RepairItemKey } from '../../portal/src/server/lib/workWords'
-export { REPAIR_ITEMS, REPAIR_LABEL, workScope, workSummary, type RepairItemKey }
+// A namespace import: run from source by the server (tsx), the portal's .ts files load as CommonJS, whose
+// names a plain named import cannot see; Vite and the pricing bundle give the names directly.
+import * as workWordsNs from '../../portal/src/server/lib/workWords'
+import type { RepairItemKey } from '../../portal/src/server/lib/workWords'
+const workWords = (Reflect.get(workWordsNs, 'default') ?? workWordsNs) as typeof workWordsNs
+export const REPAIR_ITEMS = workWords.REPAIR_ITEMS
+export const REPAIR_LABEL = workWords.REPAIR_LABEL
+export const workScope = workWords.workScope
+export const workSummary = workWords.workSummary
+export type { RepairItemKey }
 
 export interface MoveRepairSettings {
   /** Careful removal labor = install rate per section × this. */
