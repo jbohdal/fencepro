@@ -31,6 +31,7 @@ import path from 'path'
 import jwt from 'jsonwebtoken'
 import type { AddressInfo } from 'net'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
+import { pdfText } from './pdfText'
 
 const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
 describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follows (dev database)', { timeout: 90_000 }, async () => {
@@ -509,5 +510,96 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     expect(crew.text).toContain('Changed: change orders CO-2 and CO-1')
     expect(crew.text).toContain('data-packet-co-item="2"')
     expect(crew.text).toContain('data-packet-co-item="1"')
+  })
+
+  // Round 4 re-check (Oct 26 2026): CO-1 signed after CO-2 said "The original price was $5,640.00. This change adds $492.00"
+  // (the customer had seen "Your contract now $6,532.00, New contract total $7,024.00"), its arrow came out "!'", the
+  // signing phone showed no drawing, and the crew packet said "CO-2: added a walk gate and removed 4 ft" with "Run 1-2".
+  test('round 4 re-check: the signed PDF says the contract as signed; the signing phone shows the link\'s layout; the packet names sides', async () => {
+    const { pricingModule } = await import('../src/server/lib/estimates.js')
+    const m = await pricingModule()
+    const cfg = (await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }))?.config ?? null
+    const side = (id: string, name: string, lengthIn: number, start: string, end: string, gate: any = null) => ({ id, name, on: true, lengthIn, startFinish: start, endFinish: end, gate, skip: null, heading: 0 })
+    const yardOf = (back: number, gate = false) => ({ shape: 'backyard', closed: false, sides: [
+      side('r4-left', 'Left side', 600, 'house', 'corner', gate ? { type: 'walk', widthIn: 48, position: 'middle' } : null),
+      side('r4-back', 'Back', back, 'corner', 'house'),
+    ] })
+    const req = (yard: any) => { const d = m.deriveYardRuns(cfg, yard, ND)!; return { ...request(0, d.walkGates), runs: d.runs.map(ft => ({ ft, rail: 'auto' })), corners: d.corners, ends: d.ends, walkGates: d.walkGates, dblGates: d.dblGates } }
+    const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'
+    const work = (yard: any) => ({ request: req(yard), layout: { yard }, planSvg: SVG })
+    const { jobId, quoteId } = await signedJob()
+    const q0 = req(yardOf(600))
+    await prisma.savedQuote.update({ where: { id: quoteId }, data: { runs: q0.runs.map(r => r.ft), corners: q0.corners, ends: q0.ends, layout: { yard: yardOf(600), runSections: [] } as any } })
+    const packet = await call(owner, 'POST', '/api/install-packets', { jobId, snapshot: { style: ND, pullSheet: [{ item: 'Vinyl panel', qty: 13 }] } })
+    expect(packet.status).toBe(200)
+    const co1 = (await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Longer back', lines: [{ id: 'a', description: 'Add 10 ft of fence, 2 panels more (100 ft to 110 ft)', amountCents: 25000 }], work: work(yardOf(720)) })).json.data
+    const co2 = (await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Gate', lines: [{ id: 'b', description: 'Add 1 walk gate in the Left side (4 ft of fence becomes the gate)', amountCents: 30000 }], work: work(yardOf(720, true)) })).json.data
+
+    // The signing phone gets what the link shows: the contract, the layout and the other open change order in it.
+    const sheet2 = (await call(owner, 'GET', `/api/change-orders/${co2.id}/for-signing`)).json.data
+    expect(sheet2.contract).toMatchObject({ beforeCents: 600000, afterCents: 630000 })
+    expect(sheet2.planSvg).toBe(SVG)
+    expect(sheet2.own).toBeNull() // its own change is a gate; the length words are CO-1's
+    expect(sheet2.alsoInDrawing).toEqual(["The drawing also shows CO-1's change (Back 50 ft → 60 ft): not part of this change order (CO-1, not signed yet)."])
+    expect(JSON.stringify(sheet2)).not.toMatch(/cost/i)
+    expect((await call(sales, 'GET', `/api/change-orders/${co2.id}/for-signing`)).status).toBe(200)
+
+    // CO-2 signed first, then CO-1 on its link.
+    expect((await call(owner, 'POST', `/api/change-orders/${co2.id}/sign`, { name: 'Pat Customer', signature: SIG })).status).toBe(200)
+    const sheet1 = (await call(owner, 'GET', `/api/change-orders/${co1.id}/for-signing`)).json.data
+    expect(sheet1.contract).toMatchObject({ beforeCents: 630000, afterCents: 655000, earlier: [{ number: 2, totalCents: 30000 }] })
+    const link1 = (await call(owner, 'POST', `/api/change-orders/${co1.id}/link`)).json.data.token
+    await call(owner, 'PATCH', `/api/change-orders/${co1.id}`, { baseVersion: co1.version, status: 'sent' })
+    expect((await call('', 'GET', `/p/co/${link1}`)).text).toContain('data-co-new-contract>$6,550.00')
+    expect((await call('', 'POST', `/p/co/${link1}/sign`, { name: 'Pat Customer', signature: SIG })).json.success).toBe(true)
+
+    // The signed CO-1 PDF: the contract before this change (with CO-2 named), this change, the new total, as the customer saw them.
+    const doc1 = (await prisma.signedDocument.findFirst({ where: { changeOrderId: co1.id } }))!
+    const t1 = pdfText(fs.readFileSync(path.resolve(process.env.UPLOAD_DIR || './uploads', doc1.fileKey)))
+    expect(t1).toContain('(Back 50 ft to 60 ft)')
+    expect(t1).not.toContain("!'")
+    expect(t1).toContain('Your contract before this change $6,300.00')
+    expect(t1).toContain('plus CO-2 +$300.00 (a change order approved before this one)')
+    expect(t1).toContain('This change +$250.00')
+    expect(t1).toContain('New contract total $6,550.00')
+    expect(t1).not.toContain('The original price was')
+    // CO-2's: the first signed, before it is the price signed.
+    const doc2 = (await prisma.signedDocument.findFirst({ where: { changeOrderId: co2.id } }))!
+    const t2 = pdfText(fs.readFileSync(path.resolve(process.env.UPLOAD_DIR || './uploads', doc2.fileKey)))
+    expect(t2).toContain('Your contract before this change $6,000.00 The price you signed.')
+    expect(t2).toContain('New contract total $6,300.00')
+
+    // The crew packet: the gate by its side, and the runs by the drawing's side names.
+    const staff = (await call(owner, 'GET', `/api/install-packets?jobId=${jobId}`)).json.data
+    expect(staff.changedBy.all.map((a: any) => a.what)).toEqual(['added a walk gate in the Left side (4 ft of fence becomes the gate)', 'added 10 ft (Back 50 ft → 60 ft)'])
+    const crew = (await call('', 'GET', `/p/i/${staff.token}`)).text
+    expect(crew).toContain('added a walk gate in the Left side (4 ft of fence becomes the gate)')
+    expect(crew).not.toMatch(/removed 4 ft/)
+    expect(crew).toMatch(/<td>Left side[^<]*<\/td>/)
+    expect(crew).toMatch(/<td>Back<\/td>/)
+    expect(crew).not.toMatch(/<td>Run \d<\/td>/)
+  })
+
+  test("round 4 re-check: the owner's read \"to OK\" notice is retitled when he OKs it; the maker's \"OK'd: send it\" is done once signed", async () => {
+    const { jobId } = await signedJob()
+    const me = (await prisma.crmUser.findFirst({ where: { crmAccountId: accountId, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
+    const co = (await call(sales, 'POST', '/api/change-orders', { jobId, lines: [{ id: 'n4', description: 'Add a 4 ft section', amountCents: 20000 }] })).json.data
+    const toOk = await prisma.notification.findMany({ where: { jobId, title: { startsWith: 'Change order to OK' } } })
+    expect(toOk.length).toBe(2)
+    // The owner taps his notice (it opens the job and is marked read), then OKs it there.
+    const his = toOk.find(n => n.recipientRole === 'admin')!
+    await prisma.notification.update({ where: { id: his.id }, data: { read: true, readAt: new Date() } })
+    const ok = (await call(owner, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: co.version, status: 'draft' })).json.data
+    const after = await prisma.notification.findMany({ where: { id: { in: toOk.map(n => n.id) } } })
+    expect(after.every(n => /^Change order OK'd: /.test(n.title))).toBe(true)
+    expect(after.find(n => n.id === his.id)!.read).toBe(true)
+    const sendIt = await prisma.notification.findFirst({ where: { jobId, recipientId: me.email, title: { startsWith: "OK'd: send it to " } } })
+    expect(sendIt?.read).toBe(false)
+    // Signed in person: her "send it" is done (read, says signed); the new "Signed" notice tells her.
+    await call(owner, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: ok.version, status: 'sent' })
+    expect((await call(owner, 'POST', `/api/change-orders/${co.id}/sign`, { name: 'Pat Customer', signature: SIG })).status).toBe(200)
+    const done = (await prisma.notification.findUnique({ where: { id: sendIt!.id } }))!
+    expect([done.read, done.title.startsWith('Sent and signed: CO-1, ')]).toEqual([true, true])
+    expect(await prisma.notification.count({ where: { jobId, title: { startsWith: "OK'd: send it to " } } })).toBe(0)
   })
 })
