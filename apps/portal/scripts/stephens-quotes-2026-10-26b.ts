@@ -3,6 +3,8 @@
  * shown before anything changes, then done through the app's own code.
  *
  *   pnpm exec tsx scripts/stephens-quotes-2026-10-26b.ts <folder with the PDFs>          dry run (default): reads only
+ *   pnpm exec tsx scripts/stephens-quotes-2026-10-26b.ts <folder> --compare-out <file> [--source "<where the data came from>"]
+ *                                                    dry run, and section 6 (the test yards) written to <file> too
  *   pnpm exec tsx scripts/stephens-quotes-2026-10-26b.ts <folder> --apply                does it (dev)
  *   EZBIZ_LIVE_WRITE_OK=1 pnpm exec tsx scripts/stephens-quotes-2026-10-26b.ts <folder> --apply --live
  *                                                    on live: from ~/ezbiz/apps/portal, after the deploy
@@ -75,11 +77,18 @@ import { readInvoiceFile } from '../src/server/lib/invoiceReader.js'
 import { parseInvoice, findVendor, type ParsedInvoice } from '../src/server/lib/invoiceParse.js'
 import { checkTotals, landedParts, spreadExtras, unitLanded, changePct, needsOk, matchKey, findLink, invoiceNumberKey, dollars, pctText, toInventoryQty } from '../src/server/lib/invoiceMath.js'
 import { contentKey, estTaxBpOf, newerPriceKept, revisionOf, DEFAULT_JUMP_PCT } from '../src/server/lib/vendorInvoices.js'
+import { KIT_LABEL } from '../../web/src/materialKits.js'
+import { okLimitWords, quoteTitle, openRowWords, soldRowWords, yardTotalsWords, type RepriceRow } from './stephensReportWords.js'
 import { GREEN_KEY, GREEN_LINES, blackWords, greenAskFor, greenLineFor, greenOption, greenPartFor, greenUnpriced, planGreenChainLink, planGreenFollowsBlack, type GreenFollow, type GreenPlan, type GreenState } from '../src/server/lib/greenChainLink.js'
 
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
-const folder = args.find(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--account')
+const VALUE_FLAGS = ['--account', '--compare-out', '--source']
+const folder = args.find((a, i) => !a.startsWith('--') && !VALUE_FLAGS.includes(args[i - 1]))
+const flagValue = (f: string) => (args.includes(f) ? args[args.indexOf(f) + 1] : undefined)
+/** --compare-out <file>: also write section 6 (Green against Black, the 100 ft test yards) to its own file; --source <words>: where the data came from, for its header. */
+const COMPARE_OUT = flagValue('--compare-out')
+const SOURCE = flagValue('--source')
 const dbUrl = process.env.DATABASE_URL || ''
 const dbName = databaseNameOf(dbUrl)
 
@@ -97,7 +106,23 @@ if (APPLY) {
   if (dbName === LIVE_DATABASE_NAME && !args.includes('--live')) { console.error(`DATABASE_URL names the live database "${LIVE_DATABASE_NAME}". With a fresh backup and Jonathan's OK, add --live.`); process.exit(2) }
 }
 
-const say = console.log
+/** Lines for the comparison file (--compare-out), while section 6 is printed. */
+let capture: string[] | null = null
+const say = (...a: unknown[]) => { console.log(...a); if (capture) capture.push(a.map(String).join(' ')) }
+/** Ids, database and internal states: printed at the end, under TECHNICAL, not in the main text. */
+const tech: string[] = []
+/** The app's states for a vendor document or line, in words. */
+const STATE_WORDS: Record<string, string> = {
+  needs_match: 'waiting in Needs a match', needs_review: 'in Needs review', applied: 'prices applied', history_only: 'kept in price history only',
+  waiting_ok: "waiting for Jonathan's OK", undone: 'order undone', replaced: 'replaced', refused: 'refused', failed: 'could not be read', reading: 'being read', receiving: 'being uploaded',
+}
+const stateWords = (s: string) => STATE_WORDS[s] ?? s.replace(/_/g, ' ')
+/** A kit's kind in words ("walkGate5" → "Walk gate 5 ft wide"). */
+const kindWords = (k: string) => (KIT_LABEL as Record<string, string>)[k] ?? k
+/** Fence names (the app's own, e.g. "chain/4/green/res/nd") in plain words, set once the styles are known. */
+let labels = new Map<string, string>()
+const labelOf = (name: string) => labels.get(name) ?? name
+const named = (text: string) => [...labels.keys()].sort((a, b) => b.length - a.length).reduce((t, n) => t.split(n).join(labels.get(n)!), text)
 const arr = (v: unknown): any[] => (Array.isArray(v) ? v : [])
 const cents = (item: any): number | null => { const n = Number(item?.unitCost); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null }
 const money = (c: number | null | undefined) => (c == null ? 'no price' : dollars(c))
@@ -183,8 +208,8 @@ function verdicts(docs: Doc[], st: State): Verdict[] {
     const sameDoc = live.find(i => i.invoiceKey === doc.key && contentKey(i, i.lines) === doc.content)
     const earlier = seen.find(d => d.key === doc.key && d.content === doc.content)
     seen.push(doc)
-    if (sameFile) return { doc, takes: false, existing: sameFile, why: `already in the app: this exact file (${sameFile.docType} ${sameFile.invoiceNumber}, uploaded ${sameFile.createdAt.toISOString().slice(0, 10)}, now "${sameFile.status}"); uploading it again would be refused` }
-    if (sameDoc) return { doc, takes: false, existing: sameDoc, why: `already in the app: the same ${sameDoc.docType} ${sameDoc.invoiceNumber} (same date, lines and total), "${sameDoc.status}"; uploading it again would be refused` }
+    if (sameFile) return { doc, takes: false, existing: sameFile, why: `already in the app: this exact file (${sameFile.docType} ${sameFile.invoiceNumber}, uploaded ${sameFile.createdAt.toISOString().slice(0, 10)}, now ${stateWords(sameFile.status)}); uploading it again would be refused` }
+    if (sameDoc) return { doc, takes: false, existing: sameDoc, why: `already in the app: the same ${sameDoc.docType} ${sameDoc.invoiceNumber} (same date, lines and total), ${stateWords(sameDoc.status)}; uploading it again would be refused` }
     if (earlier) return { doc, takes: false, existing: null, why: `refused as a duplicate of ${earlier.file} (same date, lines and total)` }
     return { doc, takes: true, existing: null, why: 'new: the app takes it in as a vendor quote' }
   })
@@ -263,7 +288,7 @@ async function repriceQuotes(m: any, st: State, pipeItemId: string, before: numb
   const { requestFrom } = await import('../src/server/lib/quotePricing.js')
   const withPipe = (c: number | null) => ({ config: st.config, inventory: st.items.map(i => (String(i.id) === pipeItemId ? { ...i, unitCost: (c ?? 0) / 100 } : i)), kits: st.kits })
   const dataNow = withPipe(before), dataAfter = withPipe(after)
-  const rows: Array<{ q: any; style: string; how: string; pipes: number; saved: number; now: number | null; after: number | null; costNow: number | null; costAfter: number | null; sold: boolean; note: string }> = []
+  const rows: Array<{ q: any; style: string; how: string; pipes: number; saved: number; now: number | null; after: number | null; costNow: number | null; costAfter: number | null; sold: boolean; note: string; method: string | null; wholeDollar: boolean }> = []
   for (const q of st.quotes) {
     const sold = q.status === 'SOLD' || !!q.soldAt || !!q.acceptedAt
     const sheet = arr(q.pullSheet)
@@ -274,10 +299,10 @@ async function repriceQuotes(m: any, st: State, pipeItemId: string, before: numb
       if (!o?.fenceStyle || o.fenceStyle === q.fenceStyle) continue
       const snapSheet = arr(o?.snapshot?.pullSheet)
       const n = snapSheet.filter((l: any) => norm(String(l?.item ?? '')) === norm(PIPE_ITEM)).reduce((s: number, l: any) => s + (Number(l.qty) || 0), 0)
-      if (n > 0 || JSON.stringify(o).includes('PT40')) targets.push({ style: o.fenceStyle, how: `proposal option "${o.label || o.tier?.key || o.fenceStyle}"`, saved: Number(o.finalPrice) || 0, pipes: n })
+      if (n > 0 || JSON.stringify(o).includes('PT40')) targets.push({ style: o.fenceStyle, how: `option "${o.label || o.tier?.key || o.fenceStyle}"`, saved: Number(o.finalPrice) || 0, pipes: n })
     }
     for (const t of targets) {
-      let now: number | null = null, aft: number | null = null, cNow: number | null = null, cAft: number | null = null, note = ''
+      let now: number | null = null, aft: number | null = null, cNow: number | null = null, cAft: number | null = null, note = '', method: string | null = null, whole = false
       const work = q.work && typeof q.work === 'object' && ['move', 'repair'].includes((q.work as any).type) ? q.work as any : null
       if (work && t.how !== 'the quote') note = 'a move or repair: option not repriced here'
       else {
@@ -285,16 +310,20 @@ async function repriceQuotes(m: any, st: State, pipeItemId: string, before: numb
           const body = {
             fenceStyle: t.style, runs: arr(q.runs).map((ft: number, i: number) => ({ ft, rail: arr(q.runRails)[i] ?? 'auto' })),
             corners: q.corners, ends: q.ends, walkGates: q.walkGates, dblGates: q.dblGates, extraLinePosts: q.layout?.teeLinePosts ?? 0,
+            // Gate widths: the saved drawing's, or the ones a typed run list keeps (chain link gate leaves go by width).
+            ...(q.layout?.yard ? { yard: q.layout.yard } : q.layout?.gateWidths ? { gateWidths: q.layout.gateWidths } : {}),
             tearOutSections: q.tearOutSections, tearOutGates: q.tearOutGates, extraLaborHrs: q.adjLaborHrs, hasSalesman: q.hasSalesman, priceAdjust: q.priceAdjust,
             overrides: q.pricing ?? {}, jobType: work ? work.type : 'new', move: work?.move ?? null, repair: work?.repair ?? null,
           }
           const { req, overheadPct } = requestFrom(body, q, m.importedOldPrice, m.keepsCents)
           const a = m.quoteJobFor(dataNow, req, overheadPct), b = m.quoteJobFor(dataAfter, req, overheadPct)
           now = a.totals.price; aft = b.totals.price; cNow = a.totals.materialCost; cAft = b.totals.materialCost
+          method = a.calc?.priced?.priceMethod ?? null
+          whole = req.overrides?.wholeDollar !== false
           if (!t.pipes) t.pipes = arr(a.pullSheet).filter((l: any) => norm(String(l?.item ?? '')) === norm(PIPE_ITEM)).reduce((s: number, l: any) => s + (Number(l.qty) || 0), 0)
         } catch (err: any) { note = `not repriced: ${String(err?.message ?? err).slice(0, 120)}` }
       }
-      rows.push({ q, style: t.style, how: t.how, pipes: t.pipes, saved: t.saved, now, after: aft, costNow: cNow, costAfter: cAft, sold, note })
+      rows.push({ q, style: t.style, how: t.how, pipes: t.pipes, saved: t.saved, now, after: aft, costNow: cNow, costAfter: cAft, sold, note, method, wholeDollar: whole })
     }
   }
   return rows
@@ -336,19 +365,37 @@ function printCompare(m: any, data: any, pairs: Array<[string, string]>, unprice
       }
       for (const z of gl) rows.push([null, z])
       const cell = (l: any, w: number, mark = '') => (l ? `${pad(String(l.item).trim() + mark, w)} ${lpad(String(Math.round(l.qty * 1000) / 1000), 7)} ${lpad(usd(l.unitCost), 9)} ${lpad(usd(l.total), 10)}` : pad('', w + 29))
-      for (const [x, z] of rows) say(`   ${cell(x, 58)} | ${cell(z, 70, z && unpriced.has(norm(String(z.item))) ? ' [NO PRICE]' : '')}`)
-      const row = (k: string, f: (e: any) => string, d?: (e: any) => number) => say(`   ${pad(k, 22)} black ${lpad(f(b.est), 12)}   green ${lpad(f(g.est), 12)}${d ? `   green − black ${lpad(usd(d(g.est) - d(b.est)), 11)}` : ''}`)
-      row('Material', e => usd(e.materialCost), e => e.materialCost)
-      row('Labor', e => usd(e.laborCost), e => e.laborCost)
-      row('Cost (COGS)', e => usd(e.totalCOGS), e => e.totalCOGS)
-      row('Price', e => usd(e.price), e => e.price)
-      row('Price per foot', e => usd(e.pricePerFoot), e => e.pricePerFoot)
-      row('Gross margin', e => `${(e.gmPct * 100).toFixed(1)}%`)
-      const missing = g.est.pullSheet.filter((z: any) => unpriced.has(norm(String(z.item))))
-      if (missing.length) say(`   green parts with NO PRICE yet (priced at $0.00 above, so green material is short by their cost): ${missing.map((z: any) => `${Math.round(z.qty * 1000) / 1000} × ${String(z.item).trim()}`).join('; ')}`)
-      for (const n of g.est.notes) say(`   green note: ${n}`)
+      // A part with no price counts $0.00: a part in the green kits with no price, or any line priced at $0 that is a real part to buy.
+      const noPrice = (l: any) => !!l && Number(l.qty) > 0 && (unpriced.has(norm(String(l.item))) || (!(Number(l.unitCost) > 0) && !l.moneyOnly && !l.jobLotPiece && l.costSource !== 'jobLot' && l.costSource !== 'wood'))
+      for (const [x, z] of rows) say(`   ${cell(x, 58, noPrice(x) ? ' [NO PRICE]' : '')} | ${cell(z, 70, noPrice(z) ? ' [NO PRICE]' : '')}`)
+      const side = (e: any) => ({ materialCents: Math.round(e.materialCost * 100), laborCents: Math.round(e.laborCost * 100), cogsCents: Math.round(e.totalCOGS * 100), priceCents: Math.round(e.price * 100), perFootCents: Math.round(e.pricePerFoot * 100), gmPct: e.gmPct, unpriced: new Set(e.pullSheet.filter(noPrice).map((l: any) => norm(String(l.item)))).size })
+      for (const l of yardTotalsWords(side(b.est), side(g.est))) say(`   ${l}`)
+      for (const [who, e] of [['black', b.est], ['green', g.est]] as const) {
+        const missing = e.pullSheet.filter(noPrice)
+        if (missing.length) say(`   ${who} parts with NO PRICE yet (counted $0.00 above): ${missing.map((z: any) => `${Math.round(z.qty * 1000) / 1000} × ${String(z.item).trim()}`).join('; ')}`)
+      }
+      for (const n of g.est.notes) say(`   green note: ${named(n)}`)
     }
   }
+}
+
+/** Section 6 on its own (--compare-out): where the numbers come from, then the yards. */
+function writeCompare(file: string, lines: string[], made: boolean) {
+  const head = [
+    `GREEN CHAIN LINK 4 FT AGAINST BLACK 4 FT: 100 FT STRAIGHT TEST YARDS (${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`,
+    '',
+    `Where these numbers come from: ${SOURCE ?? `the database the dry run read (${dbName})`}. A dry run: nothing was changed.`,
+    'Prices are as they will be once 06-251706 (no dig pipe) and 06-251707 (green chain link) are marked "We ordered this".',
+    "Priced by the app's own estimate code (web/src/estimate.ts). Green is priced as a preview because it is switched off for quoting.",
+    "Same install method side by side (No dig against No dig, Dig set against Dig set), same labor and profit (Green copies Black's).",
+    '',
+    'A total is only a price when every part in it has one. Parts marked [NO PRICE] count $0.00, so a side with any of them',
+    'says INCOMPLETE instead of a total, and no green − black difference is given until they are priced.',
+    ...(made ? [] : ['', 'No Green chain link fences on this database: nothing to compare.']),
+    '',
+  ]
+  fs.writeFileSync(file, [...head, ...lines].join('\n') + '\n')
+  console.error(`(written: ${file})`)
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────
@@ -356,7 +403,9 @@ function printCompare(m: any, data: any, pairs: Array<[string, string]>, unprice
 interface Plans { pipe: DocPlan | null; green: DocPlan | null; greenPlan: GreenPlan; follow: GreenFollow | null; vs: Verdict[] }
 
 async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
-  say(`Database "${dbName}", company ${st.accountId}, vendor ${st.vendor ? `"${st.vendor.name}"` : 'NOT IN VENDORS'}, estimated tax ${pctText(estTaxBpOf(st.config))}, OK limit ${st.limit}%\n`)
+  labels = new Map(m.estimateConfig(st.config).fenceStyles.map((s: any) => [String(s.name), String(s.label || s.name)]))
+  tech.push(`database "${dbName}", company ${st.accountId}, vendor ${st.vendor ? `"${st.vendor.name}" (${st.vendor.id})` : 'NOT IN VENDORS'}`)
+  say(`Vendor ${st.vendor ? st.vendor.name : 'Stephens Pipe & Steel: NOT IN VENDORS'}. Estimated tax ${pctText(estTaxBpOf(st.config))} (added when a document prints no tax). OK limit ${st.limit}%: ${okLimitWords(st.limit)}.\n`)
   say('1. FILES AND DUPLICATES')
   const vs = verdicts(docs, st)
   for (const v of vs) {
@@ -378,28 +427,38 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   else {
     const l = pdoc.parsed.lines[0]
     const ex = inApp(PIPE_DOC)
-    say(`   ${ex ? `in the app as ${ex.id} ("${ex.status}"${ex.ordered ? ', ordered' : ''})` : 'not in the app yet: uploaded first'}; marked "We ordered this"`)
+    if (ex) tech.push(`${PIPE_DOC}: vendor document ${ex.id}, state ${ex.status}${ex.ordered ? ', ordered' : ''}`)
+    say(`   ${ex ? `already in the app (${stateWords(ex.status)}${ex.ordered ? ', ordered' : ''})` : 'not in the app yet: uploaded first'}; marked "We ordered this"`)
     say(`   Printed: ${l.qty} ${l.unit} "${l.description}"${(l as any).packing ? `, packed ${(l as any).packing}` : ''}, $${(l.unitPriceHc! / 10000).toFixed(4)} each, ${dollars(l.totalCents ?? 0)}: ${l.qty} pieces = ${l.qty} each in Inventory (the bundles are how they ship, not the unit).`)
     pipe = planDoc(pdoc, st, st.items, desc => (norm(desc) === norm(PIPE_LINE) ? { id: String(pipeItem.id), name: String(pipeItem.name), vendorPer: 1, invPer: 1, unitWords: '1 piece = 1 each', via: 'Jonathan: the no dig vinyl post pipe', item: pipeItem } : null))
     printDocPlan(pdoc, pipe)
     const after = pipe.items.find(i => i.itemId === String(pipeItem.id))
     const use = await pipeUse(m, st, PIPE_ITEM)
     say(`\n   FENCES WHOSE KITS USE "${PIPE_ITEM}" (${use.length}; the kit takes the price from Inventory, so every one of them follows):`)
-    for (const u of use) say(`     ${u.label} (${u.style})${u.active ? '' : ' [switched off]'}: ${u.per.join(', ')}`)
+    for (const u of use) say(`     ${u.label}${u.active ? '' : ' [switched off]'}: ${u.per.join(', ')}`)
     if (after) {
       const rows = await repriceQuotes(m, st, String(pipeItem.id), after.prev, after.next)
       const open = rows.filter(r => !r.sold), sold = rows.filter(r => r.sold)
-      say(`\n   SAVED QUOTES THAT USE IT (${new Set(rows.map(r => r.q.id)).size} quotes; Deleted Records left out). A saved quote keeps its saved price until it is saved again; "today" is the app's price for it at today's prices:`)
-      const line = (r: typeof rows[number]) => {
-        const name = `${r.q.customerName || '(no name)'}${r.q.date ? ` ${r.q.date}` : ''}`
-        const d = r.now != null && r.after != null ? r.after - r.now : null
-        return `     ${pad(r.q.status + (r.q.archivedAt ? ' (archived)' : '') + ((r.q.work as any)?.type ? ` ${(r.q.work as any).type}` : ''), 17)} ${pad(name, 34)} ${pad(r.how + ': ' + r.style, 52)} pipes ${lpad(String(r.pipes), 3)} | saved ${lpad(usd(r.saved), 11)} | today ${r.now == null ? lpad('-', 11) : lpad(usd(r.now), 11)} → ${r.after == null ? '-' : usd(r.after)}${d != null ? ` (${d >= 0 ? '+' : ''}${usd(d)}; material ${usd(r.costNow!)} → ${usd(r.costAfter!)})` : ''}${r.note ? ` ${r.note}` : ''}`
+      const nQuotes = (rs: typeof rows) => { const n = new Set(rs.map(r => r.q.id)).size; return `${n} quote${n === 1 ? '' : 's'}` }
+      const asRow = (r: typeof rows[number]): RepriceRow => ({
+        what: r.how, fence: labelOf(r.style), pipes: r.pipes, savedCents: Math.round(r.saved * 100),
+        nowCents: r.now == null ? null : Math.round(r.now * 100), afterCents: r.after == null ? null : Math.round(r.after * 100),
+        materialNowCents: r.costNow == null ? null : Math.round(r.costNow * 100), materialAfterCents: r.costAfter == null ? null : Math.round(r.costAfter * 100),
+        method: r.method, wholeDollar: r.wholeDollar, note: r.note,
+      })
+      // One heading per quote (name, date, status, its short id), its own line and its proposal options under it.
+      const byQuote = (rs: typeof rows, print: (r: typeof rows[number]) => void) => {
+        const seen = new Set<string>()
+        for (const r of rs) {
+          if (!seen.has(r.q.id)) { seen.add(r.q.id); say(`     ${quoteTitle(r.q)}`); tech.push(`quote ${String(r.q.id).replace(/-/g, '').slice(0, 7)} = ${r.q.id}`) }
+          print(r)
+        }
       }
-      const count = (rs: typeof rows) => `${new Set(rs.map(r => r.q.id)).size} quote${new Set(rs.map(r => r.q.id)).size === 1 ? '' : 's'}`
-      say(`   OPEN (Draft, Sent; ${count(open)}): would change only when saved again or re-sent`)
-      for (const r of open) say(line(r))
-      say(`   SOLD (${count(sold)}): keep their saved price; nothing changes`)
-      for (const r of sold) say(line(r))
+      say(`\n   SAVED QUOTES THAT USE IT (${nQuotes(rows)}; Deleted Records left out). Each quote is named by customer, date, status and the first letters of its id, so two quotes for the same customer can be told apart.`)
+      say(`   OPEN (Draft, Sent; ${nQuotes(open)}): a saved quote keeps its saved price until it is saved again or re-sent. Three prices: saved; today with the pipe at ${money(after.prev)} (every other price as it is today); today with the pipe at ${money(after.next)}. The pipe's own effect is the last two apart; anything between saved and the first "today" is other price changes since the quote was saved.`)
+      byQuote(open, r => { for (const l of openRowWords(asRow(r), money(after.prev), money(after.next))) say(`       ${l}`) })
+      say(`\n   SOLD (${nQuotes(sold)}): a sold quote keeps the price the customer signed; the pipe does not change it. Only what the job's materials cost us changes (pipe at ${money(after.prev)} → ${money(after.next)}):`)
+      byQuote(sold, r => say(`       ${soldRowWords(asRow(r))}`))
     }
   }
 
@@ -408,10 +467,11 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   const old = st.invoices.filter(i => i.invoiceKey === invoiceNumberKey(OLD_GREEN_DOC))
   if (!old.length) say(`   ${OLD_GREEN_DOC} is not in the app on this database: nothing to replace.`)
   for (const o of old) {
-    if (o.status === 'replaced') { say(`   ${o.id}: already replaced (${o.message})`); continue }
+    tech.push(`${OLD_GREEN_DOC}: vendor document ${o.id}, state ${o.status}${o.ordered ? ', ordered' : ''}, bill ${o.billId ?? 'none'}`)
+    if (o.status === 'replaced') { say(`   ${OLD_GREEN_DOC}: already replaced (${o.message})`); continue }
     const waiting = o.lines.filter((l: any) => ['needs_match', 'waiting_ok'].includes(l.state)).length
     const applied = o.lines.filter((l: any) => l.state === 'applied')
-    say(`   ${o.id}: "${o.status}"${o.ordered ? ', ordered' : ''}, bill ${o.billId ?? 'none'}; ${waiting} line${waiting === 1 ? '' : 's'} in Needs a match${applied.length ? `; ${applied.length} priced from it: ${applied.map((l: any) => `${l.description} → ${l.inventoryName}`).join('; ')}` : ''}`)
+    say(`   ${OLD_GREEN_DOC} is in the app${o.status === 'needs_match' ? '' : ` (${stateWords(o.status)})`}${o.ordered ? ', marked "We ordered this"' : ''}${o.billId ? ', its bill on Accounts Payable' : ''}; ${waiting} line${waiting === 1 ? '' : 's'} waiting in Needs a match${applied.length ? `; ${applied.length} priced from it: ${applied.map((l: any) => `${l.description} → ${l.inventoryName}`).join('; ')}` : ''}`)
     say(`   → ${o.ordered && ['applied', 'needs_match'].includes(o.status) ? `Undo the order first (${applied.length ? 'its prices put back unless changed since' : 'no price to put back'}; its bill voided: off Accounts Payable, kept in Vendors), then` : ''} marked "Replaced" by ${GREEN_DOC}: its lines leave Needs a match; it cannot be ordered again.`)
   }
 
@@ -427,7 +487,8 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   if (!gdoc) say(`   no PDF of ${GREEN_DOC} in ${folder}`)
   else {
     const ex = inApp(GREEN_DOC)
-    say(`   ${ex ? `in the app as ${ex.id} ("${ex.status}"${ex.ordered ? ', ordered' : ''})` : 'not in the app yet: uploaded first'}`)
+    if (ex) tech.push(`${GREEN_DOC}: vendor document ${ex.id}, state ${ex.status}${ex.ordered ? ', ordered' : ''}`)
+    say(`   ${ex ? `already in the app (${stateWords(ex.status)}${ex.ordered ? ', ordered' : ''})` : 'not in the app yet: uploaded first'}`)
     const items = gstate.items
     green = planDoc(gdoc, st, items, desc => {
       const g = greenLineFor(desc)
@@ -450,13 +511,14 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   }
 
   say('\n5. GREEN CHAIN LINK, 4 FT, RESIDENTIAL (Settings → Fence styles → Chain link → Finish → Add color "Green", copying Black, 4 ft)')
-  say(`   ${greenPlan.message}`)
+  labels = new Map([...labels, ...m.estimateConfig({ ...(st.config ?? {}), fenceStyles: gstate.fenceStyles, fenceCatalog: gstate.fenceCatalog }).fenceStyles.map((s: any) => [String(s.name), String(s.label || s.name)] as [string, string])])
+  say(`   ${named(greenPlan.message)}`)
   if (follow) {
     say('   KEPT IN STEP WITH BLACK 4 FT (each Green kit derived again from the black kit as it is now; the server does the same at every start):')
-    for (const u of follow.updated) { say(`     ${u.kit} follows ${u.from}; what changes:`); for (const c of u.changes) say(`        ${c}`) }
-    if (follow.marked.length) say(`     already the same, marked as following: ${follow.marked.join(', ')}`)
+    for (const u of follow.updated) { say(`     ${labelOf(u.kit)} follows ${labelOf(u.from)}; what changes:`); for (const c of u.changes) say(`        ${c.replace(/^(\w+):/, (_w, k: string) => `${kindWords(k)}:`)}`) }
+    if (follow.marked.length) say(`     already the same, marked as following: ${follow.marked.map(labelOf).join(', ')}`)
     if (follow.items.length) say(`     green parts added to Inventory with no price: ${follow.items.join('; ')}`)
-    for (const x of follow.skipped) say(`     left as it is: ${x}`)
+    for (const x of follow.skipped) say(`     left as it is: ${named(x)}`)
     if (follow.tidied.length) say(`     green part names with a stray space, trimmed (kits still find them): ${follow.tidied.join('; ')}`)
     if (follow.removed.length) say(`     green parts with no price that no kit uses, taken out of Inventory: ${follow.removed.join('; ')}`)
     if (!follow.updated.length && !follow.marked.length && !follow.items.length && !follow.skipped.length && !follow.tidied.length && !follow.removed.length) say('     already in step: nothing changes')
@@ -464,14 +526,14 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   const opt = greenOption(gstate.fenceCatalog)
   const words = blackWords(gstate.fenceCatalog, opt)
   const gStyles = opt ? gstate.fenceStyles.filter((s: any) => s?.material === 'chain' && s?.choices?.finish === opt.key && s?.madeFrom) : []
-  for (const s of gStyles) say(`   fence ${s.name}: ${s.choices?.install === 'nd' ? 'No dig' : 'Dig set'}, made from "${s.madeFrom}" (its labor, profit and kit), SWITCHED OFF for quoting`)
+  for (const s of gStyles) say(`   fence ${labelOf(s.name)}: made from ${labelOf(s.madeFrom)} (its labor, profit and kit), SWITCHED OFF for quoting`)
   const price = new Map<string, number | null>()
   for (const it of green?.items ?? []) price.set(norm(it.name), it.next)
   const priceOf = (part: string) => price.get(norm(part)) ?? cents(itemNamed(gstate.items, part))
   for (const k of gstate.kits.filter((x: any) => !x.archived && gStyles.some((s: any) => s.name === x.styleName))) {
-    say(`   kit ${k.name} (follows ${k.followsKit?.from ?? 'nothing'}):`)
+    say(`   kit ${labelOf(k.styleName ?? k.name)} (follows ${k.followsKit?.from ? labelOf(k.followsKit.from) : 'nothing'}):`)
     for (const [kind, parts] of Object.entries(k.kits ?? {})) {
-      say(`     ${kind}: ${arr(parts).map((p: any) => { const c = priceOf(p.part); return `${p.qty} × ${String(p.part).trim()} (${c == null ? 'NO PRICE' : dollars(c)})` }).join('; ')}`)
+      say(`     ${kindWords(kind)}: ${arr(parts).map((p: any) => { const c = priceOf(p.part); return `${p.qty} × ${String(p.part).trim()} (${c == null ? 'NO PRICE' : dollars(c)})` }).join('; ')}`)
     }
   }
   say(`   parts named for what ${GREEN_DOC} sells instead of the plain Black → Green swap:`)
@@ -482,7 +544,9 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   for (const g of GREEN_LINES) say(`     ${pad(g.part, 66)} ${lpad(money(priceOf(g.part)), 10)}${used.has(norm(g.part)) ? '' : '  (no Green kit uses it)'}`)
   const noGreen = greenUnpriced(gstate)
   say(`   NO GREEN EQUIVALENT on ${GREEN_DOC} (in the Green kits with NO PRICE, so Green stays "not fully priced" as well as switched off):`)
-  for (const n of noGreen) say(`     - ${n.part}${n.ask ? ` (06-251707 "${n.ask.description}" may be it: ${n.ask.why})` : ''} — used in ${n.kits.join(', ')}`)
+  // "chain/4/green/res/nd walkGate5" → "Green Chain Link, 4 ft, Residential, No dig: Walk gate 5 ft wide"
+  const kitWhere = (w: string) => { const i = w.lastIndexOf(' '); return i > 0 ? `${labelOf(w.slice(0, i))}: ${kindWords(w.slice(i + 1))}` : named(w) }
+  for (const n of noGreen) say(`     - ${n.part}${n.ask ? ` (06-251707 "${n.ask.description}" may be it: ${n.ask.why})` : ''} — used in ${n.kits.map(kitWhere).join('; ')}`)
   const older = st.items.filter(i => i?.category === 'Chainlink Green' && !i?.madeFor && !used.has(norm(String(i.name))))
   if (older.length) {
     say(`   Older green items already in Inventory (Chainlink Green, from the price workbook; used by no Green kit, left as they are). Some may be the parts above with no price (for example "Gate, Grn, 4 x 5", "Gr, Fork, PS, 2-1/2"", "Gr, Bolt, ..."): whether to use their workbook prices is Jonathan's call, nothing is matched to them (${older.length}):`)
@@ -491,6 +555,7 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
 
   // 6. The test yards
   say('\n6. TEST YARDS: GREEN AGAINST BLACK 4 FT (the app\'s own estimate, at the prices after both quotes are ordered; Green priced as if switched on, preview only)')
+  if (COMPARE_OUT) capture = []
   const after = (items: any[]) => {
     const next = new Map<string, number>()
     for (const pl of [pipe, green]) for (const it of pl?.items ?? []) if (it.changes) next.set(norm(it.name), it.next)
@@ -499,6 +564,7 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   const data = { config: { ...(st.config ?? {}), fenceStyles: gstate.fenceStyles, fenceCatalog: gstate.fenceCatalog }, inventory: after(gstate.items), kits: gstate.kits }
   const unpriced = new Set(greenUnpriced({ ...gstate, items: data.inventory }).map(n => norm(n.part)))
   printCompare(m, data, gStyles.map((s: any) => [s.madeFrom, s.name] as [string, string]), unpriced, words)
+  if (COMPARE_OUT && capture) { writeCompare(COMPARE_OUT, capture, gStyles.length > 0); capture = null }
   return { pipe, green, greenPlan, follow, vs }
 }
 
@@ -675,14 +741,23 @@ async function main() {
     await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY')
     const ro = await tx.$queryRawUnsafe('SHOW transaction_read_only') as Array<{ transaction_read_only: string }>
     if (ro[0]?.transaction_read_only !== 'on') throw new Error('Could not make the transaction read only: stopped.')
-    console.log(`(database "${dbName}": this transaction is read only)`)
+    tech.push(`database "${dbName}": this run's transaction was read only (SHOW transaction_read_only = on)`)
     const st = await loadState(tx, args.includes('--account') ? args[args.indexOf('--account') + 1] : undefined)
     console.log(`${APPLY ? 'APPLY' : 'DRY RUN (read only, nothing is changed)'}: Stephens quotes ${PIPE_DOC} and ${GREEN_DOC} (${OLD_GREEN_DOC} replaced)\n`)
     const out = await report(docs, st, m)
     return { st, out }
   }, { timeout: 120_000 })
   if (APPLY) await apply(docs, st, out, m)
-  else console.log('\nNothing was changed. To apply: --apply (dev); live only after a backup and Jonathan\'s typed OK (see the top of this file).')
+  else {
+    say('\nNothing was changed.')
+    say('To do it on the dev copy: pnpm exec tsx scripts/stephens-quotes-2026-10-26b.ts "<folder with the PDFs>" --apply')
+    say("To do it on live, only after the deploy (update.sh), a backup from the last 30 minutes and Jonathan's typed OK, from ~/ezbiz/apps/portal:")
+    say('   EZBIZ_LIVE_WRITE_OK=1 pnpm exec tsx scripts/stephens-quotes-2026-10-26b.ts "<folder with the PDFs>" --apply --live')
+  }
+  if (tech.length) {
+    say('\nTECHNICAL (for whoever runs this; not needed to read the rest):')
+    for (const t of [...new Set(tech)]) say(`   ${t}`)
+  }
   await prisma.$disconnect()
 }
 
