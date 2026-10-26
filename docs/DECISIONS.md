@@ -3,6 +3,13 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-26 (later): 06-251706 no dig pipe; green chain link from 06-251707
+
+- **06-251706:** "GALV 2-1/2" x 8' x .116HD" (222 pieces in 6 bundles) is the no dig vinyl post pipe, Inventory "Pipe, PT40, Galv, 2-1/2" x 8'"; a piece is one each. Ordered like the others (estimated tax, fuel on the bill only).
+- **06-251707 replaces 06-251608** (a new quote number for the same green order): 06-251608 is marked replaced, its order undone and its bill voided.
+- **Green Chain Link, 4 ft, Residential:** Jonathan asked for it ("copy the black chain link setup and kits, swap in the green parts from this quote"), so the Oct 26 "no style is made without asking" is answered for 4 ft. No dig and Dig set, like black 4 ft; the black kits' quantities; the parts are what 06-251707 sells (PP20 posts, 2-1/2" bands, hinge and dome cap, the .055 gate, a 30" drop rod, steel hog rings, vinyl coated tension wire whose color is not printed); the plain BOLT/NUT lines are the galvanized bolts. It stays switched off until Jonathan has seen the 100 ft test yard. No green line yet for the double gate's 2-1/2" fork and 48" drop rod, or the dig set posts (6 ft long pipe).
+- **In the app:** apps/portal/src/server/lib/greenChainLink.ts, vendorInvoices.ts (replaceQuoteWith); scripts/stephens-quotes-2026-10-26b.ts; pinned in apps/portal/tests/greenChainLink.test.ts.
+
 ## 2026-10-26: vendor documents (Stephens Pipe & Steel quotations); dig set post pipe
 
 - **Standing rules for every vendor document:** a quotation marked "We ordered this" updates prices (06-251126 and 06-251608 are treated that way); a Fuel Charge is never in an item's price, it is a flat charge per order recorded on the vendor bill only; freight is spread over the lines of real orders; a document with no tax line gets 7.22% added to the landed cost, flagged "estimated tax". Every price change is shown before and after, with a backup first.
