@@ -110,7 +110,7 @@ export interface GreenModule {
 }
 
 const chainDims = (cat: any) => arr(arr(cat?.materials).find((m: any) => m?.key === 'chain')?.dims).find((d: any) => d?.key === 'finish')
-const greenOption = (cat: any) => arr(chainDims(cat)?.options).find((o: any) => String(o?.label ?? '').trim().toLowerCase() === GREEN_LABEL.toLowerCase() && !o.archived) ?? null
+export const greenOption = (cat: any) => arr(chainDims(cat)?.options).find((o: any) => String(o?.label ?? '').trim().toLowerCase() === GREEN_LABEL.toLowerCase() && !o.archived) ?? null
 const tagOf = (opt: any) => `chain:finish:${opt.key}`
 
 /** The rename from the swapped green name to the part 06-251707 sells. */
@@ -121,13 +121,18 @@ const RENAME = new Map(GREEN_LINES.filter(g => g.swappedFrom).map(g => [norm(g.s
  * color part swapped to Green (same quantity, no fallback price), then named
  * for what 06-251707 sells. `from` maps each green part to the black part it came from.
  */
+/** The green part for a black kit part (the part itself when it has no color: concrete, galvanized parts). */
+export function greenPartFor(m: GreenModule, part: string, words: readonly string[]): string {
+  if (!m.isColorPart(part, words)) return part
+  const swapped = m.swapColor(part, words, GREEN_LABEL)
+  return RENAME.get(norm(swapped)) ?? swapped
+}
+
 export function greenKitFrom(m: GreenModule, black: any, words: readonly string[]): { kits: Record<string, any[]>; roundUp: string[]; from: Map<string, string> } {
   const from = new Map<string, string>()
   const green = (part: string) => {
-    if (!m.isColorPart(part, words)) return part
-    const swapped = m.swapColor(part, words, GREEN_LABEL)
-    const out = RENAME.get(norm(swapped)) ?? swapped
-    if (!from.has(norm(out))) from.set(norm(out), part)
+    const out = greenPartFor(m, part, words)
+    if (out !== part && !from.has(norm(out))) from.set(norm(out), part)
     return out
   }
   const kits: Record<string, any[]> = {}
@@ -186,7 +191,7 @@ function addMissingItems(st: GreenState, tag: string, kits: Record<string, any[]
 }
 
 const greenStyles = (st: GreenState, opt: any) => st.fenceStyles.filter((s: any) => s?.material === 'chain' && s?.choices?.finish === opt.key && s?.madeFrom)
-const blackWords = (cat: any, opt: any): string[] => arr(arr(chainDims(cat)?.options).find((o: any) => o?.key === (opt?.copiedFrom ?? opt?.color?.copiedFrom ?? 'black'))?.color?.words)
+export const blackWords = (cat: any, opt: any): string[] => arr(arr(chainDims(cat)?.options).find((o: any) => o?.key === (opt?.copiedFrom ?? opt?.color?.copiedFrom ?? 'black'))?.color?.words)
 
 export interface GreenUnpriced { part: string; kits: string[]; ask?: GreenAsk }
 
