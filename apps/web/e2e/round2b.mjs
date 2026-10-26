@@ -261,6 +261,26 @@ try {
     const wHead = await o.page.locator('[data-walkthrough-heading]').innerText().catch(() => '')
     check('office: the walkthrough is headed with the repair work', /Repair: 1 × Rehang a gate/.test(wHead) && !/Vinyl/.test(wHead), wHead)
     await o.page.locator('[aria-label="Close the walkthrough"]').click().catch(() => {})
+
+    // The repair's pipeline card and its Payments: the repair work, not the fence style.
+    // Its card (the API-made sale has none yet): Signed Contract, the quote's fence style on it as a real card has.
+    let r2Card = sql(`SELECT l->>'id' FROM "PipelineState" s, jsonb_array_elements(s.leads) l WHERE l->>'quoteId' = ${lit(R2.quoteId)} LIMIT 1`)
+    if (!r2Card) {
+      r2Card = `e2e-r2b-rehang-${stamp}`
+      for (let i = 0; i < 3; i++) {
+        const v = (await owner('GET', '/api/pipeline')).json.data?.version
+        const [first, ...rest] = R2.name.split(' ')
+        const put = await owner('PATCH', '/api/pipeline', { upsert: [{ lead: { id: r2Card, firstName: first, lastName: rest.join(' '), customerId: R2.contactId, quoteId: R2.quoteId, jobId: R2.jobId, stage: 'Signed Contract', fenceType: "WV-ND 6'x8' Privacy", leadSource: 'Other', createdAt: today, lastMoved: today }, before: null }], remove: [], baseVersion: v })
+        if (put.status === 200) break
+      }
+    }
+    await go(o.page, `/pipeline?card=${encodeURIComponent(r2Card)}`)
+    const payWork = await until(async () => { const t = await o.page.locator(`[data-card-window="${r2Card}"] [data-payment-schedule-work]`).first().innerText(); return t || null }, 20000)
+    check('office: the repair card\'s Payments name the repair work, not the style', /Repair: 1 × Rehang a gate/.test(payWork ?? '') && !/Privacy/.test(payWork ?? ''), payWork ?? `no Payments block (card ${r2Card || 'none'}, window ${await o.page.locator('[data-card-window]').count()}, payments ${await o.page.locator('[data-card-payments]').count()}, url ${o.page.url()})`)
+    await o.page.keyboard.press('Escape').catch(() => {})
+    await sleep(800)
+    const chip = await until(async () => { const t = await o.page.locator(`p:text-is("${R2.name}")`).first().locator("xpath=ancestor::div[contains(@class, 'group')][1]").locator("[data-card-work]").first().innerText(); return t || null }, 15000)
+    check('office: the repair card on the board says its work', /Repair: 1 × Rehang a gate/.test(chip ?? '') && !/Privacy/.test(chip ?? ''), chip ?? 'card not on the board')
     await o.ctx.close()
   }
 

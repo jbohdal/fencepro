@@ -183,8 +183,15 @@ try {
       /^Add 6 ft of fence/.test(lineB) && (amtB === '0' ? /still \d+ panels? on that side, no price change/.test(lineB) && await page.locator('[data-co-no-price-change]').isVisible() : /panels? more/.test(lineB) && Number(amtB) > 0) && await saveB.isEnabled(),
       `${lineB} | $${amtB}`)
     await shot(page, '0c-filled')
+    const signedQuoteAt = (await call('GET', `/api/saved-quotes/${B.quoteId}`)).json.data?.updatedAt
     await tap(saveB)
     const coB = await until(async () => ((await call('GET', `/api/change-orders?quoteId=${B.quoteId}`)).json.data ?? []).find(x => x.number === 1), 15000)
+    // The change order is its own record: the signed quote is not saved again and nothing says "Quote sold, job created"
+    // (re-check, Oct 26 2026: the drawing path re-saved the signed quote the same second).
+    await sleep(2500)
+    const coToasts = await page.locator('[data-toast]').allInnerTexts().catch(() => [])
+    const quoteAtAfter = (await call('GET', `/api/saved-quotes/${B.quoteId}`)).json.data?.updatedAt
+    check('B: saving the change order from the drawing does not save the signed quote again or say "Quote sold"', !coToasts.some(t => /Quote sold|job created/i.test(t)) && quoteAtAfter === signedQuoteAt, `${coToasts.join(' | ') || 'no toast'} · quote ${signedQuoteAt} -> ${quoteAtAfter}`)
     check(`B: job page to a change order ready to sign in ${taps} taps and key presses, every one counted (under 8)`, taps < 8 && !!coB, `${taps}`)
     check('B: saved with the new drawing: 6 ft more', coB?.status === 'draft' && coB?.work && coB?.scope?.footageFt === 6, JSON.stringify(coB?.scope))
     // The customer signs on this phone: nothing of the job page can be read behind the sheet.
