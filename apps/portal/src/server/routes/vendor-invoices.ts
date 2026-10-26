@@ -43,7 +43,7 @@ function fail(res: any, err: unknown, what: string) {
 const LINE_FIELDS = {
   id: true, seq: true, page: true, row: true, box: true, raw: true, itemNumber: true, description: true, qty: true, unit: true,
   unitPriceHc: true, totalCents: true, conf: true, problems: true, ignored: true, edited: true, inventoryItemId: true, inventoryName: true,
-  vendorPer: true, invPer: true, invQty: true, extraCents: true, landedCents: true, unitLandedCents: true, prevUnitCents: true,
+  vendorPer: true, invPer: true, invQty: true, extraCents: true, estTaxCents: true, landedCents: true, unitLandedCents: true, prevUnitCents: true,
   changePct: true, state: true, stateNote: true,
 } as const
 
@@ -54,7 +54,7 @@ function summary(i: any) {
     totalCents: i.totalCents, jobId: i.jobId, jobName: i.jobName, uploadedBy: i.uploadedBy, createdAt: i.createdAt, appliedAt: i.appliedAt,
     undoneAt: i.undoneAt, message: i.message, pageCount: i.pageCount, engine: i.engine,
     docType: i.docType, ordered: i.ordered, orderedAt: i.orderedAt, orderedBy: i.orderedBy, replacedById: i.replacedById, revision: i.revision,
-    taxFound: i.taxFound, taxOk: i.taxOk, taxRate: i.taxRate, skipped: i.skipped,
+    taxFound: i.taxFound, taxOk: i.taxOk, taxRate: i.taxRate, estTaxBp: i.estTaxBp ?? null, estTaxCents: i.estTaxCents ?? 0, skipped: i.skipped,
     counts: {
       lines: lines.filter((l: any) => !l.ignored).length,
       applied: lines.filter((l: any) => l.state === 'applied').length,
@@ -105,6 +105,17 @@ router.get('/needs-match', async (req: any, res) => {
     const items = Array.isArray(inv?.items) ? (inv!.items as any[]) : []
     res.json({ success: true, data: lines.map(l => ({ ...pick(l), invoice: l.invoice, suggestions: suggestItems(l, items) })) })
   } catch (err) { fail(res, err, 'load the lines that need a match') }
+})
+
+/** Suggestions for one line (Change match on a quote line). */
+router.get('/lines/:lineId/suggestions', async (req: any, res) => {
+  try {
+    const accountId = req.user.crmAccountId
+    const line = await prisma.vendorInvoiceLine.findUnique({ where: { id: String(req.params.lineId) }, include: { invoice: { select: { accountId: true } } } })
+    if (!line || line.invoice.accountId !== accountId) { res.status(404).json({ success: false, error: 'No such line' }); return }
+    const inv = await prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true } })
+    res.json({ success: true, data: suggestItems(line, Array.isArray(inv?.items) ? (inv!.items as any[]) : []) })
+  } catch (err) { fail(res, err, 'load the suggestions') }
 })
 
 const pick = (l: any) => Object.fromEntries(Object.keys(LINE_FIELDS).map(k => [k, l[k]]))

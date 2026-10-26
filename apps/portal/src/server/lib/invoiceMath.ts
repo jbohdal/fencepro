@@ -7,7 +7,10 @@
  *   3. subtotal + tax + freight + other fees = the printed total, to the cent.
  *
  * Landed cost: tax, freight and fees are spread over the lines by each line's
- * share of the subtotal. Each line's extra is rounded down to the cent and the
+ * share of the subtotal, except a fuel charge, which is a flat charge per
+ * order and stays on the vendor bill only. A document with no tax row gets
+ * estimated tax (7.22% of the lines, Settings) added the same way, and is
+ * flagged "estimated tax" (landedParts below). Each line's extra is rounded down to the cent and the
  * cents left over go one each to the lines with the largest remainders (ties:
  * the earlier line), so the extras add up exactly to tax + freight + fees.
  * The unit landed cost is (line amount + its extra) / quantity in Inventory
@@ -80,6 +83,51 @@ export function spreadExtras(lineCents: number[], extrasCents: number): number[]
   for (let k = 0; left > 0 && order.length; k = (k + 1) % order.length, left--) out[order[k].i] += 1
   return out
 }
+
+// ── What goes into item prices (Jonathan's rules, Oct 2026) ──────────────────
+
+/** Estimated tax when a document has no tax row: 7.22% (722 basis points), Settings → Material prices. */
+export const DEFAULT_EST_TAX_BP = 722
+
+/** A fuel charge: a flat charge per order, never part of an item's price. */
+export const isFuelFee = (label: string) => /\bfuel\b/i.test(label)
+
+/**
+ * Tax estimated on a document with no tax row: rate x the item amounts
+ * (lines), rounded half up to the cent. Freight and fees are not taxed,
+ * the way Stephens taxes when it prints tax (06-238126: 7.5% of the goods).
+ * Rates are in basis points (7.22% = 722), so the money stays integer.
+ */
+export function estimatedTaxCents(linesCents: number, rateBp: number): number {
+  if (!(linesCents > 0) || !(rateBp > 0)) return 0
+  return Math.floor((linesCents * rateBp + 5000) / 10000)
+}
+
+export interface LandedParts {
+  /** Printed tax + freight + fees other than fuel: spread over the lines. */
+  spreadCents: number
+  /** Tax estimated because none was printed (0 when one was, or "no tax is right"). */
+  estTaxCents: number
+  /** Fuel charges: on the vendor bill only. */
+  fuelCents: number
+}
+
+/**
+ * What is added to the lines to make their landed cost:
+ *   - printed tax, freight and every fee except fuel, spread by amount;
+ *   - estimated tax when the document has no tax row (and nobody said
+ *     "no tax is right"), spread the same way;
+ *   - never a fuel charge (it stays on the vendor bill).
+ */
+export function landedParts(h: { linesCents: number; taxCents: number; freightCents: number; fees: Array<{ label: string; cents: number }>; taxFound: boolean; taxOk: boolean; estTaxBp: number }): LandedParts {
+  const fuelCents = h.fees.filter(f => isFuelFee(f.label)).reduce((s, f) => s + f.cents, 0)
+  const otherFees = h.fees.filter(f => !isFuelFee(f.label)).reduce((s, f) => s + f.cents, 0)
+  const estTaxCents = !h.taxFound && !h.taxOk ? estimatedTaxCents(h.linesCents, h.estTaxBp) : 0
+  return { spreadCents: h.taxCents + h.freightCents + otherFees, estTaxCents, fuelCents }
+}
+
+/** "7.22%" from basis points. */
+export const pctText = (bp: number) => `${(bp / 100).toFixed(2).replace(/\.?0+$/, '')}%`
 
 /** How a vendor's unit turns into Inventory units: `vendorPer` of theirs = `invPer` of ours. */
 export interface Conversion { vendorPer: number; invPer: number }

@@ -22,7 +22,12 @@
  *   invoice. A newer revision of a quote (same vendor and number; later date,
  *   else the higher document id in the file name, else uploaded later)
  *   replaces the older one (status 'replaced').
- *   A document with no tax row waits in review until someone OKs "no tax".
+ *   The same document in another file (same vendor, number, date, lines and
+ *   total) is refused as a duplicate, quote or invoice.
+ *   Landed cost (Jonathan, Oct 2026): a fuel charge is never in item prices
+ *   (it stays on the vendor bill); freight, printed tax and other fees are
+ *   spread over the lines; a document with no tax row gets estimated tax
+ *   (7.22%, Settings) and says so, unless someone says "no tax is right".
  *   5. Apply: the landed cost (lib/invoiceMath) becomes the Inventory cost,
  *      confirmed on the invoice date. A change of more than the limit (20%,
  *      Settings) waits for an OK; the rest of the invoice still applies.
@@ -41,7 +46,8 @@ import prisma from './prisma.js'
 import { lockAccountState } from './lockState.js'
 import { readInvoiceFile, type ReadPage } from './invoiceReader.js'
 import { parseInvoice, findVendor, normalizeName, lineAddsUp, type KnownVendor, type LineProblem } from './invoiceParse.js'
-import { checkTotals, spreadExtras, toInventoryQty, unitLanded, needsOk, changePct, matchKey, invoiceNumberKey, dollars, type CheckProblem } from './invoiceMath.js'
+import { checkTotals, spreadExtras, toInventoryQty, unitLanded, needsOk, changePct, matchKey, invoiceNumberKey, dollars, landedParts, pctText, isFuelFee, DEFAULT_EST_TAX_BP, type CheckProblem } from './invoiceMath.js'
+import { digSetPipeItem } from './digSetPipeMatch.js'
 
 export const DEFAULT_JUMP_PCT = 20
 /** A remembered "this vendor item is not an Inventory item". */
@@ -79,6 +85,21 @@ async function jumpLimit(tx: any, accountId: string): Promise<number> {
   const b = await tx.businessState.findUnique({ where: { accountId }, select: { config: true } })
   const v = Number((b?.config as any)?.pricing?.invoiceJumpPct)
   return Number.isFinite(v) && v > 0 && v <= 500 ? v : DEFAULT_JUMP_PCT
+}
+
+/** The estimated tax rate (Settings → Material prices, a percent like 7.22) in basis points; 7.22% when not set. */
+export function estTaxBpOf(config: unknown): number {
+  const v = Number((config as any)?.pricing?.invoiceEstTaxPct)
+  return Number.isFinite(v) && v >= 0 && v <= 30 ? Math.round(v * 100) : DEFAULT_EST_TAX_BP
+}
+
+/**
+ * What a document says, for telling the same document apart from a real
+ * revision: its date, total and lines (description, quantity, price, amount).
+ * Two files of one quote (06-251126 sent twice) give the same.
+ */
+export function contentKey(inv: { invoiceDate: string; totalCents: number | null }, lines: Array<{ description: string; qty: number | null; unitPriceHc: number | null; totalCents: number | null; ignored?: boolean }>): string {
+  return JSON.stringify([inv.invoiceDate, inv.totalCents, ...lines.filter(l => !l.ignored).map(l => [normalizeName(l.description), l.qty, l.unitPriceHc, l.totalCents])])
 }
 
 async function vendorState(tx: any, accountId: string) {
@@ -322,6 +343,26 @@ async function evaluateTx(tx: any, invoiceId: string, actor: Actor): Promise<voi
   if (!vendorId && inv.vendorName) vendorId = findVendor(inv.vendorName, vendors)?.id ?? null
   const vendor = vendors.find(v => v.id === vendorId) ?? null
 
+  // 0. The same document again in another file (06-251126 sent twice): same vendor, number,
+  //    date, total and lines as one uploaded before. Refused, quote or invoice; only on its
+  //    first check, so nothing already priced is ever refused.
+  if (vendorId && inv.invoiceKey && inv.status === 'needs_review') {
+    const earlier = await tx.vendorInvoice.findMany({
+      where: { accountId, vendorId, invoiceKey: inv.invoiceKey, id: { not: inv.id }, createdAt: { lt: inv.createdAt }, status: { notIn: ['refused', 'failed', 'receiving', 'reading'] } },
+      include: { lines: { orderBy: { seq: 'asc' } } }, orderBy: { createdAt: 'asc' },
+    })
+    const mine = contentKey(inv, inv.lines)
+    const same = earlier.find((o: any) => contentKey(o, o.lines) === mine)
+    if (same) {
+      const kind = same.docType === 'quote' ? 'quote' : 'invoice'
+      await tx.vendorInvoice.update({
+        where: { id: inv.id },
+        data: { status: 'refused', vendorId, duplicateOfId: same.id, message: `Refused: the same ${kind} ${same.invoiceNumber} from ${vendor?.name || same.vendorName} (same date, lines and total) was already uploaded on ${same.createdAt.toISOString().slice(0, 10)}${same.revision ? ` as document ${same.revision}` : ''}. Nothing was changed.` },
+      })
+      return
+    }
+  }
+
   // 1. Duplicate: same vendor and invoice number (quotes not ordered are revisions instead, below).
   if (vendorId && inv.invoiceKey && asInvoice) {
     const dup = await tx.vendorInvoice.findFirst({
@@ -365,21 +406,34 @@ async function evaluateTx(tx: any, invoiceId: string, actor: Actor): Promise<voi
     { subtotalCents: inv.subtotalCents, taxCents: inv.taxCents, freightCents: inv.freightCents, feesCents: inv.feesCents, totalCents: inv.totalCents },
   )
   problems.push(...check.problems)
-  // No tax row printed: could be right (an out of state order) or a page cut off; a person says so once.
-  if (!inv.taxFound && !inv.taxOk) problems.push({ kind: 'no_tax' })
+  // No tax row printed: estimated tax is added below (Jonathan, Oct 2026), so it no longer waits.
   if (problems.length) {
     // Never applied, never half applied: nothing has changed yet for an invoice in review.
     await tx.vendorInvoice.update({ where: { id: inv.id }, data: { status: inv.status === 'applied' ? 'applied' : 'needs_review', vendorId, problems: problems as any } })
     return
   }
 
+  // What goes into item prices: printed tax, freight and fees except fuel; estimated tax when
+  // no tax was printed (the rate is kept on the document once worked out); never fuel.
+  const active = inv.lines.filter((l: any) => !l.ignored)
+  const fees = arr(inv.fees).map((f: any) => ({ label: String(f?.label ?? ''), cents: Number(f?.cents) || 0 }))
+  const estimating = !inv.taxFound && !inv.taxOk
+  let estBp: number | null = null
+  if (estimating) {
+    estBp = inv.estTaxBp ?? estTaxBpOf((await tx.businessState.findUnique({ where: { accountId }, select: { config: true } }))?.config)
+  }
+  const parts = landedParts({ linesCents: check.linesCents, taxCents: inv.taxCents, freightCents: inv.freightCents, fees, taxFound: inv.taxFound, taxOk: inv.taxOk, estTaxBp: estBp ?? 0 })
+  const lineCents = active.map((l: any) => l.totalCents ?? 0)
+  const spread = spreadExtras(lineCents, parts.spreadCents)
+  const estShare = spreadExtras(lineCents, parts.estTaxCents)
+  const extras = spread.map((c, k) => c + estShare[k])
+  const estNote = parts.estTaxCents > 0 && estBp != null ? ` Includes estimated tax (${pctText(estBp)}): the document printed no tax.` : ''
+
   // 3. The vendor bill (a quote has none until it is ordered).
-  const billId = asInvoice ? upsertBill(vs, inv, vendor!) : null
+  const billId = asInvoice ? upsertBill(vs, { ...inv, estTaxBp: estBp, estTaxCents: parts.estTaxCents }, vendor!) : null
   if (asInvoice) await saveVendorState(tx, accountId, vs)
 
   // 4 and 5. Landed cost for every line, then match and apply.
-  const active = inv.lines.filter((l: any) => !l.ignored)
-  const extras = spreadExtras(active.map((l: any) => l.totalCents ?? 0), check.extrasCents)
   const links = new Map<string, any>((await tx.vendorItemLink.findMany({ where: { accountId, vendorId } })).map((k: any) => [k.key, k]))
   const invState = await tx.inventoryState.findUnique({ where: { accountId } })
   const items: any[] = arr(invState?.items).map(i => ({ ...i }))
@@ -389,7 +443,7 @@ async function evaluateTx(tx: any, invoiceId: string, actor: Actor): Promise<voi
   const ready: Array<{ line: any; data: any }> = []
 
   active.forEach((l: any, k: number) => {
-    const data: any = { extraCents: extras[k], landedCents: (l.totalCents ?? 0) + extras[k] }
+    const data: any = { extraCents: extras[k], estTaxCents: estShare[k], landedCents: (l.totalCents ?? 0) + extras[k] }
     lineUpdates.set(l.id, data)
     if (['applied', 'waiting_ok', 'rejected', 'skipped', 'undone'].includes(l.state)) return
     if (l.state === 'quoted' && asInvoice) data.state = 'open'
@@ -418,23 +472,26 @@ async function evaluateTx(tx: any, invoiceId: string, actor: Actor): Promise<voi
     const landed = rs.reduce((s, r) => s + r.data.landedCents, 0)
     const qty = rs.reduce((s, r) => s + r.data.invQty, 0)
     const unit = unitLanded(landed, 0, qty)
+    // The price as printed, per Inventory unit (before tax, freight and fees).
+    const printedCents = unitLanded(rs.reduce((s, r) => s + (r.line.totalCents ?? 0), 0), 0, qty).cents
+    const est = rs.some(r => r.data.estTaxCents > 0) ? estNote : ''
     const prev = itemCents(item)
     const pct = changePct(prev, unit.cents)
     for (const r of rs) Object.assign(r.data, { unitLandedCents: unit.cents, unitLandedExact: unit.exact, prevUnitCents: prev, changePct: pct })
     // A quote shows what the price would be, and changes nothing.
     if (!asInvoice) {
-      for (const r of rs) Object.assign(r.data, { state: 'quoted', stateNote: `Quote only: would be ${dollars(unit.cents)}${pct == null ? '' : ` (${pct > 0 ? '+' : ''}${pct.toFixed(1)}%)`}. Nothing changes unless it is ordered.` })
+      for (const r of rs) Object.assign(r.data, { state: 'quoted', stateNote: `Quote only: would be ${dollars(unit.cents)}${pct == null ? '' : ` (${pct > 0 ? '+' : ''}${pct.toFixed(1)}%)`}. Nothing changes unless it is ordered.${est}` })
       continue
     }
     // An invoice older than the item's current price only goes into history, so there is nothing to OK.
-    const historyOnly = typeof item.priceUpdatedAt === 'string' && !item.priceImported && item.priceUpdatedAt > inv.invoiceDate
+    const historyOnly = newerPriceKept(item, inv.invoiceDate, printedCents)
     if (!historyOnly && needsOk(prev, unit.cents, limit)) {
-      for (const r of rs) Object.assign(r.data, { state: 'waiting_ok', stateNote: `${pct! > 0 ? 'Up' : 'Down'} ${Math.abs(pct!).toFixed(1)}% from ${dollars(prev!)}: waits for an OK (limit ${limit}%).` })
+      for (const r of rs) Object.assign(r.data, { state: 'waiting_ok', stateNote: `${pct! > 0 ? 'Up' : 'Down'} ${Math.abs(pct!).toFixed(1)}% from ${dollars(prev!)}: waits for an OK (limit ${limit}%).${est}` })
       continue
     }
-    const applied = await applyItem(tx, inv, vendor!, item, unit, actor, false)
+    const applied = await applyItem(tx, inv, vendor!, item, unit, actor, false, printedCents)
     if (applied.changed) inventoryChanged = true
-    for (const r of rs) Object.assign(r.data, { state: 'applied', stateNote: applied.note })
+    for (const r of rs) Object.assign(r.data, { state: 'applied', stateNote: `${applied.note}${applied.changed ? est : ''}` })
   }
 
   for (const [id, data] of lineUpdates) await tx.vendorInvoiceLine.update({ where: { id }, data })
@@ -444,20 +501,36 @@ async function evaluateTx(tx: any, invoiceId: string, actor: Actor): Promise<voi
   const status = !asInvoice ? 'quote' : states.includes('needs_match') ? 'needs_match' : 'applied'
   await tx.vendorInvoice.update({
     where: { id: inv.id },
-    data: { status, vendorId, billId: billId ?? inv.billId, problems: [] as any, appliedAt: status === 'applied' && !inv.appliedAt ? new Date() : inv.appliedAt },
+    data: {
+      status, vendorId, billId: billId ?? inv.billId, problems: [] as any, appliedAt: status === 'applied' && !inv.appliedAt ? new Date() : inv.appliedAt,
+      estTaxBp: estimating ? estBp : null, estTaxCents: parts.estTaxCents,
+    },
   })
+}
+
+/**
+ * Inventory already has a price from after this document (set by hand or by a
+ * later invoice): this one only goes into price history. Except when that
+ * price is this document's own printed price typed in by hand early (within a
+ * cent, e.g. the black dig set posts typed from 06-251126 on Oct 20): then it
+ * is not newer, and the landed cost replaces it.
+ */
+export function newerPriceKept(item: { unitCost?: unknown; priceUpdatedAt?: unknown; priceImported?: unknown }, invoiceDate: string, printedCents: number | null): boolean {
+  if (typeof item.priceUpdatedAt !== 'string' || item.priceImported || !(item.priceUpdatedAt > invoiceDate)) return false
+  const prev = itemCents(item)
+  return !(prev != null && printedCents != null && Math.abs(prev - printedCents) <= 1)
 }
 
 /**
  * Put one item's landed cost into Inventory (the `item` object is changed in
  * place; the caller saves the items) and write its history row.
  */
-async function applyItem(tx: any, inv: any, vendor: KnownVendor, item: any, unit: { cents: number; exact: number }, actor: Actor, approved: boolean): Promise<{ changed: boolean; note: string }> {
+async function applyItem(tx: any, inv: any, vendor: KnownVendor, item: any, unit: { cents: number; exact: number }, actor: Actor, approved: boolean, printedCents: number | null): Promise<{ changed: boolean; note: string }> {
   const prevCents = itemCents(item)
   const prevDate = typeof item.priceUpdatedAt === 'string' ? item.priceUpdatedAt : null
   const prevImported = typeof item.priceImported === 'boolean' ? item.priceImported : null
   // Inventory already has a price from after this invoice: keep it, record this one for history.
-  const newer = prevDate && !item.priceImported && prevDate > inv.invoiceDate
+  const newer = newerPriceKept(item, inv.invoiceDate, printedCents)
   await tx.priceHistory.create({
     data: {
       accountId: inv.accountId, inventoryItemId: item.id, vendorId: vendor.id, vendorName: vendor.name, invoiceId: inv.id,
@@ -497,7 +570,12 @@ function upsertBill(vs: { vendors: any[]; bills: any[] }, inv: any, vendor: Know
     totalCents: inv.totalCents, amountPaidCents: existing?.amountPaidCents ?? 0, balanceDueCents: (inv.totalCents ?? 0) - (existing?.amountPaidCents ?? 0),
     billDate: inv.invoiceDate, dueDate: addDays(inv.invoiceDate, TERMS_DAYS[v?.paymentTerms] ?? 30),
     category: 'materials', jobId: inv.jobId ?? undefined, jobName: inv.jobName ?? undefined,
-    notes: [inv.freightCents ? `Freight ${dollars(inv.freightCents)}` : '', ...fees.map((f: any) => `${f.label} ${dollars(f.cents)}`)].filter(Boolean).join(' · '),
+    notes: [
+      inv.freightCents ? `Freight ${dollars(inv.freightCents)}` : '',
+      ...fees.map((f: any) => `${f.label} ${dollars(f.cents)}${isFuelFee(String(f.label ?? '')) ? ' (on this bill only, not in item prices)' : ''}`),
+      inv.estTaxCents > 0 && inv.estTaxBp != null ? `No tax printed: estimated tax ${pctText(inv.estTaxBp)} (${dollars(inv.estTaxCents)}) added to the item landed costs, not to this bill` : '',
+    ].filter(Boolean).join(' · '),
+    estTaxCents: inv.estTaxCents > 0 ? inv.estTaxCents : undefined,
     invoiceId: inv.id, createdBy: existing?.createdBy ?? inv.uploadedBy, createdAt: existing?.createdAt ?? now, updatedAt: now,
   }
   if (existing) vs.bills = vs.bills.map(b => (b?.id === id ? bill : b))
@@ -569,7 +647,11 @@ export async function editHeader(accountId: string, invoiceId: string, patch: He
     if (patch.freightCents !== undefined) data.freightCents = patch.freightCents
     if (patch.fees !== undefined) { data.fees = patch.fees; data.feesCents = patch.fees.reduce((s, f) => s + f.cents, 0) }
     if (patch.totalCents !== undefined) data.totalCents = patch.totalCents
-    if (patch.taxOk !== undefined) data.taxOk = patch.taxOk
+    if (patch.taxOk !== undefined) {
+      // It changes landed costs, so only before anything is priced from it.
+      if (!['needs_review', 'quote'].includes(inv.status)) throw new InvoiceError('"No tax is right" can only be changed before prices are applied (in Needs review or on a quote). Undo it first.', 409)
+      data.taxOk = patch.taxOk
+    }
     if (patch.jobId !== undefined) {
       if (patch.jobId) {
         const job = await tx.savedJob.findFirst({ where: { id: patch.jobId, accountId }, select: { id: true, customerName: true, fenceStyle: true } })
@@ -645,14 +727,19 @@ export interface MatchChoice {
   invPer?: number
 }
 
+/** A line on a quote not yet ordered can have its match changed (nothing has been priced from it). */
+export const canRematch = (line: { state: string }, inv: { status: string }) => inv.status === 'quote' && ['quoted', 'skipped'].includes(line.state)
+
 /**
  * Pick the Inventory item for a vendor's item, once, with its unit. Every
- * waiting line with the same vendor item (on any invoice) follows.
+ * waiting line with the same vendor item (on any invoice) follows. On a quote
+ * not yet ordered a match can also be changed ("Change match"): the lines of
+ * that vendor item on quotes not yet ordered follow too.
  */
 export async function matchLine(accountId: string, lineId: string, choice: MatchChoice, actor: Actor, opts: { mayCreateItem: boolean }): Promise<void> {
   const line = await prisma.vendorInvoiceLine.findUnique({ where: { id: lineId }, include: { invoice: true } })
   if (!line || line.invoice.accountId !== accountId) throw new InvoiceError('No such line', 404)
-  if (line.state !== 'needs_match') throw new InvoiceError('This line is not waiting for a match.', 409)
+  if (line.state !== 'needs_match' && !canRematch(line, line.invoice)) throw new InvoiceError('This line is not waiting for a match.', 409)
   const vendorId = line.invoice.vendorId
   if (!vendorId) throw new InvoiceError('Pick the vendor first.', 409)
   const vendorPer = choice.vendorPer ?? 1, invPer = choice.invPer ?? 1
@@ -687,7 +774,10 @@ export async function matchLine(accountId: string, lineId: string, choice: Match
       create: { accountId, vendorId, key, inventoryItemId: itemId, vendorUnit: line.unit, vendorPer, invPer, createdById: actor.id },
       update: { inventoryItemId: itemId, vendorUnit: line.unit, vendorPer, invPer },
     })
-    const waitingLines = await tx.vendorInvoiceLine.findMany({ where: { matchKey: key, state: 'needs_match', invoice: { accountId, vendorId } }, select: { id: true, invoiceId: true } })
+    const waitingLines = await tx.vendorInvoiceLine.findMany({
+      where: { matchKey: key, invoice: { accountId, vendorId }, OR: [{ state: 'needs_match' }, { state: { in: ['quoted', 'skipped'] }, invoice: { status: 'quote' } }] },
+      select: { id: true, invoiceId: true },
+    })
     for (const w of waitingLines) { affected.add(w.invoiceId); await tx.vendorInvoiceLine.update({ where: { id: w.id }, data: { state: 'open' } }) }
     affected.add(line.invoiceId)
     for (const id of affected) await evaluateTx(tx, id, actor)
@@ -725,7 +815,9 @@ export async function decideWaiting(accountId: string, lineId: string, ok: boole
     if (!item) throw new InvoiceError('The Inventory item is gone.', 409)
     const vs = await vendorState(tx, accountId)
     const vendor = knownVendors(vs.vendors).find(v => v.id === inv.vendorId) ?? { id: inv.vendorId, name: inv.vendorName }
-    const r = await applyItem(tx, inv, vendor, item, { cents: line.unitLandedCents!, exact: line.unitLandedExact ?? line.unitLandedCents! }, actor, true)
+    const printedQty = same.reduce((s: number, l: any) => s + (l.invQty ?? 0), 0)
+    const printed = printedQty > 0 ? unitLanded(same.reduce((s: number, l: any) => s + (l.totalCents ?? 0), 0), 0, printedQty).cents : null
+    const r = await applyItem(tx, inv, vendor, item, { cents: line.unitLandedCents!, exact: line.unitLandedExact ?? line.unitLandedCents! }, actor, true, printed)
     for (const l of same) await tx.vendorInvoiceLine.update({ where: { id: l.id }, data: { state: 'applied', stateNote: `OK'd by ${actor.name}. ${r.note}` } })
     if (r.changed) await tx.inventoryState.update({ where: { accountId }, data: { items, version: { increment: 1 } } })
   }, { timeout: 60_000 })
@@ -809,6 +901,13 @@ export async function rereadInvoice(accountId: string, invoiceId: string): Promi
 const words = (s: string) => new Set(s.toLowerCase().replace(/(\d)-(\d)/g, '$1 $2').split(/[^a-z0-9/]+/).filter(w => w.length >= 2 && !['in', 'of', 'x', 'ft', 'ea'].includes(w)))
 
 export function suggestItems(line: { itemNumber: string; description: string }, items: any[], n = 5): Array<{ id: string; name: string; why: string }> {
+  // A chain link dig set post pipe, by Jonathan's rule (lib/digSetPipeMatch): first, said why.
+  const rule = digSetPipeItem(line.description, items)
+  const byWords = wordSuggestions(line, items.filter(i => i?.id !== rule?.item.id), rule ? n - 1 : n)
+  return rule ? [{ id: String(rule.item.id), name: String(rule.item.name), why: rule.rule.why }, ...byWords] : byWords
+}
+
+function wordSuggestions(line: { itemNumber: string; description: string }, items: any[], n: number): Array<{ id: string; name: string; why: string }> {
   const want = words(line.description)
   const code = line.itemNumber.trim().toUpperCase()
   const scored = items.filter(i => i?.id && i.status !== 'discontinued').map(i => {

@@ -3003,10 +3003,14 @@ model VendorInvoice {
   replacedById   String?
   // Orders revisions of one quote: the vendor's document id from the file name ("...-1429376.pdf"), when there is one.
   revision       String    @default("")
-  // A tax row was printed. Without one the invoice waits until someone OKs "no tax".
+  // A tax row was printed. Without one, estimated tax (estTaxBp of the lines) is
+  // added to the landed costs, unless someone says "no tax is right" (taxOk).
   taxFound       Boolean   @default(true)
   taxOk          Boolean   @default(false)
   taxRate        String    @default("")
+  // The estimated tax rate this document was priced with, in basis points (722 = 7.22%), and its amount.
+  estTaxBp       Int?
+  estTaxCents    Int       @default(0)
   // Rows left out on purpose (*Fab notes, separators, $0.00 lines): [{ page, row, text, why }]
   skipped        Json      @default("[]")
   // The phone's id for the upload, so sending it twice makes one invoice.
@@ -3113,6 +3117,8 @@ model VendorInvoiceLine {
   invPer          Float?
   invQty          Float?
   extraCents      Int?
+  // The part of extraCents that is estimated tax (the document printed no tax).
+  estTaxCents     Int       @default(0)
   landedCents     Int?
   unitLandedCents Int?
   unitLandedExact Float?

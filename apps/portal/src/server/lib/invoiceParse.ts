@@ -262,6 +262,42 @@ export function findVendor(text: string, vendors: KnownVendor[]): KnownVendor | 
   return best
 }
 
+/**
+ * A row holding two (or more) totals rows printed close one above the other,
+ * e.g. Stephens 06-251608: "Fuel Charge 25.00" and "Freight 125.00" read as
+ * "Fuel Freight Charge 125.00 25.00". Each amount takes the label words
+ * nearest its own height, from the label column (where the first totals word
+ * starts). Null unless the amounts are at different heights and every label
+ * is a known totals label.
+ */
+export function splitStackedTotals(r: Pick<Row, 'words'>): Array<{ kind: TotalKind; label: string; cents: number }> | null {
+  const words = r.words ?? []
+  const amounts = words.filter(w => isAmount(w.t))
+  if (amounts.length < 2) return null
+  const tol = Math.max(0.001, Math.min(...amounts.map(w => w.h || 0.01)) * 0.3)
+  for (let i = 0; i < amounts.length; i++) for (let j = i + 1; j < amounts.length; j++) if (Math.abs(amounts[i].y - amounts[j].y) <= tol) return null
+  const keyX = words.filter(w => !isAmount(w.t) && totalKind(w.t) != null).map(w => w.x)
+  if (!keyX.length) return null
+  const from = Math.min(...keyX) - 0.005
+  const right = Math.min(...amounts.map(w => w.x))
+  const labelWords = words.filter(w => !isAmount(w.t) && w.x >= from && w.x < right && /[a-z]/i.test(w.t))
+  const groups = amounts.map(() => [] as typeof words)
+  for (const w of labelWords) {
+    let best = 0
+    amounts.forEach((a, k) => { if (Math.abs(a.y - w.y) < Math.abs(amounts[best].y - w.y)) best = k })
+    groups[best].push(w)
+  }
+  const out: Array<{ kind: TotalKind; label: string; cents: number }> = []
+  for (const [k, a] of amounts.entries()) {
+    const label = groups[k].sort((p, q) => p.x - q.x).map(w => w.t).join(' ')
+    const kind = totalKind(label)
+    const cents = moneyToCents(a.t)
+    if (!kind || cents == null) return null
+    out.push({ kind, label, cents })
+  }
+  return out
+}
+
 export function parseInvoice(pages: Array<{ page: number; rows: Row[] }>, vendors: KnownVendor[] = []): ParsedInvoice {
   const rows = pages.flatMap(p => p.rows)
   const out: ParsedInvoice = {
@@ -359,6 +395,14 @@ export function parseInvoice(pages: Array<{ page: number; rows: Row[] }>, vendor
       put('tax', `${rate[0]} Tax`, cents[taxAt], at)
       put(otherKind, /fuel/i.test(otherLabel) ? 'Fuel Charge' : otherLabel, cents[1 - taxAt], at)
       inTotals = true; lastLine = null; continue
+    }
+    // Two totals rows read as one ("Fuel Charge 25.00" right above "Freight 125.00"): each amount takes the label at its own height.
+    if (amounts.length >= 2 && !rate) {
+      const stacked = splitStackedTotals(r)
+      if (stacked) {
+        for (const s of stacked) put(s.kind, s.label, s.cents, at)
+        inTotals = true; lastLine = null; continue
+      }
     }
     if (HEADER_WORDS.test(r.text) && tokens.filter(isAmount).length === 0) { lastLine = null; inTotals = false; continue }
     const parsed = lineFromTokens(tokens)
