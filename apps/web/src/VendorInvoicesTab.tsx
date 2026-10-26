@@ -42,7 +42,8 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   undone: { label: 'Undone', cls: 'bg-gray-100 text-gray-600' },
   failed: { label: 'Could not read', cls: 'bg-red-100 text-red-700' },
   quote: { label: 'Vendor quote', cls: 'bg-purple-100 text-purple-800' },
-  replaced: { label: 'Replaced by newer revision', cls: 'bg-gray-100 text-gray-600' },
+  // A newer revision (same number), or a new quote number for the same order: the message says which.
+  replaced: { label: 'Replaced', cls: 'bg-gray-100 text-gray-600' },
 }
 
 const LINE_STATE: Record<string, { label: string; cls: string }> = {

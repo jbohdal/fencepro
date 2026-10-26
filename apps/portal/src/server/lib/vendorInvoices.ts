@@ -971,6 +971,53 @@ export async function undoInvoice(accountId: string, invoiceId: string, actor: A
   }, { timeout: 60_000 })
 }
 
+export interface ReplaceResult { undo: UndoResult | null; already: boolean; message: string }
+
+/**
+ * A vendor quote replaced by another quote with a different number (Stephens
+ * re-quoted 06-251608 as 06-251707, Oct 26 2026). A revision with the same
+ * number replaces the older one by itself (evaluate); this is the same thing
+ * for a new number, done on purpose. The older quote's order, if it was
+ * ordered, is undone first (prices put back, its bill voided, exactly as
+ * "Undo the order"); then it is marked replaced, pointing at the newer one, so
+ * its lines leave Needs a match and it cannot be ordered again. A bill with a
+ * payment on it stops it (sort that out in Vendors first). Run again, it
+ * changes nothing.
+ */
+export async function replaceQuoteWith(accountId: string, oldId: string, newId: string, actor: Actor): Promise<ReplaceResult> {
+  const old = await editable(oldId, accountId)
+  const by = await editable(newId, accountId)
+  if (old.id === by.id) throw new InvoiceError('A quote cannot replace itself.', 409)
+  if (old.docType !== 'quote' || by.docType !== 'quote') throw new InvoiceError('Only a vendor quote can replace another vendor quote.', 409)
+  if (!old.vendorId || old.vendorId !== by.vendorId) throw new InvoiceError('Both quotes must be from the same vendor.', 409)
+  if (['refused', 'failed', 'receiving', 'reading', 'replaced'].includes(by.status)) throw new InvoiceError(`${by.invoiceNumber} is "${by.status}": it cannot replace another quote.`, 409)
+  if (old.status === 'replaced') {
+    if (old.replacedById === by.id) return { undo: null, already: true, message: old.message }
+    throw new InvoiceError(`${old.invoiceNumber} was already replaced by another document.`, 409)
+  }
+  if (!['quote', 'needs_review', 'needs_match', 'applied', 'undone'].includes(old.status)) throw new InvoiceError(`${old.invoiceNumber} is "${old.status}": nothing to replace.`, 409)
+  let undo: UndoResult | null = null
+  if (['applied', 'needs_match'].includes(old.status)) {
+    if (old.billId) {
+      const vs = await vendorState(prisma, accountId)
+      const bill = vs.bills.find(b => b?.id === old.billId)
+      if (bill && Number(bill.amountPaidCents) > 0) throw new InvoiceError(`${old.invoiceNumber}'s bill has ${dollars(Number(bill.amountPaidCents))} paid on it. Sort it out in Vendors first; nothing was changed.`, 409)
+    }
+    undo = await undoInvoice(accountId, oldId, actor)
+  }
+  const message = [
+    `Replaced by quote ${by.invoiceNumber}${by.invoiceDate ? ` of ${by.invoiceDate}` : ''} (a new quote number for the same order).`,
+    undo ? `Its order was undone first: ${undo.restored.length ? `${undo.restored.length} price${undo.restored.length === 1 ? '' : 's'} put back` : 'no price had been applied from it'}${undo.bill?.outcome === 'voided' ? `; its bill ${undo.bill.billNumber} is voided (off Accounts Payable, kept in Vendors)` : ''}.` : '',
+  ].filter(Boolean).join(' ')
+  await prisma.$transaction(async (tx: any) => {
+    await lockAll(tx, accountId)
+    // Its lines stop waiting for a match or an OK (undone already did this for an ordered quote).
+    await tx.vendorInvoiceLine.updateMany({ where: { invoiceId: oldId, state: { in: ['needs_match', 'waiting_ok', 'open'] } }, data: { state: 'undone' } })
+    await tx.vendorInvoice.update({ where: { id: oldId }, data: { status: 'replaced', replacedById: by.id, message } })
+  }, { timeout: 30_000 })
+  return { undo, already: false, message }
+}
+
 /** Remove an invoice that changed no prices (refused, failed, in review, or undone), and its unpaid bill. */
 export async function deleteInvoice(accountId: string, invoiceId: string): Promise<void> {
   const inv = await editable(invoiceId, accountId)
