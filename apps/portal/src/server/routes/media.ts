@@ -24,7 +24,7 @@ import { mediaDir, serializeMedia, processMediaQueue, checkMediaSig, CATEGORIES,
 import { plainZod } from '../lib/plainZod.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { receiveInvoiceFile } from '../lib/vendorInvoices.js'
-import { quoteCustomer, quoteMediaOr } from '../lib/quoteMedia.js'
+import { quoteCustomer, quoteMediaOr, jobQuoteMediaOr } from '../lib/quoteMedia.js'
 
 const router = Router()
 const MAX_BYTES = 2 * 1024 * 1024 * 1024 // 2 GB
@@ -210,7 +210,7 @@ async function finishUpload(req: any, res: any, clientId: string): Promise<void>
   res.json({ success: true, data: serializeMedia(item) })
 }
 
-// ── List: a quote's (and its customer's visit photos), a job's (and its quote's), a customer's (and their quotes' and jobs') ──
+// ── List: a quote's (and its customer's visit photos), a job's (and its quote's, with the visit's), a customer's (and their quotes' and jobs') ──
 
 router.get('/', async (req: any, res) => {
   const accountId = req.user.crmAccountId
@@ -223,7 +223,8 @@ router.get('/', async (req: any, res) => {
   if (jobId) {
     or.push({ jobId })
     const job = await prisma.savedJob.findUnique({ where: { id: jobId }, select: { quoteId: true, accountId: true } }).catch(() => null)
-    if (job?.quoteId && job.accountId === accountId) or.push({ quoteKey: job.quoteId })
+    // Its quote's photos and the quote's site visit photos (lib/quoteMedia.ts): what the salesman saw reaches the job once sold.
+    if (job?.quoteId && job.accountId === accountId) or.push(...await jobQuoteMediaOr(accountId, job.quoteId))
   }
   if (customerId) {
     or.push({ customerId })

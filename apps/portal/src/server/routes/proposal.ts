@@ -179,8 +179,8 @@ publicProposal.get('/:token', async (req, res) => {
   }
   // Opens are counted by the page's own script once it is on screen (POST <link>/view), so link
   // previews, prefetch and staff opens never count (lib/proposalViews.ts).
-  // A move or repair shows the photos marked Customer on this quote and its site visit (lib/quoteMedia.ts).
-  const photos = p.kind ? await proposalPhotos(q) : []
+  // Every proposal (a new fence, a move or a repair) shows the photos marked Customer on this quote and its site visit (lib/quoteMedia.ts).
+  const photos = await proposalPhotos(q)
   // Accepted: the warranty's start, once the job is installed (lib/warranties.ts).
   const installDay = q.acceptedAt ? await acceptedInstallDay(q).catch(() => null) : null
   // Signed on a warranty update link: the accepted option shows the warranty it was signed with (lib/warrantyUpdates.ts).
@@ -426,7 +426,8 @@ function page(title: string, body: string, nonce: string, script = ''): string {
 }
 
 /** The proposal page. `notice`: HTML put first (a warranty update's note, routes/warrantyUpdatePublic.ts). */
-export function renderProposal(q: any, p: Proposal, token: string, nonce: string, photos: Array<{ id: string; caption: string; category: string }> = [], installDay: string | null = null, notice = ''): string {
+// `photos`: ids only. No caption: captions are staff words ("Ready to quote visit"), never shown to the customer (round 2 review, Oct 26 2026).
+export function renderProposal(q: any, p: Proposal, token: string, nonce: string, photos: Array<{ id: string }> = [], installDay: string | null = null, notice = ''): string {
   const company = p.company ?? {}
   const rec = Math.min(Math.max(0, p.recommended ?? 0), p.options.length - 1)
   const accepted = !!q.acceptedAt
@@ -489,7 +490,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
     <h1>${esc(p.customer?.name || q.customerName)}</h1>
     <p class="small">${esc(p.customer?.address || q.customerAddress || '')}</p>
     ${p.kind ? `<p class="facts" data-work-description>${esc(p.description || '')}</p>` : `<p class="facts">${p.footageFt ? `${Math.round(p.footageFt)} ft of fence` : ''}${p.gatesText ? ` · ${esc(p.gatesText)}` : ''}</p>`}
-    ${photos.length ? `<section><h2>Photos</h2><div class="opts">${photos.map(m => `<figure style="margin:0"><img class="photo" src="${esc(token)}/media/${esc(m.id)}" alt="${esc(m.caption || m.category)}" loading="lazy" style="width:100%;border-radius:10px">${m.caption ? `<figcaption class="small">${esc(m.caption)}</figcaption>` : ''}</figure>`).join('')}</div></section>` : ''}
+    ${photos.length ? `<section data-proposal-photos><h2>Photos</h2><div class="opts">${photos.map((m, i) => `<figure style="margin:0"><img class="photo" src="${esc(token)}/media/${esc(m.id)}" alt="Photo ${i + 1} of your fence" loading="lazy" style="width:100%;border-radius:10px"></figure>`).join('')}</div></section>` : ''}
     ${plan ? `<section><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Gray dashed: existing fence or no fence, not included.${p.kind === 'move' ? ' Brown dashed: the old fence line.' : p.kind === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p></section>` : ''}
     <section><h2>${p.options.length > 1 ? 'Your options' : p.kind ? 'Your price' : 'Your fence'}</h2><div class="opts${p.options.some(o => o.tier) ? ' tiers' : ''}">${options}</div></section>
     ${included}${warranty}${deposit}${acceptBlock}

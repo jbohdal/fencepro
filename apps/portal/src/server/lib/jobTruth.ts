@@ -136,14 +136,14 @@ export async function readinessFactsFor(accountId: string, jobs: Json[], today =
   const ids = jobs.map(j => j.id)
   const out = new Map<string, ReadinessFacts>()
   if (!ids.length) return out
-  const quoteKeys = jobs.map(j => j.quoteId).filter(Boolean) as string[]
   const [permits, vendor, takeoffs, walks, media, invoices, payments, sched] = await Promise.all([
     prisma.permit.findMany({ where: { accountId, jobId: { in: ids } }, select: { jobId: true, status: true } }),
     prisma.vendorInvoice.groupBy({ by: ['jobId'], where: { accountId, jobId: { in: ids }, docType: 'invoice', status: { notIn: ['refused', 'undone', 'failed', 'replaced'] } }, _count: { _all: true } }),
     prisma.jobTakeoff.findMany({ where: { accountId, jobId: { in: ids } }, select: { jobId: true } }),
     prisma.walkthrough.findMany({ where: { accountId, jobId: { in: ids } }, select: { jobId: true, homeownerSig: true, repSig: true, signedAt: true, status: true } }),
-    // Counted as the job's gallery counts them: the job's own and its quote's (routes/media.ts).
-    prisma.mediaItem.findMany({ where: { accountId, deletedAt: null, OR: [{ jobId: { in: ids } }, ...(quoteKeys.length ? [{ quoteKey: { in: quoteKeys } }] : [])] }, select: { id: true, jobId: true, quoteKey: true } }),
+    // Photos Uploaded: photos and video taken on the job itself (the crew's). The quote's and its site visit's
+    // show on the job's gallery too, but were taken before the sale, so they never tick it (round 2 review, Oct 26 2026).
+    prisma.mediaItem.findMany({ where: { accountId, deletedAt: null, jobId: { in: ids } }, select: { id: true, jobId: true } }),
     prisma.contractInvoice.findMany({ where: { accountId, jobId: { in: ids }, voidedAt: null } }),
     prisma.contractPayment.findMany({ where: { accountId, jobId: { in: ids } } }),
     prisma.scheduleSettings.findUnique({ where: { accountId }, select: { crews: true } }),
@@ -175,7 +175,7 @@ export async function readinessFactsFor(accountId: string, jobs: Json[], today =
       crewAssigned: crewNameOf(j.crewAssigned || ''), scheduledDate: j.scheduledDate || '',
       takeoffStarted: takeoffs.some(t => t.jobId === j.id),
       walkthrough: w ? { signed: !!w.homeownerSig && !!w.repSig, signedAt: w.signedAt ? floridaDay(w.signedAt) : null, homeowner, open: w.status === 'open' } : null,
-      photos: media.filter(m => m.jobId === j.id || (j.quoteId && m.quoteKey === j.quoteId)).length,
+      photos: media.filter(m => m.jobId === j.id).length,
       billing,
     })
   }

@@ -10,9 +10,18 @@
  * was taken (the same window as the same-job rule), so photos from a job
  * years ago never fill a new repair's photo count.
  *
- * Visibility is the photo's own: every photo counts toward the proposal's
- * photo requirement and shows to staff on the quote, and only photos marked
- * Customer go on the proposal the customer opens.
+ * Visibility is the photo's own: every photo shows to staff on the quote,
+ * and only photos marked Customer go on the proposal the customer opens (any
+ * kind: a new fence, a move or a repair) and count toward a move or repair
+ * proposal's photo requirement (round 2 review, Oct 26 2026: the visit's
+ * photos are saved Internal, so counting them sent a repair proposal out with
+ * no photos at all). The customer never sees a photo's caption: captions are
+ * staff words ("Ready to quote visit").
+ *
+ * Once sold, the job's photos and the crew's packet carry the quote's photos
+ * and its visit photos too (jobQuoteMediaOr): the crew sees the site as the
+ * salesman saw it. The job's "Photos Uploaded" milestone still counts only
+ * photos taken on the job itself (lib/jobTruth.ts).
  */
 
 import prisma from './prisma.js'
@@ -51,11 +60,21 @@ export async function quoteCustomer(accountId: string, quoteKey: string, draftCu
   return c ? { id: c.id, since: visitPhotoSince(q?.createdAt ?? now) } : null
 }
 
-/** Photos marked Customer for a quote's proposal: its own and its customer's visit photos. */
-export async function proposalPhotos(q: { id: string; accountId: string }) {
+/** Photos marked Customer for a quote's proposal: its own and its customer's visit photos. Ids only: no staff caption reaches the customer. */
+export async function proposalPhotos(q: { id: string; accountId: string }): Promise<Array<{ id: string }>> {
   const customer = await quoteCustomer(q.accountId, q.id)
   return prisma.mediaItem.findMany({
     where: { accountId: q.accountId, deletedAt: null, visibility: 'customer', kind: 'photo', OR: quoteMediaOr(q.id, customer) },
-    orderBy: { takenAt: 'asc' }, take: 24, select: { id: true, caption: true, category: true },
-  }).catch(() => [] as Array<{ id: string; caption: string; category: string }>)
+    orderBy: { takenAt: 'asc' }, take: 24, select: { id: true },
+  }).catch(() => [] as Array<{ id: string }>)
+}
+
+/**
+ * A job's quote's photos as Prisma OR clauses: the quote's own and its
+ * customer's visit photos (the window from when the quote was made). Empty
+ * for a job with no quote, or a quote in another account.
+ */
+export async function jobQuoteMediaOr(accountId: string, quoteId: string | null | undefined): Promise<any[]> {
+  if (!quoteId) return []
+  return quoteMediaOr(quoteId, await quoteCustomer(accountId, quoteId))
 }
