@@ -371,7 +371,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
  * nothing. On a computer, which may not send texts, it also offers the words
  * to copy and send from a phone (as "Text the receipt" does there).
  */
-export function TextPreview({ text, what }: { text: PreparedText; what: InstallTextKind }) {
+export function TextPreview({ text, what, onLogged }: { text: PreparedText; what: InstallTextKind; onLogged?: () => void }) {
   const [ask, setAsk] = useState(false)
   const [logged, setLogged] = useState<'no' | 'saving' | 'yes'>('no')
   // One id for this text: a second Yes (a retry) is the same History row.
@@ -381,7 +381,7 @@ export function TextPreview({ text, what }: { text: PreparedText; what: InstallT
     if (logged !== 'no') return
     setLogged('saving')
     const r = await noteInstallTexted(text.jobId, what, text.phone, id)
-    if (r.ok) { setLogged('yes'); setAsk(false); toast.success('Saved in History', `Text to ${text.customerName}`) }
+    if (r.ok) { setLogged('yes'); setAsk(false); onLogged?.(); toast.success('Saved in History', `Text to ${text.customerName}`) }
     else { setLogged('no'); toast.error('Not saved in History', r.error) }
   }
   return (
@@ -417,14 +417,15 @@ export function TextPreview({ text, what }: { text: PreparedText; what: InstallT
 }
 
 export function InstallTextSheet({ text, what, title, summary, onClose }: { text: PreparedText; what: InstallTextKind; title: string; summary: string; onClose: () => void }) {
+  const [texted, setTexted] = useState(false)
   return (
     <Sheet onClose={onClose} label={title} attr={{ 'data-install-done': text.jobId }}>
       <Head title={title} onClose={onClose} />
       <div className="p-5 space-y-4">
         <p className="text-sm text-gray-800" data-install-summary>{summary}</p>
         <p className="text-sm font-semibold text-gray-900">Text the customer?</p>
-        <TextPreview text={text} what={what} />
-        <button type="button" className="btn btn-secondary w-full min-h-[48px]" onClick={onClose} data-install-text-skip>{text.allowed ? "Don't text, close" : 'Close'}</button>
+        <TextPreview text={text} what={what} onLogged={() => setTexted(true)} />
+        <button type="button" className="btn btn-secondary w-full min-h-[48px]" onClick={onClose} data-install-text-skip>{texted ? 'Done' : text.allowed ? "Don't text, close" : 'Close'}</button>
       </div>
     </Sheet>
   )

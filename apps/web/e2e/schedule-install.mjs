@@ -110,6 +110,8 @@ async function browserPage(kind, viewport) {
   browsers.push(br)
   const ctx = await br.newContext(phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true } : { viewport: viewport || { width: 1440, height: 950 } })
   await signInByCookie(ctx, { api: API })
+  // A call another test started with the same login ("How'd it go?" on opening the app) is not this test's.
+  await ctx.route('**/api/follow-ups/pending', r => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true,"data":null}' }) : r.continue()))
   // A text hands off to the phone's own texting app: the link is recorded, nothing leaves.
   await ctx.addInitScript(() => {
     window.__sms = []
