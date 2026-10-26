@@ -28,6 +28,8 @@ import {
   setKitEngine,
   normalizeItemName,
   inventoryCost,
+  gateCounts,
+  type GateWidths,
   type KitCounts,
   type KitLine,
   type RailWidth,
@@ -35,8 +37,27 @@ import {
 } from './materialCalculator'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
 
-export const KIT_KINDS = ['corner', 'end', 'line', 'blank', 'section', 'section8', 'perFoot', 'perJob', 'walkGate', 'dblGate'] as const
+export const KIT_KINDS = [
+  'corner', 'end', 'line', 'blank', 'section', 'section8', 'perFoot', 'perJob', 'walkGate', 'dblGate',
+  'walkGate5', 'walkGate6', 'dblGate10', 'dblGate12', 'anyGate', 'anyWalkGate', 'anyDblGate',
+] as const
 export type KitKind = typeof KIT_KINDS[number]
+
+/** Gate kits by width: a set with no kit for the width uses this one (the 4 ft walk gate / 8 ft double gate kit). */
+export const GATE_WIDTH_FALLBACK: Partial<Record<KitKind, KitKind>> = { walkGate5: 'walkGate', walkGate6: 'walkGate', dblGate10: 'dblGate', dblGate12: 'dblGate' }
+const WIDTH_KINDS = Object.keys(GATE_WIDTH_FALLBACK) as KitKind[]
+
+/** The parts a set uses for one kind of kit (a gate width with no kit of its own uses the 4 ft / 8 ft gate kit). */
+export function kitParts(set: Pick<KitSet, 'kits'>, kind: KitKind): KitPart[] {
+  const own = set.kits[kind]
+  if (own) return own
+  const from = GATE_WIDTH_FALLBACK[kind]
+  return from ? set.kits[from] ?? [] : []
+}
+
+/** Every walk gate / double gate on a job, whatever its width. */
+export const allWalkGates = (c: KitCounts) => c.walkGate + (c.walkGate5 ?? 0) + (c.walkGate6 ?? 0)
+export const allDblGates = (c: KitCounts) => c.dblGate + (c.dblGate10 ?? 0) + (c.dblGate12 ?? 0)
 
 export const KIT_LABEL: Record<KitKind, string> = {
   corner: 'Corner post',
@@ -47,8 +68,15 @@ export const KIT_LABEL: Record<KitKind, string> = {
   section8: 'Section on an 8 ft rail run',
   perFoot: 'Per foot of fence',
   perJob: 'Once per job',
-  walkGate: 'Walk gate (one leaf)',
-  dblGate: 'Double gate (two leaves)',
+  walkGate: 'Walk gate (one leaf; 4 ft wide, or width not known)',
+  dblGate: 'Double gate (two leaves; 8 ft wide, or width not known)',
+  walkGate5: 'Walk gate 5 ft wide',
+  walkGate6: 'Walk gate 6 ft wide',
+  dblGate10: 'Double gate 10 ft wide (two 5 ft leaves)',
+  dblGate12: 'Double gate 12 ft wide (two 6 ft leaves)',
+  anyGate: 'Once per job with any gate',
+  anyWalkGate: 'Once per job with a walk gate',
+  anyDblGate: 'Once per job with a double gate',
 }
 
 export interface KitPart {
@@ -80,7 +108,7 @@ export interface KitSet {
 
 // ── Deriving the built in kits ────────────────────────────────────────────────
 
-type Probe = (j: { runs: Array<{ ft: number; rail: RailWidth }>; corners?: number; ends?: number; walkGates?: number; dblGates?: number }) => Map<string, { qty: number; cost: number }>
+type Probe = (j: { runs: Array<{ ft: number; rail: RailWidth }>; corners?: number; ends?: number; walkGates?: number; dblGates?: number; gateWidths?: GateWidths | null }) => Map<string, { qty: number; cost: number }>
 
 const MIXED: Record<string, { installMethod: 'no-dig' | 'dig-set'; colorFamily: 'white' | 'tan' }> = {
   'WV-Auto ND Privacy': { installMethod: 'no-dig', colorFamily: 'white' },
@@ -110,6 +138,7 @@ function probeFor(styleName: string): Probe {
   }
   return j => withPriceSource(none, () => collect(legacyCalculateMaterialsDetailed({
     fenceStyle: styleName, runs: j.runs.map(r => r.ft), corners: j.corners ?? 0, ends: j.ends ?? 0, walkGates: j.walkGates ?? 0, dblGates: j.dblGates ?? 0, tearOutSections: 0, tearOutGates: 0,
+    ...(j.gateWidths ? { gateWidths: j.gateWidths } : {}),
   }).items))
 }
 
@@ -155,14 +184,45 @@ function deriveRawUncached(styleName: string) {
     const full8 = run({ runs: many(8, '8ft') })
     section8 = tidy(lin([[1 / N, full8], [-1 / N, base], [-8, perFoot]]))
   }
+  // Gates. A gate's parts are its kit once per gate, plus (the takeoff sheet's
+  // anyAddOn rows, e.g. chain link collar, forks, drop rod) parts once per job
+  // when the job has any gate / any walk gate / any double gate. Measured at N
+  // and 2N gates f(n) = n × kit + once: kit = (f(2N) − f(N)) / N and
+  // once = 2 f(N) − f(2N); parts rounded up per job stay exact at these sizes.
+  const gates = (walk: number[], dbl: number[]) =>
+    lin([[1, run({ runs: [], ...posts, walkGates: walk.length, dblGates: dbl.length, gateWidths: { walk, dbl } })], [-1, withPosts]])
+  const rep = (n: number, w: number) => Array.from({ length: n }, () => w)
+  const measure = (walkW: number | null, dblW: number | null) => {
+    const one = (n: number) => gates(walkW ? rep(n, walkW) : [], dblW ? rep(n, dblW) : [])
+    const a = one(N), b = one(2 * N)
+    return { kit: tidy(lin([[1 / N, b], [-1 / N, a]])), once: lin([[2, a], [-1, b]]), a, b }
+  }
+  const walk4 = measure(4, null), dbl8 = measure(null, 8)
+  // Both kinds at once: N walk + N double = N kits of each + anyGate + anyWalkGate + anyDblGate.
+  const both = gates(rep(N, 4), rep(N, 8))
+  const shared = lin([[1, walk4.once], [1, dbl8.once], [-1, both], [1, walk4.b], [-1, walk4.a], [1, dbl8.b], [-1, dbl8.a]])
+  const anyGate = tidy(shared)
+  // A gate width's own kit, only where it differs from the 4 ft walk / 8 ft double gate kit.
+  const same = (x: Vec, y: Vec) => x.size === y.size && [...x].every(([p, q]) => y.get(p) === q)
+  const widthKit = (walkW: number | null, dblW: number | null, base: Vec) => {
+    const k = measure(walkW, dblW).kit
+    return same(k, base) ? null : k
+  }
   return {
     costs,
     perJob: tidy(base),
     perFoot, section, section8, line,
     corner: per({ runs: [], corners: N }, base),
     end: per({ runs: [], ends: N }, base),
-    walkGate: per({ runs: [], ...posts, walkGates: N }, withPosts),
-    dblWithBlank: per({ runs: [], ...posts, dblGates: N }, withPosts),
+    walkGate: walk4.kit,
+    dblWithBlank: dbl8.kit,
+    walkGate5: widthKit(5, null, walk4.kit),
+    walkGate6: widthKit(6, null, walk4.kit),
+    dblWithBlank10: widthKit(null, 10, dbl8.kit),
+    dblWithBlank12: widthKit(null, 12, dbl8.kit),
+    anyGate,
+    anyWalkGate: tidy(lin([[1, walk4.once], [-1, shared]])),
+    anyDblGate: tidy(lin([[1, dbl8.once], [-1, shared]])),
   }
 }
 
@@ -189,6 +249,8 @@ export function builtInKitSet(styleName: string): KitSet | null {
       const take = /Post, Blank/.test(p) ? q : q > 0 && (d.line.get(p) ?? 0) > 0 ? Math.min(q, d.line.get(p)!) : 0
       if (take > 0) { blank.set(p, take); dbl.set(p, q - take); if (dbl.get(p) === 0) dbl.delete(p) }
     }
+    // A double gate of another width has the same blank post.
+    const noBlank = (v: Vec | null): Vec | null => v && tidy(lin([[1, v], [-1, blank]]))
     let walk = d.walkGate, dblGate = dbl
     const sib = sixFootSibling(styleName)
     if (sib) {
@@ -202,7 +264,11 @@ export function builtInKitSet(styleName: string): KitSet | null {
       corner: toParts(d.corner), end: toParts(d.end), line: toParts(d.line), blank: toParts(blank),
       section: toParts(d.section), section8: toParts(d.section8), perFoot: toParts(d.perFoot), perJob: toParts(d.perJob),
       walkGate: toParts(walk), dblGate: toParts(dblGate),
+      anyGate: toParts(d.anyGate), anyWalkGate: toParts(d.anyWalkGate), anyDblGate: toParts(d.anyDblGate),
     }
+    // Gate widths with parts of their own (chain link: the 4' x 5' and 4' x 6' leaves).
+    const widths: Array<[KitKind, Vec | null]> = [['walkGate5', d.walkGate5], ['walkGate6', d.walkGate6], ['dblGate10', noBlank(d.dblWithBlank10)], ['dblGate12', noBlank(d.dblWithBlank12)]]
+    for (const [k, v] of widths) if (v) kits[k] = toParts(v)
     for (const k of KIT_KINDS) if (!kits[k]?.length) delete kits[k]
     // Rounded up: any part a kit carries as a fraction (1 roll per 50 ft).
     const roundUp = new Set<string>()
@@ -226,7 +292,7 @@ export function linesFromKitSet(set: KitSet, counts: KitCounts): KitLine[] {
   for (const kind of KIT_KINDS) {
     const n = counts[kind]
     if (!n) continue
-    for (const p of set.kits[kind] ?? []) {
+    for (const p of kitParts(set, kind)) {
       const was = totals.get(p.part)
       totals.set(p.part, { qty: (was?.qty ?? 0) + p.qty * n, cost: was?.cost || p.fallbackCost })
     }
@@ -242,6 +308,8 @@ export function linesFromKitSet(set: KitSet, counts: KitCounts): KitLine[] {
 export const PIECE_OF_KIT: Record<KitKind, keyof StyleJobLot['covers'] | null> = {
   section: 'section', section8: 'section', corner: 'post', end: 'post', line: 'post', blank: 'post',
   walkGate: 'walkGate', dblGate: 'dblGate', perFoot: null, perJob: null,
+  walkGate5: 'walkGate', walkGate6: 'walkGate', dblGate10: 'dblGate', dblGate12: 'dblGate',
+  anyGate: null, anyWalkGate: null, anyDblGate: null,
 }
 
 /**
@@ -262,7 +330,7 @@ export function linesFromKitSetJobLot(set: KitSet, counts: KitCounts, lot: Style
     const n = counts[kind]
     if (!n) continue
     const piece = PIECE_OF_KIT[kind]
-    for (const p of set.kits[kind] ?? []) {
+    for (const p of kitParts(set, kind)) {
       if (piece && (all.has(piece) || covers[piece]?.has(normalizeItemName(p.part)))) cov.set(p.part, (cov.get(p.part) ?? 0) + p.qty * n)
       else { const was = unc.get(p.part); unc.set(p.part, { qty: (was?.qty ?? 0) + p.qty * n, cost: was?.cost || p.fallbackCost }) }
     }
@@ -289,7 +357,8 @@ export function linesFromKitSetJobLot(set: KitSet, counts: KitCounts, lot: Style
     if (qty > 0 && typeof price === 'number' && price > 0) lines.push({ part: item, qty, fallbackCost: price, unitCost: price, piece: true })
   }
   // Gate leaves built from a section kit: one per walk gate, two per double gate.
-  const leaves = lot.leafWidth ? counts.walkGate + counts.dblGate * 2 : 0
+  const walks = allWalkGates(counts), dbls = allDblGates(counts)
+  const leaves = lot.leafWidth ? walks + dbls * 2 : 0
   if (lot.width === 'auto') {
     section('6', counts.section + (lot.leafWidth === '6' ? leaves : 0))
     section('8', counts.section8 + (lot.leafWidth === '8' ? leaves : 0))
@@ -303,8 +372,8 @@ export function linesFromKitSetJobLot(set: KitSet, counts: KitCounts, lot: Style
   piece('end post', counts.end, lot.end)
   piece('line post', counts.line, lot.line)
   piece('gate post (center of a double gate)', counts.blank, lot.blank)
-  piece('walk gate', counts.walkGate, lot.walkGate)
-  piece('double gate', counts.dblGate, lot.dblGate)
+  piece('walk gate', walks, lot.walkGate)
+  piece('double gate', dbls, lot.dblGate)
   return lines
 }
 
@@ -333,9 +402,12 @@ function selfCheck(set: KitSet): string {
   const style = set.styleName!
   const mixed = MIXED[style]
   const gates = !sixFootSibling(style) && !mixed
+  // Gates of every width the sheet has rows for, and typed counts with no width.
   const jobs = [
     { runs: [37, 120, 52], corners: 2, ends: 2, walkGates: gates ? 1 : 0, dblGates: gates ? 1 : 0 },
     { runs: [6, 13, 250, 8], corners: 3, ends: 1, walkGates: gates ? 2 : 0, dblGates: 0 },
+    { runs: [44, 61], corners: 1, ends: 2, walkGates: gates ? 2 : 0, dblGates: gates ? 2 : 0, gateWidths: gates ? { walk: [5, 6], dbl: [10, 12] } : null },
+    { runs: [90], corners: 0, ends: 2, walkGates: gates ? 1 : 0, dblGates: gates ? 2 : 0, gateWidths: gates ? { walk: [4], dbl: [8, 10] } : null },
   ]
   for (const j of jobs) {
     const legacy = probeFor(style)({ ...j, runs: j.runs.map(ft => ({ ft, rail: '6ft' as RailWidth })) })
@@ -350,7 +422,7 @@ function selfCheck(set: KitSet): string {
 }
 
 /** How many of each kit a job has (the same counting the parts lists do). */
-export function countsFor(styleName: string, runs: number[], j: { corners: number; ends: number; walkGates: number; dblGates: number }, rails?: RailWidth[]): KitCounts {
+export function countsFor(styleName: string, runs: number[], j: { corners: number; ends: number; walkGates: number; dblGates: number; gateWidths?: GateWidths | null }, rails?: RailWidth[]): KitCounts {
   const mixed = !!MIXED[styleName]
   let section = 0, section8 = 0
   const perRun: number[] = []
@@ -362,7 +434,7 @@ export function countsFor(styleName: string, runs: number[], j: { corners: numbe
     if (eight) section8 += sec; else section += sec
   })
   const line = calculateLinePostsPerRun(perRun).reduce((t, n) => t + n, 0)
-  return { section, section8, line, corner: j.corners, end: j.ends, blank: j.dblGates, walkGate: j.walkGates, dblGate: j.dblGates, perFoot: runs.reduce((t, f) => t + (f > 0 ? f : 0), 0), perJob: 1 }
+  return { section, section8, line, corner: j.corners, end: j.ends, blank: j.dblGates, ...gateCounts(j.walkGates, j.dblGates, j.gateWidths), perFoot: runs.reduce((t, f) => t + (f > 0 ? f : 0), 0), perJob: 1 }
 }
 
 // ── Which set a style uses ────────────────────────────────────────────────────
@@ -404,7 +476,10 @@ setKitEngine((styleKey, counts, notes, jobLot) => {
   if (set === null) return null
   if (set === 'archived') return { lines: [], warnings: [`"${styleKey}" has no material kit in use (its kits are archived in Inventory > Material Kits), so no fence material is included.`] }
   if (set.mismatch) return null
-  if (jobLot) return { lines: linesFromKitSetJobLot(set, counts, jobLot), warnings: [] }
+  // A gate width the takeoff sheet has no row for, on a style whose gates go by width (chain link).
+  const gateNote = counts.gateNotes?.length && WIDTH_KINDS.some(k => set.kits[k]?.length)
+    ? [`No takeoff sheet row for ${counts.gateNotes.join('; ')}. Check the gate parts.`] : []
+  if (jobLot) return { lines: linesFromKitSetJobLot(set, counts, jobLot), warnings: gateNote }
   // Notes about new or unconfirmed parts lists stay until a kit is saved (checked) by Jonathan.
-  return { lines: linesFromKitSet(set, counts), warnings: set.builtIn ? notes() : [] }
+  return { lines: linesFromKitSet(set, counts), warnings: [...(set.builtIn ? notes() : []), ...gateNote] }
 })
