@@ -70,9 +70,14 @@ export async function askForOk(co: Co, by: string, changed = false): Promise<voi
   } catch (e) { console.error('[change-orders] ask for OK:', e) }
 }
 
-/** The "to OK" notices of this change order: matched by its job and number (they were written before it had a link of its own). */
+/**
+ * The "to OK" notices of this change order: matched by its job and number
+ * (they were written before it had a link of its own). Read ones too (round 3
+ * recheck): the owner taps the notice to open the job, which marks it read,
+ * then OKs it there; his notice kept saying "Change order to OK".
+ */
 async function toOkNotices(co: Co, jobId: string | null) {
-  const rows = await prisma.notification.findMany({ where: { title: { startsWith: TO_OK_TITLE }, ...(jobId ? { jobId } : { jobId: null }), read: false } })
+  const rows = await prisma.notification.findMany({ where: { title: { startsWith: TO_OK_TITLE }, ...(jobId ? { jobId } : { jobId: null }) } })
   return rows.filter(n => n.link?.includes(`co=${encodeURIComponent(co.id)}`) || new RegExp(`\\bCO-${co.number}\\b`).test(n.body))
 }
 
@@ -103,9 +108,20 @@ export async function okGiven(co: Co, by: string, voided = false, byRole: string
     if (!maker) return
     const link = maker.role === 'sales_rep' ? await cardLink(co.accountId, co.quoteId, contactId, co.id) : jobLink(job?.id, co.id, contactId)
     await prisma.notification.create({
-      data: { recipientId: maker.email, title: `OK'd: send it to ${customer}`, body: `${by} OK'd change order CO-${co.number} (${usd(co.totalCents)}). Send it to ${customer} to sign, or have them sign on your phone.`, type: 'success', link, jobId: job?.id ?? null },
+      data: { recipientId: maker.email, title: `${SEND_IT_TITLE} ${customer}`, body: `${by} OK'd change order CO-${co.number} (${usd(co.totalCents)}). Send it to ${customer} to sign, or have them sign on your phone.`, type: 'success', link, jobId: job?.id ?? null },
     })
   } catch (e) { console.error("[change-orders] OK'd notice:", e) }
+}
+
+export const SEND_IT_TITLE = "OK'd: send it to"
+
+/** The maker's "OK'd: send it to <customer>" notices of this change order, once it is signed: read, and retitled. */
+async function sendItDone(co: Co, email: string, jobId: string | null, customer: string): Promise<void> {
+  const rows = await prisma.notification.findMany({ where: { recipientId: email, title: { startsWith: SEND_IT_TITLE }, ...(jobId ? { jobId } : { jobId: null }) } })
+  const now = new Date()
+  for (const n of rows.filter(n => n.link?.includes(`co=${encodeURIComponent(co.id)}`) || new RegExp(`\\bCO-${co.number}\\b`).test(n.body))) {
+    await prisma.notification.update({ where: { id: n.id }, data: { read: true, readAt: n.readAt ?? now, title: `Sent and signed: CO-${co.number}, ${customer}` } })
+  }
 }
 
 /** The customer signed: whoever made it, and the owner and the office, are told (once). */
@@ -118,6 +134,8 @@ export async function signedNotice(co: Co & { signedBy?: string | null; signedVi
     const office = jobLink(job?.id, co.id, contactId)
     for (const recipientRole of OK_ROLES) await prisma.notification.create({ data: { recipientRole, title, body, type: 'success', link: office, jobId: job?.id ?? null } })
     const maker = await makerOf(co.accountId, co.createdBy)
+    // Her "OK'd: send it to <customer>" is done now: read, and it says it was signed (round 3 recheck: it stayed unread).
+    if (maker) await sendItDone(co, maker.email, job?.id ?? null, customer)
     // The owner or office who made it already hears through their role.
     if (maker && maker.role === 'sales_rep') {
       await prisma.notification.create({ data: { recipientId: maker.email, title, body, type: 'success', link: await cardLink(co.accountId, co.quoteId, contactId, co.id), jobId: job?.id ?? null } })
