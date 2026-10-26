@@ -1344,8 +1344,8 @@ function CustomerDetail({
             {/* One line, never wrapping: the badges give way first, the actions never move to a second line. */}
             <div className="flex items-center gap-x-2 min-w-0">
               <h2 className={`${compact ? 'text-base lg:text-lg' : 'text-lg lg:text-xl'} font-bold text-gray-900 truncate min-w-0 shrink lg:min-w-[9rem]`} data-customer-name>{name || 'Customer'}</h2>
-              {/* On a phone "Saved" stays quiet (the header is kept small); Saving and Not saved still show. */}
-              <SaveStatus keys={[`customer:${customer.id}`]} also={noteChangeFor(customer.id)} quietWhenSaved={!wide || compact} />
+              {/* "Saved" stays quiet on every screen (round 3: a chip on every customer said nothing); Saving and Not saved show. */}
+              <SaveStatus keys={[`customer:${customer.id}`]} also={noteChangeFor(customer.id)} quietWhenSaved />
               {/* One row of pills: one that does not fit drops out of sight whole (never half a pill). Scrolled down, the stage alone. */}
               {(wide || compact) && <span className="min-w-0 flex-1 flex flex-wrap items-center h-6 overflow-hidden" data-customer-badges>{compact && status ? stagePill : badges}</span>}
               {/* A phone scrolled down keeps the line short; More is back at the top of the page. */}

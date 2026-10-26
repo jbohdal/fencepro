@@ -498,6 +498,19 @@ export async function followUpMorningPush(now = new Date(), deps: { send?: (acco
 
 export interface HistoryItem { at: string; kind: string; title: string; detail: string; by: string }
 
+/**
+ * When a quote was sent, for its history line: the proposal's own time when it has one; a day only (an older
+ * quote) at noon, or the time the quote was made on that day; never later than now (round 3, Oct 26 2026: a
+ * quote sent at 7:50 showed "8:00 AM", a time still to come).
+ */
+export function sentAt(proposalAt: unknown, day: string, made: Date, now = new Date()): string {
+  const full = typeof proposalAt === 'string' && /T\d{2}:\d{2}/.test(proposalAt) ? new Date(proposalAt) : null
+  let at = full && !Number.isNaN(full.getTime()) ? full
+    : /^\d{4}-\d{2}-\d{2}$/.test(day) ? (made.toISOString().slice(0, 10) === day ? made : new Date(`${day}T12:00:00.000Z`)) : made
+  if (at.getTime() > now.getTime()) at = now
+  return at.toISOString()
+}
+
 const money = (dollars: number) => '$' + Math.round(dollars || 0).toLocaleString('en-US')
 const OUTCOME_WORDS: Record<string, string> = {
   no_answer: 'No answer', voicemail: 'Left voicemail', deciding: 'Talked, still deciding', not_now: 'Talked, not now',
@@ -535,6 +548,12 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
     items.push({ at: c.at.toISOString(), kind: c.channel === 'text' ? 'text' : 'call', title: `${what}: ${outcome}${extra}`, detail: `${c.note ? c.note + ' ' : ''}${next}`.trim(), by: c.userName })
   }
   if (customerId) {
+    // A lead that phoned in: that call is their first contact (round 3, Oct 26 2026: "Last contact: None"),
+    // unless a call was logged at the time already.
+    const contact = await prisma.crmContact.findFirst({ where: { id: customerId, accountId }, select: { leadSource: true, createdAt: true } })
+    if (contact && /phone|call/i.test(contact.leadSource ?? '') && !calls.some(c => Math.abs(c.at.getTime() - contact.createdAt.getTime()) < 30 * 60_000)) {
+      items.push({ at: contact.createdAt.toISOString(), kind: 'call', title: 'Call: phoned in (new lead)', detail: `Lead source: ${contact.leadSource}.`, by: '' })
+    }
     const [notes, appts, quotes] = await Promise.all([
       prisma.crmContactNote.findMany({ where: { crmContactId: customerId, deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 200 }),
       prisma.appointment.findMany({ where: { accountId, crmContactId: customerId, deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 100 }),
@@ -564,7 +583,7 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
       const p = (q.proposal ?? null) as any
       const sentOn = String(p?.createdAt || q.date || '').slice(0, 10)
       if (q.status === 'SENT' || q.status === 'SOLD' || q.status === 'LOST' || q.shareToken) {
-        items.push({ at: isDay(sentOn) ? `${sentOn}T12:00:00.000Z` : q.createdAt.toISOString(), kind: 'quote', title: `Quote sent: ${money(q.finalPrice)}`, detail: String(q.status).toLowerCase() === 'sent' ? '' : `Now ${String(q.status).toLowerCase()}.`, by: '' })
+        items.push({ at: sentAt(p?.createdAt, sentOn, q.createdAt), kind: 'quote', title: `Quote sent: ${money(q.finalPrice)}`, detail: String(q.status).toLowerCase() === 'sent' ? '' : `Now ${String(q.status).toLowerCase()}.`, by: '' })
       } else {
         items.push({ at: q.createdAt.toISOString(), kind: 'quote', title: `Quote made: ${money(q.finalPrice)} (draft)`, detail: '', by: '' })
       }
