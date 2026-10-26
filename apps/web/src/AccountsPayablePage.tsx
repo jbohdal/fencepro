@@ -12,6 +12,7 @@ import {
   type VendorBill, type VendorBillCategory, type VendorPaymentMethod,
 } from './vendorStore'
 import { useBackLayer } from './nav'
+import { useVendorsLive } from './vendorsLive'
 import { businessDate } from './businessDate'
 import { getConfig } from './configStore'
 
@@ -41,6 +42,8 @@ export default function AccountsPayablePage() {
     void refreshVendors()
     return () => { window.removeEventListener(VENDORS_UPDATED_EVENT, f); if (t) clearTimeout(t) }
   }, [])
+  // ... also while it stays open (an order in another tab or on another device).
+  useVendorsLive()
 
   const summary = useMemo(() => { refreshOverdueBills(); return getAPSummary() }, [bump])
   const aging = useMemo(() => getVendorAging(), [bump])
