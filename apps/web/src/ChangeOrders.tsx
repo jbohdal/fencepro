@@ -155,6 +155,9 @@ function put(row: ChangeOrder) {
 
 /** Read a quote's (or every) change order from the server. */
 export async function refreshChangeOrders(quoteId?: string): Promise<ChangeOrder[] | null> {
+  // The Installer sees no prices: change orders are not his to read (the server refuses with 403), so they are
+  // not asked for; the crew packet takes the work now, price free, from /api/install-packets/work (round 2b).
+  if (!can('prices.view')) return null
   const r = await sendJson('GET', `/api/change-orders${quoteId ? `?quoteId=${encodeURIComponent(quoteId)}` : ''}`)
   if (!r.result.ok || !Array.isArray(r.json?.data)) return null
   keep(r.json.data as ChangeOrder[], quoteId)

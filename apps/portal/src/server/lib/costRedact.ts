@@ -103,15 +103,46 @@ const PRICE_WORDS = /\b(estimate|estimated|quote[ds]?|quoted|price[ds]?|pricing|
  * amount is left out as withoutMoney does. The rest of the line is kept.
  */
 export function forCrew(text: string): string {
-  if (!text.includes('$')) return text
+  return withoutMoney(crewParts(text).kept)
+}
+
+/** forCrew in two parts: the text kept (amounts still in) and the sentences about a price it drops. */
+function crewParts(text: string): { kept: string; dropped: string[] } {
+  if (!text.includes('$')) return { kept: text, dropped: [] }
   const out: string[] = []
+  const dropped: string[] = []
   for (const line of text.split('\n')) {
     if (!line.includes('$')) { out.push(line); continue }
     // An amount already left out ("$ (left out)", a packet made on the installer's phone) counts as an amount too.
-    const kept = line.split(/(?<=[.!?])\s+/).filter(p => !((new RegExp(MONEY.source).test(p) || p.includes(MONEY_MARK)) && PRICE_WORDS.test(p)))
-    if (kept.length) out.push(withoutMoney(kept.join(' ')))
+    const parts = line.split(/(?<=[.!?])\s+/)
+    const isPrice = (p: string) => (new RegExp(MONEY.source).test(p) || p.includes(MONEY_MARK)) && PRICE_WORDS.test(p)
+    for (const p of parts) if (isPrice(p)) dropped.push(p)
+    const kept = parts.filter(p => !isPrice(p))
+    if (kept.length) out.push(kept.join(' '))
   }
-  return out.join('\n')
+  return { kept: out.join('\n'), dropped }
+}
+
+/** A field the Installer reads as a note: its sentences about a price are dropped (forCrew), not only the amounts. */
+export const isNoteKey = (k: string) => /notes?$/i.test(k) || k === 'body'
+
+/**
+ * A note the Installer sends back (he read it as forCrew made it): the
+ * sentences about a price he never saw are kept, and each "$ (left out)"
+ * becomes the amount that was there. Unchanged: as saved. Added to at the end:
+ * as saved plus what he added. Changed in the middle: his text, then the price
+ * sentences he could not see (never lost).
+ */
+export function crewTextBack(incoming: string, saved: string): string {
+  const { kept, dropped } = crewParts(saved)
+  const view = withoutMoney(kept)
+  if (incoming === view) return saved
+  // Nothing he could see (every sentence was about a price): what he typed goes after it.
+  if (!view.trim()) return incoming.trim() ? `${saved}${saved ? '\n' : ''}${incoming.trim()}` : saved
+  if (incoming.startsWith(view)) return saved + incoming.slice(view.length)
+  const back = withMoneyBack(incoming, kept)
+  const missing = dropped.filter(d => !back.includes(d))
+  return missing.length ? `${back}${back ? '\n' : ''}${missing.join(' ')}` : back
 }
 
 /**
@@ -169,7 +200,8 @@ function walk(v: unknown, h: Hide): unknown {
     if (hidden(k, h)) continue
     if (book && BOOKS_KEYS.has(k)) continue
     if (costLine && k === 'total') continue
-    out[k] = walk(x, h)
+    // A note: a sentence about a price is dropped whole, as on the crew packet ("saw an estimate of $ (left out)" never shows; round 2b).
+    out[k] = h.prices && typeof x === 'string' && isNoteKey(k) ? forCrew(x) : walk(x, h)
   }
   return out
 }
@@ -250,7 +282,8 @@ function restore(inc: unknown, sav: unknown, h: Hide): unknown {
   const s = isObj(sav) ? sav : {}
   const out: Record<string, unknown> = {}
   const book = isBusinessRecord(inc)
-  for (const [k, x] of Object.entries(inc)) out[k] = hidden(k, h) || (book && BOOKS_KEYS.has(k)) ? x : restore(x, s[k], h)
+  for (const [k, x] of Object.entries(inc)) out[k] = hidden(k, h) || (book && BOOKS_KEYS.has(k)) ? x
+    : h.prices && typeof x === 'string' && typeof s[k] === 'string' && isNoteKey(k) ? crewTextBack(x, s[k] as string) : restore(x, s[k], h)
   for (const [k, x] of Object.entries(s)) {
     if ((hidden(k, h) || (book && BOOKS_KEYS.has(k))) && !(k in inc)) out[k] = x
   }

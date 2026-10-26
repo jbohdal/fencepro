@@ -112,20 +112,35 @@ export interface LayoutSides { sides: Array<{ id: string; name: string; on: bool
  * Each side, each gate and one wide shot. From the quote's yard layout when
  * there is one; otherwise from counts the crew sets.
  */
-export function photoSlots(from: { layout?: LayoutSides | null; sideCount?: number; gateCount?: number }): PhotoSlot[] {
+export function photoSlots(from: { layout?: LayoutSides | null; sideCount?: number; gateCount?: number; repairGates?: number }): PhotoSlot[] {
   const out: PhotoSlot[] = []
   const sides = from.layout?.sides?.filter(s => s.on) ?? []
   if (sides.length) {
     for (const s of sides) out.push({ key: `side:${s.id}`, label: `Side: ${s.name}`, kind: 'side', clientId: null })
     for (const s of sides) if (s.gate) out.push({ key: `gate:${s.id}`, label: `${s.gate.type === 'double' ? 'Double gate' : 'Walk gate'} on ${s.name}`, kind: 'gate', clientId: null })
+    // A repair's gates (rehung or replaced) when its drawing has none.
+    const drawn = out.filter(x => x.kind === 'gate').length
+    for (let i = drawn + 1; i <= Math.min(30, Math.round(from.repairGates ?? 0)); i++) out.push({ key: `gate:${i}`, label: `Gate ${i} (repaired)`, kind: 'gate', clientId: null })
   } else {
     const n = Math.max(1, Math.min(30, Math.round(from.sideCount ?? 1)))
-    const g = Math.max(0, Math.min(30, Math.round(from.gateCount ?? 0)))
+    const g = Math.max(0, Math.min(30, Math.round(Math.max(from.gateCount ?? 0, from.repairGates ?? 0))))
     for (let i = 1; i <= n; i++) out.push({ key: `side:${i}`, label: `Side ${i}`, kind: 'side', clientId: null })
     for (let i = 1; i <= g; i++) out.push({ key: `gate:${i}`, label: `Gate ${i}`, kind: 'gate', clientId: null })
   }
   out.push({ key: 'wide', label: 'Wide shot of the whole fence', kind: 'wide', clientId: null })
   return out
+}
+
+/**
+ * The gates a repair works on (rehung or replaced, from the quote's repair
+ * items): its walkthrough asks for a photo of each. A repair job has no new
+ * walk or double gates, so it read "Gates 0" after a gate was rehung (round
+ * 2b, Oct 26 2026). 0 for anything else.
+ */
+export function repairGateCount(work: { type?: string; repair?: { items?: Partial<Record<string, number>> } | null } | null | undefined): number {
+  if (!work || work.type !== 'repair') return 0
+  const items = work.repair?.items ?? {}
+  return Math.max(0, Number(items.rehangGate) || 0) + Math.max(0, Number(items.replaceGate) || 0)
 }
 
 /** New slots, keeping photos already taken for the same slot. */

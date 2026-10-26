@@ -17,7 +17,9 @@
  */
 
 import { locateOf, locateStatus, locateWords, hasLocate, locateDay } from '../lib/locates.js'
-import { saveLocate, lastCrewDay, startedByCrew, closeOutIfDone } from '../lib/jobTruth.js'
+import { saveLocate, lastCrewDay, startedByCrew, closeOutIfDone, billingViewFor } from '../lib/jobTruth.js'
+import { billingStatusOf } from '../lib/jobReadiness.js'
+import { isDonePhase } from '../lib/opsStageModel.js'
 import { floridaDay } from '../lib/automations/context.js'
 import { Router } from 'express'
 import express from 'express'
@@ -137,6 +139,20 @@ export function locateOnFile(loc: ReturnType<typeof locateOf>, by: string | null
   return `<table class="locate" data-packet-locate-on-file><tbody>${row('Ticket', loc.ticket, 'ticket')}${row('Called in', loc.calledDate ? locateDay(loc.calledDate) : null, 'called')}${row('Good to dig', loc.goodDate ? locateDay(loc.goodDate) : null, 'good')}${row('Expires', loc.expDate ? locateDay(loc.expDate) : null, 'exp')}</tbody></table>
       ${by ? `<p class="small" data-packet-locate-by>Saved by ${esc(by)}${when ? ` on ${esc(when)}` : ''}.</p>` : ''}
       <button type="button" id="locEdit" class="btn btn2 noprint" data-packet-locate-edit>Change the locate</button>`
+}
+
+/**
+ * The posts of a new fence or a move ("2 corner posts · 2 end posts · 1 gate
+ * post"); none for a repair (its work is listed above) or when every count is
+ * 0 (round 2b, Oct 26 2026: a gate rehang read "0 corner posts · 0 end posts ·
+ * 0 gate posts").
+ */
+export function postsLine(posts: { corners: number; ends: number; gatePosts: number } | null | undefined, workType?: string | null): string {
+  if (!posts || workType === 'repair') return ''
+  const ends = Math.max(0, posts.ends - posts.gatePosts)
+  if (posts.corners + ends + posts.gatePosts === 0) return ''
+  const n = (k: number, one: string) => `${k} ${one}${k === 1 ? '' : 's'}`
+  return `<p data-packet-posts>${[n(posts.corners, 'corner post'), n(ends, 'end post'), n(posts.gatePosts, 'gate post')].join(' · ')}</p>`
 }
 
 export const packetPublic = Router()
@@ -272,14 +288,27 @@ async function crewJob(req: any, res: any) {
   return job
 }
 
-/** What the installer's card needs about the install as a whole: its last crew day, finished or not, and the 811 locate in words. */
-async function crewFacts(accountId: string, jobId: string) {
+/**
+ * What the installer's card and the job page need about the install as a
+ * whole: its last crew day, its crew days in order ("Finished day 1 of 2"),
+ * finished or not, the 811 locate in words, and where the close out stands
+ * (closed, the walkthrough signed, paid in full: yes or no, never an amount),
+ * so "Job finished" says what it is still waiting for (round 2b, Oct 26 2026).
+ */
+export async function crewFacts(accountId: string, jobId: string) {
   const job = await prisma.savedJob.findUnique({ where: { id: jobId } })
-  if (!job) return { lastDay: null, jobDone: false, locate: null }
+  if (!job) return { lastDay: null, crewDays: [] as string[], jobDone: false, locate: null, closeOut: null }
   const times = await installTimes(jobId)
   const lastDay = await lastCrewDay(accountId, job)
+  const crewDays = [...new Set((await prisma.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, stagingJobId: jobId }, select: { date: true } })).map(d => d.date).filter(isYmd))].sort()
+  const w = await prisma.walkthrough.findUnique({ where: { jobId }, select: { accountId: true, homeownerSig: true, repSig: true } })
+  const closeOut = {
+    closed: isDonePhase(job.status),
+    walkthroughSigned: !!w && w.accountId === accountId && !!w.homeownerSig && !!w.repSig,
+    paidInFull: billingStatusOf(await billingViewFor(accountId, jobId)).paidInFull,
+  }
   const loc = locateOf(job)
-  return { lastDay, jobDone: crewFinishedJob(times, lastDay), locate: hasLocate(loc) ? { ...locateWords(loc, todayFl()), ticket: loc.ticket } : null }
+  return { lastDay, crewDays, jobDone: crewFinishedJob(times, lastDay), locate: hasLocate(loc) ? { ...locateWords(loc, todayFl()), ticket: loc.ticket } : null, closeOut }
 }
 
 /** For an install on the installer's home: its packet link, the customer's notes, Start and Finish so far, and whether the job is finished. */
@@ -402,7 +431,7 @@ packetPublic.get('/:token', async (req, res) => {
     ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(forCrew(x))}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
     <section data-packet-locate-section><h2>811 locate</h2>${s.work?.needs811 ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
       <p class="facts" id="locStatus" data-packet-locate-status="${esc(locateStatus(loc, todayFl()))}">${esc(locateWords(loc, todayFl()).text)}</p>
-      ${locateOnFile(loc, job_.locateUpdatedBy, job_.locateUpdatedAt)}
+      <div id="locOnFile">${locateOnFile(loc, job_.locateUpdatedBy, job_.locateUpdatedAt)}</div>
       <div id="locForm" data-packet-locate-form${hasLocate(loc) ? ' hidden' : ''}>
       <div class="row"><label class="field">Ticket number<input id="ticket" value="${esc(loc.ticket ?? '')}" data-was="${esc(loc.ticket ?? '')}" maxlength="40" autocomplete="off"></label>
       <label class="field">Called in<input id="lcalled" type="date" value="${esc(loc.calledDate ?? '')}"></label></div>
@@ -411,9 +440,9 @@ packetPublic.get('/:token', async (req, res) => {
       <button type="button" id="saveLocate" class="btn noprint">Save locate</button></div>
       <p id="locMsg" class="small" aria-live="polite">${hasLocate(loc) ? 'This is the same locate the office sees on the job.' : 'The office sees it on the job right away.'}</p>
     </section>
-    <section><h2>The fence</h2>
+    <section data-packet-fence><h2>${s.work?.type === 'repair' ? 'The existing fence' : 'The fence'}</h2>
       <p class="facts">${esc(styleText)}${s.footageFt ? ` · ${Math.round(s.footageFt)} ft` : ''}${s.sections ? ` · ${s.sections} sections` : ''}</p>
-      ${s.posts ? `<p>${s.posts.corners} corner posts · ${s.posts.ends - s.posts.gatePosts} end posts · ${s.posts.gatePosts} gate posts</p>` : ''}
+      ${postsLine(s.posts, s.work?.type)}
       ${safeSvg(s.planSvg) ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Open dots: line posts. Dark arrows: where photos were taken.${s.work?.type === 'move' ? ' Brown dashed: the old fence line.' : s.work?.type === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p>` : ''}
       ${s.runs?.length ? `<table><thead><tr><th>Run</th><th>Length</th><th>Sections</th><th>Posts apart</th></tr></thead><tbody>${s.runs.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.length)}</td><td>${r.sections}</td><td>${esc(r.spacing)}</td></tr>`).join('')}</tbody></table>` : ''}
       ${s.gates?.length ? `<h3>Gates</h3><ul>${s.gates.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
@@ -450,14 +479,17 @@ packetPublic.get('/:token', async (req, res) => {
       function show(){var empty=!el.value;el.classList.toggle('unset',empty);hint.style.display=empty?'block':'none'}
       el.addEventListener('input',show);el.addEventListener('change',show);show()});
     // The office's locate on file: shown in words; the boxes open only on "Change the locate".
-    var edit=document.getElementById('locEdit');
-    if(edit)edit.addEventListener('click',function(){document.getElementById('locForm').hidden=false;edit.hidden=true;document.getElementById('ticket').focus()});
+    function bindEdit(){var edit=document.getElementById('locEdit');
+      if(edit)edit.addEventListener('click',function(){document.getElementById('locForm').hidden=false;edit.hidden=true;document.getElementById('ticket').focus()})}
+    bindEdit();
     function saveLoc(replace){
       var m=document.getElementById('locMsg');m.textContent='Saving...';
       var v=function(id){return document.getElementById(id).value};
       fetch(tok+'/locate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticket:v('ticket'),calledDate:v('lcalled'),goodDate:v('ldate'),expDate:v('lexp'),replace:!!replace})})
         .then(function(r){return r.json()}).then(function(j){
-          if(j.success){m.textContent='Saved. The office sees it on the job.';document.getElementById('ticket').setAttribute('data-was',v('ticket'));var st=document.getElementById('locStatus');if(j.data&&j.data.text){st.textContent=j.data.text;st.setAttribute('data-packet-locate-status',j.data.status)}}
+          if(j.success){m.textContent='Saved. The office sees it on the job.';document.getElementById('ticket').setAttribute('data-was',v('ticket'));var st=document.getElementById('locStatus');if(j.data&&j.data.text){st.textContent=j.data.text;st.setAttribute('data-packet-locate-status',j.data.status)}
+            // The table on file shows what was just saved (the ticket, its dates, who saved it), the boxes close.
+            if(j.data&&typeof j.data.onFile==='string'&&j.data.onFile){document.getElementById('locOnFile').innerHTML=j.data.onFile;document.getElementById('locForm').hidden=true;bindEdit()}}
           else if(j.code==='REPLACE_TICKET'){if(window.confirm(j.error))saveLoc(true);else m.textContent='Not saved. The office\\'s ticket is kept.'}
           else m.textContent=j.error||'Could not save.'
         }).catch(function(){m.textContent='No connection. Try again.'});
@@ -538,7 +570,8 @@ packetPublic.post('/:token/locate', express.json({ limit: '8kb' }), async (req, 
     }
     const row = await saveLocate(found.p.accountId, found.p.jobId, { ticket, calledDate: keep(b.data.calledDate, was.calledDate), goodDate: keep(b.data.goodDate ?? b.data.date, was.goodDate), expDate: keep(b.data.expDate, was.expDate) }, 'Crew (install packet)')
     const w = locateWords(locateOf(row), todayFl())
-    res.json({ success: true, data: { status: w.status, text: w.text } })
+    // The table on file as it is now (escaped server side, the same as the page draws it).
+    res.json({ success: true, data: { status: w.status, text: w.text, onFile: locateOnFile(locateOf(row), row.locateUpdatedBy, row.locateUpdatedAt) } })
   } catch (err: any) {
     if (err?.status) { res.status(err.status).json({ success: false, error: err.message }); return }
     console.error('[packet] locate:', err)

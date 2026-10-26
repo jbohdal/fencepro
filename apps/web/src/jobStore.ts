@@ -1,6 +1,6 @@
 import type { SavedQuote } from './QuotesPage'
 import { newId } from './recordSync'
-import { registerKind, enqueue, hasPending, reapply, pendingFor, type Op } from './outbox'
+import { registerKind, enqueue, hasPending, reapply, pendingFor, REFUSED_EVENT, type Op } from './outbox'
 import { sendJson } from './syncHttp'
 import { notifyStageBlocked } from './stageBlocked'
 import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
@@ -351,6 +351,20 @@ function jobDeps(j: Job): string[] {
   const keys = [j.customerId ? `customer:${j.customerId}` : '', j.quoteId ? `quote:${j.quoteId}` : ''].filter(Boolean)
   return keys.filter(k => pendingFor(k).length > 0)
 }
+/**
+ * A job save as queued: the job after the edit, `_base` the job as this screen
+ * had it before (kept from the first of edits merged while waiting; outbox.ts),
+ * `_reopen` when the owner or the office said Reopen to move a closed job back.
+ * The server leaves alone what this screen did not change and refuses a stage
+ * move made on an old copy (routes/saved-jobs.ts; round 2b, Oct 26 2026).
+ */
+type JobSave = Job & { _base?: Job; _reopen?: boolean }
+const plainJob = (j: JobSave): Job => { const { _base, _reopen, ...rest } = j; void _base; void _reopen; return rest }
+/** Codes the server refuses a stale or closed-job move with: the screen takes the server's copy and says why. */
+const STALE_CODES = new Set(['STALE_JOB', 'REOPEN_NEEDED'])
+/** What a stage move changes on a job (opsStageModel fieldsForStage, hold and close out). */
+const STAGE_KEYS = ['status', 'previousStatus', 'opsStage', 'holdReason', 'completedDate', 'completedBy', 'actualDays', 'materialsStatus', 'drawingComplete'] as const
+
 const takeJobFields = (op: Op<Job>, data: unknown) => {
   const id = op.payload.id
   if (!data || hasPending(`job:${id}`)) return
@@ -365,31 +379,49 @@ registerKind<Job>('job.create', {
   confirmed: takeJobFields,
   apply: op => { if (!cache.some(j => j.id === op.payload.id)) cache = [op.payload, ...cache] },
 })
-registerKind<Job>('job.update', {
+registerKind<JobSave>('job.update', {
   refused: () => { lastSync = null; void refreshJobs() },
   what: () => 'This change to the job',
   send: async op => {
-    const r = await sendJson('PATCH', `/api/saved-jobs/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload))
+    const p = op.payload
+    const r = await sendJson('PATCH', `/api/saved-jobs/${encodeURIComponent(p.id)}`, { ...toApiPayload(p), ...(p._base ? { base: toApiPayload(p._base) } : {}), ...(p._reopen ? { reopen: true } : {}) })
+    if (r.status === 409 && STALE_CODES.has(r.json?.code) && r.json?.data) {
+      // The job changed on the server (closed out by a payment, a signature or the crew's Finish), or it is closed:
+      // the move is not made. The screen shows the server's stage, the reason is said, and the rest of the edit
+      // (a note) goes again without the move.
+      const server = fromApi(r.json.data as SavedJobRecord) as any
+      const back: any = { ...p, _base: { ...(p._base ?? p) } }
+      for (const k of STAGE_KEYS) { back[k] = server[k]; back._base[k] = server[k] }
+      delete back._reopen
+      op.payload = back
+      cache = cache.map(j => j.id === back.id ? { ...plainJob(back), updatedAt: server.updatedAt } : j)
+      emit()
+      try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message: String(r.json.error || 'This job changed. Look at it again.'), label: op.label } })) } catch { /* no window (tests) */ }
+      return { ok: false, status: 409, retryNow: true }
+    }
     if (r.status === 409 && r.json?.code === 'STAGE_BLOCKED' && r.json?.data) {
       // A stage rule refused the move: the job goes back to the stage the server has, the rest of the edit goes again, and the screen says what is missing.
       const server = fromApi(r.json.data as SavedJobRecord) as any
       const back: any = { ...op.payload }
-      for (const k of ['status', 'previousStatus', 'opsStage', 'materialsStatus', 'drawingComplete', 'locatesDate', 'completedDate']) back[k] = server[k]
+      const keys = ['status', 'previousStatus', 'opsStage', 'materialsStatus', 'drawingComplete', 'locatesDate', 'completedDate']
+      for (const k of keys) back[k] = server[k]
+      // The server's stage is now this edit's starting point too.
+      if (back._base) { back._base = { ...back._base }; for (const k of keys) back._base[k] = server[k] }
       op.payload = back
-      cache = cache.map(j => j.id === back.id ? back : j)
+      cache = cache.map(j => j.id === back.id ? plainJob(back) : j)
       emit()
       notifyStageBlocked(r.json.blocked ?? [])
       return { ok: false, status: 409, retryNow: true }
     }
     return r.result
   },
-  confirmed: takeJobFields,
-  apply: op => { cache = cache.map(j => j.id === op.payload.id ? op.payload : j) },
+  confirmed: takeJobFields as any,
+  apply: op => { cache = cache.map(j => j.id === op.payload.id ? plainJob(op.payload) : j) },
 })
 
 /* ───────── update ───────── */
 
-export function updateJob(id: string, updates: Partial<Job>): Job | null {
+export function updateJob(id: string, updates: Partial<Job>, opts: { reopen?: boolean } = {}): Job | null {
   const idx = cache.findIndex(j => j.id === id)
   if (idx < 0) return null
 
@@ -401,7 +433,7 @@ export function updateJob(id: string, updates: Partial<Job>): Job | null {
   emit()
   // Queued behind the job's create and earlier edits. The latest cached copy
   // is what gets sent, so rapid edits cannot land out of order.
-  void enqueue<Job>({ key: `job:${id}`, kind: 'job.update', payload: next, label: `${next.customerName || 'Job'}, job changes`, after: jobDeps(next) })
+  void enqueue<JobSave>({ key: `job:${id}`, kind: 'job.update', payload: { ...next, _base: prev, ...(opts.reopen ? { _reopen: true } : {}) }, label: `${next.customerName || 'Job'}, job changes`, after: jobDeps(next) })
   // Local view of the rest of this function uses `jobs`/`prev`/`jobs[idx]`
   // semantics from before; re-bind for minimal further change below.
   const jobs = cache
@@ -476,6 +508,8 @@ export async function saveJobLocate(id: string, input: { ticket: string; calledD
   const job = fromApi(r.json.data as SavedJobRecord)
   cache = cache.map(j => j.id === id ? { ...j, locatesDate: job.locatesDate, locatesExpDate: job.locatesExpDate, locateTicket: job.locateTicket, locateCalledDate: job.locateCalledDate, locateUpdatedBy: job.locateUpdatedBy, locateUpdatedAt: job.locateUpdatedAt, updatedAt: job.updatedAt } : j)
   emit()
+  // A job waiting on its locate moves on by itself once it is in (portal lib/jobTruth.ts prepStageFollows): read the stage.
+  void refreshJobs()
   return { ok: true, job: cache.find(j => j.id === id) ?? job }
 }
 

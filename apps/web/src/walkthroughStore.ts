@@ -15,6 +15,7 @@ import { registerKind, enqueue, allOps, type Op } from './outbox'
 import { sendJson, API_ORIGIN } from './syncHttp'
 import { fetchWithAuth } from './crmAuth'
 import { getConfig } from './configStore'
+import { refreshJobs } from './jobStore'
 import {
   templatesFrom, categoryForStyle, itemsFromTemplate, photoSlots, mergeSlots, missingToFinish,
   type WalkItem, type PhotoSlot, type Signature, type WalkCategory, type ItemResult, type LayoutSides,
@@ -115,12 +116,14 @@ function update(jobId: string, fn: (w: Walkthrough) => Walkthrough) {
 }
 
 /** The server's answer becomes the screen's copy, with changes still waiting put back on top. */
-function took(_op: Op, data: unknown) {
+function took(op: Op, data: unknown) {
   const w = data as Walkthrough | null
   if (!w?.jobId) return
   byJob.set(w.jobId, w)
   reapplyFor(w.jobId)
   emit()
+  // Both signatures in can close the job out on the server: an open job window reads it again.
+  if (op.kind === 'walkthrough.sign') void refreshJobs()
 }
 
 // ── Changes (each queued) ────────────────────────────────────────────────────
@@ -211,13 +214,13 @@ kind<SignP>('walkthrough.sign', {
 export interface JobForWalk { id: string; fenceStyle: string; walkGates: number; dblGates: number }
 
 /** Start the job's walkthrough on this phone (queued; works with no signal). */
-export async function startWalkthrough(job: JobForWalk, opts: { layout?: LayoutSides | null; runCount?: number; by?: string | null } = {}): Promise<Walkthrough> {
+export async function startWalkthrough(job: JobForWalk, opts: { layout?: LayoutSides | null; runCount?: number; by?: string | null; repairGates?: number } = {}): Promise<Walkthrough> {
   const existing = byJob.get(job.id)
   if (existing) return existing
   const category = categoryForStyle(job.fenceStyle)
   const templates = templatesFrom((getConfig() as any).walkthroughTemplates)
   const items = itemsFromTemplate(templates[category])
-  const photos = opts.layout?.sides?.some(s => s.on) ? photoSlots({ layout: opts.layout }) : photoSlots({ sideCount: Math.max(1, opts.runCount ?? 1), gateCount: (job.walkGates || 0) + (job.dblGates || 0) })
+  const photos = opts.layout?.sides?.some(s => s.on) ? photoSlots({ layout: opts.layout, repairGates: opts.repairGates }) : photoSlots({ sideCount: Math.max(1, opts.runCount ?? 1), gateCount: (job.walkGates || 0) + (job.dblGates || 0), repairGates: opts.repairGates })
   const id = newId()
   await queue<CreateP>('walkthrough.create', walkKey(id), { walkthroughId: id, jobId: job.id, category, items, photos, startedBy: opts.by ?? null }, 'Final walkthrough started')
   return byJob.get(job.id)!
@@ -281,7 +284,7 @@ async function call(method: string, rest: string, w: Walkthrough): Promise<{ ok:
 /** Finish: the server makes the certificate, or says what is missing. */
 export async function finishWalkthrough(w: Walkthrough): Promise<{ ok: boolean; missing?: string[]; error?: string }> {
   const r = await call('POST', '/finish', w)
-  if (r.ok && r.data) { byJob.set(w.jobId, r.data); reapplyFor(w.jobId); emit(); return { ok: true } }
+  if (r.ok && r.data) { byJob.set(w.jobId, r.data); reapplyFor(w.jobId); emit(); void refreshJobs(); return { ok: true } }
   return { ok: false, missing: r.data?.missing, error: r.error }
 }
 

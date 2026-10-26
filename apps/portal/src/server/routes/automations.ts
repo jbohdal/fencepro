@@ -25,6 +25,7 @@
 import { crewScope } from '../lib/crewScope.js'
 import { refuseNoPrices } from '../lib/costRedact.js'
 import { Router } from 'express'
+import { prepStageFollows } from '../lib/jobTruth.js'
 import { z } from 'zod'
 import fs from 'fs'
 import jwt from 'jsonwebtoken'
@@ -452,6 +453,8 @@ router.put('/permits/:jobId', requireCan('permits.change'), async (req: any, res
     })
     // Two saves of a job's first permit at the same moment: the second finds the first and updates it.
     const permit = await save().catch(e => { if (isUniqueViolation(e)) return save(); throw e })
+    // Waiting on the permit (or the locate): the job moves on to the stage its records put it in (lib/jobTruth.ts).
+    if (before?.status !== permit.status) await prepStageFollows(accountId, job.id, 'the permit was saved')
     res.json({ success: true, data: { permit, portal: portalFor(permit.county) } })
   } catch (err) { fail(res, err, 'save the permit') }
 })

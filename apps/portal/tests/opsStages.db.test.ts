@@ -187,8 +187,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Operations stages (dev database)
     const paid = await call('PATCH', `/api/saved-jobs/${jobId.sched}`, { status: 'paid', paymentStatus: 'paid', amountPaid: 1 })
     expect(paid.json.data.opsStage).toBe('paid')
     expect((await call('PATCH', `/api/saved-jobs/${jobId.sched}`, { opsStage: 'nope' })).status).toBe(400)
-    // Put it back for the next test.
-    const back = await call('PATCH', `/api/saved-jobs/${jobId.sched}`, { opsStage: 'punch_list' })
+    // Put it back for the next test: a Paid job goes back only with Reopen (round 2b).
+    expect((await call('PATCH', `/api/saved-jobs/${jobId.sched}`, { opsStage: 'punch_list' })).json.code).toBe('REOPEN_NEEDED')
+    const back = await call('PATCH', `/api/saved-jobs/${jobId.sched}`, { opsStage: 'punch_list', reopen: true })
     expect(back.json.data).toMatchObject({ opsStage: 'punch_list', status: 'in_progress' })
     // A new job lands in the first stage.
     const made = await call('POST', '/api/saved-jobs', { customerName: `${tag} new`, status: 'staging' })

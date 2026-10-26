@@ -24,9 +24,11 @@ export function crewDays(jobs: Job[], entries: Array<{ stagingJobId?: string; da
   const crewName = (id: string) => crews.find(c => c.id === id)?.name ?? id
   const out: CrewDay[] = []
   for (const job of jobs) {
-    // Finished jobs are not on the list.
-    if (job.completedDate || job.status === 'completed' || job.status === 'invoiced' || job.status === 'paid') continue
-    const mine = entries.filter(e => e.stagingJobId === job.id && /^\d{4}-\d{2}-\d{2}$/.test(e.date))
+    // Finished jobs are not on the list, except today's card of a job finished today: the crew sees "Job finished
+    // and closed out" after the tap that closed it, instead of the card vanishing (round 2b, Oct 26 2026).
+    const finished = !!job.completedDate || job.status === 'completed' || job.status === 'invoiced' || job.status === 'paid'
+    if (finished && job.completedDate !== today) continue
+    const mine = entries.filter(e => e.stagingJobId === job.id && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && (!finished || e.date === today))
     const days = [...new Set(mine.map(e => e.date))].sort()
     if (days.length) {
       days.forEach((day, i) => {
@@ -34,7 +36,7 @@ export function crewDays(jobs: Job[], entries: Array<{ stagingJobId?: string; da
         const e = mine.find(x => x.date === day)!
         out.push({ job, day, crew: crewName(e.crewId) || job.crewAssigned, dayNo: i + 1, days: days.length })
       })
-    } else if (job.scheduledDate && job.scheduledDate >= today && job.scheduledDate <= until) {
+    } else if (job.scheduledDate && job.scheduledDate >= today && job.scheduledDate <= until && (!finished || job.scheduledDate === today)) {
       out.push({ job, day: job.scheduledDate, crew: crewName(job.crewAssigned) || job.crewAssigned, dayNo: 1, days: Math.max(1, job.estimatedDays || 1) })
     }
   }

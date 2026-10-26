@@ -28,7 +28,7 @@ import { toast } from './toast'
 import { useBackLayer } from './nav'
 import {
   loadWalkthrough, getWalkthrough, startWalkthrough, setItem, setCounts, setSlotPhoto, fixPunch, sign, finishWalkthrough, homeownerLink, turnOffLink,
-  certificateBlob, walkthroughUrl, photoSrc, missingNow, walkPending, isWalkOp, walkVersion, WALKTHROUGH_EVENT, ROLES, CATEGORY_LABEL, locationText,
+  certificateBlob, walkthroughUrl, photoSrc, missingNow, walkPending, isWalkOp, walkVersion, WALKTHROUGH_EVENT, ROLES, CATEGORY_LABEL, locationText, repairGateCount,
   type Walkthrough, type PhotoSlot, type PunchItem, type Signature, type WalkItem,
 } from './walkthroughStore'
 
@@ -86,7 +86,8 @@ export default function FinalWalkthroughPanel({ job }: { job: Job }) {
 
   async function start() {
     const quote = job.quoteId ? getQuotes().find(q => q.id === job.quoteId) : undefined
-    await startWalkthrough({ id: job.id, fenceStyle: job.fenceStyle, walkGates: job.walkGates, dblGates: job.dblGates }, { layout: quote?.layout?.yard ?? null, runCount: quote?.runs?.length, by: me })
+    // A repair: the gates it rehung or replaced are photographed too (it has no new walk or double gates).
+    await startWalkthrough({ id: job.id, fenceStyle: job.fenceStyle, walkGates: job.walkGates, dblGates: job.dblGates }, { layout: quote?.layout?.yard ?? null, runCount: quote?.runs?.length, by: me, repairGates: repairGateCount((quote as { work?: Parameters<typeof repairGateCount>[0] } | undefined)?.work) })
     setOpen(true)
   }
 

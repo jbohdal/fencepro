@@ -29,6 +29,7 @@ import { fetchWithAuth } from './crmAuth'
 import { newId } from './recordSync'
 import { can } from './permissions'
 import { getConfig } from './configStore'
+import { refreshJobs } from './jobStore'
 
 // ── What the server sends ───────────────────────────────────────────────────
 
@@ -293,6 +294,8 @@ registerKind<PaymentOp>('payment.create', {
     else if (was) shown.set(op.payload.id, { ...was, saved: true })
     take(data?.schedule)
     emit()
+    // A payment can close the job out on the server (paid in full: Complete, then Paid): an open job window reads it again.
+    void refreshJobs()
   },
 })
 
@@ -342,6 +345,8 @@ async function act(method: string, path: string, body: unknown): Promise<{ ok: b
   const r = await sendJson(method, path, body)
   if (!r.result.ok) return { ok: false, error: r.json?.error || 'Check the signal and try again.' }
   take(r.json?.data?.schedule ?? (r.json?.data?.invoices ? r.json.data : null))
+  // A void or an adjustment can change whether the job is paid in full (and close it out): read the jobs again.
+  void refreshJobs()
   return { ok: true }
 }
 export const confirmPayment = (id: string) => act('POST', `/api/payments/${encodeURIComponent(id)}/confirm`, {})

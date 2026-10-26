@@ -18,39 +18,12 @@ import { crewDaysOfWeek, isCrewDay, plusDays, nextCrewDay, holidayOn, weekWords,
 import { fetchWeekendJobs } from './installScheduleApi'
 import { crewHex } from './dispatchPins'
 import { locateOf, locateShortWarning } from '../../portal/src/server/lib/locates'
-import { getJob, getJobs, type Job } from './jobStore'
-import { installDays as crewDaysFrom } from '../../portal/src/server/lib/installDays'
+import { getJob, getJobs } from './jobStore'
 
-/** The id prefix of a month card made from a job's dates (no board entry yet). */
-const FROM_DATES = 'job-dates:'
-
-/**
- * Jobs with an install date and no board entry: one card per crew day, from
- * the start (and end, else the crew days estimated) on the crew days, on the
- * job's crew (by id or by name). A finished or archived job is left out once
- * its dates are past; Ready to schedule never lists a job with a date.
- */
-export function datedJobsWithoutEntries(all: Job[], entries: ScheduledJob[], settings: ScheduleSettings): ScheduledJob[] {
-  const booked = new Set(entries.map(e => e.stagingJobId).filter(Boolean))
-  const week = crewDaysOfWeek(settings.workDays)
-  const out: ScheduledJob[] = []
-  for (const j of all) {
-    // Done (installed, invoiced, paid): its install date is history, never shown as days ahead (Maria, installed 10/24, dated 10/29).
-    if (booked.has(j.id) || !/^\d{4}-\d{2}-\d{2}$/.test(j.scheduledDate || '') || j.status === 'on_hold' || ['completed', 'invoiced', 'paid'].includes(j.status)) continue
-    const end = /^\d{4}-\d{2}-\d{2}$/.test(j.scheduledEndDate || '') && j.scheduledEndDate! >= j.scheduledDate ? j.scheduledEndDate! : null
-    let days = crewDaysFrom(j.scheduledDate, end ? 60 : Math.max(1, j.estimatedDays || 1), week)
-    if (end) days = days.filter(d => d <= end)
-    if (!days.length) days = [j.scheduledDate]
-    const key = (j.crewAssigned || '').trim().toLowerCase()
-    const crew = settings.crews.find(c => c.id.toLowerCase() === key) ?? settings.crews.find(c => c.name.trim().toLowerCase() === key)
-    for (const d of days) out.push({
-      id: `${FROM_DATES}${j.id}:${d}`, stagingJobId: j.id, clientName: j.customerName, area: j.customerAddress, sections: j.sections, fenceType: j.fenceStyle,
-      jobPrice: j.contractValue, tearout: j.tearOutSections > 0, crewId: crew?.id ?? '', date: d, notes: '',
-      status: j.status === 'completed' || j.status === 'invoiced' || j.status === 'paid' ? 'Complete' : 'Scheduled',
-    })
-  }
-  return out
-}
+// Jobs with an install date and no board entry, shown on the month from their dates (monthEntries.ts): the
+// same list Schedule install's crew warning reads.
+import { FROM_DATES, datedJobsWithoutEntries, entryWork } from './monthEntries'
+export { datedJobsWithoutEntries }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -518,6 +491,8 @@ export default function SchedulePage() {
                               const nth = own.findIndex(x => x.id === j.id) + 1
                               // Booked on a day that is not a crew day any more (Friday switched off), and not a "weekends too" job.
                               const offDay = !isCrewDay(dateStr, crewWeek) && !(j.stagingJobId && weekendJobs.has(j.stagingJobId))
+                              // A repair or a move: its work, not a fence style and sections.
+                              const work = entryWork(j)
                               return (
                                 <div
                                   key={j.id}
@@ -530,7 +505,7 @@ export default function SchedulePage() {
                                   data-install-clash={clashIds.has(j.id) ? 'yes' : undefined}
                                   data-install-from-dates={j.id.startsWith(FROM_DATES) ? 'yes' : undefined}
                                   // Everything on hover; a tap opens the job (Move install).
-                                  title={[j.clientName, j.area, styleLabel(j.fenceType), j.sections ? `${j.sections} sections` : '', own.length > 1 ? `day ${nth} of ${own.length}` : '', crew?.name].filter(Boolean).join('\n')}
+                                  title={[j.clientName, j.area, ...(work ? [work] : [styleLabel(j.fenceType), j.sections ? `${j.sections} sections` : '']), own.length > 1 ? `day ${nth} of ${own.length}` : '', crew?.name].filter(Boolean).join('\n')}
                                   style={{ borderLeftColor: clashIds.has(j.id) ? '#dc2626' : crewColor, backgroundColor: `${crewColor}1f` }}
                                   className={`border-l-4 rounded px-1.5 py-1 ${clashIds.has(j.id) ? 'ring-2 ring-red-500' : ''} ${readOnly ? '' : 'cursor-grab'} ${j.stagingJobId ? 'cursor-pointer' : ''} group`}
                                 >
@@ -549,7 +524,8 @@ export default function SchedulePage() {
                                     {j.status === 'Rain Day' && <span title="Rain Day">🌧 </span>}
                                     {cardName(j.clientName)}
                                   </p>
-                                  {j.sections > 0 && <p className="text-[11px] text-gray-600 leading-tight">{j.sections} section{j.sections === 1 ? "" : "s"}</p>}
+                                  {work ? <p className="text-[11px] text-gray-600 leading-tight line-clamp-2" data-install-work>{work}</p>
+                                    : j.sections > 0 && <p className="text-[11px] text-gray-600 leading-tight">{j.sections} section{j.sections === 1 ? "" : "s"}</p>}
                                   {offDay && <p className="text-[11px] font-semibold text-red-700 leading-tight" data-offday-warning>{DAY_FULL[day.getDay()]} is not a work day any more. Move this day?</p>}
                                   {/* The 811 locate against this install's days, on its first day (the job's one locate record). */}
                                   {nth === 1 && (() => {
