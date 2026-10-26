@@ -15,6 +15,7 @@ import {
   sectionWidthForStyle,
   materialUnitCost,
   withPriceSource,
+  type GateWidths,
   type LineItem,
   type MaterialResult,
   type RailWidth,
@@ -67,6 +68,8 @@ export interface QuoteCalcInput {
   extraLinePosts?: number
   walkGates: number
   dblGates: number
+  /** Each gate's width in feet, from the drawing (yardLayout.ts gateWidthsOf): chain link gate leaves go by width. */
+  gateWidths?: GateWidths | null
   tearOutSections: number
   tearOutGates: number
   extraLaborHrs: number
@@ -187,6 +190,7 @@ export function calculateQuote(input: QuoteCalcInput): QuoteCalc {
       : calculateMaterialsDetailed({
           fenceStyle: style.name, runs: filled.map(r => r.ft), ...jobParts,
           ...(style.jobLot ? { jobLot: style.jobLot } : {}),
+          ...(input.gateWidths ? { gateWidths: input.gateWidths } : {}),
           // A style made in Settings: its kits are counted at its own section width (old styles: by their code, as always).
           ...(style.madeFrom ? { sectionWidth: width } : {}),
         })

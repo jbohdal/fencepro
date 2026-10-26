@@ -328,6 +328,8 @@ export interface LayoutResult {
   ends: number
   walkGates: number
   dblGates: number
+  /** Each gate's width in feet, one per gate in walkGates / dblGates (side order): chain link gate leaves go by width. */
+  gateWidthsFt: { walk: number[]; dbl: number[] }
   totalIn: number
   notes: string[]
 }
@@ -403,6 +405,10 @@ export function deriveLayout(layout: YardLayout, nearIn = 96, opts: { teeAs?: Te
   const on = layout.sides.filter(s => s.on && s.lengthIn > 0)
   const walkGates = sides.filter(r => r.gateAtIn !== null && layout.sides.find(s => s.id === r.sideId)?.gate?.type === 'walk').length
   const dblGates = sides.filter(r => r.gateAtIn !== null && layout.sides.find(s => s.id === r.sideId)?.gate?.type === 'double').length
+  const gateWidth = (type: GateType) => sides.flatMap(r => {
+    const g = r.gateAtIn !== null ? layout.sides.find(s => s.id === r.sideId)?.gate : null
+    return g && g.type === type ? [ftOf(g.widthIn)] : []
+  })
   const ov = (v: number | null | undefined) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : null)
 
   return {
@@ -415,9 +421,16 @@ export function deriveLayout(layout: YardLayout, nearIn = 96, opts: { teeAs?: Te
     ends: ov(layout.endsOverride) ?? endPosts + gatePosts,
     walkGates,
     dblGates,
+    gateWidthsFt: { walk: gateWidth('walk'), dbl: gateWidth('double') },
     totalIn: on.reduce((s, x) => s + x.lengthIn, 0),
     notes: sides.flatMap(r => r.notes.map(n => `${r.name}: ${n}`)),
   }
+}
+
+/** A saved drawing's gate widths in feet (deriveLayout gateWidthsFt), or null when there is no drawing. */
+export function gateWidthsOf(yard: YardLayout | null | undefined): { walk: number[]; dbl: number[] } | null {
+  if (!yard || !Array.isArray(yard.sides)) return null
+  try { return deriveLayout(yard).gateWidthsFt } catch { return null }
 }
 
 function deriveSide(layout: YardLayout, i: number, nearIn: number): SideResult {

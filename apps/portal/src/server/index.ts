@@ -89,6 +89,7 @@ import vendorInvoiceRoutes from './routes/vendor-invoices.js'
 import { resumeInvoiceReading } from './lib/vendorInvoices.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
 import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
+import { ensureChainGateKitsAll } from './lib/chainGateKits.js'
 import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
@@ -487,6 +488,8 @@ if (!isVercel) {
       await ensureChainDigSetAll().catch(err => console.error('[chain link] dig set check failed:', err))
       // Chain link dig set post names with 0.055 wall and size, and hook ties per section on saved kits: once per company (lib/chainDigSetPipes.ts).
       await ensureChainDigSetPipesAll().catch(err => console.error('[chain link] dig set pipe names check failed:', err))
+      // Chain link gates and hardware follow the takeoff sheet on saved dig set kits: once per company (lib/chainGateKits.ts).
+      await ensureChainGateKitsAll().catch(err => console.error('[chain link] gate kits check failed:', err))
       // Tan dig set, 6 or 8 ft panels (best price), TV-Auto DS Privacy: once per company (lib/tanAutoDsSeed.ts).
       await ensureTanAutoDsAll().catch(err => console.error('[tan dig set] 6/8 ft mix check failed:', err))
       // 8 ft tall vinyl section parts (4 ft pickets, 4 ft U channels, mid rails) at $0, included in the section price: once per company (lib/tallVinylParts.ts).

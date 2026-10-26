@@ -30,6 +30,13 @@ const PRICE_CHOICES = ['laborMode', 'subUnit', 'priceMethod', 'pricePerFoot', 'f
 const COST_CHOICES = ['subRate', 'laborCost', 'costFactor', 'commissionPct', 'commissionMode'] as const
 
 const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
+const feet = (a: unknown): number[] | null => (Array.isArray(a) && a.length <= 50 && a.every(x => typeof x === 'number' && Number.isFinite(x) && x > 0) ? a : null)
+/** { walk: number[], dbl: number[] } in feet, or null. */
+const gateWidthsIn = (g: Json): { walk: number[]; dbl: number[] } | null => {
+  if (!g || typeof g !== 'object') return null
+  const walk = feet(g.walk), dbl = feet(g.dbl)
+  return walk && dbl ? { walk, dbl } : null
+}
 
 export async function dataFor(accountId: string) {
   const [b, inv] = await Promise.all([
@@ -64,6 +71,9 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
     fenceStyle: String(b.fenceStyle ?? ''),
     runs,
     corners: num(b.corners), ends: num(b.ends), walkGates: num(b.walkGates), dblGates: num(b.dblGates),
+    // Gate widths in feet (chain link gate leaves go by width): sent by the quote builder, or read from a saved drawing.
+    ...(gateWidthsIn(b.gateWidths) ? { gateWidths: gateWidthsIn(b.gateWidths) } : {}),
+    ...(b.yard && typeof b.yard === 'object' && Array.isArray(b.yard.sides) ? { yard: b.yard } : {}),
     // Vinyl tees counted as line posts (yardLayout.ts VINYL_TEE_POST).
     ...(num(b.extraLinePosts) > 0 ? { extraLinePosts: Math.round(num(b.extraLinePosts)) } : {}),
     tearOutSections: num(b.tearOutSections), tearOutGates: num(b.tearOutGates),

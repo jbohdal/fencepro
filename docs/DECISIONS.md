@@ -10,6 +10,26 @@ or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same co
 - **Green Chain Link, 4 ft, Residential:** Jonathan asked for it ("copy the black chain link setup and kits, swap in the green parts from this quote"), so the Oct 26 "no style is made without asking" is answered for 4 ft. No dig and Dig set, like black 4 ft; the black kits' quantities; the parts are what 06-251707 sells (PP20 posts, 2-1/2" bands, hinge and dome cap, the .055 gate, a 30" drop rod, steel hog rings, vinyl coated tension wire whose color is not printed); the plain BOLT/NUT lines are the galvanized bolts. It stays switched off until Jonathan has seen the 100 ft test yard. No green line yet for the double gate's 2-1/2" fork and 48" drop rod, or the dig set posts (6 ft long pipe).
 - **In the app:** apps/portal/src/server/lib/greenChainLink.ts, vendorInvoices.ts (replaceQuoteWith); scripts/stephens-quotes-2026-10-26b.ts; pinned in apps/portal/tests/greenChainLink.test.ts.
 
+## 2026-10-26: chain link gates and hardware follow the sheet
+
+- **Jonathan:** "Chain link: follow the sheet (gate leaf sizes, e.g. 10 ft double gate = 2 × 4'x5', and the hardware counts)."
+- **Gate leaves by width** (sheet rows "Chainlink, Galv / Black, Gate, 1-3/8", {h}' x {w}'"): a walk gate 4, 5 or 6 ft wide is one leaf that wide; a double gate 8, 10 or 12 ft wide is two leaves of half its width (10 ft = 2 × {h}' x 5'). Every residential height and finish. Until now every leaf was 4 ft wide.
+- **Where the width comes from:** the yard drawing (each gate's width). A gate count typed in the run list has no width: a walk gate stays 4 ft and a double gate 8 ft (two 4 ft leaves), as before. A drawn width the sheet has no row for (for example a 3 ft or 7 ft walk gate, a 14 ft double gate) is priced the same way, and the quote says so.
+- **Hardware, as the sheet's rows count it** (galvanized G, black Black; commercial the G rows):
+  - Hinge, Female: 2 per walk gate, 6 per double gate (was 2 and 4).
+  - Hinge, Male: 2 per walk gate, 4 per double gate (unchanged).
+  - Fork, PS, 2-1/2": 1 per job with any walk gate (was 2 per double gate). Fork, PS, 1-3/8": 1 per job with any double gate (was 2 per walk gate). The sheet gives the two sizes the other way round from the old parts list.
+  - Collar, PS, 1-3/8" (Set of 2): 1 per job with any gate (was 2 per walk gate).
+  - Drop rod: 1 per job with any double gate (was 1 per walk gate and 2 per double gate): galvanized "G, Drop Rod, 24""; black 4 and 5 ft "Drop Rod, 24", Black"; black 6 ft "Drop Rod, 48", Black"; commercial "Comm, G, Com Drop Rod Assy." (was 1 per gate).
+  - Bolt, 3/8" x 3": 2 × gateCount, a double gate counting as 2 (2 per walk gate, 4 per double gate; was 2 per walk gate, none on a double).
+  - Bolt, 3/8" x 2": the sheet's cell is an unresolved reference ($C$132 black, $C$142 galvanized), so it stays as it was (2 per walk gate; commercial 2 per end post) until Jonathan gives the count. Asked Oct 26.
+  - The once per job rows are odd (a job with three walk gates gets one collar set) but are the sheet's anyAddOn rows, ported as written.
+- **Commercial:** the sheet has no commercial gate leaf, so none is listed (as before); its hinges, forks, collar, 3/8" x 3" bolts and drop rod follow the rows above. Commercial stays not available for quoting.
+- **Not changed (no sheet row):** chain link dig set concrete (½ bag per post, copied from aluminum dig set); the sheet has no chain link concrete row. Asked Oct 26.
+- **Kits:** gate kits by width (walk gate 5 / 6 ft, double gate 10 / 12 ft; a set without one uses its 4 ft walk / 8 ft double gate kit) and once per job kits (any gate, any walk gate, any double gate). Saved chain link dig set kits still on the old gate kits get the no dig style's gate kits once (lib/chainGateKits.ts); an edited one is left as it is. Moves and repairs of a chain link gate include the once per job parts.
+- **Saved quotes** keep the prices they were priced with. Chain link quotes whose price would change if repriced (Oct 26): live, 2, both sold (Rick Rocco, 4 ft black, one 6 ft walk gate, $3,223 → $3,196; Shawn Hart, 4 ft galvanized, one 6 ft walk gate, $5,087.79 → $5,097.43). No open chain link quote has a gate.
+- **In the app:** apps/web/src/materialCalculator.ts (chainLinkGates, gateSizes, gateCounts), materialKits.ts (gate width and once per job kits), chainDigSet.ts (planChainGateKits), yardLayout.ts (gateWidthsFt), quoteCalc.ts / quoteJob.ts / QuoteBuilder.tsx (gate widths to the takeoff), moveRepair.ts; pinned in apps/portal/tests/chainGates.test.ts.
+
 ## 2026-10-26: vendor documents (Stephens Pipe & Steel quotations); dig set post pipe
 
 - **Standing rules for every vendor document:** a quotation marked "We ordered this" updates prices (06-251126 and 06-251608 are treated that way); a Fuel Charge is never in an item's price, it is a flat charge per order recorded on the vendor bill only; freight is spread over the lines of real orders; a document with no tax line gets 7.22% added to the landed cost, flagged "estimated tax". Every price change is shown before and after, with a backup first.

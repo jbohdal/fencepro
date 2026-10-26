@@ -68,10 +68,27 @@ export interface KitCounts {
   end: number
   /** One blank post at the center of every double gate. */
   blank: number
+  /** Walk gates with no kit of their own width: 4 ft, a typed count (no width), or a width the takeoff sheet has no row for. */
   walkGate: number
+  /** Double gates with no kit of their own width: 8 ft, a typed count, or a width with no sheet row. */
   dblGate: number
+  /**
+   * Gates by width (chain link, TAKEOFF_RULES "Walk Gate - 5'" ... "Dbl Gate - 12'"):
+   * walk gates 5 or 6 ft wide, double gates 10 or 12 ft wide. A kit set with no
+   * kit for one of these uses its walk gate (4 ft) / double gate (8 ft) kit.
+   */
+  walkGate5?: number
+  walkGate6?: number
+  dblGate10?: number
+  dblGate12?: number
+  /** 1 when the job has any gate / any walk gate / any double gate, else 0 (the sheet's anyAddOn rows: once per job). */
+  anyGate?: number
+  anyWalkGate?: number
+  anyDblGate?: number
   perFoot: number
   perJob: number
+  /** Gate widths the takeoff sheet has no row for (priced as the 4 ft / 8 ft gate), named on the quote. */
+  gateNotes?: string[]
 }
 export interface KitLine {
   part: string; qty: number; fallbackCost: number
@@ -249,6 +266,50 @@ export interface JobInputs {
   sectionWidth?: number
   /** Line posts beyond the runs' own (sections − 1 per run): vinyl tees from the yard layout (yardLayout.ts VINYL_TEE_POST). */
   extraLinePosts?: number
+  /** Each gate's width in feet, from the yard drawing (yardLayout.ts gateWidthsOf). Used only when it has one width for every gate. */
+  gateWidths?: GateWidths | null
+}
+
+/** Each gate's opening width in feet, one entry per gate. */
+export interface GateWidths { walk: number[]; dbl: number[] }
+
+/**
+ * Gates by the widths the takeoff sheet has rows for (TAKEOFF_RULES chain link
+ * gate rows: "Walk Gate - 4'/5'/6'", "Dbl Gate - 8'/10'/12'"; a double gate is
+ * two leaves of half its width). A typed gate count has no width: a walk gate
+ * is 4 ft and a double gate 8 ft (two 4 ft leaves), as the parts lists always
+ * priced them. A width the sheet has no row for is priced the same way and
+ * named in `notes`. Widths are used only when there is one for every gate.
+ */
+export function gateSizes(walkGates: number, dblGates: number, widths?: GateWidths | null): {
+  walk4: number; walk5: number; walk6: number; dbl8: number; dbl10: number; dbl12: number; notes: string[]
+} {
+  const out = { walk4: walkGates, walk5: 0, walk6: 0, dbl8: dblGates, dbl10: 0, dbl12: 0, notes: [] as string[] }
+  const ok = (a: unknown, n: number): a is number[] => Array.isArray(a) && a.length === n && a.every(x => typeof x === 'number' && Number.isFinite(x) && x > 0)
+  if (!widths || !ok(widths.walk, walkGates) || !ok(widths.dbl, dblGates)) return out
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.05
+  const ft = (w: number) => `${Math.round(w * 100) / 100} ft`
+  for (const w of widths.walk) {
+    if (near(w, 5)) { out.walk5++; out.walk4-- }
+    else if (near(w, 6)) { out.walk6++; out.walk4-- }
+    else if (!near(w, 4)) out.notes.push(`a ${ft(w)} walk gate (the takeoff sheet has 4, 5 and 6 ft; priced as a 4 ft gate)`)
+  }
+  for (const w of widths.dbl) {
+    if (near(w, 10)) { out.dbl10++; out.dbl8-- }
+    else if (near(w, 12)) { out.dbl12++; out.dbl8-- }
+    else if (!near(w, 8)) out.notes.push(`a ${ft(w)} double gate (the takeoff sheet has 8, 10 and 12 ft; priced as an 8 ft gate, two 4 ft leaves)`)
+  }
+  return out
+}
+
+/** The gate part of a job's kit counts: gates by width, and the once per job flags. */
+export function gateCounts(walkGates: number, dblGates: number, widths?: GateWidths | null): Pick<KitCounts, 'walkGate' | 'dblGate' | 'walkGate5' | 'walkGate6' | 'dblGate10' | 'dblGate12' | 'anyGate' | 'anyWalkGate' | 'anyDblGate' | 'gateNotes'> {
+  const g = gateSizes(walkGates, dblGates, widths)
+  return {
+    walkGate: g.walk4, dblGate: g.dbl8, walkGate5: g.walk5, walkGate6: g.walk6, dblGate10: g.dbl10, dblGate12: g.dbl12,
+    anyGate: walkGates + dblGates > 0 ? 1 : 0, anyWalkGate: walkGates > 0 ? 1 : 0, anyDblGate: dblGates > 0 ? 1 : 0,
+    ...(g.notes.length ? { gateNotes: g.notes } : {}),
+  }
 }
 
 export interface LineItem {
@@ -391,6 +452,63 @@ function clHeight(s: string): 4 | 5 | 6 {
   return 6
 }
 
+/** TAKEOFF_RULES gate leaf costs (workbook), by finish, fence height and leaf width: only the fallback when Inventory has no price. */
+const CHAIN_GATE_COST: Record<'galv' | 'black', Record<4 | 5 | 6, Record<4 | 5 | 6, number>>> = {
+  galv: { 4: { 4: 85.00, 5: 90.28, 6: 99.51 }, 5: { 4: 88.85, 5: 102.45, 6: 115.67 }, 6: { 4: 114.86, 5: 130.08, 6: 146.41 } },
+  black: { 4: { 4: 123.95, 5: 133.69, 6: 143.42 }, 5: { 4: 138.46, 5: 173.51, 6: 194.50 }, 6: { 4: 154.66, 5: 175.27, 6: 197.35 } },
+}
+
+/**
+ * Chain link gates and their hardware, row by row from TAKEOFF_RULES.md
+ * (Jonathan, Oct 26, 2026: "Chain link: follow the sheet"; docs/DECISIONS.md):
+ *
+ *   Chainlink, {Galv|Black}, Gate, 1-3/8", {h}' x {w}'
+ *                       1 per walk gate {w} ft, 2 per double gate {2w} ft
+ *                       (walk 4/5/6 ft, double 8/10/12 ft = two 4/5/6 ft leaves;
+ *                       no width known = 4 ft walk, 8 ft double, see gateSizes)
+ *   Hinge, Female       2 per walk gate, 6 per double gate
+ *   Hinge, Male         2 per walk gate, 4 per double gate
+ *   Fork, PS, 1-3/8"    1 per job with any double gate   anyAddOn(["Dbl Gate - ..."])
+ *   Fork, PS, 2-1/2"    1 per job with any walk gate     anyAddOn(["Walk Gate - ..."])
+ *   Collar (Set of 2)   1 per job with any gate          anyAddOn([every gate])
+ *   Drop rod            1 per job with any double gate: galvanized "G, Drop Rod, 24"",
+ *                       black 4 and 5 ft "Drop Rod, 24", Black", black 6 ft
+ *                       "Drop Rod, 48", Black", commercial "Comm, G, Com Drop Rod Assy."
+ *   Bolt, 3/8" x 3"     2*gateCount: 2 per walk gate, 4 per double gate
+ *   Bolt, 3/8" x 2"     the sheet's cell is an unresolved reference ($C$132 / $C$142):
+ *                       kept as the parts list had it (2 per walk gate; commercial
+ *                       2 per end post) until Jonathan gives the count.
+ *
+ * Commercial has no gate leaf row on the sheet, so no gate leaf is listed (as before).
+ */
+function chainLinkGates(
+  add: (item: string, qty: number, fallbackCost?: number) => void,
+  finish: 'galv' | 'black' | 'commercial', h: 4 | 5 | 6, walkGates: number, dblGates: number, widths?: GateWidths | null,
+): void {
+  const g = gateSizes(walkGates, dblGates, widths)
+  const gateCount = walkGates + dblGates * 2
+  const anyGate = walkGates + dblGates > 0 ? 1 : 0, anyWalk = walkGates > 0 ? 1 : 0, anyDbl = dblGates > 0 ? 1 : 0
+  if (finish !== 'commercial') {
+    const leaf = (w: 4 | 5 | 6) => finish === 'galv'
+      ? `Chainlink, Galv, Gate, 1-3/8", ${h}' x ${w}' (.055)`
+      : `Chainlink, Black, Gate, 1-3/8", ${h}' x ${w}' (.065)`
+    add(leaf(4), g.walk4 + g.dbl8 * 2, CHAIN_GATE_COST[finish][h][4])
+    add(leaf(5), g.walk5 + g.dbl10 * 2, CHAIN_GATE_COST[finish][h][5])
+    add(leaf(6), g.walk6 + g.dbl12 * 2, CHAIN_GATE_COST[finish][h][6])
+  }
+  const black = finish === 'black'
+  add(black ? 'Black, Hinge, Female, 1-3/8" x 5/8"' : 'G, Hinge, Female, 1-3/8" x 5/8"', walkGates * 2 + dblGates * 6, black ? 1.24 : 0.83)
+  add(black ? 'Black, Hinge, Male, 2-3/8"' : 'G, Hinge, Male, PS, 2-3/8"', walkGates * 2 + dblGates * 4, black ? 2.01 : 0.83)
+  add(black ? 'Black, Fork, PS, 1-3/8"' : 'G, Fork, PS, 1-3/8"', anyDbl, black ? 1.53 : 1.18)
+  add(black ? 'Black, Fork, PS, 2-1/2"' : 'G, Fork, PS, 2-1/2"', anyWalk, black ? 1.98 : 1.53)
+  add(black ? 'Black, Collar, PS, 1-3/8" (Set of 2)' : 'G, Collar, PS, 1-3/8" (Set of 2)', anyGate, black ? 1.63 : 1.29)
+  if (finish === 'galv') add('G, Drop Rod, 24"', anyDbl, 6.88)
+  else if (finish === 'black') add(h === 6 ? 'Drop Rod, 48", Black' : 'Drop Rod, 24", Black', anyDbl, h === 6 ? 48.01 : 30.48)
+  else add('Comm, G, Com Drop Rod Assy.', anyDbl, 21.25)
+  if (finish !== 'commercial') add(black ? 'Black, Bolt, 3/8" x 2" w/ Nut' : 'G, Bolt, 3/8" x 2" w/ Nut', walkGates * 2, black ? 0.41 : 0.34)
+  add(black ? 'Black, Bolt, 3/8" x 3" w/ Nut' : 'G, Bolt, 3/8" x 3" w/ Nut', gateCount * 2, black ? 0.53 : 0.41)
+}
+
 /**
  * Residential chain link hook ties per section (Jonathan, Oct 2026): 3 on the
  * line post at 4 ft tall plus 1 for every foot of extra height, and 6 on the
@@ -429,7 +547,7 @@ export function calculateMaterialsDetailed(inputs: JobInputs): MaterialResult {
   const counts: KitCounts = {
     section: perRun ? perRun.reduce((t, n) => t + n, 0) : totalSections(runs, s), section8: 0,
     line: (perRun ? calculateLinePostsPerRun(perRun).reduce((t, n) => t + n, 0) : totalLinePosts(runs, s)) + extraLines(inputs.extraLinePosts), corner: corners, end: ends,
-    blank: dblGates, walkGate: walkGates, dblGate: dblGates, perFoot: totalFt(runs), perJob: 1,
+    blank: dblGates, ...gateCounts(walkGates, dblGates, inputs.gateWidths), perFoot: totalFt(runs), perJob: 1,
   }
   return fromKits(s, counts, inputs.tearOutSections, inputs.tearOutGates, () => legacyNotes(() => legacyCalculateMaterialsDetailed(inputs)), inputs.jobLot)
     ?? legacyCalculateMaterialsDetailed(inputs)
@@ -826,26 +944,7 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       : corners * 14 + ends * 7
     add("G, Bolt, 5/16 x 1-1/4\" w/ Nut", bolts5, 0.15)
 
-    // Gates match the fence height and are 4 ft wide per leaf.
-    const galvGate = `Chainlink, Galv, Gate, 1-3/8", ${h}' x 4' (.055)`
-    const galvGateCost = h === 4 ? 85.00 : h === 5 ? 88.85 : 114.86
-    if (walkGates > 0) {
-      add(galvGate, walkGates, galvGateCost)
-      add("G, Hinge, Female, 1-3/8\" x 5/8\"", walkGates * 2, 0.83)
-      add("G, Hinge, Male, PS, 2-3/8\"", walkGates * 2, 0.83)
-      add("G, Fork, PS, 1-3/8\"", walkGates * 2, 1.18)
-      add("G, Collar, PS, 1-3/8\" (Set of 2)", walkGates * 2, 1.29)
-      add("G, Drop Rod, 24\"", walkGates, 6.88)
-      add("G, Bolt, 3/8\" x 2\" w/ Nut", walkGates * 2, 0.34)
-      add("G, Bolt, 3/8\" x 3\" w/ Nut", walkGates * 2, 0.41)
-    }
-    if (dblGates > 0) {
-      add(galvGate, dblGates * 2, galvGateCost)
-      add("G, Hinge, Female, 1-3/8\" x 5/8\"", dblGates * 4, 0.83)
-      add("G, Hinge, Male, PS, 2-3/8\"", dblGates * 4, 0.83)
-      add("G, Fork, PS, 2-1/2\"", dblGates * 2, 1.53)
-      add("G, Drop Rod, 24\"", dblGates * 2, 6.88)
-    }
+    chainLinkGates(add, 'galv', h, walkGates, dblGates, inputs.gateWidths)
   }
 
   // ── CHAINLINK BLACK ──────────────────────────────────────────────────────────
@@ -910,26 +1009,7 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       : corners * 14 + ends * 7
     add("Black, Bolt, 5/16 x 1-1/4\" w/ Nut", bolts5, 0.18)
 
-    // Gates match the fence height and are 4 ft wide per leaf.
-    const blackGate = `Chainlink, Black, Gate, 1-3/8", ${h}' x 4' (.065)`
-    const blackGateCost = h === 4 ? 123.95 : h === 5 ? 138.46 : 154.66
-    if (walkGates > 0) {
-      add(blackGate, walkGates, blackGateCost)
-      add("Black, Hinge, Female, 1-3/8\" x 5/8\"", walkGates * 2, 1.24)
-      add("Black, Hinge, Male, 2-3/8\"", walkGates * 2, 2.01)
-      add("Black, Fork, PS, 1-3/8\" ", walkGates * 2, 1.53)
-      add("Black, Collar, PS, 1-3/8\" (Set of 2)", walkGates * 2, 1.63)
-      add("Drop Rod, 24\", Black", walkGates, 30.48)
-      add("Black, Bolt, 3/8\" x 2\" w/ Nut ", walkGates * 2, 0.41)
-      add("Black, Bolt, 3/8\" x 3\" w/ Nut", walkGates * 2, 0.53)
-    }
-    if (dblGates > 0) {
-      add(blackGate, dblGates * 2, blackGateCost)
-      add("Black, Hinge, Female, 1-3/8\" x 5/8\"", dblGates * 4, 1.24)
-      add("Black, Hinge, Male, 2-3/8\"", dblGates * 4, 2.01)
-      add("Black, Fork, PS, 2-1/2\"", dblGates * 2, 1.98)
-      add("Drop Rod, 48\", Black", dblGates * 2, 48.01)
-    }
+    chainLinkGates(add, 'black', h, walkGates, dblGates, inputs.gateWidths)
   }
 
   // ── COMMERCIAL CHAINLINK ─────────────────────────────────────────────────────
@@ -957,16 +1037,15 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     add("G, Wire, Tension, 9GA", totalFootage + 5, 0.062)
     add("G, Bolt, 5/16 x 1-1/4\" w/ Nut", corners * 14 + ends * 7, 0.15)
     add("G, Bolt, 3/8\" x 2\" w/ Nut", ends * 2, 0.34)
-    add("G, Bolt, 3/8\" x 3\" w/ Nut", (walkGates + dblGates) * 2, 0.41)
 
     if (s.includes("+1'")) {
       add("Comm, G, Barb Arm, PS, 1-7/8\" x 1-5/8\"", linePosts, 4.75)
       add("Comm, G, Barbed Wire, OK, 12.5Ga", (totalFootage + 5) * 3, 0.09)
     }
 
-    if (dblGates > 0 || walkGates > 0) {
-      add("Comm, G, Com Drop Rod Assy.", dblGates + walkGates, 21.25)
-    }
+    // Gate hardware from the sheet's rows that list CL - Com 6' / Com 6'+1' (hinges, forks,
+    // collar, 3/8" x 3" bolts, Com Drop Rod once per job with a double gate). No gate leaf row.
+    chainLinkGates(add, 'commercial', 6, walkGates, dblGates, inputs.gateWidths)
   }
 
   // ── ALUMINUM NO-DIG (Alum - ND - Emily - 48) ────────────────────────────────
@@ -1111,7 +1190,7 @@ export function calculateMixedMaterialsDetailed(input: MixedJobInputs): Material
   line += extraLines(input.extraLinePosts)
   const counts: KitCounts = {
     section, section8, line, corner: input.corners, end: input.ends, blank: input.dblGates,
-    walkGate: input.walkGates, dblGate: input.dblGates, perFoot: input.runs.reduce((t, r) => t + r.ft, 0), perJob: 1,
+    ...gateCounts(input.walkGates, input.dblGates), perFoot: input.runs.reduce((t, r) => t + r.ft, 0), perJob: 1,
   }
   if (input.kitKey) {
     // A style made from Settings has only its kits; the old white / tan lists are not its parts.
