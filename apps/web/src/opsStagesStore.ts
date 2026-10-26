@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react'
 import { sendJson } from './syncHttp'
 import {
   normalizeStages, START_OPS_STAGES, stageOfJob, stageById, phaseOf, nextStage, pickableStages, boardStages, sideStages,
-  fieldsForStage, firstStage, completeStage, reconcileOpsStage, isDonePhase, sortedStages,
+  fieldsForStage, firstStage, completeStage, reconcileOpsStage, isDonePhase, sortedStages, advanceStageOf,
   type OpsStageDef, type OpsJobLike,
 } from './opsStageModel'
 
@@ -82,8 +82,11 @@ export const stageName = (id: string | null | undefined) => stageById(list, id)?
 export const stageColor = (id: string | null | undefined) => stageById(list, id)?.color ?? '#9ca3af'
 export const stagePhase = (id: string) => phaseOf(list, id)
 export const nextOpsStage = (id: string) => nextStage(list, id)
-/** Advance from here: none from a done stage (Complete, Invoiced, Paid): a finished job is not pushed on by hand (Oct 25 2026: a paid, Complete job offered "Advance to Invoiced"). */
-export const advanceStage = (id: string) => (isDonePhase(phaseOf(list, id)) ? null : nextStage(list, id))
+/**
+ * Advance from here: none from a done stage (Complete, Invoiced, Paid): a finished job is not pushed on by hand (Oct 25 2026: a paid, Complete job offered "Advance to Invoiced").
+ * Permit Pending is passed over when the job's permit is not needed or issued (`permitOk`, jobTruthApi.permitOkOf).
+ */
+export const advanceStage = (id: string, permitOk = false) => advanceStageOf(list, id, { permitOk })
 export const pickable = () => pickableStages(list)
 /** Back from a closed stage: to one that is not done (or a hold), or to one before it on the board (the server's movesBack, routes/saved-jobs.ts). */
 export function movesBack(from: string, to: string): boolean {

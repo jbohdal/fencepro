@@ -46,7 +46,7 @@ export function useJobMilestones(jobId: string, version: unknown): { data: JobMi
   return { data, error, setData }
 }
 
-let summary: Record<string, { complete: number; total: number }> = {}
+let summary: Record<string, { complete: number; total: number; permitOk?: boolean }> = {}
 let loading: Promise<void> | null = null
 const SUMMARY_EVENT = 'ezbiz:milestones:summary'
 async function loadSummary(): Promise<void> {
@@ -58,8 +58,11 @@ async function loadSummary(): Promise<void> {
   return loading
 }
 
+/** The job's permit is not needed or issued (the server's milestones summary): Advance passes over Permit Pending. */
+export const permitOkOf = (jobId: string): boolean => summary[jobId]?.permitOk === true
+
 /** Every job's milestone count, for the Operations cards (one request for the board). */
-export function useMilestoneSummary(): Record<string, { complete: number; total: number }> {
+export function useMilestoneSummary(): Record<string, { complete: number; total: number; permitOk?: boolean }> {
   const [, setN] = useState(0)
   useEffect(() => {
     const on = () => setN(n => n + 1)

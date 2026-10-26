@@ -522,7 +522,7 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   })()
 
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none touch-none bg-white rounded-xl border border-gray-200"
+    <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none touch-none bg-white rounded-xl border border-gray-200"
       role="img" aria-label={title ?? 'Site plan'} data-site-plan data-ft-per-unit={String(ftPerPx)} onPointerDownCapture={touchDown} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
       {...(aerial ? { 'data-photo-rotation': String(rot), 'data-ft-per-px': String(aerial.ftPerPx) } : {})}
       onClick={e => { if (houseSel) setHouseSel(false); if (onPlanTap) planTap(e) }} style={onPlanTap ? { cursor: 'crosshair' } : undefined}>

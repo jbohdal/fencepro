@@ -10,15 +10,28 @@
 import { recordEvent } from '../automationEvents.js'
 import { loadOpsStages } from '../opsStages.js'
 import { stageOfJob } from '../opsStageModel.js'
+import { loadPipelineStages } from '../pipelineStages.js'
+import { roleStageId, isSoldStage, stageById } from '../pipelineStageModel.js'
 
 type Db = Parameters<typeof recordEvent>[1]
 
 const nameOf = (l: any) => `${l?.firstName ?? ''} ${l?.lastName ?? ''}`.trim()
 
-/** Sales pipeline: every card whose stage differs between `before` and `after` (saved as `version`). */
+/**
+ * Sales pipeline: every card whose stage differs between `before` and `after` (saved as `version`).
+ *
+ * A card that goes from a not sold stage straight past the Signed stage into a
+ * later "Sold, work ahead" stage (a quote marked Sold by hand: its job is made
+ * and the card follows the job to Job Prep; or a drag past it) has still been
+ * signed: it also records "moved into <Signed stage>" (passedThrough), so the
+ * Signed Contract rule and the signed counts see it once, as when the card
+ * stops there. A card already sold that moves on, and a new card, do not.
+ */
 export async function recordCardMoves(accountId: string, before: any[], after: any[], version: number, db?: Db): Promise<number> {
   const was = new Map(before.filter(l => l?.id).map(l => [l.id, l]))
   let n = 0
+  let stageList: Awaited<ReturnType<typeof loadPipelineStages>>['stages'] | null = null
+  const stagesNow = async () => (stageList ??= (await loadPipelineStages(accountId, (db as any)?.accountKeyValue ? db : undefined)).stages)
   for (const l of after) {
     if (!l?.id || !l.stage) continue
     const prev = was.get(l.id)
@@ -27,6 +40,13 @@ export async function recordCardMoves(accountId: string, before: any[], after: a
     if (prev?.stage) {
       await recordEvent({ accountId, type: 'card_left', board: 'sales', entityKind: 'card', entityId: l.id, data: { ...data, stage: prev.stage }, dedupeKey: `sales:${l.id}:left:${prev.stage}:v${version}` }, db)
       n++
+      const stages = await stagesNow()
+      const signed = roleStageId(stages, 'signed')
+      const to = stageById(stages, l.stage), at = stageById(stages, signed)
+      if (signed && l.stage !== signed && !isSoldStage(stages, prev.stage) && to && at && to.group === 'sold_ahead' && at.group === 'sold_ahead' && to.order > at.order) {
+        await recordEvent({ accountId, type: 'card_entered', board: 'sales', entityKind: 'card', entityId: l.id, data: { ...data, stage: signed, passedThrough: true }, dedupeKey: `sales:${l.id}:entered:${signed}:v${version}` }, db)
+        n++
+      }
     }
     await recordEvent({ accountId, type: 'card_entered', board: 'sales', entityKind: 'card', entityId: l.id, data, dedupeKey: `sales:${l.id}:entered:${l.stage}:v${version}` }, db)
     n++

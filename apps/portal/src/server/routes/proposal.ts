@@ -37,6 +37,7 @@ import { depositOf } from '../lib/paymentMath.js'
 import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 import { proposalPhotos, quoteCustomer, belongsToQuote } from '../lib/quoteMedia.js'
+import { svgWithNamespace } from '../lib/planSvg.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -72,7 +73,8 @@ export function safeSvg(svg: unknown): string {
   if (typeof svg !== 'string' || !/^\s*<svg[\s>]/i.test(svg) || svg.length > 400_000) return ''
   // A picture only from inside the drawing itself: the site plan's aerial photo, a JPEG or PNG kept in it.
   if (/<script|<foreignObject|\son\w+\s*=|javascript:|<iframe|<a[\s>]|href\s*=\s*["'](?!#|data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+["'])/i.test(svg)) return ''
-  return svg
+  // With the SVG namespace, so it also shows as a picture (the portal's /site-plans/<id>.svg, an <img>), not only inline.
+  return svgWithNamespace(svg)
 }
 
 /** Monthly payment for a financed price: standard amortized loan. */

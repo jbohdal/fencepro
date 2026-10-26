@@ -1107,7 +1107,7 @@ export default function QuoteBuilder({
 
         {/* One step at a time; the others stay mounted (hidden) so nothing typed is lost. */}
         <div className="md:flex-1 md:min-h-0 md:overflow-y-auto" data-quote-scroll>
-        <div className={`px-4 md:px-8 py-5 md:py-6 pb-44 md:pb-8 mx-auto w-full ${step === 'yard' && entry === 'layout' && yard ? 'max-w-3xl lg:max-w-none' : 'max-w-3xl'}`}>
+        <div className={`px-4 md:px-8 py-5 md:py-6 ${signedQuote ? 'pb-60' : 'pb-44'} md:pb-8 mx-auto w-full ${step === 'yard' && entry === 'layout' && yard ? 'max-w-3xl lg:max-w-none' : 'max-w-3xl'}`}>
           <div className={step === 'customer' ? 'space-y-6' : 'hidden'} data-step-panel="customer">
             <VoicePanel
               ref={voiceRef}
@@ -1924,18 +1924,19 @@ export default function QuoteBuilder({
                 : work ? (jobType === 'move' ? `Move ${Math.round(moveIn.oldFt)} ft → ${totalFootage} ft · ${work.sections} sections` : `Repair · ${REPAIR_ITEMS.reduce((t, k) => t + (repairIn.items[k] ?? 0), 0)} items`)
                 : totalFootage > 0 ? `${totalFootage} ft · ${sections} sections · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
             </p>
-            <div className="flex items-center gap-2 mt-1">
+            <div className={`flex items-center gap-2 mt-1 ${signedQuote ? 'flex-wrap md:flex-nowrap' : ''}`}>
               <p className="text-xl font-bold tabular-nums text-gray-900 shrink-0 whitespace-nowrap mr-auto" data-bar-price>{fmt(adjPrice)}{priced.priceMethod === 'manual' && <span className="block text-xs font-semibold text-amber-700" data-bar-price-typed>Set by hand: parts do not change it</span>}</p>
               <button type="button" className="btn btn-secondary shrink-0 min-h-[48px] px-3" onClick={() => setPhotosOpen(true)} data-photos-open aria-label={`Photos and video (${mediaItems.length})`}>
                 <Camera size={18} aria-hidden="true" /><span className="tabular-nums">{mediaItems.length}</span>
               </button>
               {signedQuote ? (
                 // A signed quote: the change order is one tap from any step (the next step stays beside it).
-                <>
-                  {step !== 'price' && <button type="button" onClick={barNext} className="btn btn-secondary shrink-0 min-h-[48px] px-3" data-bar-next>{step === 'yard' && nextSide ? 'Next side' : 'Next'}</button>}
-                  {/* Wraps to two lines on a narrow phone so the price beside it is never cut off (round 2 review: "$7,02"). */}
-                  <button disabled={!canSave} onClick={makeChangeOrderNow} className="btn btn-primary min-h-[52px] px-3 text-[15px] font-semibold min-w-0 shrink whitespace-normal leading-tight md:shrink-0 md:min-w-[160px] md:text-base" data-co-make>Make change order</button>
-                </>
+                // On a phone its own row under the price, full width, so neither the price (round 2: "$7,02") nor
+                // "Make change order" (round 5, iPhone 13: "Make / hange / order") is cut off; one row on a computer.
+                <div className="flex items-center gap-2 w-full md:w-auto md:shrink-0" data-co-make-row>
+                  {step !== 'price' && <button type="button" onClick={barNext} className="btn btn-secondary shrink-0 min-h-[52px] px-4" data-bar-next>{step === 'yard' && nextSide ? 'Next side' : 'Next'}</button>}
+                  <button disabled={!canSave} onClick={makeChangeOrderNow} className="btn btn-primary min-h-[52px] px-3 text-base font-semibold flex-1 min-w-0 whitespace-nowrap md:flex-none md:min-w-[160px]" data-co-make>Make change order</button>
+                </div>
               ) : step === 'price' ? (
                 <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
               ) : (

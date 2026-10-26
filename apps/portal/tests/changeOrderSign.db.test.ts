@@ -170,6 +170,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('customers see and sign change or
     expect(page.text).toContain('Approve and sign')
     expect(page.text).toContain('−$125.00')
     expect(page.text).not.toMatch(/materialCost|totalCOGS|E2E CO Sign Customer.*cost/i)
+    // "Questions?": the number the signed PDF's Questions line gives (Jonathan's Direct), on the link and the in-person sheet.
+    const { changeOrderPhonesFor } = await import('../src/server/lib/signedDocuments.js')
+    const { phoneWords } = await import('../src/server/lib/installDays.js')
+    const phones = await changeOrderPhonesFor(accountId, q.proposal)
+    expect(phones.questions).toBeTruthy()
+    expect(page.text).toContain(`Questions? Call us at <a href="tel:${phones.questions.replace(/[^\d+]/g, '')}"><b>${phoneWords(phones.questions)}</b></a>.`)
+    expect((await call(owner, 'GET', `/api/change-orders/${co.id}/for-signing`)).json.data.questionsPhone).toBe(phones.questions)
     expect((await call('', 'GET', '/p/co/not-a-real-token-at-all-000000')).status).toBe(404)
     const s = await call('', 'POST', `/p/co/${token}/sign`, { name: 'E2E CO Link', signature: SIG })
     expect(s.status).toBe(200)
