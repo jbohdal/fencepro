@@ -90,6 +90,7 @@ import { resumeInvoiceReading } from './lib/vendorInvoices.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
 import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
 import { ensureChainGateKitsAll } from './lib/chainGateKits.js'
+import { ensureGreenFollowsBlackAll } from './lib/greenChainLinkFollow.js'
 import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
@@ -490,6 +491,8 @@ if (!isVercel) {
       await ensureChainDigSetPipesAll().catch(err => console.error('[chain link] dig set pipe names check failed:', err))
       // Chain link gates and hardware follow the takeoff sheet on saved dig set kits: once per company (lib/chainGateKits.ts).
       await ensureChainGateKitsAll().catch(err => console.error('[chain link] gate kits check failed:', err))
+      // Green chain link kits derived again from Black 4 ft's (unless edited): every start, after the chain link steps (lib/greenChainLinkFollow.ts).
+      await ensureGreenFollowsBlackAll().catch(err => console.error('[green chain link] follow black check failed:', err))
       // Tan dig set, 6 or 8 ft panels (best price), TV-Auto DS Privacy: once per company (lib/tanAutoDsSeed.ts).
       await ensureTanAutoDsAll().catch(err => console.error('[tan dig set] 6/8 ft mix check failed:', err))
       // 8 ft tall vinyl section parts (4 ft pickets, 4 ft U channels, mid rails) at $0, included in the section price: once per company (lib/tallVinylParts.ts).

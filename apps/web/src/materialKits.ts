@@ -104,6 +104,12 @@ export interface KitSet {
   filledInAt?: string
   /** Made by Settings → Fence styles (Add color / add a choice): the choice it was made for, "material:dimension:option". */
   madeFor?: string
+  /**
+   * Kept derived from another style's kit (Green chain link from Black 4 ft,
+   * portal lib/greenChainLink.ts): `key` is the parts it was last derived as, so an
+   * edit in Material Kits (parts no longer equal to it) stops it following.
+   */
+  followsKit?: { from: string; key: string }
 }
 
 // ── Deriving the built in kits ────────────────────────────────────────────────
