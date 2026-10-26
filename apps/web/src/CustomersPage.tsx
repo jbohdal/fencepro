@@ -15,7 +15,7 @@ import { nextFor, shortWhen, TYPE_LABELS } from './appointmentLogic'
 import { useAppointmentList } from './TodayScreen'
 import { loadCustomer as loadPaymentsOf, scheduleOf, subscribe as subscribePayments, paymentsVersion, money } from './paymentsStore'
 import { HistoryList, useCustomerHistory, lastContactOf, type HistoryItem } from './CustomerHistory'
-import { CUSTOMER_TAB_LABEL, asCustomerTab, customerTabsFor, shownCustomerTab, withTab, openQuotesOf, balanceDueCents, balanceTile, nextCompact, type CustomerTab } from './customerPage'
+import { CUSTOMER_TAB_LABEL, asCustomerTab, customerTabsFor, shownCustomerTab, withTab, openQuotesOf, balanceDueCents, balanceTile, nextCompact, jobRowTarget, type CustomerTab } from './customerPage'
 import { startTouch } from './followUpStore'
 import { openBooking } from './BookingDialog'
 import { NextAppointmentBadge, CustomerAppointmentsTab } from './AppointmentWidgets'
@@ -59,7 +59,7 @@ import { newId } from './recordSync'
 import { sendJson } from './syncHttp'
 import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
-import { can } from './permissions'
+import { can, canOpenOperations } from './permissions'
 import PopMenu, { PopItem } from './PopMenu'
 import ConfirmByTyping from './ConfirmByTyping'
 import PossibleMatch from './PossibleMatch'
@@ -126,6 +126,8 @@ interface Job {
   value: number
   stage: string
   scheduledDate: string
+  /** The sold quote the job came from: a Salesman's tap opens it (she cannot open Operations). */
+  quoteId?: string
 }
 
 interface CustomerFile {
@@ -1295,6 +1297,15 @@ function CustomerDetail({
   const [quoteLimit, setQuoteLimit] = useState(LIST_PAGE)
   const [importedLimit, setImportedLimit] = useState(LIST_PAGE)
   const [jobLimit, setJobLimit] = useState(LIST_PAGE)
+  // A Jobs row: the job's window in Operations; for the Salesman (no Operations) its sold quote's window
+  // with its change orders, else the customer's pipeline card, never a bounce (customerPage.ts jobRowTarget).
+  function openJob(j: Job) {
+    const card = (getPipeline().leads || []).find((l: { customerId?: string; id: string }) => l.customerId === customer.id)
+    const t = jobRowTarget({ jobId: j.id, canOpenOperations: canOpenOperations(), quoteId: j.quoteId, quoteOnPhone: !!(j.quoteId && getQuoteById(j.quoteId)), cardId: card?.id })
+    if (t.kind === 'operations' || t.kind === 'card') navigate(t.path, { from: name || 'Customer' })
+    else if (t.kind === 'quote') onQuoteClick?.(t.quoteId)
+    else toast.info('This job opens from the office', 'Its quote is not on your phone. Ask the office to open it for you.')
+  }
   const pad = detailsColumn ? '' : 'px-4 lg:px-6'
   const sold = quotes.some(q => q.status === 'SOLD')
   // Phone (calls), email, rep and lead source, with a dot between.
@@ -1555,8 +1566,8 @@ function CustomerDetail({
                         {jobs.slice(0, jobLimit).map(j => (
                           // The row opens the job (Operations, its job window), like a quote row opens the quote (round 3).
                           <tr key={j.id} className="hover:bg-orange-50 cursor-pointer transition-colors" data-customer-job={j.id} tabIndex={0} role="link" aria-label={`Open the job: ${styleLabel(j.type) || 'job'}`}
-                            onClick={() => navigate(`/operations?job=${encodeURIComponent(j.id)}`, { from: name || 'Customer' })}
-                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/operations?job=${encodeURIComponent(j.id)}`, { from: name || 'Customer' }) } }}>
+                            onClick={() => openJob(j)}
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJob(j) } }}>
                             <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{styleLabel(j.type) || j.type}</td>
                             <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{j.sections}</td>
                             <td data-label="Value" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(j.value)}</td>
@@ -1676,6 +1687,7 @@ export default function CustomersPage({ onNewQuote }: {
       // The Operations stage (Settings > Operations Stages), by id.
       stage: stageOf(j),
       scheduledDate: j.scheduledDate || '',
+      quoteId: j.quoteId || '',
     })) as Job[]
   }
   const [quotes, setQuotes] = useState<Quote[]>(() => readQuotes())
