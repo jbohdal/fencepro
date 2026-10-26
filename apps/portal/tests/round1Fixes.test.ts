@@ -275,7 +275,8 @@ describe('Good / Better / Best on an opened draft are priced like the website', 
 
 describe('the website thank-you follows the free visit box', () => {
   test('a visit only when it was ticked', () => {
-    expect(thanksText('352-555-0161', true)).toBe('We will call you at 352-555-0161 to set up a free visit and confirm the price.')
+    expect(thanksText('352-555-0161', true)).toBe('We will call you at (352) 555 0161 to set up a free visit and confirm the price.')
+    expect(thanksText('3525550185', true)).toBe('We will call you at (352) 555 0185 to set up a free visit and confirm the price.')
     expect(thanksText('352-555-0161', false)).not.toMatch(/set up a free visit/)
     expect(thanksText('', false)).toMatch(/^We will call you about your estimate/)
   })

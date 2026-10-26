@@ -54,7 +54,7 @@ export function useAppointmentList(): Appointment[] {
 export function startQuote(a: Appointment) {
   window.dispatchEvent(new CustomEvent('ezbiz:new-quote', {
     detail: {
-      customerId: a.crmContactId, address: a.address, reuseDraft: true,
+      customerId: a.crmContactId, address: a.address, reuseDraft: true, fromVisit: true,
       notes: [a.measuredFeet ? `Measured on site: about ${a.measuredFeet} ft.` : '', a.outcomeNotes].filter(Boolean).join(' '),
     },
   }))

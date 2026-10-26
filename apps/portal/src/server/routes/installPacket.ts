@@ -5,8 +5,9 @@
  *
  * Shows the customer and address (with a map link), install date, gate codes
  * and notes, the site plan with photo pins, every run with its post to post
- * spacing, section and post counts, gates, the pull sheet quantities, all
- * Crew and Customer photos and video with captions (marked up first), and a
+ * spacing, section and post counts, gates, the pull sheet quantities, the
+ * job's Crew and Customer photos and video and every photo from its quote and
+ * site visit, with captions (marked up first; a price in one left out), and a
  * field for the 811 locate ticket. Never prices, margins or sub pay.
  *
  * The crew can add Progress and Completed photos from the link; they land on
@@ -41,6 +42,7 @@ import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { customerNotesForJob, installTimes, recordInstallTime, crewFinishedJob } from '../lib/crewInstall.js'
 import { forCrew } from '../lib/costRedact.js'
 import { partWithPair } from '../lib/partNames.js'
+import { jobQuoteMediaOr } from '../lib/quoteMedia.js'
 const todayFl = () => floridaDay(new Date())
 /** The crew's name (Schedule > Settings), never its id ("crew1"). */
 async function crewNameFor(accountId: string, v: string): Promise<string> {
@@ -362,10 +364,12 @@ packetPublic.get('/:token', async (req, res) => {
   const coLines = coChange ? sheetChanges((p.snapshot as Snapshot).pullSheet ?? [], s.pullSheet ?? []) : []
   // The fence's plain name (packets made before plain names carry the style's code).
   const styleText = panelWords(await plainStyleName(s.style ?? job!.fenceStyle), s.runs ?? [])
-  // Crew and Customer photos and video, plus what the crew added from here.
+  // The job's Crew and Customer photos and video, what the crew added from here, and every photo and video from the
+  // quote and its site visit (Internal too: the crew sees the site as the salesman saw it; lib/quoteMedia.ts).
   const ttl = 3 * 86_400_000
+  const fromQuote = await jobQuoteMediaOr(p.accountId, job!.quoteId)
   const media = await prisma.mediaItem.findMany({
-    where: { accountId: p.accountId, deletedAt: null, AND: [{ OR: [{ jobId: job!.id }, ...(job!.quoteId ? [{ quoteKey: job!.quoteId }] : [])] }, { OR: [{ visibility: { in: ['crew', 'customer'] } }, { source: 'crew' }] }] },
+    where: { accountId: p.accountId, deletedAt: null, kind: { in: ['photo', 'video'] }, OR: [{ jobId: job!.id, OR: [{ visibility: { in: ['crew', 'customer'] } }, { source: 'crew' }] }, ...fromQuote] },
     orderBy: { takenAt: 'asc' },
   })
   const items = media.map(m => serializeMedia(m, ttl))
@@ -422,9 +426,10 @@ packetPublic.get('/:token', async (req, res) => {
         const src = fix(m.markupUrl ?? m.url)
         const media = m.kind === 'video'
           ? `<video src="${esc(fix(m.previewUrl ?? m.url))}" ${m.thumbUrl ? `poster="${esc(fix(m.thumbUrl))}"` : ''} controls playsinline preload="none"></video>`
-          : `<a href="${esc(src)}"><img src="${esc(src)}" alt="${esc(m.caption || m.category)}" loading="lazy"></a>`
-        return `<figure>${media}<figcaption><b>${esc(m.category)}</b>${m.source === 'crew' ? ' · from the crew' : ''}<br>${esc(m.caption)}</figcaption></figure>`
-      }).join('')}</div>` : '<p class="small">No photos are shared with the crew yet. The office chooses which ones show here (on the job, a photo set to Crew or Customer).</p>'}
+          : `<a href="${esc(src)}"><img src="${esc(src)}" alt="${esc(m.category)}" loading="lazy"></a>`
+        // A staff caption with a price in it (an Internal photo from the quote) never reaches the crew (lib/costRedact.ts).
+        return `<figure>${media}<figcaption><b>${esc(m.category)}</b>${m.source === 'crew' ? ' · from the crew' : ''}<br>${esc(forCrew(m.caption || ''))}</figcaption></figure>`
+      }).join('')}</div>` : '<p class="small">No photos are shared with the crew yet. Photos from the quote and the site visit show here, and the job photos set to Crew or Customer.</p>'}
     </section>
     <section class="noprint"><h2>Add photos</h2>
       <p class="small">Photos and video you add here go to the office.</p>

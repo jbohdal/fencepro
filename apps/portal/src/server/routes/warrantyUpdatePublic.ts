@@ -33,6 +33,7 @@ import { pricingModule } from '../lib/estimates.js'
 import { remakeCertificateForJob } from '../lib/walkthroughCertificate.js'
 import { changedNames, recordAcknowledged, signedIndex, withUpdateWarranties, type UpdateOption } from '../lib/warrantyUpdates.js'
 import { REUSE_MS } from '../lib/proposalViewRules.js'
+import { proposalPhotos, quoteCustomer, belongsToQuote } from '../lib/quoteMedia.js'
 import rateLimit from 'express-rate-limit'
 
 export const warrantyUpdatePublic = Router()
@@ -161,11 +162,8 @@ warrantyUpdatePublic.get('/:token', async (req, res) => {
     const d = job ? await installDateOf(job) : null
     installDay = d ? (await pricingModule()).dayText(d) : null
   }
-  // A move or repair shows the photos marked Customer on the quote, as the proposal does.
-  const photos = p.kind ? await prisma.mediaItem.findMany({
-    where: { accountId: r.q.accountId, quoteKey: r.q.id, deletedAt: null, visibility: 'customer', kind: 'photo' },
-    orderBy: { takenAt: 'asc' }, take: 24, select: { id: true, caption: true, category: true },
-  }).catch(() => []) : []
+  // The photos marked Customer on the quote and its site visit, as the proposal shows them (lib/quoteMedia.ts).
+  const photos = await proposalPhotos(r.q)
   res.type('html').send(renderProposal(r.q, shown as Proposal, token, nonce, photos, installDay, notice))
 })
 
@@ -301,12 +299,12 @@ warrantyUpdatePublic.get('/:token/contract.pdf', async (req, res) => {
   }
 })
 
-// A photo marked Customer on the quote (a move or repair proposal shows them).
+// A photo marked Customer on the quote or its site visit (the proposal shows them).
 warrantyUpdatePublic.get('/:token/media/:id', async (req, res) => {
   const r = await load(String(req.params.token)).catch(() => null)
   if (!r) { res.status(404).end(); return }
   const m = await prisma.mediaItem.findUnique({ where: { id: String(req.params.id) } }).catch(() => null)
-  if (!m || m.deletedAt || m.accountId !== r.q.accountId || m.quoteKey !== r.q.id || m.visibility !== 'customer' || m.kind !== 'photo') { res.status(404).end(); return }
+  if (!m || m.deletedAt || m.accountId !== r.q.accountId || m.visibility !== 'customer' || m.kind !== 'photo' || !belongsToQuote(m, r.q.id, await quoteCustomer(r.q.accountId, r.q.id))) { res.status(404).end(); return }
   const file = m.markupPath && fs.existsSync(m.markupPath) ? m.markupPath : m.path
   if (!file || !fs.existsSync(file)) { res.status(404).end(); return }
   res.setHeader('Content-Type', file === m.markupPath ? 'image/jpeg' : m.mime)

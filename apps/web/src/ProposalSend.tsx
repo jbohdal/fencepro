@@ -17,11 +17,11 @@ import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { toast } from './toast'
 import { updateQuote } from './quoteStore'
-import { listMedia, localMedia } from './mediaStore'
+import { useQuotePhotos, PhotoTickGrid } from './CustomerPhotoTicks'
 import { moveRepairSettings } from './moveRepair'
 import WarrantyUpdateSend from './WarrantyUpdateSend'
 
-export default function ProposalSend({ quote }: { quote: SavedQuote }) {
+export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuote; onTicksShown?: (shown: boolean) => void }) {
   const [url, setUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // The link as the server last said: open until a date, turned off, or none yet.
@@ -31,24 +31,26 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   const cfg = getConfig()
   const company = cfg.company?.name || 'Getter Done Fence'
   const p = quote.proposal
-  // A move or repair: at least N photos before it is sent (Settings → Moves and Repairs), or one tap to send anyway with a reason.
+  // A move or repair: at least N photos the customer will see before it is sent (Settings → Moves and Repairs), or one tap to send anyway with a reason.
   const isWork = !!quote.work
   const need = isWork ? moveRepairSettings(cfg).photosRequired : 0
-  const [photos, setPhotos] = useState<number | null>(isWork ? null : 0)
+  // The quote's photos and its site visit's (the server adds the customer's visit photos to a saved quote's list).
+  const { photos: all, toggle } = useQuotePhotos(quote.id, quote.customerId)
+  // Only photos ticked for the customer count: the visit's are saved Internal, and those never reach the proposal (round 2 review, Oct 26 2026).
+  const photos = all ? all.filter(m => m.visibility === 'customer').length : null
   const [override, setOverride] = useState(quote.work?.photoOverride ?? null)
   const [asking, setAsking] = useState(false)
   const [reason, setReason] = useState('')
   // No yes to texts on record: the text is not opened (as with the install text); the reason and a call link show instead.
   const [noText, setNoText] = useState<string | null>(null)
-  useEffect(() => {
-    if (!isWork) return
-    let live = true
-    // The quote's photos and its site visit's (the server adds the customer's visit photos to a saved quote's list).
-    Promise.all([listMedia({ quoteKey: quote.id }).catch(() => []), localMedia({ quoteKey: quote.id, quoteCustomerId: quote.customerId ?? null }).catch(() => [])])
-      .then(([server, local]) => { if (live) setPhotos(server.filter(m => m.kind === 'photo').length + local.filter(m => m.meta.kind === 'photo' && !m.serverId).length) })
-    return () => { live = false }
-  }, [isWork, quote.id, quote.customerId])
   const photoBlock = isWork && !override && (photos ?? 0) < need
+  // "Show these to the customer": offered when the quote has photos and none are ticked, or a move or repair needs more.
+  // Once offered it stays while this box is open, so a second tick is one more tap.
+  const [ticking, setTicking] = useState(false)
+  useEffect(() => {
+    if (!ticking && all && all.length > 0 && !quote.acceptedAt && (photos === 0 || photoBlock)) setTicking(true)
+  }, [ticking, all, photos, photoBlock, quote.acceptedAt])
+  useEffect(() => { onTicksShown?.(ticking) }, [ticking])  // eslint-disable-line react-hooks/exhaustive-deps
   function sendAnyway() {
     const r = reason.trim()
     if (!r || !quote.work) return
@@ -95,7 +97,7 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
   const textOf = (u: string) => customerText(message(u), company)
 
   async function go(kind: 'open' | 'text' | 'email' | 'copy') {
-    if (kind !== 'open' && photoBlock) { toast.error(`Take at least ${need} photos of the fence first, or tap Send anyway.`); return }
+    if (kind !== 'open' && photoBlock) { toast.error(`Tick at least ${need} photos for the customer first (or take more), or tap Send anyway.`); return }
     if (kind === 'open') { await openOwn(); return }
     const u = await link()
     if (!u) return
@@ -141,9 +143,18 @@ export default function ProposalSend({ quote }: { quote: SavedQuote }) {
           Right now this link opens only on your own phones and computers, not on the customer's phone. Once outside access is set up, turn it on in Settings → Proposals.
         </p>
       )}
+      {ticking && all && all.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 space-y-2" data-send-photo-ticks>
+          <p className="text-sm font-semibold text-gray-900">Show these to the customer</p>
+          <p className="text-xs text-gray-700" data-send-photo-count={photos ?? 0}>
+            Tap each photo the customer should see, then send. {photos ? `${photos} of ${all.length} will show on the proposal.` : 'None ticked: the proposal goes out with no photos.'} Photos not ticked stay inside the company.
+          </p>
+          <PhotoTickGrid photos={all} onToggle={toggle} />
+        </div>
+      )}
       {isWork && (photoBlock ? (
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-900 space-y-2" data-photos-needed>
-          <p>{photos === null ? 'Counting photos…' : `${photos} of ${need} photos. A ${quote.work!.type === 'move' ? 'move' : 'repair'} proposal needs at least ${need} photos of the fence before it is sent (open the quote, tap the camera).`}</p>
+          <p>{photos === null ? 'Counting photos…' : `${photos} of ${need} photos ticked for the customer. A ${quote.work!.type === 'move' ? 'move' : 'repair'} proposal needs at least ${need} photos of the fence the customer can see. ${(all?.length ?? 0) >= need ? 'Tick them above.' : `${all?.length ? 'Tick the ones above and take' : 'Take'} more: open the quote, tap the camera.`}`}</p>
           {!asking
             ? <button type="button" className="btn btn-quiet btn-sm" onClick={() => setAsking(true)} data-photos-override>Send anyway</button>
             : <div className="flex gap-2"><input className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm" placeholder="Why (required)" value={reason} onChange={e => setReason(e.target.value)} data-photos-reason />

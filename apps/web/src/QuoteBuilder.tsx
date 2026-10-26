@@ -3,7 +3,7 @@ import { formatPhone } from './phoneFormat'
 import { Camera, ChevronLeft } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
-import { resolveSubRate, cleanOverrides, importedOldPrice, keepsCents } from './pricingEngine'
+import { resolveSubRate, cleanOverrides, importedOldPrice, keepsCents, crewTime } from './pricingEngine'
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
 import { normalizeItemName } from './materialCalculator'
@@ -23,6 +23,7 @@ import { deriveLayout, formatFtIn, postSpacing, teePostFor, type YardLayout } fr
 import LayoutEditor, { nextEmptySide } from './LayoutEditor'
 import CustomerDrawing from './CustomerDrawing'
 import SiteVisitInQuote from './SiteVisitInQuote'
+import CustomerPhotoTicks from './CustomerPhotoTicks'
 import VoicePanel, { type VoiceHandle } from './VoicePanel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { fetchCurrentUser, currentUser } from './crmAuth'
@@ -45,7 +46,7 @@ import { isQuotable } from './styleAvailability'
 import { calculateQuote as calcNewFence } from './quoteCalc'
 import {
   priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText,
-  REPAIR_ITEMS, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
+  REPAIR_ITEMS, repairLines, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
@@ -747,6 +748,8 @@ export default function QuoteBuilder({
   const newMin = !internal ? !!sv?.newMin : isNewMin(jobType, mr, priced)
   const minimum = minimumPrice(mr.minimumJobCents, pricingOverrides, Math.round((priced.totalCOGS * 100) + mr.minimumJobCents * priced.commissionPct))
   const adjustedMH  = work ? work.manHours : priced.manHours
+  // Crew time from the man hours shown: a move or repair's own (the new fence math gave a repair 0.0 hr while it said 1.7 man hours).
+  const crew = crewTime(adjustedMH, priced, cfg.pricing?.crewHoursPerDay)
   const laborCost   = work ? work.laborCents / 100 : priced.laborCost
   const tearOutCost = work ? work.disposalCents / 100 : priced.tearOutCost
   const totalCOGS   = work ? work.costCents / 100 : priced.totalCOGS
@@ -1166,8 +1169,8 @@ export default function QuoteBuilder({
               )}
             </div>
             {init?.layout?.widgetDrawing && <CustomerDrawing record={init.layout.widgetDrawing} />}
-            {/* The site visit's footage, notes and photos (SiteVisitInQuote.tsx). */}
-            {jobType === 'new' && <SiteVisitInQuote customerId={init?.customerId} />}
+            {/* The site visit's footage, notes and photos (SiteVisitInQuote.tsx): a repair or a move too (its photos go on the proposal once ticked). */}
+            <SiteVisitInQuote customerId={init?.customerId} />
 
             {entry === 'advanced' && (<>
             <div>
@@ -1657,9 +1660,18 @@ export default function QuoteBuilder({
               <h3 className="text-xs font-semibold text-gray-500">Live quote</h3>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
+                {/* A repair: its items, not "Total sections 0 · Total footage 0 ft" (round 2 review, Oct 26 2026). A move: its new line. */}
+                {jobType === 'repair' && work ? (
+                  <div className="mb-1" data-live-repair>
+                    <span className="text-xs text-gray-500">Repair work</span>
+                    <ul className="text-sm font-semibold text-gray-900">
+                      {(repairLines({ type: 'repair', repair: repairIn }) ?? ['Nothing picked yet']).map(l => <li key={l}>{l}</li>)}
+                    </ul>
+                  </div>
+                ) : (<>
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-xs text-gray-500">Total sections</span>
-                  <span className="text-xl font-bold text-gray-900">{sections}</span>
+                  <span className="text-xl font-bold text-gray-900">{work ? work.sections : sections}</span>
                 </div>
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-xs text-gray-500">Total footage</span>
@@ -1667,15 +1679,16 @@ export default function QuoteBuilder({
                     {totalFootage} ft
                   </span>
                 </div>
+                </>)}
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-gray-500">Projected man hours</span>
                   <span className="text-xl font-bold text-gray-900">{adjustedMH.toFixed(1)}</span>
                 </div>
                 {adjustedMH > 0 && (
                   <div className="flex justify-between items-center mt-1" data-crew-time>
-                    <span className="text-xs text-gray-500">Crew time ({priced.crewSize} men)</span>
+                    <span className="text-xs text-gray-500">Crew time ({crew.size} men)</span>
                     <span className="text-sm font-semibold text-gray-700">
-                      {priced.crewHours.toFixed(1)} hr · {priced.crewDays.toFixed(1)} {priced.crewDays.toFixed(1) === '1.0' ? 'day' : 'days'}
+                      {crew.hours.toFixed(1)} hr · {crew.days.toFixed(1)} {crew.days.toFixed(1) === '1.0' ? 'day' : 'days'}
                     </span>
                   </div>
                 )}
@@ -1941,6 +1954,8 @@ export default function QuoteBuilder({
                 cameraSignal={cameraSignal}
               />
             </div>
+            {/* Which of them the customer sees on the proposal: one tap each (Internal until ticked). */}
+            {photosOpen && <div className="mt-4 border-t border-gray-100 pt-3"><CustomerPhotoTicks quoteId={quoteIdRef.current} customerId={init?.customerId ?? null} /></div>}
 
         </div>
       </div>

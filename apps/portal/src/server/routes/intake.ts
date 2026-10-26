@@ -11,6 +11,7 @@
  * and the Retell signature is computed over the raw request body.
  */
 
+import { plainSideWords } from '../lib/websiteSides.js'
 import { Router } from 'express'
 import express from 'express'
 import cors from 'cors'
@@ -396,7 +397,7 @@ router.get('/', async (req: any, res) => {
       take: 200,
       select: publicFields,
     })
-    res.json({ success: true, data: rows })
+    res.json({ success: true, data: rows.map(r => ({ ...r, summary: plainSideWords(r.summary) })) })
   } catch (err) {
     console.error('[intake] list error:', err)
     res.status(500).json({ success: false, error: 'Could not load new leads' })

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import PhoneLink from './PhoneLink'
 import { can } from './permissions'
 import { styleLabel } from './fenceCatalog'
+import { jobSectionsCell } from './jobWork'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 // Every map sits in its own layer, under the page's menus and dialogs (layers.css).
@@ -931,7 +932,7 @@ function JobDetailPanel({
         </div>
         <div className="flex justify-between">
           <span className="text-gray-400">Sections</span>
-          <span className="font-medium text-gray-900">{job.sections}</span>
+          <span className="font-medium text-gray-900 text-right">{jobSectionsCell(job)}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-gray-400">Contract</span>

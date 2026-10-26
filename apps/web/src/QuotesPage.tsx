@@ -10,7 +10,7 @@ import type { QuoteLayoutRecord } from './yardLayout'
 import { useState, useMemo, useEffect } from 'react'
 import type { LineItem } from './materialCalculator'
 import type { QuotePricingOverrides } from './pricingEngine'
-import { workSummary, type SavedWork } from './moveRepair'
+import { workSummary, sectionsCell, repairLines, type SavedWork } from './moveRepair'
 import { ChangeOrderPanel } from './ChangeOrders'
 import { POButton } from './PurchaseOrder'
 import { pullFromInventory, getLocations } from './inventoryStore'
@@ -405,15 +405,16 @@ function QuoteDrawer({
           <div>
             <p className="text-xs font-semibold text-gray-500 mb-3">Job Details</p>
             <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: 'Sections',   value: quote.sections },
+              {/* A repair: its items, not sections, corners and gates of a new fence (round 2 review, Oct 26 2026). */}
+              {(quote.work?.type === 'repair' ? (repairLines(quote.work) ?? ['Repair']).map((l, i) => ({ label: i === 0 ? 'Repair' : '', value: l })) : [
+                { label: 'Sections',   value: sectionsCell(quote.sections, quote.work) },
                 { label: 'Corners',    value: quote.corners },
                 { label: 'Ends',       value: quote.ends },
                 { label: 'Walk gates', value: quote.walkGates },
                 { label: 'Dbl Gates',  value: quote.dblGates },
                 { label: 'Tear out',   value: `${quote.tearOutSections} sec` },
-              ].map(r => (
-                <div key={r.label} className="bg-gray-50 rounded-lg p-3">
+              ]).map(r => (
+                <div key={`${r.label}${r.value}`} className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-400">{r.label}</p>
                   <p className="text-sm font-bold text-gray-900 mt-0.5">{r.value}</p>
                 </div>
@@ -641,7 +642,7 @@ export default function QuotesPage({
                     {q.customerPhone && <p className="text-xs text-gray-400">{formatPhone(q.customerPhone)}</p>}
                   </td>
                   <td className="px-4 py-3 text-gray-700" data-label="Style">{styleLabel(q.fenceStyle)}</td>
-                  <td className="px-4 py-3 text-right text-gray-600" data-label="Sections">{q.sections}</td>
+                  <td className="px-4 py-3 text-right text-gray-600" data-label="Sections">{sectionsCell(q.sections, q.work)}</td>
                   <td className="px-4 py-3 text-right font-bold text-gray-900" data-label="Price">{fmt(q.finalPrice)}</td>
                   <td className={`px-4 py-3 text-right font-bold text-sm ${marginColor(q.gmPct)}`} data-label="Margin">{fmtPct(q.gmPct)}</td>
                   <td className="px-4 py-3" data-label="Heat" onClick={e => e.stopPropagation()}>

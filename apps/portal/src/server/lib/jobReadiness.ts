@@ -12,7 +12,7 @@
  *   Crew Assigned        a crew and an install date (Schedule install)
  *   Job Started          the job is In Progress or further, or its takeoff is started
  *   Final Walkthrough    the walkthrough is signed by the homeowner and us
- *   Photos Uploaded      photos or video on the job
+ *   Photos Uploaded      photos or video taken on the job (the crew's; not the quote's or the visit's)
  *   Invoice Sent         the Final invoice is due (the job is complete) or paid
  *
  * A tick by hand is an override, shown "ticked by hand" with who and when,

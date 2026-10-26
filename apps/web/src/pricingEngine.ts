@@ -198,6 +198,19 @@ function cents(n: number): number {
 }
 
 /**
+ * Crew time for any man hours, at the crew size and day length a price was
+ * worked out with (calculatePrice's own math). A move or a repair has its own
+ * man hours: its crew time is from those, never the new fence's (round 2
+ * review, Oct 26 2026: a repair said 1.7 man hours and "0.0 hr · 0.0 days").
+ */
+export function crewTime(manHours: number, p: Pick<PriceResult, 'crewSize' | 'crewHours' | 'crewDays'>, hoursPerDay?: number | null): { size: number; hours: number; days: number } {
+  const size = pos(p.crewSize) ?? 3
+  const day = pos(p.crewHours) && pos(p.crewDays) ? p.crewHours / p.crewDays : pos(hoursPerDay) ?? 10
+  const hours = Math.max(0, Number(manHours) || 0) / size
+  return { size, hours, days: hours / day }
+}
+
+/**
  * The whole dollar rule on an amount in cents: rounded DOWN to the whole
  * dollar (a credit, below zero, goes to the larger whole dollar credit), so
  * the customer never pays the cents. `on` false: the amount as it is.

@@ -70,7 +70,7 @@ export default function SiteVisitInQuote({ customerId }: { customerId: string | 
               ))}
             </div>
           ) : <p className="text-xs text-gray-500">No photos from the visit.</p>}
-          <p className="text-xs text-gray-500">From the visit, as it was closed out. Its photos are also under the quote's camera button: mark the ones the customer should see as Customer there.</p>
+          <p className="text-xs text-gray-600" data-site-visit-hint>From the visit, as it was closed out. The customer sees none of these photos until you tick them: tap the camera button below, then "Show these to the customer" (or tick them when you send the proposal).</p>
         </div>
       )}
     </div>
