@@ -29,7 +29,18 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('chain link gate kits step (dev d
     accountId = account.id
     await prisma.businessState.create({ data: { accountId, config: src.config } })
     const { id: _id, accountId: _a, createdAt: _c, updatedAt: _u, version: _v, ...rest } = srcInv
-    await prisma.inventoryState.create({ data: { ...rest, accountId } })
+    // The dig set kits back on the old gate kits, as live is before the update (the dev copy already had the step).
+    const { oldChainGateKits } = await import('../../web/src/chainDigSet')
+    const kits = JSON.parse(JSON.stringify(srcInv.kits ?? []))
+    for (const k of kits) {
+      const m = /^chain\/(\d)\/(galv|black)\/res\/ds$/.exec(k.styleName ?? '')
+      if (!m) continue
+      for (const kind of GATE_KINDS) delete k.kits[kind]
+      const old = oldChainGateKits(m[2] as 'galv' | 'black', Number(m[1]))
+      k.kits.walkGate = old.walkGate.map(([part, qty]) => ({ part, qty, fallbackCost: 0 }))
+      k.kits.dblGate = old.dblGate.map(([part, qty]) => ({ part, qty, fallbackCost: 0 }))
+    }
+    await prisma.inventoryState.create({ data: { ...rest, accountId, kits } })
   })
 
   afterAll(async () => {
