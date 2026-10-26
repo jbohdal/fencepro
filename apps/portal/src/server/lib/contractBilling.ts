@@ -219,6 +219,11 @@ export async function scheduleAfterSigning(accountId: string, quoteId: string, s
     const job = await prisma.savedJob.findFirst({ where: { accountId, quoteId, deletedAt: null }, select: { id: true } })
     if (job) await ensureSchedule(accountId, job.id, source, by)
   } catch (e) { console.error('[billing] payment schedule after signing:', e) }
+  // The customer's estimate visits: one that has passed is done, one still to come is pointed out (lib/estimateVisits.ts).
+  try {
+    const { estimateVisitsAfterSigning } = await import('./estimateVisits.js')
+    await estimateVisitsAfterSigning(accountId, quoteId, by.name)
+  } catch (e) { console.error('[appointments] estimate visits after signing:', e) }
 }
 
 /** After a job is made or saved: its schedule if its quote is signed, and the Final's due date (the install date). Never throws. */
