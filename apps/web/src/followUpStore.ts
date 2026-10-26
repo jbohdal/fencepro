@@ -147,6 +147,14 @@ export function getConfigVersion(): number { return configVersion }
 // ── Reading ──────────────────────────────────────────────────────────────────
 
 let loadingBoard: Promise<void> | null = null
+/** When the board was last read (the whole board is large: every card). */
+let boardReadAt = 0
+
+/** The board again unless it was read in the last 30 seconds (a screen opened, the app back on screen). */
+export function refreshBoardIfStale(maxAgeMs = 30_000): Promise<void> {
+  return Date.now() - boardReadAt < maxAgeMs ? Promise.resolve() : refreshBoard()
+}
+
 export function refreshBoard(): Promise<void> {
   if (loadingBoard) return loadingBoard
   loadingBoard = (async () => {
@@ -154,6 +162,7 @@ export function refreshBoard(): Promise<void> {
     if (c?.result.ok && c.json?.data) { config = c.json.data; configVersion = Number(c.json.version) || 0; configLoaded = true }
     if (b.result.ok && b.json?.data) {
       board = b.json.data
+      boardReadAt = Date.now()
       // What the server now shows replaces this phone's own copy, once nothing is still on its way.
       for (const id of [...overrides.keys()]) if (!pendingFor(id)) overrides.delete(id)
       changed()
@@ -182,8 +191,9 @@ export async function saveConfig(next: FollowUpConfig, baseVersion: number): Pro
 export function useFollowUpBoard(): number {
   const t = useFollowUps()
   useEffect(() => {
-    void refreshBoard()
-    const again = () => { if (document.visibilityState === 'visible') void refreshBoard() }
+    // Opening the Pipeline and then Follow ups read the same whole board twice: not within 30 seconds.
+    void refreshBoardIfStale()
+    const again = () => { if (document.visibilityState === 'visible') void refreshBoardIfStale() }
     const iv = setInterval(again, 60_000)
     document.addEventListener('visibilitychange', again)
     window.addEventListener('focus', again)
