@@ -37,11 +37,18 @@
  *      back, its bill voided; its lines leave Needs a match);
  *   4. 06-251707: each line → the green part (lib/greenChainLink) and its unit
  *      → landed each (freight spread, estimated tax, fuel on the bill only);
+ *      The three plain BOLT/NUT lines print no color (a green order): they are
+ *      NOT matched (galvanized or green is Jonathan's call) and wait in Needs a
+ *      match; the tension wire prints no color either and is the Green wire
+ *      because Jonathan named tension wire among the green parts;
  *   5. Green Chain Link: the fences, kits and Inventory items it makes
- *      (switched off), the parts with no green line, and the price of each part;
- *   6. a 100 ft straight test yard with one 4 ft walk gate: Green against Black
- *      4 ft (No dig, and Dig set), the full pull sheet, cost and price, from
- *      the app's own estimate (web/src/estimate.ts).
+ *      (switched off), or, once made, how its kits follow the black kits
+ *      again (lib/greenChainLink planGreenFollowsBlack); the parts with no
+ *      green line (no price), and the price of each part;
+ *   6. a 100 ft straight test yard with one 4 ft walk gate, and the same yard
+ *      with one 10 ft double gate: Green against Black 4 ft (No dig, and Dig
+ *      set), the full pull sheet, cost and price, from the app's own estimate
+ *      (web/src/estimate.ts, preview for the style switched off).
  *
  * --apply does what Jonathan would do in the app, through the same code:
  * uploads each document the database does not have yet (lib/vendorInvoices),
@@ -49,8 +56,12 @@
  * then replaced), adds Green as Settings → Fence styles → Add color does
  * (planAddColor, through lib/greenChainLink) and switches it off, matches the
  * lines (Needs a match, with the unit), and taps "We ordered this" on both, as
- * the company's owner. Then it prints what changed and checks it against the
- * dry run. Run again, it changes nothing (each step checks first).
+ * the company's owner. Once Green is made, its kits are derived again from the
+ * black kits (as the server does at every start). A database where an earlier
+ * run matched the plain bolts to the galvanized bolts (the dev copy, Oct 26)
+ * gets that undone: the order undone, those three matches removed, the order
+ * placed again (never on live). Then it prints what changed and checks it
+ * against the dry run. Run again, it changes nothing (each step checks first).
  */
 
 import 'dotenv/config'
@@ -64,7 +75,7 @@ import { readInvoiceFile } from '../src/server/lib/invoiceReader.js'
 import { parseInvoice, findVendor, type ParsedInvoice } from '../src/server/lib/invoiceParse.js'
 import { checkTotals, landedParts, spreadExtras, unitLanded, changePct, needsOk, matchKey, findLink, invoiceNumberKey, dollars, pctText, toInventoryQty } from '../src/server/lib/invoiceMath.js'
 import { contentKey, estTaxBpOf, newerPriceKept, revisionOf, DEFAULT_JUMP_PCT } from '../src/server/lib/vendorInvoices.js'
-import { GREEN_KEY, greenLineFor, planGreenChainLink, type GreenPlan } from '../src/server/lib/greenChainLink.js'
+import { GREEN_KEY, GREEN_LINES, blackWords, greenAskFor, greenLineFor, greenOption, greenPartFor, greenUnpriced, planGreenChainLink, planGreenFollowsBlack, type GreenFollow, type GreenPlan, type GreenState } from '../src/server/lib/greenChainLink.js'
 
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
@@ -131,6 +142,8 @@ interface State {
   links: any[]
   limit: number
   quotes: any[]
+  /** When Green was made (GREEN_KEY), or null. */
+  greenMadeAt: string | null
 }
 
 async function loadState(tx: any, accountArg?: string): Promise<State> {
@@ -145,13 +158,14 @@ async function loadState(tx: any, accountArg?: string): Promise<State> {
   const inv = await tx.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } })
   const owner = await tx.crmUser.findFirst({ where: { crmAccountId: accountId, role: 'super_admin', status: 'active' }, select: { id: true, firstName: true, lastName: true, email: true }, orderBy: { createdAt: 'asc' } })
   const invoices = vendor ? await tx.vendorInvoice.findMany({ where: { accountId, OR: [{ vendorId: vendor.id }, { vendorName: { contains: 'Stephens' } }] }, select: INV_SELECT, orderBy: { createdAt: 'asc' } }) : []
-  const links = vendor ? await tx.vendorItemLink.findMany({ where: { accountId, vendorId: vendor.id }, select: { key: true, inventoryItemId: true, vendorPer: true, invPer: true } }) : []
+  const links = vendor ? await tx.vendorItemLink.findMany({ where: { accountId, vendorId: vendor.id }, select: { id: true, key: true, inventoryItemId: true, vendorPer: true, invPer: true, createdAt: true } }) : []
+  const made = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: GREEN_KEY } } })
   const jump = Number((b?.config as any)?.pricing?.invoiceJumpPct)
   // Saved quotes whose pull sheet or proposal carries the no dig pipe (Deleted Records left out).
   const ids: Array<{ id: string }> = await tx.$queryRawUnsafe(`SELECT id FROM "SavedQuote" WHERE "accountId" = $1 AND "deletedAt" IS NULL AND ("pullSheet"::text ILIKE '%PT40%' OR proposal::text ILIKE '%PT40%')`, accountId)
   const quotes = ids.length ? await tx.savedQuote.findMany({ where: { id: { in: ids.map(r => r.id) } }, orderBy: [{ status: 'asc' }, { date: 'desc' }] }) : []
   return {
-    accountId, vendor, config: b?.config ?? null, items: arr(inv?.items), kits: arr(inv?.kits), invoices, links, quotes,
+    accountId, vendor, config: b?.config ?? null, items: arr(inv?.items), kits: arr(inv?.kits), invoices, links, quotes, greenMadeAt: (made?.value as any)?.at ?? null,
     owner: owner ? { id: owner.id, name: `${owner.firstName ?? ''} ${owner.lastName ?? ''}`.trim() || owner.email } : null,
     limit: Number.isFinite(jump) && jump > 0 && jump <= 500 ? jump : DEFAULT_JUMP_PCT,
   }
@@ -183,7 +197,7 @@ interface LinePlan { seq: number; description: string; qty: number; unit: string
 interface ItemPlan { itemId: string; name: string; prev: number | null; printed: number; next: number; pct: number | null; outcome: string; changes: boolean; waits: boolean }
 interface DocPlan { lines: LinePlan[]; items: ItemPlan[]; estBp: number | null; estTaxCents: number; fuelCents: number; spreadCents: number }
 
-function planDoc(doc: Doc, st: State, items: any[], targetFor: (desc: string) => Target | null): DocPlan {
+function planDoc(doc: Doc, st: State, items: any[], targetFor: (desc: string) => Target | null, whyNone: (desc: string) => string = () => 'no rule for it: it waits in Needs a match'): DocPlan {
   const p = doc.parsed
   const fees = p.fees.map(f => ({ label: f.label, cents: f.cents }))
   const estBp = !p.taxFound ? estTaxBpOf(st.config) : null
@@ -196,7 +210,7 @@ function planDoc(doc: Doc, st: State, items: any[], targetFor: (desc: string) =>
   const lines: LinePlan[] = p.lines.map((l, k) => {
     const target = targetFor(l.description)
     const extra = spread[k] + est[k]
-    return { seq: k + 1, description: l.description, qty: l.qty ?? 0, unit: l.unit, lineCents: l.totalCents ?? 0, extraCents: extra, estTaxCents: est[k], landedCents: (l.totalCents ?? 0) + extra, target, why: target ? target.via : 'no rule for it: it waits in Needs a match' }
+    return { seq: k + 1, description: l.description, qty: l.qty ?? 0, unit: l.unit, lineCents: l.totalCents ?? 0, extraCents: extra, estTaxCents: est[k], landedCents: (l.totalCents ?? 0) + extra, target, why: target ? target.via : whyNone(l.description) }
   })
   const byId = new Map(items.map(i => [String(i.id), i]))
   const groups = new Map<string, LinePlan[]>()
@@ -227,6 +241,7 @@ function printDocPlan(doc: Doc, pl: DocPlan) {
   for (const it of pl.items) say(`     ${it.name}: ${money(it.prev)} → ${money(it.next)} (${pct(it.pct)}; printed ${dollars(it.printed)} each + estimated tax${doc.parsed.freightCents ? ' + freight' : ''}) — ${it.outcome}`)
   const waiting = pl.lines.filter(l => !l.target)
   if (waiting.length) say(`   STILL IN NEEDS A MATCH (${waiting.length}): ${waiting.map(l => l.description).join('; ')}`)
+  else say('   STILL IN NEEDS A MATCH: none')
 }
 
 // ── 2. The no dig pipe: kits and saved quotes ───────────────────────────────
@@ -285,46 +300,60 @@ async function repriceQuotes(m: any, st: State, pipeItemId: string, before: numb
   return rows
 }
 
-// ── 6. The 100 ft test yard ─────────────────────────────────────────────────
+// ── 6. The 100 ft test yards ────────────────────────────────────────────────
 
-const TEST_YARD = {
+const yardWith = (gate: { type: 'walk' | 'double'; widthIn: number }) => ({
   shape: 'straight', closed: false,
-  sides: [{ id: 'test-1', name: 'Test side', on: true, lengthIn: 100 * 12, startFinish: 'free', endFinish: 'free', gate: { type: 'walk', widthIn: 48, position: 'middle' } }],
-}
+  sides: [{ id: 'test-1', name: 'Test side', on: true, lengthIn: 100 * 12, startFinish: 'free', endFinish: 'free', gate: { ...gate, position: 'middle' } }],
+})
+const TEST_YARDS = [
+  { title: '100 FT STRAIGHT, ONE 4 FT WALK GATE', yard: yardWith({ type: 'walk', widthIn: 48 }) },
+  { title: '100 FT STRAIGHT, ONE 10 FT DOUBLE GATE', yard: yardWith({ type: 'double', widthIn: 120 }) },
+]
 
-function testYard(m: any, data: any, styleName: string) {
-  const y = m.deriveYardRuns(data.config, TEST_YARD, styleName)
+function testYard(m: any, data: any, styleName: string, yard: unknown) {
+  const y = m.deriveYardRuns(data.config, yard, styleName)
   if (!y) throw new Error(`No yard for ${styleName}`)
-  const est = m.estimate(data, { fenceStyle: styleName, runs: y.runs, corners: y.corners, ends: y.ends, walkGates: y.walkGates, dblGates: y.dblGates }, { preview: true })
+  const est = m.estimate(data, { fenceStyle: styleName, runs: y.runs, corners: y.corners, ends: y.ends, walkGates: y.walkGates, dblGates: y.dblGates, gateWidths: y.gateWidths }, { preview: true })
   return { y, est }
 }
 
-function printCompare(m: any, dataBlack: any, dataGreen: any, pairs: Array<[string, string]>, unpriced: Set<string>) {
-  for (const [black, green] of pairs) {
-    const b = testYard(m, dataBlack, black), g = testYard(m, dataGreen, green)
-    say(`\n   ${b.est.style.label || black}  vs  ${g.est.style.label || green}`)
-    say(`   yard: runs ${b.y.runs.join(' + ')} ft, ${b.y.corners} corner, ${b.y.ends} end posts, ${b.y.walkGates} walk gate; ${b.est.sections} sections`)
-    say(`   ${pad('BLACK part', 62)} ${lpad('qty', 7)} ${lpad('each', 9)} ${lpad('total', 10)} | ${pad('GREEN part', 62)} ${lpad('qty', 7)} ${lpad('each', 9)} ${lpad('total', 10)}`)
-    const bl = b.est.pullSheet, gl = g.est.pullSheet
-    for (let i = 0; i < Math.max(bl.length, gl.length); i++) {
-      const x = bl[i], z = gl[i]
-      const cell = (l: any, mark = '') => (l ? `${pad(String(l.item) + mark, 62)} ${lpad(String(Math.round(l.qty * 1000) / 1000), 7)} ${lpad(usd(l.unitCost), 9)} ${lpad(usd(l.total), 10)}` : pad('', 62 + 29))
-      say(`   ${cell(x)} | ${cell(z, z && unpriced.has(norm(z.item)) ? ' [NO PRICE]' : '')}`)
+/** Green against Black on each test yard: the pull sheets side by side (each black part next to its green part), then the totals. */
+function printCompare(m: any, data: any, pairs: Array<[string, string]>, unpriced: Set<string>, words: string[]) {
+  for (const t of TEST_YARDS) {
+    for (const [black, green] of pairs) {
+      const b = testYard(m, data, black, t.yard), g = testYard(m, data, green, t.yard)
+      const ys = b.y
+      say(`\n   ${t.title}: ${b.est.style.label || black}  vs  ${g.est.style.label || green}`)
+      say(`   yard: runs ${ys.runs.join(' + ')} ft, ${ys.corners} corner, ${ys.ends} end posts, ${ys.walkGates} walk gate${ys.walkGates === 1 ? '' : 's'}${ys.gateWidths?.walk?.length ? ` (${ys.gateWidths.walk.join(', ')} ft)` : ''}, ${ys.dblGates} double gate${ys.dblGates === 1 ? '' : 's'}${ys.gateWidths?.dbl?.length ? ` (${ys.gateWidths.dbl.join(', ')} ft)` : ''}; ${b.est.sections} sections`)
+      say(`   ${pad('BLACK part', 58)} ${lpad('qty', 7)} ${lpad('each', 9)} ${lpad('total', 10)} | ${pad('GREEN part', 70)} ${lpad('qty', 7)} ${lpad('each', 9)} ${lpad('total', 10)}`)
+      const gl = [...g.est.pullSheet]
+      const rows: Array<[any, any]> = []
+      for (const x of b.est.pullSheet) {
+        const want = norm(greenPartFor(m, String(x.item), words))
+        const k = gl.findIndex((z: any) => norm(String(z.item)) === want)
+        rows.push([x, k >= 0 ? gl.splice(k, 1)[0] : null])
+      }
+      for (const z of gl) rows.push([null, z])
+      const cell = (l: any, w: number, mark = '') => (l ? `${pad(String(l.item).trim() + mark, w)} ${lpad(String(Math.round(l.qty * 1000) / 1000), 7)} ${lpad(usd(l.unitCost), 9)} ${lpad(usd(l.total), 10)}` : pad('', w + 29))
+      for (const [x, z] of rows) say(`   ${cell(x, 58)} | ${cell(z, 70, z && unpriced.has(norm(String(z.item))) ? ' [NO PRICE]' : '')}`)
+      const row = (k: string, f: (e: any) => string, d?: (e: any) => number) => say(`   ${pad(k, 22)} black ${lpad(f(b.est), 12)}   green ${lpad(f(g.est), 12)}${d ? `   green − black ${lpad(usd(d(g.est) - d(b.est)), 11)}` : ''}`)
+      row('Material', e => usd(e.materialCost), e => e.materialCost)
+      row('Labor', e => usd(e.laborCost), e => e.laborCost)
+      row('Cost (COGS)', e => usd(e.totalCOGS), e => e.totalCOGS)
+      row('Price', e => usd(e.price), e => e.price)
+      row('Price per foot', e => usd(e.pricePerFoot), e => e.pricePerFoot)
+      row('Gross margin', e => `${(e.gmPct * 100).toFixed(1)}%`)
+      const missing = g.est.pullSheet.filter((z: any) => unpriced.has(norm(String(z.item))))
+      if (missing.length) say(`   green parts with NO PRICE yet (priced at $0.00 above, so green material is short by their cost): ${missing.map((z: any) => `${Math.round(z.qty * 1000) / 1000} × ${String(z.item).trim()}`).join('; ')}`)
+      for (const n of g.est.notes) say(`   green note: ${n}`)
     }
-    const row = (k: string, f: (e: any) => string) => say(`   ${pad(k, 22)} black ${lpad(f(b.est), 12)}   green ${lpad(f(g.est), 12)}`)
-    row('Material', e => usd(e.materialCost))
-    row('Labor', e => usd(e.laborCost))
-    row('Cost (COGS)', e => usd(e.totalCOGS))
-    row('Price', e => usd(e.price))
-    row('Price per foot', e => usd(e.pricePerFoot))
-    row('Gross margin', e => `${(e.gmPct * 100).toFixed(1)}%`)
-    for (const n of g.est.notes) say(`   green note: ${n}`)
   }
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────
 
-interface Plans { pipe: DocPlan | null; green: DocPlan | null; greenPlan: GreenPlan; vs: Verdict[] }
+interface Plans { pipe: DocPlan | null; green: DocPlan | null; greenPlan: GreenPlan; follow: GreenFollow | null; vs: Verdict[] }
 
 async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   say(`Database "${dbName}", company ${st.accountId}, vendor ${st.vendor ? `"${st.vendor.name}"` : 'NOT IN VENDORS'}, estimated tax ${pctText(estTaxBpOf(st.config))}, OK limit ${st.limit}%\n`)
@@ -387,65 +416,88 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   }
 
   // 4 and 5. 06-251707 and Green
-  const greenPlan = planGreenChainLink(m, { fenceStyles: arr(st.config?.fenceStyles), fenceCatalog: m.fenceCatalogOf(st.config), items: st.items, kits: st.kits })
+  const st0: GreenState = { fenceStyles: arr(st.config?.fenceStyles), fenceCatalog: m.fenceCatalogOf(st.config), items: st.items, kits: st.kits }
+  const greenPlan = planGreenChainLink(m, st0)
+  const follow = greenPlan.made ? null : planGreenFollowsBlack(m, st0, { madeAt: st.greenMadeAt })
+  const gstate: GreenState = follow ? follow.state : greenPlan.state
   const gdoc = docOf(GREEN_DOC)
   let green: DocPlan | null = null
+  const itemNamed = (items: any[], name: string) => items.find(i => norm(String(i?.name ?? '')) === norm(name)) ?? null
   say(`\n4. ${GREEN_DOC} (green vinyl coated chain link) MARKED "WE ORDERED THIS"`)
   if (!gdoc) say(`   no PDF of ${GREEN_DOC} in ${folder}`)
   else {
     const ex = inApp(GREEN_DOC)
     say(`   ${ex ? `in the app as ${ex.id} ("${ex.status}"${ex.ordered ? ', ordered' : ''})` : 'not in the app yet: uploaded first'}`)
-    const items = greenPlan.state.items
+    const items = gstate.items
     green = planDoc(gdoc, st, items, desc => {
       const g = greenLineFor(desc)
       if (!g) return null
-      const item = items.find(i => norm(String(i?.name ?? '')) === norm(g.part))
+      const item = itemNamed(items, g.part)
       if (!item) return null
-      return { id: String(item.id), name: String(item.name), vendorPer: g.vendorPer, invPer: g.invPer, unitWords: g.unitWords, via: g.existing ? (g.note ?? 'existing item') : `${greenPlan.made ? 'new' : 'the'} Green part${g.note ? `; ${g.note}` : ''}`, item }
-    })
+      return { id: String(item.id), name: String(item.name), vendorPer: g.vendorPer, invPer: g.invPer, unitWords: g.unitWords, via: `${greenPlan.made ? 'new' : 'the'} Green part${g.note ? `; ${g.note}` : ''}`, item }
+    }, desc => (greenAskFor(desc) ? 'NOT MATCHED: left in Needs a match for Jonathan (no color printed)' : 'no rule for it: it waits in Needs a match'))
     printDocPlan(gdoc, green)
+    say('   LINES WITH NO COLOR PRINTED (a green order):')
+    for (const l of gdoc.parsed.lines) {
+      const a = greenAskFor(l.description), g = greenLineFor(l.description)
+      if (a) {
+        const link = findLink(st.links, matchKey(l.itemNumber ?? '', l.description))
+        const linked = link ? st.items.find(i => String(i.id) === link.inventoryItemId) : null
+        say(`     "${l.description}": NOT applied. ${a.why} It is either ${a.candidates.map(c => `"${c}" (${money(cents(itemNamed(gstate.items, c)))} now)`).join(' or ')}. It waits in Needs a match for Jonathan; the Green kits use the green bolt (no price) until he says.`)
+        if (link) say(`        the app already has a match for it → "${linked?.name ?? link.inventoryItemId}" (made ${link.createdAt.toISOString().slice(0, 16).replace('T', ' ')}): ${dbName === LIVE_DATABASE_NAME ? 'kept (on live a match is Jonathan\'s); ordering prices the line from it' : 'an earlier run\'s guess; --apply removes it (and puts back what it priced)'}`)
+      } else if (g?.note && /no color/.test(g.note)) say(`     "${l.description}": matched to "${g.part}": ${g.note}.`)
+    }
   }
 
   say('\n5. GREEN CHAIN LINK, 4 FT, RESIDENTIAL (Settings → Fence styles → Chain link → Finish → Add color "Green", copying Black, 4 ft)')
   say(`   ${greenPlan.message}`)
-  if (greenPlan.made) {
-    for (const s of greenPlan.styles) say(`   fence ${s.name}: ${s.install === 'nd' ? 'No dig' : 'Dig set'}, copies "${s.madeFrom}" (its labor, profit and kit), SWITCHED OFF for quoting`)
-    const price = new Map<string, number | null>()
-    for (const it of green?.items ?? []) price.set(norm(it.name), it.next)
-    for (const k of greenPlan.state.kits.filter((x: any) => greenPlan.kits.includes(x.name))) {
-      say(`   kit ${k.name}:`)
-      for (const [kind, parts] of Object.entries(k.kits ?? {})) {
-        say(`     ${kind}: ${arr(parts).map((p: any) => { const pr = price.get(norm(p.part)); const inv = st.items.find(i => norm(String(i.name)) === norm(p.part)); const c = pr ?? cents(inv); return `${p.qty} × ${p.part} (${c == null ? 'NO PRICE' : dollars(c)})` }).join('; ')}`)
-      }
+  if (follow) {
+    say('   KEPT IN STEP WITH BLACK 4 FT (each Green kit derived again from the black kit as it is now; the server does the same at every start):')
+    for (const u of follow.updated) { say(`     ${u.kit} follows ${u.from}; what changes:`); for (const c of u.changes) say(`        ${c}`) }
+    if (follow.marked.length) say(`     already the same, marked as following: ${follow.marked.join(', ')}`)
+    if (follow.items.length) say(`     green parts added to Inventory with no price: ${follow.items.join('; ')}`)
+    for (const x of follow.skipped) say(`     left as it is: ${x}`)
+    if (!follow.updated.length && !follow.marked.length && !follow.items.length && !follow.skipped.length) say('     already in step: nothing changes')
+  }
+  const opt = greenOption(gstate.fenceCatalog)
+  const words = blackWords(gstate.fenceCatalog, opt)
+  const gStyles = opt ? gstate.fenceStyles.filter((s: any) => s?.material === 'chain' && s?.choices?.finish === opt.key && s?.madeFrom) : []
+  for (const s of gStyles) say(`   fence ${s.name}: ${s.choices?.install === 'nd' ? 'No dig' : 'Dig set'}, made from "${s.madeFrom}" (its labor, profit and kit), SWITCHED OFF for quoting`)
+  const price = new Map<string, number | null>()
+  for (const it of green?.items ?? []) price.set(norm(it.name), it.next)
+  const priceOf = (part: string) => price.get(norm(part)) ?? cents(itemNamed(gstate.items, part))
+  for (const k of gstate.kits.filter((x: any) => !x.archived && gStyles.some((s: any) => s.name === x.styleName))) {
+    say(`   kit ${k.name} (follows ${k.followsKit?.from ?? 'nothing'}):`)
+    for (const [kind, parts] of Object.entries(k.kits ?? {})) {
+      say(`     ${kind}: ${arr(parts).map((p: any) => { const c = priceOf(p.part); return `${p.qty} × ${String(p.part).trim()} (${c == null ? 'NO PRICE' : dollars(c)})` }).join('; ')}`)
     }
-    say(`   parts renamed from the black swap to what ${GREEN_DOC} sells:`)
-    for (const r of greenPlan.renamed) say(`     ${r.from} → ${r.to}`)
-    say(`   NO GREEN EQUIVALENT on ${GREEN_DOC} (kept in the kits with no price, so Green stays "not fully priced" as well as switched off):`)
-    for (const n of greenPlan.noGreen) say(`     - ${n.part} (${n.kits.join(', ')})`)
-    const older = st.items.filter(i => i?.category === 'Chainlink Green')
-    if (older.length) say(`   Older green items already in Inventory (Chainlink Green, from the price workbook, used by no fence or kit; left as they are): ${older.length}, e.g. ${older.slice(0, 4).map(i => `${i.name} ${money(cents(i))}`).join('; ')}`)
+  }
+  say(`   parts named for what ${GREEN_DOC} sells instead of the plain Black → Green swap:`)
+  for (const g of GREEN_LINES.filter(x => x.swappedFrom)) say(`     ${g.swappedFrom} → ${g.part}`)
+  const used = new Set<string>()
+  for (const k of gstate.kits.filter((x: any) => !x.archived && gStyles.some((s: any) => s.name === x.styleName))) for (const ps of Object.values(k.kits ?? {})) for (const p of arr(ps)) used.add(norm(p.part))
+  say(`   GREEN PARTS PRICED BY ${GREEN_DOC} (landed each after "We ordered this"):`)
+  for (const g of GREEN_LINES) say(`     ${pad(g.part, 66)} ${lpad(money(priceOf(g.part)), 10)}${used.has(norm(g.part)) ? '' : '  (no Green kit uses it)'}`)
+  const noGreen = greenUnpriced(gstate)
+  say(`   NO GREEN EQUIVALENT on ${GREEN_DOC} (in the Green kits with NO PRICE, so Green stays "not fully priced" as well as switched off):`)
+  for (const n of noGreen) say(`     - ${n.part}${n.ask ? ` (06-251707 "${n.ask.description}" may be it: ${n.ask.why})` : ''} — used in ${n.kits.join(', ')}`)
+  const older = st.items.filter(i => i?.category === 'Chainlink Green' && !i?.madeFor && !used.has(norm(String(i.name))))
+  if (older.length) {
+    say(`   Older green items already in Inventory (Chainlink Green, from the price workbook; used by no Green kit, left as they are). Some may be the parts above with no price (for example "Gate, Grn, 4 x 5", "Gr, Fork, PS, 2-1/2"", "Gr, Bolt, ..."): whether to use their workbook prices is Jonathan's call, nothing is matched to them (${older.length}):`)
+    for (const i of [...older].sort((a, b) => String(a.name).localeCompare(String(b.name)))) say(`     ${pad(String(i.name), 58)} ${lpad(money(cents(i)), 10)}`)
   }
 
-  // 6. The test yard
-  say('\n6. 100 FT STRAIGHT TEST YARD, ONE 4 FT WALK GATE: GREEN AGAINST BLACK 4 FT (the app\'s own estimate; Green priced as if switched on, preview only)')
+  // 6. The test yards
+  say('\n6. TEST YARDS: GREEN AGAINST BLACK 4 FT (the app\'s own estimate, at the prices after both quotes are ordered; Green priced as if switched on, preview only)')
   const after = (items: any[]) => {
     const next = new Map<string, number>()
     for (const pl of [pipe, green]) for (const it of pl?.items ?? []) if (it.changes) next.set(norm(it.name), it.next)
     return items.map(i => (next.has(norm(String(i.name))) ? { ...i, unitCost: next.get(norm(String(i.name)))! / 100 } : i))
   }
-  const greenCfg = { ...(st.config ?? {}), fenceStyles: greenPlan.state.fenceStyles, fenceCatalog: greenPlan.state.fenceCatalog }
-  const dataBlack = { config: greenCfg, inventory: after(greenPlan.state.items), kits: greenPlan.state.kits }
-  const unpriced = new Set(greenPlan.noGreen.map(n => norm(n.part)))
-  const nd = greenPlan.styles.find(s => s.install === 'nd'), ds = greenPlan.styles.find(s => s.install === 'ds')
-  const pairs: Array<[string, string]> = []
-  if (nd) pairs.push(["CL - 4' Black", nd.name])
-  if (ds) pairs.push(['chain/4/black/res/ds', ds.name])
-  if (!greenPlan.made) {
-    const names = arr(st.config?.fenceStyles).filter((s: any) => s?.material === 'chain' && s?.choices?.finish === 'green' && s?.choices?.height === '4')
-    for (const s of names) pairs.push([s.choices.install === 'ds' ? 'chain/4/black/res/ds' : "CL - 4' Black", s.name])
-  }
-  printCompare(m, dataBlack, dataBlack, pairs, unpriced)
-  return { pipe, green, greenPlan, vs }
+  const data = { config: { ...(st.config ?? {}), fenceStyles: gstate.fenceStyles, fenceCatalog: gstate.fenceCatalog }, inventory: after(gstate.items), kits: gstate.kits }
+  const unpriced = new Set(greenUnpriced({ ...gstate, items: data.inventory }).map(n => norm(n.part)))
+  printCompare(m, data, gStyles.map((s: any) => [s.madeFrom, s.name] as [string, string]), unpriced, words)
+  return { pipe, green, greenPlan, follow, vs }
 }
 
 // ── Apply (what Jonathan would tap) ─────────────────────────────────────────
@@ -483,21 +535,58 @@ async function apply(docs: Doc[], st: State, plans: Plans, m: any) {
     say(`  ${OLD_GREEN_DOC} (${o.id}): ${r.already ? 'already replaced' : r.message}`)
   }
 
-  // Green chain link, as Add color makes it, switched off.
+  // Green chain link, as Add color makes it, switched off; once made, its kits follow the black kits.
   const made = await prisma.$transaction(async (tx: any) => {
     await lockAccountState(tx, accountId)
     const b = await tx.businessState.findUnique({ where: { accountId }, select: { config: true } })
     const inv = await tx.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } })
+    const kv = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: GREEN_KEY } } })
     const cfg = (b?.config ?? {}) as Record<string, any>
-    const plan = planGreenChainLink(m, { fenceStyles: arr(cfg.fenceStyles), fenceCatalog: m.fenceCatalogOf(cfg), items: arr(inv?.items), kits: arr(inv?.kits) })
-    if (!plan.made) return plan
+    const st1: GreenState = { fenceStyles: arr(cfg.fenceStyles), fenceCatalog: m.fenceCatalogOf(cfg), items: arr(inv?.items), kits: arr(inv?.kits) }
+    const plan = planGreenChainLink(m, st1)
+    if (!plan.made) {
+      const f = planGreenFollowsBlack(m, st1, { madeAt: (kv?.value as any)?.at ?? null })
+      if (f.updated.length || f.items.length || f.marked.length) await tx.inventoryState.update({ where: { accountId }, data: { items: f.state.items as any, kits: f.state.kits as any, version: { increment: 1 } } })
+      return { message: `${plan.message} Kept in step with black: ${f.updated.length ? f.updated.map(u => `${u.kit} (${u.changes.length} kit${u.changes.length === 1 ? '' : 's'} changed)`).join(', ') : 'no kit changed'}${f.items.length ? `; added with no price: ${f.items.join('; ')}` : ''}${f.skipped.length ? `; left as they are: ${f.skipped.join('; ')}` : ''}.` }
+    }
     await tx.businessState.update({ where: { accountId }, data: { config: { ...cfg, fenceStyles: plan.state.fenceStyles, fenceCatalog: plan.state.fenceCatalog } as any, version: { increment: 1 } } })
     await tx.inventoryState.update({ where: { accountId }, data: { items: plan.state.items as any, kits: plan.state.kits as any, version: { increment: 1 } } })
-    const value = { at: new Date().toISOString(), by: actor.name, styles: plan.styles, kits: plan.kits, items: plan.items, noGreen: plan.noGreen, renamed: plan.renamed, from: GREEN_DOC }
+    const value = { at: new Date().toISOString(), by: actor.name, styles: plan.styles, kits: plan.kits, items: plan.items, noGreen: plan.noGreen.map(n => n.part), renamed: plan.renamed, from: GREEN_DOC }
     await tx.accountKeyValue.upsert({ where: { accountId_key: { accountId, key: GREEN_KEY } }, create: { accountId, key: GREEN_KEY, value: value as any }, update: { value: value as any } })
-    return plan
+    return { message: plan.message }
   }, { timeout: 30_000 })
   say(`  ${made.message}`)
+
+  // The plain bolts are Jonathan's call: an earlier run (the dev copy, Oct 26) matched them to the galvanized bolts.
+  // Undo that order, remove those matches, order again: the bolts wait in Needs a match. Never on live.
+  {
+    const gi = await find(GREEN_DOC)
+    const links = await prisma.vendorItemLink.findMany({ where: { accountId, vendorId: st.vendor.id } })
+    const asked = (gi?.lines ?? []).filter(l => greenAskFor(l.description))
+    const guessed = asked.filter(l => ['applied', 'history_only', 'waiting_ok'].includes(l.state))
+    const askLinks = [...new Map(asked.map(l => findLink(links, l.matchKey || matchKey(l.itemNumber, l.description))).filter(Boolean).map(k => [k!.id, k!])).values()]
+    // What the guessed match left on the line (its item, unit and price), shown in Needs a match as if matched.
+    const stale = asked.filter(l => !['applied', 'history_only', 'waiting_ok'].includes(l.state) && (l.inventoryItemId || l.unitLandedCents != null || l.vendorPer != null))
+    // A run stopped between the undo and ordering again leaves the order undone: it is placed again.
+    const reorder = !!gi && gi.ordered && gi.status === 'undone' && asked.length > 0 && dbName !== LIVE_DATABASE_NAME
+    if (gi && (guessed.length || askLinks.length || stale.length || reorder)) {
+      if (dbName === LIVE_DATABASE_NAME) say(`  ${GREEN_DOC}: the plain bolts already have a match on live (${askLinks.map(k => k.key).join(', ')}): left as they are (Jonathan's).`)
+      else {
+        let undone = reorder
+        if (gi.ordered && ['applied', 'needs_match'].includes(gi.status) && guessed.length) {
+          const r = await lib.undoInvoice(accountId, gi.id, actor)
+          undone = true
+          say(`  ${GREEN_DOC}: order undone (an earlier run priced the plain bolts as galvanized): ${r.restored.map(x => `${x.name} back to ${x.back}`).join('; ') || 'nothing to put back'}${r.skipped.length ? `; not put back: ${r.skipped.map(x => `${x.name} (${x.reason})`).join('; ')}` : ''}`)
+        }
+        if (askLinks.length || stale.length || guessed.length) {
+          await prisma.vendorItemLink.deleteMany({ where: { id: { in: askLinks.map(k => k.id) } } })
+          await prisma.vendorInvoiceLine.updateMany({ where: { id: { in: [...new Set([...stale, ...guessed].map(l => l.id))] } }, data: { inventoryItemId: null, inventoryName: '', vendorPer: null, invPer: null, invQty: null, unitLandedCents: null, unitLandedExact: null, prevUnitCents: null, changePct: null } })
+          say(`  ${GREEN_DOC}: removed the galvanized matches for ${asked.map(l => `"${l.description}"`).join(', ')} (${askLinks.length} remembered match${askLinks.length === 1 ? "" : "es"}, ${new Set([...stale, ...guessed].map(l => l.id)).size} line(s) cleared)`)
+        }
+        if (undone) { await lib.markOrdered(accountId, gi.id, actor); say(`  ${GREEN_DOC}: We ordered this again (its own bill back; the bolts wait in Needs a match)`) }
+      }
+    }
+  }
 
   // Matches (Needs a match, with the unit), then "We ordered this".
   const items = arr((await prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true } }))?.items)
@@ -514,7 +603,7 @@ async function apply(docs: Doc[], st: State, plans: Plans, m: any) {
       const links = await prisma.vendorItemLink.findMany({ where: { accountId, vendorId: st.vendor.id } })
       for (const l of inv.lines) {
         const w = want(l.description, n)
-        if (!w) { say(`  ${n}: "${l.description}" has no rule: left in Needs a match`); continue }
+        if (!w) { say(`  ${n}: "${l.description}" ${greenAskFor(l.description) ? "left in Needs a match for Jonathan (no color printed: galvanized or green is his call)" : "has no rule: left in Needs a match"}`); continue }
         const link = findLink(links, l.matchKey || matchKey(l.itemNumber, l.description))
         if (link && link.inventoryItemId === w.id && link.vendorPer === w.vendorPer && link.invPer === w.invPer && l.inventoryItemId === w.id) continue
         await lib.matchLine(accountId, l.id, { inventoryItemId: w.id, vendorPer: w.vendorPer, invPer: w.invPer }, actor, { mayCreateItem: false })
@@ -550,15 +639,26 @@ async function apply(docs: Doc[], st: State, plans: Plans, m: any) {
   for (const b of arr(vstate?.bills).filter((x: any) => [PIPE_DOC, GREEN_DOC, OLD_GREEN_DOC].includes(x?.billNumber))) say(`  bill ${b.billNumber}: ${b.status}, total ${dollars(b.totalCents)}, freight ${dollars(b.freightCents ?? 0)}, fees ${dollars(b.feesCents ?? 0)} — ${b.notes}`)
   const after = await prisma.$transaction(async (tx: any) => loadState(tx, accountId))
   m.styleLabels(after.config, { inventory: after.items, kits: after.kits })
-  const resolved = m.estimateConfig(after.config).fenceStyles.filter((s: any) => s?.choices?.finish === 'green')
+  const resolved = m.estimateConfig(after.config).fenceStyles.filter((s: any) => s?.material === 'chain' && s?.choices?.finish === 'green')
   for (const s of resolved) {
     say(`  fence ${s.name} (${s.label}): ${s.held ? `not available for quoting: ${s.held}` : 'AVAILABLE FOR QUOTING'}`)
     if (!s.held) mismatch++
   }
-  say('\n  The test yard again, from the database:')
+  for (const k of after.kits.filter((x: any) => !x.archived && resolved.some((s: any) => s.name === x.styleName))) {
+    const black = m.kitSetFor(k.followsKit?.from ?? '', after.kits)
+    say(`  kit ${k.name}: ${k.followsKit ? `follows ${k.followsKit.from}` : 'FOLLOWS NOTHING'}`)
+    if (!k.followsKit || !black) mismatch++
+  }
+  const asked = await prisma.vendorInvoiceLine.findMany({ where: { invoice: { accountId, invoiceKey: invoiceNumberKey(GREEN_DOC), ordered: true, status: { notIn: ['refused', 'failed', 'replaced'] } } }, select: { description: true, state: true } })
+  for (const l of asked.filter(x => greenAskFor(x.description))) {
+    say(`  ${GREEN_DOC} "${l.description}": ${l.state}${l.state === 'needs_match' ? ' (waits for Jonathan)' : ''}`)
+    if (l.state !== 'needs_match' && dbName !== LIVE_DATABASE_NAME) mismatch++
+  }
+  say('\n  The test yards again, from the database:')
   const data = { config: after.config, inventory: after.items, kits: after.kits }
-  const unpriced = new Set(arr(after.items).filter((i: any) => String(i?.madeFor ?? '').startsWith('chain:finish:') && !(cents(i) ?? 0)).map((i: any) => norm(String(i.name))))
-  printCompare(m, data, data, resolved.map((s: any) => [s.choices.install === 'ds' ? 'chain/4/black/res/ds' : "CL - 4' Black", s.name] as [string, string]), unpriced)
+  const gs: GreenState = { fenceStyles: arr(after.config?.fenceStyles), fenceCatalog: m.fenceCatalogOf(after.config), items: after.items, kits: after.kits }
+  const unpriced = new Set(greenUnpriced(gs).map(n => norm(n.part)))
+  printCompare(m, data, resolved.map((s: any) => [s.madeFrom, s.name] as [string, string]), unpriced, blackWords(gs.fenceCatalog, greenOption(gs.fenceCatalog)))
   say(mismatch ? `\n${mismatch} difference(s) from the dry run: check above.` : '\nEverything matches the dry run.')
   if (mismatch) process.exitCode = 1
 }
