@@ -12,7 +12,9 @@
  *   InstallTextSheet       The customer's text, prepared and shown; the office
  *                          opens it on their own phone and sends it, or not.
  *                          Never sent by the app, so every customer with a
- *                          phone number is offered it.
+ *                          phone number is offered it. After it is opened:
+ *                          "Did you send the text?" Yes keeps it in the
+ *                          customer's History and the card's, like a card text.
  *   MoveInstallConfirm     A booked install dragged to another day: move it?
  *   RainDayDialog          A rain day: what moves (one crew day later, from
  *                          that day on), then move it and the texts.
@@ -23,6 +25,8 @@
 
 import { locateOf, locateShortWarning } from '../../portal/src/server/lib/locates'
 import { useEffect, useMemo, useState } from 'react'
+import { canTextHere } from './textingDevice'
+import { newId } from './recordSync'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
 import { monthEntries } from './monthEntries'
 import { getJobs } from './jobStore'
@@ -34,8 +38,8 @@ import { useBackLayer } from './nav'
 import { can, REFUSAL } from './permissions'
 import { toast } from './toast'
 import {
-  fetchReadyJobs, fetchJobFacts, scheduleInstall, unscheduleInstall, previewRainDay, applyRainDay,
-  type ReadyJob, type PreparedText, type RainMove,
+  fetchReadyJobs, fetchJobFacts, scheduleInstall, unscheduleInstall, previewRainDay, applyRainDay, noteInstallTexted,
+  type ReadyJob, type PreparedText, type RainMove, type InstallTextKind,
 } from './installScheduleApi'
 import {
   crewDaysOfWeek, installDays, isCrewDay, nextCrewDay, plusDays, scheduleWarnings, permitWords, locatesWords, usDate, phoneWords, PERMIT_ISSUED,
@@ -199,7 +203,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
   const [days, setDays] = useState(0)
   const [weekends, setWeekends] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [text, setText] = useState<{ text: PreparedText; title: string; summary: string } | null>(null)
+  const [text, setText] = useState<{ text: PreparedText; title: string; summary: string; what: InstallTextKind } | null>(null)
   const [confirmOff, setConfirmOff] = useState(false)
 
   useEffect(() => {
@@ -244,7 +248,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
     if (!r.ok) { toast.error('Not scheduled', r.error); return }
     const d = r.data
     const note = d.movedFrom ? ` ${usDate(d.movedFrom)} is not a crew day, so it starts ${usDate(d.days[0])}.` : ''
-    setText({ text: d.text, title: d.rescheduled ? 'Install moved' : 'Install scheduled',
+    setText({ text: d.text, title: d.rescheduled ? 'Install moved' : 'Install scheduled', what: d.rescheduled ? 'moved' : 'scheduled',
       summary: `${d.text.customerName}: ${d.days.length} crew day${d.days.length === 1 ? '' : 's'}, ${d.days.map(shortDay).join(', ')}, ${d.crew.name}.${note} ${d.calendar}` })
     onDone?.()
   }
@@ -255,12 +259,12 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
     const r = await unscheduleInstall(jobId)
     setSaving(false)
     if (!r.ok) { toast.error('Not changed', r.error); return }
-    setText({ text: r.data.text, title: 'Off the schedule', summary: `${facts?.customerName ?? 'The job'} is back in Ready to schedule, in ${r.data.stageName}. The crew and dates are cleared.` })
+    setText({ text: r.data.text, title: 'Off the schedule', what: 'off', summary: `${facts?.customerName ?? 'The job'} is back in Ready to schedule, in ${r.data.stageName}. The crew and dates are cleared.` })
     onDone?.()
   }
 
   if (text) {
-    return <InstallTextSheet text={text.text} onClose={onClose} title={text.title} summary={text.summary} />
+    return <InstallTextSheet text={text.text} what={text.what} onClose={onClose} title={text.title} summary={text.summary} />
   }
 
   return (
@@ -360,14 +364,50 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
 
 /* ── The customer's text ───────────────────────────────────────────────── */
 
-/** The prepared text, shown; it opens in this phone's own texting app, never sent by the app. */
-export function TextPreview({ text }: { text: PreparedText }) {
+/**
+ * The prepared text, shown; it opens in this phone's own texting app, never
+ * sent by the app. Once opened it asks "Did you send the text?", as a card's
+ * Text does: Yes keeps it in the customer's History (and the card's); No keeps
+ * nothing. On a computer, which may not send texts, it also offers the words
+ * to copy and send from a phone (as "Text the receipt" does there).
+ */
+export function TextPreview({ text, what }: { text: PreparedText; what: InstallTextKind }) {
+  const [ask, setAsk] = useState(false)
+  const [logged, setLogged] = useState<'no' | 'saving' | 'yes'>('no')
+  // One id for this text: a second Yes (a retry) is the same History row.
+  const [id] = useState(() => newId())
+  const computer = !canTextHere()
+  async function sent() {
+    if (logged !== 'no') return
+    setLogged('saving')
+    const r = await noteInstallTexted(text.jobId, what, text.phone, id)
+    if (r.ok) { setLogged('yes'); setAsk(false); toast.success('Saved in History', `Text to ${text.customerName}`) }
+    else { setLogged('no'); toast.error('Not saved in History', r.error) }
+  }
   return (
     <div className="rounded-xl border border-gray-200 p-3 space-y-2" data-install-text={text.jobId} data-text-allowed={text.allowed ? 'yes' : 'no'}>
       <p className="text-xs font-semibold text-gray-600">Text to {text.customerName}{text.phone ? `, ${phoneWords(text.phone)}` : ''}</p>
       <p className="text-sm text-gray-900 whitespace-pre-wrap bg-gray-50 rounded-lg p-2" data-install-text-body>{text.body}</p>
       {text.allowed && text.phone ? (
-        <a href={smsLink(text.phone, text.body)} className="btn btn-primary w-full min-h-[48px]" data-install-text-open>Open the text to send</a>
+        <>
+          <a href={smsLink(text.phone, text.body)} onClick={() => { if (logged !== 'yes') setAsk(true) }} className="btn btn-primary w-full min-h-[48px]" data-install-text-open>{logged === 'yes' ? 'Open the text again' : 'Open the text to send'}</a>
+          {logged === 'yes' && <p className="text-sm text-green-800" data-install-text-logged>Saved in {text.customerName}'s History as texted.</p>}
+          {ask && logged !== 'yes' && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2" data-install-text-ask>
+              {computer && (
+                <>
+                  <p className="text-sm text-gray-800">This computer may not send texts. Send this from your phone if it did not open:</p>
+                  <button type="button" className="text-sm text-blue-700 underline min-h-[36px]" onClick={() => { navigator.clipboard?.writeText(text.body).then(() => toast.success('Copied'), () => toast.error('Could not copy', 'Select the words and copy them.')) }} data-install-text-copy>Copy the text</button>
+                </>
+              )}
+              <p className="text-sm font-semibold text-gray-900">Did you send the text?</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" className="btn btn-primary min-h-[48px]" disabled={logged === 'saving'} onClick={sent} data-install-text-sent>{logged === 'saving' ? 'Saving…' : 'Yes, I sent it'}</button>
+                <button type="button" className="btn btn-secondary min-h-[48px]" disabled={logged === 'saving'} onClick={() => setAsk(false)} data-install-text-not-sent>No</button>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <p className="text-sm text-red-800" data-install-text-blocked>{text.reason || 'No phone number on the customer.'}</p>
       )}
@@ -376,14 +416,14 @@ export function TextPreview({ text }: { text: PreparedText }) {
   )
 }
 
-export function InstallTextSheet({ text, title, summary, onClose }: { text: PreparedText; title: string; summary: string; onClose: () => void }) {
+export function InstallTextSheet({ text, what, title, summary, onClose }: { text: PreparedText; what: InstallTextKind; title: string; summary: string; onClose: () => void }) {
   return (
     <Sheet onClose={onClose} label={title} attr={{ 'data-install-done': text.jobId }}>
       <Head title={title} onClose={onClose} />
       <div className="p-5 space-y-4">
         <p className="text-sm text-gray-800" data-install-summary>{summary}</p>
         <p className="text-sm font-semibold text-gray-900">Text the customer?</p>
-        <TextPreview text={text} />
+        <TextPreview text={text} what={what} />
         <button type="button" className="btn btn-secondary w-full min-h-[48px]" onClick={onClose} data-install-text-skip>{text.allowed ? "Don't text, close" : 'Close'}</button>
       </div>
     </Sheet>
@@ -404,7 +444,7 @@ export function MoveInstallConfirm({ jobId, name, from, to, onClose }: { jobId: 
     if (!r.ok) { toast.error('Not moved', r.error); onClose(); return }
     setDone({ text: r.data.text, days: r.data.days, crew: `${r.data.crew.name}. ${r.data.calendar}` })
   }
-  if (done) return <InstallTextSheet text={done.text} onClose={onClose} title="Install moved"
+  if (done) return <InstallTextSheet text={done.text} what="moved" onClose={onClose} title="Install moved"
     summary={`${name}: now ${done.days.map(shortDay).join(', ')}, ${done.crew}`} />
   return (
     <Sheet onClose={onClose} label="Move install" attr={{ 'data-move-install': jobId }}>
@@ -501,7 +541,7 @@ export function RainDayDialog({ date: dateAt, onClose }: { date?: string; onClos
                 <p className="text-sm font-semibold text-gray-900">{m.customerName}</p>
                 <p className="text-xs text-gray-700" data-rain-days>{m.days.map(d => `${shortDay(d.from)} → ${shortDay(d.to)}`).join(' · ')}</p>
                 {m.startTo === m.startFrom && <p className="text-[11px] text-gray-500">Already under way: it runs a day longer. No new start date to text.</p>}
-                {done && m.text && <div className="mt-2"><TextPreview text={m.text} /></div>}
+                {done && m.text && <div className="mt-2"><TextPreview text={m.text} what="rain" /></div>}
                 {!done && m.text && <p className="text-[11px] text-gray-500 mt-1">A text with the new start ({usDate(m.startTo)}) is prepared after you move it.</p>}
               </li>
             ))}

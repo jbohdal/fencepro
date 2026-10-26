@@ -105,4 +105,20 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('follow ups (dev database)', () =
     expect(row.dueOn).toBe(r.dueOn); expect(row.setBy).toBe('first'); expect(row.ownerUserId).toBe(u.owner.id)
     expect((await F.firstFollowUpPreview(accountId)).count).toBe(0)
   })
+
+  test('an install text logged as sent: in the card\'s History once, no follow up changed, not counted in the report', async () => {
+    const before = await prisma.cardFollowUp.findUnique({ where: { accountId_cardId: { accountId, cardId: 'c2' } } })
+    const reportBefore = await F.followUpReport(accountId, { id: u.owner.id, role: 'super_admin' }, '2020-01-01', '2099-12-31')
+    const input = { id: `${tag}-text-1`, crmContactId: null, cardId: 'c2', stage: 'Pending Signature', note: 'Install date text to (352) 555 0142.' }
+    const a = await F.logSentText(accountId, u.b, input)
+    const b = await F.logSentText(accountId, u.b, input)
+    expect(a.already).toBe(false); expect(b.already).toBe(true)
+    expect(await prisma.callLog.count({ where: { accountId, cardId: 'c2' } })).toBe(1)
+    const h = await F.customerHistory(accountId, { cardId: 'c2' })
+    expect(h.filter(i => i.kind === 'text').map(i => [i.title, i.detail, i.by])).toEqual([['Text sent', 'Install date text to (352) 555 0142.', u.b.name]])
+    const after = await prisma.cardFollowUp.findUnique({ where: { accountId_cardId: { accountId, cardId: 'c2' } } })
+    expect(after?.dueOn).toBe(before?.dueOn); expect(after?.lastOutcome ?? null).toBe(before?.lastOutcome ?? null)
+    const reportAfter = await F.followUpReport(accountId, { id: u.owner.id, role: 'super_admin' }, '2020-01-01', '2099-12-31')
+    expect(reportAfter.totals.calls).toBe(reportBefore.totals.calls)
+  })
 })

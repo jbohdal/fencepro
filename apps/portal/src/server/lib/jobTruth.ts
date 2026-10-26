@@ -355,6 +355,16 @@ function cardOfJob(list: PipelineStageDef[], leads: Json[], j: { id: string; quo
   return o.length === 1 ? o[0] : null
 }
 
+/** A job's pipeline card (its id and stage), by the same rule as cardOfJob, or null when there is none or no single one. */
+export async function cardForJob(accountId: string, jobId: string): Promise<{ id: string; stage: string } | null> {
+  const j = await prisma.savedJob.findFirst({ where: { id: jobId, accountId }, select: { id: true, quoteId: true, crmContactId: true, createdAt: true, contractValue: true, quotePrice: true, status: true } })
+  if (!j) return null
+  const { stages } = await loadPipelineStages(accountId)
+  const state = await prisma.pipelineState.findUnique({ where: { accountId }, select: { leads: true } })
+  const card = cardOfJob(stages, ((state?.leads as Json[]) ?? []).filter(Boolean), j)
+  return card?.id ? { id: String(card.id), stage: String(card.stage ?? '') } : null
+}
+
 /** Is a card behind its job (and where should it go)? Only forward, never out of a dead stage. */
 function behindTarget(list: PipelineStageDef[], card: Json, target: string | null): string | null {
   if (!target || card.stage === target) return null

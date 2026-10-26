@@ -5,9 +5,14 @@
  *   /api/schedule/settings           — singleton: workDays + crews per account
  *   /api/schedule/jobs               — ScheduledGridJob CRUD + sync
  *   /api/schedule/rain-log           — append only RainDay log
+ *   POST /api/schedule/install/:jobId/texted — the install text was sent from the
+ *        office's own phone ("Did you send the text?" Yes): kept in the customer's
+ *        History and the card's (lib/followUps.ts logSentText)
  */
 
-import { cardFollowsJob } from '../lib/jobTruth.js'
+import { cardFollowsJob, cardForJob } from '../lib/jobTruth.js'
+import { logSentText } from '../lib/followUps.js'
+import { phoneWords } from '../lib/installDays.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
@@ -522,6 +527,37 @@ router.post('/install/:jobId/off', requireCan('schedule.change'), async (req: an
     await audit(req, 'update', 'SavedJob', row.job.id, { newValues: { scheduledDate: '', opsStage: row.job.opsStage } })
     res.json({ success: true, data: row })
   } catch (err) { scheduleFail(res, err, 'take the install off the schedule') }
+})
+
+/** What an install text was about, in History's words. */
+const INSTALL_TEXT_WORDS = { scheduled: 'Install date', moved: 'Install moved', off: 'Install date being changed', rain: 'Rain day: new install date' } as const
+
+router.post('/install/:jobId/texted', requireCan('schedule.change'), async (req: any, res) => {
+  try {
+    const b = z.object({
+      id: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, 'The text needs an id.'),
+      what: z.enum(['scheduled', 'moved', 'off', 'rain']),
+      to: z.string().max(40).optional().nullable(),
+      at: z.string().max(40).optional().nullable(),
+    }).parse(req.body ?? {})
+    const accountId = req.user.crmAccountId
+    const job = await prisma.savedJob.findFirst({ where: { id: String(req.params.jobId), accountId, deletedAt: null }, select: { id: true, crmContactId: true } })
+    if (!job) { res.status(404).json({ success: false, error: 'That job is not here any more.' }); return }
+    const card = await cardForJob(accountId, job.id)
+    if (!job.crmContactId && !card) { res.status(409).json({ success: false, error: 'This job has no customer record or card to keep the text on.' }); return }
+    const u = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true, email: true } })
+    const name = `${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim() || String(u?.email ?? req.user.email ?? 'Staff')
+    const to = phoneWords(b.to)
+    const r = await logSentText(accountId, { id: req.user.id, name }, {
+      id: b.id, crmContactId: job.crmContactId, cardId: card?.id ?? null, stage: card?.stage ?? '', at: b.at,
+      note: `${INSTALL_TEXT_WORDS[b.what]} text${to ? ` to ${to}` : ''}.`,
+    })
+    if (!r.already) await audit(req, 'create', 'CallLog', b.id, { newValues: { jobId: job.id, channel: 'text', outcome: 'sent', what: b.what } })
+    res.status(r.already ? 200 : 201).json({ success: true, data: { log: r.log } })
+  } catch (err) {
+    if ((err as any)?.status === 409) { res.status(409).json({ success: false, error: String((err as Error).message) }); return }
+    scheduleFail(res, err, 'save the text in History')
+  }
 })
 
 router.post('/rain-day/preview', async (req: any, res) => {
