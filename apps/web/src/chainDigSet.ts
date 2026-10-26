@@ -279,3 +279,68 @@ export function planChainDigSetPipesAndTies(st0: ChainFixState): ChainFixPlan {
   }
   return out
 }
+
+// ── Oct 26, 2026: chain link gates and hardware follow the takeoff sheet ──────
+
+/** The gate kits every chain link parts list had before Oct 26, 2026 (4 ft leaves, hardware per gate). */
+export function oldChainGateKits(finish: 'galv' | 'black', h: number): { walkGate: Array<[string, number]>; dblGate: Array<[string, number]> } {
+  if (finish === 'galv') {
+    const gate = `Chainlink, Galv, Gate, 1-3/8", ${h}' x 4' (.055)`
+    return {
+      walkGate: [[gate, 1], ['G, Hinge, Female, 1-3/8" x 5/8"', 2], ['G, Hinge, Male, PS, 2-3/8"', 2], ['G, Fork, PS, 1-3/8"', 2], ['G, Collar, PS, 1-3/8" (Set of 2)', 2], ['G, Drop Rod, 24"', 1], ['G, Bolt, 3/8" x 2" w/ Nut', 2], ['G, Bolt, 3/8" x 3" w/ Nut', 2]],
+      dblGate: [[gate, 2], ['G, Hinge, Female, 1-3/8" x 5/8"', 4], ['G, Hinge, Male, PS, 2-3/8"', 4], ['G, Fork, PS, 2-1/2"', 2], ['G, Drop Rod, 24"', 2]],
+    }
+  }
+  const gate = `Chainlink, Black, Gate, 1-3/8", ${h}' x 4' (.065)`
+  return {
+    walkGate: [[gate, 1], ['Black, Hinge, Female, 1-3/8" x 5/8"', 2], ['Black, Hinge, Male, 2-3/8"', 2], ['Black, Fork, PS, 1-3/8"', 2], ['Black, Collar, PS, 1-3/8" (Set of 2)', 2], ['Drop Rod, 24", Black', 1], ['Black, Bolt, 3/8" x 2" w/ Nut', 2], ['Black, Bolt, 3/8" x 3" w/ Nut', 2]],
+    dblGate: [[gate, 2], ['Black, Hinge, Female, 1-3/8" x 5/8"', 4], ['Black, Hinge, Male, 2-3/8"', 4], ['Black, Fork, PS, 2-1/2"', 2], ['Drop Rod, 48", Black', 2]],
+  }
+}
+
+const GATE_KINDS: KitKind[] = ['walkGate', 'dblGate', 'walkGate5', 'walkGate6', 'dblGate10', 'dblGate12', 'anyGate', 'anyWalkGate', 'anyDblGate']
+
+export interface ChainGatePlan {
+  state: ChainFixState
+  /** Saved kit sets whose gate kits now follow the sheet. */
+  updated: string[]
+  /** Left as they were, and why. */
+  skipped: string[]
+}
+
+/**
+ * Once per company (server step lib/chainGateKits.ts): saved residential
+ * chain link kit sets made from a no dig style (the dig set twins, copies of
+ * its kits) still carrying the old gate kits get the gate kits of the style
+ * they were made from, which follow the takeoff sheet (gate leaves by width,
+ * hinges, forks, collar, drop rod, bolts; Jonathan, Oct 26, 2026). A set whose
+ * gate kits were edited is left as it is. Pure; saved quotes keep their prices.
+ */
+export function planChainGateKits(st0: ChainFixState): ChainGatePlan {
+  const st: ChainFixState = JSON.parse(JSON.stringify(st0))
+  const out: ChainGatePlan = { state: st, updated: [], skipped: [] }
+  const key = (parts: Array<[string, number]>) => parts.map(([p, q]) => `${normalizeItemName(p)}=${q}`).sort().join('|')
+  for (const set of st.kits) {
+    if (set.archived) continue
+    const style = st.fenceStyles.find(s => s.name === set.styleName)
+    const c = style?.material === 'chain' ? style.choices : undefined
+    if (!style?.madeFrom || !c || c.grade !== 'res' || !/^\d+$/.test(c.height ?? '') || (c.finish !== 'galv' && c.finish !== 'black')) continue
+    if (GATE_KINDS.slice(2).some(k => set.kits[k]?.length)) continue // already has the new gate kits
+    const old = oldChainGateKits(c.finish, Number(c.height))
+    const has = (k: KitKind) => (set.kits[k] ?? []).map(p => [p.part, p.qty] as [string, number])
+    if (key(has('walkGate')) !== key(old.walkGate) || key(has('dblGate')) !== key(old.dblGate)) {
+      out.skipped.push(`${set.name}: its gate kits were edited, left as they are`)
+      continue
+    }
+    const src = kitSetFor(style.madeFrom, st.kits)
+    if (!src || src === 'archived' || src.mismatch) { out.skipped.push(`${set.name}: no kit for ${style.madeFrom} to copy the gates from`); continue }
+    for (const k of GATE_KINDS) {
+      const parts = src.kits[k]
+      if (parts?.length) set.kits[k] = parts.map(p => ({ ...p }))
+      else delete set.kits[k]
+    }
+    set.updatedAt = new Date().toISOString()
+    out.updated.push(set.name)
+  }
+  return out
+}

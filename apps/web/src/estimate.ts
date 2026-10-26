@@ -25,7 +25,7 @@ export { NOT_QUOTABLE_MESSAGE }
 // The server's wood seed (lib/woodSeed.ts) runs this through the bundle.
 export { planWood } from './wood'
 // The server's chain link dig set seed (lib/chainDigSetSeed.ts).
-export { planChainDigSet, planChainDigSetPipesAndTies } from './chainDigSet'
+export { planChainDigSet, planChainDigSetPipesAndTies, planChainGateKits } from './chainDigSet'
 // The server's tan dig set auto mix seed (lib/tanAutoDsSeed.ts).
 export { planTanAutoDs } from './tanAutoDs'
 // 8 ft tall vinyl section parts as $0 catalog items (lib/tallVinylParts.ts).
