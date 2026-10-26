@@ -110,12 +110,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
 
   afterAll(async () => {
     setEmailSenderForTests(undefined); setPushSenderForTests(null); setWalkthroughForTests(null)
-    const runs = await prisma.automationRun.findMany({ where: { ruleId: { in: ruleIds } }, select: { id: true } })
+    // Every run on the test's own cards too (the dev copy's own switched on rules, such as Signed Contract, see them).
+    const runs = await prisma.automationRun.findMany({ where: { OR: [{ ruleId: { in: ruleIds } }, { entityId: { in: [...cardIds, ...jobIds] } }] }, select: { id: true } })
     const runIds = runs.map(r => r.id)
     await prisma.task.deleteMany({ where: { OR: [{ automationId: { in: ruleIds } }, ...runIds.map(id => ({ createdBy: { startsWith: `automation:${id}` } }))] } })
     await prisma.notification.deleteMany({ where: { OR: [{ jobId: { in: jobIds } }, { title: { contains: tag } }, { body: { contains: tag } }] } })
     await prisma.automationEffect.deleteMany({ where: { runId: { in: runIds } } })
-    await prisma.automationRun.deleteMany({ where: { ruleId: { in: ruleIds } } })
+    await prisma.automationRun.deleteMany({ where: { id: { in: runIds } } })
     await prisma.automationRule.deleteMany({ where: { id: { in: ruleIds } } })
     await prisma.automationEvent.deleteMany({ where: { OR: [{ entityId: { in: [...cardIds, ...jobIds, contactId] } }, { dedupeKey: { contains: tag } }, ...ruleIds.map(id => ({ data: { path: ['ruleId'], equals: id } }))] } })
     await prisma.stageRule.deleteMany({ where: { accountId, stage: { in: ['Pending Start', 'completed'] }, starter: null } })
@@ -181,6 +182,44 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
     expect(r2.every(r => r.status === 'skipped')).toBe(true)
     await pause(rule.id)
   }, 30_000) // a full run on the shared dev copy can take longer than the default 5 s
+
+  test('sold by hand: a card that goes from First Contact straight to Job Prep runs the Signed Contract rule once; one that stops in Signed Contract first, once too', async () => {
+    const { moveCardTo } = await import('../src/server/lib/jobTruth.js')
+    const rule = await makeRule({ name: 'entered Signed Contract', board: 'sales', trigger: { type: 'card_entered', stage: 'Signed Contract', settleMinutes: 2, onlyWhileInStage: false }, steps: [{ type: 'create_task', title: 'Order materials for {name}', description: '', assignTo: '', dueInDays: 1 }] })
+    // The quote save dialog's SOLD: the job is made first and the card follows it (lib/jobTruth.ts cardFollowsJob), First Contact to Job Prep.
+    const walkIn = await addCard('First Contact')
+    expect(await moveCardTo(accountId, walkIn, 'Job Prep')).toBe(true)
+    const passed = await prisma.automationEvent.findMany({ where: { entityId: walkIn, type: 'card_entered' }, orderBy: { occurredAt: 'asc' } })
+    expect(passed.map(e => (e.data as any).stage)).toEqual(['First Contact', 'Signed Contract', 'Job Prep'])
+    expect((passed[1].data as any)).toMatchObject({ passedThrough: true, from: 'First Contact', to: 'Job Prep' })
+    // The sold quote's own move after that finds the card already sold: no second event.
+    expect(await moveCardTo(accountId, walkIn, 'Job Prep')).toBe(false)
+    // Dragged on the board from Estimating past Signed Contract to Pending Start: the same.
+    const dragged = await addCard('Estimating')
+    expect((await move(dragged, 'Pending Start')).status).toBe(200)
+    // Counter signed: Signed Contract, then on to Job Prep when the job is made: one Signed Contract event, no second.
+    const signed = await addCard('Pending Signature')
+    expect((await move(signed, 'Signed Contract')).status).toBe(200)
+    expect(await moveCardTo(accountId, signed, 'Job Prep')).toBe(true)
+    expect(await prisma.automationEvent.count({ where: { entityId: signed, type: 'card_entered', data: { path: ['stage'], equals: 'Signed Contract' } } })).toBe(1)
+    // Already sold cards that move on, and a jump straight to work done, never count as signed again.
+    const later2 = await addCard('Job Prep')
+    expect((await move(later2, 'Pending Start')).status).toBe(200)
+    const done = await addCard('Estimating')
+    expect((await move(done, 'Pending Payment')).status).toBe(200)
+    for (const c of [later2, done]) expect(await prisma.automationEvent.count({ where: { entityId: c, type: 'card_entered', data: { path: ['stage'], equals: 'Signed Contract' } } })).toBe(0)
+
+    await Q.tick(later(3 * MIN), { scan: false })
+    for (const c of [walkIn, dragged, signed]) {
+      const tasks = await tasksFor(rule.id, c)
+      expect(tasks, `${c}: ${JSON.stringify((await prisma.automationRun.findMany({ where: { ruleId: rule.id, entityId: c } })).map(r => [r.status, r.log]))}`).toHaveLength(1)
+      expect(tasks[0].title).toMatch(/^Order materials for Testy /)
+    }
+    // The walk-in's run came from the "went past Signed Contract" event.
+    const run = (await prisma.automationRun.findMany({ where: { ruleId: rule.id, entityId: walkIn, status: 'succeeded' } }))[0]
+    expect(run.eventId).toBe(passed[1].id)
+    await pause(rule.id)
+  }, 30_000)
 
   test('moved out of a stage, with conditions', async () => {
     const rule = await makeRule({

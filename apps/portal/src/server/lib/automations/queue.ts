@@ -127,7 +127,7 @@ function describeEvent(ev: AutomationEvent): string {
   const d = (ev.data ?? {}) as any
   const who = d.name ? `${d.name}: ` : ''
   switch (ev.type) {
-    case 'card_entered': return `${who}moved into ${d.stage}${d.from ? ` from ${d.from}` : ''}`
+    case 'card_entered': return d.passedThrough ? `${who}signed: moved from ${d.from} past ${d.stage} to ${d.to}` : `${who}moved into ${d.stage}${d.from ? ` from ${d.from}` : ''}`
     case 'card_left': return `${who}moved out of ${d.stage}${d.to ? ` to ${d.to}` : ''}`
     case 'time': return String(d.why || 'time reached')
     case 'payment_received': return `payment received${d.amountCents ? ` ($${(d.amountCents / 100).toFixed(2)})` : ''}`
