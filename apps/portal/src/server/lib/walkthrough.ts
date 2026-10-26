@@ -15,7 +15,7 @@ import crypto from 'crypto'
 import prisma from './prisma.js'
 import { recordEvent } from './automationEvents.js'
 import {
-  templatesFrom, categoryForStyle, itemsFromTemplate, photoSlots, missingToFinish,
+  templatesFrom, categoryForStyle, itemsFromTemplate, photoSlots, missingToFinish, repairGateCount,
   type WalkItem, type PhotoSlot, type Signature, type PunchLike, type LayoutSides,
 } from './walkthroughRules.js'
 import { makeCertificate } from './walkthroughCertificate.js'
@@ -35,11 +35,13 @@ export async function templatesFor(accountId: string) {
 
 /** The required photos for a job: from its quote's yard layout, or counts from the job (the crew can change them). */
 export async function slotsForJob(job: { quoteId: string | null; walkGates: number; dblGates: number }): Promise<PhotoSlot[]> {
-  const q = job.quoteId ? await prisma.savedQuote.findUnique({ where: { id: job.quoteId }, select: { layout: true, runs: true } }).catch(() => null) : null
+  const q = job.quoteId ? await prisma.savedQuote.findUnique({ where: { id: job.quoteId }, select: { layout: true, runs: true, work: true } }).catch(() => null) : null
   const yard = (q?.layout as any)?.yard as LayoutSides | null | undefined
-  if (yard?.sides?.some(s => s.on)) return photoSlots({ layout: yard })
+  // A repair's rehung or replaced gates count as gates to photograph.
+  const repairGates = repairGateCount(q?.work as any)
+  if (yard?.sides?.some(s => s.on)) return photoSlots({ layout: yard, repairGates })
   const runs = Array.isArray(q?.runs) ? (q!.runs as unknown[]).length : 0
-  return photoSlots({ sideCount: Math.max(1, runs), gateCount: (job.walkGates || 0) + (job.dblGates || 0) })
+  return photoSlots({ sideCount: Math.max(1, runs), gateCount: (job.walkGates || 0) + (job.dblGates || 0), repairGates })
 }
 
 export interface StartInput { id?: string; category?: string; items?: WalkItem[]; photos?: PhotoSlot[] }
