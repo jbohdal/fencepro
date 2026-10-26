@@ -78,6 +78,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('texting consent (dev database)',
     await send('PATCH', `/api/crm-contacts/${c.id}`, { textConsent: 'yes', textConsentSource: 'verbal' })
     expect((await prisma.crmContact.findUniqueOrThrow({ where: { id: c.id } })).textConsent).toBe('unknown')
     expect((await send('POST', `/api/crm-contacts/${crypto.randomUUID()}/text-consent`, { consent: 'yes' })).status).toBe(404)
+    // A brand new customer page reads before the customer is saved: nothing yet, not a 404 (round 2 review, Oct 26 2026).
+    const early = await send('GET', `/api/crm-contacts/${crypto.randomUUID()}/text-consent`)
+    expect([early.status, early.json.data.textConsent, early.json.data.history]).toEqual([200, 'unknown', []])
+    const hist = await send('GET', `/api/crm-contacts/${crypto.randomUUID()}/import-history`)
+    expect([hist.status, hist.json.data]).toEqual([200, []])
   })
 
   test('the website checkbox: checked is a yes with the exact words, unchecked a no; the same answer again adds nothing', async () => {

@@ -136,6 +136,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('possible matches, merge and undo
     expect((await prisma.customerPossibleMatch.findUnique({ where: { id: m.id } })).status).toBe('dismissed')
     expect((await call('sales', 'GET', `/api/customer-matches/customer/${pat.id}`)).json.data.matches).toEqual([])
     expect((await call('sales', 'POST', `/api/customer-matches/${m.id}/merge`)).status).toBe(409)
+    // A customer not on the server yet (a new customer page still saving): nothing to show, not a 404.
+    const early = await call('sales', 'GET', `/api/customer-matches/customer/${crypto.randomUUID()}`)
+    expect([early.status, early.json.data]).toEqual([200, { textConsent: 'unknown', matches: [], mergedInto: null, merges: [] }])
   })
 
   // Everything of the new customer's, in each kind of place a customer id is kept.
