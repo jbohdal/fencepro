@@ -60,8 +60,10 @@ function shownServer(m: ServerMedia): ShownMedia {
   }
 }
 
-export default function MediaGallery({ where, layout, onLayout, defaultCategory = 'Site walk', title = 'Photos and video', onItems, openKey, onOpened, cameraSignal }: {
+export default function MediaGallery({ where, quoteCustomerId, layout, onLayout, defaultCategory = 'Site walk', title = 'Photos and video', onItems, openKey, onOpened, cameraSignal }: {
   where: Where
+  /** On a quote: its customer, so the customer's visit photos show with the quote's (a draft not saved yet is not known to the server). New captures still go on the quote. */
+  quoteCustomerId?: string | null
   layout?: YardLayout | null
   onLayout?: (l: YardLayout) => void
   defaultCategory?: Category
@@ -82,13 +84,14 @@ export default function MediaGallery({ where, layout, onLayout, defaultCategory 
   const [warn, setWarn] = useState<string | null>(null)
   const [, tick] = useState(0)
   const fileRef = useRef<HTMLInputElement | null>(null)
-  const whereKey = JSON.stringify(where)
+  const whereKey = JSON.stringify(where) + (quoteCustomerId ?? '')
+  const lookup = where.quoteKey && quoteCustomerId ? { ...where, quoteCustomerId } : where
 
   useEffect(() => { if (cameraSignal) setCamera(true) }, [cameraSignal])
   useEffect(() => { fetchCurrentUser().then(u => setMe(u ? `${u.firstName} ${u.lastName}`.trim() : null)).catch(() => {}) }, [])
 
   const refresh = useCallback(async () => {
-    const [loc, srv] = await Promise.all([localMedia(where), (where.quoteKey || where.jobId || where.customerId) ? listMedia(where) : Promise.resolve([])])
+    const [loc, srv] = await Promise.all([localMedia(lookup), (where.quoteKey || where.jobId || where.customerId) ? listMedia(lookup) : Promise.resolve([])])
     const onServer = new Set(srv.map(s => s.clientId))
     const list = [...srv.map(shownServer), ...loc.filter(l => !onServer.has(l.clientId)).map(l => shownLocal(l, me))]
       // A date that arrived as anything but text (an old redacted answer gave {}) never breaks the list (WebKit, Oct 25 2026).
@@ -117,7 +120,7 @@ export default function MediaGallery({ where, layout, onLayout, defaultCategory 
     if (item.local) {
       await updateLocal(item.local.clientId, { meta: { ...item.local.meta, ...patch } })
       // It may have finished uploading meanwhile: send the change there too.
-      const srv = (await listMedia(where)).find(s => s.clientId === item.local!.clientId)
+      const srv = (await listMedia(lookup)).find(s => s.clientId === item.local!.clientId)
       if (srv) await patchMedia(srv.id, patch)
     } else if (item.server) await patchMedia(item.server.id, patch)
     await refresh()

@@ -193,7 +193,8 @@ async function put(m: LocalMedia<AnyMeta>): Promise<void> {
   await writeRow(await seal(m))
   opened.set(m.clientId, { blob: m.blob, markupBlob: m.markupBlob ?? null })
 }
-const remove = async (id: string) => { await store('readwrite', s => s.delete(id)); opened.delete(id) }
+// A capture sent straight up (addOrSend) was never kept, and a browser with no storage cannot delete: neither fails the upload.
+const remove = async (id: string) => { await store('readwrite', s => s.delete(id)).catch(() => {}); opened.delete(id) }
 const notify = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event(MEDIA_EVENT)) }
 
 function newClientId(): string {
@@ -209,6 +210,18 @@ export async function addCapture<M extends AnyMeta = MediaMeta>(blob: Blob, meta
   notify()
   uploadAll().catch(() => {})
   return m
+}
+
+/**
+ * Save a photo now, or send it straight up when this browser cannot keep it
+ * on the phone (no safe storage): the site visit's photos are never left out.
+ */
+export async function addOrSend(blob: Blob, meta: MediaMeta): Promise<'saved' | 'sent' | 'failed'> {
+  try { await addCapture(blob, meta); return 'saved' } catch { /* no safe storage on this browser: send it now */ }
+  const m: LocalMedia<MediaMeta> = { clientId: newClientId(), meta, blob, size: blob.size, sent: 0, createdAt: Date.now(), owner: signedInUserId() }
+  const r = await uploadOne(m).catch(() => 'retry' as const)
+  notify()
+  return r === 'ok' ? 'sent' : 'failed'
 }
 
 /** Change a capture still on the phone (caption, pin, markup …). */
@@ -228,13 +241,18 @@ export async function updateLocal(clientId: string, patch: Partial<Pick<LocalMed
 /** Captures still on the phone for a quote, job or customer. */
 const isPhotoOrVideo = (m: LocalMedia<AnyMeta>): m is LocalMedia<MediaMeta> => m.meta.kind !== 'invoice'
 
-export async function localMedia(where: { quoteKey?: string; jobId?: string; customerId?: string } = {}): Promise<LocalMedia[]> {
+export async function localMedia(where: { quoteKey?: string; jobId?: string; customerId?: string; quoteCustomerId?: string | null } = {}): Promise<LocalMedia[]> {
   return (await all()).filter(isPhotoOrVideo).filter(m => !m.serverId && (
     (!where.quoteKey && !where.jobId && !where.customerId)
     || (where.quoteKey && m.meta.quoteKey === where.quoteKey)
+    // A quote's customer's own (visit) photos still on this phone, as the server counts them once they arrive.
+    || (where.quoteKey && where.quoteCustomerId && isCustomersOwn(m.meta, where.quoteCustomerId))
     || (where.jobId && m.meta.jobId === where.jobId)
     || (where.customerId && m.meta.customerId === where.customerId)))
 }
+
+/** A photo taken on the customer (the visit, the customer page), not on a quote or a job: it shows on their quotes too (portal lib/quoteMedia.ts). */
+export const isCustomersOwn = (m: Pick<MediaMeta, 'quoteKey' | 'jobId' | 'customerId'>, customerId: string) => m.customerId === customerId && !m.quoteKey && !m.jobId
 
 /** Vendor invoice files still on the phone (Inventory > Invoices). */
 export async function localInvoiceFiles(): Promise<LocalMedia<InvoiceFileMeta>[]> {
@@ -353,7 +371,8 @@ export async function storageWarning(): Promise<string | null> {
 
 // ── Server ────────────────────────────────────────────────────────────────────
 
-export async function listMedia(where: { quoteKey?: string; jobId?: string; customerId?: string }): Promise<ServerMedia[]> {
+/** A quote's list includes its customer's visit photos; quoteCustomerId names the customer of a draft not saved yet. */
+export async function listMedia(where: { quoteKey?: string; jobId?: string; customerId?: string; quoteCustomerId?: string | null }): Promise<ServerMedia[]> {
   const q = new URLSearchParams(Object.entries(where).filter(([, v]) => v) as Array<[string, string]>)
   const items = await json<ServerMedia[]>(await fetchWithAuth(`${API}?${q}`).catch(() => null))
   return (items ?? []).map(i => ({ ...i, url: ORIGIN + i.url, markupUrl: i.markupUrl && ORIGIN + i.markupUrl, previewUrl: i.previewUrl && ORIGIN + i.previewUrl, thumbUrl: i.thumbUrl && ORIGIN + i.thumbUrl }))

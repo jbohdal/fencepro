@@ -24,6 +24,7 @@ import { mediaDir, serializeMedia, processMediaQueue, checkMediaSig, CATEGORIES,
 import { plainZod } from '../lib/plainZod.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { receiveInvoiceFile } from '../lib/vendorInvoices.js'
+import { quoteCustomer, quoteMediaOr } from '../lib/quoteMedia.js'
 
 const router = Router()
 const MAX_BYTES = 2 * 1024 * 1024 * 1024 // 2 GB
@@ -209,7 +210,7 @@ async function finishUpload(req: any, res: any, clientId: string): Promise<void>
   res.json({ success: true, data: serializeMedia(item) })
 }
 
-// ── List: a quote's, a job's (and its quote's), a customer's (and their quotes' and jobs') ──
+// ── List: a quote's (and its customer's visit photos), a job's (and its quote's), a customer's (and their quotes' and jobs') ──
 
 router.get('/', async (req: any, res) => {
   const accountId = req.user.crmAccountId
@@ -217,7 +218,8 @@ router.get('/', async (req: any, res) => {
   const jobId = req.query.jobId ? String(req.query.jobId) : null
   const customerId = req.query.customerId ? String(req.query.customerId) : null
   const or: any[] = []
-  if (quoteKey) or.push({ quoteKey })
+  // A quote: its own, and its customer's visit photos (lib/quoteMedia.ts). A draft not saved yet names its customer (quoteCustomerId).
+  if (quoteKey) or.push(...quoteMediaOr(quoteKey, await quoteCustomer(accountId, quoteKey, req.query.quoteCustomerId ? String(req.query.quoteCustomerId) : null)))
   if (jobId) {
     or.push({ jobId })
     const job = await prisma.savedJob.findUnique({ where: { id: jobId }, select: { quoteId: true, accountId: true } }).catch(() => null)

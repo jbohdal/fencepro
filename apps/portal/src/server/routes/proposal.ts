@@ -36,6 +36,7 @@ import { overlayAcceptedUpdate } from '../lib/warrantyUpdates.js'
 import { depositOf } from '../lib/paymentMath.js'
 import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
+import { proposalPhotos, quoteCustomer, belongsToQuote } from '../lib/quoteMedia.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -178,8 +179,8 @@ publicProposal.get('/:token', async (req, res) => {
   }
   // Opens are counted by the page's own script once it is on screen (POST <link>/view), so link
   // previews, prefetch and staff opens never count (lib/proposalViews.ts).
-  // A move or repair shows the photos marked Customer on this quote.
-  const photos = p.kind ? await customerPhotos(q) : []
+  // A move or repair shows the photos marked Customer on this quote and its site visit (lib/quoteMedia.ts).
+  const photos = p.kind ? await proposalPhotos(q) : []
   // Accepted: the warranty's start, once the job is installed (lib/warranties.ts).
   const installDay = q.acceptedAt ? await acceptedInstallDay(q).catch(() => null) : null
   // Signed on a warranty update link: the accepted option shows the warranty it was signed with (lib/warrantyUpdates.ts).
@@ -241,20 +242,12 @@ publicProposal.get('/:token/contract.pdf', async (req, res) => {
   }
 })
 
-/** Photos on a quote marked Customer (never Internal or Crew). */
-async function customerPhotos(q: { id: string; accountId: string }) {
-  return prisma.mediaItem.findMany({
-    where: { accountId: q.accountId, quoteKey: q.id, deletedAt: null, visibility: 'customer', kind: 'photo' },
-    orderBy: { takenAt: 'asc' }, take: 24, select: { id: true, caption: true, category: true },
-  }).catch(() => [] as Array<{ id: string; caption: string; category: string }>)
-}
-
-// A photo marked Customer on this proposal's quote (marked up when it was).
+// A photo marked Customer on this proposal's quote or its site visit (marked up when it was).
 publicProposal.get('/:token/media/:id', async (req, res) => {
   const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) }, select: { id: true, accountId: true, archivedAt: true, shareDisabledAt: true, shareExpiresAt: true } }).catch(() => null)
   if (!q || q.archivedAt || linkClosed(q)) { res.status(404).end(); return }
   const m = await prisma.mediaItem.findUnique({ where: { id: String(req.params.id) } }).catch(() => null)
-  if (!m || m.deletedAt || m.accountId !== q.accountId || m.quoteKey !== q.id || m.visibility !== 'customer' || m.kind !== 'photo') { res.status(404).end(); return }
+  if (!m || m.deletedAt || m.accountId !== q.accountId || m.visibility !== 'customer' || m.kind !== 'photo' || !belongsToQuote(m, q.id, await quoteCustomer(q.accountId, q.id))) { res.status(404).end(); return }
   const file = m.markupPath && fs.existsSync(m.markupPath) ? m.markupPath : m.path
   if (!file || !fs.existsSync(file)) { res.status(404).end(); return }
   res.setHeader('Content-Type', file === m.markupPath ? 'image/jpeg' : m.mime)

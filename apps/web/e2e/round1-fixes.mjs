@@ -385,6 +385,9 @@ async function cleanup(name = NAME) {
       const keys = psql(`select "fileKey" from "PortalPhoto" where "crmCustomerId"='${q(made.contact)}'`).split('\n').filter(Boolean)
       for (const k of keys) { const f = path.resolve(HERE, '../../portal/uploads', k); if (fs.existsSync(f) && f.includes(`${path.sep}uploads${path.sep}`)) fs.unlinkSync(f) }
       psql(`delete from "PortalPhoto" where "crmCustomerId"='${q(made.contact)}'`)
+      // The visit's photo (since Oct 26 one of the customer's photos and video, lib/quoteMedia.ts): rows and files.
+      for (const f of psql(`select path || E'\\n' || coalesce("thumbPath",'') from "MediaItem" where "customerId"='${q(made.contact)}'`).split('\n').filter(Boolean)) if (f.includes(`${path.sep}media${path.sep}`) && fs.existsSync(f)) fs.rmSync(f, { force: true })
+      psql(`delete from "MediaItem" where "customerId"='${q(made.contact)}'`)
       psql(`delete from "SavedQuote" where "crmContactId"='${q(made.contact)}'; delete from "IntakeLead" where "crmContactId"='${q(made.contact)}'; delete from "CrmContactNote" where "crmContactId"='${q(made.contact)}'; delete from "AutomationEvent" where "entityId"='${q(made.card)}'; delete from "CardFollowUp" where "cardId"='${q(made.card)}'; delete from "CustomerPossibleMatch" where "contactId"='${q(made.contact)}'; delete from "CrmContact" where id='${q(made.contact)}'`)
     }
     psql(`delete from "Notification" where title='Website quote: ${q(name.trim())}'`)
