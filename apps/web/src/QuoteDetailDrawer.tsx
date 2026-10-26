@@ -192,7 +192,7 @@ export default function QuoteDetailDrawer({
             // The ± dollar adjustment is out of profit too: commission and overhead stay on the price before it.
             const adj = typeof quote.pricing?.priceAdjustmentCents === 'number' ? quote.pricing.priceAdjustmentCents : 0
             return <DollarPickets price={quote.finalPrice} materials={quote.materialCost} labor={(quote.laborCost || 0) + (quote.tearOutCost || 0)}
-              commission={(quote.finalPrice + rounding / 100 - adj / 100) * pct} overheadPct={typeof quote.pricing?.overheadPct === 'number' ? quote.pricing.overheadPct : overheadPctOf(cfg)} roundingCents={rounding} adjustmentCents={adj} />
+              commission={(quote.finalPrice + rounding / 100 - adj / 100) * pct} overheadPct={typeof quote.pricing?.overheadPct === 'number' ? quote.pricing.overheadPct : overheadPctOf(cfg)} roundingCents={rounding} adjustmentCents={adj} category={cfg.fenceStyles?.find(x => x.name === quote.fenceStyle)?.category ?? (/^(chain|cl[- ])/i.test(quote.fenceStyle || '') ? 'Chainlink' : null)} />
           })()}
 
           {/* Photos and video taken for this quote (site walk, gate location, ...) */}

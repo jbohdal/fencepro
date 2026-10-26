@@ -1590,7 +1590,7 @@ export default function QuoteBuilder({
               )}
 
               {work && internal && <WorkBreakdown work={work} />}
-              {internal && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} roundingCents={roundingCents} adjustmentCents={adjApplied} />}
+              {internal && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} roundingCents={roundingCents} adjustmentCents={adjApplied} category={style?.category ?? null} />}
 
               {quoteWarnings.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">

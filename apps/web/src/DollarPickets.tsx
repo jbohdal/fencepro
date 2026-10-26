@@ -23,7 +23,12 @@ export interface DollarSplit {
   roundingCents?: number
   /** The ± dollar adjustment in the price (cents, −3000 = $30 off): out of profit, never overhead. */
   adjustmentCents?: number
+  /** The fence's style category: chain link has no pickets, so its row is posts (round 3, Oct 26 2026). */
+  category?: string | null
 }
+
+/** Chain link (and commercial chain link) is drawn as posts, every other fence as pickets. */
+export const isPostFence = (category: string | null | undefined) => /^(chain|commercial)/i.test(String(category ?? '').trim())
 
 /** Dollars and share of the price for each part; profit is what is left. Overhead is on the price before the ± dollar adjustment and the rounding. */
 export function splitDollars({ price, materials, labor, commission, overheadPct, roundingCents, adjustmentCents }: DollarSplit) {
@@ -55,15 +60,18 @@ export default function DollarPickets(props: DollarSplit) {
   const parts = splitDollars(props)
   const counts = picketCounts(parts)
   const pickets = counts.flatMap(c => Array.from({ length: c.count }, () => c.part))
+  const posts = isPostFence(props.category)
   return (
     <section className="rounded-2xl border border-gray-200 bg-white p-4" data-dollar-pickets aria-label="Where every dollar goes">
       <p className="text-sm font-semibold text-gray-900">Where every dollar goes</p>
-      <p className="text-xs text-gray-500">Each picket is 5% of the price. Only on this screen, never on the proposal or the crew packet.</p>
+      <p className="text-xs text-gray-500" data-dollar-unit={posts ? 'post' : 'picket'}>Each {posts ? 'post' : 'picket'} is 5% of the price. Only on this screen, never on the proposal or the crew packet.</p>
       <svg viewBox="0 0 400 90" className="w-full h-auto mt-2" role="img" aria-label={parts.map(p => `${LABEL[p.part]} ${Math.round(p.pct)}%`).join(', ')}>
         <rect x="0" y="62" width="400" height="6" fill="#CBC4D6" rx="2" />
         <rect x="0" y="34" width="400" height="6" fill="#CBC4D6" rx="2" />
         {pickets.map((part, i) => (
-          <path key={i} d={`M${i * 20 + 3},88 V12 L${i * 20 + 10},2 L${i * 20 + 17},12 V88 Z`} fill={COLORS[part]} data-picket={part} />
+          posts
+            ? <path key={i} d={`M${i * 20 + 5},88 V10 Q${i * 20 + 10},2 ${i * 20 + 15},10 V88 Z`} fill={COLORS[part]} data-picket={part} />
+            : <path key={i} d={`M${i * 20 + 3},88 V12 L${i * 20 + 10},2 L${i * 20 + 17},12 V88 Z`} fill={COLORS[part]} data-picket={part} />
         ))}
       </svg>
       <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3">
