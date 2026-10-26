@@ -260,7 +260,7 @@ async function computer(browser) {
   await cp.goto(`${API}/p/i/${pk}`); await sleep(1500)
   const packetImgs = await cp.locator('.media img').count()
   const packetHtml = await cp.content()
-  check('crew packet: the 3 visit photos show (Internal ones too)', packetImgs === 3, String(packetImgs))
+  check('crew packet: only the visit photos shared with the customer show, never an Internal one', packetImgs === 2, String(packetImgs))
   check('crew packet: no price on it', !/\$\s?\d/.test(packetHtml.replace(/<script[\s\S]*?<\/script>/g, '')))
   if (SHOTS) await cp.screenshot({ path: path.join(SHOTS, 'visit-photos-crew-packet.png'), fullPage: true })
   await ctx.close()

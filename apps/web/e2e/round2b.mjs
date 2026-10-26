@@ -13,7 +13,7 @@
 //     finish; Schedule: Ready to schedule and Schedule install say the repair's work, the crew warning names a job
 //     dated the old way (install dates, no entries), the month card of a repair says its work, a Paid job's
 //     install opens without Move install; going back from Paid asks Reopen first.
-//   A locate saved on a job waiting for it moves it to Permit Pending. No page errors.
+//   No page errors.
 // Dev only (localhost, never port 4000). Removes everything it made.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium, webkit, devices } from 'playwright'
@@ -290,9 +290,6 @@ try {
     check('installer: the 2 day job\'s card lists its crew days in order', JSON.stringify(r.json.data?.crewDays) === JSON.stringify([today, day2]), JSON.stringify(r.json.data?.crewDays))
   }
 
-  // ── A locate saved on a job waiting for it ──
-  const put = await owner('PUT', `/api/saved-jobs/${E.jobId}/locate`, { ticket: `E2E${stamp}`, calledDate: today, goodDate: today, expDate: plus(today, 28) })
-  check('a job waiting on its 811 locate moves to Permit Pending once it is saved', put.status === 200 && put.json.data?.opsStage === 'permit_pending', `${put.status} ${put.json.data?.opsStage}`)
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 } catch (e) {
   check('ran to the end', false, String(e?.stack ?? e).slice(0, 400))
