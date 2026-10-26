@@ -19,6 +19,9 @@ describe('the crew reads no price sentence (forCrew)', () => {
     expect(forCrew('Bring the $20 lock box key.')).toBe('Bring the $ (left out) lock box key.')
     expect(forCrew('Estimate shown to the customer: $7,762')).toBe('')
     expect(forCrew('No money here.')).toBe('No money here.')
+    // A packet made on the installer's phone: the amount was already left out on the way to him.
+    expect(forCrew('Website, drawn by customer. The customer drew the fence on the aerial photo of the property and saw an estimate of $ (left out) (Better). Confirm every measurement on site.'))
+      .toBe('Website, drawn by customer. Confirm every measurement on site.')
   })
 })
 

@@ -107,7 +107,8 @@ export function forCrew(text: string): string {
   const out: string[] = []
   for (const line of text.split('\n')) {
     if (!line.includes('$')) { out.push(line); continue }
-    const kept = line.split(/(?<=[.!?])\s+/).filter(p => !(new RegExp(MONEY.source).test(p) && PRICE_WORDS.test(p)))
+    // An amount already left out ("$ (left out)", a packet made on the installer's phone) counts as an amount too.
+    const kept = line.split(/(?<=[.!?])\s+/).filter(p => !((new RegExp(MONEY.source).test(p) || p.includes(MONEY_MARK)) && PRICE_WORDS.test(p)))
     if (kept.length) out.push(withoutMoney(kept.join(' ')))
   }
   return out.join('\n')
