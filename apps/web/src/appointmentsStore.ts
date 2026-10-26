@@ -1,8 +1,9 @@
 /**
  * Appointments: in memory copy of /api/appointments.
  *
- * Loaded once after sign in with every other module and read again when the
- * window comes back into focus. Bookings and changes go through the outbox:
+ * Loaded once after sign in with every other module and read again by
+ * liveRefresh.ts (back on screen at most every 5 minutes, and when signal
+ * returns): the whole list is large, so not on every focus. Bookings and changes go through the outbox:
  * shown at once, kept on the phone until the server confirms them, sent
  * again after no signal. A change the server refuses because the appointment
  * was changed on another device first is shown as "Couldn't save", and the
@@ -18,6 +19,7 @@ import { sendJson } from './syncHttp'
 import { newId } from './recordSync'
 import { getCustomerById } from './customerStore'
 import { plainError, plainThrown } from './plainError'
+import { untableBody, asTable } from './listTable'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const URL_BASE = `${AUTH_API}/api/appointments`
@@ -37,7 +39,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
       headers: { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
-    const json = await res.json().catch(() => ({}))
+    const json = untableBody(await res.json().catch(() => ({})))
     return { ok: res.ok && json?.success !== false, status: res.status, data: json?.data, version: json?.version, error: res.ok ? undefined : plainError(res.status, json?.error).message }
   } catch (err) {
     return { ok: false, status: 0, error: plainThrown(err).message }
@@ -54,13 +56,12 @@ export function initAppointments(): Promise<void> {
   if (hydrated) return Promise.resolve()
   if (initPromise) return initPromise
   initPromise = (async () => {
-    const r = await call<Appointment[]>('GET', '')
+    const r = await call<Appointment[]>('GET', asTable(''))
     if (!r.ok || !Array.isArray(r.data)) return
     cache = r.data
     hydrated = true
     reapply('appointment.')
     emit()
-    window.addEventListener('focus', () => { refreshAppointments().catch(() => {}) })
   })().finally(() => { if (!hydrated) initPromise = null })
   return initPromise
 }
@@ -69,7 +70,7 @@ export const isAppointmentsHydrated = () => hydrated
 
 /** Read every appointment again (another device may have changed them). */
 export async function refreshAppointments(): Promise<void> {
-  const r = await call<Appointment[]>('GET', '')
+  const r = await call<Appointment[]>('GET', asTable(''))
   if (r.ok && Array.isArray(r.data)) { cache = r.data; hydrated = true; reapply('appointment.'); emit() }
 }
 

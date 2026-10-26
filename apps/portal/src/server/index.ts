@@ -91,6 +91,7 @@ import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
 import { hideCostsFromLimitedLogins, refuseNoPrices } from './lib/costRedact.js'
+import { listTables } from './lib/listTable.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
 import { ensureTwoOptionTiersAll } from './lib/tierSets.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
@@ -195,6 +196,9 @@ app.use('/api', (req, res, next) => {
 // without a cost, margin, profit, sub rate, wage, overhead or commission figure
 // (lib/costRedact.ts), whichever route answers.
 // The role comes from the cookie's session (staffCookieAuth above), or the old token's.
+// Lists as one table when the phone asks (?shape=table), and no browser cache copy of any JSON answer
+// (lib/listTable.ts). Mounted before the cost and Installer filters so it runs after them.
+app.use('/api', listTables)
 app.use('/api', hideCostsFromLimitedLogins)
 // The Installer gets only his installs' customers, jobs, quotes, appointments and cards, and no customer
 // messages or Ready to schedule list (lib/crewScope.ts; review, Oct 25, 2026).

@@ -34,6 +34,8 @@ async function readAgain(force = false) {
 export function startLiveRefresh() {
   if (started) return
   started = true
+  // Appointments were just read with everything else: not again on the first focus (1 MB on a phone).
+  lastAppointments = Date.now()
   document.addEventListener('visibilitychange', () => { void readAgain() })
   window.addEventListener('focus', () => { void readAgain() })
   window.addEventListener('online', () => { void readAgain(true) })

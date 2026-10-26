@@ -19,6 +19,7 @@ import type { SavedQuote } from './QuotesPage'
 import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, pendingFor, type Op } from './outbox'
 import { sendJson } from './syncHttp'
+import { asTable } from './listTable'
 import { businessDate } from './businessDate'
 import { toast } from './toast'
 
@@ -320,7 +321,7 @@ let lastSync: string | null = null
  */
 export async function refreshQuotes(): Promise<void> {
   if (!hydrated) return
-  const r = await sendJson('GET', `/api/saved-quotes${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`)
+  const r = await sendJson('GET', asTable(`/api/saved-quotes${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`))
   if (!r.result.ok || !Array.isArray(r.json?.data)) return
   const rows = r.json.data as Array<SavedQuoteRecord & { archivedAt?: string | null; deletedAt?: string | null }>
   if (r.json.partial) {

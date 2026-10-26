@@ -66,7 +66,8 @@ export function initPipeline(): Promise<void> {
   if (initPromise) return initPromise
   initPromise = (async () => {
     if (!isSignedIn()) return
-    const r = await sendJson('GET', '/api/pipeline')
+    // As one table (listTable.ts): the same cards, without each repeating the field names.
+    const r = await sendJson('GET', '/api/pipeline?shape=table')
     if (!r.result.ok || !r.json?.data) return
     version = typeof r.json.data.version === 'number' ? r.json.data.version : 0
     cache = withPending(pick(r.json.data))
@@ -204,7 +205,7 @@ export const PIPELINE_UPDATED_EVENT = EVT
 
 /** The whole board again from the server, this phone's other waiting changes on top. */
 async function reloadPipeline(): Promise<void> {
-  const r = await sendJson('GET', '/api/pipeline')
+  const r = await sendJson('GET', '/api/pipeline?shape=table')
   if (!r.result.ok || !r.json?.data) return
   version = typeof r.json.data.version === 'number' ? r.json.data.version : version
   cache = withPending(pick(r.json.data))
@@ -222,7 +223,7 @@ export async function refreshPipelineNow(): Promise<void> {
 export async function refreshPipeline(): Promise<void> {
   if (!hydrated || timer) return
   // Only the version is compared first: an unchanged board costs almost nothing to check.
-  const r = await sendJson('GET', `/api/pipeline?version=${version}`)
+  const r = await sendJson('GET', `/api/pipeline?version=${version}&shape=table`)
   if (!r.result.ok || r.json?.unchanged || !r.json?.data || timer) return
   if (typeof r.json.data.version === 'number' && r.json.data.version === version) return
   version = typeof r.json.data.version === 'number' ? r.json.data.version : version
