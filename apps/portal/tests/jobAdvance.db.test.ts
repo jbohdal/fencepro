@@ -104,6 +104,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself (dev da
     await prisma.automationRun.deleteMany({ where: { accountId } })
     await prisma.automationEvent.deleteMany({ where: { accountId } })
     await prisma.scheduleSettings.deleteMany({ where: { accountId } })
+    await prisma.deletionLog.deleteMany({ where: { accountId } })
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: [...jobs, ...pays.map(p => p.id)] } } })
     await prisma.savedJob.deleteMany({ where: { accountId } })
     await prisma.jobQuotedCost.deleteMany({ where: { accountId } })
@@ -140,6 +141,22 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself (dev da
     expect(j).toMatchObject({ status: 'paid', opsStage: 'paid', paymentStatus: 'paid', completedDate: today })
     expect(j?.completedBy).toMatch(/Automatic/)
     expect((await cardOf(card)).stage).toBe('Paid & Closed')
+  })
+
+  test('"We finished the whole job" on day 1 of 2: day 2 comes off the Schedule (restorable) before the office closes it out', async () => {
+    const { job } = await soldJob('Ana', [today, plus(today, 7)])
+    await call('POST', `/api/install-packets/crew/${job}/start`, {}, crew)
+    const f = await call('POST', `/api/install-packets/crew/${job}/finish`, { jobDone: true }, crew)
+    expect(f.status).toBe(200)
+    // Not signed off or paid yet: not closed out, but the crew is done.
+    expect((await jobOf(job))?.status).toBe('in_progress')
+    expect(f.json.data).toMatchObject({ jobDone: true, lastDay: today, crewDays: [today] })
+    const rows = await prisma.scheduledGridJob.findMany({ where: { accountId, stagingJobId: job }, orderBy: { date: 'asc' } })
+    expect(rows.map(r => [r.date, r.status, !!r.deletedAt])).toEqual([[today, 'Complete', false], [plus(today, 7), 'Scheduled', true]])
+    // Logged, so it can be put back (Settings > Deleted Records).
+    expect(await prisma.deletionLog.count({ where: { accountId, entityId: rows[1].id } })).toBe(1)
+    // The job's install dates are the day worked.
+    expect(await prisma.savedJob.findUnique({ where: { id: job }, select: { scheduledEndDate: true } })).toEqual({ scheduledEndDate: today })
   })
 
   test('Finish on the last crew day first, then the walkthrough, then the final payment: Paid on the payment', async () => {

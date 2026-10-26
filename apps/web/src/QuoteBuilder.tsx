@@ -2017,7 +2017,9 @@ export default function QuoteBuilder({
           customerName={init.customerName}
           existingCount={getOrdersForQuote(init.id).length}
           prefill={coPrefill}
-          onSaved={() => { const q = pending.quote; setCoPrefill(null); setPending(null); onSave(keepPrices(signedQuoteOf(init), { ...q, date: init.date })) }}
+          // The change order is its own record: the signed quote is not saved again (that re-save said "Quote sold, job
+          // created" and sent the signed quote a second time). Same as Type the change instead.
+          onSaved={() => { setCoPrefill(null); setPending(null); onClose() }}
           onClose={() => setCoPrefill(null)}
         />
       )}

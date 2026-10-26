@@ -130,7 +130,8 @@ export function fromRecords(key: MilestoneKey, f: ReadinessFacts): { done: boole
       if (f.walkthrough?.signed) return { done: true, detail: `Signed${f.walkthrough.homeowner ? ` by ${f.walkthrough.homeowner}` : ''}${f.walkthrough.signedAt ? ` on ${mdy(f.walkthrough.signedAt)}` : ''}` }
       return { done: false, detail: f.walkthrough ? 'Started, not signed yet' : 'Not started' }
     case 'photos':
-      return f.photos > 0 ? { done: true, detail: `${f.photos} photo${f.photos === 1 ? '' : 's'} or video${f.photos === 1 ? '' : 's'}` } : { done: false, detail: 'No photos yet' }
+      // Photos taken on the job (the crew's), not the quote's or the site visit's that the job page also shows (re-check, Oct 26 2026).
+      return f.photos > 0 ? { done: true, detail: `${f.photos} photo${f.photos === 1 ? '' : 's'} or video${f.photos === 1 ? '' : 's'}` } : { done: false, detail: 'No crew photos yet' }
     case 'invoice':
       if (!f.billing) return { done: false, detail: 'No payment schedule' }
       if (f.billing.paidInFull) return { done: true, detail: 'Paid in full' }

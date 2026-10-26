@@ -8,6 +8,7 @@
 import { can } from './permissions'
 import { locateOf, locateWords } from '../../portal/src/server/lib/locates'
 import { getJob, refreshJobs } from './jobStore'
+import { reloadSchedule } from './scheduleStore'
 import { businessDate } from './businessDate'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useState } from 'react'
@@ -227,6 +228,8 @@ export async function markInstall(jobId: string, kind: 'start' | 'finish', jobDo
   if (r) putCrewInstall(jobId, r)
   // Start moves the job to In Progress, Finish can close it out (on the server): read the jobs again.
   if (r) void refreshJobs()
+  // The whole job finished early: its later crew days came off the Schedule (on the server); read it again.
+  if (r && jobDone) void reloadSchedule()
   return r ?? null
 }
 

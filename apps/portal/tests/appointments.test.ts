@@ -7,7 +7,7 @@ import { START_PIPELINE_STAGES } from '../../web/src/pipelineStageModel'
 import { describe, test, expect } from 'vitest'
 import {
   overlapWarnings, stageAfterBooking, stageAfterOutcome, statusForOutcome, needsOutcome, nextFor, isOpen,
-  floridaTime, floridaDate, floridaHM, smsLink, buildIcs, routeUrl, directionsUrl,
+  floridaTime, floridaDate, floridaHM, smsLink, buildIcs, routeUrl, directionsUrl, visitWords,
   APPOINTMENT_TYPES as WEB_TYPES, APPOINTMENT_STATUSES as WEB_STATUSES,
   APPOINTMENT_OUTCOMES as WEB_OUTCOMES, type Appointment,
 } from '../../web/src/appointmentLogic'
@@ -145,5 +145,20 @@ describe('what Jonathan sends himself', () => {
   test('directions and the day\'s route open Google Maps without a key', () => {
     expect(directionsUrl(appt())).toBe('https://www.google.com/maps/dir/?api=1&destination=1%20Main%20St%2C%20Belleview%2C%20FL')
     expect(routeUrl([appt(), appt({ address: '2 Oak Ave, Ocala, FL' })])).toBe('https://www.google.com/maps/dir//1%20Main%20St%2C%20Belleview%2C%20FL/2%20Oak%20Ave%2C%20Ocala%2C%20FL')
+  })
+})
+
+describe('a visit on Today after it was quoted (re-check, Oct 26 2026)', () => {
+  const visit = { outcome: 'ready_to_quote' as const, status: 'completed' as const, startAt: '2026-10-26T14:00:00.000Z' }
+  test('Ready to quote, then the quote made since: signed, sent, a draft', () => {
+    expect(visitWords(visit, [])).toBe('Ready to quote')
+    expect(visitWords(visit, [{ status: 'DRAFT', date: '2026-10-26' }])).toBe('Quote started')
+    expect(visitWords(visit, [{ status: 'SENT', date: '2026-10-26' }])).toBe('Quoted · Sent')
+    expect(visitWords(visit, [{ status: 'SENT', date: '2026-10-26' }, { status: 'SOLD', date: '2026-10-26' }])).toBe('Quoted · Signed')
+  })
+  test('an older quote of the customer\'s (before the visit) does not count; other outcomes as they were', () => {
+    expect(visitWords(visit, [{ status: 'SOLD', date: '2026-09-01' }])).toBe('Ready to quote')
+    expect(visitWords({ ...visit, outcome: 'needs_follow_up' }, [{ status: 'SOLD', date: '2026-10-26' }])).toBe('Needs follow up')
+    expect(visitWords({ outcome: null, status: 'scheduled', startAt: visit.startAt }, [])).toBe('Scheduled')
   })
 })

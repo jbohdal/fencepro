@@ -40,6 +40,7 @@ import { packetChange, packetWithChange, sheetChanges } from '../lib/changeOrder
 import { coveredWorkOn } from '../lib/serviceTickets.js'
 import { issueLabel } from '../lib/serviceTicketModel.js'
 import { isYmd, usDate, shortDayWords } from '../lib/installDays.js'
+import { finishScheduleRows } from '../lib/installScheduling.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { customerNotesForJob, installTimes, recordInstallTime, crewFinishedJob } from '../lib/crewInstall.js'
 import { forCrew } from '../lib/costRedact.js'
@@ -342,7 +343,12 @@ packetStaff.post('/crew/:jobId/:kind', async (req: any, res) => {
     const me = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true, email: true } }).catch(() => null)
     const by = (me ? `${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.email : req.user.email) || 'Crew'
     const kind = req.params.kind === 'finish' ? 'finish' : 'start'
-    await recordInstallTime(job.id, kind, by, new Date(), kind === 'finish' && req.body?.jobDone === true)
+    const wholeJob = kind === 'finish' && req.body?.jobDone === true
+    await recordInstallTime(job.id, kind, by, new Date(), wholeJob)
+    // "We finished the whole job" before its last booked day: the crew days still ahead come off the installer's list
+    // and the Schedule (logged, restorable from Deleted Records), as a close out does (re-check, Oct 26 2026: day 2 of 2
+    // still showed on My installs the next day).
+    if (wholeJob) await finishScheduleRows(accountId, job.id, { accountId, userId: req.user.id ?? null }, todayFl())
     if (kind === 'start') await startedByCrew(accountId, job.id)
     else await closeOutIfDone(accountId, job.id, 'the crew finished the install')
     res.json({ success: true, data: { times: await installTimes(job.id), ...(await crewFacts(accountId, job.id)) } })

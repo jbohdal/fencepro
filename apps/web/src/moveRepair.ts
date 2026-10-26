@@ -41,8 +41,9 @@ import { woodPartName } from './wood'
 
 export type JobType = 'new' | 'move' | 'repair'
 export type PostType = 'nd' | 'ds'
-export type RepairItemKey = 'resetPost' | 'replacePost' | 'repairSection' | 'replaceSection' | 'rehangGate' | 'replaceGate' | 'haulDebris'
-export const REPAIR_ITEMS: RepairItemKey[] = ['resetPost', 'replacePost', 'repairSection', 'replaceSection', 'rehangGate', 'replaceGate', 'haulDebris']
+// The repair items' names, and a repair's or move's work in words: one file for the server and the app.
+import { REPAIR_ITEMS, REPAIR_LABEL, workScope, workSummary, type RepairItemKey } from '../../portal/src/server/lib/workWords'
+export { REPAIR_ITEMS, REPAIR_LABEL, workScope, workSummary, type RepairItemKey }
 
 export interface MoveRepairSettings {
   /** Careful removal labor = install rate per section × this. */
@@ -557,16 +558,6 @@ export function priceMove(c: WorkCommon, m: MoveInputs, nl: NewLine): WorkResult
 
 // ── Repair ───────────────────────────────────────────────────────────────────
 
-export const REPAIR_LABEL: Record<RepairItemKey, string> = {
-  resetPost: 'Reset a leaning post',
-  replacePost: 'Replace a post',
-  repairSection: 'Repair a section',
-  replaceSection: 'Replace a whole section',
-  rehangGate: 'Rehang a gate with new hardware',
-  replaceGate: 'Replace a gate',
-  haulDebris: 'Haul away debris (per section)',
-}
-
 export const REPAIR_HINT: Record<RepairItemKey, string> = {
   resetPost: 'Pull it, new post and setting material, rehang the sections on it',
   replacePost: 'New post and setting material; dig set adds the concrete pull and disposal',
@@ -934,37 +925,6 @@ export function toSavedWork(r: WorkResult, inputs: { move?: MoveInputs; repair?:
     },
     description: r.description, crew: r.crew, needs811: r.needs811, warnings: r.warnings, ...extra,
   }
-}
-
-/**
- * The job page's Scope of Work for a repair or a move: what the crew does, in
- * the quote's own words (SavedWork.crew), instead of a new fence's footage and
- * sections (a repair job showed "0 ft, 0 sections"; Oct 24, 2026 walkthrough).
- * null for a new fence.
- */
-export function workScope(work: Pick<SavedWork, 'type' | 'crew' | 'description'> | null | undefined): { title: string; items: string[] } | null {
-  if (!work || (work.type !== 'repair' && work.type !== 'move')) return null
-  const items = (Array.isArray(work.crew) ? work.crew : []).map(s => String(s).trim()).filter(Boolean)
-  return { title: work.type === 'repair' ? 'Repair' : 'Fence move', items: items.length ? items : [String(work.description || '').trim() || 'As described on the quote.'] }
-}
-
-/**
- * What a repair or a move is, in a line: the repair items with how many
- * ("Repair: 2 × Replace a post · 1 × Rehang a gate with new hardware"), else
- * the crew's steps. For the quote window and the installer's card, where a
- * repair read "0 ft total, 0 sections" (round 2, Oct 26 2026). null for a new
- * fence.
- */
-export function workSummary(work: { type?: string; repair?: Partial<RepairInputs> | null; crew?: string[]; description?: string } | null | undefined): string | null {
-  if (!work || (work.type !== 'repair' && work.type !== 'move')) return null
-  if (work.type === 'repair') {
-    const items = work.repair?.items ?? {}
-    const gate = work.repair?.gateKind === 'double' ? ' (double gate)' : ''
-    const parts = REPAIR_ITEMS.filter(k => (items[k] ?? 0) > 0).map(k => `${items[k]} × ${REPAIR_LABEL[k]}${/Gate$/.test(k) ? gate : ''}`)
-    if (parts.length) return `Repair: ${parts.join(' · ')}`
-  }
-  const s = workScope({ type: work.type as 'repair' | 'move', crew: work.crew ?? [], description: work.description ?? '' })
-  return s ? `${s.title}: ${s.items.join(' · ')}` : null
 }
 
 type WorkLike = Parameters<typeof workSummary>[0]

@@ -19,7 +19,9 @@ import { refreshJobs } from './jobStore'
 import {
   templatesFrom, categoryForStyle, itemsFromTemplate, photoSlots, mergeSlots, missingToFinish,
   type WalkItem, type PhotoSlot, type Signature, type WalkCategory, type ItemResult, type LayoutSides,
+  workChecklist,
 } from '../../portal/src/server/lib/walkthroughRules'
+import type { WorkWordsInput } from '../../portal/src/server/lib/workWords'
 
 export * from '../../portal/src/server/lib/walkthroughRules'
 
@@ -214,12 +216,13 @@ kind<SignP>('walkthrough.sign', {
 export interface JobForWalk { id: string; fenceStyle: string; walkGates: number; dblGates: number }
 
 /** Start the job's walkthrough on this phone (queued; works with no signal). */
-export async function startWalkthrough(job: JobForWalk, opts: { layout?: LayoutSides | null; runCount?: number; by?: string | null; repairGates?: number } = {}): Promise<Walkthrough> {
+export async function startWalkthrough(job: JobForWalk, opts: { layout?: LayoutSides | null; runCount?: number; by?: string | null; repairGates?: number; work?: WorkWordsInput | null } = {}): Promise<Walkthrough> {
   const existing = byJob.get(job.id)
   if (existing) return existing
   const category = categoryForStyle(job.fenceStyle)
   const templates = templatesFrom((getConfig() as any).walkthroughTemplates)
-  const items = itemsFromTemplate(templates[category])
+  // A repair: its own checklist from the repair items; a move: the style's plus the old line.
+  const items = itemsFromTemplate(workChecklist(opts.work, templates[category]))
   const photos = opts.layout?.sides?.some(s => s.on) ? photoSlots({ layout: opts.layout, repairGates: opts.repairGates }) : photoSlots({ sideCount: Math.max(1, opts.runCount ?? 1), gateCount: (job.walkGates || 0) + (job.dblGates || 0), repairGates: opts.repairGates })
   const id = newId()
   await queue<CreateP>('walkthrough.create', walkKey(id), { walkthroughId: id, jobId: job.id, category, items, photos, startedBy: opts.by ?? null }, 'Final walkthrough started')

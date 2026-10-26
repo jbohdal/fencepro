@@ -41,6 +41,13 @@ import {
 } from './portalApiClient'
 
 /** "Monday, Nov 2, 2026" for a YYYY-MM-DD install date (as typed otherwise). */
+/** The install line's words: a repair is "Repair scheduled for", a move "Fence move starts", a new fence "Install starts". */
+function workWords(kind: PortalProject['kind']): { starts: string; date: string } {
+  if (kind === 'repair') return { starts: 'Repair scheduled for', date: 'Repair date' }
+  if (kind === 'move') return { starts: 'Fence move starts', date: 'Fence move date' }
+  return { starts: 'Install starts', date: 'Install date' }
+}
+
 function installDayWords(day: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || '')
   if (!m) return day
@@ -468,8 +475,8 @@ function DashboardPage({ session, customer, accent }: { session: PortalAccount; 
             <p className="text-xs font-bold" style={{ color: accent }}>Active Project</p>
             <p className="text-lg font-bold text-gray-900 mt-1">{activeJob.style || 'Project'}</p>
             <p className="text-sm text-gray-500 mt-1">{friendlyStage(activeJob.status)}</p>
-            {activeJob.scheduledDate ? <p className="text-xs text-gray-500 mt-2" data-portal-install-date={activeJob.scheduledDate}>📅 Install starts {installDayWords(activeJob.scheduledDate)}</p>
-              : (activeJob.status === 'staging' || activeJob.status === 'scheduled') && <p className="text-xs text-gray-500 mt-2" data-portal-install-date="">📅 Install date: to be set</p>}
+            {activeJob.scheduledDate ? <p className="text-xs text-gray-500 mt-2" data-portal-install-date={activeJob.scheduledDate}>📅 {workWords(activeJob.kind).starts} {installDayWords(activeJob.scheduledDate)}</p>
+              : (activeJob.status === 'staging' || activeJob.status === 'scheduled') && <p className="text-xs text-gray-500 mt-2" data-portal-install-date="">📅 {workWords(activeJob.kind).date}: to be set</p>}
             <a href="#/portal/projects" className="inline-block mt-3 text-sm font-medium" style={{ color: accent }}>View Project →</a>
           </div>
         )}
@@ -725,12 +732,12 @@ function ProjectsPage({ accent }: { session: PortalAccount; customer: PortalAcco
               </div>
               {j.scheduledDate ? (
                 <div className="text-right text-xs text-gray-500" data-portal-install-date={j.scheduledDate}>
-                  <p>Install starts</p>
+                  <p>{workWords(j.kind).starts}</p>
                   <p className="font-bold text-gray-900">📅 {installDayWords(j.scheduledDate)}</p>
                 </div>
               ) : (j.status === 'staging' || j.status === 'scheduled') && (
                 <div className="text-right text-xs text-gray-500" data-portal-install-date="">
-                  <p>Install date</p>
+                  <p>{workWords(j.kind).date}</p>
                   <p className="font-bold text-gray-900">To be set</p>
                 </div>
               )}

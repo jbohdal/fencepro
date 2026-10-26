@@ -282,19 +282,34 @@ export function customerPhoneToGive(repPhone: string | null | undefined, company
   return { phone: co.length === 10 && co !== PERSONAL_CELL ? phoneWords(co) : '', from: 'company' }
 }
 
+/** What the job is: a new fence, a repair or a fence move (the quote's work; a quote without work is a new fence). */
+export type WorkKind = 'new' | 'repair' | 'move'
+export function workKindOf(work: unknown): WorkKind {
+  const t = work && typeof work === 'object' ? (work as { type?: unknown }).type : null
+  return t === 'repair' || t === 'move' ? t : 'new'
+}
+/** "fence installation", "fence repair", "fence move": what a customer text calls the work. */
+export const workNoun = (kind: WorkKind | null | undefined) => (kind === 'repair' ? 'fence repair' : kind === 'move' ? 'fence move' : 'fence installation')
+
 /**
  * The schedule confirmation (scheduled) or the new date (moved: a reschedule
  * or a rain day). Starts with the company name, ends "Reply STOP to opt out."
+ * A repair says "your fence repair is scheduled for Monday, 10/26/2026"; a
+ * move "your fence move" (re-check, Oct 26 2026: a repair's text said "fence
+ * installation ... to start on").
  */
-export function installText(kind: 'scheduled' | 'moved' | 'off', o: { company: string; firstName: string; start: Ymd; phone: string }): string {
+export function installText(kind: 'scheduled' | 'moved' | 'off', o: { company: string; firstName: string; start: Ymd; phone: string; work?: WorkKind | null }): string {
   const name = (o.firstName || '').trim() || 'there'
   // With the weekday: "Tuesday, 10/27/2026" (round 2, Oct 26 2026).
   const when = weekdayDate(o.start)
   const call = o.phone ? ` Questions? Call ${phoneWords(o.phone)}.` : ''
+  const noun = workNoun(o.work)
+  // A repair is a visit on a day; an installation or a move starts on a day.
+  const on = o.work === 'repair' ? 'scheduled for' : 'scheduled to start on'
   // The company name in front and "Reply STOP to opt out." at the end, once each (lib/customerText.ts).
-  if (kind === 'off') return customerText(`Hi ${name}, your fence installation date is being changed. We'll call you with a new date.${call}`, o.company)
+  if (kind === 'off') return customerText(`Hi ${name}, your ${noun} date is being changed. We'll call you with a new date.${call}`, o.company)
   const what = kind === 'scheduled'
-    ? `your fence installation is scheduled to start on ${when}.`
-    : `your fence installation has moved and is now scheduled to start on ${when}.`
+    ? `your ${noun} is ${on} ${when}.`
+    : `your ${noun} has moved and is now ${on} ${when}.`
   return customerText(`Hi ${name}, ${what} Our crew will arrive in the morning.${call}`, o.company)
 }

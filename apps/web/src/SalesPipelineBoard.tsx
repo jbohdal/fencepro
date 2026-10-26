@@ -17,6 +17,7 @@ import ScreenErrorBoundary from './ScreenErrorBoundary'
 import PhoneLink from './PhoneLink'
 import { AUTOMATIC_SOURCES, sourceFor } from './optionListsStore'
 import { styleLabel } from './fenceCatalog'
+import { styleOrWork } from './jobWork'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   type PipelineLead,
@@ -225,6 +226,18 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     }))
   }, [leads, dataTick, stageList])
   const repOf = (l: PipelineLead) => reps.get(l.id) ?? l.assignedRep ?? ''
+  /**
+   * What the card calls the work: a repair's or a move's work from the quote the card's value comes from ("Repair:
+   * 1 × Rehang a gate…"), else the fence style (re-check, Oct 26 2026: repair cards showed the style).
+   */
+  const works = useMemo(() => {
+    const quotes = getQuotes(), jobs = getJobs()
+    return new Map(leads.map(l => {
+      // The card's own quote when it names one, else the one its value comes from.
+      const q = ((l.quoteId ? quotes.find(x => x.id === l.quoteId) : undefined) ?? relevantQuote(l, quotes, jobs, stageList)) as { work?: Parameters<typeof styleOrWork>[1] } | undefined
+      return [l.id, styleOrWork(l.fenceType, q?.work)]
+    }))
+  }, [leads, dataTick, stageList])
 
   /** A card opens its window: quote, call, text, navigate, book, notes and stage in one place. */
   function openLead(lead: PipelineLead) { setCardId(lead.id) }
@@ -639,6 +652,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
               lead={l}
               value={valueOf(l)}
               rep={repOf(l)}
+              work={works.get(l.id) ?? ''}
               onClick={() => openLead(l)}
               onQuickView={() => setSelected(l)}
               faded={matchesSearch !== null && !matchesSearch.has(l.id)}
@@ -777,8 +791,10 @@ function installCardDay(d: string): string {
 }
 
 function PipelineCard({
-  lead, value, rep, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook, followBadge, opened, installDate = null,
+  lead, value, rep, work, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook, followBadge, opened, installDate = null,
 }: {
+  /** The work: a repair's or move's work, else the fence style (empty: none). */
+  work: string
   /** The install's first day (YYYY-MM-DD) when the sold job is on the schedule. */
   installDate?: string | null
   lead: PipelineLead
@@ -824,7 +840,8 @@ function PipelineCard({
         <p className="text-sm font-bold text-emerald-600 shrink-0">{fmtUSD(value)}</p>
       </div>
       <p className="text-xs text-gray-500 truncate">
-        {city}{lead.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{styleLabel(lead.fenceType)}</span></> : null}
+        {/* A repair or a move: its work from the card's quote ("Repair: 1 × Rehang a gate…"), not the fence style. */}
+        {city}{work ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded" data-card-work>{work}</span></> : null}
       </p>
       {phone && (
         // Tapping calls without opening the card. A press held on it still

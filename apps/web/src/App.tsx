@@ -699,7 +699,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       if (toSend) navigate(`${pagePath('Quotes')}?qv=${encodeURIComponent(q.id)}`)
       // Not "saved" until the server has it: the quote shows Saved then, and the badge at the top until then.
       if (toSend) toast.info('Quote stored', 'Send the proposal from here: Text it, Email it or Copy link. The quote shows Saved once it has gone through.')
-      else toast.info(q.status === 'SOLD' ? 'Quote sold, job created' : 'Quote stored', 'Sending it now. The quote shows Saved once it has gone through; with no signal it waits on this phone and goes by itself.')
+      // "Sold, job created" only on the save that sold it; saving an already signed quote again is just stored.
+      else toast.info(q.status === 'SOLD' && !wasSold ? 'Quote sold, job created' : 'Quote stored', 'Sending it now. The quote shows Saved once it has gone through; with no signal it waits on this phone and goes by itself.')
 
       // Sync to customer portal — surface errors
       syncQuote(q).catch((err: any) => {

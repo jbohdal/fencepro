@@ -1,13 +1,18 @@
 /**
  * Final walkthrough rules, in one place for the server and the app (the web
- * app imports this file too). No imports: pure functions and plain data.
+ * app imports this file too). Pure functions and plain data; the only import
+ * is lib/workWords.ts (pure too).
  *
  * - Which checklist a job gets: from its fence style (WV-/TV- vinyl, "CL -"
- *   chain link, "Alum" aluminum; anything else uses vinyl's).
+ *   chain link, "Alum" aluminum; anything else uses vinyl's). A repair gets a
+ *   checklist made from its repair items, a fence move its style's list plus
+ *   the old line (workChecklist).
  * - Which photos are required before it can be finished: each side, each
  *   gate, one wide shot.
  * - What is still missing before it can be finished.
  */
+
+import { REPAIR_ITEMS, REPAIR_LABEL, workSummary, type WorkWordsInput } from './workWords.js'
 
 export type WalkCategory = 'vinyl' | 'chain_link' | 'aluminum'
 export const WALK_CATEGORIES: WalkCategory[] = ['vinyl', 'chain_link', 'aluminum']
@@ -56,6 +61,47 @@ export function categoryForStyle(style: string | null | undefined): WalkCategory
   if (/^CL\s*-/i.test(s)) return 'chain_link'
   if (/^alum/i.test(s)) return 'aluminum'
   return 'vinyl'
+}
+
+/**
+ * The checklist for a job's work (re-check, Oct 26 2026: a repair's
+ * walkthrough asked for "Concrete / donuts finished", "Utility flags and
+ * stakes removed" and "Property pins undisturbed").
+ * - A repair: each repair item done (with how many), the gate opens, closes
+ *   and latches when a gate was rehung or replaced, debris hauled away when it
+ *   is on the quote, and the work area cleaned up.
+ * - A fence move: the style's checklist (the new line is a new fence) and the
+ *   old fence line cleared (its posts pulled and hauled away, on every move).
+ * - A new fence: the style's checklist as it is.
+ */
+export function workChecklist(work: WorkWordsInput | null | undefined, styleList: TemplateItem[]): TemplateItem[] {
+  if (work?.type === 'repair') {
+    const items = work.repair?.items ?? {}
+    const n = (k: keyof typeof items) => Math.max(0, Math.round(Number(items[k]) || 0))
+    const gate = work.repair?.gateKind === 'double' ? 'double gate' : 'gate'
+    const out: TemplateItem[] = REPAIR_ITEMS.filter(k => k !== 'haulDebris' && n(k) > 0)
+      .map(k => ({ id: `repair_${k}`, label: `${REPAIR_LABEL[k]}${/Gate$/.test(k) && gate !== 'gate' ? ` (${gate})` : ''}: ${n(k)} done` }))
+    if (n('rehangGate') + n('replaceGate') > 0) out.push({ id: 'gates', label: `The ${gate} opens, closes and latches` })
+    if (n('haulDebris') > 0) out.push({ id: 'debris', label: 'Debris hauled away' })
+    if (!out.length) out.push({ id: 'repair_done', label: 'Repair done as described on the quote' })
+    out.push({ id: 'cleanup', label: 'Work area cleaned up' })
+    return out
+  }
+  if (work?.type === 'move') return [...styleList.map(i => ({ ...i })), { id: 'old_line', label: 'Old fence line cleared: old posts pulled and hauled away' }]
+  return styleList.map(i => ({ ...i }))
+}
+
+/**
+ * What heads the walkthrough: a repair's or a move's work ("Repair: 2 ×
+ * Replace a post"), else the fence style. null: use the style.
+ */
+export function walkHeading(work: WorkWordsInput | null | undefined): string | null {
+  return workSummary(work)
+}
+
+/** "Repair checklist", "Fence move checklist", else the style's ("Vinyl checklist"). */
+export function checklistName(work: WorkWordsInput | null | undefined, category: WalkCategory): string {
+  return work?.type === 'repair' ? 'Repair checklist' : work?.type === 'move' ? 'Fence move checklist' : `${CATEGORY_LABEL[category] ?? 'Vinyl'} checklist`
 }
 
 // ── The walkthrough record ────────────────────────────────────────────────────

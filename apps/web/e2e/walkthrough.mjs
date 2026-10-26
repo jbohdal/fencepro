@@ -19,7 +19,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-const APP = 'http://localhost:4001', TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''
+const APP = process.env.APP_URL || 'http://localhost:4001', TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
@@ -137,7 +137,7 @@ try {
   await p.locator('[data-walkthrough-screen] [data-wt-link-copy]').click()
   await p.waitForSelector('[data-walkthrough-screen] [data-wt-link-url]')
   const link = (await p.locator('[data-walkthrough-screen] [data-wt-link-url]').innerText()).trim()
-  check('a homeowner link under /p/w/', /^http:\/\/localhost:4001\/p\/w\/[A-Za-z0-9_-]{20,}$/.test(link), link)
+  check('a homeowner link under /p/w/', /^http:\/\/localhost:\d+\/p\/w\/[A-Za-z0-9_-]{20,}$/.test(link), link)
   await p.locator('[data-walkthrough-screen] [data-walkthrough-send]').scrollIntoViewIfNeeded(); await shot(p, 'send-link')
 
   // The homeowner's own phone (no location allowed), no app, no sign in.

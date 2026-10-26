@@ -5,7 +5,8 @@
  */
 
 import { getQuoteById } from './quoteStore'
-import { sectionsCell, sizeText } from './moveRepair'
+import { sectionsCell, sizeText, workSummary } from './moveRepair'
+import { styleLabel } from './fenceCatalog'
 
 const workOf = (job: { quoteId?: string | null }) => (job.quoteId ? getQuoteById(job.quoteId)?.work ?? null : null)
 
@@ -14,3 +15,13 @@ export const jobSectionsCell = (job: { sections?: number | null; quoteId?: strin
 
 /** In a sentence: "16 sections", or the repair work. */
 export const jobSizeText = (job: { sections?: number | null; quoteId?: string | null }) => sizeText(job.sections, workOf(job))
+
+/**
+ * What a card or list line calls the work: a repair's or a move's work
+ * ("Repair: 1 × Rehang a gate with new hardware"), else the fence style
+ * (re-check, Oct 26 2026: repair cards and their Payments showed the style).
+ */
+export const styleOrWork = (fenceStyle: string | null | undefined, work: Parameters<typeof workSummary>[0]) => workSummary(work) ?? styleLabel(fenceStyle || '')
+
+/** The same for a job or a card, from its quote. */
+export const jobStyleOrWork = (job: { fenceStyle?: string | null; quoteId?: string | null }) => styleOrWork(job.fenceStyle, workOf(job))

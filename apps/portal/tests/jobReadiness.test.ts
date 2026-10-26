@@ -76,7 +76,7 @@ describe('ticks by hand', () => {
   it('count only where allowed, labeled', () => {
     const list = milestones(base, [tick('Photos Uploaded'), tick('Crew Assigned', 1), tick('Gate code collected', 2)])
     expect(list.map(m => [m.label, m.done, m.by])).toEqual([['Photos Uploaded', true, 'hand'], ['Crew Assigned', false, 'none'], ['Gate code collected', true, 'hand']])
-    expect(list[0]).toMatchObject({ tickedBy: 'user', detail: 'No photos yet' })
+    expect(list[0]).toMatchObject({ tickedBy: 'user', detail: 'No crew photos yet' })
   })
   it('a list never saved shows the defaults, worked out from the records', () => {
     const list = milestones({ ...base, permitStatus: 'not_needed' }, null)

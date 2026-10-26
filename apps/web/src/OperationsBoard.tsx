@@ -24,7 +24,8 @@ import {
   type UnifiedJob,
   buildUnifiedList, DetailPanel, fenceText,
 } from './OperationsPage'
-import { type Job, type JobStatus, updateJob, advanceJob, holdJob, unholdJob } from './jobStore'
+import { type Job, type JobStatus, updateJob, advanceJob, holdJob, unholdJob, getJob } from './jobStore'
+import { whenSaved, statusOf } from './outbox'
 import {
   useOpsStages, OPS_STAGES_UPDATED_EVENT, stageInfo, stagePhase, nextOpsStage, advanceStage, stageFields, getCompleteOpsStage, stageName, movesBack, type OpsStageDef,
 } from './opsStagesStore'
@@ -252,16 +253,20 @@ export default function OperationsBoard() {
     moveJobToStage(j, stageKey)
   }
 
-  function moveJobToStage(j: UnifiedJob, targetStage: string) {
-    if (j.source !== 'job' || !j.rawJob) return
+  /**
+   * Move a job to a stage. False when nothing was sent (Cancel on the Reopen question, not allowed, nothing to change);
+   * true when the move went to the server. Say "Moved" only through `sayWhenMoved`, once the server has it.
+   */
+  function moveJobToStage(j: UnifiedJob, targetStage: string): boolean {
+    if (j.source !== 'job' || !j.rawJob) return false
     const target = stageInfo(targetStage)
     const updates = stageFields(targetStage, j.rawJob, TODAY()) as Partial<Job> | null
-    if (!target || !updates) return
+    if (!target || !updates) return false
     // A closed job (Complete, Invoiced, Paid) goes back only with Reopen, by the owner or the office (the server refuses it otherwise).
     const reopen = isDoneStage(j.opsStage) && movesBack(j.opsStage, targetStage)
     if (reopen) {
-      if (!can('schedule.change')) { toast.error('Not moved', `${j.customerName} is ${stageName(j.opsStage)}, a closed job. Only the owner or the office can reopen it.`); return }
-      if (!window.confirm(`Reopen ${j.customerName}'s job? It is ${stageName(j.opsStage)} (closed). It moves back to ${target.name}${isDonePhase(stagePhase(targetStage)) ? '' : ' and its completed date is cleared'}.`)) return
+      if (!can('schedule.change')) { toast.error('Not moved', `${j.customerName} is ${stageName(j.opsStage)}, a closed job. Only the owner or the office can reopen it.`); return false }
+      if (!window.confirm(`Reopen ${j.customerName}'s job? It is ${stageName(j.opsStage)} (closed). It moves back to ${target.name}${isDonePhase(stagePhase(targetStage)) ? '' : ' and its completed date is cleared'}.`)) return false
     }
     // optimistic local update
     setJobs(prev => prev.map(x => x.id === j.id ? { ...x, opsStage: targetStage, opsStageLabel: target.name } : x))
@@ -281,10 +286,23 @@ export default function OperationsBoard() {
         })
       }
       refresh()
+      return true
     } catch (err) {
       toast.error('Move failed', (err as Error)?.message || 'Could not move job')
       refresh()
+      return false
     }
+  }
+
+  /** The green "Moved" only once the server has the job at that stage; otherwise what happened instead. */
+  async function sayWhenMoved(jobId: string, stageId: string, title: string, body?: string) {
+    const key = `job:${jobId}`
+    const saved = await whenSaved(key, 10_000)
+    const st = statusOf([key])
+    if (st.status === 'failed') { toast.error('Not moved', st.error || 'The server did not accept it.'); return }
+    if (!saved) { toast.info('Saving…', 'No answer from the server yet. It moves by itself once it is through.'); return }
+    if ((getJob(jobId)?.opsStage ?? null) !== stageId) return // the server kept it where it was and the screen already says why
+    toast.success(title, body)
   }
 
   function confirmCompleteJob() {
@@ -293,8 +311,7 @@ export default function OperationsBoard() {
     setConfirmComplete(null)
     const done = getCompleteOpsStage()
     if (!done) return
-    moveJobToStage(j, done.id)
-    toast.success('Job marked complete', `${j.customerName} moved to ${done.name}; their pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}`)
+    if (moveJobToStage(j, done.id)) void sayWhenMoved(j.id, done.id, 'Job marked complete', `${j.customerName} moved to ${done.name}; their pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}`)
   }
 
   function onAdvance(j: UnifiedJob) {
@@ -575,7 +592,9 @@ export default function OperationsBoard() {
           onMoveStage={(stage) => {
             // Complete by hand on a job never scheduled: asked first (it closes the job and moves its card).
             if (stageInfo(stage)?.isComplete && !selectedNow.scheduledDate && !window.confirm(`${selectedNow.customerName} has no install date. Mark it complete anyway? Its pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}.`)) return
-            moveJobToStage(selectedNow, stage); const st = stageInfo(stage); if (st) toast.success(`Moved to ${st.name}`, st.isComplete ? `${selectedNow.customerName}'s pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}.` : undefined) }}
+            // Cancel on "Reopen…?" (or a move that was not allowed) says nothing; "Moved" only once the server has it.
+            const st = stageInfo(stage)
+            if (moveJobToStage(selectedNow, stage) && st) void sayWhenMoved(selectedNow.id, stage, `Moved to ${st.name}`, st.isComplete ? `${selectedNow.customerName}'s pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}.` : undefined) }}
           onUpdate={(updates) => onUpdateJob(selectedNow, updates)}
         />
       )}

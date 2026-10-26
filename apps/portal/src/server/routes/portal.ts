@@ -37,6 +37,7 @@
  *   - Passwords: bcrypt (12 rounds)
  */
 
+import { workKindOf } from '../lib/installDays.js'
 import { serializeMedia } from '../lib/media.js'
 import { Router, type Request, type Response } from 'express'
 import crypto from 'crypto'
@@ -605,6 +606,9 @@ router.get('/projects', requirePortalAuth, async (req: PortalAuthRequest, res) =
     // The steps before the install, from what is really recorded on the job (never shown done when they are not).
     const permits = await prisma.permit.findMany({ where: { jobId: { in: jobs.map(j => j.id) } }, select: { jobId: true, status: true } })
     const installed = (st: string) => ['in_progress', 'completed', 'invoiced', 'paid'].includes(st)
+    // A repair or a fence move says so ("Repair scheduled for ..."), from the job's quote's work.
+    const quoteIds = jobs.map(j => j.quoteId).filter((x): x is string => !!x)
+    const works = quoteIds.length ? await prisma.savedQuote.findMany({ where: { id: { in: quoteIds }, accountId: c.accountId, deletedAt: null }, select: { id: true, work: true } }) : []
     res.json({ success: true, data: await Promise.all(jobs.map(async j => {
       const permit = permits.find(p => p.jobId === j.id)?.status ?? null
       const steps = {
@@ -612,7 +616,8 @@ router.get('/projects', requirePortalAuth, async (req: PortalAuthRequest, res) =
         permit: permit === 'not_needed' ? 'not_needed' : installed(j.status) || ['approved', 'inspection_scheduled', 'passed'].includes(permit ?? '') ? 'done' : 'not_yet',
         materials: installed(j.status) || ['ordered', 'received', 'loaded'].includes(j.materialsStatus),
       }
-      return { id: j.id, style: await plainStyleName(j.fenceStyle), status: j.status, scheduledDate: j.scheduledDate, address: j.customerAddress, steps }
+      const kind = workKindOf(works.find(w => w.id === j.quoteId)?.work)
+      return { id: j.id, style: await plainStyleName(j.fenceStyle), kind, status: j.status, scheduledDate: j.scheduledDate, address: j.customerAddress, steps }
     })) })
   } catch (err) {
     console.error('[portal-projects]', err)

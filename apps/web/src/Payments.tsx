@@ -20,6 +20,8 @@
 
 import { styleLabel } from './fenceCatalog'
 import { withoutScheduleWords } from './customerPage'
+import { jobStyleOrWork } from './jobWork'
+import { getJob } from './jobStore'
 import { customerText } from '../../portal/src/server/lib/customerText'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useBackLayer } from './nav'
@@ -105,7 +107,8 @@ function ScheduleCard({ s, showJob, compact }: { s: Schedule; showJob: boolean; 
     <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-3" data-payment-schedule={s.jobId}>
       <div className="flex items-start justify-between gap-2">
         <div>
-          {showJob && <p className="text-xs text-gray-500">{styleLabel(s.fenceStyle)}{s.address ? ` · ${s.address}` : ''}</p>}
+          {/* A repair or a move: its work ("Repair: 1 × Rehang a gate…"), not the fence style. */}
+          {showJob && <p className="text-xs text-gray-500" data-payment-schedule-work>{jobStyleOrWork({ fenceStyle: s.fenceStyle, quoteId: getJob(s.jobId)?.quoteId })}{s.address ? ` · ${s.address}` : ''}</p>}
           <p className="text-sm text-gray-700">Contract <b data-contract-total>{money(s.contractCents)}</b>{s.changeOrderCents || s.adjustmentCents ? <span className="text-xs text-gray-500"> (signed {money(s.signedCents)}{s.changeOrderCents ? `, change orders ${money(s.changeOrderCents)}` : ''}{s.adjustmentCents ? `, adjustments ${money(s.adjustmentCents)}` : ''})</span> : null}</p>
           <p className="text-sm text-gray-700">Paid <b className="text-green-700" data-paid-total>{money(s.paidCents + waitingCents)}</b> · {balance < 0 ? <>Credit <b className="text-blue-700" data-balance>{money(-balance)}</b></> : <>Balance <b className={balance > 0 ? 'text-orange-700' : 'text-green-700'} data-balance>{money(balance)}</b></>}</p>
         </div>

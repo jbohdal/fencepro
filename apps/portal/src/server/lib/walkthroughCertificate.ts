@@ -14,6 +14,7 @@
  * customer and the office's customer Files tab see it.
  */
 
+import { workSummary, type WorkWordsInput } from './workWords.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -73,6 +74,8 @@ export interface CertificateInput {
   address: string
   fenceStyle: string
   category: WalkCategory
+  /** A repair or a fence move: its work in a line ("Repair: 2 × Replace a post"), and which it is. */
+  work?: { kind: 'repair' | 'move'; summary: string } | null
   completedAt: Date
   items: WalkItem[]
   punch: Array<{ label: string; note: string; fixNote: string; fixedAt: Date | null; fixedBy: string | null }>
@@ -108,10 +111,10 @@ export function certificatePdf(c: CertificateInput): Promise<Buffer> {
     doc.moveTo(L, 108).lineTo(L + W, 108).lineWidth(2).strokeColor(PURPLE).stroke().lineWidth(1)
     doc.font('Helvetica-Bold').fontSize(26).fillColor(INK).text(c.warrantyName ? 'Warranty Certificate' : 'Certificate of Completion', L, 124, { width: W, align: 'center' })
     if (c.warrantyName) doc.font('Helvetica-Bold').fontSize(12).fillColor(PURPLE).text('Certificate of Completion', L, doc.y + 2, { width: W, align: 'center' })
-    doc.font('Helvetica').fontSize(11).fillColor(GRAY).text(`This certifies that the fence at the property below was installed, walked through with the homeowner and accepted on ${day(c.completedAt)}.`, L, doc.y + 6, { width: W, align: 'center' })
+    doc.font('Helvetica').fontSize(11).fillColor(GRAY).text(`This certifies that the fence at the property below was ${c.work?.kind === 'repair' ? 'repaired' : c.work?.kind === 'move' ? 'moved' : 'installed'}, walked through with the homeowner and accepted on ${day(c.completedAt)}.`, L, doc.y + 6, { width: W, align: 'center' })
     doc.moveDown(1)
     const facts: Array<[string, string]> = [
-      ['Homeowner', c.customerName], ['Property', c.address || 'Not given'], ['Fence', `${c.fenceStyle || CATEGORY_LABEL[c.category]} (${CATEGORY_LABEL[c.category]})`], ['Completed', when(c.completedAt)],
+      ['Homeowner', c.customerName], ['Property', c.address || 'Not given'], ['Fence', `${c.fenceStyle || CATEGORY_LABEL[c.category]} (${CATEGORY_LABEL[c.category]})`], ...(c.work ? [['Work', c.work.summary]] as Array<[string, string]> : []), ['Completed', when(c.completedAt)],
       ...(c.warrantyName ? [['Warranty', c.warrantyName], ['Starts', c.warrantyStart || day(c.completedAt)], ['Covers', c.warrantyEnd || '']] as Array<[string, string]> : []),
       ...(c.warrantyName && c.warrantyUpdated ? [['Updated', `Warranty updated on ${c.warrantyUpdated}`]] as Array<[string, string]> : []),
     ]
@@ -197,6 +200,14 @@ export function certificatePdf(c: CertificateInput): Promise<Buffer> {
  * starting on the job's completed date, else today (the walkthrough is finished now).
  * No style and no proposal: the older single warranty (warrantyFrom).
  */
+/** A repair's or a move's work for the certificate; null for a new fence. */
+async function jobWorkLine(job: { quoteId: string | null } | null): Promise<CertificateInput['work']> {
+  const q = job?.quoteId ? await prisma.savedQuote.findUnique({ where: { id: job.quoteId }, select: { work: true } }).catch(() => null) : null
+  const work = q?.work as WorkWordsInput | null | undefined
+  const summary = workSummary(work)
+  return summary && (work?.type === 'repair' || work?.type === 'move') ? { kind: work.type, summary } : null
+}
+
 async function jobWarrantyLines(job: { quoteId: string | null; fenceStyle: string; completedDate: string | null; accountId: string } | null, completedAt: Date, b: { config?: unknown; contractSections?: unknown } | null) {
   const q = job?.quoteId ? await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId: job.accountId }, select: { id: true, accountId: true, proposal: true, chosenOption: true, fenceStyle: true, status: true, acceptedAt: true, soldAt: true, work: true } }) : null
   const { warranty, update } = job ? await effectiveQuoteWarranty(q, job.fenceStyle, b?.config ?? null) : { warranty: null, update: null }
@@ -233,6 +244,7 @@ export async function makeCertificate(
     address: job?.customerAddress || '',
     fenceStyle: await plainStyleName(job?.fenceStyle || ''),
     category: (['vinyl', 'chain_link', 'aluminum'].includes(w.category) ? w.category : 'vinyl') as WalkCategory,
+    work: await jobWorkLine(job),
     completedAt,
     items: (Array.isArray(w.items) ? w.items : []) as WalkItem[],
     punch,

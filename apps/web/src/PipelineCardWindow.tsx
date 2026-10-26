@@ -29,6 +29,7 @@ import { isDonePhase } from './opsStageModel'
 const installedWords = (d: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d); return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : d }
 import { stageName } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
+import { styleOrWork, jobStyleOrWork } from './jobWork'
 import { formatPhone, telHref } from './phoneFormat'
 import { useCallback, useEffect, useState } from 'react'
 import { Phone, MessageSquare, Navigation, CalendarPlus, FilePlus2, ChevronRight, X, ExternalLink } from 'lucide-react'
@@ -222,7 +223,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
                             ? <span className="block text-sm font-semibold text-gray-900 tabular-nums" data-card-quote-contract>{fmtUSD(Math.round(((q.finalPrice || 0) + co) * 100) / 100)} <span className="text-xs font-normal text-gray-600">contract (signed {fmtUSD(q.finalPrice || 0)}, change orders {co > 0 ? '+' : '−'}{fmtUSD(Math.abs(co))})</span></span>
                             : <span className="block text-sm font-semibold text-gray-900 tabular-nums">{fmtUSD(q.finalPrice || 0)}</span>
                         })()}
-                        <span className="block text-xs text-gray-600 truncate">{[styleLabel(q.fenceStyle), q.date ? fmtDate(q.date) : ''].filter(Boolean).join(' · ')}</span>
+                        <span className="block text-xs text-gray-600 truncate">{[styleOrWork(q.fenceStyle, (q as { work?: Parameters<typeof styleOrWork>[1] }).work), q.date ? fmtDate(q.date) : ''].filter(Boolean).join(' · ')}</span>
                       </span>
                       <SaveStatus keys={[`quote:${q.id}`]} quietWhenSaved />
                       <ChevronRight size={18} className="text-gray-400 shrink-0" aria-hidden="true" />
@@ -250,7 +251,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
                     {/* A job whose work is done says when it was installed, never a date still ahead (Oct 25 2026: Maria, installed 10/24, read "Scheduled: Thu 10/29"). */}
                     {isDonePhase(j.status) ? <>Installed{j.completedDate ? <> <span className="font-semibold" data-card-installed={j.completedDate}>{installedWords(j.completedDate)}</span></> : ''}{j.crewAssigned ? `, ${crewName(j.crewAssigned)}` : ''}</>
                       : j.scheduledDate ? <>Scheduled: <span className="font-semibold">{bookedWords(j.scheduledDate, j.scheduledEndDate, loadSchedule().settings.workDays)}</span>{j.crewAssigned ? `, ${crewName(j.crewAssigned)}` : ''}</> : 'Not scheduled yet.'}
-                    {soldJobs.length > 1 && <span className="block text-xs text-gray-600">{styleLabel(j.fenceStyle)}</span>}
+                    {soldJobs.length > 1 && <span className="block text-xs text-gray-600">{jobStyleOrWork(j)}</span>}
                   </p>
                   {can('schedule.change') && !isDonePhase(j.status) && <ScheduleInstallButton jobId={j.id} scheduledDate={j.scheduledDate} />}
                 </div>
