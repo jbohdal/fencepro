@@ -7,7 +7,7 @@
  * Made by routes/pull-sheets.ts; the entry it prints is lib/customerPullSheets.ts.
  */
 
-import PDFDocument from 'pdfkit'
+import { pdfDocument } from './pdfText.js'
 import { logoPath } from '../routes/proposal.js'
 import type { PullSheetEntry } from './customerPullSheets.js'
 
@@ -31,7 +31,7 @@ export interface PullSheetPdfInput {
 
 export function pullSheetPdf(c: PullSheetPdfInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: 48, info: { Title: `Pull sheet - ${c.customerName}`, Author: c.company.name } })
+    const doc = pdfDocument({ size: 'LETTER', margin: 48, info: { Title: `Pull sheet - ${c.customerName}`, Author: c.company.name } })
     const chunks: Buffer[] = []
     doc.on('data', b => chunks.push(b))
     doc.on('end', () => resolve(Buffer.concat(chunks)))

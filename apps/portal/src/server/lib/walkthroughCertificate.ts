@@ -18,7 +18,7 @@ import { workSummary, type WorkWordsInput } from './workWords.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
-import PDFDocument from 'pdfkit'
+import { pdfDocument } from './pdfText.js'
 import prisma from './prisma.js'
 import { plainStyleName, pricingModule } from './estimates.js'
 import { logoPath } from '../routes/proposal.js'
@@ -94,7 +94,7 @@ export interface CertificateInput {
 /** The PDF itself. */
 export function certificatePdf(c: CertificateInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: 48, info: { Title: `${c.warrantyName ? 'Warranty Certificate' : 'Certificate of Completion'} - ${c.customerName}`, Author: c.company.name } })
+    const doc = pdfDocument({ size: 'LETTER', margin: 48, info: { Title: `${c.warrantyName ? 'Warranty Certificate' : 'Certificate of Completion'} - ${c.customerName}`, Author: c.company.name } })
     const chunks: Buffer[] = []
     doc.on('data', b => chunks.push(b))
     doc.on('end', () => resolve(Buffer.concat(chunks)))

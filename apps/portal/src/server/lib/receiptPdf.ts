@@ -11,7 +11,7 @@
  * so it always says what it said on the day; a voided receipt is stamped VOID.
  */
 
-import PDFDocument from 'pdfkit'
+import { pdfDocument } from './pdfText.js'
 import { logoPath } from '../routes/proposal.js'
 import { moneyText } from './paymentMath.js'
 
@@ -76,7 +76,7 @@ export interface ReceiptPdfInput {
 
 export function receiptPdf({ s, voided, dayWords, installDay }: ReceiptPdfInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: 48, info: { Title: `${receiptName(s.number)} - ${s.customerName}`, Author: s.company.name } })
+    const doc = pdfDocument({ size: 'LETTER', margin: 48, info: { Title: `${receiptName(s.number)} - ${s.customerName}`, Author: s.company.name } })
     const chunks: Buffer[] = []
     doc.on('data', b => chunks.push(b))
     doc.on('end', () => resolve(Buffer.concat(chunks)))

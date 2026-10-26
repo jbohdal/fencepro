@@ -7,7 +7,7 @@
  * with the portal link are made for Jonathan to file himself.
  */
 
-import PDFDocument from 'pdfkit'
+import { pdfDocument } from '../pdfText.js'
 import prisma from '../prisma.js'
 import { suggestCounty } from '../addressIndex.js'
 import { countyOf, floridaDay } from './context.js'
@@ -108,7 +108,7 @@ const money = (dollars: number) => '$' + Math.round(dollars || 0).toLocaleString
 /** The permit packet as a PDF. */
 export function renderPacket(p: PacketInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: 50, info: { Title: `Permit packet - ${p.job.customerName}`, Author: p.company } })
+    const doc = pdfDocument({ size: 'LETTER', margin: 50, info: { Title: `Permit packet - ${p.job.customerName}`, Author: p.company } })
     const chunks: Buffer[] = []
     doc.on('data', c => chunks.push(c))
     doc.on('end', () => resolve(Buffer.concat(chunks)))

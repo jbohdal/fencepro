@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import PDFDocument from 'pdfkit'
+import { pdfDocument } from '../lib/pdfText.js'
 import prisma from '../lib/prisma.js'
 import { str } from '../lib/helpers.js'
 import { requireAuth } from '../middleware/auth.js'
@@ -96,7 +96,7 @@ router.get('/statement/pdf', requireAuth, auditLog('statement_download'), async 
 
     const logoBuffer = await loadLogoBuffer(COMPANY_LOGO_URL)
 
-    const doc = new PDFDocument({ margin: 50, size: 'LETTER' })
+    const doc = pdfDocument({ margin: 50, size: 'LETTER' })
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="statement-${sanitizeFilename(account.name)}.pdf"`)
     doc.pipe(res)
@@ -263,7 +263,7 @@ router.get('/:id/pdf', requireAuth, auditLog('invoice_download'), async (req, re
 
     const logoBuffer = await loadLogoBuffer(COMPANY_LOGO_URL)
 
-    const doc = new PDFDocument({ margin: 50, size: 'LETTER' })
+    const doc = pdfDocument({ margin: 50, size: 'LETTER' })
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="invoice-${sanitizeFilename(invoice.invoiceNumber)}.pdf"`)
     doc.pipe(res)

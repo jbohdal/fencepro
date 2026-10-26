@@ -11,7 +11,7 @@
  * and by staff from the job page (/api/warranties/quote/<id>/contract.pdf).
  */
 
-import PDFDocument from 'pdfkit'
+import { pdfDocument } from './pdfText.js'
 import prisma from './prisma.js'
 import { logoPath } from '../routes/proposal.js'
 import { quoteWarranty, installDateOf, type OptionWarranty } from './warranties.js'
@@ -96,7 +96,7 @@ export function warrantyLines(w: OptionWarranty | null, installDate: string | nu
 
 export function contractPdf(c: ContractInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: 48, info: { Title: `Signed contract - ${c.customerName}`, Author: c.company.name } })
+    const doc = pdfDocument({ size: 'LETTER', margin: 48, info: { Title: `Signed contract - ${c.customerName}`, Author: c.company.name } })
     const chunks: Buffer[] = []
     doc.on('data', b => chunks.push(b))
     doc.on('end', () => resolve(Buffer.concat(chunks)))
