@@ -7,8 +7,13 @@
  *                            save queue, so it may arrive more than once: a
  *                            repeat answers with the one already saved.
  *   GET    /                 owner/admin: the list, newest first
- *   PATCH  /:id              owner/admin: { status: new | seen | done }
+ *   PATCH  /:id              owner/admin: { status: new | seen | done | needs_jonathan }
+ *                            (New, Looked at, Fixed, Needs Jonathan)
  *   GET    /:id/screenshot   owner/admin: the screenshot image
+ *
+ * Each feedback also keeps the screen's name, the record the screen or its
+ * open window was on (from the page address: lib/feedbackModel.ts; its name is
+ * looked up here, in the sender's company only), and the app's version.
  *
  * Screenshots are files under UPLOAD_DIR/feedback/<accountId>/<id>.jpg. A new
  * feedback puts a notification in the owner's and admins' bell.
@@ -24,12 +29,13 @@ import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { plainZod } from '../lib/plainZod.js'
+import { FEEDBACK_STATUSES, recordFromAddress, recordText, type FeedbackRecordRef } from '../lib/feedbackModel.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
 
 export const FEEDBACK_ADMIN_ROLES = new Set(['super_admin', 'admin'])
-const STATUSES = ['new', 'seen', 'done'] as const
+const STATUSES = FEEDBACK_STATUSES
 /** A screenshot is at most this big once decoded (the phone sends ~100-500 KB). */
 const MAX_SHOT_BYTES = 5 * 1024 * 1024
 
@@ -45,6 +51,8 @@ const createSchema = z.object({
   appFile: z.string().max(300).nullable().optional(),
   screenshot: z.string().max(8_000_000).regex(/^data:image\/jpeg;base64,/, 'The screenshot must be a JPEG').nullable().optional(),
   errors: z.array(z.object({ at: z.string().max(40), message: z.string().max(500) })).max(10).default([]),
+  screenTitle: z.string().max(200).default(''),
+  appVersion: z.string().max(100).default(''),
 })
 
 const isAdmin = (req: any) => FEEDBACK_ADMIN_ROLES.has(String(req.user?.role))
@@ -58,6 +66,48 @@ function view(f: any) {
     id: f.id, userId: f.userId, userName: f.userName, role: f.role, path: f.path, screen: f.screen,
     userAgent: f.userAgent, appFile: f.appFile, text: f.text, errors: f.errors, status: f.status,
     statusAt: f.statusAt, statusBy: f.statusBy, createdAt: f.createdAt, hasScreenshot: !!f.screenshotPath,
+    screenTitle: f.screenTitle ?? '', recordType: f.recordType ?? '', recordId: f.recordId ?? '', recordName: f.recordName ?? '',
+    appVersion: f.appVersion ?? '',
+  }
+}
+
+const personName = (first?: string | null, last?: string | null) => `${first ?? ''} ${last ?? ''}`.trim()
+
+/** The record's name, looked up in this company only ("" when it is not found). */
+export async function recordName(accountId: string, ref: FeedbackRecordRef): Promise<string> {
+  try {
+    switch (ref.type) {
+      case 'customer': {
+        const c = await prisma.crmContact.findFirst({ where: { id: ref.id, accountId }, select: { firstName: true, lastName: true } })
+        return c ? personName(c.firstName, c.lastName) : ''
+      }
+      case 'quote': {
+        const q = await prisma.savedQuote.findFirst({ where: { id: ref.id, accountId }, select: { customerName: true } })
+        return q?.customerName ?? ''
+      }
+      case 'job': {
+        const j = await prisma.savedJob.findFirst({ where: { id: ref.id, accountId }, select: { customerName: true } })
+        return j?.customerName ?? ''
+      }
+      case 'change_order': {
+        const co = await prisma.changeOrder.findFirst({ where: { id: ref.id, accountId }, select: { number: true, quoteId: true } })
+        if (!co) return ''
+        const q = await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId }, select: { customerName: true } })
+        return `CO-${co.number}${q?.customerName ? ` for ${q.customerName}` : ''}`
+      }
+      case 'card': {
+        const rows = await prisma.$queryRaw<Array<{ first: string | null; last: string | null }>>`
+          SELECT l->>'firstName' AS first, l->>'lastName' AS last
+          FROM "PipelineState" s, jsonb_array_elements(s.leads) l
+          WHERE s."accountId" = ${accountId} AND l->>'id' = ${ref.id} LIMIT 1`
+        return rows[0] ? personName(rows[0].first, rows[0].last) : ''
+      }
+      default:
+        return ''
+    }
+  } catch (err) {
+    console.error('[feedback] record name:', (err as Error).message)
+    return ''
   }
 }
 
@@ -98,6 +148,8 @@ router.post('/', async (req: any, res) => {
     }
 
     const userName = await nameOf(req)
+    const ref = recordFromAddress(b.path)
+    const refName = ref ? await recordName(accountId, ref) : ''
     let row
     try {
       row = await prisma.feedback.create({
@@ -105,6 +157,8 @@ router.post('/', async (req: any, res) => {
           id: b.id, accountId, userId: req.user.id, userName, role: String(req.user.role || ''),
           path: b.path, screen: b.screen, userAgent: b.userAgent || String(req.headers['user-agent'] || '').slice(0, 1000),
           appFile: b.appFile || '', text: b.text.trim(), screenshotPath, errors: b.errors,
+          screenTitle: b.screenTitle.trim(), appVersion: b.appVersion.trim(),
+          recordType: ref?.type ?? '', recordId: ref?.id ?? '', recordName: refName,
         },
       })
     } catch (err) {
@@ -121,7 +175,7 @@ router.post('/', async (req: any, res) => {
       data: {
         recipientRole: 'admin', type: 'info', link: '/feedback',
         title: `Feedback from ${userName || 'someone'}`,
-        body: `${snippet || '(no text, screenshot only)'}${row.path ? `  (on ${row.path.split('?')[0]})` : ''}`,
+        body: `${snippet || '(no text, screenshot only)'}${row.screenTitle || row.path ? `  (on ${row.screenTitle || row.path.split('?')[0]}${row.recordType ? `, ${recordText(row.recordType, row.recordName)}` : ''})` : ''}`,
       },
     }).catch(err => console.error('[feedback] notification failed:', err))
 

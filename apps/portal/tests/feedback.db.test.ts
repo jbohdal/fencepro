@@ -4,6 +4,11 @@
  * one notification; someone who is not the owner or an admin can send but
  * cannot list, change or see screenshots; the screenshot is served to the
  * owner. Screenshots go to a temporary folder. Removes what it made.
+ *
+ * Also: the screen's name, the record (from the page address, named from the
+ * sender's company only), the app version and the role are kept; Needs
+ * Jonathan is a status; scripts/feedback-report.ts --since lists it with a
+ * link to the screenshot.
  */
 
 import 'dotenv/config'
@@ -14,6 +19,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import type { AddressInfo } from 'net'
+import { execFileSync } from 'child_process'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 
 const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
@@ -105,4 +111,48 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('send feedback (dev database)', a
     expect((await call('POST', '/api/feedback', sales, b)).status).toBe(400)
     expect(await prisma.feedback.count({ where: { id: b.id } })).toBe(0)
   })
+
+  test('the screen, the record (named in this company only), the role and the app version are kept', async () => {
+    const contact = await prisma.crmContact.findFirst({ where: { accountId, firstName: { not: '' } }, select: { id: true, firstName: true, lastName: true } })
+    expect(contact).toBeTruthy()
+    const b = { ...body('on a customer'), path: `/customers/${contact!.id}?tab=photos`, screenTitle: 'Customers', appVersion: 'abc1234 built 2026-10-26 18:00 UTC' }
+    const r = await json(await call('POST', '/api/feedback', sales, b))
+    expect(r.status).toBe(201)
+    expect(r.json.data).toMatchObject({ screenTitle: 'Customers', recordType: 'customer', recordId: contact!.id, recordName: `${contact!.firstName} ${contact!.lastName}`.trim(), appVersion: 'abc1234 built 2026-10-26 18:00 UTC', role: 'sales_rep' })
+    const n = await prisma.notification.findFirst({ where: { link: '/feedback', body: { contains: `${MARK} on a customer` } } })
+    expect(n?.body).toContain('(on Customers, Customer: ')
+
+    // A record id that is not this company's: kept as sent, never named.
+    const other = { ...body('odd record'), path: '/operations?job=not-a-real-job-id', screenTitle: 'Operations' }
+    const o = await json(await call('POST', '/api/feedback', sales, other))
+    expect(o.json.data).toMatchObject({ recordType: 'job', recordId: 'not-a-real-job-id', recordName: '' })
+  })
+
+  test('Needs Jonathan is a status the owner can set, and the list filters by it', async () => {
+    const id = made[0]
+    const marked = await json(await call('PATCH', `/api/feedback/${id}`, owner, { status: 'needs_jonathan' }))
+    expect(marked.status).toBe(200)
+    expect(marked.json.data.status).toBe('needs_jonathan')
+    expect(marked.json.data.statusBy).toBeTruthy()
+    const list = await json(await call('GET', '/api/feedback?status=needs_jonathan', owner))
+    expect((list.json.data as any[]).some(f => f.id === id)).toBe(true)
+    expect((list.json.data as any[]).every(f => f.status === 'needs_jonathan')).toBe(true)
+  })
+
+  test('the daily review script lists it since today, with a link to the screenshot (read only)', () => {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'ezbiz-feedback-shots-'))
+    try {
+      const out = execFileSync('npx', ['tsx', 'scripts/feedback-report.ts', '--since', today, '--limit', '200', '--json', '--copy-shots', shots], { cwd: path.resolve(__dirname, '..'), env: { ...process.env }, encoding: 'utf8' })
+      const rows = out.trim().split('\n').filter(Boolean).map(l => JSON.parse(l))
+      const mine = rows.find(r => r.id === made[0])
+      expect(mine).toBeTruthy()
+      expect(mine.statusWords).toBe('Needs Jonathan')
+      expect(mine.screenshotUrl).toMatch(/^file:\/\//)
+      expect(fs.existsSync(path.join(shots, `${made[0]}.jpg`))).toBe(true)
+      const text = execFileSync('npx', ['tsx', 'scripts/feedback-report.ts', '--since', today, '--status', 'needs_jonathan'], { cwd: path.resolve(__dirname, '..'), env: { ...process.env }, encoding: 'utf8' })
+      expect(text).toContain(made[0])
+      expect(text).toContain('[NEEDS JONATHAN]')
+    } finally { fs.rmSync(shots, { recursive: true, force: true }) }
+  }, 60_000)
 })

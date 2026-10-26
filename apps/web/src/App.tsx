@@ -1139,7 +1139,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             {/* Customers' portal messages are the office's: not on the installer's phone. */}
             {!isCrewLogin() && <MessagesInbox onNavigateToCustomer={(customerId) => openCustomerFromAnywhere(customerId, 'messages')} />}
             <SyncBadge />
-            <FeedbackButton />
+            <FeedbackButton screen={active} />
             <NotificationBell />
             {/* Command search */}
             <button

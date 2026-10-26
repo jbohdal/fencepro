@@ -20,6 +20,11 @@ import { sendJson, API_ORIGIN } from './syncHttp'
 import { fetchWithAuth } from './crmAuth'
 import { newId } from './recordSync'
 import { runningAppFile } from './appUpdate'
+import { recordFromAddress, type FeedbackStatusValue, type FeedbackRecordType } from '../../portal/src/server/lib/feedbackModel'
+export { recordFromAddress, recordText, deviceText, FEEDBACK_STATUS_LABEL, FEEDBACK_RECORD_LABEL, FEEDBACK_ROLE_LABEL } from '../../portal/src/server/lib/feedbackModel'
+
+/** The app's version: the git commit it was built from and when (vite.config.ts). */
+export const APP_VERSION: string = String(import.meta.env.VITE_APP_VERSION || 'dev')
 
 // ── Page errors since load ───────────────────────────────────────────────────
 
@@ -100,6 +105,9 @@ export interface FeedbackPayload {
   appFile: string | null
   screenshot: string | null
   errors: PageError[]
+  /** The screen's name as the app shows it ("Customers"). */
+  screenTitle: string
+  appVersion: string
 }
 
 registerKind<FeedbackPayload>('feedback.create', {
@@ -110,10 +118,11 @@ registerKind<FeedbackPayload>('feedback.create', {
 export const feedbackKey = (id: string) => `feedback:${id}`
 
 /** Queue it (on the phone before this resolves). Resolves true when the server has it within `waitMs`. */
-export async function sendFeedback(input: { text: string; screenshot: string | null; path: string }, waitMs = 8000): Promise<{ id: string; sent: boolean }> {
+export async function sendFeedback(input: { text: string; screenshot: string | null; path: string; screenTitle?: string }, waitMs = 8000): Promise<{ id: string; sent: boolean }> {
   const payload: FeedbackPayload = {
     id: newId(), text: input.text.trim(), path: input.path, screen: screenText(), userAgent: navigator.userAgent,
     appFile: runningAppFile(), screenshot: input.screenshot, errors: recentErrors(),
+    screenTitle: (input.screenTitle ?? '').trim(), appVersion: APP_VERSION,
   }
   const key = feedbackKey(payload.id)
   await enqueue({ key, kind: 'feedback.create', payload, label: 'Feedback' })
@@ -122,11 +131,19 @@ export async function sendFeedback(input: { text: string; screenshot: string | n
 
 // ── The list (owner and admins) ──────────────────────────────────────────────
 
-export type FeedbackStatus = 'new' | 'seen' | 'done'
+export type FeedbackStatus = FeedbackStatusValue
 export interface FeedbackItem {
   id: string; userId: string; userName: string; role: string; path: string; screen: string; userAgent: string
   appFile: string; text: string; errors: PageError[]; status: FeedbackStatus; statusAt: string | null; statusBy: string | null
   createdAt: string; hasScreenshot: boolean
+  screenTitle: string; recordType: FeedbackRecordType | ''; recordId: string; recordName: string; appVersion: string
+}
+
+/** What the form says will go with the feedback about where it was sent from. */
+export function whereText(screenTitle: string, address: string): string {
+  const rec = recordFromAddress(address)
+  const screen = screenTitle || address.split('?')[0]
+  return rec ? `${screen}, the ${rec.type === 'change_order' ? 'change order' : rec.type === 'service_ticket' ? 'service request' : rec.type === 'card' ? 'pipeline card' : rec.type} open` : screen
 }
 
 export async function loadFeedback(): Promise<{ ok: true; items: FeedbackItem[] } | { ok: false; error: string }> {
