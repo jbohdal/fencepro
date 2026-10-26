@@ -447,7 +447,8 @@ export function ownWhat(r: { work?: unknown; scope?: unknown; lines?: unknown; r
   const gates = ownGateChanges(r.work)
   if (!gates.length) {
     const what = whatChanged(r as any)
-    return sides ? `${what} (${sides})` : what
+    // A typed line that says its sides already ("Add 10 ft of fence (Left side 40 ft → 50 ft)"): not twice.
+    return sides && !what.includes(sides) ? `${what} (${sides})` : what
   }
   const s = isObj(r.scope) ? r.scope : {}
   const added = gates.filter(g => g.kind === 'added').map(g => g.words)

@@ -726,9 +726,11 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     setQuoteForChange(!!opts.changeOrder)
     // A signed quote opens with the work as approved change orders made it (ChangeOrders.tsx quoteWithChanges),
     // so the next change is priced from the work now; saving keeps the signed quote as signed.
-    if (isSignedForChange(q) && signedQuoteOf(q) === q) {
+    // "Change order" sends the work with the approved ones (openChangeFromDrawing): it opens on the latest drawing too,
+    // else a change order still open was left out of it once one had been approved (round 4 re-check).
+    if (isSignedForChange(q) && (signedQuoteOf(q) === q || opts.changeOrder)) {
       // The latest drawing: with every approved and every still open change order's change in it (quoteForChange).
-      void latestDrawingQuote(q).then(open => { setEditingQuote(open); setShowQuote(true) })
+      void latestDrawingQuote(signedQuoteOf(q)).then(open => { setEditingQuote(open); setShowQuote(true) })
       return
     }
     setEditingQuote(q)

@@ -281,7 +281,7 @@ export function openChangesNote(q: object | null | undefined): string | null {
   if (!open?.length) return null
   const one = (o: { number: number; change: string | null }) => `CO-${o.number}${o.change ? ` (${o.change})` : ''}`
   const list = open.length === 1 ? one(open[0]) : `${open.slice(0, -1).map(one).join(', ')} and ${one(open[open.length - 1])}`
-  return `This drawing includes ${list}, not signed yet. The price shown counts ${open.length === 1 ? 'it' : 'them'} too; the new change order adds only its own change.`
+  return `This drawing includes ${list}, not signed yet. The price shown is for this drawing, with ${open.length === 1 ? 'that change' : 'those changes'} in it; the new change order adds only its own change.`
 }
 
 /** The quote as signed, for a quote that may be the work now (quoteWithChanges). */
