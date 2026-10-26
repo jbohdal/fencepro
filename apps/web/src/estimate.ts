@@ -33,6 +33,9 @@ export { planTallVinylParts } from './tallVinylParts'
 // Settings → Price List → Vinyl Colors (server lib/vinylColors.ts).
 export { planVinylColor, planArchiveVinylColor, planUndoVinylColor, inputFromColor, kitLineCounts } from './vinylColorForm'
 export { catalogOf as fenceCatalogOf, DEFAULT_CATALOG as DEFAULT_FENCE_CATALOG } from './fenceCatalog'
+// Settings → Fence styles → Add color / turn a choice off (scripts/stephens-quotes-2026-10-26b.ts: Green chain link).
+export { planAddColor, planUpdateOption, resolveFenceStyles } from './fenceCatalog'
+export { kitSetFor } from './materialKits'
 // Warranties per option (server lib/warranties.ts).
 export {
   defaultWarrantySettings, warrantySettingsOf, warrantyForStyle, installKeyOf, signedOptionWarranty, warrantyFromText,
@@ -205,11 +208,17 @@ export class NotQuotableError extends Error {
   constructor(fenceStyle: string) { super(NOT_QUOTABLE_MESSAGE); this.fenceStyle = fenceStyle }
 }
 
-export function estimate(data: EstimateData, job: EstimateJob): Estimate {
+/**
+ * `preview`: price a style that is not available for quoting yet (a color
+ * made in Settings and still switched off), to look at it before switching it
+ * on; its notes say why it is held. Never used for anything a customer sees.
+ */
+export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?: boolean } = {}): Estimate {
   useData(data)
   const cfg = estimateConfig(data.config)
   const named = cfg.fenceStyles.find(s => s.name === job.fenceStyle && s.isActive !== false)
-  if (named && !isQuotable(named)) throw new NotQuotableError(named.name)
+  if (named && !isQuotable(named) && !opts.preview) throw new NotQuotableError(named.name)
+  const held = named && !isQuotable(named) ? [`Preview only, not available for quoting: ${named.held || (named.quotable === false ? 'turned off' : 'held')}.`] : []
   const style = named
   if (!style) throw new Error(`Unknown fence style: ${job.fenceStyle}`)
   const calc: QuoteCalc = calculateQuote({
@@ -241,6 +250,6 @@ export function estimate(data: EstimateData, job: EstimateJob): Estimate {
     marginStatus: p.gmPct >= good ? 'good' : p.gmPct >= warning ? 'warning' : 'danger',
     manHours: p.manHours,
     pullSheet: calc.materials.items,
-    notes: [...calc.materials.warnings, ...p.notes],
+    notes: [...held, ...calc.materials.warnings, ...p.notes],
   }
 }
