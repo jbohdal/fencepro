@@ -117,7 +117,7 @@ try {
   if (WHAT.includes('customers')) {
     const cs = await get('/api/crm-contacts')
     totals.customers = cs.length
-    plan.push(...cs.map(c => ({ kind: 'customer', name: `${c.firstName} ${c.lastName}`.trim(), id: c.id, url: `/customers/${encodeURIComponent(c.id)}`, expect: '[data-customer-tab="overview"]' })))
+    plan.push(...cs.map(c => ({ kind: 'customer', name: `${c.firstName} ${c.lastName}`.trim(), id: c.id, url: `/customers/${encodeURIComponent(c.id)}`, expect: '[data-customer-tab="activity"]' })))
   }
   if (WHAT.includes('quotes')) {
     const qs = await get('/api/saved-quotes')
@@ -135,7 +135,7 @@ try {
   // A check on the checker: records that do not exist must be reported.
   if (process.env.CONTROL) plan.push(
     { kind: 'card', name: 'CONTROL missing card', id: 'nope', url: '/pipeline?card=nope-123', expect: '[data-card-window="nope-123"]' },
-    { kind: 'customer', name: 'CONTROL missing customer', id: 'nope', url: '/customers/nope-123', expect: '[data-customer-tab="overview"]' },
+    { kind: 'customer', name: 'CONTROL missing customer', id: 'nope', url: '/customers/nope-123', expect: '[data-customer-tab="activity"]' },
     { kind: 'quote', name: 'CONTROL missing quote', id: 'nope', url: '/quotes?qv=nope-123', expect: 'div.fixed.inset-0.z-50.flex' },
     { kind: 'job', name: 'CONTROL missing job', id: 'nope', url: '/operations?job=nope-123', expect: 'div.fixed.inset-y-0.right-0.z-50' },
   )

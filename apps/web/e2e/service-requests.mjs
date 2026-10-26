@@ -40,7 +40,8 @@ const CDP = process.env.CDP_URL || ''
 const PHOTO = process.env.MEDIA_PHOTO || ''
 const SHOTS = process.env.E2E_SHOTS || ''
 const NAME = CDP ? 'android' : 'webkit'
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+// The dev copy (4001), or a worktree's own dev server on another local port; never live (4000).
+if (!/^http:\/\/localhost:\d+$/.test(APP) || !/^http:\/\/localhost:\d+$/.test(API) || /:4000$/.test(APP) || /:4000$/.test(API)) { console.error('Refusing to run: the dev copy only (localhost, not 4000).'); process.exit(2) }
 if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (!PHOTO || !fs.existsSync(PHOTO)) { console.error('Set MEDIA_PHOTO (a JPEG to send from the photo link).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
@@ -130,7 +131,8 @@ try {
   check('customer page: the past customer badge at the top', (await pageBadge.textContent({ timeout: 15000 }).catch(() => '')) === want)
   await shot(page, '1-customer')
 
-  // 2. The request.
+  // 2. The request (the customer's Jobs tab).
+  await tap(page.locator('[data-customer-tab="jobs"]'))
   await tap(page.locator('[data-customer-service] [data-service-request-button]'))
   const form = page.locator('[data-service-request-form]')
   await form.waitFor({ timeout: 15000 })
@@ -290,7 +292,7 @@ try {
   const other = await desk.newContext({ viewport: { width: 1280, height: 900 } })
   await other.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, OWNER)
   const p2 = await other.newPage()
-  await p2.goto(`${APP}/customers/${contactId}`)
+  await p2.goto(`${APP}/customers/${contactId}?tab=jobs`)
   check('second browser: the badge and both requests on the customer page', !!(await until(async () => (await p2.locator('[data-customer-service] [data-service-ticket]').count()) === 2 && (await p2.locator('[data-customer-detail] [data-past-customer]').first().textContent()) === want, 25000)))
   await other.close()
   check('no page errors', errors.length === 0, errors.join(' | '))

@@ -175,8 +175,8 @@ try {
     const packet = url ? await fetch(url.replace(/^https?:\/\/[^/]+/, APP)) : null
     const packetHtml = packet ? await packet.text() : ''
     check(`${size} owner: Share to crew gives the install packet link /p/i/<link>, and it opens (no prices)`, !!url && packet?.status === 200 && packetHtml.includes(PART) && !COSTS.some(v => packetHtml.includes(`$${v}`)), url || 'no link')
-    // The phone number in Contact details.
-    await x.page.locator('[data-customer-tab="overview"]').click()
+    // The phone number in Contact details (the column on the left on a computer, the Details tab on a phone).
+    if (await x.page.locator('[data-customer-tab="overview"]').count()) await tap(x, x.page.locator('[data-customer-tab="overview"]'))
     const link = x.page.locator('[data-customer-phone]')
     await link.waitFor({ timeout: 10000 })
     const shown = (await link.innerText()).trim(), href = await link.getAttribute('href')

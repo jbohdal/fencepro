@@ -421,7 +421,7 @@ async function flowD(dev, a, jobId) {
   await page.locator(`[data-page-scroll] >> text=${price} >> visible=true`).last().click(); await sleep(1200)
   check('a quote on the customer page opens with its own address', path(page).includes('qv='), path(page))
   await dev.back(); await sleep(1200)
-  check('Back closes the quote, back on the customer', path(page) === `/customers/${a.cid}`, path(page))
+  check('Back closes the quote, back on the customer (on its Quotes tab)', path(page) === `/customers/${a.cid}?tab=quotes`, path(page))
   await page.goto(`${APP}/operations?job=${jobId}`, { waitUntil: 'domcontentloaded' }); await sleep(2500)
   check('reloading on a job opens it', await page.locator('[data-packet-send]').count() === 1)
   await dev.back(); await sleep(1200)
