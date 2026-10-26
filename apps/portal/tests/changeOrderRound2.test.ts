@@ -69,6 +69,34 @@ describe('a change order from the drawing says its panels (per run rounding)', (
   })
 })
 
+describe('round 3: a gate put into a side is one change the customer can read', () => {
+  // The Back (50 ft) gets a 4 ft walk gate in the middle: 23 + 23 ft of fence, two more gate posts.
+  const gateIn = input({ runs: [40, 23, 23, 40].map(ft => ({ ft })), ends: 4, walkGates: 2 })
+  test('one line: "Add 1 walk gate in the Back side (4 ft of fence becomes the gate)", the whole price difference', () => {
+    const d = changeOrderDraft({ signed, current: gateIn, signedOverrides: signedIn.overrides, styles: [style], priceNow: calculateQuote(gateIn).priced.price, sectionsNow: calculateQuote(gateIn).sections, simple: false, gatesIn: { sides: ['Back'], openingFt: 4 } })
+    expect(d.lines.map(l => l.description)).toEqual(['Add 1 walk gate in the Back side (4 ft of fence becomes the gate)'])
+    // The same total as the two steps it replaces (the fence line, then the gate).
+    const two = draft(gateIn)
+    expect(two.lines.length).toBe(1)
+    expect(d.lines[0].amountCents).toBe(two.lines[0].amountCents)
+    expect(d.lines[0].amountCents).toBe(Math.round(calculateQuote({ ...gateIn, overrides: { wholeDollar: true } }).priced.price * 100) - Math.round(calculateQuote({ ...signedIn, overrides: { wholeDollar: true } }).priced.price * 100))
+    expect(d.scope).toMatchObject({ footageFt: -4, walkGates: 1 })
+    // A side named "Left side" is not "Left side side".
+    expect(changeOrderDraft({ signed, current: gateIn, signedOverrides: signedIn.overrides, styles: [style], priceNow: 0, sectionsNow: 0, simple: false, gatesIn: { sides: ['Left side'], openingFt: 4 } }).lines[0].description).toBe('Add 1 walk gate in the Left side (4 ft of fence becomes the gate)')
+  })
+  test('without the drawing: the gate\'s usual 4 ft', () => {
+    expect(draft(gateIn).lines[0].description).toBe('Add 1 walk gate (4 ft of fence becomes the gate)')
+  })
+  test('a gate and a shorter side too: the fence line says the gate took some of it, and never a bare "Remove ... more"', () => {
+    const both = input({ runs: [32, 23, 23, 40].map(ft => ({ ft })), ends: 4, walkGates: 2 })
+    const d = draft(both)
+    const fence = d.lines.find(l => /^Remove 12 ft of fence/.test(l.description))!
+    expect(fence.description).toMatch(/4 ft of it becomes the new gate/)
+    expect(fence.description).not.toMatch(/^Remove 12 ft of fence, \d+ panels? more \(/)
+    expect(d.lines.some(l => l.description === 'Add 1 walk gate')).toBe(true)
+  })
+})
+
 describe('the card says a signed proposal was opened', () => {
   test('accepted on the link with no counted open: "Opened and signed", never "Not opened yet"', () => {
     const o = openedForCard({ customerId: 'c1' }, [{ crmContactId: 'c1', status: 'SOLD', shareToken: 't', viewCount: 0, acceptedAt: new Date() }])
