@@ -45,6 +45,8 @@ async function call(method, p, body, raw) {
 if (!STAFF_COOKIE) { console.error('Set E2E_STAFF_COOKIE (apps/portal/scripts/dev-session-token.ts --cookie).'); process.exit(2) }
 
 const id = crypto.randomUUID()
+/** The test login's name (notes and portal replies are written as it). */
+let ME = ''
 const stamp = Date.now().toString(36).slice(-5)
 const browsers = []
 
@@ -75,9 +77,12 @@ async function session(kind) {
   const errors = []
   page.on('pageerror', e => errors.push(String(e).slice(0, 300)))
   page.on('dialog', d => d.accept().catch(() => {}))
-  const tap = async loc => { await loc.waitFor({ state: 'visible', timeout: 20000 }); if (phone) await loc.tap(); else await loc.click(); await sleep(400) }
+  // "Too many requests" anywhere (110 photos used to use up the request limit for the whole app).
+  const tooMany = []
+  page.on('response', r => { if (r.status() === 429) tooMany.push(new URL(r.url()).pathname.slice(0, 80)) })
+  const tap =async loc => { await loc.waitFor({ state: 'visible', timeout: 20000 }); if (phone) await loc.tap(); else await loc.click(); await sleep(400) }
   const shot = async name => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `${kind}-${name}.png`) }) } }
-  return { kind, phone, ctx, page, errors, tap, shot }
+  return { kind, phone, ctx, page, errors, tooMany, tap, shot }
 }
 
 async function openCustomer(s, query = '') {
@@ -104,10 +109,25 @@ async function run(s) {
     && (await head.locator('[data-customer-rep]').innerText()).includes('Rep:')
     && (await head.locator('[data-customer-source]').count()) === 1)
   const bar = s.phone ? page.locator('[data-customer-actions]') : head
-  const actions = ['new-quote', 'call', 'text', 'navigate', 'book', 'edit']
+  // A phone: all six in the bar at the bottom. A computer: five in the header on one line, Navigate under More.
+  const actions = s.phone ? ['new-quote', 'call', 'text', 'navigate', 'book', 'edit'] : ['new-quote', 'call', 'text', 'book', 'edit']
   const shown = []
   for (const a of actions) if (await bar.locator(`[data-customer-action="${a}"]`).isVisible().catch(() => false)) shown.push(a)
-  check(`${kind}: New quote, Call, Text, Navigate, Book and Edit are on screen (${s.phone ? 'the bar at the bottom' : 'the header'})`, shown.length === actions.length, shown.join(','))
+  check(`${kind}: ${s.phone ? 'New quote, Call, Text, Navigate, Book and Edit are in the bar at the bottom' : 'New quote, Call, Text, Book and Edit are in the header'}`, shown.length === actions.length, shown.join(','))
+  if (!s.phone) {
+    const rows = await page.evaluate(() => {
+      const tops = el => [...el.children].map(c => Math.round(c.getBoundingClientRect().top))
+      const acts = document.querySelector('[data-contact-actions]')
+      const name = document.querySelector('[data-customer-name]').getBoundingClientRect()
+      return { actions: new Set(tops(acts)).size, actionsTop: Math.round(acts.getBoundingClientRect().top), nameTop: Math.round(name.top), nameBottom: Math.round(name.bottom) }
+    })
+    check(`${kind}: the header actions fit on one line, beside the name`, rows.actions === 1 && rows.actionsTop < rows.nameBottom, JSON.stringify(rows))
+    await tap(page.locator('[data-popup-trigger="customer-more"]'))
+    const nav = page.locator('[data-popup="customer-more"] [data-customer-action="navigate"]')
+    check(`${kind}: More has Navigate (directions to the property)`, await nav.isVisible().catch(() => false) && /google\.com\/maps\/dir\//.test(await nav.getAttribute('data-href') || ''), await nav.getAttribute('data-href').catch(() => ''))
+    await page.keyboard.press('Escape'); await sleep(300)
+    if (await page.locator('[data-popup="customer-more"]').isVisible().catch(() => false)) { await tap(page.locator('[data-popup-trigger="customer-more"]')) }
+  }
   const textAllowed = async () => bar.locator('[data-customer-action="text"]').getAttribute('data-text-allowed')
   for (let i = 0; i < 30 && await textAllowed() === 'checking'; i++) await sleep(500)
   check(`${kind}: Text asks for a yes to texts first (no yes on record)`, await textAllowed() === 'no', await textAllowed())
@@ -118,6 +138,8 @@ async function run(s) {
   const tabs = await page.locator('[data-customer-tab]').evaluateAll(els => els.map(e => e.getAttribute('data-customer-tab')))
   const want = ['activity', 'quotes', 'jobs', 'appointments', 'billing', 'costing', 'photos', 'files', 'pullsheets', 'notes', 'portal', ...(s.phone ? ['overview'] : [])]
   check(`${kind}: the tabs, most used first`, JSON.stringify(tabs) === JSON.stringify(want), tabs.join(','))
+  const tabRows = await page.locator('[data-customer-tab]').evaluateAll(els => new Set(els.map(e => Math.round(e.offsetTop))).size)
+  check(`${kind}: the tabs are one row (sideways when they do not all fit)`, tabRows === 1, `${tabRows} rows`)
   if (!s.phone) check(`${kind}: the contact details and texting answer are in the column on the left`, await page.locator('[data-customer-side] [data-customer-details] [data-text-consent]').count() === 1)
   const bad = []
   for (const t of tabs) {
@@ -144,6 +166,17 @@ async function run(s) {
     return { scTop: Math.round(sc.top), hTop: Math.round(h.top), hBottom: Math.round(h.bottom), tTop: Math.round(t.top), scrolled: document.querySelector('[data-page-scroll]').scrollTop }
   })
   check(`${kind}: scrolled down, the header stays at the top and the tabs right under it`, stuck.scrolled > 1000 && Math.abs(stuck.hTop - stuck.scTop) <= 2 && Math.abs(stuck.tTop - stuck.hBottom) <= 2, JSON.stringify(stuck))
+  // Scrolled down the header is one line (name and stage): the notes get the screen.
+  const compact = await page.evaluate(() => {
+    const h = document.querySelector('[data-customer-header]')
+    const t = document.querySelector('[data-customer-tabs]').getBoundingClientRect()
+    const sc = document.querySelector('[data-page-scroll]').getBoundingClientRect()
+    const bar = document.querySelector('[data-customer-actions]')
+    const bottom = bar ? bar.getBoundingClientRect().top : sc.bottom
+    return { compact: h.getAttribute('data-compact'), height: Math.round(h.getBoundingClientRect().height), address: !!h.querySelector('[data-customer-address]'), name: !!h.querySelector('[data-customer-name]'), content: Math.round(bottom - t.bottom), screen: Math.round(window.innerHeight) }
+  })
+  check(`${kind}: scrolled down, the header is one line (name and stage), so the tab gets most of the screen`,
+    compact.compact === 'yes' && !compact.address && compact.name && compact.height <= (s.phone ? 44 : 64) && compact.content > compact.screen * (s.phone ? 0.57 : 0.75), JSON.stringify(compact))
   await s.shot('notes-scrolled')
   await tap(page.locator('[data-show-more="notes"]'))
   check(`${kind}: Show more draws the next 30 (all 60)`, await page.locator('[data-note]').count() === NOTES && await page.locator('[data-show-more="notes"]').count() === 0)
@@ -157,17 +190,42 @@ async function run(s) {
   })
   check(`${kind}: a tab picked while scrolled down opens at its top`, atTop.gap >= 0 && atTop.gap < 40, JSON.stringify(atTop))
   check(`${kind}: Activity draws 25 at first, with Show more`, await page.locator('[data-customer-tab-panel] [data-history-item]').count() === 25 && await page.locator('[data-show-more="history"]').isVisible())
+  const noteRows = await page.locator('[data-customer-tab-panel] [data-history-item="note"]').evaluateAll(els => els.map(e => e.innerText))
+  check(`${kind}: Activity names who wrote each note (not "Staff")`, noteRows.length > 0 && noteRows.every(t => t.includes(`· ${ME}`) && !/· Staff\b/.test(t)), noteRows[0]?.split('\n').pop())
+  // Back at the top of the page the whole header is back.
+  await page.evaluate(() => { document.querySelector('[data-page-scroll]').scrollTop = 0 })
+  await sleep(600)
+  check(`${kind}: at the top of the page the full header is back (address, phone)`, await page.locator('[data-customer-header]').getAttribute('data-compact') === 'no' && await page.locator('[data-customer-header] [data-customer-address]').isVisible())
 
   // ── Photos: thumbnails, the newest 60, Show earlier ──
   await tap(page.locator('[data-customer-tab="photos"]'))
   await page.waitForSelector('[data-media-item]', { timeout: 30000 })
   await sleep(800)
-  const imgs = await page.locator('[data-media-item] img').evaluateAll(els => els.map(e => ({ lazy: e.getAttribute('loading'), src: e.getAttribute('src') || '' })))
+  const imgs = await page.locator('[data-media-item] img').evaluateAll(els => els.map(e => ({ lazy: e.getAttribute('loading'), src: e.getAttribute('src') || '', alt: e.getAttribute('alt') || '' })))
   check(`${kind}: Photos draws the newest 60 of ${PHOTOS}, lazy loaded`, imgs.length === 60 && imgs.every(i => i.lazy === 'lazy'), `${imgs.length}`)
   check(`${kind}: the photos are thumbnails`, imgs.every(i => /\/thumb\b|thumb/.test(i.src)), imgs[0]?.src.slice(0, 120))
+  check(`${kind}: newest first (photo ${PHOTOS} at the top, photo ${PHOTOS - 59} last of the first 60)`, imgs[0]?.alt === `E2E photo ${PHOTOS}` && imgs[59]?.alt === `E2E photo ${PHOTOS - 59}`, `${imgs[0]?.alt} … ${imgs[59]?.alt}`)
+  const panel = page.locator('[data-customer-tab-panel="photos"]')
+  check(`${kind}: one place to add photos (Camera and Choose from gallery under "Photos and video")`,
+    await panel.locator('input[type="file"]').count() === 1 && await panel.locator('[data-media-pick]').count() === 1 && await panel.locator('[data-media-camera]').count() === 1)
   await tap(page.locator('[data-show-more="media"]'))
-  check(`${kind}: Show earlier draws the rest`, await page.locator('[data-media-item]').count() === PHOTOS)
+  check(`${kind}: Show earlier draws the rest (the oldest at the bottom)`, await page.locator('[data-media-item]').count() === PHOTOS && await page.locator('[data-media-item] img').last().getAttribute('alt') === 'E2E photo 1')
   check(`${kind}: after Show more, still nothing scrolls inside the page`, (await page.evaluate(nestedScrollers)).length === 0)
+  if (!s.phone) {
+    await page.evaluate(() => { document.querySelector('[data-page-scroll]').scrollTop = 0 })
+    await tap(page.locator('[data-media-item]').first())
+    await page.waitForSelector('[data-media-viewer]', { timeout: 10000 })
+    await page.keyboard.press('Escape')
+    await sleep(600)
+    check(`${kind}: Escape closes the photo viewer`, await page.locator('[data-media-viewer]').count() === 0 && new URL(page.url()).pathname === `/customers/${id}`)
+  }
+  check(`${kind}: opening ${PHOTOS} photos never answers "Too many requests"`, s.tooMany.length === 0, s.tooMany.slice(0, 5).join(', '))
+
+  // ── Portal: a reply shows as "You" to the one who wrote it, the customer's by name ──
+  await tap(page.locator('[data-customer-tab="portal"]'))
+  await page.waitForSelector('[data-customer-messages] [data-message-sender]', { timeout: 30000 })
+  const senders = await page.locator('[data-customer-messages] [data-message-sender]').evaluateAll(els => els.map(e => e.getAttribute('data-message-sender')))
+  check(`${kind}: portal messages say who wrote them ("You", never "user")`, senders.length >= 1 && senders.every(x => x === 'You'), senders.join(','))
 
   // ── Links: ?tab= opens that tab, the old ?tab=messages is Portal, a reload keeps the tab ──
   await openCustomer(s, '?tab=photos')
@@ -200,12 +258,32 @@ try {
     await call('PUT', `/api/media/uploads/${clientId}?offset=0`, undefined, PHOTO)
     await call('POST', `/api/media/uploads/${clientId}/finish`, {})
   }
+  const meRes = await call('GET', '/api/crm-auth/me')
+  const u = meRes.data?.user ?? meRes.data ?? meRes.user ?? {}
+  ME = `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim()
+  // A portal reply from the test login (shows as "You" on the Portal tab; saved with the login's name).
+  await call('POST', `/api/portal/customer/${id}/messages`, { body: 'E2E: your permit is in, we will call to schedule.', sender: 'user' })
+  check('a portal reply is saved with the staff member\'s name, not "user"', psql(`select "senderUser" from "PortalMessage" where "crmCustomerId"='${id}'`) === ME && ME !== '', `${psql(`select "senderUser" from "PortalMessage" where "crmCustomerId"='${id}'`)} / ${ME}`)
   check('a test customer with 60 notes and 110 photos is made', Number(psql(`select count(*) from "CrmContactNote" where "crmContactId"='${id}'`)) === NOTES && Number(psql(`select count(*) from "MediaItem" where "customerId"='${id}'`)) === PHOTOS)
   // The photos' thumbnails are made on the server: wait for them.
   for (let i = 0; i < 60 && Number(psql(`select count(*) from "MediaItem" where "customerId"='${id}' and "thumbPath" is null`)) > 0; i++) await sleep(1000)
 
   if (ONLY !== 'phone') await run(await session('computer'))
   if (ONLY !== 'computer') await run(await session('phone'))
+
+  // ── A link to a deleted customer says so, with the way back for the owner ──
+  if (ONLY !== 'phone') {
+    psql(`update "CrmContact" set "deletedAt"=now() where id='${id}'`)
+    const s = await session('computer')
+    await s.page.goto(`${APP}/customers/${id}`, { waitUntil: 'domcontentloaded' })
+    await s.page.waitForSelector('[data-customer-not-here="deleted"]', { timeout: 60000 }).catch(() => {})
+    const box = s.page.locator('[data-customer-not-here="deleted"]')
+    const words = await box.innerText().catch(() => '')
+    check('a link to a deleted customer says they were deleted, with Settings > Deleted Records (owner)', /was deleted/.test(words) && /Deleted Records/.test(words) && await box.locator('[data-open-deleted-records]').isVisible().catch(() => false), words.replace(/\s+/g, ' ').slice(0, 200))
+    await s.shot('deleted-link')
+    await s.tap(box.locator('[data-open-deleted-records]'))
+    check('Open Deleted Records opens Settings on Deleted Records', /\/settings\?tab=deleted/.test(s.page.url()), s.page.url())
+  }
 } catch (err) {
   check('the run finished', false, String(err?.stack || err).slice(0, 600))
 } finally {
@@ -214,7 +292,7 @@ try {
     for (const p of psql(`select concat_ws('|', path, "thumbPath", "previewPath", "markupPath") from "MediaItem" where "customerId"='${id}'`).split('\n').filter(Boolean)) {
       for (const f of p.split('|').filter(Boolean)) fs.rmSync(f, { force: true })
     }
-    psql(`delete from "MediaItem" where "customerId"='${id}'; delete from "AutomationEvent" where "entityId"='${id}'; delete from "CrmContactNote" where "crmContactId"='${id}'; delete from "CrmContact" where id='${id}'`)
+    psql(`delete from "MediaItem" where "customerId"='${id}'; delete from "AutomationEvent" where "entityId"='${id}'; delete from "CrmContactNote" where "crmContactId"='${id}'; delete from "PortalMessage" where "crmCustomerId"='${id}'; delete from "CrmContact" where id='${id}'`)
     check('the test customer, notes and photos are removed', Number(psql(`select count(*) from "CrmContact" where id='${id}'`)) === 0)
   } catch (err) { check('the test customer is removed', false, String(err).slice(0, 300)) }
   process.exit(finish())
