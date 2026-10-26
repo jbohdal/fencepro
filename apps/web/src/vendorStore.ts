@@ -73,6 +73,23 @@ export function initVendors(): Promise<void> {
   return vendorInitPromise
 }
 
+/**
+ * Load Vendors again from the server (after the server changed a bill: an
+ * invoice applied, a quote ordered or its order undone), so Accounts Payable
+ * and Vendors show it without a reload. Not while a change here is still
+ * being saved (that save merges the server's copy itself).
+ */
+export async function refreshVendors(): Promise<void> {
+  if (!vendorHydrated) { await initVendors(); return }
+  if (vendorFlusher.isDirty()) return
+  const r = await vendorCall<VendorStateBlob>('GET')
+  if (!r.ok || !r.data || vendorFlusher.isDirty()) return
+  const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
+  vendorCache = pickVendors(r.data)
+  vendorFlusher.loaded(vendorCache, version)
+  vendorEmit()
+}
+
 /** True once vendors have loaded from the server. */
 export function isVendorsHydrated(): boolean { return vendorHydrated }
 
@@ -115,6 +132,10 @@ export interface VendorBillLineItem {
   sortOrder: number
 }
 
+export interface VendorBillFee { label: string; cents: number }
+
+export { billTotalCents } from './billTotal'
+
 export interface VendorBill {
   id: string
   vendorId: string
@@ -125,11 +146,21 @@ export interface VendorBill {
   lineItems: VendorBillLineItem[]
   subtotalCents: number
   taxCents: number
+  /** Freight and other fees (a fuel charge): on a bill from a vendor document, part of the total. */
+  freightCents?: number
+  fees?: VendorBillFee[]
+  feesCents?: number
   totalCents: number
   amountPaidCents: number
   balanceDueCents: number
   billDate: string
   dueDate: string
+  /** The vendor document it was made from (Inventory > Invoices). */
+  invoiceId?: string
+  /** Voided: what it was before, so Restore puts it back. */
+  statusBeforeVoid?: VendorBillStatus
+  voidedAt?: string
+  voidReason?: string
   paidAt?: string
   paymentMethod?: VendorPaymentMethod
   referenceNumber?: string

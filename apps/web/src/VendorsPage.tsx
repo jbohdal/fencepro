@@ -3,16 +3,16 @@
  */
 
 import { formatPhone } from './phoneFormat'
-import { useState, useMemo, useRef } from 'react'
+import { Fragment, useEffect, useState, useMemo, useRef } from 'react'
 import { getJobs } from './jobStore'
 import {
   getVendors, getVendorById, createVendor, updateVendor, deleteVendor,
   getBillsForVendor, getPaymentsForVendor,
   createBill, updateBill, recordVendorPayment,
-  refreshOverdueBills,
+  refreshOverdueBills, refreshVendors, VENDORS_UPDATED_EVENT,
   type VendorContact, type VendorBill, type VendorPayment,
   type PaymentTerms, type VendorBillCategory, type VendorBillStatus,
-  type VendorPaymentMethod, type VendorBillLineItem,
+  type VendorPaymentMethod, type VendorBillLineItem, type VendorBillFee, billTotalCents,
 } from './vendorStore'
 import AddressAutocomplete from './AddressAutocomplete'
 import { toast } from './toast'
@@ -51,6 +51,14 @@ export default function VendorsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showVendorForm, setShowVendorForm] = useState(false)
   const [editingVendor, setEditingVendor] = useState<VendorContact | null>(null)
+  // Bills the server changes (an invoice applied, a quote ordered or its order undone) show without a reload.
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null
+    const f = () => { if (t) clearTimeout(t); t = setTimeout(() => setBump(b => b + 1), 0) }
+    window.addEventListener(VENDORS_UPDATED_EVENT, f)
+    void refreshVendors()
+    return () => { window.removeEventListener(VENDORS_UPDATED_EVENT, f); if (t) clearTimeout(t) }
+  }, [])
 
   const vendors = useMemo(() => {
     refreshOverdueBills()
@@ -197,7 +205,12 @@ function VendorDetail({ vendor, onReload, onEdit, onDelete }: {
             onApprove={(b) => { updateBill(b.id, { status: 'approved' }); onReload() }}
             onVoid={(b) => {
               if (!confirm(`Void bill ${b.billNumber}?`)) return
-              updateBill(b.id, { status: 'void' }); onReload()
+              updateBill(b.id, { status: 'void', statusBeforeVoid: b.status, voidedAt: new Date().toISOString() }); onReload()
+            }}
+            onRestore={(b) => {
+              if (!confirm(`Restore bill ${b.billNumber}? It counts in Accounts Payable again.`)) return
+              updateBill(b.id, { status: b.statusBeforeVoid && b.statusBeforeVoid !== 'void' ? b.statusBeforeVoid : 'received', statusBeforeVoid: undefined, voidedAt: undefined, voidReason: undefined })
+              onReload()
             }}
           />
         )}
@@ -219,12 +232,13 @@ function VendorDetail({ vendor, onReload, onEdit, onDelete }: {
   )
 }
 
-function BillsList({ bills, onEdit, onRecordPayment, onApprove, onVoid }: {
+function BillsList({ bills, onEdit, onRecordPayment, onApprove, onVoid, onRestore }: {
   bills: VendorBill[];
   onEdit: (b: VendorBill) => void;
   onRecordPayment: (b: VendorBill) => void;
   onApprove: (b: VendorBill) => void;
   onVoid: (b: VendorBill) => void;
+  onRestore: (b: VendorBill) => void;
 }) {
   if (bills.length === 0) return <div className="text-center py-12 text-gray-400 text-sm">No bills yet for this vendor.</div>
   return (
@@ -251,7 +265,10 @@ function BillsList({ bills, onEdit, onRecordPayment, onApprove, onVoid }: {
               <td data-label="Balance" className={`px-3 py-2 text-right font-semibold ${b.balanceDueCents > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
                 {fmt(b.balanceDueCents)}
               </td>
-              <td data-label="Status" className="px-3 py-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[b.status]}`}>{b.status}</span></td>
+              <td data-label="Status" className="px-3 py-2">
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[b.status]}`}>{b.status}</span>
+                {b.status === 'void' && b.voidReason && <p className="text-[11px] text-gray-500 mt-0.5">{b.voidReason}</p>}
+              </td>
               <td data-label="Actions" className="px-3 py-2 text-right">
                 <button onClick={() => onEdit(b)} className="text-blue-600 hover:underline text-xs mr-2">Edit</button>
                 {b.status === 'received' && (
@@ -262,6 +279,9 @@ function BillsList({ bills, onEdit, onRecordPayment, onApprove, onVoid }: {
                 )}
                 {b.status !== 'void' && (
                   <button onClick={() => onVoid(b)} className="text-red-600 hover:underline text-xs">Void</button>
+                )}
+                {b.status === 'void' && (
+                  <button onClick={() => onRestore(b)} className="text-blue-600 hover:underline text-xs" data-restore-bill={b.billNumber}>Restore</button>
                 )}
               </td>
             </tr>
@@ -403,12 +423,17 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
     { id: uid(), description: '', quantity: 1, unitCostCents: 0, totalCents: 0, sortOrder: 0 }
   ])
   const [taxCents, setTaxCents] = useState(initial?.taxCents ?? 0)
+  // Freight and fees (a fuel charge) on a bill made from a vendor document are part of what is owed:
+  // shown as their own rows, editable, and always in the total (Stephens 06-249853: $2,760.27 + $25 fuel).
+  const [freightCents, setFreightCents] = useState(initial?.freightCents ?? 0)
+  const [fees, setFees] = useState<VendorBillFee[]>(() => (initial?.fees ?? []).map(f => ({ label: String(f.label ?? ''), cents: Number(f.cents) || 0 })))
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [showJobSearch, setShowJobSearch] = useState(false)
   const [jobSearch, setJobSearch] = useState('')
 
   const subtotalCents = lineItems.reduce((s, li) => s + li.totalCents, 0)
-  const totalCents = subtotalCents + taxCents
+  const feesCents = fees.reduce((s, f) => s + f.cents, 0)
+  const totalCents = billTotalCents({ subtotalCents, taxCents, freightCents, fees })
 
   function updateLine(id: string, updates: Partial<VendorBillLineItem>) {
     setLineItems(prev => prev.map(li => {
@@ -435,7 +460,7 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
     const data = {
       vendorId: vendor.id, vendorName: vendor.name,
       billNumber: billNumber.trim(), description, status: (initial?.status ?? 'received') as VendorBillStatus,
-      lineItems, subtotalCents, taxCents, totalCents, amountPaidCents: initial?.amountPaidCents ?? 0,
+      lineItems, subtotalCents, taxCents, freightCents, fees: fees.filter(f => f.label.trim() || f.cents), feesCents, totalCents, amountPaidCents: initial?.amountPaidCents ?? 0,
       billDate, dueDate, category, jobId: jobId || undefined, jobName: jobName || undefined,
       notes, createdBy: 'user',
     }
@@ -514,6 +539,18 @@ function BillForm({ initial, vendor, onCancel, onSaved }: {
           <div className="grid grid-cols-2 gap-3 ml-auto max-w-xs">
             <span className="text-sm text-gray-500 text-right">Subtotal</span><span className="text-sm text-right font-medium">{fmt(subtotalCents)}</span>
             <span className="text-sm text-gray-500 text-right">Tax ($)</span><input type="number" step="0.01" value={(taxCents / 100).toFixed(2)} onChange={e => setTaxCents(Math.round(parseFloat(e.target.value) * 100) || 0)} className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm text-right" />
+            <span className="text-sm text-gray-500 text-right">Freight ($)</span><input type="number" step="0.01" value={(freightCents / 100).toFixed(2)} onChange={e => setFreightCents(Math.round(parseFloat(e.target.value) * 100) || 0)} className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm text-right" data-bill-freight />
+            {fees.map((f, i) => (
+              <Fragment key={i}>
+                <input value={f.label} onChange={e => setFees(fs => fs.map((x, k) => (k === i ? { ...x, label: e.target.value } : x)))} aria-label="Fee name" placeholder="Fee name" className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm text-right text-gray-600" data-bill-fee-label={i} />
+                <div className="flex items-center gap-1">
+                  <input type="number" step="0.01" value={(f.cents / 100).toFixed(2)} onChange={e => { const c = Math.round(parseFloat(e.target.value) * 100) || 0; setFees(fs => fs.map((x, k) => (k === i ? { ...x, cents: c } : x))) }} aria-label={`${f.label || 'Fee'} ($)`} className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm text-right" data-bill-fee={i} />
+                  <button onClick={() => setFees(fs => fs.filter((_, k) => k !== i))} aria-label={`Remove ${f.label || 'fee'}`} className="min-w-[32px] min-h-[32px] text-red-500 hover:bg-red-50 rounded">×</button>
+                </div>
+              </Fragment>
+            ))}
+            <span />
+            <button onClick={() => setFees(fs => [...fs, { label: '', cents: 0 }])} className="text-xs text-orange-600 hover:underline text-right" data-bill-add-fee>+ Add a fee (fuel, delivery…)</button>
             <span className="text-sm font-bold text-gray-900 text-right">Total</span><span className="text-sm text-right font-bold">{fmt(totalCents)}</span>
           </div>
 
