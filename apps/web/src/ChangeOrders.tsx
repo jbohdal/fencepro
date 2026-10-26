@@ -108,6 +108,10 @@ export interface ChangeOrder {
   work?: ChangeOrderWork | null
   /** The job's work after it, when its change was put on another change order's (server rebuildJobWork). */
   jobWork?: ChangeOrderWork | null
+  /** Its own change side by side, from its drawing ("Left side 40 ft → 50 ft"; server ownChangeWords). */
+  change?: string | null
+  /** The other change orders whose change its drawing also shows (open when it was drawn). */
+  alsoInDrawing?: Array<{ number: number; status: ChangeOrderStatus; signed: boolean; change: string | null }>
   warrantyBefore?: { name: string; text: string } | null
   warrantyAfter?: { name: string; text: string } | null
   /** Owner and office only: what it does to the quoted cost, in cents. */
@@ -139,6 +143,8 @@ const STATUS_WORDS: Record<ChangeOrderStatus, string> = { needs_ok: 'Waiting for
 export const money = (cents: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100)
 const signed = (cents: number) => `${cents >= 0 ? '+' : '−'}${money(Math.abs(cents))}`
+/** "152 ft, 22 sections, 1 walk gate". */
+const workWords = (w: ChangeOrderWork) => `${w.footage} ft, ${w.sections} sections${w.walkGates ? `, ${w.walkGates} walk gate${w.walkGates > 1 ? 's' : ''}` : ''}${w.dblGates ? `, ${w.dblGates} double gate${w.dblGates > 1 ? 's' : ''}` : ''}`
 const shortDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
 /* ───────── the server's copy ───────── */
@@ -804,7 +810,12 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hi
                 </div>
               ))}
               {co.reason && <p className="text-xs text-gray-500 mt-1 italic">{co.reason}</p>}
-              {co.work && <p className="text-xs text-gray-600 mt-1" data-co-work>New drawing: {co.work.footage} ft, {co.work.sections} sections{co.work.walkGates ? `, ${co.work.walkGates} walk gate${co.work.walkGates > 1 ? 's' : ''}` : ''}{co.work.dblGates ? `, ${co.work.dblGates} double gate${co.work.dblGates > 1 ? 's' : ''}` : ''}.</p>}
+              {/* Its own change, side by side; never its drawing's whole fence, which counts other change orders
+                  open when it was drawn (round 3 recheck: CO-1 read "New drawing: 156 ft" on a 152 ft job). */}
+              {co.work && <p className="text-xs text-gray-600 mt-1" data-co-work>{co.change ? `Its change: ${co.change}.` : `New drawing: ${workWords(co.work)}.`}{co.status === 'approved' && co.jobWork ? ` The job with it: ${workWords(co.jobWork)}.` : ''}</p>}
+              {co.work && co.status !== 'approved' && co.status !== 'void' && (co.alsoInDrawing ?? []).map(a => (
+                <p key={a.number} className="text-xs text-gray-500 mt-0.5" data-co-also-in-drawing={a.number}>Its drawing also shows CO-{a.number}{a.change ? ` (${a.change})` : ''}: not part of this change order ({a.status === 'void' ? 'cancelled' : a.signed ? 'signed' : 'not signed yet'}).</p>
+              ))}
               {co.warrantyAfter && <p className="text-xs text-amber-900 mt-1" data-co-warranty>Warranty changes{co.warrantyBefore?.name ? ` from ${co.warrantyBefore.name}` : ''} to {co.warrantyAfter.name}.</p>}
               {costs && co.costDelta && <p className="text-xs text-gray-500 mt-1" data-co-cost>Quoted cost {signed(co.costDelta.totalCents)} (materials {signed(co.costDelta.materialCents)}, labor {signed(co.costDelta.laborCents)}).</p>}
               <p className="text-xs text-gray-400 mt-1">

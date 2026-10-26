@@ -30,7 +30,7 @@ import crypto from 'crypto'
 import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, type StoredWork, type WorkInput } from './changeOrderWork.js'
-import { shapeOf, sameShape } from './changeOrderMerge.js'
+import { shapeOf, sameShape, ownChangeWords, ownLineWords } from './changeOrderMerge.js'
 
 /**
  * needs_ok: made by a Salesman (round 2, Oct 26 2026). It waits for the
@@ -73,6 +73,49 @@ export const linesOf = (r: { lines: unknown }): ChangeOrderLine[] =>
     }
   })
 
+/**
+ * The lines as they are shown and signed (round 3 recheck, Oct 26 2026): a
+ * fence line written with the whole fence before and after ("146 ft to 156
+ * ft") says the change order's own sides instead ("Left side 40 ft → 50 ft"),
+ * true whichever open change order is signed first. Once the customer signed,
+ * the lines are what they signed (kept at signing, signIn).
+ */
+export function shownLines(r: { lines: unknown; work?: unknown; signedAt?: Date | null }): ChangeOrderLine[] {
+  const lines = linesOf(r)
+  if (r.signedAt) return lines
+  const sides = ownChangeWords(r.work)
+  return sides ? lines.map(l => ({ ...l, description: ownLineWords(l.description, sides) })) : lines
+}
+
+type Sib = { id: string; number: number; status: string; work?: unknown; createdAt: Date; approvedAt: Date | null; voidedAt: Date | null; signedAt?: Date | null; deletedAt?: Date | null }
+
+/**
+ * The other change orders whose change is in this one's drawing: the ones
+ * still open (or not yet approved or voided) when it was drawn (it starts from
+ * the drawing with every open one's change in it, lib/changeOrderWork.ts
+ * startOfChange). Its picture shows their sides too, so the customer is told
+ * which parts are not part of this change order, and whether each is signed.
+ */
+export function alsoInDrawing(r: Sib, siblings: Sib[]): Array<{ number: number; status: string; signed: boolean; change: string | null }> {
+  const w = r.work as any
+  if (!w || typeof w !== 'object' || !w.base) return []
+  const made = new Date(r.createdAt).getTime()
+  return siblings
+    .filter(s => s.id !== r.id && !s.deletedAt && s.work && typeof s.work === 'object' && new Date(s.createdAt).getTime() < made
+      && (!s.approvedAt || new Date(s.approvedAt).getTime() > made) && (!s.voidedAt || new Date(s.voidedAt).getTime() > made)
+      && !(s.status === 'void' && !s.voidedAt))
+    .sort((a, b) => a.number - b.number)
+    .map(s => ({ number: s.number, status: s.status, signed: s.status === 'approved', change: ownChangeWords(s.work) }))
+}
+
+/** "The drawing also shows CO-1's change (Left side 40 ft → 50 ft): not part of this change order (CO-1, not signed yet)." */
+export function alsoInDrawingWords(also: ReturnType<typeof alsoInDrawing>): string[] {
+  return also.map(a => {
+    const state = a.status === 'void' ? 'cancelled: it will not be built' : a.signed ? 'signed separately' : 'not signed yet'
+    return `The drawing also shows CO-${a.number}'s change${a.change ? ` (${a.change})` : ''}: not part of this change order (CO-${a.number}, ${state}).`
+  })
+}
+
 /** A line as the customer sees it: what changes, how many and the amount (never where it was picked from). */
 const customerLine = ({ source, ...l }: ChangeOrderLine) => { void source; return l }
 
@@ -108,10 +151,12 @@ export function workView(w: unknown) {
 export const needsSignature = (r: { status: string; signedAt: Date | null }) => r.status === 'sent' || (r.status === 'approved' && !r.signedAt)
 
 /** What every phone gets: prices only (a change order has no cost in it; costDelta is added for owner and office by the route). */
-export function view(r: Row) {
+export function view(r: Row, siblings: Row[] = []) {
   return {
     id: r.id, quoteId: r.quoteId, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason,
-    lines: linesOf(r), totalCents: r.totalCents, scope: r.scope ?? null, createdBy: r.createdBy,
+    lines: shownLines(r), totalCents: r.totalCents,
+    // Its own change side by side, and the other change orders its drawing also shows (round 3 recheck).
+    change: ownChangeWords(r.work), alsoInDrawing: alsoInDrawing(r, siblings), scope: r.scope ?? null, createdBy: r.createdBy,
     sentAt: r.sentAt, approvedAt: r.approvedAt, approvedBy: r.approvedBy, voidedAt: r.voidedAt,
     signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null, signedVia: r.signedVia ?? null, hasLink: !!r.shareToken,
     verbalBy: r.verbalBy ?? null, verbalAt: r.verbalAt ?? null, verbalReason: r.verbalReason ?? null, contractRev: r.contractRev ?? null,
@@ -146,7 +191,7 @@ export async function contractAround(r: Row, quotePrice: number | null | undefin
 /** What the customer sees: the lines, amounts and total; never who made it, a cost, the IP or the signature image. */
 export function customerView(r: Row, q?: { fenceStyle?: string | null; finalPrice?: number | null; customerName?: string | null } | null, contract: ContractAround | null = null) {
   return {
-    id: r.id, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason, lines: linesOf(r).map(customerLine), totalCents: r.totalCents,
+    id: r.id, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason, lines: shownLines(r).map(customerLine), totalCents: r.totalCents,
     sentAt: r.sentAt, approvedAt: r.approvedAt, voidedAt: r.voidedAt, signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null,
     // Approved verbally with the office: it is part of the contract, and still waits for the customer's own signature.
     needsSignature: needsSignature(r), contractRev: r.contractRev ?? null,
@@ -229,7 +274,12 @@ async function signIn(accountId: string, id: string, s: CustomerSignature): Prom
     const verbal = cur.status === 'approved' // approved verbally: signed now, everything else as it was
     if (!verbal && cur.status !== 'sent' && !(cur.status === 'draft' && s.via === 'in_person')) throw err(409, 'This change order is not ready to sign yet. Please call us.')
     const now = new Date()
-    const signed = { signedBy: s.name, signature: s.signature, signedAt: now, signedIp: s.ip?.slice(0, 100) ?? null, signedUserAgent: s.userAgent?.slice(0, 500) ?? null, signedVia: s.via }
+    // The words they were shown are the words they sign (the signed PDF and the record keep them).
+    const shown = shownLines(cur)
+    const signed = {
+      signedBy: s.name, signature: s.signature, signedAt: now, signedIp: s.ip?.slice(0, 100) ?? null, signedUserAgent: s.userAgent?.slice(0, 500) ?? null, signedVia: s.via,
+      ...(JSON.stringify(shown) !== JSON.stringify(linesOf(cur)) ? { lines: shown as any } : {}),
+    }
     const row = await tx.changeOrder.update({
       where: { id },
       data: verbal
@@ -498,7 +548,8 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
         const lines = linesOf({ lines: edit.lines }).map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
         if (!lines.length) throw err(400, 'Add at least one line with a description or an amount.')
         data.lines = lines; data.totalCents = totalOf(lines)
-        changed = JSON.stringify(lines) !== JSON.stringify(linesOf(cur))
+        // The lines as shown (shownLines) sent back unchanged are no change either.
+        changed = JSON.stringify(lines) !== JSON.stringify(linesOf(cur)) && JSON.stringify(lines) !== JSON.stringify(shownLines(cur))
       }
       if (edit.reason !== undefined) { data.reason = edit.reason; changed = changed || edit.reason !== cur.reason }
       // A Salesman's change to the lines, prices or words of one already OK'd (a draft or sent) sends it

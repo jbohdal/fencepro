@@ -18,7 +18,8 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { phoneWords } from '../lib/installDays.js'
 import { plainZod } from '../lib/plainZod.js'
-import { byLink, linesOf, signByCustomer, needsSignature, contractAround } from '../lib/changeOrders.js'
+import { byLink, shownLines, signByCustomer, needsSignature, contractAround, alsoInDrawing, alsoInDrawingWords } from '../lib/changeOrders.js'
+import { ownChangeWords } from '../lib/changeOrderMerge.js'
 import { CSS, esc, safeSvg } from './proposal.js'
 
 export const changeOrderPublic = Router()
@@ -60,7 +61,8 @@ changeOrderPublic.get('/:token', async (req, res) => {
     res.status(404).type('html').send(page('Change order', `${top}<main class="wrap"><section><h1>This change order is not available</h1><p>${call}</p></section></main>`, nonce))
     return
   }
-  const lines = linesOf(co)
+  // Its own change, side by side, true whichever open change order is signed first (round 3 recheck).
+  const lines = shownLines(co)
   const toSign = needsSignature(co)
   const contract = await contractAround(co, q.finalPrice)
   // Approved verbally with the office: part of the contract, still "not signed by you yet" with the Sign button.
@@ -68,7 +70,10 @@ changeOrderPublic.get('/:token', async (req, res) => {
   const wb = co.warrantyBefore as any, wa = co.warrantyAfter as any
   const warranty = wa ? `<section data-co-warranty><h2>Your warranty changes</h2><p>${wb?.name ? `From <b>${esc(wb.name)}</b> to ` : 'To '}<b>${esc(wa.name)}</b>, because the way the fence is installed changes.</p><p class="small">${esc(String(wa.text ?? '')).replace(/\n/g, '<br>')}</p></section>` : ''
   const work = co.work as any
-  const plan = work?.planSvg && safeSvg(work.planSvg) ? `<section><h2>The new layout</h2><div class="plan">${safeSvg(work.planSvg)}</div></section>` : ''
+  // The drawing was made with every change order open at the time in it: what is not part of this one is said, and whether it is signed.
+  const also = work?.planSvg ? alsoInDrawingWords(alsoInDrawing(co, await prisma.changeOrder.findMany({ where: { accountId: co.accountId, quoteId: co.quoteId, deletedAt: null } }))) : []
+  const own = ownChangeWords(work)
+  const plan = work?.planSvg && safeSvg(work.planSvg) ? `<section><h2>The new layout</h2>${own && also.length ? `<p class="small" data-co-own-change><b>This change order:</b> ${esc(own)}.</p>` : ''}${also.map(t => `<p class="facts" data-co-not-part>${esc(t)}</p>`).join('')}<div class="plan">${safeSvg(work.planSvg)}</div></section>` : ''
   const state = co.status === 'void'
     ? `<section class="void"><h2>Cancelled</h2><p>This change order was cancelled and is not part of your contract. ${call}</p></section>`
     : !toSign

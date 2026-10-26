@@ -84,7 +84,9 @@ async function who(req: any): Promise<string> {
 }
 
 /** The view for this login: the cost difference only for a login that sees costs. */
-const viewFor = (req: any) => (r: any) => ({ ...view(r), ...(hidesCosts(roleOf(req)) ? {} : { costDelta: r.costDelta ?? null }) })
+const viewFor = (req: any, siblings: any[] = []) => (r: any) => ({ ...view(r, siblings.filter(s => s.quoteId === r.quoteId)), ...(hidesCosts(roleOf(req)) ? {} : { costDelta: r.costDelta ?? null }) })
+/** The quote's change orders, for what a change order's drawing also shows (lib/changeOrders.ts alsoInDrawing). */
+const siblingsOf = (r: { accountId: string; quoteId: string }) => prisma.changeOrder.findMany({ where: { accountId: r.accountId, quoteId: r.quoteId, deletedAt: null } })
 
 /** The schedule warning of the quote's job after an approval (null: it fits, or no job). */
 async function warningFor(accountId: string, quoteId: string): Promise<string | null> {
@@ -108,7 +110,7 @@ router.get('/', async (req: any, res) => {
     if (!quoteId && typeof req.query.jobId === 'string') quoteId = await quoteOfJob(accountId, req.query.jobId)
     if (!quoteId && (req.query.quoteId || req.query.jobId)) { res.json({ success: true, data: [] }); return }
     const rows = await prisma.changeOrder.findMany({ where: { accountId, deletedAt: null, ...(quoteId ? { quoteId } : {}) }, orderBy: [{ quoteId: 'asc' }, { number: 'asc' }] })
-    res.json({ success: true, data: rows.map(viewFor(req)) })
+    res.json({ success: true, data: rows.map(viewFor(req, rows)) })
   } catch (e) { fail(res, e, 'load change orders') }
 })
 
@@ -126,7 +128,7 @@ router.post('/', requireCan('quotes.change'), async (req: any, res) => {
     const row = await createChangeOrder(accountId, { id: body.id, quoteId, reason: body.reason, lines: body.lines, scope: body.scope ?? null, status: needsOk ? 'needs_ok' : body.status, by, verbalReason: body.verbalReason ?? null, work: body.work ?? null })
     await audit(req, 'create', 'ChangeOrder', row.id, { newValues: view(row) })
     if (needsOk && !known) await askForOk(row, by)
-    res.status(201).json({ success: true, data: viewFor(req)(row), ...(row.notice ? { notice: row.notice } : {}), ...(row.status === 'approved' ? { scheduleWarning: await warningFor(accountId, quoteId) } : {}) })
+    res.status(201).json({ success: true, data: viewFor(req, await siblingsOf(row))(row), ...(row.notice ? { notice: row.notice } : {}), ...(row.status === 'approved' ? { scheduleWarning: await warningFor(accountId, quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }
 })
 
@@ -148,14 +150,14 @@ router.patch('/:id', requireCan('quotes.change'), async (req: any, res) => {
     if (backToOk) await askForOk(row, by, true)
     // The OK (or a void before it): the "to OK" notices are cleared and the maker is told (lib/changeOrderNotices.ts).
     if (cur.status === 'needs_ok' && row.status !== 'needs_ok') await okGiven(row, by, row.status === 'void')
-    res.json({ success: true, data: viewFor(req)(row), ...(row.status !== cur.status ? { scheduleWarning: await warningFor(accountId, row.quoteId) } : {}) })
+    res.json({ success: true, data: viewFor(req, await siblingsOf(row))(row), ...(row.status !== cur.status ? { scheduleWarning: await warningFor(accountId, row.quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }
 })
 
 router.post('/:id/link', requireCan('quotes.change'), async (req: any, res) => {
   try {
     const { token, row } = await linkFor(req.user.crmAccountId, String(req.params.id))
-    res.json({ success: true, data: { token, changeOrder: view(row) } })
+    res.json({ success: true, data: { token, changeOrder: view(row, await siblingsOf(row)) } })
   } catch (e) { fail(res, e, 'make the customer link') }
 })
 
@@ -169,7 +171,7 @@ router.post('/:id/sign', requireCan('quotes.change'), async (req: any, res) => {
     const witness = await who(req)
     const { row, again } = await signByCustomer(accountId, cur.id, { name: b.name, signature: b.signature, ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '') || null, via: 'in_person', witness })
     if (!again) await audit(req, 'update', 'ChangeOrder', row.id, { oldValues: view(cur), newValues: { ...view(row), signedInPersonWith: witness } })
-    res.json({ success: true, data: viewFor(req)(row), scheduleWarning: await warningFor(accountId, row.quoteId) })
+    res.json({ success: true, data: viewFor(req, await siblingsOf(row))(row), scheduleWarning: await warningFor(accountId, row.quoteId) })
   } catch (e) { fail(res, e, 'save the signature') }
 })
 

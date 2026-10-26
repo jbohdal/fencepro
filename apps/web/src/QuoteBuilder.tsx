@@ -57,6 +57,7 @@ import { minimumPrice, wholeDollarRecord, adjustmentRecord, isNewMin, type Quote
 import { bakedBackdrop } from './aerialBake'
 // A signed quote's lock: the same rules the server checks every save with.
 import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../portal/src/server/lib/quoteLock'
+import { shapeOf, sideChanges, sideChangeWords } from '../../portal/src/server/lib/changeOrderMerge'
 import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, type ChangeOrderPrefill } from './ChangeOrders'
 import { changeOrderDraft, gatesPutIn } from './changeOrderDraft'
 import { SignedDocumentLinks } from './SignedDocuments'
@@ -1054,6 +1055,10 @@ export default function QuoteBuilder({
       signed: init, current: calcInput, signedOverrides: openOverrides.current, styles: FENCE_STYLES,
       priceNow: adjPrice, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
       gatesIn: gatesPutIn((init.layout as { yard?: YardLayout | null } | undefined)?.yard ?? null, entry === 'layout' ? yard : null),
+      // Its own change side by side ("Left side 40 ft → 50 ft"), never the whole fence before and after (round 3 recheck).
+      sides: entry === 'layout' && yard && (init.layout as { yard?: YardLayout | null } | undefined)?.yard
+        ? sideChangeWords(sideChanges(shapeOf({ yard: (init.layout as { yard?: YardLayout | null }).yard }), shapeOf({ yard })))
+        : null,
     })
     // A new fence: the new work goes with it (the server prices it and keeps it, so the pull sheet, packet,
     // site plan, crew days and job costing follow once it is approved).

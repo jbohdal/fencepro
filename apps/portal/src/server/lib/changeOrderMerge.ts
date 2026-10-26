@@ -208,6 +208,72 @@ export function touches(step: ChangeStep): string[] {
   return out
 }
 
+// ── A change order's own words (round 3 recheck, Oct 26 2026) ────────────────
+//
+// Two drawing change orders open on one job: CO-1 said "Add 10 ft of fence,
+// 2 panels more (146 ft to 156 ft)", the whole fence before and after, counted
+// from the drawing it started on. CO-2 was signed first, so the job went 142 to
+// 152 ft and CO-1's words were no longer true. A change order's words now say
+// only its own change, side by side ("Left side 40 ft → 50 ft"), which stays
+// true whatever order they are signed in (each side is merged on its own, and
+// panels are counted per run, never pooled).
+
+/** One side (or run) the change makes longer, shorter, adds or takes out; feet, null when not there. */
+export interface SideChange { name: string; wasFt: number | null; nowFt: number | null }
+
+const ftIn = (inches: unknown) => Math.round((num(inches) / 12) * 100) / 100
+const fenced = (s: Json) => !!s && s.on !== false && num(s.lengthIn) > 0
+
+/** The sides (by id) whose length changed, were added or taken out; else the runs, when the list is as long. Null: no way to say it side by side. */
+export function sideChanges(base: WorkShape, mine: WorkShape): SideChange[] | null {
+  if (base.yard && mine.yard && Array.isArray(base.yard.sides) && Array.isArray(mine.yard.sides)) {
+    const bMap = new Map<string, Json>((base.yard.sides as Json[]).filter(s => s?.id).map(s => [String(s.id), s]))
+    const mIds = new Set((mine.yard.sides as Json[]).map(s => String(s?.id ?? '')))
+    const out: SideChange[] = []
+    for (const m of mine.yard.sides as Json[]) {
+      const b = bMap.get(String(m?.id ?? ''))
+      const was = fenced(b) ? ftIn(b.lengthIn) : null, now = fenced(m) ? ftIn(m.lengthIn) : null
+      if (was !== now) out.push({ name: sideName(m), wasFt: was, nowFt: now })
+    }
+    for (const b of base.yard.sides as Json[]) if (!mIds.has(String(b?.id ?? '')) && fenced(b)) out.push({ name: sideName(b), wasFt: ftIn(b.lengthIn), nowFt: null })
+    return out
+  }
+  if (base.runs.length && base.runs.length === mine.runs.length) {
+    const out: SideChange[] = []
+    base.runs.forEach((f, i) => { if (f !== mine.runs[i]) out.push({ name: `Run ${i + 1}:`, wasFt: f, nowFt: mine.runs[i] }) })
+    return out
+  }
+  return null
+}
+
+/** "Left side 40 ft → 50 ft", "Front 20 ft added", "Back taken out (60 ft)", joined with commas. Null when nothing to say. */
+export function sideChangeWords(changes: SideChange[] | null): string | null {
+  if (!changes || !changes.length) return null
+  return changes.map(c => c.wasFt !== null && c.nowFt !== null ? `${c.name} ${c.wasFt} ft → ${c.nowFt} ft`
+    : c.nowFt !== null ? `${c.name} ${c.nowFt} ft added` : `${c.name} taken out (${c.wasFt} ft)`).join(', ')
+}
+
+/** A change order's own change, side by side, from the drawing it started on and the one it ends with. */
+export function ownChangeWords(work: Json): string | null {
+  if (!isObj(work) || !isObj(work.base)) return null
+  return sideChangeWords(sideChanges(shapeOf(work.base), shapeOf(work)))
+}
+
+/**
+ * A fence line's words written before this, with the whole fence before and
+ * after ("Add 10 ft of fence, 2 panels more (146 ft to 156 ft)"): the totals
+ * become the change order's own sides ("(Left side 40 ft → 50 ft)"), so the
+ * words stay true whichever change order is signed first. "Still 7 panels in
+ * all" (the whole fence) becomes "same panels". Other lines are left as they are.
+ */
+export function ownLineWords(description: string, sides: string | null): string {
+  if (!sides) return description
+  const m = /\((\d+(?:\.\d+)?) ft to (\d+(?:\.\d+)?) ft( of fence, gates not counted)?([^)]*)\)/.exec(description)
+  if (!m) return description
+  const words = `(${sides}${m[3] ? '; the fence feet leave out the gates' : ''}${m[4] ?? ''})`
+  return (description.slice(0, m.index) + words + description.slice(m.index + m[0].length)).replace(/: still \d+ panels? in all/, ': same panels')
+}
+
 /** "the Back side's length" words for a clash: the same things two changes touch. */
 export function clashes(a: ChangeStep, b: ChangeStep): string[] {
   const t = new Set(touches(a))

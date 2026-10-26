@@ -68,6 +68,13 @@ export interface DraftInput {
    * double gate 10 ft (yardLayout.ts GATE_WIDTH_IN).
    */
   gatesIn?: { sides: string[]; openingFt: number } | null
+  /**
+   * The change side by side, from the drawing ("Left side 40 ft → 50 ft"; changeOrderMerge.ts
+   * sideChangeWords). Given, the fence line says its own sides, never the whole fence before and
+   * after: with another change order open, which one is signed first changes the whole fence, so
+   * "146 ft to 156 ft" stopped being true (round 3 recheck, Oct 26 2026).
+   */
+  sides?: string | null
 }
 
 /** What changed on the signed quote, as lines with amounts in cents. */
@@ -110,7 +117,9 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
     if (delta) scope.footageFt = delta
     // Gate openings are not fence: a 12 ft side with a 4 ft gate adds 8 ft of fence and a gate (its own line).
     const opening = (walkIn + dblIn) > 0 && delta < 0 ? `; ${Math.min(openingFt, -delta)} ft of it becomes the new gate${walkIn + dblIn > 1 ? 's' : ''}` : ''
-    const span = `${ftWas} ft to ${ftNow} ft${gatesToo ? ' of fence, gates not counted' : ''}${opening}`
+    const span = d.sides
+      ? `${d.sides}${gatesToo ? '; the fence feet leave out the gates' : ''}${opening}`
+      : `${ftWas} ft to ${ftNow} ft${gatesToo ? ' of fence, gates not counted' : ''}${opening}`
     words.push({
       text: delta > 0 ? `Add ${delta} ft of fence (${span})` : delta < 0 ? `Remove ${-delta} ft of fence (${span})` : 'Change the fence line (same footage, different runs or posts)',
       step: x => ({ ...x, runs: cur.runs, corners: cur.corners, ends: cur.ends }),
@@ -165,7 +174,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
     const now = priced(at)
     const amount = now.cents - was.cents
     if (w.text === 'Other price changes' && !amount && !restChanged) { was = now; continue }
-    lines.push({ id: newId(), description: w.runs ? runWords(w.text, was, now, amount, oneSide) : w.text, amountCents: amount })
+    lines.push({ id: newId(), description: w.runs ? runWords(w.text, was, now, amount, oneSide, !!d.sides) : w.text, amountCents: amount })
     was = now
   }
   return done(lines)
@@ -177,12 +186,13 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
  * 6 ft more on a side can still be the same panels and no price change
  * (round 2 review, Oct 26 2026: $0 with an empty price box and Save greyed).
  */
-function runWords(text: string, was: { sections: number }, now: { sections: number; perRun: number[] }, amount: number, side: number | null): string {
+function runWords(text: string, was: { sections: number }, now: { sections: number; perRun: number[] }, amount: number, side: number | null, bySide = false): string {
   const more = now.sections - was.sections
   // Less fence and yet more panels (a new gate splits a side in two pieces): say why, never a bare "Remove ... more".
   if (more > 0 && /^Remove /.test(text)) return text.replace(/^(Remove [\d.]+ ft of fence)/, `$1, yet ${panels(more)} more: a side split in two pieces needs a panel for each piece`)
   if (more) return text.replace(/^((?:Add|Remove) [\d.]+ ft of fence)/, `$1, ${more > 0 ? `${panels(more)} more` : `${panels(-more)} fewer`}`)
-  const still = side !== null && now.perRun[side] !== undefined ? `still ${panels(now.perRun[side])} on that side` : `still ${panels(now.sections)} in all`
+  // Said side by side, never the whole fence's panels (another change order signed first changes those).
+  const still = side !== null && now.perRun[side] !== undefined ? `still ${panels(now.perRun[side])} on that side` : bySide ? 'same panels' : `still ${panels(now.sections)} in all`
   return `${text}: ${still}${amount === 0 ? ', no price change' : ''}`
 }
 
