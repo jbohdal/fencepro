@@ -26,7 +26,7 @@ import { emailSenderFor, GMAIL_NOT_CONNECTED, gmailStatus } from './gmail.js'
 import { sendPush } from './push.js'
 import { plainStyleName } from '../estimates.js'
 import { walkthroughApi, WALKTHROUGH_MISSING } from './walkthroughAdapter.js'
-import { ensurePermit, packetInputFor, portalFor, renderPacket } from './permits.js'
+import { ensurePermit, packetInputFor, portalFor, renderPacket, defaultPermitStatusOf } from './permits.js'
 import { textAllowedFor, textAllowedTo, mergedTextNo } from '../textConsent.js'
 
 export interface StepRun {
@@ -336,7 +336,10 @@ async function finalInvoice(r: StepRun, dueInDays: number): Promise<StepOutcome>
 async function permitPacket(r: StepRun, assignTo: string): Promise<StepOutcome> {
   const job = r.entity.job
   if (!job) throw new PermanentStepError('There is no job for this card yet, so there is no permit packet to make.')
-  await ensurePermit(r.accountId, job.id)
+  const permit = await ensurePermit(r.accountId, job.id)
+  // A repair starts Not needed (permits.ts defaultPermitStatus): no packet and no "File the fence permit" task
+  // unless the office set it to Needed (or further) on the job's Permit panel (Oct 26 2026).
+  if (permit.status === 'not_needed') return { detail: 'permit Not needed (a repair, or set so on the job), so no permit packet or filing task; the office can set it to Needed on the job\'s Permit panel' }
   const { result } = await onceInDb(effectKey(r, 'packet'), r.runId, async () => {
     const pdf = await renderPacket(await packetInputFor(r.accountId, job.id))
     const stored = storeFile(pdf, `permit-packet-${job.id}.pdf`, r.accountId)
@@ -431,6 +434,8 @@ export async function describeSteps(accountId: string, steps: Step[], e: EntityC
       }
       case 'permit_packet': {
         const portal = portalFor(e.permit?.county || e.county || 'Marion')
+        const notNeeded = e.job && (e.permit ? e.permit.status === 'not_needed' : (await defaultPermitStatusOf(accountId, e.job)) === 'not_needed')
+        if (notNeeded) { d('nothing: the permit is Not needed (a repair starts so; the office can set it to Needed on the job)'); break }
         d(`make the permit packet PDF and a task to file it${portal ? ` on ${portal.name} (${portal.url})` : ''}`, e.job ? undefined : 'No job for this card yet.')
         break
       }

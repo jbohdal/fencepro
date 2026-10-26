@@ -21,11 +21,19 @@ export default function PermitPanel({ jobId }: { jobId: string }) {
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [startsAs, setStartsAs] = useState(EMPTY.status)
 
   useEffect(() => {
     let live = true
-    api<{ permit: Permit | null; portal: Portal }>('GET', `/permits/${encodeURIComponent(jobId)}`)
-      .then(d => { if (!live) return; setSaved(d.permit); setPortal(d.portal); if (d.permit) setForm({ ...EMPTY, ...pickForm(d.permit) }); setLoaded(true) })
+    api<{ permit: Permit | null; defaultStatus?: string | null; portal: Portal }>('GET', `/permits/${encodeURIComponent(jobId)}`)
+      .then(d => {
+        if (!live) return
+        setSaved(d.permit); setPortal(d.portal)
+        // No permit yet: it starts as the server says (Needed; Not needed for a repair, Oct 26 2026).
+        if (d.permit) setForm({ ...EMPTY, ...pickForm(d.permit) })
+        else { setForm({ ...EMPTY, status: d.defaultStatus || EMPTY.status }); setStartsAs(d.defaultStatus || EMPTY.status) }
+        setLoaded(true)
+      })
       .catch(err => { if (live) { setError((err as Error).message); setLoaded(true) } })
     return () => { live = false }
   }, [jobId])
@@ -67,7 +75,9 @@ export default function PermitPanel({ jobId }: { jobId: string }) {
   const locked = !can('permits.change')
   return (
     <fieldset disabled={locked} className="space-y-3 min-w-0 border-0 p-0 m-0" data-permit-panel={jobId}>
-      {!saved && <p className="text-sm text-gray-600">No permit status yet. Set it and press Save.</p>}
+      {!saved && (startsAs === 'not_needed'
+        ? <p className="text-sm text-gray-600" data-permit-default="not_needed">A repair: no permit unless you set it to Needed and press Save. No permit reminders until then.</p>
+        : <p className="text-sm text-gray-600">No permit status yet. Set it and press Save.</p>)}
       <div>
         <label className={label} htmlFor={`permit-status-${jobId}`}>Status</label>
         <select id={`permit-status-${jobId}`} value={form.status} onChange={e => setStatus(e.target.value)} className={input} data-permit-status>

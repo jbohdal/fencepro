@@ -45,7 +45,7 @@ import { pickableStages, stageById, stageIdsInRule } from '../lib/opsStageModel.
 import { missingFor } from '../lib/automations/stageRules.js'
 import { saveSubscription, sendPush, vapidKeys } from '../lib/automations/push.js'
 import { disconnectGmail, gmailConsentUrl, gmailStatus } from '../lib/automations/gmail.js'
-import { ensurePermit, lookupParcel, packetInputFor, PERMIT_PORTALS, PERMIT_STATUSES, portalFor, renderPacket } from '../lib/automations/permits.js'
+import { ensurePermit, lookupParcel, packetInputFor, PERMIT_PORTALS, PERMIT_STATUSES, portalFor, renderPacket, defaultPermitStatusOf } from '../lib/automations/permits.js'
 import { walkthroughApi } from '../lib/automations/walkthroughAdapter.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { myTasksWhere, seesCompanyTasks } from '../lib/taskScope.js'
@@ -432,7 +432,9 @@ router.get('/permits/:jobId', async (req: any, res) => {
     const job = await jobOf(req)
     if (!job) { res.status(404).json({ success: false, error: 'Job not found' }); return }
     const permit = await prisma.permit.findUnique({ where: { jobId: job.id } })
-    res.json({ success: true, data: { permit, portal: portalFor(permit?.county ?? 'Marion') } })
+    // No record yet: what it starts as (Needed; Not needed for a repair), for the Permit panel to show.
+    const defaultStatus = permit ? null : await defaultPermitStatusOf(req.user.crmAccountId, job)
+    res.json({ success: true, data: { permit, defaultStatus, portal: portalFor(permit?.county ?? 'Marion') } })
   } catch (err) { fail(res, err, 'load the permit') }
 })
 
