@@ -39,6 +39,7 @@ import { shapeOf, sameShape, ownChangeWords } from '../lib/changeOrderMerge.js'
 import { jobTimeline } from '../lib/changeOrderHistory.js'
 import { signSchema } from './changeOrderPublic.js'
 import { safeSvg } from './proposal.js'
+import { changeOrderPhonesFor } from '../lib/signedDocuments.js'
 import { pickListFor, pickPriceFor } from '../lib/changeOrderPicks.js'
 import { askForOk, okGiven } from '../lib/changeOrderNotices.js'
 
@@ -190,11 +191,13 @@ router.get('/:id/for-signing', requireCan('quotes.change'), async (req: any, res
     const accountId = req.user.crmAccountId
     const co = await prisma.changeOrder.findUnique({ where: { id: String(req.params.id) } })
     if (!co || co.accountId !== accountId || co.deletedAt) { res.status(404).json({ success: false, error: 'Change order not found' }); return }
-    const q = await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId }, select: { finalPrice: true } })
+    const q = await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId }, select: { finalPrice: true, proposal: true } })
     const work = co.work as any
     const planSvg = work?.planSvg ? safeSvg(work.planSvg) || null : null
     const also = planSvg ? alsoInDrawingWords(alsoInDrawing(co, await siblingsOf(co))) : []
-    res.json({ success: true, data: { contract: await contractAround(co, q?.finalPrice ?? 0), planSvg, own: planSvg && also.length ? ownChangeWords(work) : null, alsoInDrawing: also } })
+    // "Questions? Call ...": the number the signed PDF and the customer's link give.
+    const questionsPhone = (await changeOrderPhonesFor(accountId, q?.proposal)).questions || null
+    res.json({ success: true, data: { contract: await contractAround(co, q?.finalPrice ?? 0), planSvg, own: planSvg && also.length ? ownChangeWords(work) : null, alsoInDrawing: also, questionsPhone } })
   } catch (e) { fail(res, e, 'load the change order to sign') }
 })
 

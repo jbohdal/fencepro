@@ -173,6 +173,19 @@ export function changeOrderPhones(company: { phone?: unknown; supportPhone?: unk
   return { header, questions: String(ownerDirect || quoteCompany.phone || company.phone || '') }
 }
 
+/**
+ * A change order's phones for one account and quote: the signed PDF, the
+ * customer's link and the in-person signing sheet all use this, so their
+ * "Questions" number is the same (round 5 review, Oct 26 2026).
+ */
+export async function changeOrderPhonesFor(accountId: string, quoteProposal: unknown): Promise<{ header: string; questions: string }> {
+  const b = await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } })
+  const cfg = (b?.config as any)?.company ?? {}
+  const p = (quoteProposal as any)?.company ?? {}
+  const owner = (await bookingTeam(accountId)).find(m => m.isDefault)
+  return changeOrderPhones(cfg, p, owner?.role === 'super_admin' ? owner.phone : null)
+}
+
 /** The signed change order (signed by the customer: a signature and a time), stored once. */
 export async function fileSignedChangeOrder(changeOrderId: string, madeBy: MadeBy = 'signing'): Promise<{ doc: Doc; made: boolean } | null> {
   const co = await prisma.changeOrder.findUnique({ where: { id: changeOrderId } })
@@ -187,8 +200,7 @@ export async function fileSignedChangeOrder(changeOrderId: string, madeBy: MadeB
   const cfg = (b?.config as any)?.company ?? {}
   const p = (q.proposal as any)?.company ?? {}
   const ip = plainIp(co.signedIp)
-  const owner = (await bookingTeam(co.accountId)).find(m => m.isDefault)
-  const phones = changeOrderPhones(cfg, p, owner?.role === 'super_admin' ? owner.phone : null)
+  const phones = await changeOrderPhonesFor(co.accountId, q.proposal)
   const pdf = await changeOrderPdf({
     company: { name: String(p.name || cfg.name || 'Getter Done Fence'), phone: phones.header, email: String(p.email || cfg.email || '') }, questionsPhone: phones.questions,
     number: co.number, customerName: q.customerName, address: q.customerAddress || '', reason: co.reason, lines: linesOf(co), totalCents: co.totalCents,

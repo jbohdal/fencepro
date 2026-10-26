@@ -20,6 +20,7 @@
  */
 import { customerText } from '../../portal/src/server/lib/customerText'
 import { svgDataUrl } from '../../portal/src/server/lib/planSvg'
+import { phoneWords } from '../../portal/src/server/lib/installDays'
 import { useEffect, useRef, useState } from 'react'
 import { useBackLayer, useNav } from './nav'
 import { can } from './permissions'
@@ -677,6 +678,8 @@ interface ForSigning {
   own: string | null
   /** "The drawing also shows CO-1's change (Left side 40 ft → 50 ft): not part of this change order (CO-1, not signed yet)." */
   alsoInDrawing: string[]
+  /** "Questions? Call ...": the number the signed PDF and the customer's link give (Jonathan's Direct). */
+  questionsPhone?: string | null
 }
 
 /**
@@ -748,6 +751,7 @@ function SignInPersonSheet({ co, customerName, contract, onDone, onClose }: { co
         <SignaturePad onChange={setInk} />
         {error && <p className="text-sm text-red-700" role="alert">{error}</p>}
         <button type="button" onClick={() => void sign()} disabled={busy} className="btn btn-primary w-full min-h-[52px]" data-co-sign-submit>{busy ? 'Saving…' : 'Approve and sign'}</button>
+        {shown?.questionsPhone && <p className="text-xs text-gray-500 text-center" data-co-sign-questions>Questions? Call us at <a href={`tel:${shown.questionsPhone.replace(/[^\d+]/g, '')}`} className="font-semibold text-gray-700 underline">{phoneWords(shown.questionsPhone)}</a>.</p>}
       </div>
     </div>
   )

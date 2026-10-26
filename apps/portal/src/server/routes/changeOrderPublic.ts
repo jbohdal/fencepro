@@ -21,6 +21,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { byLink, shownLines, signByCustomer, needsSignature, contractAround, alsoInDrawing, alsoInDrawingWords } from '../lib/changeOrders.js'
 import { ownChangeWords } from '../lib/changeOrderMerge.js'
 import { CSS, esc, safeSvg } from './proposal.js'
+import { changeOrderPhonesFor } from '../lib/signedDocuments.js'
 
 export const changeOrderPublic = Router()
 
@@ -52,9 +53,11 @@ changeOrderPublic.get('/:token', async (req, res) => {
   headers(res, nonce)
   const token = String(req.params.token)
   const co = await byLink(token)
-  const q = co ? await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId: co.accountId }, select: { customerName: true, customerAddress: true, fenceStyle: true, finalPrice: true, archivedAt: true, deletedAt: true } }) : null
+  const q = co ? await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId: co.accountId }, select: { customerName: true, customerAddress: true, fenceStyle: true, finalPrice: true, archivedAt: true, deletedAt: true, proposal: true } }) : null
   const company = co ? await companyOf(co.accountId) : { name: 'Getter Done Fence', phone: '' }
-  const call = company.phone ? `Call us at <a href="tel:${esc(company.phone.replace(/[^\d+]/g, ''))}"><b>${esc(phoneWords(company.phone))}</b></a>.` : 'Please call us.'
+  // The same number as the signed PDF's "Questions:" line (Jonathan's Direct; lib/signedDocuments.ts changeOrderPhonesFor).
+  const phone = co ? (await changeOrderPhonesFor(co.accountId, q?.proposal).catch(() => null))?.questions || company.phone : company.phone
+  const call = phone ? `Call us at <a href="tel:${esc(phone.replace(/[^\d+]/g, ''))}"><b>${esc(phoneWords(phone))}</b></a>.` : 'Please call us.'
   const top = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(company.name)}</p><p class="small">Change order</p></div></header>`
   // Never sent (still a draft) counts as not available: the customer sees only what the office sent.
   if (!co || !q || q.archivedAt || q.deletedAt || co.deletedAt || (co.status === 'draft' || co.status === 'needs_ok')) {
