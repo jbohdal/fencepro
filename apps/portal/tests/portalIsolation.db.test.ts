@@ -257,6 +257,30 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('portal isolation: customer A nev
     expect((await prisma.portalMessage.findMany({ where: { crmCustomerId: B.contactId } })).map(m => m.body).sort()).toEqual(['Hello from B', 'Office reply to B'])
   })
 
+  // Round 3 (Oct 26 2026): the owner only was told, by the customer's email; the bubble showed no badge
+  // because a customer page left open marked the new message read on its next poll.
+  test('round 3: a portal message tells the owner and the office by name; a thread polled in the background keeps it unread', async () => {
+    const link = `/customers/${A.contactId}?tab=portal`
+    const notes = await prisma.notification.findMany({ where: { link, body: { endsWith: '"Hello from A"' } } })
+    expect(notes.map(x => x.recipientRole).sort()).toEqual(['admin', 'office_staff'])
+    const told = await prisma.notification.count({ where: { link } })
+    expect(notes[0].title).toBe(`New message from E2E Iso A ${stamp}`)
+    expect(notes[0].body).toBe(`E2E Iso A ${stamp}: "Hello from A"`)
+    const fresh = await call(A.cookie, 'POST', '/api/portal/messages', { body: `Gate latch ${stamp}`, clientId: `iso-msg-A2-${stamp}` })
+    expect(fresh.status).toBe(200)
+    // Sent twice (the same id): told once.
+    await call(A.cookie, 'POST', '/api/portal/messages', { body: `Gate latch ${stamp}`, clientId: `iso-msg-A2-${stamp}` })
+    expect(await prisma.notification.count({ where: { link } })).toBe(told + 2)
+    const unread = async () => ((await call(owner, 'GET', '/api/portal/messages/inbox')).json.data.threads.find((t: any) => t.crmCustomerId === A.contactId)?.unreadCustomerCount ?? 0)
+    const before = await unread()
+    expect(before).toBeGreaterThanOrEqual(1)
+    const bg = await call(owner, 'GET', `/api/portal/customer/${A.contactId}/messages?read=0`)
+    expect(bg.json.data.messages.find((m: any) => m.id === fresh.json.data.id).isReadByStaff).toBe(false)
+    expect(await unread()).toBe(before)
+    await call(owner, 'GET', `/api/portal/customer/${A.contactId}/messages`)
+    expect(await unread()).toBe(0)
+  })
+
   test('made up, old style, customerless, signed out and suspended sign ins read nothing; writes need the portal header', async () => {
     const reads = ['/me', '/quotes', '/projects', '/invoices', '/photos', '/documents', '/messages', '/change-orders', '/media']
     const forged = `ezbiz_portal=${crypto.randomBytes(32).toString('base64url')}`

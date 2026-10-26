@@ -1264,6 +1264,7 @@ router.post('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) 
     const rid = requestIdOf(req)
     const again = rid ? await prisma.portalMessage.findUnique({ where: { id: rid } }) : null
     if (again && again.crmCustomerId === customerId) { res.json({ success: true, data: customerMessage(again) }); return }
+    let dup = false
     const msg = await prisma.portalMessage.create({
       data: {
         ...(rid && !again ? { id: rid } : {}),
@@ -1277,17 +1278,21 @@ router.post('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) 
     }).catch(async (e: unknown) => {
       // Both copies arrived at the same moment: the first one is kept.
       const won = rid && isUniqueViolation(e) ? await prisma.portalMessage.findUnique({ where: { id: rid } }) : null
-      if (won && won.crmCustomerId === customerId) return won
+      if (won && won.crmCustomerId === customerId) { dup = true; return won }
       throw e
     })
-    try {
-      await createNotification({
-        recipientRole: 'admin',
-        title: 'New customer message',
-        body: `${req.portalAccount!.email}: "${body.slice(0, 80)}${body.length > 80 ? '…' : ''}"`,
-        type: 'info',
-      })
-    } catch {}
+    // The owner and the office are told (round 3, Oct 26 2026: the owner only, named by email), with the
+    // customer's name and their Portal tab to open; once per message (sent twice, told once).
+    if (!dup) {
+      try {
+        const c = await prisma.crmContact.findUnique({ where: { id: customerId }, select: { firstName: true, lastName: true } })
+        const who = `${c?.firstName ?? ''} ${c?.lastName ?? ''}`.trim() || req.portalAccount!.email
+        const text = `${who}: "${body.slice(0, 80)}${body.length > 80 ? '…' : ''}"`
+        for (const recipientRole of ['admin', 'office_staff']) {
+          await createNotification({ recipientRole, title: `New message from ${who}`, body: text, type: 'info', link: `/customers/${encodeURIComponent(customerId)}?tab=portal` })
+        }
+      } catch {}
+    }
     res.json({ success: true, data: customerMessage(msg) })
   } catch (err: any) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -1325,12 +1330,13 @@ router.get('/customer/:customerId/messages', requireStaffSyncKey, async (req, re
       where: { crmCustomerId: customerId, deletedAt: null },
       orderBy: { createdAt: 'asc' },
     })
-    // Mark customer messages as read by staff
-    const now = new Date()
-    await prisma.portalMessage.updateMany({
-      where: { crmCustomerId: customerId, senderType: 'customer', isReadByStaff: false },
-      data: { isReadByStaff: true, readByStaffAt: now },
-    })
+    // Mark customer messages as read by staff (not for a poll from a window nobody is looking at: ?read=0)
+    if (req.query.read !== '0') {
+      await prisma.portalMessage.updateMany({
+        where: { crmCustomerId: customerId, senderType: 'customer', isReadByStaff: false },
+        data: { isReadByStaff: true, readByStaffAt: new Date() },
+      })
+    }
     res.json({ success: true, data: { messages: messages.map(serializeMessage) } })
   } catch (err) {
     console.error('[portal-messages-customer]', err)

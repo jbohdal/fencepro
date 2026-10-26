@@ -265,9 +265,10 @@ export interface InboxThread {
   unreadCustomerCount: number
 }
 
-export async function listCustomerMessages(customerId: string): Promise<PortalMessage[]> {
+/** `markRead`: false when nobody is looking at the thread (a poll in a tab in the background), so the customer's new message stays unread on the bubble. */
+export async function listCustomerMessages(customerId: string, opts: { markRead?: boolean } = {}): Promise<PortalMessage[]> {
   try {
-    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/messages`)
+    const res = await fetchWithAuth(`${apiBase()}/api/portal/customer/${encodeURIComponent(customerId)}/messages${opts.markRead === false ? '?read=0' : ''}`)
     const json = await res.json()
     return json.success ? json.data.messages : []
   } catch { return [] }

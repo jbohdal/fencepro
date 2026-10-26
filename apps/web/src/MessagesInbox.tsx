@@ -37,9 +37,12 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
     const t = setInterval(load, POLL_MS)
     function refresh() { load() }
     window.addEventListener('fencepro:portal-messages:updated', refresh)
+    // Back to this window: the count now, not up to 30 s later.
+    window.addEventListener('focus', refresh)
     return () => {
       clearInterval(t)
       window.removeEventListener('fencepro:portal-messages:updated', refresh)
+      window.removeEventListener('focus', refresh)
     }
   }, [])
 

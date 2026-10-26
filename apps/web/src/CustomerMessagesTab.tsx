@@ -41,10 +41,14 @@ export default function CustomerMessagesTab({ customerId, customerName }: { cust
   const [limit, setLimit] = useState(MESSAGES_PAGE)
 
   const refresh = useCallback(async () => {
-    const rows = await listCustomerMessages(customerId)
+    // Read only by someone looking: opening the thread, or a poll while this window is in front. A poll in a
+    // window left in the background keeps a new message unread, so the bubble's badge shows it (round 3).
+    const looking = initialLoad.current || (document.visibilityState === 'visible' && document.hasFocus())
+    const rows = await listCustomerMessages(customerId, { markRead: looking })
+    const fresh = looking && rows.some(m => m.senderType === 'customer' && !m.isReadByStaff)
     setMessages(rows)
     setLoading(false)
-    if (initialLoad.current) {
+    if (initialLoad.current || fresh) {
       initialLoad.current = false
       // Notify any global inbox badge to refresh
       try { window.dispatchEvent(new Event('fencepro:portal-messages:updated')) } catch {}
@@ -57,7 +61,9 @@ export default function CustomerMessagesTab({ customerId, customerName }: { cust
     setLoading(true)
     refresh()
     const t = setInterval(refresh, 15_000)
-    return () => clearInterval(t)
+    const back = () => { void refresh() }
+    window.addEventListener('focus', back)
+    return () => { clearInterval(t); window.removeEventListener('focus', back) }
   }, [refresh])
 
   async function handleSend(e?: React.FormEvent) {
