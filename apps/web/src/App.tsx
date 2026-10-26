@@ -512,6 +512,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const [quotes, setQuotes]             = useState<SavedQuote[]>(loadQuotes)
   // A draft opened from Ready to quote or a pipeline card starts on the Yard step (its drawing and the site visit).
   const [quoteOnYard, setQuoteOnYard]   = useState(false)
+  // Opened from "Change order" > "Change the yard drawing": the builder makes the change order straight away.
+  const [quoteForChange, setQuoteForChange] = useState(false)
   const [jobs, setJobs]                 = useState<Job[]>(getJobs)
   // Back to a screen puts its scroll back; a new screen starts at the top.
   const pageScroll = useRef<HTMLDivElement | null>(null)
@@ -696,8 +698,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     }
   }
 
-  function handleOpenQuote(q: SavedQuote) {
-    setQuoteOnYard(false)
+  function handleOpenQuote(q: SavedQuote, opts: { changeOrder?: boolean } = {}) {
+    setQuoteOnYard(!!opts.changeOrder)
+    setQuoteForChange(!!opts.changeOrder)
     // A signed quote opens with the work as approved change orders made it (ChangeOrders.tsx quoteWithChanges),
     // so the next change is priced from the work now; saving keeps the signed quote as signed.
     if (isSignedForChange(q) && signedQuoteOf(q) === q) {
@@ -754,10 +757,11 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       if (c) openQuoteFor(c, { address: d.address, notes: d.notes, repair: d.repair, reuseDraft: d.reuseDraft })
     }
     const open = (e: Event) => {
-      const id = (e as CustomEvent<{ id: string; quote?: SavedQuote }>).detail?.id
+      const d = (e as CustomEvent<{ id: string; quote?: SavedQuote; changeOrder?: boolean }>).detail
+      const id = d?.id
       // A change order from the yard drawing sends the quote with the work now (ChangeOrders.tsx openChangeFromDrawing).
-      const found = (e as CustomEvent<{ id: string; quote?: SavedQuote }>).detail?.quote ?? (id ? (getQuoteById(id) ?? quotes.find(x => x.id === id)) : null)
-      if (found) handleOpenQuote(found as SavedQuote)
+      const found = d?.quote ?? (id ? (getQuoteById(id) ?? quotes.find(x => x.id === id)) : null)
+      if (found) handleOpenQuote(found as SavedQuote, { changeOrder: !!d?.changeOrder })
     }
     window.addEventListener('ezbiz:new-quote', h)
     window.addEventListener('ezbiz:open-quote', open)
@@ -1360,11 +1364,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ QUOTE BUILDER MODAL ═══ */}
       {showQuote && (
-        <ScreenErrorBoundary name="Quote" window onBack={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false) }}><QuoteBuilder
-          onClose={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false) }}
+        <ScreenErrorBoundary name="Quote" window onBack={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false) }}><QuoteBuilder
+          onClose={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false) }}
           onSave={handleSaveQuote}
           initialQuote={editingQuote}
           startOnYard={quoteOnYard}
+          changeOrder={quoteForChange}
         /></ScreenErrorBoundary>
       )}
     </div>

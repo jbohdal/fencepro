@@ -50,6 +50,7 @@ import {
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
 import { signedInRole, can } from './permissions'
+import { toast } from './toast'
 import { useServerQuoteView, viewCalc, viewWork, viewTiers, viewCompare, viewProposalOptions } from './quoteViewApi'
 import { minimumPrice, wholeDollarRecord, adjustmentRecord, isNewMin, type QuoteJobRequest } from './quoteJob'
 import { bakedBackdrop } from './aerialBake'
@@ -445,12 +446,15 @@ export default function QuoteBuilder({
   onSave,
   initialQuote,
   startOnYard = false,
+  changeOrder = false,
 }: {
   onClose: () => void
   onSave: (q: SavedQuote) => void
   initialQuote?: SavedQuote | null
   /** Open on the Yard step (a draft opened from Ready to quote: the customer's drawing and the site visit are there). */
   startOnYard?: boolean
+  /** Opened from "Change order" > "Change the yard drawing": the bar's button makes the change order straight away. */
+  changeOrder?: boolean
 }) {
   const init = initialQuote
 
@@ -991,7 +995,11 @@ export default function QuoteBuilder({
         adjLaborHrs: quote.adjLaborHrs, hasSalesman: quote.hasSalesman, priceAdjust: quote.priceAdjust, layout: quote.layout,
       })
       for (const k of ['pricing', 'work', 'proposal'] as const) if (choicesNow[k] !== openChoices.current![k]) changed.push(k)
-      if (changed.filter(k => k !== 'status').length) { setPending({ quote, kind: 'locked' }); return }
+      // "Make change order" (the bar on a signed quote): straight to the change order, filled in; no status, no detour.
+      const direct = directCo.current
+      directCo.current = false
+      if (changed.filter(k => k !== 'status').length) { setPending({ quote, kind: 'locked' }); if (direct) startChangeOrder(quote); return }
+      if (direct) { toast.info('Nothing changed yet', 'Change the drawing first (footage, gates, style or height), then tap Make change order. Or type the change from the job\'s Change order button.'); return }
       // The quote as signed is what is saved (the builder may show the work as changed by approved change orders).
       onSave(keepPrices(signedQuoteOf(init), { ...quote, date: init.date }))
       return
@@ -1000,16 +1008,32 @@ export default function QuoteBuilder({
     onSave(quote)
   }
 
+  /**
+   * "Make change order" on a signed quote: the quote as it is now, as the save
+   * would make it, straight into the change order (round 2, Oct 26 2026: it went
+   * through "Update quote", the status picker and the lock message first).
+   */
+  const directCo = useRef(false)
+  function makeChangeOrderNow() {
+    if (!init?.id || !canSave) return
+    directCo.current = true
+    void handleSave({
+      customerId: init.customerId ?? '', customerName: init.customerName, customerPhone: init.customerPhone, customerEmail: init.customerEmail,
+      customerAddress: init.customerAddress, leadSource: init.leadSource, salesRep: init.salesRep, status: init.status, notes: init.notes ?? '', leadTemp: init.leadTemp ?? 0,
+    })
+  }
+
   /** The change order, filled in from what was changed here, priced at today's costs. */
-  function startChangeOrder() {
-    if (!init || !pending) return
+  function startChangeOrder(changedQuote?: SavedQuote) {
+    const q = changedQuote ?? pending?.quote
+    if (!init || !q) return
     const draft = changeOrderDraft({
       signed: init, current: calcInput, signedOverrides: openOverrides.current, styles: FENCE_STYLES,
       priceNow: adjPrice, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
     })
     // A new fence: the new work goes with it (the server prices it and keeps it, so the pull sheet, packet,
     // site plan, crew days and job costing follow once it is approved).
-    setCoPrefill(jobType === 'new' && style ? { ...draft, work: { request: priceRequest as unknown as Record<string, unknown>, layout: pending.quote.layout ?? null, planSvg: pending.quote.proposal?.planSvg ?? null } } : draft)
+    setCoPrefill(jobType === 'new' && style ? { ...draft, work: { request: priceRequest as unknown as Record<string, unknown>, layout: q.layout ?? null, planSvg: q.proposal?.planSvg ?? null } } : draft)
   }
 
   return (
@@ -1021,7 +1045,7 @@ export default function QuoteBuilder({
           <div>
             <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
-            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>Signed: the price is locked. Changes to the fence go on a change order.</p>}
+            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? 'Change order: change the drawing, then tap Make change order.' : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
             {signedQuote && init?.id && <SignedDocumentLinks quoteId={init.id} />}
             {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({fmt(init!.finalPrice)} then, {fmt(adjPrice)} now).</p>}
           </div>
@@ -1800,12 +1824,15 @@ export default function QuoteBuilder({
                 </div>
               )}
 
+              {signedQuote && (
+                <button disabled={!canSave} onClick={makeChangeOrderNow} className="btn btn-primary btn-lg w-full" data-co-make-panel>Make change order</button>
+              )}
               <button
                 disabled={!canSave}
                 onClick={() => setShowSaveModal(true)}
-                className="btn btn-primary btn-lg w-full"
+                className={signedQuote ? 'btn btn-secondary w-full min-h-[48px]' : 'btn btn-primary btn-lg w-full'}
               >
-                {init?.id ? 'Update quote' : 'Save quote'}
+                {signedQuote ? 'Save notes and customer details only' : init?.id ? 'Update quote' : 'Save quote'}
               </button>
               {!canSave && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? 'Select a style, draw the new line and enter the old line footage' : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
             {showPullSheet && materialItems.length > 0 && (
@@ -1854,7 +1881,13 @@ export default function QuoteBuilder({
               <button type="button" className="btn btn-secondary shrink-0 min-h-[48px] px-3" onClick={() => setPhotosOpen(true)} data-photos-open aria-label={`Photos and video (${mediaItems.length})`}>
                 <Camera size={18} aria-hidden="true" /><span className="tabular-nums">{mediaItems.length}</span>
               </button>
-              {step === 'price' ? (
+              {signedQuote ? (
+                // A signed quote: the change order is one tap from any step (the next step stays beside it).
+                <>
+                  {step !== 'price' && <button type="button" onClick={barNext} className="btn btn-secondary shrink-0 min-h-[48px] px-3" data-bar-next>{step === 'yard' && nextSide ? 'Next side' : 'Next'}</button>}
+                  <button disabled={!canSave} onClick={makeChangeOrderNow} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-co-make>Make change order</button>
+                </>
+              ) : step === 'price' ? (
                 <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
               ) : (
                 <button type="button" onClick={barNext} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-bar-next>{barNextLabel}</button>
@@ -1911,7 +1944,7 @@ export default function QuoteBuilder({
                 <p className="text-base font-bold text-gray-900" data-quote-lock-message>{LOCKED_MESSAGE}</p>
                 <p className="text-sm text-gray-600">The customer signed at {fmt(signedQuoteOf(init!).finalPrice)}. That price, the fence and the pull sheet stay as signed. A change order adds the changes, priced at today's costs.</p>
                 <div className="flex flex-col gap-2">
-                  <button type="button" className="btn btn-primary min-h-[48px]" onClick={startChangeOrder} data-quote-lock-co>Make a change order</button>
+                  <button type="button" className="btn btn-primary min-h-[48px]" onClick={() => startChangeOrder()} data-quote-lock-co>Make a change order</button>
                   <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave(keepPrices(signedQuoteOf(init!), { ...q, date: init!.date })) }} data-quote-lock-keep>Save notes and customer details only</button>
                   <button type="button" className="min-h-[44px] text-sm text-gray-600" onClick={() => setPending(null)} data-quote-lock-cancel>Back to the quote</button>
                 </div>
