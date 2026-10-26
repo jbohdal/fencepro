@@ -57,9 +57,20 @@ const priceRe = new RegExp(`"(${PRICE_FIELDS.join('|')})"\\s*:`)
 const dollarRe = /\$\s?\d/
 let VALUES = []   // the company's real unit costs, as text
 const valueHits = text => VALUES.filter(v => new RegExp(`(?<![\\d.])${v.replace('.', '\\.')}(?![\\d])`).test(text))
+// A list the phone asked for as one table (?shape=table, src/listTable.ts) is checked as the rows it stands for,
+// so a cost field's name in the table's columns is caught like any other.
+const isTable = x => x && typeof x === 'object' && x.$table === 1 && Array.isArray(x.cols) && Array.isArray(x.rows)
+const rowsOf = t => t.rows.map((r, i) => Object.fromEntries(t.cols.map((c, j) => [c, r[j]]).filter((_, j) => !t.missing?.[i]?.includes(j))))
+function asRows(text) {
+  let j; try { j = JSON.parse(text) } catch { return text }
+  if (isTable(j?.data)) return JSON.stringify({ ...j, data: rowsOf(j.data) })
+  if (isTable(j?.data?.leads)) return JSON.stringify({ ...j, data: { ...j.data, leads: rowsOf(j.data.leads) } })
+  return text
+}
 function leaks(bodies) {
   const out = []
-  for (const b of bodies) {
+  for (const raw of bodies) {
+    const b = { ...raw, text: asRows(raw.text) }
     const c = b.text.match(costRe), p = b.text.match(priceRe), d = b.text.match(dollarRe), v = valueHits(b.text)
     if (c || p || d || v.length) out.push(`${b.method} ${b.url.replace(API, '')} -> ${c?.[1] ?? ''} ${p?.[1] ?? ''} ${d ? d[0] : ''} ${v.slice(0, 3).join(',')}`)
   }

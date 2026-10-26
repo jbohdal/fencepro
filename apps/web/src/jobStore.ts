@@ -2,6 +2,7 @@ import type { SavedQuote } from './QuotesPage'
 import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, pendingFor, REFUSED_EVENT, type Op } from './outbox'
 import { sendJson } from './syncHttp'
+import { asTable } from './listTable'
 import { notifyStageBlocked } from './stageBlocked'
 import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
 import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
@@ -620,7 +621,7 @@ let lastSync: string | null = null
  */
 export async function refreshJobs(): Promise<void> {
   if (!hydrated) return
-  const r = await sendJson('GET', `/api/saved-jobs${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`)
+  const r = await sendJson('GET', asTable(`/api/saved-jobs${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`))
   if (!r.result.ok || !Array.isArray(r.json?.data)) return
   const rows = r.json.data as Array<SavedJobRecord & { archivedAt?: string | null; deletedAt?: string | null }>
   if (r.json.partial) {

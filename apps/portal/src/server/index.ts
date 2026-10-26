@@ -5,8 +5,9 @@ import compression from 'compression'
 import { requestTiming, startTimingSummaryLog } from './lib/requestTiming.js'
 import cors from 'cors'
 import helmet from 'helmet'
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import { isMediaTraffic } from './lib/rateLimitRules.js'
+import { verifyStaffBearer } from './lib/secrets.js'
 import { ensureUploadDir } from './lib/storage/index.js'
 import prisma from './lib/prisma.js'
 import { printEnvValidation } from './lib/urls.js'
@@ -92,6 +93,7 @@ import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
 import { hideCostsFromLimitedLogins, refuseNoPrices } from './lib/costRedact.js'
+import { listTables } from './lib/listTable.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
 import { ensureTwoOptionTiersAll } from './lib/tierSets.js'
 import scheduledDeletionRoutes from './routes/scheduled-deletions.js'
@@ -196,6 +198,9 @@ app.use('/api', (req, res, next) => {
 // without a cost, margin, profit, sub rate, wage, overhead or commission figure
 // (lib/costRedact.ts), whichever route answers.
 // The role comes from the cookie's session (staffCookieAuth above), or the old token's.
+// Lists as one table when the phone asks (?shape=table), and no browser cache copy of any JSON answer
+// (lib/listTable.ts). Mounted before the cost and Installer filters so it runs after them.
+app.use('/api', listTables)
 app.use('/api', hideCostsFromLimitedLogins)
 // The Installer gets only his installs' customers, jobs, quotes, appointments and cards, and no customer
 // messages or Ready to schedule list (lib/crewScope.ts; review, Oct 25, 2026).
@@ -245,6 +250,14 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   // Photo and video files (signed links) and upload chunks have their own limit below (lib/rateLimitRules.ts).
   skip: req => isMediaTraffic(req.method, req.originalUrl),
+  // Counted per signed in person, not per address: phones behind one office or shop
+  // connection shared one count, and a few reloads by one (about 40 calls each) used
+  // up everyone's minute, so the next loads came up half empty (walkthrough round 2).
+  // Not signed in (the website, the customer portal): per address as before.
+  keyGenerator: (req: any) => {
+    const who = verifyStaffBearer(req)
+    return who?.sub ? `staff:${who.sub}` : ipKeyGenerator(req.ip || '')
+  },
 })
 
 // Photos and video: a Photos tab is ~60 thumbnails, an upload of 110 photos hundreds of chunks.

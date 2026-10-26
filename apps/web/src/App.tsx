@@ -55,8 +55,9 @@ import { getBusinessField } from './businessStateStore'
 import { getConfig } from './configStore'
 import { clearOldBrowserData } from './browserStorage'
 import { initCustomers, getCustomers, isCustomersHydrated } from './customerStore'
-import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated } from './quoteStore'
+import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated, refreshQuotes } from './quoteStore'
 import { sizeText } from './moveRepair'
+import { sendJson } from './syncHttp'
 import { initJobs, isJobsHydrated, getJobs, getArchivedJobs } from './jobStore'
 import type { Job } from './jobStore'
 import { initSchedule, isScheduleHydrated } from './scheduleStore'
@@ -218,6 +219,15 @@ function marginColor(pct: number) {
 
 function loadQuotes(): SavedQuote[] {
   return getQuotes()
+}
+
+/** A quote named in the address while quotes had not loaded: opened once they have (the red bar's Try again draws the app again). */
+let quoteAfterLoad: string | null = null
+function takeQuoteAfterLoad(): string | null {
+  if (!quoteAfterLoad || !isQuotesHydrated()) return null
+  const id = quoteAfterLoad
+  quoteAfterLoad = null
+  return id
 }
 
 /** The budget (Budget page), from the server's business record; null until one is saved. */
@@ -824,7 +834,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // A quote named in the address opens: after a reload, from a link, or when
   // Back or Forward lands on it. ?quote=<id>, or ?quote=new&for=<customer>.
   useEffect(() => {
-    const q = nav.params.get('quote') ?? takeOpenedParam('quote')
+    const q = nav.params.get('quote') ?? takeOpenedParam('quote') ?? takeQuoteAfterLoad()
     const forId = nav.params.get('for') ?? takeOpenedParam('for')
     if (!q || showQuote) return
     if (q === 'new') {
@@ -834,7 +844,36 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     }
     const found = getQuoteById(q) ?? quotes.find(x => x.id === q)
     if (found) handleOpenQuote(found as SavedQuote)
+    else void openQuoteNotOnList(q)
   }, [nav])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A quote named in the address that is not on this phone's list: never a
+  // blank wait (walkthrough round 2). Quotes that did not load: it opens once
+  // they do (the red bar's Try again). Made since the list was read: read
+  // again. Otherwise the server says why (deleted, or not one of the
+  // Installer's installs) or that there is no signal.
+  async function openQuoteNotOnList(id: string) {
+    if (!isQuotesHydrated()) {
+      quoteAfterLoad = id
+      toast.warning('The quote opens when quotes load', 'Quotes did not load, usually because of weak signal. Tap Try again at the top when you have signal.')
+      return
+    }
+    await refreshQuotes()
+    const now = getQuoteById(id)
+    if (now) { handleOpenQuote(now as SavedQuote); return }
+    if (getArchivedQuotes().some(x => x.id === id)) {
+      toast.info('That quote is archived', 'Open its customer to see it, or unarchive it there to change it.')
+      return
+    }
+    const r = await sendJson('GET', `/api/saved-quotes/${encodeURIComponent(id)}`)
+    if (r.status === 404 || r.status === 403) {
+      toast.error('That quote cannot be opened', isCrewLogin(crmUser.role) ? 'Only the quotes for your installs open on your login. Ask the office if you need this one.' : 'It was deleted, or the link is from another company.')
+    } else if (r.status === 0 || r.status >= 500) {
+      toast.error('The quote did not load', 'Usually that is weak signal. Open it again when you have signal.')
+    } else {
+      toast.error('That quote is not on your list', 'Reload the app to read the quotes again, then open it.')
+    }
+  }
 
   /* ── Search ── */
   function openCustomerFromAnywhere(customerId: string, tab?: string) {

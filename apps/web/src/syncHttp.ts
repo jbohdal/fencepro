@@ -3,6 +3,7 @@
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import type { SendResult } from './outbox'
+import { untableBody } from './listTable'
 
 export const API_ORIGIN = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : ''
 
@@ -19,7 +20,8 @@ export async function sendJson(method: string, path: string, body?: unknown, tim
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: ctl?.signal,
     })
-    const json = await res.json().catch(() => ({}))
+    // A list asked for as a table (?shape=table, listTable.ts) comes back as the same rows.
+    const json = untableBody(await res.json().catch(() => ({})))
     if (res.ok && json?.success !== false) return { result: { ok: true, data: json?.data }, json, status: res.status }
     return { result: { ok: false, status: res.status, error: json?.error, ...(typeof json?.code === 'string' ? { code: json.code } : {}) }, json, status: res.status }
   } catch (err) {

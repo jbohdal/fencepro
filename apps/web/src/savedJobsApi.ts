@@ -7,6 +7,7 @@ import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { toast } from './toast'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { plainError, plainThrown } from './plainError'
+import { untableBody, asTable } from './listTable'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
@@ -130,7 +131,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
       body: body ? JSON.stringify(body) : undefined,
     })
     if (res.status === 401) return { ok: false, error: plainError(401).message }
-    const json = await res.json().catch(() => ({}))
+    const json = untableBody(await res.json().catch(() => ({})))
     if (!res.ok || json?.success === false) return { ok: false, error: plainError(res.status, json?.error).message }
     return { ok: true, data: json.data as T, serverTime: typeof json?.serverTime === 'string' ? json.serverTime : undefined }
   } catch (err) {
@@ -147,7 +148,8 @@ let listedAt: string | null = null
 export function lastListServerTime(): string | null { return listedAt }
 
 export async function listSavedJobs(): Promise<SavedJobRecord[] | null> {
-  const r = await call<SavedJobRecord[]>('GET', '/')
+  // As one table (listTable.ts): the same rows, without each row repeating the field names.
+  const r = await call<SavedJobRecord[]>('GET', asTable('/'))
   if (r.ok && r.serverTime) listedAt = r.serverTime
   if (!r.ok) {
     toast.error('Could not load jobs from cloud', r.error || plainError(0).message)

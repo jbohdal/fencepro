@@ -16,6 +16,7 @@ import { leadForNewCustomer } from './pipelineSeeder'
 import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, type Op } from './outbox'
 import { sendJson } from './syncHttp'
+import { asTable } from './listTable'
 import { addCardWithCustomer, pipelineSavedElsewhere } from './pipelineStore'
 import {
   listContacts,
@@ -139,7 +140,7 @@ let lastSync: string | null = null
 export async function refreshCustomers(): Promise<void> {
   if (!hydrated) return
   // Only what changed since the last read (small on cell data); waiting changes stay on top.
-  const r = await sendJson('GET', `/api/crm-contacts${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`)
+  const r = await sendJson('GET', asTable(`/api/crm-contacts${lastSync ? `?since=${encodeURIComponent(lastSync)}` : ''}`))
   if (!r.result.ok || !Array.isArray(r.json?.data)) return
   const rows = r.json.data as Array<CrmContactRecord & { archivedAt?: string | null; deletedAt?: string | null }>
   if (r.json.partial) {

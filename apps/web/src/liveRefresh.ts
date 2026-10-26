@@ -23,22 +23,24 @@ let last = 0
 let lastAppointments = 0
 const appointmentsDue = () => { const due = Date.now() - lastAppointments > 5 * 60_000; if (due) lastAppointments = Date.now(); return due }
 
-async function readAgain(force = false) {
+async function readAgain(force = false, allAppointments = force) {
   if (!force && typeof document !== 'undefined' && document.visibilityState !== 'visible') return
   if (!force && Date.now() - last < 15_000) return
   last = Date.now()
   // Small checks every time; appointments (a bigger list) when the app comes back on screen or is asked.
-  await Promise.allSettled([refreshQuotes(), refreshJobs(), refreshPipeline(), refreshCustomers(), refreshOpsStages(), refreshPipelineStages(), refreshOptionLists(), refreshBookingTeam(), refreshSchedule(), ...(force || appointmentsDue() ? [refreshAppointments()] : [])])
+  await Promise.allSettled([refreshQuotes(), refreshJobs(), refreshPipeline(), refreshCustomers(), refreshOpsStages(), refreshPipelineStages(), refreshOptionLists(), refreshBookingTeam(), refreshSchedule(), ...(allAppointments || appointmentsDue() ? [refreshAppointments()] : [])])
 }
 
 export function startLiveRefresh() {
   if (started) return
   started = true
+  // Appointments were just read with everything else: not again on the first focus (1 MB on a phone).
+  lastAppointments = Date.now()
   document.addEventListener('visibilitychange', () => { void readAgain() })
   window.addEventListener('focus', () => { void readAgain() })
   window.addEventListener('online', () => { void readAgain(true) })
   setInterval(() => { void readAgain() }, 60_000)
 }
 
-/** A screen that needs the newest copy now (Operations when opened). */
-export const refreshNow = () => readAgain(true)
+/** A screen that needs the newest copy now (Operations, the Sales Pipeline when opened). Appointments (1 MB) only when due. */
+export const refreshNow = () => readAgain(true, false)
