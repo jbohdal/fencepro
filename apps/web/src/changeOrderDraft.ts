@@ -34,11 +34,15 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 // Priced from cost, never at a price set by hand: a hand set price is the same before and after
 // every step, so each line came out $0 and the change order could not be saved (seen Oct 23, 2026
 // on a signed quote with its price typed in). The step's difference is what the change costs today.
-const priceCents = (input: QuoteCalcInput) => {
-  if (!input.style) return 0
+const priceCents = (input: QuoteCalcInput) => priced(input).cents
+/** The step's price (cents) and its panels: in all, and on each run (per run rounding, never pooled). */
+const priced = (input: QuoteCalcInput): { cents: number; sections: number; perRun: number[] } => {
+  if (!input.style) return { cents: 0, sections: 0, perRun: [] }
   const { finalPrice, ...o } = input.overrides ?? {}; void finalPrice
-  return Math.round(calculateQuote({ ...input, overrides: { ...o, wholeDollar: true } }).priced.price * 100)
+  const c = calculateQuote({ ...input, overrides: { ...o, wholeDollar: true } })
+  return { cents: Math.round(c.priced.price * 100), sections: c.sections, perRun: c.perRunSections }
 }
+const panels = (n: number) => `${n} panel${n === 1 ? '' : 's'}`
 /** The pricing choices without the whole dollar mark (which every change order step prices with). */
 const choices = (o: QuoteCalcInput['overrides']) => { const { wholeDollar, roundingCents, ...rest } = o ?? {}; void wholeDollar; void roundingCents; return rest }
 
@@ -66,7 +70,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   const signedRuns = s.runs.map((f, i) => ({ ft: f, rail: s.runRails?.[i] ?? 'auto' as const }))
   const ftWas = ft(signedRuns), ftNow = ft(cur.runs)
   const scope: ChangeOrderScope = {}
-  const words: Array<{ text: string; step: (x: QuoteCalcInput) => QuoteCalcInput }> = []
+  const words: Array<{ text: string; step: (x: QuoteCalcInput) => QuoteCalcInput; runs?: boolean }> = []
 
   const styleNow = cur.style?.name ?? s.fenceStyle
   if (styleNow !== s.fenceStyle) {
@@ -74,12 +78,16 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
     words.push({ text: `Change the fence from ${styleLabel(s.fenceStyle)} to ${styleLabel(styleNow)}`, step: x => ({ ...x, style: cur.style }) })
   }
   const runsChanged = JSON.stringify(cur.runs.filter(r => r.ft > 0).map(r => r.ft)) !== JSON.stringify(s.runs) || cur.corners !== s.corners || cur.ends !== s.ends
+  const gatesToo = cur.walkGates !== s.walkGates || cur.dblGates !== s.dblGates
   if (runsChanged) {
     const delta = Math.round((ftNow - ftWas) * 100) / 100
     if (delta) scope.footageFt = delta
+    // Gate openings are not fence: a 12 ft side with a 4 ft gate adds 8 ft of fence and a gate (its own line).
+    const span = `${ftWas} ft to ${ftNow} ft${gatesToo ? ' of fence, gates not counted' : ''}`
     words.push({
-      text: delta > 0 ? `Add ${delta} ft of fence (${ftWas} ft to ${ftNow} ft)` : delta < 0 ? `Remove ${-delta} ft of fence (${ftWas} ft to ${ftNow} ft)` : 'Change the fence line (same footage, different runs or posts)',
+      text: delta > 0 ? `Add ${delta} ft of fence (${span})` : delta < 0 ? `Remove ${-delta} ft of fence (${span})` : 'Change the fence line (same footage, different runs or posts)',
       step: x => ({ ...x, runs: cur.runs, corners: cur.corners, ends: cur.ends }),
+      runs: true,
     })
   }
   if (cur.walkGates !== s.walkGates) {
@@ -119,15 +127,32 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
     tearOutSections: s.tearOutSections, tearOutGates: s.tearOutGates, extraLaborHrs: s.adjLaborHrs || 0, hasSalesman: !!s.hasSalesman,
     priceAdjust: s.priceAdjust || 0, overrides: d.signedOverrides,
   }
-  let was = priceCents(at)
+  let was = priced(at)
+  // The one side whose length changed (same sides otherwise), for "still 7 panels on that side".
+  const ftNowRuns = cur.runs.map(r => r.ft)
+  const diffs = ftNowRuns.length === signedRuns.length ? ftNowRuns.map((f, i) => (f === signedRuns[i].ft ? -1 : i)).filter(i => i >= 0) : []
+  const oneSide = diffs.length === 1 ? diffs[0] : null
   const lines: ChangeOrderLine[] = []
   for (const w of words) {
     at = w.step(at)
-    const now = priceCents(at)
-    const amount = now - was
+    const now = priced(at)
+    const amount = now.cents - was.cents
+    if (w.text === 'Other price changes' && !amount && !restChanged) { was = now; continue }
+    lines.push({ id: newId(), description: w.runs ? runWords(w.text, was, now, amount, oneSide) : w.text, amountCents: amount })
     was = now
-    if (w.text === 'Other price changes' && !amount && !restChanged) continue
-    lines.push({ id: newId(), description: w.text, amountCents: amount })
   }
   return done(lines)
+}
+
+/**
+ * The fence line's words with its panels, so the price reads right: per run
+ * rounding (a 4 ft run is a whole panel) can make 8 ft cost two panels, and
+ * 6 ft more on a side can still be the same panels and no price change
+ * (round 2 review, Oct 26 2026: $0 with an empty price box and Save greyed).
+ */
+function runWords(text: string, was: { sections: number }, now: { sections: number; perRun: number[] }, amount: number, side: number | null): string {
+  const more = now.sections - was.sections
+  if (more) return text.replace(/^((?:Add|Remove) [\d.]+ ft of fence)/, `$1, ${more > 0 ? `${panels(more)} more` : `${panels(-more)} fewer`}`)
+  const still = side !== null && now.perRun[side] !== undefined ? `still ${panels(now.perRun[side])} on that side` : `still ${panels(now.sections)} in all`
+  return `${text}: ${still}${amount === 0 ? ', no price change' : ''}`
 }

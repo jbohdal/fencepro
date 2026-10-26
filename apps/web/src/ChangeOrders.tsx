@@ -20,7 +20,7 @@
  */
 import { customerText } from '../../portal/src/server/lib/customerText'
 import { useEffect, useRef, useState } from 'react'
-import { useBackLayer } from './nav'
+import { useBackLayer, useNav } from './nav'
 import { can } from './permissions'
 import { sendJson } from './syncHttp'
 import { newId } from './recordSync'
@@ -310,6 +310,8 @@ interface EditLine {
   id: string; description: string; amount: string; credit: boolean
   /** Picked from the pick list: the quantity, the source, the words it was given (changed by hand: kept on a new quantity) and a price being worked out. */
   qty?: number; qtyText?: string; source?: ChangeOrderLineSource | null; auto?: string; pricing?: boolean
+  /** Filled in from the drawing: $0 is a real price (the same panels, no price change), so it can be saved. */
+  zeroOk?: boolean
 }
 const toEdit = (l: ChangeOrderLine): EditLine => ({ id: l.id, description: l.description, amount: l.amountCents ? (Math.abs(l.amountCents) / 100).toFixed(l.amountCents % 100 ? 2 : 0) : '', credit: l.amountCents < 0, ...(l.qty ? { qty: l.qty } : {}), ...(l.source ? { source: l.source } : {}) })
 const pickWords = (label: string, qty: number) => (qty > 1 ? `${qty} × ${label}` : label)
@@ -418,7 +420,7 @@ export function QuickChangeOrderModal({
 }) {
   useBackLayer(onClose, { key: 'quick-change-order-modal' })
   const [items, setItems] = useState<EditLine[]>(() =>
-    prefill?.lines.length ? prefill.lines.map(toEdit) : [{ id: newId(), description: '', amount: '', credit: false }])
+    prefill?.lines.length ? prefill.lines.map(l => ({ ...toEdit(l), ...(l.amountCents === 0 ? { amount: '0', zeroOk: true } : {}) })) : [{ id: newId(), description: '', amount: '', credit: false }])
   const [reason, setReason] = useState(prefill?.reason ?? '')
   const [busy, setBusy] = useState(false)
   const [verbal, setVerbal] = useState<string | null>(null)
@@ -452,7 +454,9 @@ export function QuickChangeOrderModal({
     }))
   }
   const total = items.reduce((s, i) => s + centsOf(i), 0)
-  const canSave = items.some(i => i.description.trim() && centsOf(i) !== 0) && !busy && !items.some(i => i.pricing)
+  // A line needs words and an amount; a line from the drawing may be $0 (still the same panels: the work changes, the price does not).
+  const canSave = items.some(i => i.description.trim() && (centsOf(i) !== 0 || (i.zeroOk && i.amount.trim() !== ''))) && !busy && !items.some(i => i.pricing)
+  const whyNot = busy || items.some(i => i.pricing) ? '' : !items.some(i => i.description.trim()) ? 'Say what changes on a line.' : !canSave ? 'Put a price on the line (a credit is a price too).' : ''
 
   // Tapped twice before the window closes: saved once.
   const savedOnce = useRef(false)
@@ -543,6 +547,8 @@ export function QuickChangeOrderModal({
             <span className="text-sm font-semibold text-gray-700">Change to the contract</span>
             <span className={`text-xl font-bold ${total >= 0 ? 'text-green-700' : 'text-red-600'}`} data-co-total>{signed(total)}</span>
           </div>
+          {total === 0 && canSave && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-no-price-change>No price change: the work changes, the price stays the same. Save it so the customer signs the new drawing and the crew gets it.</p>}
+          {whyNot && <p className="text-xs text-amber-900" data-co-why-not>{whyNot}</p>}
           {verbal !== null && <VerbalReason value={verbal} onChange={setVerbal} />}
         </div>
 
@@ -565,7 +571,14 @@ export function QuickChangeOrderModal({
 
 /* ───────── The customer signs on this phone ───────── */
 
-function SignInPersonSheet({ co, customerName, onDone, onClose }: { co: ChangeOrder; customerName: string; onDone: () => void; onClose: () => void }) {
+/**
+ * The phone handed to the customer: a full screen of its own, so nothing of
+ * the job page shows behind it (round 2 review, Oct 26 2026: "Quoted cost
+ * +$637.02 (materials..., labor...)" and "By WT Christa (sales)" could be read
+ * behind the sheet). Only what the customer signs: the lines, the total, the
+ * contract before and with it, a warranty change.
+ */
+function SignInPersonSheet({ co, customerName, contract, onDone, onClose }: { co: ChangeOrder; customerName: string; contract: { beforeCents: number; afterCents: number } | null; onDone: () => void; onClose: () => void }) {
   useBackLayer(onClose, { key: 'co-sign-in-person' })
   const [name, setName] = useState(customerName)
   const [ink, setInk] = useState<string | null>(null)
@@ -582,8 +595,8 @@ function SignInPersonSheet({ co, customerName, onDone, onClose }: { co: ChangeOr
     onDone()
   }
   return (
-    <div className="fixed inset-0 z-[85] flex items-end md:items-center justify-center bg-black/50" onClick={onClose} data-co-sign-sheet>
-      <div className="bg-white w-full md:max-w-[560px] rounded-t-2xl md:rounded-2xl max-h-[94vh] overflow-y-auto p-4 space-y-3" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[85] bg-white overflow-y-auto" data-co-sign-sheet data-customer-holds>
+      <div className="w-full md:max-w-[560px] mx-auto p-4 pb-[calc(16px+env(safe-area-inset-bottom))] space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 className="font-bold text-gray-900">Change order CO-{co.number}: customer signs</h2>
@@ -595,6 +608,12 @@ function SignInPersonSheet({ co, customerName, onDone, onClose }: { co: ChangeOr
           {co.lines.map(l => <tr key={l.id} className="border-b border-gray-100"><td className="py-2 pr-2 text-gray-800">{l.description || 'Change'}</td><td className="py-2 text-right font-semibold whitespace-nowrap">{signed(l.amountCents)}</td></tr>)}
           <tr><td className="pt-2 font-bold">{co.totalCents < 0 ? 'Total credit' : 'Total'}</td><td className="pt-2 text-right font-black text-lg whitespace-nowrap" data-co-sign-total>{signed(co.totalCents)}</td></tr>
         </tbody></table>
+        {contract && (
+          <table className="w-full text-sm bg-gray-50 rounded-xl" data-co-sign-contract><tbody>
+            <tr><td className="pt-2 px-3 text-gray-700">Your contract {co.status === 'approved' ? 'before this change' : 'now'}</td><td className="pt-2 px-3 text-right whitespace-nowrap">{money(contract.beforeCents)}</td></tr>
+            <tr><td className="pb-2 pt-1 px-3 font-bold text-gray-900">{co.status === 'approved' ? 'With this change' : 'New contract total'}</td><td className="pb-2 pt-1 px-3 text-right font-black whitespace-nowrap" data-co-sign-new-contract>{money(contract.afterCents)}</td></tr>
+          </tbody></table>
+        )}
         {co.warrantyAfter && <p className="text-xs text-amber-900 bg-amber-50 rounded-lg px-3 py-2" data-co-sign-warranty>Warranty changes{co.warrantyBefore?.name ? ` from ${co.warrantyBefore.name}` : ''} to <b>{co.warrantyAfter.name}</b>: {co.warrantyAfter.text}</p>}
         <label className="block text-sm text-gray-700">Customer's name
           <input value={name} onChange={e => setName(e.target.value)} autoComplete="off" maxLength={200} className="mt-1 w-full h-12 border border-gray-300 rounded-lg px-3 text-base" data-co-sign-name />
@@ -647,6 +666,9 @@ function SendToCustomer({ co, quoteId }: { co: ChangeOrder; quoteId: string }) {
 
 const VIA_WORDS: Record<string, string> = { portal: ', in the customer portal', link: ', on their link', in_person: ', in person' }
 
+/** Change orders a notice already scrolled to (once each, so reopening the job does not jump again). */
+const scrolledTo = new Set<string>()
+
 export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hideNew = false }: { quoteId: string; originalPrice: number; customerName?: string; hideNew?: boolean }) {
   const { orders, loaded } = useChangeOrders(quoteId)
   const [showModal, setShowModal] = useState(false)
@@ -659,6 +681,21 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hi
 
   const originalCents = Math.round(originalPrice * 100)
   const approvedCents = orders.filter(o => o.status === 'approved').reduce((s, o) => s + o.totalCents, 0)
+  /** The contract before a change order and with it (approved ones by contract revision), for the customer signing it. */
+  const contractAround = (co: ChangeOrder) => {
+    if (co.status === 'void') return null
+    const mine = co.status === 'approved' ? co.contractRev ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER
+    const before = originalCents + orders.filter(o => o.id !== co.id && o.status === 'approved' && (o.contractRev ?? 0) < mine).reduce((s, o) => s + o.totalCents, 0)
+    return { beforeCents: before, afterCents: before + co.totalCents }
+  }
+  // A notice opens the job (or card) at its change order (?co=<id>): scrolled to it, its buttons in view.
+  const nav = useNav()
+  const want = nav.params.get('co') ?? new URLSearchParams(window.location.search).get('co')
+  useEffect(() => {
+    if (!want || !loaded || scrolledTo.has(want) || !orders.some(o => o.id === want)) return
+    scrolledTo.add(want)
+    requestAnimationFrame(() => document.querySelector(`[data-co-id="${CSS.escape(want)}"]`)?.scrollIntoView({ block: 'center' }))
+  }, [want, loaded, orders])
 
   async function setStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string) {
     setBusy(co.id)
@@ -709,7 +746,7 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hi
       ) : (
         <div className="space-y-2">
           {orders.map(co => (
-            <div key={co.id} className="border border-gray-200 rounded-xl p-3" data-co-row={co.number} data-co-status={co.status}>
+            <div key={co.id} className={`border rounded-xl p-3 ${want === co.id ? 'border-orange-400 ring-2 ring-orange-200' : 'border-gray-200'}`} data-co-row={co.number} data-co-id={co.id} data-co-status={co.status}>
               <div className="flex items-center justify-between mb-1.5 gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-bold text-gray-800">CO-{co.number}</span>
@@ -790,7 +827,7 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hi
           onClose={() => setShowModal(false)}
         />
       )}
-      {signing && <SignInPersonSheet co={signing} customerName={customerName || getQuotes().find(q => q.id === quoteId)?.customerName || ''} onDone={() => setSigning(null)} onClose={() => setSigning(null)} />}
+      {signing && <SignInPersonSheet co={signing} contract={contractAround(signing)} customerName={customerName || getQuotes().find(q => q.id === quoteId)?.customerName || ''} onDone={() => setSigning(null)} onClose={() => setSigning(null)} />}
     </div>
   )
 }
@@ -829,9 +866,12 @@ export function ChangeOrderButton({ quoteId, customerName, className = '', label
   const quote = getQuotes().find(q => q.id === quoteId)
   if (!can('quotes.change') || !quote || !isSignedForChange(quote)) return null
   const drawing = !(quote.work && (quote.work.type === 'move' || quote.work.type === 'repair'))
+  // A job with a yard drawing opens straight on it ("Type the change instead" is there); else the choice (round 2 review, Oct 26 2026: one tap less).
+  const now = quoteWithChanges(quote)
+  const direct = drawing && !!now.layout?.yard
   return (
     <>
-      <button type="button" onClick={() => setMenu(true)} className={className || 'btn btn-secondary'} data-co-button={quoteId}>{label}</button>
+      <button type="button" onClick={() => { if (direct) { onOpened?.(); void openChangeFromDrawing(quote) } else setMenu(true) }} className={className || 'btn btn-secondary'} data-co-button={quoteId} data-co-direct={direct ? 'drawing' : undefined}>{label}</button>
       {menu && <ChangeOrderMenu customerName={customerName} drawing={drawing} onClose={() => setMenu(false)}
         onDrawing={() => { setMenu(false); onOpened?.(); void openChangeFromDrawing(quote) }}
         onLines={() => { setMenu(false); void refreshChangeOrders(quoteId).then(() => setTyping(true)) }} />}

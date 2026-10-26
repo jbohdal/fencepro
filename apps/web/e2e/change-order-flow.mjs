@@ -8,8 +8,18 @@
 //
 // Set up (API, as the owner): a customer, a quote copied from a real priced
 // quote and marked Sold (its quoted cost saved), its job scheduled for one
-// day, its install packet sent to the crew.
+// day, its install packet sent to the crew. A second one (B) is copied from a
+// quote with a yard drawing.
 //
+//   0. Round 2 review (Oct 26 2026), job B on the phone, as Jonathan: 6 ft more
+//      on one side from the job page, counting every tap and every key press:
+//      "Change order" opens the drawing at once (no menu; "Type the change
+//      instead" is there), the side's length label opens its length pad, the
+//      digits, "Make change order" on the pad (no Done first), Save: under 8.
+//      A footage change that adds no panel is $0 and still saves, saying so.
+//      "Customer signs on this phone" covers the whole screen: no cost and no
+//      staff name can be read behind it; it shows the new contract total.
+//      Signed: the pipeline card's value and the card window follow the contract.
 //   1. On a 390 x 844 phone, the job page: "Change order" (top of the job) →
 //      "Change the yard drawing": the quote builder opens on the signed quote;
 //      12 ft more and a walk gate; Save → "Make a change order", filled in and
@@ -81,6 +91,8 @@ const PORTAL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const stamp = Date.now().toString(36).slice(-5)
 const WHO = `CO Flow ${NAME} ${stamp}`
 const contactId = crypto.randomUUID(), quoteId = crypto.randomUUID(), jobId = crypto.randomUUID(), cardId = crypto.randomUUID()
+// Job B: a quote with a yard drawing (section 0).
+const B = { contactId: crypto.randomUUID(), quoteId: crypto.randomUUID(), jobId: crypto.randomUUID(), cardId: crypto.randomUUID() }
 const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
 const browser = CDP ? await chromium.connectOverCDP(CDP) : await webkit.launch()
@@ -101,6 +113,16 @@ try {
   const j = await call('POST', '/api/saved-jobs', { id: jobId, quoteId, crmContactId: contactId, customerName: `E2E ${WHO}`, customerAddress: '5 Change Order Ln, Ocala, FL 34470', fenceStyle: template.fenceStyle, sections: template.sections, totalFeet: Math.round(template.runs.reduce((s, f) => s + f, 0)), walkGates: template.walkGates, dblGates: template.dblGates, quotePrice: template.finalPrice, contractValue: template.finalPrice, status: 'scheduled', scheduledDate: '2026-11-02', scheduledEndDate: '2026-11-02', estimatedDays: days, crewAssigned: `E2E crew ${stamp}` })
   const pk = await call('POST', '/api/install-packets', { jobId, snapshot: { style: template.fenceStyle, pullSheet: template.pullSheet.filter(l => !l.moneyOnly).map(l => ({ item: l.item, qty: l.qty })) } })
   const warrantyBefore = (await call('GET', `/api/warranties/job/${jobId}`)).json.data?.warranty?.name
+  // B: copied from a priced no dig quote with a yard drawing (one side without a gate to lengthen).
+  const plain = side => side && side.lengthIn >= 96 && !side.gate && !side.off && !side.skip
+  const templateB = all.filter(q => !/^E2E/i.test(q.customerName) && Array.isArray(q.pullSheet) && q.pullSheet.length >= 8 && q.totalCOGS > 0 && !q.work && /^WV-ND 6'x8'/.test(q.fenceStyle) && q.layout?.yard?.sides?.some(plain))
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0]
+  if (!templateB) throw new Error('no priced no dig quote with a yard drawing to copy on dev')
+  const WHO_B = `${WHO} B`
+  const cB = await call('POST', '/api/crm-contacts', { id: B.contactId, firstName: 'E2E', lastName: WHO_B, phone: '3525550192', email: `e2e-co-flow-b-${stamp}@example.invalid`, serviceAddress: '7 Change Order Ln, Ocala, FL 34470', leadSource: 'Other', lead: { id: B.cardId, customerId: B.contactId, firstName: 'E2E', lastName: WHO_B, phone: '3525550192', stage: 'Signed Contract', leadSource: 'Other', quoteId: B.quoteId, createdAt: today, lastMoved: today }, leadBefore: null })
+  const qB = await call('POST', '/api/saved-quotes', { id: B.quoteId, ...Object.fromEntries(priced.map(k => [k, templateB[k]])), layout: templateB.layout, crmContactId: B.contactId, customerName: `E2E ${WHO_B}`, customerPhone: '3525550192', customerEmail: `e2e-co-flow-b-${stamp}@example.invalid`, customerAddress: '7 Change Order Ln, Ocala, FL 34470', leadSource: 'Other', salesRep: 'E2E', date: today, status: 'SOLD' })
+  const jB = await call('POST', '/api/saved-jobs', { id: B.jobId, quoteId: B.quoteId, crmContactId: B.contactId, customerName: `E2E ${WHO_B}`, customerAddress: '7 Change Order Ln, Ocala, FL 34470', fenceStyle: templateB.fenceStyle, sections: templateB.sections, totalFeet: Math.round(templateB.runs.reduce((s, f) => s + f, 0)), walkGates: templateB.walkGates, dblGates: templateB.dblGates, quotePrice: templateB.finalPrice, contractValue: templateB.finalPrice, status: 'scheduled', scheduledDate: '2026-11-03', scheduledEndDate: '2026-11-04', estimatedDays: Math.max(1, Math.ceil(templateB.sections / 15)), crewAssigned: `E2E crew B ${stamp}` })
+  check('set up B: a Sold quote with a yard drawing, its job and card', cB.status < 300 && qB.status < 300 && jB.status < 300, `${cB.status} ${qB.status} ${jB.status} ${templateB.customerName}`)
   check('set up: customer and card, Sold quote (quoted cost saved), its job scheduled for one day, the crew\'s packet', c.status < 300 && q.status < 300 && j.status < 300 && pk.status === 200 && sql(`SELECT count(*) FROM "JobQuotedCost" WHERE "quoteId" = '${quoteId}'`) === '1',
     `${c.status} ${q.status} ${j.status} ${pk.status} ${template.fenceStyle} ${template.sections} sections`)
 
@@ -132,6 +154,72 @@ try {
     await page.mouse.up(); await sleep(200)
   }
 
+  // ── 0. Jonathan, job B: 6 ft more on a side, every tap and key press counted ──
+  {
+    // A side where 6 ft more is still the same 8 ft panels (per run rounding) when there is one: the $0 case.
+    const side = templateB.layout.yard.sides.find(x => plain(x) && x.lengthIn % 12 === 0 && [1, 2].includes((x.lengthIn / 12) % 8)) ?? templateB.layout.yard.sides.find(plain)
+    const ftWasB = Math.floor(side.lengthIn / 12)
+    await open(`${APP}/operations?job=${B.jobId}`)
+    await page.waitForSelector('[data-co-panel]', { timeout: 40000 }); await sleep(1000)
+    taps = 0
+    const coBtn = page.locator(`[data-co-button="${B.quoteId}"]`).first()
+    check('B: "Change order" on a job with a yard drawing goes straight to the drawing', (await coBtn.getAttribute('data-co-direct')) === 'drawing')
+    await tap(coBtn)
+    await page.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 }); await sleep(1200)
+    check('B: no menu first; "Type the change instead" is on the drawing', (await page.locator('[data-co-menu]').count()) === 0 && await page.locator('[data-co-type-instead]').isVisible())
+    await shot(page, '0a-drawing')
+    // The side's length label on the drawing opens its length pad.
+    await tap(page.locator(`[data-plan-label="${side.name}"]`).first())
+    await page.waitForSelector('[data-ftin-pad]', { timeout: 10000 })
+    for (const d of String(ftWasB + 6)) await tap(page.locator(`[data-ftin-pad] [data-pad-key="${d}"]`))
+    await shot(page, '0b-pad')
+    // "Make change order" on the pad keeps the length and makes it (no Done first).
+    await tap(page.locator('[data-ftin-pad] [data-pad-action]'))
+    await page.waitForSelector('[data-co-modal]', { timeout: 15000 })
+    const lineB = await page.locator('[data-co-line-description]').first().inputValue()
+    const amtB = await page.locator('[data-co-line-amount]').first().inputValue()
+    const saveB = page.locator('[data-co-save-draft]')
+    check('B: filled in "Add 6 ft of fence": $0 with "no price change" when it is still the same panels, else priced with the panels added; Save works either way',
+      /^Add 6 ft of fence/.test(lineB) && (amtB === '0' ? /still \d+ panels? on that side, no price change/.test(lineB) && await page.locator('[data-co-no-price-change]').isVisible() : /panels? more/.test(lineB) && Number(amtB) > 0) && await saveB.isEnabled(),
+      `${lineB} | $${amtB}`)
+    await shot(page, '0c-filled')
+    await tap(saveB)
+    const coB = await until(async () => ((await call('GET', `/api/change-orders?quoteId=${B.quoteId}`)).json.data ?? []).find(x => x.number === 1), 15000)
+    check(`B: job page to a change order ready to sign in ${taps} taps and key presses, every one counted (under 8)`, taps < 8 && !!coB, `${taps}`)
+    check('B: saved with the new drawing: 6 ft more', coB?.status === 'draft' && coB?.work && coB?.scope?.footageFt === 6, JSON.stringify(coB?.scope))
+    // The customer signs on this phone: nothing of the job page can be read behind the sheet.
+    await open(`${APP}/operations?job=${B.jobId}`)
+    await page.waitForSelector('[data-co-row="1"] [data-co-sign-here]', { timeout: 30000 })
+    const costShown = await page.locator('[data-co-row="1"] [data-co-cost]').count()
+    await tap(page.locator('[data-co-row="1"] [data-co-sign-here]'))
+    await page.waitForSelector('[data-co-sign-sheet]', { timeout: 10000 }); await sleep(400)
+    const behind = await page.evaluate(() => {
+      const sheet = document.querySelector('[data-co-sign-sheet]')
+      const r = sheet.getBoundingClientRect()
+      const covers = r.top <= 0 && r.left <= 0 && r.right >= innerWidth && r.bottom >= innerHeight && getComputedStyle(sheet).backgroundColor === 'rgb(255, 255, 255)'
+      // Every point on the screen is the sheet's (nothing of the job page shows through or around it).
+      const pts = [[10, 10], [innerWidth / 2, innerHeight / 3], [innerWidth - 10, innerHeight / 2], [20, innerHeight - 20]]
+      const all = pts.every(([x, y]) => sheet.contains(document.elementFromPoint(x, y)))
+      return { covers, all, text: sheet.innerText }
+    })
+    check('B: the signing sheet covers the whole screen; no quoted cost, materials, labor or staff name in it', behind.covers && behind.all && !/Quoted cost|materials|labor|By Jonathan|By E2E/i.test(behind.text), `${JSON.stringify({ covers: behind.covers, all: behind.all, costShownOnPage: costShown })}`)
+    const total0 = templateB.finalPrice * 100
+    check('B: the sheet shows the contract now and the new contract total', cents(await page.locator('[data-co-sign-new-contract]').innerText()) === Math.round(total0) + coB.totalCents, await page.locator('[data-co-sign-contract]').innerText())
+    await shot(page, '0d-sign-sheet')
+    await page.locator('[data-co-sign-name]').fill('Pat Customer')
+    await page.locator('[data-co-sign-name]').blur()
+    await sign()
+    await tap(page.locator('[data-co-sign-submit]'))
+    const signedB = await until(async () => { const r = ((await call('GET', `/api/change-orders?quoteId=${B.quoteId}`)).json.data ?? []).find(x => x.number === 1); return r?.status === 'approved' ? r : null }, 20000)
+    check('B: signed in person', !!signedB)
+    // The pipeline card window: the sold quote reads the contract when change orders changed it.
+    if (signedB && signedB.totalCents) {
+      await open(`${APP}/pipeline?card=${B.cardId}`)
+      const row = await until(async () => (await page.locator(`[data-card-window] [data-card-quote="${B.quoteId}"] [data-card-quote-contract]`).count()) > 0, 30000)
+      check('B: the card window shows the contract (signed + change orders)', !!row && cents(await page.locator(`[data-card-quote="${B.quoteId}"] [data-card-quote-contract]`).innerText()) === Math.round(total0) + signedB.totalCents)
+    }
+  }
+
   // ── 1. From the yard drawing: 12 ft and a walk gate, signed on this phone ──
   await open(`${APP}/operations?job=${jobId}`)
   await page.waitForSelector('[data-co-panel]', { timeout: 40000 }); await sleep(1000)
@@ -146,9 +234,9 @@ try {
   // Round 2 (Oct 26 2026): straight from the drawing to the change order; no "Update quote", no status, no lock message.
   const runInput = page.locator('[data-quote-builder] input[placeholder="Length in feet"]').first()
   const ftWas = parseFloat(await runInput.inputValue())
-  taps++; await runInput.fill(String(ftWas + 12)); await sleep(300)
+  await runInput.fill(String(ftWas + 12)); await sleep(300)
   const walk = page.locator('[data-quote-builder] label:text-is("Walk gates") + input')
-  taps++; await walk.fill(String((template.walkGates || 0) + 1)); await sleep(300)
+  await walk.fill(String((template.walkGates || 0) + 1)); await sleep(300)
   check('the bar offers "Make change order" on the drawing step, never "Update quote"', (await page.locator('[data-quote-bar] [data-co-make]').isVisible()) && (await page.locator('[data-quote-bar] [data-save-open]').count()) === 0)
   await shot(page, '1b-drawing')
   await tap(page.locator('[data-quote-bar] [data-co-make]'))
@@ -162,7 +250,6 @@ try {
   await shot(page, '2-filled-in')
   await tap(page.locator('[data-co-save-draft]'))
   const co1 = await until(async () => ((await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data ?? []).find(x => x.number === 1), 15000)
-  check(`job page to a change order ready to sign: ${taps} taps on the phone (under 8)`, taps < 8, `${taps} taps`)
   check('saved: CO-1, a draft, with the new work (12 ft and a walk gate more)', co1?.status === 'draft' && co1?.work && co1.scope?.footageFt === 12 && co1.scope?.walkGates === 1, JSON.stringify(co1?.scope))
   // Back on the job page: the customer signs on this phone.
   await open(`${APP}/operations?job=${jobId}`)
@@ -228,6 +315,9 @@ try {
   await open(`${APP}/pipeline?card=${cardId}`)
   const cardCo = await until(async () => (await page.locator(`[data-card-window] [data-co-button="${quoteId}"]`).count()) > 0, 30000)
   check('pipeline card window: "Change order" on the signed quote', !!cardCo)
+  // Round 2 review: the card stayed at the signed price. Its window and its face read the contract (signed + CO-1).
+  const contractRow = page.locator(`[data-card-window] [data-card-quote="${quoteId}"] [data-card-quote-contract]`)
+  check('pipeline card window: the sold quote shows the contract (signed + CO-1)', !!(await until(async () => (await contractRow.count()) > 0, 15000)) && cents(await contractRow.innerText()) === signedCents + total, await contractRow.innerText().catch(() => 'none'))
   await tap(page.locator(`[data-card-window] [data-co-button="${quoteId}"]`).first())
   await tap(page.locator('[data-co-from-lines]'))
   await page.waitForSelector('[data-co-modal]', { timeout: 10000 })
@@ -248,6 +338,11 @@ try {
   const coPage = await fetch(`${API}/p/co/${link.json.data.token}`).then(r => r.text())
   check('the customer\'s copy: "Not signed by you yet", with the Sign button', /data-co-not-signed/.test(coPage) && /id="go"/.test(coPage) && /Contract rev 3/.test(coPage))
   check('no signed PDF until the customer signs', sql(`SELECT count(*) FROM "SignedDocument" WHERE "changeOrderId" = '${co2.id}'`) === '0')
+
+  await open(`${APP}/pipeline`)
+  const face = page.locator(`[data-kanban-card="${cardId}"]`)
+  const faceText = await until(async () => (await face.count()) > 0 ? await face.innerText() : null, 30000)
+  check('pipeline board: the card\'s value is the contract with the change orders, its rep the quote\'s', !!faceText && cents(faceText) === signedCents + total - 7500 && /E2E/.test(await face.locator('[data-card-rep]').innerText()), String(faceText).replace(/\s+/g, ' ').slice(0, 120))
 
   // ── 3. After the deposit and Final are paid ──
   const payId = `e2eco${stamp}${NAME}`
@@ -334,11 +429,18 @@ try {
 } finally {
   if (CDP) { await page?.close().catch(() => {}) } else await browser.close().catch(() => {})
   if (CDP) await browser.close().catch(() => {})
+  for (const ids of [{ contactId, quoteId, jobId, cardId, label: '' }, { ...B, label: ' (B)' }]) await cleanUp(ids)
+  const failed = results.filter(r => !r).length
+  console.log(`\n${results.length - failed} passed, ${failed} failed (${NAME})`)
+  process.exit(failed ? 1 : 0)
+}
+
+async function cleanUp({ contactId, quoteId, jobId, cardId, label }) {
   try {
     if (![contactId, quoteId, jobId, cardId].every(uuid)) throw new Error('bad id')
     const jl = `'${jobId}'`
     const fileIds = `SELECT "portalFileId" FROM "SignedDocument" WHERE "quoteId" = '${quoteId}' UNION SELECT "portalFileId" FROM "Receipt" WHERE "jobId" = ${jl}`
-    for (const k of sql(`SELECT "fileKey" FROM "PortalFile" WHERE id IN (${fileIds}) UNION SELECT "fileKey" FROM "SignedDocument" WHERE "quoteId" = '${quoteId}'`).split('\n').filter(Boolean)) fs.rmSync(path.join(PORTAL_DIR, 'uploads', k), { force: true })
+    for (const k of sql(`SELECT "fileKey" FROM "PortalFile" WHERE id IN (${fileIds}) UNION SELECT "fileKey" FROM "SignedDocument" WHERE "quoteId" = '${quoteId}'`).split('\n').filter(Boolean)) fs.rmSync(path.join(process.env.UPLOAD_DIR || path.join(PORTAL_DIR, 'uploads'), k), { force: true })
     sql(`DELETE FROM "PortalFile" WHERE id IN (${fileIds})`)
     sql(`DELETE FROM "SignedDocument" WHERE "quoteId" = '${quoteId}'`)
     const pays = `SELECT id FROM "ContractPayment" WHERE "jobId" = ${jl}`
@@ -358,9 +460,7 @@ try {
     if (mine.length) await call('PATCH', '/api/pipeline', { upsert: [], remove: mine, baseVersion: pl.data.version })
     await call('DELETE', `/api/crm-contacts/${contactId}`)
     sql(`DELETE FROM "CrmContact" WHERE id = '${contactId}'`)
-    check('cleaned up (change orders, payments, receipts, files, packet, job, quote, customer, card)', sql(`SELECT count(*) FROM "ChangeOrder" WHERE "quoteId" = '${quoteId}'`) === '0' && sql(`SELECT count(*) FROM "SavedJob" WHERE id = ${jl}`) === '0' && sql(`SELECT count(*) FROM "CrmContact" WHERE id = '${contactId}'`) === '0')
-  } catch (e) { check('cleaned up', false, String(e?.message || e).slice(0, 200)) }
-  const failed = results.filter(r => !r).length
-  console.log(`\n${results.length - failed} passed, ${failed} failed (${NAME})`)
-  process.exit(failed ? 1 : 0)
+    sql(`DELETE FROM "Notification" WHERE "jobId" = ${jl}`)
+    check(`cleaned up${label} (change orders, payments, receipts, files, packet, job, quote, customer, card)`, sql(`SELECT count(*) FROM "ChangeOrder" WHERE "quoteId" = '${quoteId}'`) === '0' && sql(`SELECT count(*) FROM "SavedJob" WHERE id = ${jl}`) === '0' && sql(`SELECT count(*) FROM "CrmContact" WHERE id = '${contactId}'`) === '0')
+  } catch (e) { check(`cleaned up${label}`, false, String(e?.message || e).slice(0, 200)) }
 }

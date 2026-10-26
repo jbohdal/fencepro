@@ -1023,6 +1023,26 @@ export default function QuoteBuilder({
     })
   }
 
+  /**
+   * "Make change order" on the length pad: the length is kept first, so the
+   * change order is made on the next draw, once the drawing (and, for a
+   * prices only login, the server's price of it) has caught up. No Done first.
+   */
+  const [makeQueued, setMakeQueued] = useState(0)
+  const queuedPriced = useRef(false)
+  useEffect(() => {
+    if (!makeQueued) return
+    if (!internal) {
+      // A prices only login: wait for the server to price the new drawing.
+      if (svPricing) { queuedPriced.current = true; return }
+      if (!queuedPriced.current) { const t = setTimeout(() => { queuedPriced.current = true; setMakeQueued(n => n + 1) }, 1500); return () => clearTimeout(t) }
+    }
+    queuedPriced.current = false
+    setMakeQueued(0)
+    makeChangeOrderNow()
+  }, [makeQueued, svPricing])  // eslint-disable-line react-hooks/exhaustive-deps
+  const [typeInstead, setTypeInstead] = useState(false)
+
   /** The change order, filled in from what was changed here, priced at today's costs. */
   function startChangeOrder(changedQuote?: SavedQuote) {
     const q = changedQuote ?? pending?.quote
@@ -1046,6 +1066,7 @@ export default function QuoteBuilder({
             <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
             {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? 'Change order: change the drawing, then tap Make change order.' : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
+            {signedQuote && changeOrder && init?.id && <button type="button" onClick={() => setTypeInstead(true)} className="text-sm text-orange-700 font-semibold underline min-h-[44px]" data-co-type-instead>Type the change instead</button>}
             {signedQuote && init?.id && <SignedDocumentLinks quoteId={init.id} />}
             {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({fmt(init!.finalPrice)} then, {fmt(adjPrice)} now).</p>}
           </div>
@@ -1139,6 +1160,7 @@ export default function QuoteBuilder({
                   onOpenSide={setOpenSide}
                   locked={signedQuote}
                   teeAs={teeAs}
+                  padAction={signedQuote && changeOrder ? { label: 'Make change order', onTap: () => setMakeQueued(n => n + 1) } : undefined}
                   address={init?.customerAddress || (init?.customerId ? getCustomerById(init.customerId)?.serviceAddress : '') || ''}
                 />
               )}
@@ -1877,7 +1899,7 @@ export default function QuoteBuilder({
                 : totalFootage > 0 ? `${totalFootage} ft · ${sections} sections · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
             </p>
             <div className="flex items-center gap-2 mt-1">
-              <p className="text-xl font-bold tabular-nums text-gray-900 min-w-0 mr-auto" data-bar-price>{fmt(adjPrice)}{priced.priceMethod === 'manual' && <span className="block text-xs font-semibold text-amber-700" data-bar-price-typed>Set by hand: parts do not change it</span>}</p>
+              <p className="text-xl font-bold tabular-nums text-gray-900 shrink-0 whitespace-nowrap mr-auto" data-bar-price>{fmt(adjPrice)}{priced.priceMethod === 'manual' && <span className="block text-xs font-semibold text-amber-700" data-bar-price-typed>Set by hand: parts do not change it</span>}</p>
               <button type="button" className="btn btn-secondary shrink-0 min-h-[48px] px-3" onClick={() => setPhotosOpen(true)} data-photos-open aria-label={`Photos and video (${mediaItems.length})`}>
                 <Camera size={18} aria-hidden="true" /><span className="tabular-nums">{mediaItems.length}</span>
               </button>
@@ -1885,7 +1907,8 @@ export default function QuoteBuilder({
                 // A signed quote: the change order is one tap from any step (the next step stays beside it).
                 <>
                   {step !== 'price' && <button type="button" onClick={barNext} className="btn btn-secondary shrink-0 min-h-[48px] px-3" data-bar-next>{step === 'yard' && nextSide ? 'Next side' : 'Next'}</button>}
-                  <button disabled={!canSave} onClick={makeChangeOrderNow} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-co-make>Make change order</button>
+                  {/* Wraps to two lines on a narrow phone so the price beside it is never cut off (round 2 review: "$7,02"). */}
+                  <button disabled={!canSave} onClick={makeChangeOrderNow} className="btn btn-primary min-h-[52px] px-3 text-[15px] font-semibold min-w-0 shrink whitespace-normal leading-tight md:shrink-0 md:min-w-[160px] md:text-base" data-co-make>Make change order</button>
                 </>
               ) : step === 'price' ? (
                 <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
@@ -1963,6 +1986,15 @@ export default function QuoteBuilder({
             )}
           </div>
         </div>
+      )}
+      {typeInstead && init?.id && (
+        <QuickChangeOrderModal
+          quoteId={init.id}
+          customerName={init.customerName}
+          existingCount={getOrdersForQuote(init.id).length}
+          onSaved={() => { setTypeInstead(false); onClose() }}
+          onClose={() => setTypeInstead(false)}
+        />
       )}
       {coPrefill && pending && init?.id && (
         <QuickChangeOrderModal
