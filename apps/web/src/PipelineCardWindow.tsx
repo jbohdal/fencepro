@@ -43,10 +43,10 @@ import { useBackLayer, navigate } from './nav'
 import PossibleMatch from './PossibleMatch'
 import { SaveStatus, cardChange } from './SaveStatus'
 import AutomationRunLog from './AutomationRunLog'
-import { sendJson } from './syncHttp'
-import { useFollowUpBoard, followUpOf, changeNext, startTouch, openLogCall, pendingCalls, CHANGED_EVENT, badgeOf, openedOf } from './followUpStore'
+import { HistoryList, useCustomerHistory } from './CustomerHistory'
+import { useFollowUpBoard, followUpOf, changeNext, startTouch, openLogCall, badgeOf, openedOf } from './followUpStore'
 import { openedBadgeText } from './proposalOpened'
-import { OUTCOME_LABEL, LOST_REASON_LABEL } from './followUpRules'
+import { OUTCOME_LABEL } from './followUpRules'
 import { DateChips, TextTemplatesSheet, dayLabel, kindWord } from './FollowUpPrompt'
 import PaymentsPanel from './Payments'
 import { ChangeOrderButton, ChangeOrdersIfAny, isSignedForChange } from './ChangeOrders'
@@ -325,54 +325,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
   )
 }
 
-interface HistoryItem { at: string; kind: string; title: string; detail: string; by: string; saving?: boolean }
-const KIND_DOT: Record<string, string> = { call: 'bg-green-500', text: 'bg-blue-500', email: 'bg-indigo-500', quote: 'bg-purple-500', proposal_opened: 'bg-amber-500', proposal_staff: 'bg-gray-300', appointment: 'bg-cyan-600', note: 'bg-gray-400' }
-
-/** One history for the customer, newest first: calls with answers, texts, emails, quotes sent, proposal opens, appointments, notes. */
+/** One history for the customer, newest first: calls with answers, texts, emails, quotes sent, proposal opens, appointments, notes (CustomerHistory.tsx). */
 function CardHistory({ cardId, customerId, notesShown }: { cardId: string; customerId: string | null; notesShown: number }) {
-  const [items, setItems] = useState<HistoryItem[] | null>(null)
-  const [all, setAll] = useState(false)
-  const [n, setN] = useState(0)
-  useEffect(() => {
-    let live = true
-    const q = new URLSearchParams({ cardId, ...(customerId ? { customerId } : {}) })
-    sendJson('GET', `/api/follow-ups/history?${q}`).then(r => { if (live && r.result.ok) setItems(r.json.data ?? []) ; else if (live && items === null) setItems([]) })
-    return () => { live = false }
-  }, [cardId, customerId, n, notesShown])  // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    const h = () => setN(x => x + 1)
-    window.addEventListener(CHANGED_EVENT, h)
-    return () => window.removeEventListener(CHANGED_EVENT, h)
-  }, [])
-  // Answers still on their way (no signal): on top, "Saving…".
-  useFollowUpBoard()
-  const waiting: HistoryItem[] = pendingCalls(cardId, customerId).map(c => ({
-    at: c.at, kind: c.channel === 'text' ? 'text' : 'call', saving: true, by: '',
-    title: `${c.channel === 'text' ? 'Text' : 'Call'}: ${OUTCOME_LABEL[c.outcome]}${c.outcome === 'lost' && c.lostReason ? ` (${LOST_REASON_LABEL[c.lostReason].toLowerCase()})` : ''}`,
-    detail: c.note,
-  }))
-  const list = [...waiting, ...(items ?? [])].sort((a, b) => b.at.localeCompare(a.at))
-  const shown = all ? list : list.slice(0, 8)
-  return (
-    <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3" data-card-history>
-      <h3 className="text-sm font-semibold text-gray-900">History</h3>
-      {items === null && !waiting.length ? <p className="text-sm text-gray-500 mt-1">Loading…</p>
-        : list.length === 0 ? <p className="text-sm text-gray-600 mt-1">Nothing yet.</p>
-        : (
-          <ol className="mt-2 space-y-2">
-            {shown.map((h, i) => (
-              <li key={`${h.at}-${i}`} className="flex gap-2" data-history-item={h.kind}>
-                <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${KIND_DOT[h.kind] ?? 'bg-gray-400'}`} aria-hidden="true" />
-                <span className="min-w-0">
-                  <span className="block text-sm text-gray-900">{h.title}</span>
-                  {h.detail && <span className="block text-sm text-gray-700 whitespace-pre-wrap">{h.detail}</span>}
-                  <span className="block text-xs text-gray-500">{new Date(h.at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{h.by ? ` · ${h.by}` : ''}{h.saving ? ' · Saving…' : ''}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      {list.length > 8 && <button type="button" className="btn btn-quiet btn-sm mt-2" onClick={() => setAll(a => !a)}>{all ? 'Show less' : `Show all ${list.length}`}</button>}
-    </section>
-  )
+  return <HistoryList list={useCustomerHistory(cardId, customerId, notesShown)} first={8} />
 }
