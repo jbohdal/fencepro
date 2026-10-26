@@ -21,7 +21,15 @@ const usd = (cents: number) => (cents < 0 ? '-' : '') + '$' + (Math.abs(cents) /
 const phoneText = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : p }
 
 export interface ChangeOrderPdfInput {
+  /** The header: the company's name, office phone (Settings > Company) and email. */
   company: { name: string; phone: string; email: string }
+  /**
+   * The closing "Questions:" line: Jonathan's Direct phone (Settings > Team),
+   * not the office line (Oct 26 2026: "header shows the office line (352) 789
+   * 4314; keep my direct (352) 844 2677 on the 'Questions' line"). Empty: the
+   * company phone.
+   */
+  questionsPhone?: string
   number: number
   customerName: string
   address: string
@@ -152,7 +160,8 @@ export function changeOrderPdf(c: ChangeOrderPdfInput): Promise<Buffer> {
     doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(`Approved and signed ${c.signedVia === 'portal' ? 'in the customer portal' : c.signedVia === 'in_person' ? 'in person' : 'on the change order link'}`, L, doc.y, { width: W })
     drawSignedRecord(doc, L, W, c.signedBy, c.record)
     doc.moveDown(1.5)
-    doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(`Thank you for choosing ${c.company.name}.${c.company.phone ? ` Questions: ${phoneText(c.company.phone)}.` : ''}`, L, doc.y, { width: W, align: 'center' })
+    const questions = c.questionsPhone || c.company.phone
+    doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(`Thank you for choosing ${c.company.name}.${questions ? ` Questions: ${phoneText(questions)}.` : ''}`, L, doc.y, { width: W, align: 'center' })
     doc.end()
   })
 }

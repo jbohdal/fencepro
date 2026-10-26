@@ -37,6 +37,7 @@ import { isUniqueViolation } from './once.js'
 import { contractForQuote, acceptedOptionText, CONTRACT_SELECT } from './contractPdf.js'
 import { changeOrderPdf, changeOrderAcceptedText } from './changeOrderPdf.js'
 import { linesOf, contractAround } from './changeOrders.js'
+import { bookingTeam } from './appointmentRep.js'
 import { plainStyleName } from './estimates.js'
 import { signedFileUrl } from './portalFiles.js'
 
@@ -161,6 +162,17 @@ export async function fileSignedContract(quoteId: string, madeBy: MadeBy = 'sign
   return out
 }
 
+/**
+ * The signed change order's phones (Oct 26 2026): the header gives the office
+ * line from Settings > Company (as it is now, before the quote's copy), the
+ * closing "Questions:" line Jonathan's Direct phone (the owner's, Settings >
+ * Team), else the phone it gave before (the quote's copy, then the company's).
+ */
+export function changeOrderPhones(company: { phone?: unknown; supportPhone?: unknown }, quoteCompany: { phone?: unknown }, ownerDirect: string | null | undefined): { header: string; questions: string } {
+  const header = String(company.phone || company.supportPhone || quoteCompany.phone || '')
+  return { header, questions: String(ownerDirect || quoteCompany.phone || company.phone || '') }
+}
+
 /** The signed change order (signed by the customer: a signature and a time), stored once. */
 export async function fileSignedChangeOrder(changeOrderId: string, madeBy: MadeBy = 'signing'): Promise<{ doc: Doc; made: boolean } | null> {
   const co = await prisma.changeOrder.findUnique({ where: { id: changeOrderId } })
@@ -175,8 +187,10 @@ export async function fileSignedChangeOrder(changeOrderId: string, madeBy: MadeB
   const cfg = (b?.config as any)?.company ?? {}
   const p = (q.proposal as any)?.company ?? {}
   const ip = plainIp(co.signedIp)
+  const owner = (await bookingTeam(co.accountId)).find(m => m.isDefault)
+  const phones = changeOrderPhones(cfg, p, owner?.role === 'super_admin' ? owner.phone : null)
   const pdf = await changeOrderPdf({
-    company: { name: String(p.name || cfg.name || 'Getter Done Fence'), phone: String(p.phone || cfg.phone || ''), email: String(p.email || cfg.email || '') },
+    company: { name: String(p.name || cfg.name || 'Getter Done Fence'), phone: phones.header, email: String(p.email || cfg.email || '') }, questionsPhone: phones.questions,
     number: co.number, customerName: q.customerName, address: q.customerAddress || '', reason: co.reason, lines: linesOf(co), totalCents: co.totalCents,
     originalCents: Math.round((q.finalPrice || 0) * 100), contract: await contractAround(co, q.finalPrice, co.signedAt), signedBy: co.signedBy, signedVia: co.signedVia, signature: pngOf(co.signature),
     contractRev: co.contractRev ?? null, warrantyBefore: (co.warrantyBefore as any) ?? null, warrantyAfter: (co.warrantyAfter as any) ?? null,
