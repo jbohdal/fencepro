@@ -44,8 +44,15 @@ export function normalizeTeam(data: unknown): TeamMember[] {
     }))
 }
 
-/** The person picked for a new appointment: the owner. */
+/** The owner: first on the team. */
 export const defaultMemberOf = (team: TeamMember[]): TeamMember | null => team.find(m => m.isDefault) ?? team[0] ?? null
+
+/**
+ * The person "With" starts on for a new appointment: whoever is signed in,
+ * when they are on the booking team (Christa books for herself); otherwise the owner.
+ */
+export const newBookingMemberOf = (team: TeamMember[], signedInUserId: string | null | undefined): TeamMember | null =>
+  (signedInUserId ? team.find(m => m.userId === signedInUserId) : undefined) ?? defaultMemberOf(team)
 
 /**
  * The team member an appointment is with, or null when that person is not on

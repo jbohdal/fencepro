@@ -13,12 +13,18 @@
 //
 // E2E_ACCESS_TOKEN (a staff access token for the dev server) can stand in for
 // the email and password.
+//
+// E2E_REP_ACCESS_TOKEN (optional): a token for another login on the booking
+// team (e.g. Christa, a Salesman: scripts/dev-session-token.ts --email ...).
+// With it, the "With" default is checked as that person too: a new booking
+// starts on whoever is signed in, a change keeps the appointment's own person.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
+const REP_TOKEN = process.env.E2E_REP_ACCESS_TOKEN || ''
 const EMAIL = process.env.E2E_EMAIL || '', PASSWORD = process.env.E2E_PASSWORD || ''
 const SHOTS = process.env.E2E_SHOTS || ''
 const local = u => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(u)
@@ -45,16 +51,17 @@ const floridaDate = d => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/N
 // A customer can have more than one card (an older job): the card the test picked, by its id when known.
 const cardOf = async (customerId, cardId) => { const leads = (await api('/api/pipeline')).leads; return (cardId && leads.find(l => l.id === cardId)) || leads.find(l => l.customerId === customerId) }
 
-async function open(browser, phone, startUrl = APP) {
+async function open(browser, phone, startUrl = APP, asToken = TOKEN) {
   const ctx = await browser.newContext(phone
     ? { viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, hasTouch: true, isMobile: true }
     : { viewport: { width: 1440, height: 900 } })
-  if (TOKEN) await ctx.addInitScript(t => { localStorage.setItem('crm_access_token', t); if (!localStorage.getItem('crm_refresh_token')) localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
+  // The old token, moved over to a cookie sign in by the app on its first load.
+  if (asToken) await ctx.addInitScript(t => { localStorage.setItem('crm_access_token', t); if (!localStorage.getItem('crm_refresh_token')) localStorage.setItem('crm_refresh_token', 'e2e') }, asToken)
   const page = await ctx.newPage()
   const s = { ctx, page, phone, errors: [], prompts: [] }
   page.on('pageerror', e => s.errors.push(String(e).slice(0, 300)))
   page.on('dialog', d => { s.prompts.push(d.message()); d.accept(d.type() === 'prompt' ? 'Customer asked (test)' : undefined).catch(() => {}) })
-  page.on('request', r => { const a = r.headers()['authorization']; if (a && r.url().startsWith(API)) token = a.replace(/^Bearer /, '') })
+  if (asToken === TOKEN) page.on('request', r => { const a = r.headers()['authorization']; if (a && r.url().startsWith(API)) token = a.replace(/^Bearer /, '') })
   // Stage changes ask the server to run automations; the dev data holds real customers, so not here.
   await page.route('**/api/automations/trigger', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' }))
   await page.goto(startUrl)
@@ -101,6 +108,11 @@ async function desktop(browser) {
   /* 1. customer page */
   let s = await open(browser, false, `${APP}/?customer=${first.customerId}`)
   await s.page.locator('[data-book-appointment]').click()
+  // "With" starts on whoever is signed in (here the owner, who is on the booking team).
+  const team0 = (await api('/api/appointments/team')) || []
+  const me0 = team0.find(m => m.userId === jwtSub(TOKEN)) ?? team0.find(m => m.isDefault)
+  const with0 = await s.page.locator('[data-booking-dialog] [data-field="person"]').inputValue()
+  check('desktop: "With" starts on the signed in person', !!me0 && with0 === me0.userId, `${with0} (${me0?.name})`)
   const r1 = await bookFirstSuggestion(s)
   if (SHOTS) await s.page.screenshot({ path: `${SHOTS}/desktop-booked.png` })
   const offers = await s.page.locator('[data-booked] a:has-text("Text it"), [data-booked] button:has-text("Calendar invite")').count()
@@ -194,6 +206,58 @@ async function desktop(browser) {
   check('desktop: no page errors', s.errors.length === 0, s.errors.join(' | '))
   await s.ctx.close()
   return { made1, made2, made3 }
+}
+
+/** The login id an access token names (no check of the signature: only to know who is signed in). */
+function jwtSub(t) { try { return JSON.parse(Buffer.from(String(t).split('.')[1], 'base64url').toString()).sub || null } catch { return null } }
+
+/**
+ * Signed in as another member of the booking team (e.g. Christa): a new
+ * booking starts "With" on her, from the + Appointment button on a computer and
+ * from a customer page on the phone (saved with her login on the server); opening
+ * the owner's appointment to change it keeps the owner.
+ */
+async function repDefault(browser, ownerAppt) {
+  console.log('\n── With: another team member signed in ──')
+  const team = (await api('/api/appointments/team')) || []
+  const rep = team.find(m => m.userId === jwtSub(REP_TOKEN))
+  const owner = team.find(m => m.isDefault)
+  if (!rep || rep.isDefault) { check('rep: the second login is on the booking team and not the owner', false, `token names ${jwtSub(REP_TOKEN)}`); return }
+  // Computer: the global + Appointment button.
+  let s = await open(browser, false, APP, REP_TOKEN)
+  await s.page.locator('[data-global-appointment]').click()
+  const dlg = s.page.locator('[data-booking-dialog]')
+  await dlg.waitFor()
+  const v1 = await dlg.locator('[data-field="person"]').inputValue()
+  check(`rep: computer, + Appointment starts "With" on ${rep.name}`, v1 === rep.userId, v1)
+  await dlg.locator('button[aria-label="Close"]').click()
+  // Changing the owner's appointment keeps the owner.
+  if (ownerAppt) {
+    await s.page.goto(`${APP}/?customer=${ownerAppt.crmContactId}`)
+    await s.page.locator('[data-next-badge]').click()
+    await dlg.waitFor()
+    const v2 = await dlg.locator('[data-field="person"]').inputValue()
+    const title = await dlg.locator('h2').innerText()
+    check(`rep: changing ${owner.name}'s appointment keeps ${owner.name}`, v2 === owner.userId && /Change appointment/.test(title), `${v2}, ${title}`)
+    await dlg.locator('button[aria-label="Close"]').click()
+  }
+  check('rep: computer, no page errors', s.errors.length === 0, s.errors.join(' | '))
+  await s.ctx.close()
+  // Phone: book from a customer page; saved with her login.
+  const pipeline = await api('/api/pipeline')
+  const list = await api('/api/appointments')
+  const l = pipeline.leads.find(x => x.stage === 'First Contact' && x.customerId && !list.some(a => a.crmContactId === x.customerId))
+  if (!l) { check('rep: a First Contact card with nothing booked to book on the phone', false); return }
+  s = await open(browser, true, `${APP}/?customer=${l.customerId}`, REP_TOKEN)
+  await s.page.locator('[data-book-appointment]').click()
+  const v3 = await s.page.locator('[data-booking-dialog] [data-field="person"]').inputValue()
+  check(`rep: phone, the customer page's Book appointment starts "With" on ${rep.name}`, v3 === rep.userId, v3)
+  await bookFirstSuggestion(s)
+  await s.page.locator('[data-booked] button:has-text("Done")').click(); await sleep(1500)
+  const made = (await api('/api/appointments')).find(a => a.crmContactId === l.customerId && !list.some(b => b.id === a.id))
+  check(`rep: phone, the booking is saved with ${rep.name}`, !!made && made.assignedToUserId === rep.userId && made.assignedTo === rep.name, made ? `${made.assignedTo} (${made.assignedToUserId})` : 'not found')
+  check('rep: phone, no page errors', s.errors.length === 0, s.errors.join(' | '))
+  await s.ctx.close()
 }
 
 function dayAhead(n) {
@@ -299,11 +363,12 @@ async function ensureCards(token, stage, need, onlyUnbooked = false) {
 }
 
 const browser = await chromium.launch()
-await ensureCards(TOKEN, 'First Contact', 3)
+await ensureCards(TOKEN, 'First Contact', REP_TOKEN ? 4 : 3, !!REP_TOKEN)
 await ensureCards(TOKEN, 'Appointment', 3, true)
 const only = process.env.E2E_ONLY || ''
 try {
-  if (!only || only === 'desktop') await desktop(browser)
+  const made = (!only || only === 'desktop') ? await desktop(browser) : null
+  if (REP_TOKEN && (!only || only === 'desktop' || only === 'rep')) await repDefault(browser, made?.made1)
   if (!only || only === 'phone') { await phone(browser); await phoneBooking(browser) }
 } catch (err) { check('test run finished', false, String(err?.stack || err).slice(0, 700)) }
 await browser.close()

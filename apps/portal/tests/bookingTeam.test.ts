@@ -9,7 +9,7 @@
 import { describe, test, expect } from 'vitest'
 import { bookingTeamOf, type StaffLogin } from '../src/server/lib/appointmentRep'
 import {
-  normalizeTeam, defaultMemberOf, memberOf, formerNamesOf, matchesPerson, memberKey, formerKey, isWith, homeOf, type TeamMember,
+  normalizeTeam, defaultMemberOf, newBookingMemberOf, memberOf, formerNamesOf, matchesPerson, memberKey, formerKey, isWith, homeOf, type TeamMember,
 } from '../../web/src/bookingTeamModel'
 import { withDefaults } from '../../web/src/appointmentLogic'
 
@@ -63,6 +63,13 @@ describe('reading the team on the screens (web)', () => {
     expect(team.map(m => m.userId)).toEqual(['owner', 'christa'])
     expect(defaultMemberOf(team)?.userId).toBe('owner')
     expect(defaultMemberOf([])).toBeNull()
+  })
+  test("a new booking starts on whoever is signed in when they are on the team (Christa books for herself), else the owner", () => {
+    expect(newBookingMemberOf(team, 'christa')?.userId).toBe('christa')
+    expect(newBookingMemberOf(team, 'owner')?.userId).toBe('owner')
+    expect(newBookingMemberOf(team, 'installer-not-on-team')?.userId).toBe('owner')
+    expect(newBookingMemberOf(team, null)?.userId).toBe('owner')
+    expect(newBookingMemberOf([], 'christa')).toBeNull()
   })
   test('the member an appointment is with: by the login kept on it, else by exact name', () => {
     expect(appts.map(a => memberOf(team, a)?.userId ?? null)).toEqual(['christa', 'owner', null, null, null, null])

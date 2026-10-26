@@ -37,7 +37,8 @@ import MapView, { type MapPoint } from './MapView'
 import { useBackLayer } from './nav'
 import { SaveStatus } from './SaveStatus'
 import { useBookingTeam } from './bookingTeamStore'
-import { defaultMemberOf, memberOf, isWith, homeOf } from './bookingTeamModel'
+import { newBookingMemberOf, memberOf, isWith, homeOf } from './bookingTeamModel'
+import { signedInUserId } from './crmAuth'
 
 export interface BookingRequest {
   customerId?: string
@@ -94,10 +95,15 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const [customerId, setCustomerId] = useState(existing?.crmContactId || req.customerId || '')
   const customer = customerId ? getCustomerById(customerId) : null
   const [type, setType] = useState<AppointmentType>(existing?.type || req.type || 'estimate')
-  // With: a login from the team (Settings > Team, bookingTeamStore.ts), the owner for a new booking.
+  // With: a login from the team (Settings > Team, bookingTeamStore.ts). A new booking starts on whoever is
+  // signed in when they are on the team, else the owner; a change keeps the appointment's own person.
   // An appointment whose person has left the team keeps that name until another person is picked.
   const team = useBookingTeam()
-  const [personId, setPersonId] = useState(() => (existing ? memberOf(team, existing) : defaultMemberOf(team))?.userId ?? '')
+  const [personId, setPersonId] = useState(() => (existing ? memberOf(team, existing) : newBookingMemberOf(team, signedInUserId()))?.userId ?? '')
+  // The team read arrived after the dialog opened: a new booking still starts on the right person.
+  useEffect(() => {
+    if (!existing && !personId && team.length) setPersonId(newBookingMemberOf(team, signedInUserId())?.userId ?? '')
+  }, [team])  // eslint-disable-line react-hooks/exhaustive-deps
   const member = team.find(m => m.userId === personId) ?? null
   const formerName = existing && !memberOf(team, existing) ? existing.assignedTo : ''
   const person = member?.name ?? (personId ? '' : formerName)
