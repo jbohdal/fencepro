@@ -3,7 +3,9 @@
  * recorded by Christa on Oct 21" / "No" / "Not asked", with Record yes
  * (verbal) and Record no. Read from the server each time the customer opens
  * and saved there (with who and when; every answer is kept in the history).
- * The app texts only a yes (apps/portal/src/server/lib/textConsent.ts).
+ * Texts the app sends by itself go only to a yes
+ * (apps/portal/src/server/lib/textConsent.ts); Text buttons that open your
+ * own phone's texting app work for anyone with a phone number.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -28,11 +30,6 @@ async function call(method: 'GET' | 'POST', customerId: string, body?: unknown):
   } catch (err) {
     throw Object.assign(new Error(plainThrown(err).message), { status: (err as any)?.status ?? 0 })
   }
-}
-
-/** The customer's texting answer (null when it cannot be read). Used before any customer text is opened. */
-export async function fetchTextConsent(customerId: string): Promise<ConsentData | null> {
-  try { return await call('GET', customerId) } catch { return null }
 }
 
 const pause = (ms: number) => new Promise(r => setTimeout(r, ms))

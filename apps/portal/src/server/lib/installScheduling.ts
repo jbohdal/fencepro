@@ -12,9 +12,10 @@
  * Google Calendar follows by itself (the schedule router asks for a sync after
  * every write); the crew packet, Dispatch and the customer portal read the job.
  *
- * The customer's text is only prepared here (installText), with whether this
- * customer may be texted (lib/textConsent.ts). Nothing is sent: the office
- * opens it on their own phone and sends it, or does not.
+ * The customer's text is only prepared here (installText). Nothing is sent:
+ * the office opens it on their own phone and sends it, or does not, so any
+ * customer with a phone number is offered it (no yes to texts needed; only
+ * texts the app sends by itself ask for one, lib/textConsent.ts).
  *
  * Rain day: every booked crew day on or after the day moves one crew day later
  * (rainDayMoves), each job's start and end follow, the rain log gets a row per
@@ -29,7 +30,6 @@ import { stageOfJob, phaseOf, stageById, firstStageFor, fieldsForStage, waitingS
 import { checkJobMove } from './automations/stageRules.js'
 import { recordJobChanges } from './automations/hooks.js'
 import { softDeleteLogged, type Actor } from './deletion.js'
-import { textAllowedTo } from './textConsent.js'
 import { staffLogins, loginByName } from './appointmentRep.js'
 import { floridaDay } from './automations/context.js'
 import { calendarStatus } from './calendarSync/index.js'
@@ -177,7 +177,7 @@ export interface PreparedText {
   /** As it would be sent to. */
   phone: string
   body: string
-  /** False: this customer may not be texted (no yes on record, or said no); `reason` says why. */
+  /** False: no phone number on the customer, so there is nothing to open; `reason` says so. */
   allowed: boolean
   reason: string | null
   /** Whose number the text gives: the job's salesman's Direct phone, or the company phone. */
@@ -191,13 +191,12 @@ async function textFor(accountId: string, job: Json, kind: 'scheduled' | 'moved'
   const rep = loginByName(c.staff, job.salesRep)
   const give = customerPhoneToGive(rep?.phone, c.company.phone)
   const firstName = (contact?.firstName || String(job.customerName || '').trim().split(/\s+/)[0] || '').trim()
-  const ok = await textAllowedTo(phone, accountId)
   // A repair or a move says so ("your fence repair is scheduled for ..."), from the job's quote's work.
   const q = job.quoteId ? await prisma.savedQuote.findUnique({ where: { id: String(job.quoteId) }, select: { work: true } }).catch(() => null) : null
   return {
     jobId: job.id, customerName: job.customerName, phone,
     body: installText(kind, { company: c.company.name, firstName, start, phone: give.phone, work: workKindOf(q?.work) }),
-    allowed: ok.allowed, reason: ok.reason, callFrom: give.from,
+    allowed: !!phone, reason: phone ? null : 'No phone number on the customer.', callFrom: give.from,
   }
 }
 

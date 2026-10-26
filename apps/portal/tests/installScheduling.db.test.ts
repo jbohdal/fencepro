@@ -7,7 +7,8 @@
  *   - scheduling a 3 crew day job started Thursday fills Thu, Mon, Tue (crew
  *     days Monday to Thursday), moves it to Scheduled, sets its start, end,
  *     crew and days, puts one board entry per day and bumps the board;
- *   - the text is prepared (and held back: the customer has not said yes);
+ *   - the text is prepared and offered (no yes to texts needed: the office
+ *     sends it from its own phone);
  *   - moving it keeps its crew days; fewer days takes the extra entry off;
  *   - a rain day moves it and everything after, and logs it;
  *   - taking it off clears the dates and the entries and puts it back.
@@ -83,13 +84,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Scheduling installs (dev databas
     expect((await S.readyToSchedule(accountId)).map(j => j.id)).toEqual([])
   })
 
-  test('the text is prepared word for word, and held back without a yes to texts', async () => {
+  test('the text is prepared word for word, and offered to any customer with a phone (no yes to texts needed: the office sends it from their own phone)', async () => {
     const r = await S.scheduleInstall(accountId, actor(), { jobId: ids.ready, start: '2026-10-29', crew: 'c2', days: 3 })
     expect(r.text.body).toBe('Getter Done Fence: Hi Kristi, your fence installation has moved and is now scheduled to start on Thursday, 10/29/2026. Our crew will arrive in the morning. Questions? Call (352) 789 4314. Reply STOP to opt out.')
-    expect(r.text.allowed).toBe(false)
-    expect(r.text.reason).toMatch(/has not agreed to texts/)
-    await prisma.crmContact.update({ where: { id: ids.contact }, data: { textConsent: 'yes' } })
+    expect([r.text.allowed, r.text.reason]).toEqual([true, null])
+    // Said no: still offered (a text they send themselves, not one the app sends).
+    await prisma.crmContact.update({ where: { id: ids.contact }, data: { textConsent: 'no' } })
     expect((await S.scheduleInstall(accountId, actor(), { jobId: ids.ready, start: '2026-10-29', crew: 'c2' })).text.allowed).toBe(true)
+    await prisma.crmContact.update({ where: { id: ids.contact }, data: { textConsent: 'unknown' } })
   })
 
   test('a start on a Friday moves to Monday; the days booked are kept on a move; fewer days takes one off', async () => {

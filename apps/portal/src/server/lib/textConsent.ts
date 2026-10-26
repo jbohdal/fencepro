@@ -7,9 +7,13 @@
  * row in one save, so the two never disagree. Nothing is ever edited in the
  * history: a yes then a no are two rows.
  *
- * Sending: every text the app would send to a customer asks textAllowedTo
- * first (lib/sms.ts, automations' prepared texts). Only a customer whose
- * answer is yes is texted; anything else is held back with the reason.
+ * Sending: every text the app sends by itself asks textAllowedTo first
+ * (lib/sms.ts for Twilio texts and follow ups, automations' prepared texts).
+ * Only a customer whose answer is yes is texted; anything else is held back
+ * with the reason. A Text button that opens the person's own texting app
+ * (install, proposal, receipt, follow up, card, customer and job pages) is
+ * not gated: it works for any customer with a phone number (Jonathan,
+ * Oct 26 2026).
  */
 
 import prisma from './prisma.js'

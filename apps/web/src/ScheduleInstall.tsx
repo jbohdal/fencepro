@@ -11,8 +11,8 @@
  *                          A scheduled job: Move, or Take off the schedule.
  *   InstallTextSheet       The customer's text, prepared and shown; the office
  *                          opens it on their own phone and sends it, or not.
- *                          Never sent by the app. A customer who has not said
- *                          yes to texts (or said no) is not offered it.
+ *                          Never sent by the app, so every customer with a
+ *                          phone number is offered it.
  *   MoveInstallConfirm     A booked install dragged to another day: move it?
  *   RainDayDialog          A rain day: what moves (one crew day later, from
  *                          that day on), then move it and the texts.
@@ -369,10 +369,7 @@ export function TextPreview({ text }: { text: PreparedText }) {
       {text.allowed && text.phone ? (
         <a href={smsLink(text.phone, text.body)} className="btn btn-primary w-full min-h-[48px]" data-install-text-open>Open the text to send</a>
       ) : (
-        <div className="space-y-1" data-install-text-blocked>
-          <p className="text-sm text-red-800">{text.reason || 'No phone number on the customer.'}</p>
-          {text.phone && <p className="text-sm text-gray-800">To tell them anyway, call them: <a href={`tel:${text.phone.replace(/[^\d+]/g, '')}`} className="font-semibold text-orange-700 underline" data-install-text-call>{phoneWords(text.phone)}</a></p>}
-        </div>
+        <p className="text-sm text-red-800" data-install-text-blocked>{text.reason || 'No phone number on the customer.'}</p>
       )}
       {text.callFrom === 'company' && <p className="text-[11px] text-gray-500">The text gives the company number: the job's salesman has no Direct phone in Settings {'>'} Team.</p>}
     </div>

@@ -48,7 +48,7 @@ export function CustomerContact({ job }: { job: Job }) {
         <a href={telHref(phone)} onClick={() => touch('call')} className="inline-flex items-center gap-1 min-h-[44px] px-2 font-semibold text-blue-700 hover:underline whitespace-nowrap" aria-label={`Call ${formatPhone(phone)}`} data-job-call>
           <Phone size={16} aria-hidden="true" />{formatPhone(phone)}
         </a>
-        <TextButton phone={phone} customerId={job.customerId} name={job.customerName} firstName={job.customerName} onTap={() => touch('text')} className="inline-flex items-center gap-1 min-h-[44px] px-2 rounded-lg border border-gray-200 text-gray-800 hover:bg-gray-50" aria-label={`Text ${formatPhone(phone)}`} data-job-text>
+        <TextButton phone={phone} name={job.customerName} firstName={job.customerName} onTap={() => touch('text')} className="inline-flex items-center gap-1 min-h-[44px] px-2 rounded-lg border border-gray-200 text-gray-800 hover:bg-gray-50" aria-label={`Text ${formatPhone(phone)}`} data-job-text>
           <MessageSquare size={16} aria-hidden="true" />Text
         </TextButton>
       </span>

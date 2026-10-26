@@ -2,8 +2,9 @@
  * Texting consent: the words and the plain rules, no database, so the web app
  * (the customer page and the website quote) and the server share them.
  *
- * A customer's answer is yes, no or unknown ("Not asked"). The app texts only
- * a yes (lib/textConsent.ts). A yes or no is recorded by a team member (they
+ * A customer's answer is yes, no or unknown ("Not asked"). Texts the app sends
+ * by itself go only to a yes (lib/textConsent.ts); a Text button that opens
+ * your own phone's texting app works for anyone with a phone number. A yes or no is recorded by a team member (they
  * asked on the phone or in person: verbal) or by the customer on the website
  * quote (the checkbox below: website_checkbox).
  */

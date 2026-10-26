@@ -926,7 +926,7 @@ function CustomerActionBar({ customer, onNewQuote, onEdit }: { customer: Custome
       <a href={phone ? telHref(phone) : undefined} onClick={() => touchCustomer(customer, 'call')} aria-disabled={!phone} data-customer-action="call" className={`${plain} ${phone ? '' : off}`}>
         <Phone size={20} aria-hidden="true" />Call
       </a>
-      <TextButton phone={phone} customerId={customer.id} firstName={customer.firstName} name={`${customer.firstName} ${customer.lastName}`.trim()} onTap={() => touchCustomer(customer, 'text')} data-customer-action="text" className={`${plain} ${phone ? '' : off}`}>
+      <TextButton phone={phone} firstName={customer.firstName} name={`${customer.firstName} ${customer.lastName}`.trim()} onTap={() => touchCustomer(customer, 'text')} data-customer-action="text" className={`${plain} ${phone ? '' : off}`}>
         <MessageSquare size={20} aria-hidden="true" />Text
       </TextButton>
       <a href={address ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}` : undefined} target="_blank" rel="noreferrer" aria-disabled={!address} data-customer-action="navigate" className={`${plain} ${address ? '' : off}`}>
@@ -1366,7 +1366,7 @@ function CustomerDetail({
                 <button onClick={() => onNewQuote(customer)} className="btn btn-primary btn-sm" data-customer-action="new-quote"><FilePlus2 size={16} aria-hidden="true" /> New quote</button>
                 {/* Under 1280 px the four smaller ones are icons (named for screen readers and on hover), so the name keeps its room. */}
                 {customer.phone && <a href={telHref(customer.phone)} onClick={() => touchCustomer(customer, 'call')} className="btn btn-secondary btn-sm" title="Call" data-customer-action="call"><Phone size={16} aria-hidden="true" /><span className="sr-only xl:not-sr-only"> Call</span></a>}
-                {customer.phone && <TextButton phone={customer.phone} customerId={customer.id} firstName={customer.firstName} name={name} onTap={() => touchCustomer(customer, 'text')} className="btn btn-secondary btn-sm" data-customer-text data-customer-action="text"><MessageSquare size={16} aria-hidden="true" /><span className="sr-only xl:not-sr-only"> Text</span></TextButton>}
+                {customer.phone && <TextButton phone={customer.phone} firstName={customer.firstName} name={name} onTap={() => touchCustomer(customer, 'text')} className="btn btn-secondary btn-sm" data-customer-text data-customer-action="text"><MessageSquare size={16} aria-hidden="true" /><span className="sr-only xl:not-sr-only"> Text</span></TextButton>}
                 <button onClick={() => openBooking({ customerId: customer.id })} data-book-appointment data-customer-action="book" title="Book appointment" className="btn btn-secondary btn-sm"><CalendarPlus size={16} aria-hidden="true" /><span className="sr-only xl:not-sr-only"> Book</span></button>
                 <button onClick={onEdit} className="btn btn-quiet btn-sm" title="Edit customer" data-customer-action="edit"><Pencil size={16} aria-hidden="true" /><span className="sr-only xl:not-sr-only"> Edit</span></button>
                 {moreMenu}
