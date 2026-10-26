@@ -17,6 +17,7 @@ import ScreenErrorBoundary from './ScreenErrorBoundary'
 import PhoneLink from './PhoneLink'
 import { AUTOMATIC_SOURCES, sourceFor } from './optionListsStore'
 import { styleLabel } from './fenceCatalog'
+import { jobStyleOrWork } from './jobWork'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   type PipelineLead,
@@ -824,7 +825,8 @@ function PipelineCard({
         <p className="text-sm font-bold text-emerald-600 shrink-0">{fmtUSD(value)}</p>
       </div>
       <p className="text-xs text-gray-500 truncate">
-        {city}{lead.fenceType ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{styleLabel(lead.fenceType)}</span></> : null}
+        {/* A repair or a move: its work from the card's quote ("Repair: 1 × Rehang a gate…"), not the fence style. */}
+        {city}{lead.fenceType || lead.quoteId ? (() => { const t = jobStyleOrWork({ fenceStyle: lead.fenceType, quoteId: lead.quoteId }); return t ? <> · <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded" data-card-work>{t}</span></> : null })() : null}
       </p>
       {phone && (
         // Tapping calls without opening the card. A press held on it still
