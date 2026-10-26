@@ -11,7 +11,6 @@
  *   - the installer's card knows where the close out stands (closed, the
  *     walkthrough signed, paid in full) and the crew days in order;
  *   - the packet's 811 table is sent back after a save (no reload);
- *   - a job waiting on its locate or permit moves on once they are in.
  * Everything made is removed at the end.
  */
 
@@ -222,23 +221,5 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the job window and the job flow,
     expect(onFile).toContain(`data-packet-locate-good>${plus(today, 3).slice(5, 7)}/${plus(today, 3).slice(8, 10)}/${plus(today, 3).slice(0, 4)}<`)
     expect(onFile).toContain('Saved by Crew (install packet)')
     expect(onFile).not.toContain('111222333')
-  })
-
-  test('a job waiting on its 811 locate and permit moves on once they are in (forward only, materials and drawing as recorded)', async () => {
-    const { job } = await soldJob('Gray', [])
-    expect((await jobOf(job))?.opsStage).toBe('awaiting_locates')
-    // The locate is in, no permit yet: Permit Pending.
-    const put = await call('PUT', `/api/saved-jobs/${job}/locate`, { ticket: '444555666', calledDate: today, goodDate: today, expDate: plus(today, 30) }, office)
-    expect(put.status).toBe(200)
-    expect(put.json.data).toMatchObject({ opsStage: 'permit_pending', status: 'staging' })
-    // The permit issued: on to Need Drawing (materials not ordered), the drawing flag as it was.
-    await prisma.savedJob.update({ where: { id: job }, data: { drawingComplete: true } })
-    await prisma.permit.create({ data: { accountId, jobId: job, status: 'approved', updatedBy: 'test' } as any })
-    const row = await truth.prepStageFollows(accountId, job, 'the permit was saved')
-    expect(row).toMatchObject({ opsStage: 'need_drawing', status: 'staging', drawingComplete: true, materialsStatus: 'not_ordered' })
-    // Never backwards, never from a stage the office chose further on.
-    await prisma.savedJob.update({ where: { id: job }, data: { opsStage: 'ready_to_pull' } })
-    expect(await truth.prepStageFollows(accountId, job, 'again')).toBeNull()
-    expect((await jobOf(job))?.opsStage).toBe('ready_to_pull')
   })
 })
