@@ -24,7 +24,7 @@ export async function estimateVisitsAfterSigning(accountId: string, quoteId: str
   if (!q?.crmContactId) return { done: [], future: [] }
   // Only visits booked before this sale (a visit booked after it is for something new).
   const signedAt = q.acceptedAt ?? q.soldAt ?? now
-  const visits = await prisma.appointment.findMany({ where: { accountId, crmContactId: q.crmContactId, type: 'estimate', status: { in: OPEN }, startAt: { not: null }, createdAt: { lte: signedAt } } })
+  const visits = await prisma.appointment.findMany({ where: { accountId, crmContactId: q.crmContactId, deletedAt: null, type: 'estimate', status: { in: OPEN }, startAt: { not: null }, createdAt: { lte: signedAt } } })
   const done: string[] = [], future: string[] = []
   for (const v of visits) {
     if (v.startAt! <= now) {
