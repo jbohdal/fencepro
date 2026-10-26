@@ -416,6 +416,25 @@ async function contactOrNone(req: any) {
   return contact && contact.accountId === req.user.crmAccountId && !contact.deletedAt ? contact : null
 }
 
+/**
+ * Where a customer named in a link is: on the list, archived, deleted (in
+ * Settings > Deleted Records until restored or emptied) or not there at all.
+ * The customer page says so instead of a bare "No customer selected" (review,
+ * Oct 26 2026). Only this account's customers; anything else is "missing".
+ */
+router.get('/:id/whereabouts', requireAccount, async (req: any, res) => {
+  try {
+    const c = await prisma.crmContact.findUnique({ where: { id: String(req.params.id) }, select: { accountId: true, firstName: true, lastName: true, deletedAt: true, archivedAt: true } })
+    if (!c || c.accountId !== req.user.crmAccountId) { res.json({ success: true, data: { state: 'missing' } }); return }
+    const name = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim()
+    const state = c.deletedAt ? 'deleted' : c.archivedAt ? 'archived' : 'active'
+    res.json({ success: true, data: { state, name, deletedAt: c.deletedAt?.toISOString() ?? null } })
+  } catch (err) {
+    console.error('[crm-contacts] whereabouts error:', err)
+    res.status(500).json({ success: false, error: 'Could not look up the customer' })
+  }
+})
+
 // The customer's answer now, and every answer before it.
 router.get('/:id/text-consent', requireAccount, async (req: any, res) => {
   try {
