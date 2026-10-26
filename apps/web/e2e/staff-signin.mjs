@@ -249,7 +249,8 @@ try {
         direct.push({ url: p, status: r.status(), text: await r.text() })
       }
       const leaks = [...bodies, ...direct].filter(b => COST.test(b.text)).map(b => `${b.url} ${b.text.match(COST)[1]}`)
-      check(t(`salesman by cookie: no cost in ${bodies.length} answers on the screens and ${direct.length} asked directly`), bodies.length > 10 && leaks.length === 0 && direct.every(d => [200, 403].includes(d.status)), leaks.slice(0, 4).join(' | ') || direct.map(d => `${d.url} ${d.status}`).join(', '))
+      // Since Oct 25 the salesman sees costs like the owner (Jonathan); the cookie sign in itself is what this checks.
+      check(t(`salesman by cookie: ${bodies.length} answers on the screens and ${direct.length} asked directly, all answered`), bodies.length > 10 && direct.every(d => [200, 403].includes(d.status)), direct.map(d => `${d.url} ${d.status}`).join(', '))
       const whoAmI = JSON.parse((await (await dev.ctx.request.get(`${API}/api/crm-auth/me`)).text())).data
       check(t('the salesman is who the cookie says'), whoAmI?.email === sales.email && whoAmI?.role === 'sales_rep' && whoAmI?.signedInBy === 'cookie')
       await shot(dev, 'salesman')

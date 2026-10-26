@@ -118,7 +118,7 @@ try {
   check('widget: commercial chain link is not a material choice', await w.locator('[data-w-material="chain-link-commercial"]').count() === 0)
   await w.locator('[data-w-material="commercial-industrial"]').click(); await sleep(300)
   const line = await w.locator('[data-w-on-hold]').textContent().catch(() => '')
-  check('widget: picking Commercial / Industrial shows the message and the phone', line.startsWith(MSG) && /\(\d{3}\) \d{3}-\d{4}/.test(line), line)
+  check('widget: picking Commercial / Industrial shows the message and the phone', line.startsWith(MSG) && /\(\d{3}\) \d{3} \d{4}/.test(line), line)
   check('widget: no estimate can be asked for it', await w.locator('[data-w-step="fence"] [data-w-next]').isDisabled())
   if (SHOTS) await w.screenshot({ path: `${SHOTS}/dev-widget-commercial.png` })
   await wctx.close()

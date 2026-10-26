@@ -222,7 +222,8 @@ async function salesmanDates(browser) {
   await page.waitForSelector('[data-tasks]', { timeout: 20000 }).catch(() => {})
   await sleep(1500)
   const tasks = await page.locator('[data-tasks]').innerText().catch(() => '')
-  check('salesman (iPhone): Today\'s tasks have real dates, no "Invalid Date"', tasks.length > 0 && !/Invalid Date/.test(tasks) && /due|overdue/.test(tasks), tasks.split('\n').slice(0, 4).join(' / '))
+  // Since Oct 25 Today lists only her own tasks (often none): no "Invalid Date" anywhere, and real dates wherever tasks show.
+  check('salesman (iPhone): Today\'s tasks have real dates, no "Invalid Date"', !/Invalid Date/.test(tasks) && (/Nothing on your list/.test(tasks) || /due|overdue/.test(tasks)), tasks.split('\n').slice(0, 4).join(' / '))
   await shot(page, 'phone-3-salesman-tasks')
   // The photo dates as her phone gets them (the cost filter used to turn every date into {}).
   const photos = await (await ctx.request.get(`${API}/api/portal/customer/${made.contact}/photos`, { headers: { 'X-Staff-Request': '1' } })).json().catch(() => null)

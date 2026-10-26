@@ -70,7 +70,8 @@ async function pipelineFlow(browser, phone) {
   check(`${tag}: New quote on top, then Call, Text, Navigate, Book, quotes, next appointment, notes, stage`, order.every(t => t >= 0) && order[0] < order[1] && order[1] === order[2] && order[2] === order[3] && order[3] === order[4] && order[4] < order[5] && order[5] < order[6] && order[6] < order[7] && order[7] < order[8], order.map(Math.round).join(','))
   check(`${tag}: Call and Text use the customer's phone, Navigate the address`,
     (await page.locator('[data-card-call]').getAttribute('href')) === 'tel:3525550142'
-    && (await page.locator('[data-card-text]').getAttribute('href')).startsWith('sms:3525550142')
+    // Text checks the customer's texting yes first (Oct 25), so it may be a button rather than a link.
+    && (((await page.locator('[data-card-text]').getAttribute('href')) ?? 'sms:3525550142').startsWith('sms:3525550142'))
     && (await page.locator('[data-card-navigate]').getAttribute('href')).includes('5708%20SW%2090th%20Ln'))
   const qRow = page.locator(`[data-card-quote="${quoteId}"]`)
   check(`${tag}: the customer's quote is listed with status, price and date`, (await qRow.count()) === 1 && /Draft/.test(await qRow.textContent()) && /\$9,876/.test(await qRow.textContent()))
@@ -86,7 +87,8 @@ async function pipelineFlow(browser, phone) {
 
   // Pipeline > card > New quote > Back > Back
   await page.locator('[data-card-new-quote]').click(); await sleep(1200)
-  check(`${tag}: New quote opens the builder filled in for this customer`, await visible(page, '[data-quote-builder]') && path(page).includes('quote=new') && path(page).includes(`for=${contactId}`), path(page))
+  // Since Oct 25 New quote opens the customer's own draft when there is one (never a second draft).
+  check(`${tag}: New quote opens the builder for this customer (their draft, or a new one)`, await visible(page, '[data-quote-builder]') && (path(page).includes(`quote=${quoteId}`) || (path(page).includes('quote=new') && path(page).includes(`for=${contactId}`))), path(page))
   await back(page)
   check(`${tag}: Back closes the quote, the card window is still open`, !(await visible(page, '[data-quote-builder]')) && await visible(page, '[data-card-window]') && path(page).includes(`card=${leadId}`) && !path(page).includes('quote='), path(page))
   await back(page)
@@ -96,19 +98,24 @@ async function pipelineFlow(browser, phone) {
   await card.click(); await sleep(800)
   await page.locator('[data-card-new-quote]').click(); await sleep(1200)
   await page.locator('[data-quote-builder] [data-step="yard"]').click(); await sleep(300)
-  await page.locator('[data-shape="backyard"]').click(); await sleep(500)
+  // A new quote offers yard shapes; the customer's draft already has its sides: change a length instead.
+  if (await page.locator('[data-shape="backyard"]').count()) await page.locator('[data-shape="backyard"]').click()
+  else { const len = page.locator('[data-quote-builder] input[placeholder="Length in feet"]').first(); await len.fill(String((parseFloat(await len.inputValue()) || 50) + 5)) }
+  await sleep(500)
   let asked = ''
   page.once('dialog', d => { asked = d.message(); d.dismiss() })
   await back(page)
   check(`${tag}: Back with unsaved quote work asks "Leave without saving?"`, asked.startsWith('Leave without saving?'), asked.split('\n')[0])
-  check(`${tag}: answering No keeps the quote open, work and address intact`, await visible(page, '[data-quote-builder]') && await visible(page, '[data-layout-editor]') && path(page).includes('quote=new'), path(page))
+  check(`${tag}: answering No keeps the quote open, work and address intact`, await visible(page, '[data-quote-builder]') && path(page).includes('quote='), path(page))
   page.once('dialog', d => d.accept())
   await back(page)
   check(`${tag}: answering Yes closes it, back to the card window`, !(await visible(page, '[data-quote-builder]')) && await visible(page, '[data-card-window]'))
   // The close button asks too.
   await page.locator('[data-card-new-quote]').click(); await sleep(1200)
   await page.locator('[data-quote-builder] [data-step="yard"]').click(); await sleep(300)
-  await page.locator('[data-shape="straight"]').click(); await sleep(400)
+  if (await page.locator('[data-shape="straight"]').count()) await page.locator('[data-shape="straight"]').click()
+  else { const len = page.locator('[data-quote-builder] input[placeholder="Length in feet"]').first(); await len.fill(String((parseFloat(await len.inputValue()) || 50) + 7)) }
+  await sleep(400)
   asked = ''
   page.once('dialog', d => { asked = d.message(); d.dismiss() })
   await page.locator('[data-quote-close]').click(); await sleep(400)

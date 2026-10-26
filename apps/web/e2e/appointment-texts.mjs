@@ -256,7 +256,7 @@ async function desktopRun(browser) {
   check(`${s.tag}: the save is in the Change log`, Number(audit) >= 1, audit)
 
   const edited = await book(s, full(REPS.alpha))
-  check(`${s.tag}: the Booked text uses the edited template`, edited.text === `Getter Done Fence: Hi Kristi! Testrep from Getter Done Fence will see you ${WHEN}. Questions: (352) 555 0142 Reply STOP to opt out.`, edited.text)
+  check(`${s.tag}: the Booked text uses the edited template`, edited.text === `Getter Done Fence: Hi Kristi! Testrep from Getter Done Fence will see you ${WHEN}. Questions: (352) 555 0142. Reply STOP to opt out.`, edited.text)
 
   // My profile opens with the signed in person's Direct phone box (not saved: that is Jonathan's real row).
   await home(s)
@@ -332,7 +332,7 @@ async function phoneRun(browser) {
   const s = await open(browser, true)
   // Edited on the desktop: the phone gets it from the server.
   const r = await book(s, full(REPS.alpha), 'booked-edited')
-  check(`${s.tag}: the edited template reached the phone`, r.text === `Getter Done Fence: Hi Kristi! Testrep from Getter Done Fence will see you ${WHEN}. Questions: (352) 555 0142 Reply STOP to opt out.`, r.text)
+  check(`${s.tag}: the edited template reached the phone`, r.text === `Getter Done Fence: Hi Kristi! Testrep from Getter Done Fence will see you ${WHEN}. Questions: (352) 555 0142. Reply STOP to opt out.`, r.text)
   check(`${s.tag}: "Text it" sends the same words`, r.smsBody === r.text)
 
   const none = await book(s, full(REPS.nophone))

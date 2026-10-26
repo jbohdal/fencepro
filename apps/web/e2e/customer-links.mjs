@@ -228,7 +228,8 @@ async function run(phone) {
     await s.press(b.locator('[data-step="price"]').first())
     await s.press(s.page.locator('[data-save-open]:visible').first())
     await s.page.locator('[data-quote-property-address]').waitFor({ timeout: 10000 })
-    check(`${size}: Save quote opens with the card's customer picked`, (await s.page.locator('[data-clear-customer]').count()) === 1)
+    // Since Oct 25 a quote opened from a customer shows "Quote for <name>" with Change customer.
+    check(`${size}: Save quote opens with the card's customer picked`, (await s.page.locator('[data-save-change-customer], [data-clear-customer]').count()) >= 1)
     await s.press(s.page.locator('[data-save-submit]'))
     const qx = await until(async () => ((await call('GET', '/api/saved-quotes')).json.data ?? []).find(q => q.crmContactId === X.id || q.crmContactId === Y.id))
     if (qx) made.quotes.push(qx.id)

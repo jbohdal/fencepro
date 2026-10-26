@@ -100,7 +100,9 @@ try {
   check('signing saved the quoted cost once, in cents, as priced', snap === wantSnap, `${snap} vs ${wantSnap}`)
   made.jobId = await until(async () => ((await owner('GET', '/api/saved-jobs')).json.data ?? []).find(j => j.quoteId === quoteId)?.id)
   check('the signed quote became a job', !!made.jobId)
-  await owner('PATCH', `/api/saved-jobs/${made.jobId}`, { scheduledDate: '2026-10-15', crewAssigned: 'E2E crew' })
+  // Booked for today: the installer only gets his own installs (today or later, or ones he started), Oct 25.
+  const todayFl = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  await owner('PATCH', `/api/saved-jobs/${made.jobId}`, { scheduledDate: todayFl, crewAssigned: 'E2E crew' })
 
   // ── 3. The installer ──
   const inv = await owner('POST', '/api/crm-auth/invite', { firstName: 'E2E', lastName: `Installer ${stamp}`, email: EMAIL, role: 'field_crew' })
@@ -263,7 +265,8 @@ try {
   const jc = (await owner('GET', `/api/job-costing/job/${made.jobId}`)).json.data
   const a = jc.comparison.actual, qd = jc.comparison.quoted
   const extraRow = jc.comparison.rows.find(r => r.extra)
-  check('actual cost frozen: used x landed cost + sub sections paid x rate + other labor', jc.actualCost?.frozen === true && a.totalCents === a.materialCents + a.laborCents + a.tearOutCents + a.otherMaterialCents && /sections paid × \$[\d.]+ \+ \$40\.00 other labor/.test(a.laborMath), a.laborMath)
+  // Gate sub pay is counted since Oct 25 (it was being dropped).
+  check('actual cost frozen: used x landed cost + sub sections paid x rate + gate sub pay + other labor', jc.actualCost?.frozen === true && a.totalCents === a.materialCents + a.laborCents + a.tearOutCents + a.otherMaterialCents && /sections paid × \$[\d.]+ (\+ \$[\d.,]+ gates and other sub work as quoted )?\+ \$40\.00 other labor/.test(a.laborMath), a.laborMath)
   check('quoted cost is the quote as signed', qd.totalCents === Math.round(template.totalCOGS * 100) && qd.priceCents === Math.round(template.finalPrice * 100))
   check('line by line: the post +1, pickets −4 (4 back to shop), the added item', jc.comparison.rows.some(r => r.part === postPart && r.qtyDiff === 1) && jc.comparison.rows.some(r => r.part === pick && r.qtyDiff === -4 && r.shopReturnQty === 4) && !!extraRow && extraRow.usedQty === 1)
   await op.locator('button[aria-label="Close the takeoff"]').click()

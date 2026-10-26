@@ -199,6 +199,8 @@ async function makeCustomer() {
   })
   made.contactId = r.json.data?.contact?.id ?? r.json.data?.id ?? null
   if (made.contactId) made.cardId = cardId
+  // Text opens only with a texting yes on record (Oct 25): this test customer said yes.
+  if (made.contactId) await owner('POST', `/api/crm-contacts/${made.contactId}/text-consent`, { consent: 'yes' })
   return made.contactId
 }
 

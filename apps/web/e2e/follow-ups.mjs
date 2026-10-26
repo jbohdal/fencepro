@@ -113,6 +113,8 @@ try {
   A = await makeSalesman('A')
   B = await makeSalesman('B')
   c1 = await makeCard('Fiona', `Callback ${stamp}`, A.name, '3525550161')
+  // Texts open only with a texting yes on record (Oct 25): Fiona said yes on the phone.
+  await owner('POST', `/api/crm-contacts/${c1.contactId}/text-consent`, { consent: 'yes' })
   c2 = await makeCard('Gary', `Lostsale ${stamp}`, A.name, '3525550162')
   c3 = await makeCard('Hana', `Nosignal ${stamp}`, A.name, '3525550163')
   c4 = await makeCard('Ivan', `Other ${stamp}`, B.name, '3525550164')
@@ -250,10 +252,10 @@ try {
   // Text templates: the phone's own texting app, the first name filled in.
   await tap(page.locator(`[data-follow-up-row="${c1.id}"] [data-follow-up-text]`))
   const tpl = page.locator('[data-text-templates] [data-template="checking-in"]')
-  check('text template: the customer\'s first name is filled in', (await tpl.locator('[data-template-body]').innerText()).startsWith('Hi Fiona,'))
+  check('text template: the customer\'s first name is filled in', (await tpl.locator('[data-template-body]').innerText()).startsWith('Getter Done Fence: Hi Fiona,'))
   await shot(page, 'dev-followup-text-template')
   const href = await tpl.getAttribute('href')
-  check('text template: opens the texting app with the message ready (sms:), nothing sent by the app', href.startsWith('sms:3525550161?body=Hi%20Fiona'), href.slice(0, 60))
+  check('text template: opens the texting app with the message ready (sms:), nothing sent by the app', (href || '').startsWith('sms:3525550161?body=Getter%20Done%20Fence%3A%20Hi%20Fiona'), (href || '').slice(0, 80))
   if (CDP) await page.locator('[data-text-templates] button[aria-label="Close"]').click()
   else { await tap(tpl); await leaveAndReturn() }
   if (!CDP) {

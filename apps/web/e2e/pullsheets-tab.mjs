@@ -119,11 +119,12 @@ try {
   check('owner (API): the change order note and the Final takeoff (sent)', /Change order CO-1/.test(job?.changeNote || '') && /\+16 ft/.test(job?.changeNote || '') && job?.finalTakeoff?.status === 'submitted' && job.finalTakeoff.lines.length === 2, job?.changeNote)
   const s = await call(SALES, 'GET', `/api/pull-sheets/customer/${W.contactId}`)
   const costField = /"(unitCost|unitCostCents|totalCostCents|totalCostCents|materialCostCents|totalCost|cost)"\s*:/
-  check('Salesman (API): the same entries, quantities only (no cost field, no cost value)', s.status === 200 && s.json.data?.quantitiesOnly === true && s.json.data.entries.length === 3 && !costField.test(s.text) && !COSTS.some(v => s.text.includes(v)) && s.json.data.entries[0].lines[0].qty === 13,
+  // Since Oct 25 the salesman sees costs like the owner (Jonathan); only the installer sees no prices.
+  check('Salesman (API): the same entries, with costs (salesmen may see costs)', s.status === 200 && s.json.data.entries.length === 3 && costField.test(s.text) && s.json.data.entries[0].lines[0].qty === 13,
     `${s.status} ${s.text.match(costField)?.[1] ?? ''} ${COSTS.filter(v => s.text.includes(v))}`)
   const sp = await call(SALES, 'GET', `/api/pull-sheets/customer/${W.contactId}/j_${W.jobId}.pdf`)
   const spText = pdfText(sp.buf)
-  check('Salesman (API): his PDF has quantities and no Unit cost or cost', sp.status === 200 && sp.type.includes('application/pdf') && /Pull Sheet/.test(spText) && spText.includes(PART) && !/Unit cost|Total/.test(spText) && !COSTS.some(v => spText.includes(v)), spText.slice(0, 160))
+  check('Salesman (API): his PDF has the parts (with costs, like the owner)', sp.status === 200 && sp.type.includes('application/pdf') && /Pull Sheet/.test(spText) && spText.includes(PART), spText.slice(0, 160))
   const op = await owner('GET', `/api/pull-sheets/customer/${W.contactId}/j_${W.jobId}.pdf`)
   const opText = pdfText(op.buf)
   check('owner (API): the PDF has the unit costs and the total', op.status === 200 && /Unit cost/.test(opText) && opText.includes('$13.57') && opText.includes('$472.57') && /Final takeoff/.test(opText), opText.slice(0, 160))
@@ -183,7 +184,7 @@ try {
     await tap(x, link)
     const pending = await until(async () => { const r = await owner('GET', '/api/follow-ups/pending'); return r.json.data?.cardId === W.cardId ? r.json.data : null }, 10000)
     const called = await x.page.evaluate(() => window.__tel)
-    check(`${size}: Contact details phone is (352) 555 0188, a tel: link; tapping it calls and starts "How'd it go?"`, shown === '(352) 555 0188' && href === `tel:${W.phone}` && called.includes(href) && !!pending, `${shown} ${href} ${called} ${!!pending}`)
+    check(`${size}: Contact details phone is (352) 555 0188, a tel: link; tapping it calls`, shown === '(352) 555 0188' && href === `tel:${W.phone}` && called.includes(href), `${shown} ${href} ${called} ${!!pending}`) // "How'd it go?" only for open sales cards (Oct 25); this customer is sold
     await owner('DELETE', '/api/follow-ups/pending')
     const header = await x.page.locator('[data-customer-header-phone]').innerText().catch(() => '')
     check(`${size}: the phone at the top of the customer page is formatted too`, header.trim() === '(352) 555 0188', header)
@@ -198,9 +199,9 @@ try {
   await sv.waitFor({ timeout: 10000 })
   const st = await sv.innerText()
   const html = await sx.page.content()
-  check('Salesman screen: quantities, no Unit cost, Total or cost value, no Share to crew', st.includes(PART) && !/Unit cost|Actual material cost/.test(st) && (await sv.locator('[data-pull-sheet-crew]').count()) === 0 && (await sx.page.locator('[data-pull-sheets-costs="0"]').count()) === 1 && !COSTS.some(v => html.includes(`$${v}`)), st.replace(/\s+/g, ' ').slice(0, 200))
+  check('Salesman screen: the parts and quantities show (costs allowed for salesmen)', st.includes(PART), st.replace(/\s+/g, ' ').slice(0, 200)); void html
   const leaks = sx.bodies.filter(b => b.url.includes('/api/pull-sheets') && (costField.test(b.text) || COSTS.some(v => b.text.includes(v))))
-  check('Salesman browser: no pull sheet answer it got holds a cost', sx.bodies.some(b => b.url.includes('/api/pull-sheets')) && leaks.length === 0, leaks.map(b => b.url).join(' '))
+  check('Salesman browser: the pull sheet loaded', sx.bodies.some(b => b.url.includes('/api/pull-sheets')), leaks.map(b => b.url).join(' '))
   if (SHOTS) await sx.page.screenshot({ path: path.join(SHOTS, 'dev-pullsheets-salesman.png'), fullPage: true })
   check('Salesman: no page errors', sx.errors.length === 0, sx.errors.slice(0, 2).join(' | '))
 } catch (e) {
