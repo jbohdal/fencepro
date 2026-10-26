@@ -83,7 +83,8 @@ try {
   const dsText = (await ds.textContent().catch(() => '')) || ''
   check('Settings: chain link Install has No dig and Dig set', await page.locator('[data-tree-option="chain:install:nd"]').count() === 1 && await ds.count() === 1)
   // How many of its post parts still wait for a price changes as Inventory is filled in (12 at first, 6 on Oct 23).
-  check('Settings: Dig set is not available for quoting until its post parts are priced, then on by itself', /Not available for quoting: waiting for prices on \d+ parts? in Inventory\. It switches on by itself/.test(dsText), dsText.slice(0, 160))
+  // Fence by fence (review Oct 26 2026): the ones waiting for their post parts' prices, each on by itself once priced.
+  check('Settings: Dig set names the fences waiting for their post parts\' prices, each on by itself once priced', /Waiting for prices in Inventory: .+ \(\d+ parts?\)\. (It|Each) switches on by itself/.test(dsText) || /Fully priced: available for quoting/.test(dsText), dsText.slice(0, 240))
   await page.locator('[data-tree-dim="chain:install"]').scrollIntoViewIfNeeded(); await sleep(300)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/dev-cl-dig-set-off.png` })
   check('no page errors', errs.length === 0, errs.join(' | '))

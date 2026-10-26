@@ -30,6 +30,7 @@ import { getInventory, getKitSets, saveInventory, saveKitSets, type InventoryIte
 import { getQuotes } from './quoteStore'
 import { getJobs } from './jobStore'
 import { isQuotable } from './styleAvailability'
+import { colorStatusWords, fenceRowWords, waitForPricesWords, type StatusLine } from './optionStatusWords'
 import { toast } from './toast'
 import { navigate } from './nav'
 import { KIT_LABEL } from './materialKits'
@@ -184,7 +185,7 @@ function MaterialCard({ m, config, catalog, onToggleMaterial, onToggleOption, on
               <li key={s.id} className="flex items-center gap-3 min-h-[44px]" data-fence-row={s.name}>
                 <span className="flex-1 min-w-0">
                   <span className={`block text-sm ${isQuotable(s) ? 'text-gray-900' : 'text-gray-400'}`}>{s.label || s.name}</span>
-                  {!isQuotable(s) && <span className="block text-xs text-amber-700">Not available for quoting{s.held ? `: ${s.held}` : ''}</span>}
+                  {!isQuotable(s) && <span className="block text-xs text-amber-700" data-fence-row-status={s.name}>{fenceRowWords(s.quotable, s.held) ?? 'Not available for quoting'}</span>}
                   {s.needsCostReview && <CostReviewBadge name={s.name} note={s.costReviewNote} />}
                 </span>
                 <Switch on={s.quotable !== false} onClick={() => updateStyle(s.id, { quotable: s.quotable === false })} label={`${s.label || s.name} available for quoting`} data-style-quotable={s.name} />
@@ -203,10 +204,24 @@ function OptionRow({ m, d, o, config, count, onToggle, onEdit, addColor }: {
 }) {
   const status = d.isColor && o.color && o.copiedFrom ? colorStatus(config.fenceStyles, m, o) : null
   const on = o.quotable !== false
-  // A choice that waits for prices (chain link Dig set): how many of its parts still have none.
-  const waiting = o.waitForPrices
-    ? [...new Set(config.fenceStyles.filter(s => { const sc = styleChoicesOf(s); return !!s.madeFrom && sc?.material === m.key && sc.choices[d.key] === o.key }).flatMap(s => partsWaitingForPrice(s.name)))]
+  // A choice that waits for prices (chain link Dig set): fence by fence, which wait and which are quotable now.
+  const waitFences = o.waitForPrices
+    ? config.fenceStyles.filter(s => { const sc = styleChoicesOf(s); return !!s.madeFrom && sc?.material === m.key && sc.choices[d.key] === o.key }).map(s => {
+      const reasons = (s.held ?? '').split('; ').filter(r => r && !r.startsWith(`${o.label} is waiting for prices`))
+      return {
+        label: (s.label || s.name).split(', ').filter(x => x !== o.label).join(', '),
+        unpriced: partsWaitingForPrice(s.name).length,
+        switchedOff: s.isActive === false || s.quotable === false || reasons.some(r => / is (turned off|archived)$/.test(r)),
+      }
+    })
     : null
+  const lines: StatusLine[] = waitFences
+    ? waitForPricesWords(on, waitFences)
+    : status
+      ? colorStatusWords(on, status.ready ? null : o.color!.pricing === 'piece'
+        ? `${status.missingPieces.length} piece price${status.missingPieces.length === 1 ? '' : 's'}`
+        : `prices on ${status.unpricedParts.length} part${status.unpricedParts.length === 1 ? '' : 's'} in Inventory`)
+      : on ? [] : [{ tone: 'off', text: `Switched off: no fence with ${o.label} is quoted.` }]
   let note = `${count} fence${count === 1 ? '' : 's'}`
   if (d.isColor && o.color) note += o.color.form ? ` · ${o.color.form.mode === 'section' ? 'per section (kit)' : 'per piece'}, made in Price List → Vinyl Colors` : o.color.pricing === 'piece' ? ` · job lot${o.color.jobLot?.supplier ? ` (${o.color.jobLot.supplier})` : ''}` : ' · priced by part'
   if (d.isColor && typeof o.color?.targetProfitPct === 'number') note += ` · ${o.color.targetProfitPct}% profit`
@@ -215,20 +230,16 @@ function OptionRow({ m, d, o, config, count, onToggle, onEdit, addColor }: {
       <span className="flex-1 min-w-0 py-1">
         <span className={`block text-sm font-semibold ${on ? 'text-gray-900' : 'text-gray-400'}`}>{o.label}</span>
         <span className="block text-xs text-gray-500">{note}</span>
-        {status && !status.ready && (
-          <span className="block text-xs text-amber-700" data-color-waiting={o.key}>
-            Not available for quoting: {o.color!.pricing === 'piece'
-              ? `waiting for ${status.missingPieces.length} piece price${status.missingPieces.length === 1 ? '' : 's'}`
-              : `waiting for prices on ${status.unpricedParts.length} part${status.unpricedParts.length === 1 ? '' : 's'} in Inventory`}
+        {lines.map((l, i) => (
+          <span key={i} className={`block text-xs ${l.tone === 'ok' ? 'text-green-700' : 'text-amber-700'}`}
+            data-option-status={`${m.key}:${d.key}:${o.key}`} data-tone={l.tone}
+            {...(status && l.tone !== 'ok' ? { 'data-color-waiting': o.key } : {})}
+            {...(status && l.tone === 'ok' ? { 'data-color-ready': o.key } : {})}
+            {...(waitFences && l.tone === 'wait' ? { 'data-option-waiting': `${m.key}:${d.key}:${o.key}` } : {})}
+            {...(waitFences && l.tone === 'ok' && on && waitFences.every(f => f.unpriced === 0) ? { 'data-option-ready': `${m.key}:${d.key}:${o.key}` } : {})}>
+            {l.text}
           </span>
-        )}
-        {status?.ready && on && <span className="block text-xs text-green-700" data-color-ready={o.key}>Fully priced: available for quoting</span>}
-        {waiting && waiting.length > 0 && (
-          <span className="block text-xs text-amber-700" data-option-waiting={`${m.key}:${d.key}:${o.key}`}>
-            Not available for quoting: waiting for prices on {waiting.length} part{waiting.length === 1 ? '' : 's'} in Inventory. It switches on by itself once they are in.
-          </span>
-        )}
-        {waiting && waiting.length === 0 && on && <span className="block text-xs text-green-700" data-option-ready={`${m.key}:${d.key}:${o.key}`}>Fully priced: available for quoting</span>}
+        ))}
         {addColor && <button type="button" className="btn btn-secondary btn-sm min-h-[44px] mt-1" onClick={addColor} data-add-color-under={`${m.key}:${d.key}:${o.key}`}>+ Add color</button>}
       </span>
       <button type="button" className="btn btn-quiet btn-sm min-h-[44px] shrink-0" onClick={onEdit} data-edit-option={`${m.key}:${d.key}:${o.key}`}>Edit</button>
