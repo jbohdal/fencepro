@@ -52,7 +52,9 @@ async function open(b, viewport, phone) {
 
 /** Tap Send feedback, wait for the form, type. */
 async function fill(page, text) {
-  await page.locator('[data-feedback-button]:visible').click()
+  // With a record's window open, the button that floats over it; otherwise the top bar's.
+  const over = page.locator('[data-feedback-button="window"]:visible')
+  await ((await over.count()) ? over : page.locator('[data-feedback-button="top"]:visible')).click()
   await page.waitForSelector('[data-feedback-form]', { timeout: 30000 })
   await page.fill('#feedback-text', text)
 }
@@ -149,6 +151,18 @@ try {
   await until(async () => D.page.locator('[data-feedback-shot] img').first().evaluate(i => i.complete && i.naturalWidth > 0), 15000)
   check('desktop list: the 3 test feedbacks are listed, newest first', await D.page.evaluate(m => [...document.querySelectorAll('[data-feedback-text]')].map(e => e.textContent).filter(t => t.startsWith(m)).length, MARK) === 3)
   await shot(D.page, 'list-desktop')
+  // A pipeline card's window covers the top bar: the button floats over it, and the card is the record.
+  const card = ((await api('/api/pipeline')).json?.data?.leads ?? []).find(l => l.customerId && l.firstName)
+  await D.page.goto(`${APP}/pipeline?card=${encodeURIComponent(card.id)}`); await D.page.waitForSelector('[data-card-window]', { timeout: 60000 })
+  await sleep(1200)
+  check('desktop: with a card window open, Send feedback floats over it', await D.page.locator('[data-feedback-button="window"]:visible').count() === 1)
+  const t6 = `${MARK} desktop: from the card window`
+  await fill(D.page, t6)
+  check('desktop: the card window stays open behind the form, and the form names it', await D.page.locator('[data-card-window]').count() === 1 && /pipeline card open/.test(await D.page.locator('[data-feedback-where]').innerText()), await D.page.locator('[data-feedback-where]').innerText().catch(() => ''))
+  await D.page.click('[data-feedback-send]')
+  await D.page.waitForSelector('[data-feedback-form]', { state: 'detached', timeout: 20000 })
+  const f6 = (await until(async () => { const m = await mine(t6); return m.length ? m : null }))?.[0]
+  check('desktop: it arrived naming the card and its customer', f6?.recordType === 'card' && f6?.recordId === card.id && f6?.recordName === `${card.firstName} ${card.lastName ?? ''}`.trim(), JSON.stringify({ t: f6?.recordType, n: f6?.recordName }))
   check('desktop: no page errors', D.errs.length === 0, D.errs.join(' | '))
   await D.ctx.close()
 

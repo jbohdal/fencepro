@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MessageSquarePlus, X, Loader2, Pencil, Undo2 } from 'lucide-react'
 import { captureScreen, sendFeedback, whereText } from './feedback'
-import { BackClose } from './nav'
+import { BackClose, useNav } from './nav'
 import { toast } from './toast'
 
 type Point = [number, number]
@@ -104,7 +104,21 @@ function MarkedShot({ src, strokes, onStrokes, marking, disabled }: { src: strin
   )
 }
 
-export default function FeedbackButton({ screen = '' }: { screen?: string }) {
+/** The windows a record opens in (their address params): a pipeline card, a quote, a job, a change order, a service request. */
+const WINDOW_PARAMS = ['card', 'quote', 'qv', 'job', 'co', 'ticket']
+
+/**
+ * While a record's window is open it covers the top bar (on a phone the card window is the whole screen), so
+ * the top bar's button cannot be reached: this one floats above the window, bottom left, so feedback sent from
+ * there names the card, quote or job and its picture shows the window (walkthrough review, Oct 26 2026).
+ */
+export function FeedbackOverWindow({ screen = '' }: { screen?: string }) {
+  const { params } = useNav()
+  if (!WINDOW_PARAMS.some(k => params.has(k))) return null
+  return <FeedbackButton screen={screen} floating />
+}
+
+export default function FeedbackButton({ screen = '', floating = false }: { screen?: string; floating?: boolean }) {
   const [stage, setStage] = useState<Stage>({ kind: 'idle' })
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -143,11 +157,13 @@ export default function FeedbackButton({ screen = '' }: { screen?: string }) {
   const busy = stage.kind === 'capturing'
   return (
     <>
-      <button type="button" onClick={start} disabled={busy || stage.kind === 'form'} data-feedback-button data-feedback-skip
+      <button type="button" onClick={start} disabled={busy || stage.kind === 'form'} data-feedback-button={floating ? 'window' : 'top'} data-feedback-skip
         aria-label="Send feedback" title="Send feedback"
-        className="flex items-center justify-center gap-1.5 w-11 h-11 md:w-auto md:h-9 md:px-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-60 text-sm">
+        className={floating
+          ? 'fixed z-[175] left-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:left-4 md:bottom-4 flex items-center justify-center gap-1.5 h-11 px-3 rounded-full bg-white text-gray-700 border border-gray-300 shadow-lg hover:bg-gray-50 disabled:opacity-60 text-sm font-semibold'
+          : 'flex items-center justify-center gap-1.5 w-11 h-11 md:w-auto md:h-9 md:px-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-60 text-sm'}>
         {busy ? <Loader2 size={20} className="animate-spin md:w-4 md:h-4" aria-hidden="true" /> : <MessageSquarePlus size={20} className="md:w-4 md:h-4" aria-hidden="true" />}
-        <span className="hidden xl:inline">{busy ? 'Taking picture...' : 'Feedback'}</span>
+        <span className={floating ? '' : 'hidden xl:inline'}>{busy ? 'Taking picture...' : 'Feedback'}</span>
       </button>
 
       {stage.kind === 'form' && (

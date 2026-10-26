@@ -67,7 +67,8 @@ export async function captureScreen(timeoutMs = 20_000): Promise<string | null> 
       // The page as scrolled; the feedback button is left out.
       style: window.scrollX || window.scrollY ? { transform: `translate(${-window.scrollX}px, ${-window.scrollY}px)` } : undefined,
       filter: n => {
-        if (n instanceof Element && n.hasAttribute('data-feedback-skip')) return false
+        // The feedback button, its form, and pop up messages (a "Feedback sent" from the last one) are left out.
+        if (n instanceof Element && (n.hasAttribute('data-feedback-skip') || n.hasAttribute('data-toasts'))) return false
         // A long list is thousands of rows: only what is on screen is drawn. A
         // box wholly off screen keeps its size (so the rest stays in place) but
         // not what is inside it.
