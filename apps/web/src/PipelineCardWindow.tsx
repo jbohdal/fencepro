@@ -49,7 +49,7 @@ import { openedBadgeText } from './proposalOpened'
 import { OUTCOME_LABEL, LOST_REASON_LABEL } from './followUpRules'
 import { DateChips, TextTemplatesSheet, dayLabel, kindWord } from './FollowUpPrompt'
 import PaymentsPanel from './Payments'
-import { ChangeOrderButton, isSignedForChange } from './ChangeOrders'
+import { ChangeOrderButton, ChangeOrdersIfAny, isSignedForChange } from './ChangeOrders'
 import { PastCustomerBadge, ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
 import { getJobByQuoteId, type Job } from './jobStore'
 import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
@@ -141,7 +141,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
   const off = 'opacity-40 pointer-events-none'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch md:items-center justify-center bg-black/40 md:p-6" onClick={onClose} data-card-window={lead.id}>
+    <div className="fixed inset-x-0 top-0 bottom-0 max-md:bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 flex items-stretch md:items-center justify-center bg-black/40 md:p-6" onClick={onClose} data-card-window={lead.id}>
       <div role="dialog" aria-modal="true" aria-label={name} onClick={e => e.stopPropagation()}
         className="bg-gray-50 w-full md:max-w-xl md:rounded-2xl shadow-2xl flex flex-col max-h-full md:max-h-[90vh] overflow-hidden">
         <div className="bg-white border-b border-gray-200 px-4 pt-[calc(12px+env(safe-area-inset-top))] md:pt-4 pb-3 flex items-start gap-3">
@@ -229,6 +229,7 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
             {quotes.filter(isSignedForChange).map(q => (
               <div key={`co-${q.id}`} className="px-4 pb-3" data-card-change-order>
                 <ChangeOrderButton quoteId={q.id} customerName={name} className="btn btn-secondary w-full" label={quotes.filter(isSignedForChange).length > 1 ? `Change order (${fmtUSD(q.finalPrice || 0)} quote)` : 'Change order'} />
+                <ChangeOrdersIfAny quoteId={q.id} originalPrice={q.finalPrice || 0} customerName={name} />
               </div>
             ))}
           </section>

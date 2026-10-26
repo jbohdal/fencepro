@@ -31,8 +31,14 @@ import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { priceWork, costDeltaOf, workNow, scopeOf, workChangeable, approvedInOrder, currentWorkRow, daysFor, type StoredWork, type WorkInput } from './changeOrderWork.js'
 
-export type ChangeOrderStatus = 'draft' | 'sent' | 'approved' | 'void'
-export const CO_STATUSES: readonly ChangeOrderStatus[] = ['draft', 'sent', 'approved', 'void']
+/**
+ * needs_ok: made by a Salesman (round 2, Oct 26 2026). It waits for the
+ * owner's or the office's OK (it becomes a draft) before it can go to the
+ * customer: not sent, no link, not signed on the phone, so never billed.
+ */
+export type ChangeOrderStatus = 'needs_ok' | 'draft' | 'sent' | 'approved' | 'void'
+export const CO_STATUSES: readonly ChangeOrderStatus[] = ['needs_ok', 'draft', 'sent', 'approved', 'void']
+export const WAITING_OK = 'This change order waits for Jonathan or the office to OK it before it goes to the customer.'
 
 /**
  * A line: what changes and its amount. A line picked from the pick list
@@ -148,6 +154,7 @@ export async function changeOrdersForContact(contactId: string) {
 export async function linkFor(accountId: string, id: string): Promise<{ token: string; row: Row }> {
   const row = await prisma.changeOrder.findUnique({ where: { id } })
   if (!row || row.accountId !== accountId) throw err(404, 'Change order not found')
+  if (row.status === 'needs_ok') throw err(409, WAITING_OK)
   if (row.shareToken) return { token: row.shareToken, row }
   if (row.status === 'void') throw err(409, 'This change order is void.')
   const token = crypto.randomBytes(24).toString('base64url')
@@ -191,6 +198,7 @@ async function signIn(accountId: string, id: string, s: CustomerSignature): Prom
     if (cur.status === 'approved' && cur.signedAt && cur.signedBy === s.name && cur.signedVia === s.via) return { row: cur, again: true }
     if (cur.status === 'approved' && cur.signedAt) throw err(409, 'This change order is already approved.')
     if (cur.status === 'void') throw err(409, 'This change order was cancelled. Please call us.')
+    if (cur.status === 'needs_ok') throw err(409, WAITING_OK)
     const verbal = cur.status === 'approved' // approved verbally: signed now, everything else as it was
     if (!verbal && cur.status !== 'sent' && !(cur.status === 'draft' && s.via === 'in_person')) throw err(409, 'This change order is not ready to sign yet. Please call us.')
     const now = new Date()
@@ -342,7 +350,7 @@ export interface NewChangeOrder {
   reason: string
   lines: ChangeOrderLine[]
   scope: unknown
-  status: 'draft' | 'approved'
+  status: 'needs_ok' | 'draft' | 'approved'
   by: string
   /** From the yard drawing: the work after the change, priced on the server. */
   work?: WorkInput | null
@@ -437,7 +445,7 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
     if (!cur || cur.accountId !== accountId) throw err(404, 'Change order not found')
     if (cur.version !== baseVersion) return { row: cur, stale: true }
     const data: Record<string, unknown> = { version: cur.version + 1 }
-    const open = cur.status === 'draft' || cur.status === 'sent'
+    const open = cur.status === 'needs_ok' || cur.status === 'draft' || cur.status === 'sent'
     if (edit.lines !== undefined || edit.reason !== undefined) {
       if (!open) throw err(409, cur.status === 'approved' ? 'This change order is approved. Void it and make a new one to change it.' : 'This change order is void.')
       if (edit.lines !== undefined) {
@@ -451,7 +459,9 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
       const to = edit.status
       if (cur.status === 'void') throw err(409, 'This change order is void.')
       if (cur.status === 'approved' && to !== 'void') throw err(409, 'This change order is approved. Void it and make a new one to change it.')
-      if (to === 'draft') throw err(409, 'A change order goes from draft to sent to approved.')
+      // The OK (owner or office; the route checks): waiting for the OK, then a draft that can go to the customer.
+      if (to === 'draft' && cur.status !== 'needs_ok') throw err(409, 'A change order goes from draft to sent to approved.')
+      if (to === 'sent' && cur.status === 'needs_ok') throw err(409, WAITING_OK)
       data.status = to
       if (to === 'sent') data.sentAt = new Date()
       if (to === 'approved') { const now = new Date(); Object.assign(data, { approvedAt: now, approvedBy: by, verbalBy: by, verbalAt: now, verbalReason: verbalReasonOf(edit.verbalReason) }) }
