@@ -22,7 +22,8 @@ import { toast } from './toast'
 import { TEMPLATES, getDefaultTemplateKey, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
 import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import RunSpacingTable from './RunSpacingTable'
-import { workSummary } from './moveRepair'
+import { workSummary, repairLines } from './moveRepair'
+import CustomerPhotoTicks from './CustomerPhotoTicks'
 import { ChangeOrderButton, ChangeOrderPanel, isSignedForChange } from './ChangeOrders'
 import ProposalSend from './ProposalSend'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
@@ -71,6 +72,8 @@ export default function QuoteDetailDrawer({
   }, [])
   const quote = (getQuoteById(opened.id) as SavedQuote | null) ?? opened
   const [sendOpen, setSendOpen] = useState(false)
+  // The Send box is showing its own "Show these to the customer" list: the photos section does not repeat it.
+  const [sendTicks, setSendTicks] = useState(false)
   // Its own address (?qv=<quote>): Back closes it, a reload reopens it.
   useBackLayer(onClose, { key: 'qv', params: { qv: quote.id } })
   const status = STATUS_STYLES[quote.status]
@@ -169,7 +172,7 @@ export default function QuoteDetailDrawer({
           {wantInternal && canSend && (
             <section>
               <p className="text-xs font-bold text-gray-500 mb-2">Proposal</p>
-              <ProposalSend quote={quote} />
+              <ProposalSend quote={quote} onTicksShown={setSendTicks} />
             </section>
           )}
 
@@ -193,8 +196,10 @@ export default function QuoteDetailDrawer({
           })()}
 
           {/* Photos and video taken for this quote (site walk, gate location, ...) */}
-          <section data-quote-photos>
+          <section data-quote-photos className="space-y-4">
             <MediaGallery where={{ quoteKey: quote.id, customerId: quote.customerId }} layout={quote.layout?.yard ?? null} />
+            {/* Which ones the customer sees on the proposal, one tap each (the Send box shows the same list when none are ticked). */}
+            {!sendTicks && !quote.acceptedAt && <CustomerPhotoTicks quoteId={quote.id} customerId={quote.customerId} />}
           </section>
 
           {/* Runs, with the post spacing the crew sets */}
@@ -205,13 +210,20 @@ export default function QuoteDetailDrawer({
             </section>
           )}
 
-          {/* Gates + corners */}
+          {/* A repair: its items (a gate rehang read "Walk gates 0"; round 2 review, Oct 26 2026). Else gates + corners. */}
+          {repairLines(quote.work) ? (
+            <section className="text-sm" data-quote-repair-lines>
+              <p className="text-[10px] text-gray-400 font-bold">Repair</p>
+              <ul className="font-medium text-gray-900">{repairLines(quote.work)!.map(l => <li key={l}>{l}</li>)}</ul>
+            </section>
+          ) : (
           <section className="grid grid-cols-4 gap-3 text-sm">
             <div><p className="text-[10px] text-gray-400 font-bold">Corners</p><p className="font-medium text-gray-900">{quote.corners}</p></div>
             <div><p className="text-[10px] text-gray-400 font-bold">Ends</p><p className="font-medium text-gray-900">{quote.ends}</p></div>
             <div><p className="text-[10px] text-gray-400 font-bold">Walk gates</p><p className="font-medium text-gray-900">{quote.walkGates}</p></div>
             <div><p className="text-[10px] text-gray-400 font-bold">Double gates</p><p className="font-medium text-gray-900">{quote.dblGates}</p></div>
           </section>
+          )}
 
           {/* Internal pricing breakdown */}
           {internalView && (
