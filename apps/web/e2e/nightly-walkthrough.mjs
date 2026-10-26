@@ -22,7 +22,7 @@
 //
 // Run (dev copy only; 4001 serves the built app, or a worktree's own server):
 //   cd apps/web && pnpm -s build
-//   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev owner token> \
+//   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev owner token> (or E2E_ACCESS_TOKEN_FILE=<file>) \
 //     [SHOTS=<folder>] [RESULTS=<file.json>] [JOBS=A,B,C] [KEEP=1] node e2e/nightly-walkthrough.mjs
 //
 // Prints PASS / FAIL / SKIP per step with its time; a failed step takes a screenshot (SHOTS) and the rest of that
@@ -39,7 +39,8 @@ import { execFileSync } from 'child_process'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
-const OWNER = process.env.E2E_ACCESS_TOKEN || ''
+// The owner's dev sign in: E2E_ACCESS_TOKEN, or E2E_ACCESS_TOKEN_FILE (a file holding it, so it is not on the command line).
+const OWNER = process.env.E2E_ACCESS_TOKEN || (process.env.E2E_ACCESS_TOKEN_FILE ? fs.readFileSync(process.env.E2E_ACCESS_TOKEN_FILE, 'utf8').trim() : '')
 const SHOTS = process.env.SHOTS || ''
 const RESULTS = process.env.RESULTS || ''
 const ONLY = new Set((process.env.JOBS || 'A,B,C').split(',').map(s => s.trim().toUpperCase()).filter(Boolean))

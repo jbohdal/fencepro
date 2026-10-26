@@ -28,3 +28,5 @@ uploads/
 *.log
 npm-debug.log*
 apps/portal/tools/.bin/
+# The nightly check's own folder (deploy/mac/nightly-check.sh): its finalize checkout, the night agent's worktree
+.nightly/
