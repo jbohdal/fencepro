@@ -40,6 +40,8 @@ export function NextAppointmentBadge({ customerId }: { customerId: string }) {
 export function CustomerAppointmentsTab({ customerId }: { customerId: string }) {
   const list = useAppointmentList().filter(a => a.crmContactId === customerId)
   const [closing, setClosing] = useState<Appointment | null>(null)
+  // Past visits a page at a time (a customer of many years has many).
+  const [pastLimit, setPastLimit] = useState(20)
   const now = Date.now()
   const upcoming = list.filter(a => isOpen(a) && (!a.startAt || new Date(a.endAt || a.startAt).getTime() >= now)).sort((x, y) => (x.startAt || '9').localeCompare(y.startAt || '9'))
   const past = list.filter(a => !upcoming.includes(a)).sort((x, y) => (y.startAt || '').localeCompare(x.startAt || ''))
@@ -71,7 +73,12 @@ export function CustomerAppointmentsTab({ customerId }: { customerId: string }) 
       {past.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 divide-y divide-gray-100">
           <p className="px-4 py-2 text-xs font-bold text-gray-500 bg-gray-50">Past</p>
-          {past.map(a => <Row key={a.id} a={a} />)}
+          {past.slice(0, pastLimit).map(a => <Row key={a.id} a={a} />)}
+          {past.length > pastLimit && (
+            <button type="button" className="btn btn-quiet btn-sm w-full rounded-none" data-show-more="appointments" onClick={() => setPastLimit(l => l + 20)}>
+              Show {Math.min(20, past.length - pastLimit)} more <span className="font-normal text-gray-500">({pastLimit} of {past.length})</span>
+            </button>
+          )}
         </div>
       )}
       {closing && <OutcomeForm a={closing} onClose={() => setClosing(null)} />}

@@ -17,6 +17,9 @@ import {
 import { can } from './permissions'
 import SignedDocuments from './SignedDocuments'
 
+/** Files drawn at first and per "Show more". */
+const FILES_PAGE = 30
+
 interface LegacyFile {
   id: string
   customerId: string
@@ -76,6 +79,7 @@ export default function CustomerFilesTab({
   const docs = allDocs.filter(d => !signedFileIds.has(d.id))
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [limit, setLimit] = useState(FILES_PAGE)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
@@ -154,7 +158,7 @@ export default function CustomerFilesTab({
         <>
           {docs.length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-responsive-cards">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">File</th>
@@ -164,22 +168,22 @@ export default function CustomerFilesTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {docs.map(d => {
+                  {docs.slice(0, limit).map(d => {
                     const badge = sourceBadge(d.source)
                     return (
                       <tr key={d.id} className="hover:bg-orange-50 group cursor-pointer transition-colors" onClick={() => handleOpen(d)}>
-                        <td className="px-5 py-3">
+                        <td data-label="File" className="px-5 py-3 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-lg">{fileIcon(d.mimeType || '')}</span>
-                            <span className="font-medium text-gray-800 truncate max-w-[260px]">{d.name}</span>
+                            <span className="font-medium text-gray-800 truncate max-w-[160px] sm:max-w-[260px]">{d.name}</span>
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badge.cls}`}>{badge.text}</span>
                             {d.label && (
                               <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">{d.label}</span>
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right text-gray-400 text-xs">{formatSize(d.size)}</td>
-                        <td className="px-4 py-3 text-right text-gray-400 text-xs">{new Date(d.uploadedAt).toLocaleDateString()}</td>
+                        <td data-label="Size" className="px-4 py-3 text-right text-gray-400 text-xs">{formatSize(d.size)}</td>
+                        <td data-label="Uploaded" className="px-4 py-3 text-right text-gray-400 text-xs">{new Date(d.uploadedAt).toLocaleDateString()}</td>
                         <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
                           <button onClick={() => handleOpen(d)} className="text-xs text-blue-600 hover:underline mr-3">View</button>
                           <button onClick={() => handleDownload(d)} className="text-xs text-gray-500 hover:underline mr-3">Download</button>
@@ -190,6 +194,11 @@ export default function CustomerFilesTab({
                   })}
                 </tbody>
               </table>
+              {docs.length > limit && (
+                <button type="button" className="btn btn-quiet btn-sm w-full border-t border-gray-100 rounded-none" data-show-more="files" onClick={() => setLimit(l => l + FILES_PAGE)}>
+                  Show {Math.min(FILES_PAGE, docs.length - limit)} more <span className="font-normal text-gray-500">({limit} of {docs.length})</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -198,7 +207,7 @@ export default function CustomerFilesTab({
               <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
                 <p className="text-xs font-semibold text-gray-500">Site Plans &amp; Local Files</p>
               </div>
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-responsive-cards">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500">File</th>
@@ -210,7 +219,7 @@ export default function CustomerFilesTab({
                 <tbody className="divide-y divide-gray-100">
                   {legacyFiles.map(f => (
                     <tr key={f.id} className="hover:bg-orange-50 group cursor-pointer transition-colors" onClick={() => onLegacyFileClick?.(f)}>
-                      <td className="px-5 py-3">
+                      <td data-label="File" className="px-5 py-3 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-lg">{fileIcon(f.type)}</span>
                           <span className="font-medium text-gray-800">{f.name}</span>
@@ -219,8 +228,8 @@ export default function CustomerFilesTab({
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-400 text-xs">{f.size}</td>
-                      <td className="px-4 py-3 text-right text-gray-400 text-xs">{f.uploadedAt}</td>
+                      <td data-label="Size" className="px-4 py-3 text-right text-gray-400 text-xs">{f.size}</td>
+                      <td data-label="Uploaded" className="px-4 py-3 text-right text-gray-400 text-xs">{f.uploadedAt}</td>
                       <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
                         <button onClick={() => onLegacyFileClick?.(f)} className="text-xs text-blue-600 hover:underline mr-3">View</button>
                         <button onClick={() => {

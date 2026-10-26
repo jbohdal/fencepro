@@ -23,6 +23,9 @@ import PopMenu, { PopItem } from './PopMenu'
 const ACCEPTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif']
 const ACCEPT_ATTR = 'image/jpeg,image/png,image/webp,image/heic,image/heif,image/gif'
 
+/** Photos drawn at first and per "Show more" (a customer can have hundreds). */
+const PHOTOS_PAGE = 48
+
 const ACTIVITY_KEY = 'fencepro_customer_activity'
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -56,6 +59,7 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [limit, setLimit] = useState(PHOTOS_PAGE)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragRef = useRef<HTMLDivElement>(null)
 
@@ -66,7 +70,7 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
     setLoading(false)
   }, [customerId])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { setLimit(PHOTOS_PAGE); refresh() }, [refresh])
 
   async function handleFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList)
@@ -171,8 +175,8 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
             <p className="text-xs text-gray-400 mt-1">Drag photos here or click Upload Photos · JPG, PNG, HEIC, WebP up to 20MB each</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-1">
-            {visible.map((p, i) => (
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2 p-1" data-customer-photos-grid>
+            {visible.slice(0, limit).map((p, i) => (
               <PhotoCard key={p.id} photo={p}
                 onOpen={() => setLightboxIdx(i)}
                 onDelete={() => handleDelete(p)}
@@ -180,6 +184,11 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
               />
             ))}
           </div>
+        )}
+        {visible.length > limit && (
+          <button type="button" className="btn btn-quiet btn-sm w-full mt-2" data-show-more="customer-photos" onClick={() => setLimit(l => l + PHOTOS_PAGE)}>
+            Show {Math.min(PHOTOS_PAGE, visible.length - limit)} more <span className="font-normal text-gray-500">({limit} of {visible.length})</span>
+          </button>
         )}
       </div>
 
@@ -200,17 +209,17 @@ function PhotoCard({ photo, onOpen, onDelete, onDownload }: {
   const src = resolveFileUrl(photo.fileUrl)
   const badge = sourceBadge(photo.source)
   return (
-    <div className="relative group rounded-xl overflow-hidden bg-gray-100 border border-gray-200">
+    <div className="relative group rounded-xl overflow-hidden bg-gray-100 border border-gray-200" data-customer-photo>
       <button onClick={onOpen} className="block w-full aspect-square">
-        {src ? <img src={src} alt={photo.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+        {src ? <img src={src} alt={photo.name} loading="lazy" decoding="async" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
           : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">No preview</div>}
       </button>
       <div className="absolute top-2 left-2">
         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badge.cls}`}>{badge.text}</span>
       </div>
-      <div className="px-3 py-2 flex items-center justify-between">
+      <div className="pl-2 py-1 flex items-center justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-gray-900 truncate">{photo.name}</p>
+          <p className="text-[11px] font-medium text-gray-900 truncate">{photo.name}</p>
           <p className="text-[10px] text-gray-400">{new Date(photo.uploadedAt).toLocaleDateString()}</p>
         </div>
         <PopMenu name="photo-actions" label="⋮" title={photo.name} width={176}
