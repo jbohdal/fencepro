@@ -12,6 +12,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useCan } from './permissions'
 import { loadJobCost, usd, TAKEOFF_EVENT, type JobCost, type CompareRow } from './takeoffStore'
+import { CO_EVENT } from './ChangeOrders'
 
 const pct = (n: number) => `${n.toFixed(1)}%`
 const q2 = (n: number) => (Math.round(n * 100) / 100).toLocaleString('en-US')
@@ -29,7 +30,10 @@ export default function JobQuotedVsActual({ jobId }: { jobId: string }) {
     let t: ReturnType<typeof setTimeout> | null = null
     const again = () => { if (t) clearTimeout(t); t = setTimeout(load, 800) }
     window.addEventListener(TAKEOFF_EVENT, again)
-    return () => { window.removeEventListener(TAKEOFF_EVENT, again); if (t) clearTimeout(t) }
+    // A change order signed, approved or voided on this screen changes the quoted cost and the price: look again
+    // (round 3 recheck: it showed the cost before the customer signed until the page was reloaded).
+    window.addEventListener(CO_EVENT, again)
+    return () => { window.removeEventListener(TAKEOFF_EVENT, again); window.removeEventListener(CO_EVENT, again); if (t) clearTimeout(t) }
   }, [allowed, load])
   if (!allowed) return null
 
