@@ -88,6 +88,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
     return patchPipeline(leads => ({ upsert: [{ lead: { ...leads.find(l => l.id === cardId), stage } }], remove: [] }))
   }
   const tasksOf = (ruleId: string) => prisma.task.findMany({ where: { automationId: ruleId } })
+  /** Only the tasks a rule made for one card or job: a rule covers every card, and real dev cards (a copy of live, plus cards other test runs left) get it too. */
+  async function tasksFor(ruleId: string, entityId: string) {
+    const runs = await prisma.automationRun.findMany({ where: { ruleId, entityId }, select: { id: true } })
+    return prisma.task.findMany({ where: { automationId: ruleId, OR: runs.map(r => ({ createdBy: { startsWith: `automation:${r.id}:` } })) } })
+  }
   const runsOf = (ruleId: string) => prisma.automationRun.findMany({ where: { ruleId }, orderBy: { createdAt: 'asc' } })
 
   beforeAll(async () => {
@@ -112,7 +117,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
     await prisma.automationEffect.deleteMany({ where: { runId: { in: runIds } } })
     await prisma.automationRun.deleteMany({ where: { ruleId: { in: ruleIds } } })
     await prisma.automationRule.deleteMany({ where: { id: { in: ruleIds } } })
-    await prisma.automationEvent.deleteMany({ where: { OR: [{ entityId: { in: [...cardIds, ...jobIds, contactId] } }, { dedupeKey: { contains: tag } }] } })
+    await prisma.automationEvent.deleteMany({ where: { OR: [{ entityId: { in: [...cardIds, ...jobIds, contactId] } }, { dedupeKey: { contains: tag } }, ...ruleIds.map(id => ({ data: { path: ['ruleId'], equals: id } }))] } })
     await prisma.stageRule.deleteMany({ where: { accountId, stage: { in: ['Pending Start', 'completed'] }, starter: null } })
     await prisma.stageRule.updateMany({ where: { accountId, starter: { not: null } }, data: { enabled: false } })
     await prisma.permit.deleteMany({ where: { jobId: { in: jobIds } } })
@@ -210,7 +215,25 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
     await Q.tick(later(6 * 86_400_000 + 5 * MIN), { scan: true })
     await Q.tick(later(7 * 86_400_000), { scan: true })
     expect(await prisma.automationEvent.count({ where: { entityId: card, type: 'time', data: { path: ['ruleId'], equals: rule.id } } })).toBe(1)
-    expect(await tasksOf(rule.id)).toHaveLength(1)
+    // Counted for this card only: any real dev card that has sat in Job Prep 3 days gets its own task, as it should.
+    expect(await tasksFor(rule.id, card)).toHaveLength(1)
+    await pause(rule.id)
+  })
+
+  test('in a stage for X days across the fall back (Nov 1, 2026): due on the right Florida day, one event', async () => {
+    const rule = await makeRule({ name: '3 days in Job Prep, DST', board: 'sales', trigger: { type: 'in_stage_days', stage: 'Job Prep', days: 3 }, steps: [{ type: 'create_task', title: 'Job Prep is slow for {name}', description: '', assignTo: '', dueInDays: 0 }] })
+    await prisma.automationRule.update({ where: { id: rule.id }, data: { enabledAt: new Date('2026-10-28T12:00:00Z') } })
+    const card = await addCard('Job Prep', { lastMoved: '2026-10-29' })
+    const events = () => prisma.automationEvent.findMany({ where: { entityId: card, type: 'time', data: { path: ['ruleId'], equals: rule.id } } })
+    await Q.scanTimeTriggers(new Date('2026-11-01T03:30:00Z')) // Oct 31, 11:30 pm EDT: not yet
+    expect(await events()).toHaveLength(0)
+    await Q.scanTimeTriggers(new Date('2026-11-01T05:30:00Z')) // Nov 1, 1:30 am EDT (before clocks go back): due
+    await Q.scanTimeTriggers(new Date('2026-11-01T06:30:00Z')) // Nov 1, 1:30 am EST (after): the same day, not again
+    await Q.scanTimeTriggers(new Date('2026-11-02T04:30:00Z')) // Nov 1, 11:30 pm EST
+    await Q.scanTimeTriggers(new Date('2026-11-02T15:00:00Z')) // Nov 2
+    const made = await events()
+    expect(made).toHaveLength(1)
+    expect(made[0].dedupeKey).toBe(`time:${rule.id}:${card}:Job Prep:2026-10-29`)
     await pause(rule.id)
   })
 
