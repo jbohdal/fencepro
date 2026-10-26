@@ -37,7 +37,8 @@ import { portalPageUrl } from './publicDoor'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity, getCustomers, getArchivedCustomers, upsertCustomer, bulkImportCustomers } from './customerStore'
 import { archiveRecord, unarchiveRecord, deleteRecord } from './recordArchive'
-import { getQuotes } from './quoteStore'
+import { getQuotes, getQuoteById } from './quoteStore'
+import { sectionsCell } from './moveRepair'
 import { getJobs, getArchivedJobs } from './jobStore'
 import { stageOf, stageName, stageColor, OPS_STAGES_UPDATED_EVENT } from './opsStagesStore'
 import { getPipeline, getArchivedCards } from './pipelineStore'
@@ -103,7 +104,8 @@ interface Quote {
   id: string
   customerId: string
   type: string
-  sections: number
+  /** The count, or a repair's work (moveRepair.ts sectionsCell). */
+  sections: number | string
   price: number
   margin: number
   status: 'DRAFT' | 'SENT' | 'SOLD' | 'LOST'
@@ -114,7 +116,8 @@ interface Job {
   id: string
   customerId: string
   type: string
-  sections: number
+  /** The count, or a repair's work (moveRepair.ts sectionsCell). */
+  sections: number | string
   value: number
   stage: string
   scheduledDate: string
@@ -1303,7 +1306,8 @@ export default function CustomersPage({ onNewQuote }: {
       id: q.id,
       customerId: q.customerId || '',
       type: q.fenceStyle || '',
-      sections: q.sections || 0,
+      // A repair: its work, never "0" (round 2 review, Oct 26 2026).
+      sections: sectionsCell(q.sections, q.work),
       price: q.finalPrice || 0,
       margin: q.gmPct || 0,
       status: q.status || 'DRAFT',
@@ -1315,7 +1319,8 @@ export default function CustomersPage({ onNewQuote }: {
       id: j.id,
       customerId: j.customerId || '',
       type: j.fenceStyle || '',
-      sections: j.sections || 0,
+      // A repair job: its quote's work, never "0".
+      sections: sectionsCell(j.sections, j.quoteId ? getQuoteById(j.quoteId)?.work : null),
       value: j.contractValue || j.quotePrice || 0,
       // The Operations stage (Settings > Operations Stages), by id.
       stage: stageOf(j),

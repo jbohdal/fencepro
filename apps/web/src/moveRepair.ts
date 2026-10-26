@@ -966,3 +966,30 @@ export function workSummary(work: { type?: string; repair?: Partial<RepairInputs
   const s = workScope({ type: work.type as 'repair' | 'move', crew: work.crew ?? [], description: work.description ?? '' })
   return s ? `${s.title}: ${s.items.join(' · ')}` : null
 }
+
+type WorkLike = Parameters<typeof workSummary>[0]
+
+/**
+ * A quote's or job's size where a list says "Sections": the count for a new
+ * fence (and a move, its new line), the repair work for a repair ("Repair:
+ * 2 × Replace a post · 1 × Rehang a gate with new hardware"), never "0" for a
+ * repair (round 2 review, Oct 26 2026: the customer page, the Quotes list and
+ * the quote window read "Sections 0").
+ */
+export function sectionsCell(sections: number | null | undefined, work: WorkLike): string {
+  const n = Number(sections) || 0
+  if (work && (work.type === 'repair' || (work.type === 'move' && n <= 0))) return workSummary(work) ?? (work.type === 'repair' ? 'Repair' : 'Fence move')
+  return String(n)
+}
+
+/** The same in a sentence: "16 sections", "1 section", or the repair work. */
+export function sizeText(sections: number | null | undefined, work: WorkLike): string {
+  const cell = sectionsCell(sections, work)
+  return /^\d+$/.test(cell) ? `${cell} section${cell === '1' ? '' : 's'}` : cell
+}
+
+/** A repair's items, one line each ("2 × Replace a post"); null for anything else. */
+export function repairLines(work: WorkLike): string[] | null {
+  const s = work?.type === 'repair' ? workSummary(work) : null
+  return s && s.startsWith('Repair: ') ? s.slice('Repair: '.length).split(' · ') : null
+}

@@ -10,6 +10,7 @@
 import { formatPhone } from './phoneFormat'
 import { signedOptionWarranty } from './warranties'
 import { styleLabel } from './fenceCatalog'
+import { workSummary, sectionsCell } from './moveRepair'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { useState } from 'react'
 import { getContractSections } from './contractStore'
@@ -68,7 +69,8 @@ function useComputedFields(quote: QuoteWithPresentation) {
   const quoteNumber = `#${(quote.id || '').slice(-6).toUpperCase()}`
   const photos = quote.quotePhotos || []
   const introText = (quote.customIntroText || '').trim()
-  const scopeText = (quote.customScopeText || '').trim()
+  // A repair or a move with no scope typed: the work in the customer's words, never "0 linear feet with 0 sections" (round 2 review, Oct 26 2026).
+  const scopeText = (quote.customScopeText || '').trim() || (quote.work ? String(quote.work.description || workSummary(quote.work) || '').trim() : '')
   return { company, contractSections, totalFootage, gateSummary, pricePerFoot, quoteNumber, photos, introText, scopeText }
 }
 
@@ -199,7 +201,7 @@ function PremiumTemplate({ quote, template, interactive, onAccept, accepted, exp
               </div>
               <div>
                 <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', fontWeight: 700 }}>Sections</p>
-                <p style={{ color: template.primaryColor, fontWeight: 600 }}>{quote.sections}</p>
+                <p style={{ color: template.primaryColor, fontWeight: 600 }}>{sectionsCell(quote.sections, quote.work)}</p>
               </div>
             </div>
             {scopeText && (
@@ -240,7 +242,7 @@ function PremiumTemplate({ quote, template, interactive, onAccept, accepted, exp
               <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
                 <td style={{ padding: '14px 12px' }}>
                   <strong>{styleLabel(quote.fenceStyle)} Installation</strong>
-                  <div style={{ fontSize: 12, color: '#6b7280' }}>{totalFootage} linear feet · {quote.sections} sections</div>
+                  <div style={{ fontSize: 12, color: '#6b7280' }}>{quote.work?.type === 'repair' ? sectionsCell(quote.sections, quote.work) : `${totalFootage} linear feet · ${quote.sections} sections`}</div>
                 </td>
                 <td style={{ padding: '14px 12px', textAlign: 'right', fontWeight: 600 }}>{fmt(Math.max(0, quote.finalPrice - 0))}</td>
               </tr>
@@ -343,7 +345,7 @@ function ModernTemplate({ quote, template, interactive, onAccept, accepted, expi
               <Fact label="Fence Style" value={styleLabel(quote.fenceStyle)} />
               <Fact label="Footage" value={`${totalFootage} ft`} />
               <Fact label="Gates" value={gateSummary} />
-              <Fact label="Sections" value={String(quote.sections)} />
+              <Fact label="Sections" value={sectionsCell(quote.sections, quote.work)} />
             </div>
             {quoteHasPlan(quote) && <div style={{ marginTop: 20 }} data-plan-section><QuotePlan quote={quote} /></div>}
           </NumberedSection>
@@ -563,7 +565,7 @@ function BoldTemplate({ quote, template, interactive, onAccept, accepted, expire
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
             {[
               ['Footage', `${totalFootage} ft`],
-              ['Sections', String(quote.sections)],
+              ['Sections', sectionsCell(quote.sections, quote.work)],
               ['Style', styleLabel(quote.fenceStyle)],
               ['Gates', gateSummary],
             ].map(([k, v]) => (

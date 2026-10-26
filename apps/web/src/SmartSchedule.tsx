@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { styleLabel } from './fenceCatalog'
 import { getJobs, updateJob } from './jobStore'
+import { jobSectionsCell } from './jobWork'
 import L from 'leaflet'
 import { createFreeMap, centeredIcon, aboveIcon, type FreeMap } from './freeMap'
 import { lookupPosition } from './appointmentsStore'
@@ -28,6 +29,8 @@ interface SchedulableJob {
   address: string
   fenceType: string
   sections: number
+  /** Its quote: a repair's work is kept there (jobWork.ts). */
+  quoteId?: string | null
   estimatedDays: number
   contractValue: number
   tearOut: boolean
@@ -63,6 +66,7 @@ function loadSchedulableJobs(): SchedulableJob[] {
         address: j.customerAddress,
         fenceType: j.fenceStyle,
         sections: j.sections,
+        quoteId: j.quoteId || null,
         estimatedDays: j.estimatedDays,
         contractValue: j.contractValue,
         tearOut: j.tearOutSections > 0,
@@ -542,7 +546,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
               <p className="text-xs text-gray-500 mb-2">{selectedJob.address}</p>
               <div className="grid grid-cols-2 gap-2 text-xs mb-2">
                 <div className="bg-gray-50 rounded p-1.5"><span className="text-gray-400">Style:</span> <span className="font-semibold">{styleLabel(selectedJob.fenceType)}</span></div>
-                <div className="bg-gray-50 rounded p-1.5"><span className="text-gray-400">Sections:</span> <span className="font-semibold">{selectedJob.sections}</span></div>
+                <div className="bg-gray-50 rounded p-1.5"><span className="text-gray-400">Sections:</span> <span className="font-semibold">{jobSectionsCell(selectedJob)}</span></div>
                 <div className="bg-gray-50 rounded p-1.5"><span className="text-gray-400">Est Days:</span> <span className="font-semibold">{selectedJob.estimatedDays}</span></div>
                 <div className="bg-gray-50 rounded p-1.5"><span className="text-gray-400">Value:</span> <span className="font-semibold">{fmt(selectedJob.contractValue)}</span></div>
               </div>

@@ -1,6 +1,7 @@
 import type { SavedQuote } from './QuotesPage'
 import { formatPhone } from './phoneFormat'
 import { styleLabel } from './fenceCatalog'
+import { sizeText } from './moveRepair'
 import { businessDate } from './businessDate'
 import { getConfig } from './configStore'
 
@@ -114,7 +115,7 @@ export function generatePO(quote: SavedQuote, vendor?: string, notes?: string) {
     <div class="info-label">Job Details</div>
     <div class="info-value">
       <strong>${esc(styleLabel(quote.fenceStyle))}</strong><br>
-      ${quote.sections} sections · ${quote.runs?.length || 0} runs<br>
+      ${esc(sizeText(quote.sections, quote.work))} · ${quote.runs?.length || 0} runs<br>
       ${quote.walkGates} walk gates · ${quote.dblGates} dbl gates
     </div>
   </div>
