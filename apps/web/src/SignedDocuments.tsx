@@ -81,7 +81,7 @@ export default function SignedDocuments({ which, heading = 'Documents', hideWhen
               </span>
               <div className="flex-1 min-w-[180px]">
                 <p className="text-sm font-medium text-gray-900 break-words" data-signed-doc-title>{d.detail || d.title}</p>
-                <p className="text-xs text-gray-600" data-signed-doc-signed>Signed {d.signedOn} by {d.signedBy}{d.inPortal ? ' · in the customer portal' : ''}</p>
+                <p className="text-xs text-gray-600" data-signed-doc-signed>Signed {d.signedOn} by {d.signedBy}{d.inPortal ? ' · a copy is in their customer portal' : ''}</p>
               </div>
               <button type="button" className="btn btn-secondary min-h-[48px] shrink-0" onClick={() => openSignedPdf(d)} data-signed-doc-open>
                 {d.kind === 'contract' ? 'Signed contract (PDF)' : 'Signed change order (PDF)'}

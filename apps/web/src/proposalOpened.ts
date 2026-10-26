@@ -5,7 +5,7 @@
  * card without one shows nothing (and is no taller).
  */
 
-export interface Opened { count: number; lastAt: string | null }
+export interface Opened { count: number; lastAt: string | null; signed?: boolean }
 
 /** "just now", "5m ago", "2h ago", "3d ago". */
 export function agoWords(at: string | null | undefined, now = Date.now()): string {
@@ -22,7 +22,8 @@ export function agoWords(at: string | null | undefined, now = Date.now()): strin
 
 export function openedBadgeText(opened: Opened | null | undefined, now = Date.now()): string | null {
   if (!opened) return null
-  if (!(opened.count > 0)) return 'Not opened yet'
+  // Accepted on the link: they had it open to sign it (round 2 review: "Not opened yet" on a signed quote).
+  if (!(opened.count > 0)) return opened.signed ? 'Opened and signed' : 'Not opened yet'
   const ago = agoWords(opened.lastAt, now)
   return `Opened ${opened.count}×${ago === 'just now' ? ' · just now' : ago ? ` · last ${ago}` : ''}`
 }
