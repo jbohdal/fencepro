@@ -22,6 +22,11 @@ Read GO_LIVE.md before doing anything that touches a database or a server.
 - The dev database holds real customer contact details. Keep email, text and
   other outside service settings empty in the working folder.
 - Refresh the practice data with `bash deploy/mac/refresh-dev-db.sh`.
+- Dev and tests never send: outbound gate + scrubbed refresh. Pushes, email,
+  texts, calendar writes and webhooks go out only from the live install
+  (`lib/outboundGate.ts`; elsewhere they land in `apps/portal/logs/dev-outbox.log`),
+  and every refresh of `ezbiz_dev` is scrubbed (fake emails and phones, no
+  live sign ins). Dev logins are `<login>@example.invalid`.
 
 Details and what enforces this: GO_LIVE.md, section 15.
 

@@ -6,6 +6,17 @@
  */
 
 import type { IntegrationAdapter, IntegrationConfig } from '../../types.js'
+import { HELD_TEXT, holdOutbound, isTestLoopback, outboundBlockReason } from '../../../lib/outboundGate.js'
+
+/** The outbound gate (lib/outboundGate.ts): outside the live install a webhook is written to the dev outbox, not posted. */
+function heldWebhook(url: string, title: string, payload: unknown): boolean {
+  const blocked = outboundBlockReason()
+  let host = ''
+  try { host = new URL(url).hostname } catch { /* a bad address fails below */ }
+  if (!blocked || isTestLoopback(host)) return false
+  holdOutbound('webhook', url, title, JSON.stringify(payload), blocked)
+  return true
+}
 
 const adapter: IntegrationAdapter = {
   slug: 'zapier',
@@ -43,6 +54,7 @@ const adapter: IntegrationAdapter = {
         data: { message: 'This is a test webhook from EZ Biz' },
       }
 
+      if (heldWebhook(webhookUrl, 'Zapier test webhook', testPayload)) return { success: false, message: HELD_TEXT }
       const res = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -75,6 +87,7 @@ export async function fireWebhookWithRetry(
   maxRetries = 3,
 ): Promise<{ success: boolean; status?: number; attempts: number; error?: string }> {
   let lastError = ''
+  if (heldWebhook(url, 'Zapier webhook', payload)) return { success: false, attempts: 0, error: HELD_TEXT }
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {

@@ -44,6 +44,7 @@ import { loadOpsStages } from '../lib/opsStages.js'
 import { pickableStages, stageById, stageIdsInRule } from '../lib/opsStageModel.js'
 import { missingFor } from '../lib/automations/stageRules.js'
 import { saveSubscription, sendPush, vapidKeys } from '../lib/automations/push.js'
+import { HELD_TEXT } from '../lib/outboundGate.js'
 import { disconnectGmail, gmailConsentUrl, gmailStatus } from '../lib/automations/gmail.js'
 import { ensurePermit, lookupParcel, packetInputFor, PERMIT_PORTALS, PERMIT_STATUSES, portalFor, renderPacket, defaultPermitStatusOf } from '../lib/automations/permits.js'
 import { walkthroughApi } from '../lib/automations/walkthroughAdapter.js'
@@ -371,6 +372,7 @@ router.post('/push/test', async (req: any, res) => {
   try {
     const r = await sendPush(req.user.crmAccountId, { title: 'EZ Biz push works', body: 'Automations will tell you here when something needs you.', url: '/automations', tag: 'test' }, { userIds: [req.user.id] })
     if (!r.subscribers) { res.status(400).json({ success: false, error: 'Push is not turned on for this phone yet. Press Turn on push first.' }); return }
+    if (!r.sent && r.held) { res.status(409).json({ success: false, error: HELD_TEXT }); return }
     if (!r.sent && r.removed && !r.failed) { res.status(410).json({ success: false, error: 'This phone\'s push sign up had expired and was removed. Press Turn on push again.' }); return }
     if (!r.sent) { res.status(502).json({ success: false, error: `The push did not go through: ${r.errors[0] ?? 'no answer from the push service'}` }); return }
     res.json({ success: true, data: r })

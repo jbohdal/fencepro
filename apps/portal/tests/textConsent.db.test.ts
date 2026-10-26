@@ -120,7 +120,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('texting consent (dev database)',
 
     await send('POST', `/api/crm-contacts/${c.id}/text-consent`, { consent: 'yes' })
     r = await sendCustomerSms(c.phone.replace(/\D/g, ''), 'hello')
-    expect(r.success).toBe(true)
+    // Allowed by consent; under tests the outbound gate keeps it in the dev outbox (never sent).
+    expect(r).toMatchObject({ success: false, held: true })
     expect(r.blocked).toBeFalsy()
     expect((await textAllowedTo(`+1${c.phone.replace(/\D/g, '')}`, accountId)).allowed).toBe(true)
 

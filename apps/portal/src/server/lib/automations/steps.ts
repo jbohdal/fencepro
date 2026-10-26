@@ -22,8 +22,9 @@ import { fieldsForStage, stageOfJob } from '../opsStageModel.js'
 import { PermanentStepError, type Step } from './types.js'
 import { checkJobMove, checkPipelineMoves } from './stageRules.js'
 import { recordCardMoves, recordJobChanges } from './hooks.js'
-import { emailSenderFor, GMAIL_NOT_CONNECTED, gmailStatus } from './gmail.js'
+import { emailSenderFor, GMAIL_NOT_CONNECTED, gmailStatus, HELD_EMAIL_ID } from './gmail.js'
 import { sendPush } from './push.js'
+import { holdOutbound, isTestLoopback, outboundBlockReason } from '../outboundGate.js'
 import { plainStyleName } from '../estimates.js'
 import { walkthroughApi, WALKTHROUGH_MISSING } from './walkthroughAdapter.js'
 import { ensurePermit, packetInputFor, portalFor, renderPacket, defaultPermitStatusOf } from './permits.js'
@@ -111,6 +112,7 @@ async function pushOnce(r: StepRun, part: string, title: string, body: string, u
     return p
   }, 'The push may already have gone out when the app stopped. Press Run again to send it anyway.')
   const p = result as any
+  if (p?.subscribers && !p.sent && p.held) return 'push not sent: this copy is not the live install (dev outbox)'
   return p?.subscribers ? `push sent to ${p.sent} phone${p.sent === 1 ? '' : 's'}` : 'no phone has push turned on yet (Automations, Turn on push)'
 }
 
@@ -119,8 +121,9 @@ async function email(r: StepRun, subject: string, body: string): Promise<StepOut
   const sender = await emailSenderFor(r.accountId) // GmailNotConnectedError: retried, then reported
   const { result, already } = await onceOutside(effectKey(r, 'email'), r.runId, async () => {
     const sent = await sender.send({ to: r.entity.email, subject, text: body, messageId: `${r.runId}.${r.stepIndex}@ezbiz.automations` })
-    return { gmailId: sent.id, to: r.entity.email }
+    return { gmailId: sent.id, to: r.entity.email, ...(sent.id === HELD_EMAIL_ID ? { held: true } : {}) }
   }, `This email may already have been sent when the app stopped. Check Gmail's Sent folder for "${subject}" to ${r.entity.email}; press Run again only if it is not there.`)
+  if ((result as any)?.held) return { detail: `not emailed (this copy is not the live install; in the dev outbox): ${(result as any)?.to ?? r.entity.email}: "${subject}"` }
   return { detail: `${already ? 'already emailed' : 'emailed'} ${(result as any)?.to ?? r.entity.email}: "${subject}"` }
 }
 
@@ -370,6 +373,13 @@ async function webhook(r: StepRun, url: string): Promise<StepOutcome> {
     board: e.board, entity: { kind: e.entityKind, id: e.entityId }, stage: e.stageLabel,
     customer: { name: e.name, firstName: e.firstName, lastName: e.lastName, email: e.email, phone: e.phone, address: e.address, city: e.city, county: e.county },
     job: e.job ? { id: e.job.id, style: e.style, priceCents: e.priceCents, installDate: e.installDate } : null,
+  }
+  // The outbound gate (lib/outboundGate.ts): only the live install posts to an outside address.
+  const blocked = outboundBlockReason()
+  if (blocked && !isTestLoopback(new URL(url).hostname)) {
+    holdOutbound('webhook', url, `${r.ruleName}: ${e.name}`, JSON.stringify(body), blocked)
+    await prisma.automationEffect.upsert({ where: { key }, create: { key, runId: r.runId, status: 'done', result: { url, held: true } }, update: { status: 'done' } })
+    return { detail: `not posted to ${new URL(url).host}: this copy is not the live install (in the dev outbox)` }
   }
   const ctl = new AbortController()
   const t = setTimeout(() => ctl.abort(), 10_000)

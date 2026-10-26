@@ -33,7 +33,7 @@
  * last one; Settings > Proposals "Tell me when a proposal is opened" (per
  * company, on unless turned off). Each is saved once under its key
  * (AutomationEffect) with the bell notification; on the dev copy it is logged,
- * never delivered (pushDeliveryAllowed). The automation worker also sends any
+ * never delivered (the outbound gate, lib/outboundGate.ts: written to the dev outbox). The automation worker also sends any
  * that were missed (a restart between the open and the push).
  */
 
@@ -46,7 +46,8 @@ import {
   BEAT_WINDOW_MS, REUSE_MS, deviceOf, isBot, mergeBeat, openTrigger, staffDecision,
   type Beat, type StaffHow,
 } from './proposalViewRules.js'
-import { peopleOf, pushDeliveryAllowed, type Person } from './followUps.js'
+import { peopleOf, type Person } from './followUps.js'
+import { holdOutbound, realDeliveryAllowed } from './outboundGate.js'
 import { stopsSteps } from './followUpRules.js'
 import { followUpStagesFor } from './followUps.js'
 
@@ -253,10 +254,10 @@ export async function proposalOpenedPush(viewId: string, deps: { send?: PushSend
       await tx.notification.create({ data: { recipientId: owner.email, title, body, type: 'info', link } })
     })
   } catch { return { made: false, delivered: false, why: 'already sent' } }
-  const allowed = deps.allowed ?? pushDeliveryAllowed()
+  const allowed = deps.allowed ?? realDeliveryAllowed()
   if (!allowed) {
     const line = `[proposal-opened] dev copy: push not delivered to ${owner.name}: ${title}. ${body}`
-    console.log(line)
+    holdOutbound('push', owner.name, title, body)
     await prisma.automationEffect.update({ where: { key }, data: { result: { viewId, trigger: v.pushTrigger, to: owner.id, logged: line } as any } }).catch(() => null)
     return { made: true, delivered: false, logged: line }
   }

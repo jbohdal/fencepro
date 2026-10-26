@@ -22,6 +22,7 @@
 
 import { plainSideWords } from './websiteSides.js'
 import prisma from './prisma.js'
+import { holdOutbound, realDeliveryAllowed } from './outboundGate.js'
 import { isQuietImportCard } from './importCards.js'
 import { isFullRole } from './permissions.js'
 import {
@@ -423,16 +424,6 @@ export async function runFirstFollowUp(accountId: string): Promise<{ set: number
 
 // ── The 7 am push ────────────────────────────────────────────────────────────
 
-/**
- * Whether this copy may deliver pushes to phones. Only the live install
- * (production, not the dev database): the dev copy holds live's data,
- * including the phones that turned push on.
- */
-export function pushDeliveryAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.NODE_ENV !== 'production') return false
-  return !/\/ezbiz_dev(\?|$)/.test(env.DATABASE_URL || '')
-}
-
 /** The ledger key for one person's morning push on one day: sent at most once. */
 export const morningKey = (userId: string, day: string) => `followup-morning:${userId}:${day}`
 
@@ -464,7 +455,7 @@ export async function followUpMorningPush(now = new Date(), deps: { send?: (acco
   const hour = floridaHour(now)
   if (hour < 7 || hour >= 12) return out
   const day = floridaDay(now)
-  const allowed = deps.allowed ?? pushDeliveryAllowed()
+  const allowed = deps.allowed ?? realDeliveryAllowed()
   const accounts = await prisma.pipelineState.findMany({ where: deps.accountIds ? { accountId: { in: deps.accountIds } } : undefined, select: { accountId: true } })
   for (const { accountId } of accounts) {
     const { rows, people } = await cardRows(accountId, now)
@@ -481,7 +472,7 @@ export async function followUpMorningPush(now = new Date(), deps: { send?: (acco
       out.made++
       if (!allowed) {
         const line = `[follow-ups] dev copy: 7 am push not delivered to ${m.name}: ${m.title}. ${m.body}`
-        console.log(line); out.logged.push(line)
+        holdOutbound('push', m.name, m.title, m.body); out.logged.push(line)
         continue
       }
       try {
