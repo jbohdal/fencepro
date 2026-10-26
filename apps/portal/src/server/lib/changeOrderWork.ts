@@ -402,6 +402,10 @@ export function lastWorkDay(start: string, days: number, workDays: number[]): st
 export async function scheduleFit(accountId: string, jobId: string, tx: any = prisma): Promise<string | null> {
   const job = await tx.savedJob.findFirst({ where: { id: jobId, accountId }, select: { id: true, scheduledDate: true, scheduledEndDate: true, estimatedDays: true, crewAssigned: true, completedDate: true } })
   if (!job || !isDay(job.scheduledDate) || job.completedDate) return null
+  // The crew finished the whole job ("We finished the whole job", or a Finish on the last crew day): nothing to fit
+  // any more, even when it took fewer days than planned (round 3, Oct 26 2026).
+  const { installTimes, crewFinishedJob } = await import('./crewInstall.js')
+  if (crewFinishedJob(await installTimes(job.id), isDay(job.scheduledEndDate) ? job.scheduledEndDate : job.scheduledDate)) return null
   const settings = await tx.scheduleSettings.findUnique({ where: { accountId } }).catch(() => null)
   const workDays: number[] = Array.isArray(settings?.workDays) && settings.workDays.length ? settings.workDays : [1, 2, 3, 4]
   const need = Math.max(1, job.estimatedDays || 1)

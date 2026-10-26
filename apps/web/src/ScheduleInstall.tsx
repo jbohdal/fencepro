@@ -329,7 +329,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
             <div className="rounded-xl border border-amber-300 bg-amber-50 p-3" data-si-warnings={warnings.map(w => w.key).join(',')}>
               <p className="text-sm font-semibold text-amber-900">Not ready yet. You can still schedule it.</p>
               <ul className="mt-1 space-y-0.5 list-disc pl-5 text-sm text-amber-900">
-                {warnings.map(w => <li key={w.key} data-si-warning={w.key}>{w.text}</li>)}
+                {warnings.map(w => <li key={`${w.key}:${w.text}`} data-si-warning={w.key}>{w.text}</li>)}
               </ul>
             </div>
           )}

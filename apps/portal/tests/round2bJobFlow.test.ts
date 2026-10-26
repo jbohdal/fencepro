@@ -67,7 +67,8 @@ describe('Start and Finish in words', () => {
     expect(jobDoneWords({ closed: true, walkthroughSigned: true, paidInFull: true })).toBe('Job finished and closed out.')
     expect(jobDoneWords({ closed: false, walkthroughSigned: true, paidInFull: false })).toBe('Job finished. Waiting for the final payment.')
     expect(jobDoneWords({ closed: false, walkthroughSigned: false, paidInFull: true })).toBe('Job finished. Waiting for the final walkthrough to be signed.')
-    expect(jobDoneWords({ closed: false, walkthroughSigned: false, paidInFull: false })).toMatch(/final walkthrough and the final payment/)
+    expect(jobDoneWords({ closed: false, walkthroughSigned: false, paidInFull: false })).toBe('Job finished. Waiting for the final walkthrough and the final payment; then it closes by itself.')
+    expect(jobDoneWords({ closed: false, walkthroughSigned: false, paidInFull: false })).not.toMatch(/office/)
   })
 })
 

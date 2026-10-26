@@ -28,7 +28,7 @@ export function finishWords(t: InstallTime, info: Pick<CrewInstall, 'lastDay' | 
 export function jobDoneWords(c: CrewInstall['closeOut'] | null | undefined): string {
   if (!c) return 'Job finished.'
   if (c.closed) return 'Job finished and closed out.'
-  if (!c.walkthroughSigned && !c.paidInFull) return 'Job finished. Waiting for the final walkthrough and the final payment; the office closes it out.'
+  if (!c.walkthroughSigned && !c.paidInFull) return 'Job finished. Waiting for the final walkthrough and the final payment; then it closes by itself.'
   if (!c.walkthroughSigned) return 'Job finished. Waiting for the final walkthrough to be signed.'
   if (!c.paidInFull) return 'Job finished. Waiting for the final payment.'
   return 'Job finished.'
