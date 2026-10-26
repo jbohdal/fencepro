@@ -220,7 +220,13 @@ export async function enqueue<P>(o: { key: string; kind: string; payload: P; lab
   if (o.coalesce !== false) {
     const same = ops.find(x => x.key === o.key && x.kind === o.kind && x.id !== inFlight && x.state === 'pending' && !/\.create$/.test(x.kind))
     if (same) {
-      same.payload = o.payload
+      // A record's starting point (`_base`: what the screen had before the first of these edits) stays the first
+      // edit's, so the server still sees every field the merged edits changed; a Reopen said once stays said.
+      const was = same.payload as any
+      const now = o.payload as any
+      same.payload = (was && now && typeof was === 'object' && typeof now === 'object' && ('_base' in was || '_reopen' in was))
+        ? { ...now, ...('_base' in was ? { _base: was._base } : {}), ...(was._reopen || now._reopen ? { _reopen: true } : {}) }
+        : o.payload
       same.label = o.label
       same.after = o.after
       same.attempts = 0

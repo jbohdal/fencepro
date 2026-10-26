@@ -20,8 +20,8 @@ import JobWarranty from './JobWarranty'
 import { ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
 import SignedDocuments from './SignedDocuments'
 import PaymentsPanel from './Payments'
-import { useState } from 'react'
-import { getJobs, type Job } from './jobStore'
+import { useEffect, useState } from 'react'
+import { getJobs, refreshJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
 import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, advanceStage, pickable, useOpsStages, getCompleteOpsStage } from './opsStagesStore'
 import { isDonePhase } from './opsStageModel'
@@ -128,8 +128,18 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   // Its own address (?job=<id>): Back closes it, a reload reopens it.
   useBackLayer(onClose, { key: 'job', params: { job: job.id } })
   useOpsStages()
+  // The server moves a job on its own (a payment, the walkthrough signed on the homeowner's phone, the crew's
+  // Finish close it out): the window reads the job again when it opens and every 20 seconds while open, so it
+  // never offers a move from a stage the job has left (round 2b, Oct 26 2026: a Paid job showed "In Progress").
+  useEffect(() => {
+    void refreshJobs()
+    const t = window.setInterval(() => { void refreshJobs() }, 20_000)
+    return () => window.clearInterval(t)
+  }, [job.id])
   const stage = stageInfo(job.opsStage)
   const inSideLane = stagePhase(job.opsStage) === 'on_hold'
+  // Complete, Invoiced, Paid: closed. No Move install, no Hold, no Advance; going back is Reopen (owner, office).
+  const closed = isDonePhase(stagePhase(job.opsStage))
   const canAdvance = !inSideLane && !!advanceStage(job.opsStage)
   // The stages a job can go to; a hidden stage the job is in still shows, so you can see where it is.
   const choices = pickable()
@@ -174,7 +184,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
               <Field label="Install" value={job.scheduledDate ? bookedWords(job.scheduledDate, job.rawJob?.scheduledEndDate, loadSchedule().settings.workDays) : 'Not scheduled'} />
               <Field label="Crew" value={crewName(job.crewAssigned) || 'Not assigned'} />
               <Field label="Sales Rep" value={job.salesRep} />
-              {can('schedule.change') && !inSideLane && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} /></div>}
+              {can('schedule.change') && !inSideLane && !closed && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} /></div>}
             </div>
           ) : (
             <>
@@ -309,7 +319,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
 
       {/* Footer actions */}
       {isJobSource && !crew && !isDonePhase(job.rawJob?.status) && !inSideLane && (
-        <p className="px-6 pt-2 text-[11px] text-gray-500 border-t border-gray-200" data-job-closeout-hint>It moves to {getCompleteOpsStage()?.name ?? 'Complete'} by itself once the final walkthrough is signed and it is paid in full.</p>
+        <p className="px-6 pt-2 text-[11px] text-gray-500 border-t border-gray-200" data-job-closeout-hint>It moves to {getCompleteOpsStage()?.name ?? 'Complete'} by itself once all three are done, in any order: the crew finished the install (Finish on the last install day, or its last install day has passed), the final walkthrough is signed, and it is paid in full.</p>
       )}
       {/* Stage moves and hold are the office's; the Installer has his own Start / Finish on My installs. */}
       {isJobSource && !crew && (
@@ -318,19 +328,19 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
             <button onClick={onUnhold} className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium">Resume</button>
           ) : (
             <>
-              {/* A finished job (Complete, Invoiced, Paid) is not advanced by hand; it says where it is. */}
-              {isDonePhase(stagePhase(job.opsStage)) ? (
-                <p className="flex-1 self-center text-sm font-semibold text-green-700" data-ops-done>{stage?.name ?? 'Complete'}</p>
+              {/* A finished job (Complete, Invoiced, Paid) is not advanced or held; it says where it is. Going back is a stage button above (Reopen). */}
+              {closed ? (
+                <p className="flex-1 self-center text-sm font-semibold text-green-700" data-ops-done>{stage?.name ?? 'Complete'}{can('schedule.change') ? <span className="block text-[11px] font-normal text-gray-500">Closed. To reopen it, tap an earlier stage above.</span> : null}</p>
               ) : (
                 <button onClick={onAdvance} disabled={!canAdvance} data-ops-advance
                   className="btn btn-primary flex-1 disabled:opacity-40">
                   {canAdvance ? `Advance to ${advanceStage(job.opsStage)!.name} →` : 'Advance Stage →'}
                 </button>
               )}
-              <button onClick={onHold}
+              {!closed && <button onClick={onHold} data-ops-hold
                 className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50">
                 Hold
-              </button>
+              </button>}
             </>
           )}
         </div>

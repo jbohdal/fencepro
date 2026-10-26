@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react'
 import { sendJson } from './syncHttp'
 import {
   normalizeStages, START_OPS_STAGES, stageOfJob, stageById, phaseOf, nextStage, pickableStages, boardStages, sideStages,
-  fieldsForStage, firstStage, completeStage, reconcileOpsStage, isDonePhase,
+  fieldsForStage, firstStage, completeStage, reconcileOpsStage, isDonePhase, sortedStages,
   type OpsStageDef, type OpsJobLike,
 } from './opsStageModel'
 
@@ -85,6 +85,12 @@ export const nextOpsStage = (id: string) => nextStage(list, id)
 /** Advance from here: none from a done stage (Complete, Invoiced, Paid): a finished job is not pushed on by hand (Oct 25 2026: a paid, Complete job offered "Advance to Invoiced"). */
 export const advanceStage = (id: string) => (isDonePhase(phaseOf(list, id)) ? null : nextStage(list, id))
 export const pickable = () => pickableStages(list)
+/** Back from a closed stage: to one that is not done (or a hold), or to one before it on the board (the server's movesBack, routes/saved-jobs.ts). */
+export function movesBack(from: string, to: string): boolean {
+  if (!isDonePhase(phaseOf(list, to))) return true
+  const order = sortedStages(list).map(s => s.id)
+  return order.indexOf(to) < order.indexOf(from)
+}
 export const columns = () => boardStages(list)
 export const sideLanes = () => sideStages(list)
 export const stageFields = (id: string, job: OpsJobLike, today: string) => fieldsForStage(list, id, job, today)

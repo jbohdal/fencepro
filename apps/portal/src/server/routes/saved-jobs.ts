@@ -29,17 +29,24 @@ import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
 import { plainZod } from '../lib/plainZod.js'
 import { checkJobMove, refuseBlocked } from '../lib/automations/stageRules.js'
 import { recordJobChanges } from '../lib/automations/hooks.js'
-import { roleOf, requireCan } from '../lib/permissions.js'
+import { roleOf, requireCan, can } from '../lib/permissions.js'
 import { repForJob } from '../lib/salesRep.js'
-import { hidesCosts, hidesPrices, isPriceKey, withMoneyBack } from '../lib/costRedact.js'
+import { hidesCosts, hidesPrices, isPriceKey, crewTextBack } from '../lib/costRedact.js'
 import { loadOpsStages } from '../lib/opsStages.js'
-import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage } from '../lib/opsStageModel.js'
+import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage, isDonePhase, phaseOf, sortedStages, type OpsStageDef } from '../lib/opsStageModel.js'
 import { floridaDay } from '../lib/automations/context.js'
 import { jobTotalsFor } from '../lib/changeOrders.js'
 import { afterJobSaved } from '../lib/contractBilling.js'
 import { saveLocate, jobMilestones, milestoneSummary, setHandTick, cardFollowsJob, closeOutIfDone } from '../lib/jobTruth.js'
 
 const router = Router()
+
+/** Back from a closed stage: to a stage that is not done (a hold too), or to one before it on the board. */
+export function movesBack(stages: OpsStageDef[], from: string, to: string): boolean {
+  if (!isDonePhase(phaseOf(stages, to))) return true
+  const order = sortedStages(stages).map(s => s.id)
+  return order.indexOf(to) < order.indexOf(from)
+}
 
 // Anything saved here may carry a date: keep Google Calendar in step, in the background.
 router.use(syncCalendarAfterWrite as any)
@@ -127,7 +134,21 @@ const jobSchema = z.object({
   leadSource: z.string().default(''),
 })
 
-const jobUpdateSchema = jobSchema.partial()
+const jobUpdateSchema = jobSchema.partial().extend({
+  /**
+   * The job as this screen had it before the edit (the same fields). A field
+   * the screen did not change is left as the server has it, and a stage move
+   * made on a copy whose stage is not the server's any more is refused (409
+   * STALE_JOB): an open job window that missed a close out can never move a
+   * Paid job back (round 2b, Oct 26 2026). Older screens send none.
+   */
+  base: z.record(z.unknown()).optional(),
+  /** Move a closed job (Complete, Invoiced, Paid) back: only with Reopen, by the owner or the office. */
+  reopen: z.boolean().optional(),
+})
+
+/** Same value for a three way save: null, undefined and a missing field are one. */
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
 /** A job save never writes these: the 811 locate has its own save (PUT /:id/locate), from the job page and the crew packet. */
 const LOCATE_KEYS = ['locatesDate', 'locatesExpDate', 'locateTicket', 'locateCalledDate'] as const
@@ -272,7 +293,8 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
       return
     }
     // The Installer's notes came with dollar amounts left out: they go back in as saved (lib/costRedact.ts).
-    if (hidesPrices(roleOf(req)) && typeof data.notes === 'string') data.notes = withMoneyBack(data.notes, existing.notes ?? '')
+    // He read the notes without the sentences about a price (lib/costRedact.ts forCrew): those stay as saved.
+    if (hidesPrices(roleOf(req)) && typeof data.notes === 'string') data.notes = crewTextBack(data.notes, existing.notes ?? '')
     // The Installer changes his job's notes only: moving the stage, holding, the status and the rest are the
     // office's (review, Oct 25, 2026). A move or hold is refused; anything else his phone sends back is left as saved.
     if (hidesPrices(roleOf(req))) {
@@ -280,13 +302,28 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
       if (moved) { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Your role cannot move or hold jobs. Ask the office.', data: existing }); return }
       for (const k of Object.keys(data)) if (k !== 'notes') delete (data as any)[k]
     }
+    // Three way: what this screen did not change stays as the server has it (a payment or a signature may have
+    // closed the job since the screen read it); a stage move from an old copy is refused, nothing is saved.
+    const base = (data as any).base as Record<string, unknown> | undefined
+    const reopen = (data as any).reopen === true
+    delete (data as any).base; delete (data as any).reopen
+    if (base) for (const k of Object.keys(data)) if (k in base && sameValue((data as any)[k], base[k])) delete (data as any)[k]
+    const { stages } = await loadOpsStages(req.user.crmAccountId)
+    const movesStage = (data.opsStage !== undefined && data.opsStage !== '' && data.opsStage !== existing.opsStage) || (data.status !== undefined && data.status !== existing.status)
+    if (base && movesStage) {
+      const seen = stageOfJob(stages, base as any)
+      const now = stageOfJob(stages, existing as any)
+      if (seen !== now || (typeof base.status === 'string' && base.status !== existing.status)) {
+        res.status(409).json({ success: false, code: 'STALE_JOB', error: `${existing.customerName || 'This job'} is in ${stageById(stages, now)?.name ?? now} now (it changed after this screen opened). Nothing was moved. Look at it again and move it from there.`, data: existing })
+        return
+      }
+    }
     // A rep already on the job stays when a blank one is sent (an older copy); a job with none takes its quote's (lib/salesRep.ts).
     if (data.salesRep !== undefined && !data.salesRep.trim()) {
       if (existing.salesRep?.trim()) delete (data as any).salesRep
       else data.salesRep = (await repForJob(req, data.salesRep, data.quoteId === undefined ? existing.quoteId : data.quoteId)) ?? ''
     }
     // The stage, by id (Settings > Operations Stages): moved on purpose, or as a status change moves it.
-    const { stages } = await loadOpsStages(req.user.crmAccountId)
     if (data.opsStage && !stageById(stages, data.opsStage)) {
       res.status(400).json({ success: false, error: 'That stage is not in Settings > Operations Stages any more. Reload and pick another.' })
       return
@@ -294,7 +331,15 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     const wasStage = stageOfJob(stages, existing as any)
     const nextStage = reconcileOpsStage(stages, existing as any, { ...existing, ...data } as any)
     // Moved on purpose: the status (and the rest) that stage stands for, whatever an older screen sent.
+    // A closed job (Complete, Invoiced, Paid) never goes back by itself or from an old screen: only Reopen, by the owner or the office.
+    if (nextStage !== wasStage && isDonePhase(existing.status) && movesBack(stages, wasStage, nextStage) && !(reopen && can(roleOf(req), 'schedule.change'))) {
+      const to = stageById(stages, nextStage)?.name ?? nextStage
+      res.status(409).json({ success: false, code: 'REOPEN_NEEDED', error: `${existing.customerName || 'This job'} is ${stageById(stages, wasStage)?.name ?? existing.status}, a closed job. Moving it back to ${to} reopens it: only the owner or the office can, with Reopen.`, data: existing })
+      return
+    }
     if (nextStage !== wasStage && data.opsStage === nextStage) Object.assign(data, fieldsForStage(stages, nextStage, existing as any, floridaDay(new Date())) ?? {})
+    // Reopened (Reopen said, and allowed above): no longer done, so no completed date.
+    if (nextStage !== wasStage && isDonePhase(existing.status) && !isDonePhase(phaseOf(stages, nextStage))) { (data as any).completedDate = null; (data as any).completedBy = null }
     ;(data as any).opsStage = nextStage
     // Change orders: the change order total and contract value come from the approved ones (lib/changeOrders.ts), whatever an older screen sent.
     const coTotals = await jobTotalsFor(req.user.crmAccountId, data.quoteId === undefined ? existing.quoteId : data.quoteId, data.quotePrice ?? existing.quotePrice)

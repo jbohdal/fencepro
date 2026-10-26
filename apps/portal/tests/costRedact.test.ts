@@ -32,7 +32,7 @@ describe('the Installer: no price and no cost', () => {
   test('a job, a card, a quote and payments come without a single figure; the work stays', () => {
     const job = { id: 'j1', customerName: 'Pat', fenceStyle: 'WV', sections: 15, totalFeet: 120, quotePrice: 5000, contractValue: 5200, changeOrderTotal: 200, amountPaid: 1500, paymentStatus: 'partial', gmPct: 0.4, notes: 'Gate code 1234. Estimate shown $5,000, deposit $1,500 cash.' }
     const r = redactCosts({ job, card: { id: 'c', jobValue: 5000, quotePrice: 5000, balanceDue: 3700, stage: 'Sold' }, quote, pay: { amountCents: 150000, depositCents: 150000, depositPaidCents: 150000, contractCents: 520000, balanceCents: 370000, receipt: { says: { amountCents: 1 } } }, grid: { jobPrice: 5000, sections: 15 } }, { prices: true }) as any
-    expect(r.job).toEqual({ id: 'j1', customerName: 'Pat', fenceStyle: 'WV', sections: 15, totalFeet: 120, paymentStatus: 'partial', notes: 'Gate code 1234. Estimate shown $ (left out), deposit $ (left out) cash.' })
+    expect(r.job).toEqual({ id: 'j1', customerName: 'Pat', fenceStyle: 'WV', sections: 15, totalFeet: 120, paymentStatus: 'partial', notes: 'Gate code 1234.' })
     expect(r.card).toEqual({ id: 'c', stage: 'Sold' })
     expect(r.grid).toEqual({ sections: 15 })
     expect(r.pay).toEqual({ receipt: { says: {} } })
@@ -43,7 +43,7 @@ describe('the Installer: no price and no cost', () => {
   test('what the Installer sends back keeps every price and every typed amount as saved', () => {
     const saved = { id: 'c', jobValue: 5000, quotePrice: 5000, notes: 'Estimate $5,000; deposit $1,500', stage: 'Sold' }
     const theirs = redactCosts(saved, { prices: true }) as any
-    expect(restoreCosts({ ...theirs, stage: 'Installed', notes: theirs.notes + ' Two dogs.' }, saved, { prices: true })).toEqual({ id: 'c', jobValue: 5000, quotePrice: 5000, notes: 'Estimate $5,000; deposit $1,500 Two dogs.', stage: 'Installed' })
+    expect(restoreCosts({ ...theirs, stage: 'Installed', notes: theirs.notes + ' Two dogs.' }, saved, { prices: true })).toEqual({ id: 'c', jobValue: 5000, quotePrice: 5000, notes: 'Estimate $5,000; deposit $1,500\nTwo dogs.', stage: 'Installed' })
     expect(withMoneyBack('no amounts', 'Estimate $5,000')).toBe('no amounts')
   })
 })

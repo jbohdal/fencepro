@@ -26,7 +26,7 @@ import {
 } from './OperationsPage'
 import { type Job, type JobStatus, updateJob, advanceJob, holdJob, unholdJob } from './jobStore'
 import {
-  useOpsStages, OPS_STAGES_UPDATED_EVENT, stageInfo, stagePhase, nextOpsStage, advanceStage, stageFields, getCompleteOpsStage, type OpsStageDef,
+  useOpsStages, OPS_STAGES_UPDATED_EVENT, stageInfo, stagePhase, nextOpsStage, advanceStage, stageFields, getCompleteOpsStage, stageName, movesBack, type OpsStageDef,
 } from './opsStagesStore'
 import { boardStages, sideStages, sortedStages, pickableStages, isDonePhase } from './opsStageModel'
 import { fireOpsStageChange } from './automationTrigger'
@@ -257,12 +257,18 @@ export default function OperationsBoard() {
     const target = stageInfo(targetStage)
     const updates = stageFields(targetStage, j.rawJob, TODAY()) as Partial<Job> | null
     if (!target || !updates) return
+    // A closed job (Complete, Invoiced, Paid) goes back only with Reopen, by the owner or the office (the server refuses it otherwise).
+    const reopen = isDoneStage(j.opsStage) && movesBack(j.opsStage, targetStage)
+    if (reopen) {
+      if (!can('schedule.change')) { toast.error('Not moved', `${j.customerName} is ${stageName(j.opsStage)}, a closed job. Only the owner or the office can reopen it.`); return }
+      if (!window.confirm(`Reopen ${j.customerName}'s job? It is ${stageName(j.opsStage)} (closed). It moves back to ${target.name}${isDonePhase(stagePhase(targetStage)) ? '' : ' and its completed date is cleared'}.`)) return
+    }
     // optimistic local update
     setJobs(prev => prev.map(x => x.id === j.id ? { ...x, opsStage: targetStage, opsStageLabel: target.name } : x))
     const wasDone = isDoneStage(j.opsStage)
 
     try {
-      updateJob(j.id, updates)
+      updateJob(j.id, updates, { reopen })
       fireOpsStageChange(j.id, j.opsStage, targetStage, {
         jobName: j.customerName, jobAddress: j.address, fenceType: j.fenceType,
         crewAssigned: j.crewAssigned, customerName: j.customerName,
@@ -679,8 +685,9 @@ function OpsCard({
             {close => <>
               <PopItem onClick={() => { close(); onClick() }}>View / Edit</PopItem>
               {advanceStage(job.opsStage) && <PopItem onClick={() => { close(); onNextStage() }}>Move to {advanceStage(job.opsStage)!.name}</PopItem>}
-              {job.source === 'job' && !stage?.isComplete && <PopItem className="font-semibold !text-green-700" onClick={() => { close(); onComplete() }}>Mark complete</PopItem>}
-              <PopItem danger onClick={() => { close(); onRainDay() }}>Flag Rain Day</PopItem>
+              {/* A closed job (Complete, Invoiced, Paid): no Mark complete (Paid would go back) and no hold. */}
+              {job.source === 'job' && !isDoneStage(job.opsStage) && <PopItem className="font-semibold !text-green-700" onClick={() => { close(); onComplete() }}>Mark complete</PopItem>}
+              {!isDoneStage(job.opsStage) && <PopItem danger onClick={() => { close(); onRainDay() }}>Flag Rain Day</PopItem>}
             </>}
           </PopMenu>
         </div>
