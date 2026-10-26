@@ -85,7 +85,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Scheduling installs (dev databas
 
   test('the text is prepared word for word, and held back without a yes to texts', async () => {
     const r = await S.scheduleInstall(accountId, actor(), { jobId: ids.ready, start: '2026-10-29', crew: 'c2', days: 3 })
-    expect(r.text.body).toBe('Getter Done Fence: Hi Kristi, your fence installation has moved and is now scheduled to start on 10/29/2026. Our crew will arrive in the morning. Questions? Call (352) 789 4314. Reply STOP to opt out.')
+    expect(r.text.body).toBe('Getter Done Fence: Hi Kristi, your fence installation has moved and is now scheduled to start on Thursday, 10/29/2026. Our crew will arrive in the morning. Questions? Call (352) 789 4314. Reply STOP to opt out.')
     expect(r.text.allowed).toBe(false)
     expect(r.text.reason).toMatch(/has not agreed to texts/)
     await prisma.crmContact.update({ where: { id: ids.contact }, data: { textConsent: 'yes' } })
@@ -111,7 +111,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Scheduling installs (dev databas
     ])
     // Kristi's job already started on Monday: no new start, no text. The next job's start moves: its text is ready.
     expect(preview[0].text).toBeNull()
-    expect(preview[1].text?.body).toMatch(/now scheduled to start on 11\/09\/2026/)
+    expect(preview[1].text?.body).toMatch(/now scheduled to start on Monday, 11\/09\/2026/)
     expect(await board().then(b => b.find(g => g.stagingJobId === ids.next)!.date)).toBe('2026-11-05')
     await S.applyRainDay(accountId, '2026-11-03', 1, 'Weather — rain')
     expect((await board()).filter(g => g.stagingJobId === ids.ready).map(g => g.date)).toEqual(['2026-11-02', '2026-11-04'])

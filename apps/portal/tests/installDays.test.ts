@@ -123,11 +123,11 @@ describe('warnings before booking', () => {
 describe('the customer\'s text', () => {
   it('is the schedule confirmation, word for word', () => {
     expect(installText('scheduled', { company: 'Getter Done Fence', firstName: 'Kristi', start: '2026-11-02', phone: '(352) 789 4314' }))
-      .toBe('Getter Done Fence: Hi Kristi, your fence installation is scheduled to start on 11/02/2026. Our crew will arrive in the morning. Questions? Call (352) 789 4314. Reply STOP to opt out.')
+      .toBe('Getter Done Fence: Hi Kristi, your fence installation is scheduled to start on Monday, 11/02/2026. Our crew will arrive in the morning. Questions? Call (352) 789 4314. Reply STOP to opt out.')
   })
   it('a move says the new start', () => {
     expect(installText('moved', { company: 'Getter Done Fence', firstName: 'Kristi', start: '2026-11-09', phone: '(352) 789 4314' }))
-      .toMatch(/^Getter Done Fence: Hi Kristi, your fence installation has moved and is now scheduled to start on 11\/09\/2026\. .* Reply STOP to opt out\.$/)
+      .toMatch(/^Getter Done Fence: Hi Kristi, your fence installation has moved and is now scheduled to start on Monday, 11\/09\/2026\. .* Reply STOP to opt out\.$/)
   })
   it('gives the rep\'s Direct phone, else the company phone; never the personal cell', () => {
     expect(customerPhoneToGive('3525551234', '3527894314')).toEqual({ phone: '(352) 555 1234', from: 'rep' })

@@ -947,3 +947,22 @@ export function workScope(work: Pick<SavedWork, 'type' | 'crew' | 'description'>
   const items = (Array.isArray(work.crew) ? work.crew : []).map(s => String(s).trim()).filter(Boolean)
   return { title: work.type === 'repair' ? 'Repair' : 'Fence move', items: items.length ? items : [String(work.description || '').trim() || 'As described on the quote.'] }
 }
+
+/**
+ * What a repair or a move is, in a line: the repair items with how many
+ * ("Repair: 2 × Replace a post · 1 × Rehang a gate with new hardware"), else
+ * the crew's steps. For the quote window and the installer's card, where a
+ * repair read "0 ft total, 0 sections" (round 2, Oct 26 2026). null for a new
+ * fence.
+ */
+export function workSummary(work: { type?: string; repair?: Partial<RepairInputs> | null; crew?: string[]; description?: string } | null | undefined): string | null {
+  if (!work || (work.type !== 'repair' && work.type !== 'move')) return null
+  if (work.type === 'repair') {
+    const items = work.repair?.items ?? {}
+    const gate = work.repair?.gateKind === 'double' ? ' (double gate)' : ''
+    const parts = REPAIR_ITEMS.filter(k => (items[k] ?? 0) > 0).map(k => `${items[k]} × ${REPAIR_LABEL[k]}${/Gate$/.test(k) ? gate : ''}`)
+    if (parts.length) return `Repair: ${parts.join(' · ')}`
+  }
+  const s = workScope({ type: work.type as 'repair' | 'move', crew: work.crew ?? [], description: work.description ?? '' })
+  return s ? `${s.title}: ${s.items.join(' · ')}` : null
+}

@@ -22,6 +22,7 @@ import { toast } from './toast'
 import { TEMPLATES, getDefaultTemplateKey, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
 import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import RunSpacingTable from './RunSpacingTable'
+import { workSummary } from './moveRepair'
 import ProposalSend from './ProposalSend'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import MediaGallery from './MediaGallery'
@@ -135,8 +136,10 @@ export default function QuoteDetailDrawer({
               <p className="text-xs text-gray-500 mt-1">{styleLabel(quote.fenceStyle)}</p>
             </div>
             <div className="text-right text-sm">
-              <p className="text-gray-500">{totalFootage} ft total</p>
-              <p className="text-gray-500">{quote.sections} sections</p>
+              {/* A repair or a move: what is being done, not "0 ft total, 0 sections" (round 2, Oct 26 2026). */}
+              {workSummary(quote.work)
+                ? <p className="text-gray-700 max-w-[16rem]" data-quote-work-summary>{workSummary(quote.work)}</p>
+                : <><p className="text-gray-500">{totalFootage} ft total</p><p className="text-gray-500">{quote.sections} sections</p></>}
               {internalView && <p className={`mt-1 font-semibold ${quote.gmPct >= 0.34 ? 'text-green-700' : quote.gmPct >= 0.27 ? 'text-yellow-600' : 'text-red-600'}`}>{fmtPct(quote.gmPct)} margin</p>}
             </div>
           </div>

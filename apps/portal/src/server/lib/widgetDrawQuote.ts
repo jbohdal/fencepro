@@ -240,7 +240,8 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
   const photos = (input.photos ?? []).filter(u => INTAKE_PHOTO.test(u))
   const widgetDrawing = widgetDrawingRecord(input.drawing, sides, input.pick, options, chosen, snapshotUrl, photos)
   const today = day()
-  const sideLines = (widgetDrawing.sides as Json[][]).flat().map((s: Json) => `Run ${s.run} side ${s.side}: ${s.ft} ft (${s.how}${s.how === 'typed' ? `, photo said ${s.measuredFt} ft` : ''})`)
+  // A side drawn on the photo is just its length (never "(measured)": nobody measured it on site, round 2 Oct 26 2026); a typed one says so.
+  const sideLines = (widgetDrawing.sides as Json[][]).flat().map((s: Json) => `Run ${s.run} side ${s.side}: ${s.ft} ft${s.how === 'typed' ? ` (typed by the customer; the photo said ${s.measuredFt} ft)` : ''}`)
   const summary = [
     `${SOURCE_TEXT} (website quote on the aerial photo)`,
     `${q.footageFt} ft of ${choice}`,

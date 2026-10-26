@@ -32,10 +32,9 @@ export default function CustomerDrawing({ record }: { record: WidgetDrawingRecor
               <li key={`${s.run}-${s.side}`} className="flex items-center justify-between py-1.5">
                 <span>Run {s.run}, side {s.side}</span>
                 <span className="tabular-nums">
-                  <span className="font-semibold">{s.ft} ft</span>{' '}
-                  <span className={`text-xs rounded-full px-2 py-0.5 ${s.how === 'typed' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`} data-side-how={s.how}>
-                    {s.how === 'typed' ? `typed (photo ${s.measuredFt} ft)` : 'measured'}
-                  </span>
+                  <span className="font-semibold">{s.ft} ft</span>
+                  {/* Drawn on the photo: the length alone (never "measured": nobody measured it on site). Typed by the customer: said so. */}
+                  {s.how === 'typed' && <>{' '}<span className="text-xs rounded-full px-2 py-0.5 bg-green-100 text-green-800" data-side-how={s.how}>typed by the customer (photo {s.measuredFt} ft)</span></>}
                 </span>
               </li>
             ))}
