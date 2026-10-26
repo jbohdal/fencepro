@@ -177,7 +177,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     expect(e.changeNote).toMatch(/This is pull sheet rev 2, from change order CO-1/)
     // Install packet: the crew's link shows the change; the office sees it is out of date.
     const staff = (await call(owner, 'GET', `/api/install-packets?jobId=${jobId}`)).json.data
-    expect(staff.changedBy).toEqual({ number: 1, what: 'added 12 ft and a walk gate' })
+    // Its own change, run by run (round 3 recheck), and every change order since the packet was sent.
+    const what = 'added 12 ft and a walk gate (Run 1: 112 ft → 124 ft)'
+    expect(staff.changedBy).toEqual({ number: 1, what, all: [{ number: 1, what }] })
     const page = await call('', 'GET', `/p/i/${staff.token}`)
     expect(page.text).toContain('data-packet-change-order')
     expect(page.text).toContain('Vinyl panel</b>: 14 → 0')
@@ -443,5 +445,65 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     expect(co3.json.notice).toBeUndefined()
     const co4 = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Longer still', lines: [{ id: 'd', description: 'Add 10 ft of fence', amountCents: 25000 }], work: work(yardOf(960, true)) })
     expect(co4.json.notice).toMatch(/changes the same thing as CO-3 \(Back: length\)/)
+  })
+
+  // Round 3 recheck (Oct 26 2026): CO-1 said "(146 ft to 156 ft)" on its signing screen and signed PDF after CO-2 was
+  // signed first; CO-2's link showed CO-1's unsigned side without a word; the packet named only the last change order.
+  test('round 3 recheck: each change order says its own sides, its drawing names the other open one, the packet lists both', async () => {
+    const { pricingModule } = await import('../src/server/lib/estimates.js')
+    const m = await pricingModule()
+    const cfg = (await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }))?.config ?? null
+    const side = (id: string, name: string, lengthIn: number, start: string, end: string, gate: any = null) => ({ id, name, on: true, lengthIn, startFinish: start, endFinish: end, gate, skip: null, heading: 0 })
+    const yardOf = (back: number, gate = false) => ({ shape: 'backyard', closed: false, sides: [
+      side('rr-left', 'Left side', 600, 'house', 'corner', gate ? { type: 'walk', widthIn: 48, position: 'middle' } : null),
+      side('rr-back', 'Back', back, 'corner', 'house'),
+    ] })
+    const req = (yard: any) => { const d = m.deriveYardRuns(cfg, yard, ND)!; return { ...request(0, d.walkGates), runs: d.runs.map(ft => ({ ft, rail: 'auto' })), corners: d.corners, ends: d.ends, walkGates: d.walkGates, dblGates: d.dblGates } }
+    const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'
+    const work = (yard: any) => ({ request: req(yard), layout: { yard }, planSvg: SVG })
+    const { jobId, quoteId } = await signedJob()
+    const q0 = req(yardOf(600))
+    await prisma.savedQuote.update({ where: { id: quoteId }, data: { runs: q0.runs.map(r => r.ft), corners: q0.corners, ends: q0.ends, layout: { yard: yardOf(600), runSections: [] } as any } })
+    const packet = await call(owner, 'POST', '/api/install-packets', { jobId, snapshot: { style: ND, pullSheet: [{ item: 'Vinyl panel', qty: 13 }] } })
+    expect(packet.status).toBe(200)
+
+    // CO-1, written the old way (the whole fence before and after); CO-2 drawn on top of it (a walk gate in the Left side).
+    const co1 = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Longer back', lines: [{ id: 'a', description: 'Add 10 ft of fence, 2 panels more (100 ft to 110 ft)', amountCents: 25000 }], work: work(yardOf(720)) })
+    const co2 = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Gate', lines: [{ id: 'b', description: 'Add 1 walk gate in the Left side (4 ft of fence becomes the gate)', amountCents: 30000 }], work: work(yardOf(720, true)) })
+    expect([co1.status, co2.status]).toEqual([201, 201])
+    expect(co1.json.data.change).toBe('Back 50 ft → 60 ft')
+    expect(co1.json.data.lines[0].description).toBe('Add 10 ft of fence, 2 panels more (Back 50 ft → 60 ft)')
+    // CO-2's drawing shows CO-1's longer Back: the job page and the customer's link say it is not part of CO-2.
+    expect(co2.json.data.alsoInDrawing).toEqual([{ number: 1, status: 'draft', signed: false, change: 'Back 50 ft → 60 ft' }])
+    const link2 = (await call(owner, 'POST', `/api/change-orders/${co2.json.data.id}/link`)).json.data.token
+    await call(owner, 'PATCH', `/api/change-orders/${co2.json.data.id}`, { baseVersion: co2.json.data.version, status: 'sent' })
+    const page2 = await call('', 'GET', `/p/co/${link2}`)
+    expect(page2.text).toContain('data-co-not-part')
+    expect(page2.text).toMatch(/also shows CO-1&#(39|x27);s change \(Back 50 ft → 60 ft\): not part of this change order \(CO-1, not signed yet\)\./)
+
+    // CO-2 signed first, then CO-1: CO-1's words stay its own, and the signed copy keeps them.
+    expect((await call(owner, 'POST', `/api/change-orders/${co2.json.data.id}/sign`, { name: 'Pat Customer', signature: SIG })).status).toBe(200)
+    const link1 = (await call(owner, 'POST', `/api/change-orders/${co1.json.data.id}/link`)).json.data.token
+    await call(owner, 'PATCH', `/api/change-orders/${co1.json.data.id}`, { baseVersion: co1.json.data.version, status: 'sent' })
+    const page1 = await call('', 'GET', `/p/co/${link1}`)
+    expect(page1.text).toContain('Add 10 ft of fence, 2 panels more (Back 50 ft → 60 ft)')
+    expect(page1.text).not.toContain('100 ft to 110 ft')
+    expect((await call('', 'POST', `/p/co/${link1}/sign`, { name: 'Pat Customer', signature: SIG })).json.success).toBe(true)
+    const row1 = (await prisma.changeOrder.findUnique({ where: { id: co1.json.data.id } }))!
+    expect((row1.lines as any[])[0].description).toBe('Add 10 ft of fence, 2 panels more (Back 50 ft → 60 ft)')
+    const job = (await prisma.savedJob.findUnique({ where: { id: jobId } }))!
+    expect([job.totalFeet, job.walkGates]).toEqual([106, 1])
+    // The job page: CO-1 says its change, and the job with it (never its drawing's 110 ft).
+    const rows = (await call(owner, 'GET', `/api/change-orders?jobId=${jobId}`)).json.data
+    expect(rows.find((r: any) => r.number === 1)).toMatchObject({ change: 'Back 50 ft → 60 ft', jobWork: { footage: 106 } })
+
+    // The crew's packet lists both change orders signed since it was made, in the order signed.
+    const staff = (await call(owner, 'GET', `/api/install-packets?jobId=${jobId}`)).json.data
+    expect(staff.changedBy.all.map((a: any) => a.number)).toEqual([2, 1])
+    expect(staff.changedBy.all[1].what).toBe('added 10 ft (Back 50 ft → 60 ft)')
+    const crew = await call('', 'GET', `/p/i/${staff.token}`)
+    expect(crew.text).toContain('Changed: change orders CO-2 and CO-1')
+    expect(crew.text).toContain('data-packet-co-item="2"')
+    expect(crew.text).toContain('data-packet-co-item="1"')
   })
 })

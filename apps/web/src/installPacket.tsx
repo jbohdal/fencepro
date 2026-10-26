@@ -144,7 +144,15 @@ export function packetUrl(token: string): string {
   return hostname.endsWith('.ts.net') ? `${protocol}//${hostname}:8443/p/i/${token}` : `${origin}/p/i/${token}`
 }
 
-export interface Packet { id: string; token: string; disabledAt: string | null; sentAt: string; changedBy?: { number: number; what: string } | null }
+/** "Change order CO-1 changed the work (added 10 ft)" / "Change orders CO-1 (added 10 ft) and CO-2 (added a walk gate) changed the work". */
+export function packetChangedWords(c: NonNullable<Packet['changedBy']>): string {
+  const all = c.all?.length ? c.all : [{ number: c.number, what: c.what }]
+  if (all.length === 1) return `Change order CO-${all[0].number} changed the work (${all[0].what})`
+  const bits = all.map(a => `CO-${a.number} (${a.what})`)
+  return `Change orders ${bits.slice(0, -1).join(', ')} and ${bits[bits.length - 1]} changed the work`
+}
+
+export interface Packet { id: string; token: string; disabledAt: string | null; sentAt: string; changedBy?: { number: number; what: string; all?: Array<{ number: number; what: string }> } | null }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T | null> {
   const r = await fetchWithAuth(`${API}${path}`, { ...init, headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) } }).catch(() => null)
@@ -268,7 +276,8 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
   return (
     <div className="space-y-2" data-install-packet>
       <p className="text-xs text-gray-600">A private link for the crew: plan with post spacing, counts, gates, pull sheet, photos and notes. No prices. It closes 30 days after the job is marked complete.</p>
-      {live && packet?.changedBy && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-packet-outdated>Change order CO-{packet.changedBy.number} changed the work ({packet.changedBy.what}) after this packet was sent. The crew's link already shows the new pull sheet; update the packet for the new site plan.</p>}
+      {/* Every change order signed since the packet was sent, not only the last (round 3 recheck). */}
+      {live && packet?.changedBy && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-packet-outdated>{packetChangedWords(packet.changedBy)} after this packet was sent. The crew's link already shows the new pull sheet; update the packet for the new site plan.</p>}
       {/* The office sends and updates the packet; the crew may only make a job's first one. */}
       {(office || !live) && <button type="button" className="btn btn-primary w-full" disabled={busy} onClick={send} data-packet-send>
         <Send size={16} aria-hidden="true" /> {live ? 'Update the install packet' : 'Send install packet'}

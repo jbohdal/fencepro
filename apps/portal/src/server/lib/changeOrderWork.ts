@@ -25,7 +25,7 @@
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { dataFor, requestFrom } from './quotePricing.js'
-import { shapeOf, sameShape, applyChange, clashes, type WorkShape, type ChangeStep, type DeriveRuns } from './changeOrderMerge.js'
+import { shapeOf, sameShape, applyChange, clashes, ownChangeWords, type WorkShape, type ChangeStep, type DeriveRuns } from './changeOrderMerge.js'
 
 type Json = any
 
@@ -427,19 +427,39 @@ export async function scheduleFit(accountId: string, jobId: string, tx: any = pr
 
 // ── The crew's install packet ────────────────────────────────────────────────
 
-export interface PacketChange { number: number; rev: number | null; approvedAt: Date; what: string; work: StoredWork }
+/** One signed change order's own change, for the crew (never a price). */
+export interface PacketChangeItem { number: number; rev: number | null; approvedAt: Date; what: string }
+export interface PacketChange extends PacketChangeItem { work: StoredWork; all: PacketChangeItem[] }
+
+/** "added 10 ft (Left side 40 ft → 50 ft)": its own change, side by side when it came from the drawing. */
+export function ownWhat(r: { work?: unknown; scope?: unknown; lines?: unknown; reason?: string }): string {
+  const sides = ownChangeWords(r.work)
+  const what = whatChanged(r as any)
+  return sides ? `${what} (${sides})` : what
+}
 
 /**
- * The newest approved change order that changed the work after the crew's
- * packet was sent (null: the packet is up to date). The packet page then
- * shows the work as it is now and what changed (routes/installPacket.ts).
+ * The work after the crew's packet was sent: the newest approved change order
+ * that changed it (null: the packet is up to date), and every change order
+ * with a drawing approved since (round 3 recheck, Oct 26 2026: the packet said
+ * only the last one, "Changed: change order CO-1, added 10 ft", when CO-2's
+ * walk gate had come in since too). The packet page then shows the work as it
+ * is now and each change (routes/installPacket.ts).
  */
 export async function packetChange(accountId: string, quoteId: string | null | undefined, since: Date): Promise<PacketChange | null> {
   if (!quoteId) return null
   const rows = await prisma.changeOrder.findMany({ where: { accountId, quoteId, status: 'approved', deletedAt: null } })
   const cur = currentWorkRow(rows as any[])
   if (!cur || !cur.approvedAt || cur.approvedAt <= since) return null
-  return { number: cur.number, rev: (cur as any).contractRev ?? null, approvedAt: cur.approvedAt, what: whatChanged(cur as any), work: cur.work as StoredWork }
+  const item = (r: any): PacketChangeItem => ({ number: r.number, rev: r.contractRev ?? null, approvedAt: r.approvedAt, what: ownWhat(r) })
+  const all = approvedInOrder(rows as any[]).filter(r => isObj(r.work) && r.approvedAt && r.approvedAt > since).map(item)
+  return { ...item(cur), work: cur.work as StoredWork, all: all.length ? all : [item(cur)] }
+}
+
+/** "Changed: change order CO-1" / "Changed: change orders CO-1 and CO-2". */
+export function packetChangeHeading(c: PacketChange): string {
+  const names = c.all.map(a => `CO-${a.number}`)
+  return `Changed: change order${names.length > 1 ? 's' : ''} ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]}`
 }
 
 /** A packet's snapshot with the work as it is now (quantities only, never a cost). */
