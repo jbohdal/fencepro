@@ -1,16 +1,18 @@
 /**
- * Photos tab for a customer profile (staff side).
+ * The customer's older photos on the customer page's Photos tab (staff side):
+ * what the customer sent from the portal and photos added before "Photos and
+ * video" (GET /api/portal/customer/:id/photos, newest first), with a
+ * "Customer" or "Staff" badge. Shown only when there are some.
  *
- * Uses the server-backed portal data plane via portalStaffApi. Customer-uploaded
- * photos appear here with a "Customer" source badge; staff uploads appear with a
- * "Staff" badge.
+ * New photos are added in one place, "Photos and video" above it
+ * (MediaGallery: Camera, Choose from gallery), so this list has no upload of
+ * its own (review of the customer page, Oct 26 2026: two upload areas).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from './toast'
 import {
   listCustomerPhotos,
-  uploadStaffPhotoForCustomer,
   deletePortalPhoto,
   resolveFileUrl,
   type PortalPhotoRow,
@@ -19,9 +21,6 @@ import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
 import { can } from './permissions'
 import PopMenu, { PopItem } from './PopMenu'
-
-const ACCEPTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif']
-const ACCEPT_ATTR = 'image/jpeg,image/png,image/webp,image/heic,image/heif,image/gif'
 
 /** Photos drawn at first and per "Show more" (a customer can have hundreds). */
 const PHOTOS_PAGE = 48
@@ -54,14 +53,11 @@ function sourceBadge(source: PortalPhotoRow['source']) {
   }
 }
 
-export default function CustomerPhotosTab({ customerId, uploadedBy }: { customerId: string; uploadedBy: string }) {
+export default function CustomerPhotosTab({ customerId }: { customerId: string }) {
   const [photos, setPhotos] = useState<PortalPhotoRow[]>([])
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
-  const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [limit, setLimit] = useState(PHOTOS_PAGE)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const dragRef = useRef<HTMLDivElement>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -71,55 +67,6 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
   }, [customerId])
 
   useEffect(() => { setLimit(PHOTOS_PAGE); refresh() }, [refresh])
-
-  async function handleFiles(fileList: FileList | File[]) {
-    const files = Array.from(fileList)
-    if (files.length === 0) return
-    setUploading(true)
-    const rejected: string[] = []
-    const accepted: File[] = []
-    for (const f of files) {
-      if (!ACCEPTED.includes(f.type) && !/\.(heic|heif|jpe?g|png|webp|gif)$/i.test(f.name)) {
-        rejected.push(`${f.name}: unsupported type`)
-      } else if (f.size > 20 * 1024 * 1024) {
-        rejected.push(`${f.name}: over 20MB`)
-      } else {
-        accepted.push(f)
-      }
-    }
-    if (rejected.length > 0) {
-      toast.warning(`${rejected.length} photo${rejected.length === 1 ? '' : 's'} skipped`, rejected.join('\n'))
-    }
-    if (accepted.length === 0) { setUploading(false); return }
-
-    let okCount = 0
-    for (const f of accepted) {
-      const r = await uploadStaffPhotoForCustomer(customerId, f, undefined, uploadedBy)
-      if (r.ok) {
-        okCount++
-        logActivity(customerId, 'photo_uploaded', { name: f.name, by: uploadedBy })
-      } else {
-        toast.error(`Upload failed: ${f.name}`, r.error)
-      }
-    }
-    if (okCount > 0) {
-      toast.success(`${okCount} photo${okCount === 1 ? '' : 's'} uploaded`)
-      await refresh()
-    }
-    setUploading(false)
-  }
-
-  function onFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const fl = e.target.files
-    if (fl) handleFiles(fl)
-    e.target.value = ''
-  }
-
-  function onDragOver(e: React.DragEvent) { e.preventDefault(); e.stopPropagation() }
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault(); e.stopPropagation()
-    if (e.dataTransfer.files) handleFiles(e.dataTransfer.files)
-  }
 
   async function handleDelete(photo: PortalPhotoRow) {
     if (!confirm(`Delete "${photo.name}"?`)) return
@@ -141,56 +88,32 @@ export default function CustomerPhotosTab({ customerId, uploadedBy }: { customer
     a.click()
   }
 
+  // Nothing older and nothing from the customer: no second section at all.
+  if (!loading && photos.length === 0) return null
   const visible = photos
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-semibold text-gray-900">Photos</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {loading ? 'Loading…' : `${photos.length} photo${photos.length === 1 ? '' : 's'} for this customer`}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-            className="btn btn-primary">
-            {uploading ? 'Uploading…' : '+ Upload Photos'}
-          </button>
-          <input ref={fileInputRef} type="file" multiple accept={ACCEPT_ATTR}
-            onChange={onFilePick} className="hidden" />
-        </div>
+    <div className="space-y-2" data-customer-older-photos>
+      <div>
+        <p className="text-sm font-semibold text-gray-900">Customer uploads and older photos <span className="font-normal text-gray-600">{loading ? '' : `(${photos.length})`}</span></p>
+        <p className="text-xs text-gray-600">{loading ? 'Loading…' : 'Sent by the customer from the portal, or added before Photos and video. Newest first.'}</p>
       </div>
-
-      <div
-        ref={dragRef}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-        className={`border-2 border-dashed ${visible.length === 0 ? 'border-gray-300' : 'border-transparent'} rounded-2xl transition-colors hover:border-orange-300`}
-      >
-        {visible.length === 0 ? (
-          <div className="py-16 text-center">
-            <p className="text-5xl mb-2">📷</p>
-            <p className="text-gray-500 font-medium">{loading ? 'Loading photos…' : 'No photos yet'}</p>
-            <p className="text-xs text-gray-400 mt-1">Drag photos here or click Upload Photos · JPG, PNG, HEIC, WebP up to 20MB each</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2 p-1" data-customer-photos-grid>
-            {visible.slice(0, limit).map((p, i) => (
-              <PhotoCard key={p.id} photo={p}
-                onOpen={() => setLightboxIdx(i)}
-                onDelete={() => handleDelete(p)}
-                onDownload={() => handleDownload(p)}
-              />
-            ))}
-          </div>
-        )}
-        {visible.length > limit && (
-          <button type="button" className="btn btn-quiet btn-sm w-full mt-2" data-show-more="customer-photos" onClick={() => setLimit(l => l + PHOTOS_PAGE)}>
-            Show {Math.min(PHOTOS_PAGE, visible.length - limit)} more <span className="font-normal text-gray-500">({limit} of {visible.length})</span>
-          </button>
-        )}
-      </div>
+      {visible.length > 0 && (
+        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2" data-customer-photos-grid>
+          {visible.slice(0, limit).map((p, i) => (
+            <PhotoCard key={p.id} photo={p}
+              onOpen={() => setLightboxIdx(i)}
+              onDelete={() => handleDelete(p)}
+              onDownload={() => handleDownload(p)}
+            />
+          ))}
+        </div>
+      )}
+      {visible.length > limit && (
+        <button type="button" className="btn btn-quiet btn-sm w-full mt-2" data-show-more="customer-photos" onClick={() => setLimit(l => l + PHOTOS_PAGE)}>
+          Show {Math.min(PHOTOS_PAGE, visible.length - limit)} more <span className="font-normal text-gray-500">({limit} of {visible.length})</span>
+        </button>
+      )}
 
       {lightboxIdx !== null && visible[lightboxIdx] && (
         <Lightbox photos={visible} index={lightboxIdx}

@@ -18,8 +18,18 @@ import {
   staffReplyToCustomer,
   type PortalMessage,
 } from './portalStaffApi'
+import { currentUser } from './crmAuth'
+import { getConfig } from './configStore'
+import { portalSenderLabel } from './customerPage'
 
-export default function CustomerMessagesTab({ customerId, sender }: { customerId: string; sender: string }) {
+/**
+ * `customerName`: shown on the customer's own messages. Replies are saved with
+ * the signed in person's name (the server reads it from the sign in) and show
+ * as "You" to them, by name to everyone else.
+ */
+export default function CustomerMessagesTab({ customerId, customerName }: { customerId: string; customerName: string }) {
+  const me = (() => { const u = currentUser(); return u ? `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || null : null })()
+  const company = getConfig().company.name || ''
   const [messages, setMessages] = useState<PortalMessage[]>([])
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(true)
@@ -56,7 +66,7 @@ export default function CustomerMessagesTab({ customerId, sender }: { customerId
     if (!body || sending || inFlight.current) return
     inFlight.current = true
     setSending(true)
-    const r = await staffReplyToCustomer(customerId, body, sender, requestId.current)
+    const r = await staffReplyToCustomer(customerId, body, me ?? undefined, requestId.current)
     inFlight.current = false
     setSending(false)
     if (!r.ok) {
@@ -103,8 +113,8 @@ export default function CustomerMessagesTab({ customerId, sender }: { customerId
                   : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
               }`}>
                 <p className="whitespace-pre-wrap break-words">{m.body}</p>
-                <p className={`text-[10px] mt-1 ${isStaff ? 'text-orange-100' : 'text-gray-400'}`}>
-                  {isStaff ? (m.senderUser ? `${m.senderUser} · ` : '') : 'Customer · '}
+                <p className={`text-[10px] mt-1 ${isStaff ? 'text-orange-100' : 'text-gray-500'}`} data-message-sender={portalSenderLabel(m, { me, customerName, company })}>
+                  {portalSenderLabel(m, { me, customerName, company })}{' · '}
                   {new Date(m.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                 </p>
               </div>

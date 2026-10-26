@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 import { sendJson } from './syncHttp'
 import { useFollowUpBoard, pendingCalls, CHANGED_EVENT } from './followUpStore'
 import { OUTCOME_LABEL, LOST_REASON_LABEL } from './followUpRules'
+import { historyWhen } from './customerPage'
 
 export interface HistoryItem { at: string; kind: string; title: string; detail: string; by: string; saving?: boolean }
 
@@ -60,7 +61,8 @@ export function lastContactOf(list: HistoryItem[] | null): HistoryItem | null {
   return list?.find(h => CONTACT_KINDS.has(h.kind)) ?? null
 }
 
-const when = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+/** Florida time, with the year when it is not this year (an import from 2024 says so). */
+const when = (iso: string) => historyWhen(iso)
 
 /**
  * The list. `step` set: that many at first and "Show N more" for the next

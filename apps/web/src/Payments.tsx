@@ -19,6 +19,7 @@
  */
 
 import { styleLabel } from './fenceCatalog'
+import { withoutScheduleWords } from './customerPage'
 import { customerText } from '../../portal/src/server/lib/customerText'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useBackLayer } from './nav'
@@ -73,7 +74,7 @@ export default function PaymentsPanel({ jobId, customerId, compact }: { jobId?: 
       {list.map(s => <ScheduleCard key={s.jobId} s={s} showJob={!jobId} compact={compact} />)}
       {makeFor.map(w => (
         <div key={w.jobId} className="rounded-xl border border-dashed border-gray-300 p-3 text-sm" data-payments-make={w.jobId}>
-          <p className="text-gray-700">{w.fenceStyle ? `${w.fenceStyle}: ` : ''}signed before payment schedules. Make its schedule from the contract (deposit and final).</p>
+          <p className="text-gray-700">{withoutScheduleWords(styleLabel(w.fenceStyle))}</p>
           {can('payments.record') && (
             <button className="btn btn-primary mt-2 min-h-[44px]" data-payments-make-button onClick={async () => {
               const r = await makeSchedule(w.jobId)

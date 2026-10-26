@@ -8,14 +8,14 @@ import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { getConfig } from './configStore'
 import { sourcePicker, tagPicker, sourceLabel, tagLabel, getOptions, useOptions } from './optionListsStore'
 import { wordToSave } from './optionListModel'
-import { Phone, MessageSquare, Navigation, FilePlus2, CalendarPlus, Pencil, MapPin } from 'lucide-react'
+import { Phone, MessageSquare, Navigation, FilePlus2, CalendarPlus, Pencil, MapPin, ChevronLeft, ChevronRight } from 'lucide-react'
 import { telHref, formatPhone } from './phoneFormat'
 import PhoneLink from './PhoneLink'
 import { nextFor, shortWhen, TYPE_LABELS } from './appointmentLogic'
 import { useAppointmentList } from './TodayScreen'
 import { loadCustomer as loadPaymentsOf, scheduleOf, subscribe as subscribePayments, paymentsVersion, money } from './paymentsStore'
 import { HistoryList, useCustomerHistory, lastContactOf, type HistoryItem } from './CustomerHistory'
-import { CUSTOMER_TAB_LABEL, asCustomerTab, customerTabsFor, shownCustomerTab, withTab, openQuotesOf, balanceDueCents, type CustomerTab } from './customerPage'
+import { CUSTOMER_TAB_LABEL, asCustomerTab, customerTabsFor, shownCustomerTab, withTab, openQuotesOf, balanceDueCents, balanceTile, nextCompact, type CustomerTab } from './customerPage'
 import { startTouch } from './followUpStore'
 import { openBooking } from './BookingDialog'
 import { NextAppointmentBadge, CustomerAppointmentsTab } from './AppointmentWidgets'
@@ -56,6 +56,7 @@ import { navigate, goBack, useNav, useScreenMemory, takeOpenedParam, openedFrom,
 import { CUSTOMER_FILTERS, asCustomerFilter, type CustomerFilter } from './customerFilters'
 import { SaveStatus } from './SaveStatus'
 import { newId } from './recordSync'
+import { sendJson } from './syncHttp'
 import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
 import { can } from './permissions'
@@ -178,6 +179,53 @@ function EmptyState({ onNew }: { onNew: () => void }) {
       </div>
     </div>
   )
+}
+
+/**
+ * A link to a customer who is not on this screen's lists: still loading, or
+ * deleted (with where to bring them back, for the owner and admins), or not
+ * there at all. Never a bare "No customer selected" (review, Oct 26 2026).
+ */
+function CustomerNotHere({ id }: { id: string }) {
+  const [where, setWhere] = useState<{ state: 'active' | 'archived' | 'deleted' | 'missing'; name?: string; deletedAt?: string | null } | null | false>(null)
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    let live = true
+    void sendJson('GET', `/api/crm-contacts/${encodeURIComponent(id)}/whereabouts`).then(r => {
+      if (!live) return
+      // Refused (another login's customer, an installer's not his): as good as not there.
+      setWhere(r.result.ok && r.json?.data?.state ? r.json.data : r.status === 403 || r.status === 404 ? { state: 'missing' } : false)
+    })
+    // On the server but not on the lists after a while: say so rather than "Opening…" for ever.
+    const t = setTimeout(() => { if (live) setSlow(true) }, 20_000)
+    return () => { live = false; clearTimeout(t) }
+  }, [id])
+  const box = (title: string, body: React.ReactNode, extra?: React.ReactNode) => (
+    <div className="flex-1 flex items-center justify-center p-6" data-customer-not-here={where ? where.state : where === false ? 'unknown' : 'loading'}>
+      <div className="text-center max-w-md">
+        <h3 className="font-bold text-gray-900 mb-1">{title}</h3>
+        <div className="text-sm text-gray-600 mb-4">{body}</div>
+        <div className="flex flex-wrap justify-center gap-2">
+          {extra}
+          <button type="button" onClick={() => navigate('/customers')} className="btn btn-secondary">Customer list</button>
+        </div>
+      </div>
+    </div>
+  )
+  // On the server and not deleted: the lists are still arriving (a link opened as the app starts).
+  const opening = where === null || (where && (where.state === 'active' || where.state === 'archived'))
+  if (opening && !slow) return box('Opening the customer…', 'One moment while the customer list loads.')
+  if (where === false || opening) return box('This customer could not be opened', 'The app could not reach the server. Try again when there is signal.', <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>Try again</button>)
+  if (where.state === 'deleted') {
+    const who = where.name || 'This customer'
+    const on = where.deletedAt ? ` on ${dayWords(where.deletedAt)}` : ''
+    return box(`${who} was deleted`,
+      can('records.delete')
+        ? <>Deleted{on}, with their quotes, jobs and pipeline card. You can bring them back from Settings &gt; Deleted Records.</>
+        : <>Deleted{on}. The owner or an admin can bring them back from Settings &gt; Deleted Records.</>,
+      can('records.delete') ? <button type="button" className="btn btn-primary" onClick={() => navigate('/settings?tab=deleted')} data-open-deleted-records>Open Deleted Records</button> : null)
+  }
+  return box('Customer not found', 'This link names a customer who is not in the app.')
 }
 
 // ── Customer Form ─────────────────────────────────────────────────────────────
@@ -1031,15 +1079,27 @@ function CustomerSummary({ customer, quotes, importedQuotes, jobs, history, onTa
   const appointments = useAppointmentList()
   const next = nextFor(customer.id, appointments)
   // Payment schedules of the customer's sold jobs (the Billing tab reads the same ones).
-  useSyncExternalStore(subscribePayments, paymentsVersion)
   const [scheduleJobs, setScheduleJobs] = useState<string[]>([])
+  // Signed jobs with no payment schedule yet: what they owe is not known, so never "Nothing owed".
+  const [withoutJobs, setWithoutJobs] = useState<string[]>([])
+  const [paymentsLoaded, setPaymentsLoaded] = useState<boolean | null>(null)
+  const version = useSyncExternalStore(subscribePayments, paymentsVersion)
   useEffect(() => {
     if (!prices) return
     let live = true
-    void loadPaymentsOf(customer.id).then(d => { if (live && d) setScheduleJobs(d.schedules.map(s => s.jobId)) })
+    void loadPaymentsOf(customer.id).then(d => {
+      if (!live) return
+      if (!d) { setPaymentsLoaded(l => l ?? false); return }
+      setScheduleJobs(d.schedules.map(s => s.jobId)); setWithoutJobs(d.without.map(w => w.jobId)); setPaymentsLoaded(true)
+    })
     return () => { live = false }
   }, [customer.id, prices])
-  const balance = balanceDueCents(scheduleJobs.map(id => scheduleOf(id)?.balanceCents ?? 0), prices ? getInvoicesForCustomer(customer.id) : [])
+  // A schedule made on the Billing tab (the store says so): that job is no longer without one.
+  const without = withoutJobs.filter(id => !scheduleOf(id))
+  const scheduled = [...new Set([...scheduleJobs, ...withoutJobs.filter(id => !!scheduleOf(id))])]
+  void version
+  const balance = balanceDueCents(scheduled.map(id => scheduleOf(id)?.balanceCents ?? 0), prices ? getInvoicesForCustomer(customer.id) : [])
+  const bal = balanceTile({ loaded: paymentsLoaded, balanceCents: balance, withoutSchedule: without.length })
   const open = openQuotesOf(quotes)
   const allQuotes = quotes.length + importedQuotes.length
   const totalRevenue = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + soldValueOf(q), 0) + importedQuotes.reduce((s, q) => s + q.quotedPrice, 0)
@@ -1047,12 +1107,13 @@ function CustomerSummary({ customer, quotes, importedQuotes, jobs, history, onTa
   const last = lastContactOf(history)
   const tile = 'rounded-xl bg-gray-50 hover:bg-orange-50 border border-transparent hover:border-orange-200 px-2 py-1.5 sm:px-2.5 sm:py-2 text-left min-w-0 transition-colors'
   const Label = ({ children }: { children: React.ReactNode }) => <span className="block text-[10px] sm:text-[11px] text-gray-500 truncate">{children}</span>
-  const Value = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => <span className={`block text-[13px] sm:text-sm font-bold text-gray-900 truncate ${className}`}>{children}</span>
+  // A phone lets a value take two short lines ("Not set up", "Mon 10:00 AM") rather than cutting it off.
+  const Value = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => <span className={`block text-[13px] sm:text-sm font-bold text-gray-900 leading-tight sm:leading-normal break-words sm:truncate ${className}`}>{children}</span>
   // The line under the number: on a computer only (a phone keeps the row to two lines of tiles).
   const Sub = ({ children }: { children: React.ReactNode }) => <span className="hidden sm:block text-[11px] text-gray-500 truncate">{children}</span>
   const sinceShort = (() => { const d = new Date(customer.createdAt); return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) })()
   return (
-    <div className="grid grid-cols-4 lg:grid-cols-7 gap-1.5 sm:gap-2" data-customer-summary>
+    <div className="grid grid-cols-4 sm:grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))] gap-1.5 sm:gap-2" data-customer-summary>
       <button type="button" className={tile} onClick={() => onTab('quotes')} data-customer-summary-item="open-quotes">
         <Label>Open quotes</Label><Value>{open.count}</Value>
         <Sub>{prices && open.count ? fmt(open.cents / 100) : `${allQuotes} in all`}</Sub>
@@ -1062,9 +1123,14 @@ function CustomerSummary({ customer, quotes, importedQuotes, jobs, history, onTa
         <Sub>{newestJob ? stageName(newestJob.stage) || 'Job' : 'None yet'}</Sub>
       </button>
       {prices && (
-        <button type="button" className={tile} onClick={() => onTab('billing')} data-customer-summary-item="balance" data-balance-cents={balance}>
-          <Label>Balance due</Label><Value className={balance > 0 ? 'text-orange-700' : ''}>{money(balance)}</Value>
-          <Sub>{balance > 0 ? 'Open Billing' : 'Nothing owed'}</Sub>
+        <button type="button" className={tile} onClick={() => onTab('billing')} data-customer-summary-item="balance" data-balance-cents={balance}
+          data-balance-state={bal.value === 'none' ? (without.length ? 'no-schedule' : 'unknown') : balance > 0 ? 'owed' : 'nothing'}
+          title={bal.sub}>
+          <Label>Balance due</Label><Value className={bal.attention ? 'text-orange-700' : ''}>{bal.value === 'money' ? money(balance) : bal.words}</Value>
+          {/* On a phone too when there is no number: "Not set up" alone does not say what is missing. */}
+          {bal.value === 'none' && bal.attention
+            ? <span className="block text-[10px] sm:text-[11px] text-orange-700 leading-tight" data-balance-sub>{bal.sub}</span>
+            : <Sub>{bal.sub}</Sub>}
         </button>
       )}
       <button type="button" className={tile} onClick={() => openBooking(next ? { appointmentId: next.id } : { customerId: customer.id })} data-customer-summary-item="next-appointment">
@@ -1144,6 +1210,35 @@ function CustomerDetail({
     return () => ro.disconnect()
   }, [])
 
+  // Scrolled down, the pinned header is one line (name and stage), so the tab's content gets the screen;
+  // at the top of the page the address, phone, email and rep are back (customerPage.ts nextCompact).
+  const [compact, setCompact] = useState(false)
+  useEffect(() => {
+    const sc = document.querySelector<HTMLElement>('[data-page-scroll]')
+    if (!sc) return
+    const on = () => setCompact(c => nextCompact(c, sc.scrollTop))
+    on()
+    sc.addEventListener('scroll', on, { passive: true })
+    return () => sc.removeEventListener('scroll', on)
+  }, [])
+
+  // The tabs are one row; when they do not all fit, it scrolls sideways (a swipe, or the arrows on a computer).
+  const [tabsOver, setTabsOver] = useState<{ left: boolean; right: boolean }>({ left: false, right: false })
+  useEffect(() => {
+    const nav = tabsRef.current
+    if (!nav) return
+    const measure = () => setTabsOver(o => {
+      const left = nav.scrollLeft > 2, right = nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 2
+      return o.left === left && o.right === right ? o : { left, right }
+    })
+    measure()
+    nav.addEventListener('scroll', measure, { passive: true })
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    ro?.observe(nav)
+    return () => { nav.removeEventListener('scroll', measure); ro?.disconnect() }
+  }, [])
+  const scrollTabs = (dir: 1 | -1) => tabsRef.current?.scrollBy({ left: dir * Math.max(160, (tabsRef.current?.clientWidth ?? 400) * 0.6), behavior: 'smooth' })
+
   // Picking a tab while the tabs are stuck under the header: the new tab opens at its top, right under them.
   const realign = useRef(false)
   function pickTab(t: CustomerTab) {
@@ -1165,8 +1260,9 @@ function CustomerDetail({
     const b = nav?.querySelector<HTMLElement>(`[data-customer-tab="${shown}"]`)
     if (nav && b) {
       const l = b.offsetLeft, r = l + b.offsetWidth
-      if (l < nav.scrollLeft) nav.scrollLeft = Math.max(0, l - 16)
-      else if (r > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = r - nav.clientWidth + 16
+      // Clear of the arrows at the ends (a computer).
+      if (l < nav.scrollLeft + 40) nav.scrollLeft = Math.max(0, l - 40)
+      else if (r > nav.scrollLeft + nav.clientWidth - 40) nav.scrollLeft = r - nav.clientWidth + 40
     }
   }, [shown])
 
@@ -1208,18 +1304,20 @@ function CustomerDetail({
     customer.salesRep ? <span key="rep" className="whitespace-nowrap" data-customer-rep>Rep: {customer.salesRep}</span> : null,
     customer.leadSource ? <span key="source" className="whitespace-nowrap text-orange-700" data-customer-source={customer.leadSource}>via {sourceLabel(customer.leadSource)}</span> : null,
   ].filter(Boolean).map((part, i) => <Fragment key={i}>{i > 0 && <span className="text-gray-300" aria-hidden="true"> · </span>}{part}</Fragment>)
+  const stagePill = <span className="inline-block mr-1.5 align-[1px] text-[11px] font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full whitespace-nowrap" data-customer-status>{status}</span>
   // Sold or Quote Sent, and where they are (the job's stage when there is a job; on a phone the card's stage too).
   const badges = <>
     {sold && <span className="inline-block mr-1.5 align-[1px] text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full whitespace-nowrap">Signed / Sold</span>}
     {!sold && quotes.some(q => q.status === 'SENT') && <span className="inline-block mr-1.5 align-[1px] text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap">Quote Sent</span>}
-    {status && (!wide || !hasCard || status.startsWith('Job:')) && (
-      <span className="inline-block mr-1.5 align-[1px] text-[11px] font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full whitespace-nowrap" data-customer-status>{status}</span>
-    )}
+    {status && stagePill}
   </>
   // Archive is the everyday way off the lists; Delete (owner, admin) lives behind "More" and typing the name.
-  const moreMenu = (can('records.archive') || can('records.delete')) && <PopMenu name="customer-more" label="More ▾" title="More actions" width={208}
-    triggerClassName={`btn btn-quiet btn-sm${wide ? '' : ' shrink-0 ml-auto -mr-2'}`} triggerProps={{ 'aria-label': 'More actions', 'data-customer-more': true }}>
+  // On a computer Navigate is here too (less used at a desk; the address itself opens maps), so the actions fit one line.
+  const navigateInMore = wide && !!address
+  const moreMenu = (navigateInMore || can('records.archive') || can('records.delete')) && <PopMenu name="customer-more" label="More ▾" title="More actions" width={208}
+    triggerClassName={`btn btn-quiet btn-sm${wide ? ' shrink-0' : ' shrink-0 ml-auto -mr-2'}`} triggerProps={{ 'aria-label': 'More actions', 'data-customer-more': true }}>
     {close => <>
+      {navigateInMore && <PopItem onClick={() => { close(); window.open(directionsTo(address), '_blank', 'noopener') }} data-customer-action="navigate" data-href={directionsTo(address)}>Navigate (directions)</PopItem>}
       {can('records.archive') && onArchive && <PopItem onClick={() => { close(); onArchive(!archived) }} data-customer-archive={archived ? 'off' : 'on'}>{archived ? 'Unarchive customer' : 'Archive customer'}</PopItem>}
       {can('records.delete') && <PopItem danger onClick={() => { close(); onDelete(customer.id) }} data-customer-delete>Delete customer…</PopItem>}
     </>}
@@ -1232,49 +1330,54 @@ function CustomerDetail({
 
   return (
     <div className="flex-1 flex flex-col min-w-0 max-lg:pb-[76px]" data-customer-detail>
-      {/* Always at the top: who, where, how to reach them, and the main actions. */}
-      <header ref={headRef} data-customer-header style={{ top: -padTop }}
-        className={`sticky z-20 bg-white border-b border-gray-200 px-4 py-2 lg:px-6 lg:py-3 ${roundTop ? 'rounded-t-2xl' : ''}`}>
-        <div className="flex items-start gap-3">
-          {wide && (
+      {/* Always at the top: who, where, how to reach them, and the main actions. Scrolled down it is one line
+          (name and stage, and the actions on a computer), so the tab gets the screen; the rest is back at the top. */}
+      <header ref={headRef} data-customer-header data-compact={compact ? 'yes' : 'no'} style={{ top: -padTop }}
+        className={`sticky z-20 bg-white border-b border-gray-200 px-4 lg:px-6 ${compact ? 'py-1.5 lg:py-2' : 'py-2 lg:py-3'} ${roundTop ? 'rounded-t-2xl' : ''}`}>
+        <div className={`flex gap-3 ${compact ? 'items-center' : 'items-start'}`}>
+          {wide && !compact && (
             <div className="w-11 h-11 rounded-xl bg-orange-500 flex items-center justify-center text-white text-base font-black shrink-0" aria-hidden="true">
               {customer.firstName?.[0] ?? ''}{customer.lastName?.[0] ?? ''}
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <div className={`flex items-center gap-x-2 gap-y-1 min-w-0 ${wide ? 'flex-wrap' : ''}`}>
-              <h2 className="text-lg lg:text-xl font-bold text-gray-900 truncate max-w-full min-w-0" data-customer-name>{name || 'Customer'}</h2>
+            {/* One line, never wrapping: the badges give way first, the actions never move to a second line. */}
+            <div className="flex items-center gap-x-2 min-w-0">
+              <h2 className={`${compact ? 'text-base lg:text-lg' : 'text-lg lg:text-xl'} font-bold text-gray-900 truncate min-w-0 shrink lg:min-w-[9rem]`} data-customer-name>{name || 'Customer'}</h2>
               {/* On a phone "Saved" stays quiet (the header is kept small); Saving and Not saved still show. */}
-              <SaveStatus keys={[`customer:${customer.id}`]} also={noteChangeFor(customer.id)} quietWhenSaved={!wide} />
-              {wide && badges}
-              {/* The stage: changeable here on a wide screen (Details tab on a phone). */}
-              {wide && hasCard && <PipelineStageSelect customerId={customer.id} />}
-              {wide && <NextAppointmentBadge customerId={customer.id} />}
-              {!wide && moreMenu}
+              <SaveStatus keys={[`customer:${customer.id}`]} also={noteChangeFor(customer.id)} quietWhenSaved={!wide || compact} />
+              {/* One row of pills: one that does not fit drops out of sight whole (never half a pill). Scrolled down, the stage alone. */}
+              {(wide || compact) && <span className="min-w-0 flex-1 flex flex-wrap items-center h-6 overflow-hidden" data-customer-badges>{compact && status ? stagePill : badges}</span>}
+              {/* A phone scrolled down keeps the line short; More is back at the top of the page. */}
+              {!wide && !compact && moreMenu}
               {/* A wide screen: the main actions at the right of the name (a phone has the bar at the bottom). */}
-              {wide && <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5" data-contact-actions>
+              {wide && <div className="ml-auto flex flex-nowrap items-center justify-end gap-1.5 shrink-0" data-contact-actions>
                 <button onClick={() => onNewQuote(customer)} className="btn btn-primary btn-sm" data-customer-action="new-quote"><FilePlus2 size={16} aria-hidden="true" /> New quote</button>
-                {customer.phone && <a href={telHref(customer.phone)} onClick={() => touchCustomer(customer, 'call')} className="btn btn-secondary btn-sm" data-customer-action="call"><Phone size={16} aria-hidden="true" /> Call</a>}
-                {customer.phone && <TextButton phone={customer.phone} customerId={customer.id} firstName={customer.firstName} name={name} onTap={() => touchCustomer(customer, 'text')} className="btn btn-secondary btn-sm" data-customer-text data-customer-action="text"><MessageSquare size={16} aria-hidden="true" /> Text</TextButton>}
-                {address && <a href={directionsTo(address)} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" data-customer-action="navigate"><Navigation size={16} aria-hidden="true" /> Navigate</a>}
-                <button onClick={() => openBooking({ customerId: customer.id })} data-book-appointment data-customer-action="book" className="btn btn-secondary btn-sm"><CalendarPlus size={16} aria-hidden="true" /> Book</button>
-                <button onClick={onEdit} className="btn btn-quiet btn-sm" data-customer-action="edit"><Pencil size={16} aria-hidden="true" /> Edit</button>
+                {/* Under 1280 px the four smaller ones are icons (named for screen readers and on hover), so the name keeps its room. */}
+                {customer.phone && <a href={telHref(customer.phone)} onClick={() => touchCustomer(customer, 'call')} className="btn btn-secondary btn-sm" title="Call" data-customer-action="call"><Phone size={16} aria-hidden="true" /><span className="sr-only xl:not-sr-only"> Call</span></a>}
+                {customer.phone && <TextButton phone={customer.phone} customerId={customer.id} firstName={customer.firstName} name={name} onTap={() => touchCustomer(customer, 'text')} className="btn btn-secondary btn-sm" data-customer-text data-customer-action="text"><MessageSquare size={16} aria-hidden="true" /><span className="sr-only xl:not-sr-only"> Text</span></TextButton>}
+                <button onClick={() => openBooking({ customerId: customer.id })} data-book-appointment data-customer-action="book" title="Book appointment" className="btn btn-secondary btn-sm"><CalendarPlus size={16} aria-hidden="true" /><span className="sr-only xl:not-sr-only"> Book</span></button>
+                <button onClick={onEdit} className="btn btn-quiet btn-sm" title="Edit customer" data-customer-action="edit"><Pencil size={16} aria-hidden="true" /><span className="sr-only xl:not-sr-only"> Edit</span></button>
                 {moreMenu}
               </div>}
             </div>
             {/* Where and how to reach them: one line on a computer, the address on its own line on a phone. */}
-            <p className="mt-0.5 text-sm leading-snug [overflow-wrap:anywhere]">
-              {/* On a phone the badges lead the address line, so the name keeps the first line to itself. */}
-              {!wide && badges}
-              {address
-                ? <a href={mapsSearchUrl(address)} target="_blank" rel="noreferrer" className="font-medium text-gray-900 hover:underline" data-customer-address title="Open in maps">
-                    <MapPin size={14} className="inline -mt-0.5 mr-1 text-orange-600" aria-hidden="true" />{address}
-                  </a>
-                : <span className="text-gray-500" data-customer-address="">No property address yet</span>}
-              {wide && contact.length > 0 && <span className="text-gray-300" aria-hidden="true"> · </span>}
-              {wide && <span className="text-gray-600" data-customer-contact>{contact}</span>}
-            </p>
-            {!wide && <p className="mt-0.5 text-xs text-gray-600 leading-relaxed [overflow-wrap:anywhere]" data-customer-contact>{contact}</p>}
+            {!compact && (
+              <p className="mt-0.5 text-sm leading-snug [overflow-wrap:anywhere]">
+                {/* On a phone the badges lead the address line, so the name keeps the first line to itself. */}
+                {!wide && badges}
+                {address
+                  ? <a href={mapsSearchUrl(address)} target="_blank" rel="noreferrer" className="font-medium text-gray-900 hover:underline" data-customer-address title="Open in maps">
+                      <MapPin size={14} className="inline -mt-0.5 mr-1 text-orange-600" aria-hidden="true" />{address}
+                    </a>
+                  : <span className="text-gray-500" data-customer-address="">No property address yet</span>}
+                {wide && contact.length > 0 && <span className="text-gray-300" aria-hidden="true"> · </span>}
+                {wide && <span className="text-gray-600" data-customer-contact>{contact}</span>}
+              </p>
+            )}
+            {!wide && !compact && <p className="mt-0.5 text-xs text-gray-600 leading-relaxed [overflow-wrap:anywhere]" data-customer-contact>{contact}</p>}
+            {/* The pipeline stage on a computer without the details column (with it, the stage is at the top of the column). */}
+            {wide && !detailsColumn && !compact && hasCard && <div className="mt-1 flex flex-wrap items-center gap-2" data-customer-header-stage><PipelineStageSelect customerId={customer.id} /></div>}
           </div>
         </div>
       </header>
@@ -1298,12 +1401,12 @@ function CustomerDetail({
       </div>
 
       <div className={detailsColumn ? 'grid grid-cols-[272px_minmax(0,1fr)] gap-6 px-6 pb-6 pt-4 items-start' : 'pt-3 pb-4'}>
-        {detailsColumn && <aside className="min-w-0" data-customer-side><CustomerDetailsPanel customer={customer} showStage={!wide} /></aside>}
+        {detailsColumn && <aside className="min-w-0" data-customer-side><CustomerDetailsPanel customer={customer} showStage /></aside>}
         <section className="min-w-0">
-          {/* The tabs stay under the header while the page scrolls. */}
+          {/* The tabs stay under the header while the page scrolls: one row, sideways when they do not all fit. */}
+          <div className="sticky z-10 bg-white" style={{ top: headH - padTop }} data-customer-tabs-bar>
           <div ref={tabsRef} role="tablist" aria-label="Customer" data-customer-tabs
-            className={`sticky z-10 bg-white border-b border-gray-200 flex gap-x-1 lg:gap-x-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] lg:flex-wrap lg:overflow-visible ${pad}`}
-            style={{ top: headH - padTop }}>
+            className={`border-b border-gray-200 flex gap-x-1 lg:gap-x-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${pad}`}>
             {tabs.map(t => (
               <button
                 key={t} type="button" role="tab" aria-selected={shown === t}
@@ -1316,6 +1419,12 @@ function CustomerDetail({
                 {t === 'files' && files.length > 0 && <span className="ml-1.5 text-xs bg-orange-100 text-orange-600 rounded-full px-1.5">{files.length}</span>}
               </button>
             ))}
+          </div>
+          {/* More tabs to the side: an arrow on a computer (a phone swipes). */}
+          {wide && tabsOver.left && <button type="button" aria-label="Earlier tabs" onClick={() => scrollTabs(-1)} data-tabs-scroll="left"
+            className="absolute left-0 top-0 bottom-px w-9 grid place-items-center bg-gradient-to-r from-white via-white to-transparent text-gray-700 hover:text-orange-700"><ChevronLeft size={18} aria-hidden="true" /></button>}
+          {wide && tabsOver.right && <button type="button" aria-label="More tabs" onClick={() => scrollTabs(1)} data-tabs-scroll="right"
+            className="absolute right-0 top-0 bottom-px w-9 grid place-items-center bg-gradient-to-l from-white via-white to-transparent text-gray-700 hover:text-orange-700"><ChevronRight size={18} aria-hidden="true" /></button>}
           </div>
 
           <div ref={panelRef} role="tabpanel" data-customer-tab-panel={shown} className={`min-h-[70vh] pt-4 ${pad}`}>
@@ -1491,11 +1600,10 @@ function CustomerDetail({
 
             {shown === 'photos' && (
               <div className="space-y-6">
-                <MediaGallery where={{ customerId: customer.id }} defaultCategory="Site walk" title="Photos and video" pageSize={60} />
-                <div>
-                  <p className="text-sm font-semibold text-gray-900 mb-2">Customer uploads and older photos</p>
-                  <CustomerPhotosTab customerId={customer.id} uploadedBy="user" />
-                </div>
+                {/* The one place to add photos (Camera, Choose from gallery), newest at the top; the older ones under it. */}
+                <MediaGallery where={{ customerId: customer.id }} defaultCategory="Site walk" title="Photos and video" pageSize={60} newestFirst
+                  hint="Add photos and video here. Newest first." />
+                <CustomerPhotosTab customerId={customer.id} />
               </div>
             )}
 
@@ -1512,7 +1620,7 @@ function CustomerDetail({
             {shown === 'portal' && (
               <div className="space-y-4">
                 <PortalAccessSection customer={customer} />
-                <CustomerMessagesTab customerId={customer.id} sender="user" />
+                <CustomerMessagesTab customerId={customer.id} customerName={name} />
               </div>
             )}
           </div>
@@ -1997,7 +2105,8 @@ export default function CustomersPage({ onNewQuote }: {
         {mode === 'new' && <CustomerForm onSave={handleSave} onCancel={() => goBack('/customers')} />}
         {mode === 'edit' && selected && <BackClose name="edit-customer" onClose={() => setEditing(false)} />}
         {mode === 'edit' && selected && <CustomerForm initial={selected} onSave={handleSave} onCancel={() => setEditing(false)} />}
-        {mode === 'view' && !selected && <EmptyState onNew={() => navigate('/customers/new')} />}
+        {mode === 'view' && !selected && selectedId && <CustomerNotHere key={selectedId} id={selectedId} />}
+        {mode === 'view' && !selected && !selectedId && <EmptyState onNew={() => navigate('/customers/new')} />}
         {mode === 'view' && selected && (
           <CustomerDetail
             key={selected.id}

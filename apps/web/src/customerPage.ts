@@ -73,3 +73,80 @@ export function balanceDueCents(
   const typed = oldInvoices.filter(i => i.status !== 'void' && !i.adoptedJobId).reduce((s, i) => s + Math.max(0, Math.round(i.balanceDueCents || 0)), 0)
   return schedules + typed
 }
+
+/**
+ * What the Balance due tile says. "Nothing owed" only when that is known: the
+ * payment schedules loaded and every signed job has one. A signed job with no
+ * schedule yet (signed before payment schedules) is never "Nothing owed": what
+ * it owes is not known until its schedule is made on the Billing tab.
+ * `loaded`: null while the schedules load, false when they could not (no signal).
+ */
+export function balanceTile(o: { loaded: boolean | null; balanceCents: number; withoutSchedule: number }): {
+  /** 'money': show balanceCents; 'none': no number to show (yet). */
+  value: 'money' | 'none'
+  words: string
+  sub: string
+  /** Orange: something is owed, or a signed job still needs its schedule. */
+  attention: boolean
+} {
+  if (o.loaded === null && o.balanceCents <= 0) return { value: 'none', words: '…', sub: 'Loading', attention: false }
+  if (o.loaded === false && o.balanceCents <= 0) return { value: 'none', words: 'Not loaded', sub: 'Needs signal', attention: false }
+  if (o.withoutSchedule > 0) {
+    const jobs = o.withoutSchedule === 1 ? 'a signed job' : `${o.withoutSchedule} signed jobs`
+    return o.balanceCents > 0
+      ? { value: 'money', words: '', sub: `Plus ${jobs} with no payment schedule yet`, attention: true }
+      : { value: 'none', words: 'Not set up', sub: 'No payment schedule yet', attention: true }
+  }
+  return o.balanceCents > 0
+    ? { value: 'money', words: '', sub: 'Open Billing', attention: true }
+    : { value: 'money', words: '', sub: 'Nothing owed', attention: false }
+}
+
+/** "Signed before payment schedules…", with the job's fence style in front when it has one; always a proper sentence. */
+export function withoutScheduleWords(style: string): string {
+  const s = (style || '').trim()
+  return `${s ? `${s}: signed` : 'Signed'} before payment schedules. Make its schedule from the contract (deposit and final).`
+}
+
+/**
+ * When a history row happened, Florida time: "Oct 14, 1:09 AM" this year,
+ * "Oct 14, 2025, 1:09 AM" in another year.
+ */
+export function historyWhen(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const yearOf = (x: Date) => x.toLocaleString('en-US', { timeZone: 'America/New_York', year: 'numeric' })
+  const sameYear = yearOf(d) === yearOf(now)
+  return d.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }), hour: 'numeric', minute: '2-digit' })
+}
+
+/**
+ * Who wrote a portal message, as the staff screen shows it: "You" for the one
+ * signed in, else the staff member's name; the customer's name for theirs. Old
+ * messages saved as "user" or "staff" (or a login email) show the company name.
+ */
+export function portalSenderLabel(m: { senderType: string; senderUser?: string | null }, o: { me: string | null; customerName: string; company: string }): string {
+  if (m.senderType !== 'staff') return o.customerName.trim() || 'Customer'
+  const who = (m.senderUser || '').trim()
+  const real = !!who && !['user', 'staff', 'system'].includes(who.toLowerCase()) && !who.includes('@')
+  if (real && o.me && who.toLowerCase() === o.me.trim().toLowerCase()) return 'You'
+  return real ? who : (o.company.trim() || 'Staff')
+}
+
+/**
+ * The pinned header goes compact (one line: name and stage) once the page is
+ * scrolled down, and back to full at the top. Two different points so it never
+ * flickers (the header getting shorter moves the page a little).
+ */
+export const COMPACT_AT = 96
+export const FULL_AT = 8
+export function nextCompact(compact: boolean, scrollTop: number): boolean {
+  return compact ? scrollTop > FULL_AT : scrollTop > COMPACT_AT
+}
+
+/** Newest first (the customer's photos), by when taken; ties keep the order given; a date that is not text never breaks it. */
+export function newestFirst<T extends { takenAt?: unknown }>(items: readonly T[]): T[] {
+  return items.map((it, i) => ({ it, i }))
+    .sort((a, b) => String(b.it.takenAt ?? '').localeCompare(String(a.it.takenAt ?? '')) || a.i - b.i)
+    .map(x => x.it)
+}

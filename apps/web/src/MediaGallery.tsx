@@ -19,6 +19,7 @@ import { fetchCurrentUser } from './crmAuth'
 import type { YardLayout } from './yardLayout'
 import { useBackLayer } from './nav'
 import { can } from './permissions'
+import { newestFirst as byNewest } from './customerPage'
 
 export type Where = { quoteKey?: string; jobId?: string; customerId?: string }
 
@@ -60,7 +61,7 @@ function shownServer(m: ServerMedia): ShownMedia {
   }
 }
 
-export default function MediaGallery({ where, quoteCustomerId, layout, onLayout, defaultCategory = 'Site walk', title = 'Photos and video', onItems, openKey, onOpened, cameraSignal, pageSize }: {
+export default function MediaGallery({ where, quoteCustomerId, layout, onLayout, defaultCategory = 'Site walk', title = 'Photos and video', onItems, openKey, onOpened, cameraSignal, pageSize, newestFirst = false, hint }: {
   where: Where
   /** On a quote: its customer, so the customer's visit photos show with the quote's (a draft not saved yet is not known to the server). New captures still go on the quote. */
   quoteCustomerId?: string | null
@@ -77,6 +78,10 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
   cameraSignal?: number
   /** Set: only the newest this many are drawn, with "Show earlier" for the rest (the customer page, hundreds of photos). */
   pageSize?: number
+  /** Newest at the top (the customer page): what was just added is first, the oldest last. Else oldest first. */
+  newestFirst?: boolean
+  /** A line under the heading (what goes here). */
+  hint?: string
 }) {
   const [items, setItems] = useState<ShownMedia[]>([])
   const [me, setMe] = useState<string | null>(null)
@@ -87,6 +92,8 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
   const [, tick] = useState(0)
   const [limit, setLimit] = useState(pageSize ?? Infinity)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  // Added on this screen just now: first in a newest first list, whatever date the phone gave the file.
+  const justAdded = useRef<string[]>([])
   const whereKey = JSON.stringify(where) + (quoteCustomerId ?? '')
   const lookup = where.quoteKey && quoteCustomerId ? { ...where, quoteCustomerId } : where
 
@@ -96,12 +103,16 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
   const refresh = useCallback(async () => {
     const [loc, srv] = await Promise.all([localMedia(lookup), (where.quoteKey || where.jobId || where.customerId) ? listMedia(lookup) : Promise.resolve([])])
     const onServer = new Set(srv.map(s => s.clientId))
-    const list = [...srv.map(shownServer), ...loc.filter(l => !onServer.has(l.clientId)).map(l => shownLocal(l, me))]
-      // A date that arrived as anything but text (an old redacted answer gave {}) never breaks the list (WebKit, Oct 25 2026).
-      .sort((a, b) => String(a.takenAt ?? '').localeCompare(String(b.takenAt ?? '')))
+    const all = [...srv.map(shownServer), ...loc.filter(l => !onServer.has(l.clientId)).map(l => shownLocal(l, me))]
+    // A date that arrived as anything but text (an old redacted answer gave {}) never breaks the list (WebKit, Oct 25 2026).
+    const oldest = [...all].sort((a, b) => String(a.takenAt ?? '').localeCompare(String(b.takenAt ?? '')))
+    const fresh = justAdded.current
+    const list = newestFirst
+      ? [...fresh.map(k => all.find(i => i.key === k)).filter((i): i is ShownMedia => !!i), ...byNewest(all.filter(i => !fresh.includes(i.key)))]
+      : oldest
     setItems(list)
     onItems?.(list)
-  }, [whereKey, me])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [whereKey, me, newestFirst])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     refresh()
@@ -131,6 +142,8 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
 
   async function afterCapture(taken: LocalMedia[]) {
     setCamera(false)
+    // Newest first: these go to the top (the last one taken first).
+    if (taken.length) justAdded.current = [...taken.map(t => t.clientId).reverse(), ...justAdded.current.filter(k => !taken.some(t => t.clientId === k))]
     await refresh()
     if (!taken.length) return
     const fresh = (await localMedia(where)).filter(l => taken.some(t => t.clientId === l.clientId)).map(l => shownLocal(l, me))
@@ -162,16 +175,24 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
   }
 
   const waiting = items.filter(i => !i.uploaded).length
-  // The newest ones (the list is oldest first); "Show earlier" draws more.
-  const drawn = items.length > limit ? items.slice(items.length - limit) : items
+  // The newest ones; "Show earlier" draws more (under them when newest first, above them when oldest first).
+  const drawn = items.length <= limit ? items : newestFirst ? items.slice(0, limit) : items.slice(items.length - limit)
+  const earlier = items.length > drawn.length && pageSize ? (
+    <button type="button" className="btn btn-quiet btn-sm w-full" data-show-more="media" onClick={() => setLimit(l => l + pageSize)}>
+      Show {Math.min(pageSize, items.length - drawn.length)} earlier <span className="font-normal text-gray-500">({drawn.length} of {items.length})</span>
+    </button>
+  ) : null
   const pins = useMemo(() => items.filter(i => i.pin), [items])
 
   return (
     <div className="space-y-2" data-media-gallery>
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-semibold text-gray-900 w-full sm:w-auto sm:flex-1 min-w-0">{title} <span className="font-normal text-gray-600">({items.length})</span>
-          {waiting > 0 && <span className="ml-2 text-xs font-semibold text-amber-800 bg-amber-100 rounded-full px-2 py-0.5" data-media-waiting>{waiting} waiting to upload</span>}
-        </p>
+        <div className="w-full sm:w-auto sm:flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900">{title} <span className="font-normal text-gray-600">({items.length})</span>
+            {waiting > 0 && <span className="ml-2 text-xs font-semibold text-amber-800 bg-amber-100 rounded-full px-2 py-0.5" data-media-waiting>{waiting} waiting to upload</span>}
+          </p>
+          {hint && <p className="text-xs text-gray-600">{hint}</p>}
+        </div>
         <button type="button" className="btn btn-primary btn-sm flex-1 sm:flex-none" onClick={() => setCamera(true)} data-media-camera><Camera size={16} aria-hidden="true" /> Camera</button>
         <label className="btn btn-secondary btn-sm cursor-pointer flex-1 sm:flex-none" data-media-pick>
           <Images size={16} aria-hidden="true" /> Choose from gallery
@@ -179,11 +200,7 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
         </label>
       </div>
       {warn && <p className="text-sm text-amber-900 bg-amber-50 rounded-lg px-3 py-2">{warn}</p>}
-      {items.length > drawn.length && pageSize && (
-        <button type="button" className="btn btn-quiet btn-sm w-full" data-show-more="media" onClick={() => setLimit(l => l + pageSize)}>
-          Show {Math.min(pageSize, items.length - drawn.length)} earlier <span className="font-normal text-gray-500">({drawn.length} of {items.length})</span>
-        </button>
-      )}
+      {!newestFirst && earlier}
       {items.length > 0 ? (
         <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2" data-media-grid>
           {drawn.map(i => (
@@ -203,6 +220,7 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
           ))}
         </div>
       ) : <p className="text-sm text-gray-600">No photos or video yet.</p>}
+      {newestFirst && earlier}
       {waiting > 0 && <button type="button" className="btn btn-quiet btn-sm" onClick={() => uploadAll().then(refresh)}>Upload now</button>}
 
       {camera && <MediaCapture where={where} defaultCategory={defaultCategory} onDone={afterCapture} onClose={() => setCamera(false)} />}
@@ -260,6 +278,21 @@ function MediaViewer({ item, layout, me, onClose, onChange, onPin, onMarkup, onF
   const [frameMarkup, setFrameMarkup] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   useEffect(() => { setCaption(item.caption) }, [item.key, item.caption])
+  // Escape closes the viewer on a computer (a typed caption is saved first); while marking up, the editor has it.
+  const latest = useRef({ caption, item, onClose, onChange, busy: false })
+  latest.current = { caption, item, onClose, onChange, busy: !!markup || !!frameMarkup }
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      const l = latest.current
+      if (l.busy) return
+      e.preventDefault()
+      if (l.caption !== l.item.caption) void l.onChange({ caption: l.caption })
+      l.onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   function grabFrame() {
     const v = videoRef.current
