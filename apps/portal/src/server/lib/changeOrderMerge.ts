@@ -39,7 +39,7 @@ export interface WorkShape {
 }
 
 /** A yard turned into what the calculator takes (yardLayout.ts deriveLayout at the style's width). */
-export interface DerivedRuns { runs: number[]; corners: number; ends: number; walkGates: number; dblGates: number; linePosts?: number }
+export interface DerivedRuns { runs: number[]; corners: number; ends: number; walkGates: number; dblGates: number; linePosts?: number; runNames?: string[] }
 export type DeriveRuns = (yard: Json, fenceStyle: string) => DerivedRuns | null
 
 /** One change order's change: the drawing it started from and the one it ends with. */
@@ -257,6 +257,46 @@ export function sideChangeWords(changes: SideChange[] | null): string | null {
 export function ownChangeWords(work: Json): string | null {
   if (!isObj(work) || !isObj(work.base)) return null
   return sideChangeWords(sideChanges(shapeOf(work.base), shapeOf(work)))
+}
+
+/** Gate widths when a drawing's gate has none (yardLayout.ts GATE_WIDTH_IN). */
+const GATE_IN: Record<string, number> = { walk: 48, double: 120 }
+const gateKind = (g: Json) => (g?.type === 'double' ? 'double' : 'walk')
+const gateFt = (g: Json) => Math.round(((num(g?.widthIn) || GATE_IN[gateKind(g)]) / 12) * 100) / 100
+/** "the Back side", "the Left side" (a name that says side already), "the Left return" (as changeOrderDraft.ts names it). */
+export const theSide = (name: string) => `the ${/(^|\s)(side|return|run)$/i.test(name) ? name : `${name} side`}`
+
+/**
+ * The gates a change puts in, takes out or changes, side by side (round 3
+ * recheck, Oct 26 2026: the crew packet said "CO-2: added a walk gate and
+ * removed 4 ft", with no side): "a walk gate in the Back side (4 ft of fence
+ * becomes the gate)", "the walk gate in the Front side taken out", "the gate
+ * in the Back side is now a double gate (10 ft)". Empty when no drawing.
+ */
+export function sideGateChanges(base: WorkShape, mine: WorkShape): Array<{ kind: 'added' | 'removed' | 'changed'; words: string }> {
+  if (!base.yard || !mine.yard || !Array.isArray(base.yard.sides) || !Array.isArray(mine.yard.sides)) return []
+  const bMap = new Map<string, Json>((base.yard.sides as Json[]).filter(s => s?.id).map(s => [String(s.id), s]))
+  const out: Array<{ kind: 'added' | 'removed' | 'changed'; words: string }> = []
+  for (const m of mine.yard.sides as Json[]) {
+    const b = bMap.get(String(m?.id ?? ''))
+    const was = b && b.on !== false ? b.gate : null, now = m?.on !== false ? m?.gate : null
+    const where = theSide(sideName(m))
+    if (now && !was) {
+      // The same side length: the gate takes its width out of the fence there.
+      const into = b && num(b.lengthIn) === num(m.lengthIn) ? ` (${gateFt(now)} ft of fence becomes the gate)` : ''
+      out.push({ kind: 'added', words: `a ${gateKind(now)} gate in ${where}${into}` })
+    } else if (was && !now) out.push({ kind: 'removed', words: `the ${gateKind(was)} gate in ${where} taken out` })
+    else if (was && now && (gateKind(was) !== gateKind(now) || gateFt(was) !== gateFt(now))) out.push({ kind: 'changed', words: `the gate in ${where} is now a ${gateKind(now)} gate (${gateFt(now)} ft)` })
+  }
+  const mIds = new Set((mine.yard.sides as Json[]).map(s => String(s?.id ?? '')))
+  for (const b of base.yard.sides as Json[]) if (!mIds.has(String(b?.id ?? '')) && b?.on !== false && b?.gate) out.push({ kind: 'removed', words: `the ${gateKind(b.gate)} gate in ${theSide(sideName(b))} taken out` })
+  return out
+}
+
+/** A change order's gate changes, side by side, from its drawing (sideGateChanges). */
+export function ownGateChanges(work: Json): Array<{ kind: 'added' | 'removed' | 'changed'; words: string }> {
+  if (!isObj(work) || !isObj(work.base)) return []
+  return sideGateChanges(shapeOf(work.base), shapeOf(work))
 }
 
 /**

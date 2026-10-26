@@ -25,7 +25,7 @@
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { dataFor, requestFrom } from './quotePricing.js'
-import { shapeOf, sameShape, applyChange, clashes, ownChangeWords, type WorkShape, type ChangeStep, type DeriveRuns } from './changeOrderMerge.js'
+import { shapeOf, sameShape, applyChange, clashes, ownChangeWords, ownGateChanges, type WorkShape, type ChangeStep, type DeriveRuns } from './changeOrderMerge.js'
 
 type Json = any
 
@@ -429,13 +429,36 @@ export async function scheduleFit(accountId: string, jobId: string, tx: any = pr
 
 /** One signed change order's own change, for the crew (never a price). */
 export interface PacketChangeItem { number: number; rev: number | null; approvedAt: Date; what: string }
-export interface PacketChange extends PacketChangeItem { work: StoredWork; all: PacketChangeItem[] }
+export interface PacketChange extends PacketChangeItem {
+  work: StoredWork
+  all: PacketChangeItem[]
+  /** The work's runs by the drawing's side names, same order as work.runs (null: "Run 1", "Run 2"). */
+  runNames?: string[] | null
+}
 
-/** "added 10 ft (Left side 40 ft → 50 ft)": its own change, side by side when it came from the drawing. */
+/**
+ * "added 10 ft (Left side 40 ft → 50 ft)": its own change, side by side when
+ * it came from the drawing. A gate put in, taken out or changed says its side
+ * (round 3 recheck): "added a walk gate in the Back side (4 ft of fence
+ * becomes the gate)", never "added a walk gate and removed 4 ft".
+ */
 export function ownWhat(r: { work?: unknown; scope?: unknown; lines?: unknown; reason?: string }): string {
   const sides = ownChangeWords(r.work)
-  const what = whatChanged(r as any)
-  return sides ? `${what} (${sides})` : what
+  const gates = ownGateChanges(r.work)
+  if (!gates.length) {
+    const what = whatChanged(r as any)
+    return sides ? `${what} (${sides})` : what
+  }
+  const s = isObj(r.scope) ? r.scope : {}
+  const added = gates.filter(g => g.kind === 'added').map(g => g.words)
+  const bits = [
+    ...(added.length ? [`added ${join(added)}`] : []),
+    ...gates.filter(g => g.kind !== 'added').map(g => g.words),
+    // Sides made longer or shorter, by name (the feet a gate takes out of its side are in its own words).
+    ...(sides ? [sides] : []),
+    ...(s.toStyle && s.toStyle !== s.fromStyle ? [`changed the fence to ${String(s.toStyle)}`] : []),
+  ]
+  return join(bits)
 }
 
 /**
@@ -453,7 +476,23 @@ export async function packetChange(accountId: string, quoteId: string | null | u
   if (!cur || !cur.approvedAt || cur.approvedAt <= since) return null
   const item = (r: any): PacketChangeItem => ({ number: r.number, rev: r.contractRev ?? null, approvedAt: r.approvedAt, what: ownWhat(r) })
   const all = approvedInOrder(rows as any[]).filter(r => isObj(r.work) && r.approvedAt && r.approvedAt > since).map(item)
-  return { ...item(cur), work: cur.work as StoredWork, all: all.length ? all : [item(cur)] }
+  return { ...item(cur), work: cur.work as StoredWork, all: all.length ? all : [item(cur)], runNames: await runNamesOf(accountId, cur.work as StoredWork).catch(() => null) }
+}
+
+/**
+ * The work's runs by the drawing's side names ("Back", "Left side (2 of 2)"),
+ * the way the packet names them when it is made (web installPacket.tsx);
+ * null when the work has no drawing or its runs do not match it.
+ */
+export async function runNamesOf(accountId: string, w: StoredWork): Promise<string[] | null> {
+  const yard = isObj(w?.layout) && isObj(w.layout.yard) ? w.layout.yard : null
+  if (!yard || !Array.isArray(w.runs) || !w.runs.length) return null
+  const d = (await deriveFor(accountId))(yard, w.fenceStyle)
+  if (!d?.runNames) return null
+  const named = d.runs.map((ft, i) => ({ ft, name: d.runNames![i] })).filter(r => r.ft > 0)
+  const runs = w.runs.filter(ft => ft > 0)
+  if (named.length !== runs.length || named.some((r, i) => Math.abs(r.ft - runs[i]) > 0.01)) return null
+  return named.map(r => r.name || '')
 }
 
 /** "Changed: change order CO-1" / "Changed: change orders CO-1 and CO-2". */
@@ -473,7 +512,8 @@ export function packetWithChange<S extends Record<string, any>>(s: S, c: PacketC
     pullSheet: (w.pullSheet ?? []).filter(l => !l.moneyOnly).map(l => ({ item: l.item, qty: l.qty })),
     // The new drawing when it came with the change; else the old plan is left out (it no longer matches).
     planSvg: w.planSvg ?? undefined,
-    runs: w.runs.map((ft, i) => ({ label: `Run ${i + 1}`, length: `${ft} ft`, sections: runSections[i] ?? 0, spacing: '' })),
+    // Each run by its side where the drawing names it ("Back"), else "Run 3".
+    runs: w.runs.map((ft, i) => ({ label: c.runNames?.[i] || `Run ${i + 1}`, length: `${ft} ft`, sections: runSections[i] ?? 0, spacing: '' })),
     posts: undefined, gates, skips: s.skips,
   }
 }
