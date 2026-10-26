@@ -215,7 +215,13 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
                     <button type="button" onClick={() => onOpenQuote(q)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 min-h-[56px]" data-card-quote={q.id}>
                       <span className={`chip ${STATUS[q.status] ?? STATUS.DRAFT}`}>{cap(q.status)}</span>
                       <span className="flex-1 min-w-0">
-                        <span className="block text-sm font-semibold text-gray-900 tabular-nums">{fmtUSD(q.finalPrice || 0)}</span>
+                        {(() => {
+                          // A sold quote with approved change orders: the contract, as the card's value reads it (round 2 review: it showed $5,886 of a $7,264 contract).
+                          const co = q.status === 'SOLD' ? getJobs().find(j => j.quoteId === q.id)?.changeOrderTotal ?? 0 : 0
+                          return co
+                            ? <span className="block text-sm font-semibold text-gray-900 tabular-nums" data-card-quote-contract>{fmtUSD(Math.round(((q.finalPrice || 0) + co) * 100) / 100)} <span className="text-xs font-normal text-gray-600">contract (signed {fmtUSD(q.finalPrice || 0)}, change orders {co > 0 ? '+' : '−'}{fmtUSD(Math.abs(co))})</span></span>
+                            : <span className="block text-sm font-semibold text-gray-900 tabular-nums">{fmtUSD(q.finalPrice || 0)}</span>
+                        })()}
                         <span className="block text-xs text-gray-600 truncate">{[styleLabel(q.fenceStyle), q.date ? fmtDate(q.date) : ''].filter(Boolean).join(' · ')}</span>
                       </span>
                       <SaveStatus keys={[`quote:${q.id}`]} quietWhenSaved />

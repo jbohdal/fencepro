@@ -393,6 +393,18 @@ async function datesFor(accountId: string, board: Board, field: 'install' | 'app
 
 const PERMIT_REMIND_EVERY_DAYS = 3
 
+/** The days (YYYY-MM-DD) a permit was reminded on, from the reminder keys. */
+async function reminderDays(permitId: string): Promise<string[]> {
+  const rows = await prisma.automationEffect.findMany({ where: { key: { startsWith: `permit-reminder:${permitId}:` } }, select: { key: true } })
+  return rows.map(r => r.key.slice(r.key.lastIndexOf(':') + 1)).filter(isYmd)
+}
+
+/** Is a permit reminder due on `today`, given the days it was reminded? Every 3 days at most; never after one dated ahead of today. */
+export function dueAgain(days: string[], today: string): boolean {
+  const last = days.reduce<string | null>((m, d) => (!m || d > m ? d : m), null)
+  return !last || ymdPlus(last, PERMIT_REMIND_EVERY_DAYS) <= today
+}
+
 export async function permitReminders(now = new Date()): Promise<number> {
   const open = await prisma.permit.findMany({ where: { status: { in: ['needed', 'applied'] } } })
   let sent = 0
@@ -402,8 +414,11 @@ export async function permitReminders(now = new Date()): Promise<number> {
     if (!job) continue
     const ageDays = (now.getTime() - p.updatedAt.getTime()) / 86_400_000
     if (ageDays < PERMIT_REMIND_EVERY_DAYS) continue
-    const last = await prisma.automationEffect.findFirst({ where: { key: { startsWith: `permit-reminder:${p.id}:` } }, orderBy: { createdAt: 'desc' } })
-    if (last && now.getTime() - last.createdAt.getTime() < PERMIT_REMIND_EVERY_DAYS * 86_400_000 - 3600_000) continue
+    // The last reminder by the day in its key, never by when the row was written: a pass run with a
+    // pretend clock (the automations tests tick 6 and 7 days ahead) wrote one reminder a day ahead
+    // per pass, three in two seconds per job (round 2 review, Oct 26 2026). A reminder dated
+    // within the last 3 days, or ahead of today, means not again yet.
+    if (!dueAgain(await reminderDays(p.id), today)) continue
     const key = `permit-reminder:${p.id}:${today}`
     const portal = portalFor(p.county)
     const title = `Permit still ${PERMIT_STATUS_LABEL[p.status as PermitStatus]}: ${job.customerName}`
@@ -510,7 +525,12 @@ function wake() {
 }
 
 /** One pass: stale runs back in the queue, new events into runs, due runs run, time triggers checked. */
-export async function tick(now = new Date(), opts: { scan?: boolean } = {}): Promise<{ events: number; runs: number; time: number }> {
+/**
+ * `sweeps: false` leaves out the company wide sweeps (permit reminders, the 7 am
+ * follow up push, proposal opened pushes): a test driving the worker with a
+ * pretend clock must not remind the real jobs on the dev copy days ahead.
+ */
+export async function tick(now = new Date(), opts: { scan?: boolean; sweeps?: boolean } = {}): Promise<{ events: number; runs: number; time: number }> {
   if (busy) { again = true; return { events: 0, runs: 0, time: 0 } }
   busy = true
   const out = { events: 0, runs: 0, time: 0 }
@@ -520,11 +540,13 @@ export async function tick(now = new Date(), opts: { scan?: boolean } = {}): Pro
     if (opts.scan ?? (now.getTime() - lastScan >= SCAN_EVERY_MS)) {
       lastScan = now.getTime()
       try { out.time = await scanTimeTriggers(now) } catch (err) { console.error('[automations] time triggers:', err) }
-      try { await permitReminders(now) } catch (err) { console.error('[automations] permit reminders:', err) }
-      // 7 am: each person's follow up calls for the day, one push per person per day (lib/followUps.ts).
-      try { await followUpMorningPush(now) } catch (err) { console.error('[automations] follow up morning push:', err) }
-      // Proposal opened pushes a restart kept from going out (each once, lib/proposalViews.ts).
-      try { await proposalOpenedSweep(now) } catch (err) { console.error('[automations] proposal opened push:', err) }
+      if (opts.sweeps !== false) {
+        try { await permitReminders(now) } catch (err) { console.error('[automations] permit reminders:', err) }
+        // 7 am: each person's follow up calls for the day, one push per person per day (lib/followUps.ts).
+        try { await followUpMorningPush(now) } catch (err) { console.error('[automations] follow up morning push:', err) }
+        // Proposal opened pushes a restart kept from going out (each once, lib/proposalViews.ts).
+        try { await proposalOpenedSweep(now) } catch (err) { console.error('[automations] proposal opened push:', err) }
+      }
     }
     for (let guard = 0; guard < 20; guard++) {
       const events = await prisma.automationEvent.findMany({ where: { processedAt: null }, orderBy: { occurredAt: 'asc' }, take: 100 })

@@ -33,7 +33,7 @@ import { getQuotes } from './quoteStore'
 import { getJobs } from './jobStore'
 import { getCustomerById } from './customerStore'
 import { formatPhone, telHref } from './phoneFormat'
-import { leadValue, pipelineMetrics } from './pipelineValue'
+import { leadValue, pipelineMetrics, relevantQuote } from './pipelineValue'
 import { byManualOrder, ranksForDrop } from './boardRank'
 import { useMergedRefresh } from './useMergedRefresh'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
@@ -211,6 +211,20 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
     return new Map(leads.map(l => [l.id, leadValue(l, quotes, jobs, stageList)]))
   }, [leads, dataTick, stageList])
   const valueOf = (l: PipelineLead) => values.get(l.id) ?? 0
+  /**
+   * Who sold it: the job's rep, else the quote's (the quote the card's value
+   * comes from), else the card's own. Round 2 review (Oct 26 2026): a sold card
+   * showed "—" while its quote and job were Christa's.
+   */
+  const reps = useMemo(() => {
+    const quotes = getQuotes(), jobs = getJobs()
+    const jobByQuote = new Map(jobs.map(j => [j.quoteId, j]))
+    return new Map(leads.map(l => {
+      const q = relevantQuote(l, quotes, jobs, stageList) as (typeof quotes)[number] | undefined
+      return [l.id, (q && jobByQuote.get(q.id)?.salesRep?.trim()) || q?.salesRep?.trim() || l.assignedRep || '']
+    }))
+  }, [leads, dataTick, stageList])
+  const repOf = (l: PipelineLead) => reps.get(l.id) ?? l.assignedRep ?? ''
 
   /** A card opens its window: quote, call, text, navigate, book, notes and stage in one place. */
   function openLead(lead: PipelineLead) { setCardId(lead.id) }
@@ -282,7 +296,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   const filteredLeads = useMemo(() => {
     const q = search.trim().toLowerCase()
     return leads.filter(l => {
-      if (repFilter && (l.assignedRep || '') !== repFilter) return false
+      if (repFilter && repOf(l) !== repFilter) return false
       if (styleFilter && (l.fenceType || '') !== styleFilter) return false
       if (followFilter && !needsFollowUpNow(l)) return false
       if (!q) return true
@@ -292,7 +306,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
         (l.address || '').toLowerCase().includes(q)
       )
     })
-  }, [leads, search, repFilter, styleFilter, followFilter, followTick])
+  }, [leads, search, repFilter, styleFilter, followFilter, followTick, reps])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const matchesSearch = useMemo(() => {
     if (!search.trim()) return null
@@ -538,9 +552,9 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   /* ── unique reps / fence styles for filter dropdowns ── */
   const repOptions = useMemo(() => {
     const set = new Set<string>()
-    leads.forEach(l => l.assignedRep && set.add(l.assignedRep))
+    leads.forEach(l => { const r = repOf(l); if (r) set.add(r) })
     return Array.from(set)
-  }, [leads])
+  }, [leads, reps])  // eslint-disable-line react-hooks/exhaustive-deps
   const styleOptions = useMemo(() => {
     const set = new Set<string>()
     leads.forEach(l => l.fenceType && set.add(l.fenceType))
@@ -624,6 +638,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
             <PipelineCard
               lead={l}
               value={valueOf(l)}
+              rep={repOf(l)}
               onClick={() => openLead(l)}
               onQuickView={() => setSelected(l)}
               faded={matchesSearch !== null && !matchesSearch.has(l.id)}
@@ -655,6 +670,7 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
           leads={sortLeads(filteredLeads)}
           stages={stages}
           valueOf={valueOf}
+          repOf={repOf}
           onRowClick={openLead}
           bulkSelected={bulkSelected}
           onBulkChange={setBulkSelected}
@@ -761,13 +777,15 @@ function installCardDay(d: string): string {
 }
 
 function PipelineCard({
-  lead, value, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook, followBadge, opened, installDate = null,
+  lead, value, rep, onClick, onQuickView, faded, isMobile, onNextStage, onMarkLost, next, needsOutcome: overdue, onBook, followBadge, opened, installDate = null,
 }: {
   /** The install's first day (YYYY-MM-DD) when the sold job is on the schedule. */
   installDate?: string | null
   lead: PipelineLead
   /** From the customer's quotes; see pipelineValue. */
   value: number
+  /** Who sold it: the job's or quote's rep, else the card's. */
+  rep: string
   /** Opens the full customer page. */
   onClick: () => void
   /** Opens the small side panel. */
@@ -827,7 +845,7 @@ function PipelineCard({
       )}
       <div className="flex items-center gap-1.5 mt-2 text-[11px] text-gray-500">
         <span className="inline-flex w-5 h-5 rounded-full bg-orange-100 text-orange-700 items-center justify-center text-[9px] font-bold">{initials || '·'}</span>
-        <span className="truncate">{lead.assignedRep || '—'}</span>
+        <span className="truncate" data-card-rep>{rep || '—'}</span>
       </div>
       <div className="flex items-center justify-between mt-2 text-[11px]">
         <span className={`px-2 py-0.5 rounded-full font-semibold ${ageBadgeClass(days)}`}>{days}d in stage</span>
@@ -1037,9 +1055,10 @@ function StagePills({ stages, onJump }: { stages: Array<{ id: string; name: stri
 }
 
 function PipelineListView({
-  leads, stages, valueOf, onRowClick, bulkSelected, onBulkChange, onBulkMove, onExportSelected,
+  leads, stages, valueOf, repOf, onRowClick, bulkSelected, onBulkChange, onBulkMove, onExportSelected,
 }: {
   valueOf: (l: PipelineLead) => number
+  repOf: (l: PipelineLead) => string
   leads: PipelineLead[]
   stages: string[]
   onRowClick: (l: PipelineLead) => void
@@ -1123,7 +1142,7 @@ function PipelineListView({
                     <span className="text-[10px] text-white px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: stageColor(l.stage) }}>{stageName(l.stage)}</span>
                   </td>
                   <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{fmtUSD(valueOf(l))}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{l.assignedRep || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{repOf(l) || '—'}</td>
                   <td className="px-3 py-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${ageBadgeClass(days)}`}>{days}d</span></td>
                   <td className="px-3 py-2 text-xs text-gray-500">{relTime(l.lastMoved || l.createdAt)}</td>
                 </tr>

@@ -404,11 +404,22 @@ async function loadContactInAccount(req: any, res: any) {
 const consentView = (c: { textConsent: string; textConsentAt: Date | null; textConsentBy: string | null; textConsentSource: string | null }) =>
   ({ textConsent: c.textConsent, textConsentAt: c.textConsentAt?.toISOString() ?? null, textConsentBy: c.textConsentBy, textConsentSource: c.textConsentSource })
 
+/**
+ * A customer page that reads before the customer is on the server (a brand new
+ * one still being saved) or after it is gone gets nothing to show, not a 404
+ * (round 2 review, Oct 26 2026: a new customer page logged three 404s). Only
+ * this account's own customers are ever read.
+ */
+async function contactOrNone(req: any) {
+  const contact = await prisma.crmContact.findUnique({ where: { id: String(req.params.id) } })
+  return contact && contact.accountId === req.user.crmAccountId && !contact.deletedAt ? contact : null
+}
+
 // The customer's answer now, and every answer before it.
 router.get('/:id/text-consent', requireAccount, async (req: any, res) => {
   try {
-    const contact = await loadContactInAccount(req, res)
-    if (!contact) return
+    const contact = await contactOrNone(req)
+    if (!contact) { res.json({ success: true, data: { textConsent: 'unknown', textConsentAt: null, textConsentBy: null, textConsentSource: null, history: [] } }); return }
     res.json({ success: true, data: { ...consentView(contact), history: await textConsentHistory(contact.id) } })
   } catch (err) {
     console.error('[crm-contacts] text consent error:', err)
@@ -438,8 +449,8 @@ router.post('/:id/text-consent', requireAccount, async (req: any, res) => {
 // What an import brought for this customer (the old system's fields, lib/customerImport.ts): the customer page's "MyBudgetQuote history".
 router.get('/:id/import-history', requireAccount, async (req: any, res) => {
   try {
-    const contact = await loadContactInAccount(req, res)
-    if (!contact) return
+    const contact = await contactOrNone(req)
+    if (!contact) { res.json({ success: true, data: [] }); return }
     res.json({ success: true, data: await importHistory(req.user.crmAccountId, contact.id) })
   } catch (err) {
     console.error('[crm-contacts] import history error:', err)

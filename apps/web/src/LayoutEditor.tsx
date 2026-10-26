@@ -56,7 +56,7 @@ export function nextEmptySide(layout: YardLayout, id: string | null): YardSide |
   return order.find(s => s.on && !(s.lengthIn > 0)) ?? null
 }
 
-export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap, openSideId, onOpenSide, locked = false, teeAs = 'end' }: {
+export default function LayoutEditor({ layout, onChange, result, runSections, nearIn, hasStyle, address, widthFt, tapeFlags = [], onVoiceSide, pins, onPinTap, openSideId, onOpenSide, locked = false, teeAs = 'end', padAction }: {
   layout: YardLayout | null
   onChange: (l: YardLayout | null) => void
   result: LayoutResult | null
@@ -82,6 +82,8 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
   locked?: boolean
   /** How the quote's style posts a tee (yardLayout.ts teePostFor), for the side's note. */
   teeAs?: 'corner' | 'end' | 'line'
+  /** The length pad's main button in place of Next (a change order: "Make change order"): keeps the length, then this. */
+  padAction?: { label: string; onTap: () => void }
 }) {
   const [pad, setPad] = useState<PadTarget | null>(null)
   const [openLocal, setOpenLocal] = useState<string | null>(null)
@@ -359,8 +361,18 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
     setLineUp(false)
     onChange(withPhotoView(layout!, { rotDeg: next }))
   }
-  function tapSide(id: string) {
+  /**
+   * A side tapped on the drawing: it opens in the list (scrolled to, on a phone
+   * the list is below the drawing). Its length label opens its length pad at
+   * once: the length is what the finger is after (round 2 review, Oct 26 2026:
+   * a footage change took a tap on the label that seemed to do nothing, a tap on
+   * the line, then the length box).
+   */
+  function tapSide(id: string, via?: 'label' | 'line') {
     setOpen(id)
+    if (via === 'label') { setPad({ sideId: id, field: 'length' }); return }
+    const name = layout?.sides.find(s => s.id === id)?.name
+    if (name) requestAnimationFrame(() => document.querySelector(`[data-side-row="${CSS.escape(name)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
   }
 
   const onPhoto = !!(photo && photoReady === photo)
@@ -866,6 +878,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
           onDone={padDone}
           onClose={() => setPad(null)}
           nextLabel={padNext ? `Next: ${padNext.name}` : undefined}
+          action={padAction && pad.field === 'length' ? { label: padAction.label, onTap: inches => { padDone(inches, false); padAction.onTap() } } : undefined}
         />
       )}
     </div>

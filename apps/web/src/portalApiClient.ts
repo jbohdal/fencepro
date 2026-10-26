@@ -265,6 +265,8 @@ export interface PortalChangeOrder {
   lines: Array<{ id: string; description: string; amountCents: number }>; totalCents: number
   sentAt: string | null; approvedAt: string | null; voidedAt: string | null; signedBy: string | null; signedAt: string | null
   quote: { fenceStyle: string; priceCents: number } | null
+  /** The contract before this change and with it, in cents (null for a void one). */
+  contract?: { beforeCents: number; afterCents: number } | null
   /** Waiting for this customer's signature: sent, or approved verbally with the office (not signed by them yet). */
   needsSignature?: boolean
   /** The contract revision it made (rev 1 = as signed). */

@@ -132,6 +132,11 @@
   .mobile-header { display: flex !important; }
   .main-content-area { padding-left: 16px !important; padding-right: 16px !important; }
 }
+/* A phone: the side menu (More) and its dimmed backdrop end above the bottom tabs, so the tab bar stays
+   in view and tappable, and Sign out never sits where a tab is (round 2 review, Oct 26 2026). */
+@media (max-width: 767px) {
+  .mobile-nav-drawer, .mobile-nav-backdrop { bottom: calc(64px + env(safe-area-inset-bottom)); }
+}
 @media (min-width: 1024px) {
   .mobile-nav-backdrop { display: none !important; }
   .mobile-nav-drawer { display: none !important; }

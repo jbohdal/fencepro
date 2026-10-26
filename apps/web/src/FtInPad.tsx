@@ -11,7 +11,7 @@ import { useBackLayer } from './nav'
 // Inside the website widget the pad must not touch the page's history (it sits in someone else's page).
 const noLayer = (_onClose: () => void, _opts?: unknown) => {}
 
-export default function FtInPad({ title, valueIn, onDone, onClose, nextLabel, history = true }: {
+export default function FtInPad({ title, valueIn, onDone, onClose, nextLabel, action, history = true }: {
   title: string
   valueIn: number
   /** Called with the length in inches. `next` is true when Next was tapped. */
@@ -19,6 +19,8 @@ export default function FtInPad({ title, valueIn, onDone, onClose, nextLabel, hi
   onClose: () => void
   /** Shown on the Next button, e.g. "Next: Back". Hidden when absent. */
   nextLabel?: string
+  /** In place of Next: one button that keeps the length and goes on (a change order: "Make change order"), no Done first. */
+  action?: { label: string; onTap: (inches: number) => void }
   /** false: Back does not close it (the website widget). */
   history?: boolean
 }) {
@@ -102,8 +104,10 @@ export default function FtInPad({ title, valueIn, onDone, onClose, nextLabel, hi
           </button>
         </div>
         <div className="flex gap-2 mt-3">
-          <button type="button" onClick={() => finish(false)} className={`btn ${nextLabel ? 'btn-secondary' : 'btn-primary'} btn-lg flex-1`} data-pad-done>Done</button>
-          {nextLabel && <button type="button" onClick={() => finish(true)} className="btn btn-primary btn-lg flex-1" data-pad-next>{nextLabel}</button>}
+          <button type="button" onClick={() => finish(false)} className={`btn ${nextLabel || action ? 'btn-secondary' : 'btn-primary'} btn-lg flex-1`} data-pad-done>Done</button>
+          {action
+            ? <button type="button" onClick={() => action.onTap(total)} className="btn btn-primary btn-lg flex-1" data-pad-action>{action.label}</button>
+            : nextLabel && <button type="button" onClick={() => finish(true)} className="btn btn-primary btn-lg flex-1" data-pad-next>{nextLabel}</button>}
         </div>
       </div>
     </div>

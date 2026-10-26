@@ -60,7 +60,8 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   result?: LayoutResult
   runSections?: number[]
   widthFt?: number
-  onSideTap?: (sideId: string) => void
+  /** A side tapped: its line, or its length label (`label`: the length is what the finger is after). */
+  onSideTap?: (sideId: string, via?: 'label' | 'line') => void
   /** Drawn to the photo's real scale, centered on it; corners can be dragged. */
   aerial?: AerialBackdrop | null
   /**
@@ -620,7 +621,7 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
           {l.lines.map((ln, k) => (
             <text key={k} x={l.x} y={l.y + ln.dy} textAnchor={l.anchor} fontSize={ln.size} fontWeight={ln.weight} fill={ln.fill}
               style={{ paintOrder: 'stroke', ...(l.kind === 'side' && onSideTap ? { cursor: 'pointer' } : {}), ...(onGateDistanceTap && pieceSide(l) ? { cursor: 'pointer', textDecoration: 'underline' } : {}) }} stroke="white" strokeWidth={k === 0 && l.kind === 'side' ? 4 : 3}
-              onClick={l.kind === 'side' && onSideTap ? e => { e.stopPropagation(); onSideTap(l.sideId) } : pieceSide(l) && onGateDistanceTap ? e => { e.stopPropagation(); onGateDistanceTap(l.sideId, pieceSide(l)!) } : undefined}
+              onClick={l.kind === 'side' && onSideTap ? e => { e.stopPropagation(); onSideTap(l.sideId, 'label') } : pieceSide(l) && onGateDistanceTap ? e => { e.stopPropagation(); onGateDistanceTap(l.sideId, pieceSide(l)!) } : undefined}
               {...(l.kind === 'side' ? {} : { 'data-plan-piece': l.sideName, 'data-piece-kind': l.kind })}
               {...(onGateDistanceTap && pieceSide(l) ? { 'data-gate-distance-text': pieceSide(l)! } : {})}>{ln.text}</text>
           ))}
@@ -632,7 +633,7 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
           })()}
           {l.kind === 'side' && onSideTap && (
             <rect x={l.box.x0 - 4} y={l.box.y0 - 4} width={l.box.x1 - l.box.x0 + 8} height={l.box.y1 - l.box.y0 + 8} fill="transparent"
-              style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); onSideTap(l.sideId) }} data-plan-label={l.sideName} />
+              style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); onSideTap(l.sideId, 'label') }} data-plan-label={l.sideName} />
           )}
         </g>
       ))}

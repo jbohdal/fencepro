@@ -121,6 +121,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const cos = await prisma.changeOrder.findMany({ where: { quoteId: { in: made.quotes } }, select: { id: true } })
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: [...jobs, ...cos.map(c => c.id), ...pays.map(p => p.id)] } } })
     await prisma.changeOrder.deleteMany({ where: { quoteId: { in: made.quotes } } })
+    await prisma.notification.deleteMany({ where: { jobId: { in: jobs } } })
     await prisma.jobChecklistItem.deleteMany({ where: { jobId: { in: jobs } } }).catch(() => {})
     await prisma.automationEvent.deleteMany({ where: { entityId: { in: jobs } } as any }).catch(() => {})
     await prisma.savedJob.deleteMany({ where: { id: { in: jobs } } })
@@ -267,6 +268,60 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const theirs = (await changeOrdersForContact(contactId)).find(x => x.id === co.json.data.id)!
     expect(theirs.lines[0]).toEqual({ id: 'pick-1', description: '2 × Replace a post', amountCents: lines[0].amountCents + 100, qty: 2 })
     expect(JSON.stringify(theirs)).not.toContain('repair:replacePost')
+  })
+
+  test("round 2: a Salesman's change after the OK goes back to wait; the bell follows the OK and the signature; the customer sees the new contract total", async () => {
+    const { jobId } = await signedJob()
+    const me = (await prisma.crmUser.findFirst({ where: { crmAccountId: accountId, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
+    const lines = [{ id: 'r2a', description: 'Add a 4 ft section by the shed', amountCents: 20000 }]
+    const co = (await call(sales, 'POST', '/api/change-orders', { jobId, lines })).json.data
+    expect(co.status).toBe('needs_ok')
+    // The "to OK" notice opens the job at the change order (its OK button in view).
+    const toOk = await prisma.notification.findMany({ where: { jobId, title: { startsWith: 'Change order to OK' } } })
+    expect(toOk.map(n => n.recipientRole).sort()).toEqual(['admin', 'office_staff'])
+    for (const n of toOk) expect(n.link).toBe(`/operations?job=${jobId}&co=${co.id}`)
+    // The OK clears (marks read and retitles) those notices, and tells whoever made it.
+    const ok = (await call(owner, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: co.version, status: 'draft' })).json.data
+    expect(ok.status).toBe('draft')
+    const after = await prisma.notification.findMany({ where: { id: { in: toOk.map(n => n.id) } } })
+    expect(after.every(n => n.read && /^Change order OK'd: /.test(n.title))).toBe(true)
+    expect(await prisma.notification.count({ where: { jobId, recipientId: me.email, title: { startsWith: "OK'd: send it to " } } })).toBe(1)
+    // Her change to the lines of an OK'd one: refused with a send, and on its own it waits for the OK again (it never stays OK'd).
+    const more = [{ ...lines[0], amountCents: 90000 }]
+    expect((await call(sales, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: ok.version, lines: more, status: 'sent' })).status).toBe(409)
+    const back = await call(sales, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: ok.version, lines: more })
+    expect([back.status, back.json.data.status, back.json.data.totalCents]).toEqual([200, 'needs_ok', 90000])
+    expect((await call(sales, 'POST', `/api/change-orders/${co.id}/link`)).status).toBe(409)
+    expect(await prisma.notification.count({ where: { jobId, title: { startsWith: 'Change order to OK' }, read: false, body: { contains: 'after it was OK' } } })).toBe(2)
+    // Her words (the reason) too; the same lines sent again change nothing.
+    const ok2 = (await call(owner, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: back.json.data.version, status: 'draft' })).json.data
+    const same = await call(sales, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: ok2.version, lines: ok2.lines })
+    expect(same.json.data.status).toBe('draft')
+    const words = await call(sales, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: same.json.data.version, reason: 'Customer asked by text' })
+    expect(words.json.data.status).toBe('needs_ok')
+    // The owner's own change stays as it is (it is the OK).
+    const ok3 = (await call(owner, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: words.json.data.version, status: 'draft' })).json.data
+    const mine = await call(owner, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: ok3.version, lines: [{ ...lines[0], amountCents: 50000 }] })
+    expect([mine.json.data.status, mine.json.data.totalCents]).toEqual(['draft', 50000])
+    // Sent: the customer's page shows the contract now and with this change ($6,000 + $500).
+    await call(sales, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: mine.json.data.version, status: 'sent' })
+    const link = await call(sales, 'POST', `/api/change-orders/${co.id}/link`, {})
+    const page = await call('', 'GET', `/p/co/${link.json.data.token}`)
+    expect(page.text).toContain('data-co-new-contract>$6,500.00')
+    expect(page.text).toContain('$6,000.00')
+    // Signed on the link: the owner and office are told, and whoever made it.
+    await call('', 'POST', `/p/co/${link.json.data.token}/sign`, { name: 'Pat Customer', signature: SIG })
+    const signed = await prisma.notification.findMany({ where: { jobId, title: { startsWith: 'Signed: CO-1' } } })
+    expect(signed.map(n => n.recipientRole).filter(Boolean).sort()).toEqual(['admin', 'office_staff'])
+    expect(signed[0].body).toContain('on their link')
+    expect(signed[0].body).toContain('$6,500')
+    // Signed again (the answer was lost): no second notice.
+    await call('', 'POST', `/p/co/${link.json.data.token}/sign`, { name: 'Pat Customer', signature: SIG })
+    expect(await prisma.notification.count({ where: { jobId, title: { startsWith: 'Signed: CO-1' } } })).toBe(signed.length)
+    // Approved: the page shows the contract before it and with it.
+    const page2 = await call('', 'GET', `/p/co/${link.json.data.token}`)
+    expect(page2.text).toContain('Your contract with this change')
+    expect(page2.text).toContain('data-co-new-contract>$6,500.00')
   })
 
   test('approved verbally (reason required): it counts; the customer copy is not signed until they sign; dig set switches the warranty', async () => {

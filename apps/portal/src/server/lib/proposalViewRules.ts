@@ -149,7 +149,8 @@ export function viewHistoryItem(v: ViewLike, options: ProposalOptionLike[] | nul
 // ── Cards: how often their customer opened the proposal ─────────────────────
 
 export interface QuoteOpens { crmContactId: string | null; status: string; shareToken?: string | null; viewCount?: number; lastViewedAt?: Date | string | null; acceptedAt?: Date | string | null; archivedAt?: Date | string | null }
-export interface Opened { count: number; lastAt: string | null }
+/** signed: a proposal the customer accepted (they had it open to sign it, even when no open was counted, e.g. a phone that was signed in as staff). */
+export interface Opened { count: number; lastAt: string | null; signed?: boolean }
 
 /** Was this quote's proposal given to the customer? A link that was sent (or opened, or accepted online). */
 export function proposalSent(q: QuoteOpens): boolean {
@@ -169,5 +170,6 @@ export function openedForCard(card: { customerId?: string | null }, quotes: Quot
     const t = q.lastViewedAt ? new Date(q.lastViewedAt).getTime() : NaN
     if (Number.isFinite(t) && (last === null || t > last)) last = t
   }
-  return { count, lastAt: count > 0 && last !== null ? new Date(last).toISOString() : null }
+  const signed = count === 0 && mine.some(q => !!q.acceptedAt)
+  return { count, lastAt: count > 0 && last !== null ? new Date(last).toISOString() : null, ...(signed ? { signed } : {}) }
 }

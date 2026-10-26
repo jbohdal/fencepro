@@ -39,7 +39,11 @@ router.use((req: any, res, next) => {
 router.get('/customer/:id', async (req: any, res) => {
   try {
     res.json({ success: true, data: await matchView(accountOf(req)!, String(req.params.id)) })
-  } catch (err) { fail(res, err, 'load the possible matches') }
+  } catch (err) {
+    // Not on the server (yet: a brand new customer still being saved), or not this company's: nothing to show, not a 404.
+    if (err instanceof MergeError && err.status === 404) { res.json({ success: true, data: { textConsent: 'unknown', matches: [], mergedInto: null, merges: [] } }); return }
+    fail(res, err, 'load the possible matches')
+  }
 })
 
 router.post('/:id/merge', requireCan('records.archive'), async (req: any, res) => {
