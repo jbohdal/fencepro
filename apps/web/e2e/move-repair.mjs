@@ -171,8 +171,8 @@ try {
 
   // Sending: 2 photos first, or Send anyway with a reason.
   await page.goto(`${APP}/?customer=${saved.crmContactId}`); await page.waitForSelector('[data-global-appointment]'); await sleep(1200)
-  await page.locator('button.capitalize', { hasText: /^quotes/i }).first().click(); await sleep(500)
-  await page.locator(`text=$${Math.round(saved.finalPrice).toLocaleString('en-US')}`).first().click(); await sleep(1200)
+  await page.locator('[data-customer-tab="quotes"]').first().click(); await sleep(500) // the customer page's tabs (redesign, Oct 26 2026)
+  await page.locator(`[data-customer-quote="${saved.id}"]`).first().click(); await sleep(1200)
   check('Send: blocked with 0 of 2 photos (Text it and Copy link off)', await page.locator('[data-photos-needed]').count() === 1 && await page.locator('[data-proposal-copy]').isDisabled())
   await shot('dev-move-4-photos-needed', page.locator('[data-proposal-send]'))
   await page.locator('[data-photos-override]').click()

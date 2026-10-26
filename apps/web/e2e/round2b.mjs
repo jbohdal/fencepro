@@ -233,10 +233,34 @@ try {
     await o.page.locator(`[data-job-panel="${A.jobId}"] [data-ops-stage-choice="punch_list"]`).click()
     await sleep(1500)
     check('office: moving the Paid job back asks Reopen first; No leaves it Paid', /^Reopen .*Paid \(closed\)/.test(asked) && (await jobRow(A.jobId))?.status === 'paid', asked)
+    // No on "Reopen…?" says nothing moved: no green "Moved to" (re-check, Oct 26 2026: it said "Moved to Complete").
+    const toastsAfterNo = await o.page.locator('[data-toast]').allInnerTexts().catch(() => [])
+    check('office: No on Reopen shows no "Moved to" toast', !toastsAfterNo.some(t => /Moved to/.test(t)), toastsAfterNo.join(' | ') || 'no toast')
     o.page.once('dialog', d => d.accept().catch(() => {}))
     await o.page.locator(`[data-job-panel="${A.jobId}"] [data-ops-stage-choice="punch_list"]`).click()
     const reopened = await until(async () => { const j = await jobRow(A.jobId); return j?.opsStage === 'punch_list' ? j : null }, 15000)
     check('office: Yes reopens it (Punch List, no completed date)', !!reopened && !reopened.completedDate, `${reopened?.opsStage} ${reopened?.completedDate}`)
+    // Yes: "Moved to Punch List" once the server has it.
+    const movedToast = await until(async () => { const t = await o.page.locator('[data-toast]').allInnerTexts().catch(() => []); return t.find(x => /Moved to Punch List/.test(x)) ?? null }, 15000)
+    check('office: Yes says "Moved to Punch List" once saved', !!movedToast, movedToast ?? 'no toast')
+
+    // A repair's customer texts say "fence repair", never "installation" (re-check, Oct 26 2026): scheduled, then taken off.
+    const sch = await owner('POST', '/api/schedule/install', { jobId: R.jobId, start: dX, crew: 'crew1' })
+    const sBody = sch.json?.data?.text?.body ?? ''
+    check('repair: the "scheduled" text says "your fence repair is scheduled for <weekday>, <date>"', /: Hi \w+, your fence repair is scheduled for [A-Z][a-z]+day, \d\d\/\d\d\/\d{4}\. .*Reply STOP to opt out\.$/.test(sBody) && !/installation/.test(sBody), sBody || `${sch.status} ${sch.json?.error}`)
+    const off = await owner('POST', `/api/schedule/install/${R.jobId}/off`, {})
+    const oBody = off.json?.data?.text?.body ?? ''
+    check('repair: the "taken off" text says "your fence repair date is being changed"', /your fence repair date is being changed/.test(oBody) && !/installation/.test(oBody), oBody || `${off.status} ${off.json?.error}`)
+
+    // A repair's final walkthrough: its repair checklist, headed with the work (not the new fence list and the style).
+    await go(o.page, `/operations?job=${R2.jobId}`)
+    await o.page.locator('[data-walkthrough-start]').first().click()
+    await o.page.waitForSelector('[data-walkthrough-screen="open"]', { timeout: 20000 })
+    const wIds = await o.page.locator('[data-wt-item]').evaluateAll(els => els.map(e => e.getAttribute('data-wt-item')))
+    check('office: a repair\'s walkthrough checklist is its repair work (gate rehung: the gate latches; area cleaned)', wIds.join(',') === 'repair_rehangGate,gates,cleanup', wIds.join(','))
+    const wHead = await o.page.locator('[data-walkthrough-heading]').innerText().catch(() => '')
+    check('office: the walkthrough is headed with the repair work', /Repair: 1 × Rehang a gate/.test(wHead) && !/Vinyl/.test(wHead), wHead)
+    await o.page.locator('[aria-label="Close the walkthrough"]').click().catch(() => {})
     await o.ctx.close()
   }
 
