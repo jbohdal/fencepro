@@ -3,6 +3,13 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-26: vendor documents (Stephens Pipe & Steel quotations); dig set post pipe
+
+- **Standing rules for every vendor document:** a quotation marked "We ordered this" updates prices (06-251126 and 06-251608 are treated that way); a Fuel Charge is never in an item's price, it is a flat charge per order recorded on the vendor bill only; freight is spread over the lines of real orders; a document with no tax line gets 7.22% added to the landed cost, flagged "estimated tax". Every price change is shown before and after, with a backup first.
+- **Chain link dig set post pipe, 0.055 wall:** 6 ft long = 4 ft tall fence, 7 ft long = 5 ft tall; 1-5/8" = line post, 2-1/2" = terminal post (end, corner, gate); galvanized is printed "18ga-SPS", black "PP055". No rule yet for 6 ft tall (8 ft long pipe): those lines wait in Needs a match.
+- **Green vinyl coated chain link:** no style exists; its items go to Needs a match, and no style is made without asking.
+- **In the app:** apps/portal/src/server/lib/digSetPipeMatch.ts, invoiceMath.ts, vendorInvoices.ts; scripts/stephens-dig-set-quotes.ts; pinned in apps/portal/tests/vendorDocRules.test.ts and vendorInvoices.db.test.ts.
+
 ## 2026-10-23: appointments are with the real Team; "Settings lists connected"
 
 - **Jonathan:** "The booking Team list should not be a separate list of names. Make Appointments use the real Team members (active logins with a role), so anyone I add in Team Management appears automatically with their Direct phone, and removed people disappear from booking (their past appointments keep their name)."
