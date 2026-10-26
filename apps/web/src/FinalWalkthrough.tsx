@@ -26,9 +26,10 @@ import { getConfig } from './configStore'
 import { smsLink, mailtoLink } from './appointmentLogic'
 import { toast } from './toast'
 import { useBackLayer } from './nav'
+import type { WorkWordsInput } from '../../portal/src/server/lib/workWords'
 import {
   loadWalkthrough, getWalkthrough, startWalkthrough, setItem, setCounts, setSlotPhoto, fixPunch, sign, finishWalkthrough, homeownerLink, turnOffLink,
-  certificateBlob, walkthroughUrl, photoSrc, missingNow, walkPending, isWalkOp, walkVersion, WALKTHROUGH_EVENT, ROLES, CATEGORY_LABEL, locationText, repairGateCount,
+  certificateBlob, walkthroughUrl, photoSrc, missingNow, walkPending, isWalkOp, walkVersion, WALKTHROUGH_EVENT, ROLES, CATEGORY_LABEL, locationText, repairGateCount, checklistName, walkHeading,
   type Walkthrough, type PhotoSlot, type PunchItem, type Signature, type WalkItem,
 } from './walkthroughStore'
 
@@ -70,6 +71,13 @@ function whereAmI(): Promise<{ lat: number; lng: number; accuracyM: number } | n
   })
 }
 
+/** The job's quote's work (a repair or a move), for its checklist and heading; null for a new fence. */
+function workOfJob(job: { quoteId?: string | null }): WorkWordsInput | null {
+  const q = job.quoteId ? getQuotes().find(x => x.id === job.quoteId) : undefined
+  const w = (q as { work?: WorkWordsInput | null } | undefined)?.work
+  return w && (w.type === 'repair' || w.type === 'move') ? w : null
+}
+
 const when = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 const BIG = 'min-h-[48px]'
 
@@ -87,7 +95,7 @@ export default function FinalWalkthroughPanel({ job }: { job: Job }) {
   async function start() {
     const quote = job.quoteId ? getQuotes().find(q => q.id === job.quoteId) : undefined
     // A repair: the gates it rehung or replaced are photographed too (it has no new walk or double gates).
-    await startWalkthrough({ id: job.id, fenceStyle: job.fenceStyle, walkGates: job.walkGates, dblGates: job.dblGates }, { layout: quote?.layout?.yard ?? null, runCount: quote?.runs?.length, by: me, repairGates: repairGateCount((quote as { work?: Parameters<typeof repairGateCount>[0] } | undefined)?.work) })
+    await startWalkthrough({ id: job.id, fenceStyle: job.fenceStyle, walkGates: job.walkGates, dblGates: job.dblGates }, { layout: quote?.layout?.yard ?? null, runCount: quote?.runs?.length, by: me, repairGates: repairGateCount((quote as { work?: Parameters<typeof repairGateCount>[0] } | undefined)?.work), work: workOfJob(job) })
     setOpen(true)
   }
 
@@ -104,7 +112,7 @@ export default function FinalWalkthroughPanel({ job }: { job: Job }) {
       {w === null && <p className="text-xs text-gray-600">Walk the job with the homeowner: checklist, photos of each side and gate, and both signatures. Makes the Certificate of Completion.</p>}
       {w && w.status === 'open' && (
         <p className="text-xs text-gray-700" data-walkthrough-summary>
-          {CATEGORY_LABEL[w.category]} checklist: {marked} of {w.items.length} checked
+          {checklistName(workOfJob(job), w.category)}: {marked} of {w.items.length} checked
           {openPunch ? ` · ${openPunch} to fix` : ''}{missing.length ? ` · ${missing.length} thing${missing.length === 1 ? '' : 's'} left` : ' · ready to finish'}
         </p>
       )}
@@ -186,7 +194,8 @@ function WalkthroughScreen({ w, job, me, onClose }: { w: Walkthrough; job: Job; 
           <button type="button" className="w-12 h-12 grid place-items-center text-gray-600" aria-label="Close the walkthrough" onClick={onClose}><X size={24} /></button>
           <div className="flex-1 min-w-0">
             <p className="font-bold text-gray-900 truncate">Final walkthrough</p>
-            <p className="text-xs text-gray-500 truncate">{job.customerName} · {CATEGORY_LABEL[w.category]}</p>
+            {/* A repair or a move: headed with its work ("Repair: 2 × Replace a post"), not the fence style. */}
+            <p className="text-xs text-gray-500 truncate" data-walkthrough-heading>{job.customerName} · {walkHeading(workOfJob(job)) ?? CATEGORY_LABEL[w.category]}</p>
           </div>
           <SaveStatus keys={[]} also={isWalkOp(w.id)} />
         </div>

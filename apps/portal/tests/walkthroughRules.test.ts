@@ -4,7 +4,7 @@
  * certificate, and that the certificate is a real PDF.
  */
 import { describe, test, expect } from 'vitest'
-import { categoryForStyle, photoSlots, mergeSlots, missingToFinish, templatesFrom, itemsFromTemplate, STARTER_ITEMS, locationText, type Signature } from '../src/server/lib/walkthroughRules'
+import { categoryForStyle, workChecklist, walkHeading, checklistName, photoSlots, mergeSlots, missingToFinish, templatesFrom, itemsFromTemplate, STARTER_ITEMS, locationText, type Signature } from '../src/server/lib/walkthroughRules'
 import { warrantyFrom, DEFAULT_WARRANTY, certificatePdf } from '../src/server/lib/walkthroughCertificate'
 import { pngDataUrl } from './fixtures/png'
 
@@ -96,5 +96,41 @@ describe('certificate', () => {
     })
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-')
     expect(pdf.length).toBeGreaterThan(3000)
+  })
+})
+
+describe('a repair\'s and a move\'s checklist and heading (re-check, Oct 26 2026)', () => {
+  const style = templatesFrom(undefined).vinyl
+  test('a repair: each repair item done, the gate when one was rehung, debris when on the quote, the area cleaned; none of the new fence items', () => {
+    const work = { type: 'repair', repair: { items: { replacePost: 2, rehangGate: 1, haulDebris: 1, resetPost: 0 } } }
+    const list = workChecklist(work, style)
+    expect(list.map(i => i.label)).toEqual([
+      'Replace a post: 2 done',
+      'Rehang a gate with new hardware: 1 done',
+      'The gate opens, closes and latches',
+      'Debris hauled away',
+      'Work area cleaned up',
+    ])
+    for (const gone of ['Concrete / donuts finished', 'Utility flags and stakes removed', 'Property pins undisturbed']) expect(list.map(i => i.label)).not.toContain(gone)
+    expect(new Set(list.map(i => i.id)).size).toBe(list.length)
+  })
+  test('a repair with no gate and no haul away: no gate or debris line; a double gate says so', () => {
+    expect(workChecklist({ type: 'repair', repair: { items: { resetPost: 1 } } }, style).map(i => i.id)).toEqual(['repair_resetPost', 'cleanup'])
+    expect(workChecklist({ type: 'repair', repair: { items: { replaceGate: 1 }, gateKind: 'double' } }, style).map(i => i.label))
+      .toEqual(['Replace a gate (double gate): 1 done', 'The double gate opens, closes and latches', 'Work area cleaned up'])
+    expect(workChecklist({ type: 'repair', repair: { items: {} } }, style).map(i => i.id)).toEqual(['repair_done', 'cleanup'])
+  })
+  test('a move: the style\'s list and the old line; a new fence: the style\'s list as it is', () => {
+    const move = workChecklist({ type: 'move', crew: [] }, style)
+    expect(move.slice(0, style.length)).toEqual(style)
+    expect(move[move.length - 1].id).toBe('old_line')
+    expect(workChecklist(null, style)).toEqual(style)
+  })
+  test('headed with the work for a repair or move, else nothing (the style is used)', () => {
+    expect(walkHeading({ type: 'repair', repair: { items: { replacePost: 2 } } })).toBe('Repair: 2 × Replace a post')
+    expect(walkHeading(null)).toBeNull()
+    expect(checklistName({ type: 'repair' }, 'vinyl')).toBe('Repair checklist')
+    expect(checklistName({ type: 'move' }, 'vinyl')).toBe('Fence move checklist')
+    expect(checklistName(null, 'chain_link')).toBe('Chain link checklist')
   })
 })

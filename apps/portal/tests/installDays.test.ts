@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   crewDaysOfWeek, installDays, nextCrewDay, addCrewDays, wholeCrewDays, daysForSections, rainDayMoves, scheduleWarnings,
-  installText, customerPhoneToGive, usDate, locatesWords, holidaysOf, holidayOn, crewConflicts, weekWords, shortDayWords, sameCrewClashes, namesWords,
+  installText, workKindOf, customerPhoneToGive, usDate, locatesWords, holidaysOf, holidayOn, crewConflicts, weekWords, shortDayWords, sameCrewClashes, namesWords,
 } from '../src/server/lib/installDays'
 
 // Oct 2026: Mon 26, Tue 27, Wed 28, Thu 29, Fri 30, Sat 31; Nov: Sun 1, Mon 2, Tue 3, Wed 4, Thu 5, Fri 6, Mon 9.
@@ -139,6 +139,30 @@ describe('the customer\'s text', () => {
   it('taken off the schedule: the customer is told the date is changing (prepared only)', () => {
     expect(installText('off', { company: 'Getter Done Fence', firstName: 'Kristi', start: '2026-12-03', phone: '(352) 789 4314' }))
       .toBe('Getter Done Fence: Hi Kristi, your fence installation date is being changed. We\'ll call you with a new date. Questions? Call (352) 789 4314. Reply STOP to opt out.')
+  })
+})
+
+describe('a repair or a fence move says so in its texts (re-check, Oct 26 2026)', () => {
+  const o = { company: 'Getter Done Fence', firstName: 'Ana', start: '2026-10-26', phone: '(352) 844 2677' }
+  it('a repair: "your fence repair is scheduled for Monday, 10/26/2026"', () => {
+    expect(installText('scheduled', { ...o, work: 'repair' }))
+      .toBe('Getter Done Fence: Hi Ana, your fence repair is scheduled for Monday, 10/26/2026. Our crew will arrive in the morning. Questions? Call (352) 844 2677. Reply STOP to opt out.')
+    expect(installText('moved', { ...o, work: 'repair' })).toMatch(/^Getter Done Fence: Hi Ana, your fence repair has moved and is now scheduled for Monday, 10\/26\/2026\. .* Reply STOP to opt out\.$/)
+    expect(installText('off', { ...o, work: 'repair' })).toMatch(/^Getter Done Fence: Hi Ana, your fence repair date is being changed\. .* Reply STOP to opt out\.$/)
+  })
+  it('a move: "your fence move"', () => {
+    expect(installText('scheduled', { ...o, work: 'move' })).toMatch(/^Getter Done Fence: Hi Ana, your fence move is scheduled to start on Monday, 10\/26\/2026\. .* Reply STOP to opt out\.$/)
+    expect(installText('off', { ...o, work: 'move' })).toMatch(/your fence move date is being changed/)
+  })
+  it('a new fence (or no work kept) is still "fence installation"; never the word installation for a repair', () => {
+    expect(installText('scheduled', { ...o, work: 'new' })).toBe(installText('scheduled', o))
+    for (const k of ['scheduled', 'moved', 'off'] as const) expect(installText(k, { ...o, work: 'repair' })).not.toMatch(/installation/)
+  })
+  it('the kind from the quote\'s work', () => {
+    expect(workKindOf({ type: 'repair' })).toBe('repair')
+    expect(workKindOf({ type: 'move' })).toBe('move')
+    expect(workKindOf(null)).toBe('new')
+    expect(workKindOf({ type: 'x' })).toBe('new')
   })
 })
 

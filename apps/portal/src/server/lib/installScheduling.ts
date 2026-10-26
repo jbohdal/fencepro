@@ -34,7 +34,7 @@ import { staffLogins, loginByName } from './appointmentRep.js'
 import { floridaDay } from './automations/context.js'
 import { calendarStatus } from './calendarSync/index.js'
 import {
-  crewDaysOfWeek, installDays, isCrewDay, wholeCrewDays, daysForSections, rainDayMoves, installText, customerPhoneToGive, isYmd,
+  crewDaysOfWeek, installDays, isCrewDay, wholeCrewDays, daysForSections, rainDayMoves, installText, workKindOf, customerPhoneToGive, isYmd,
   sameCrewClashes, namesWords, shortDayWords, type Ymd, type ReadyFacts,
 } from './installDays.js'
 
@@ -192,9 +192,11 @@ async function textFor(accountId: string, job: Json, kind: 'scheduled' | 'moved'
   const give = customerPhoneToGive(rep?.phone, c.company.phone)
   const firstName = (contact?.firstName || String(job.customerName || '').trim().split(/\s+/)[0] || '').trim()
   const ok = await textAllowedTo(phone, accountId)
+  // A repair or a move says so ("your fence repair is scheduled for ..."), from the job's quote's work.
+  const q = job.quoteId ? await prisma.savedQuote.findUnique({ where: { id: String(job.quoteId) }, select: { work: true } }).catch(() => null) : null
   return {
     jobId: job.id, customerName: job.customerName, phone,
-    body: installText(kind, { company: c.company.name, firstName, start, phone: give.phone }),
+    body: installText(kind, { company: c.company.name, firstName, start, phone: give.phone, work: workKindOf(q?.work) }),
     allowed: ok.allowed, reason: ok.reason, callFrom: give.from,
   }
 }

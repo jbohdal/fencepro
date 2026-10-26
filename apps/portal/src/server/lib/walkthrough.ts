@@ -15,7 +15,7 @@ import crypto from 'crypto'
 import prisma from './prisma.js'
 import { recordEvent } from './automationEvents.js'
 import {
-  templatesFrom, categoryForStyle, itemsFromTemplate, photoSlots, missingToFinish, repairGateCount,
+  templatesFrom, categoryForStyle, itemsFromTemplate, photoSlots, missingToFinish, repairGateCount, workChecklist,
   type WalkItem, type PhotoSlot, type Signature, type PunchLike, type LayoutSides,
 } from './walkthroughRules.js'
 import { makeCertificate } from './walkthroughCertificate.js'
@@ -65,7 +65,9 @@ export async function startWalkthrough(accountId: string, jobId: string, by: str
     if (taken && (taken.accountId !== accountId || taken.jobId !== jobId)) id = undefined
   }
   const category = input.category && ['vinyl', 'chain_link', 'aluminum'].includes(input.category) ? input.category : categoryForStyle(job.fenceStyle)
-  const items = input.items?.length ? input.items : itemsFromTemplate((await templatesFor(accountId))[category as 'vinyl'])
+  // A repair's checklist from its repair items; a move's, the style's plus the old line (walkthroughRules.workChecklist).
+  const q = job.quoteId ? await prisma.savedQuote.findUnique({ where: { id: job.quoteId }, select: { work: true } }).catch(() => null) : null
+  const items = input.items?.length ? input.items : itemsFromTemplate(workChecklist(q?.work as any, (await templatesFor(accountId))[category as 'vinyl']))
   const photos = input.photos?.length ? input.photos : await slotsForJob(job)
   try {
     const row = await prisma.walkthrough.create({
