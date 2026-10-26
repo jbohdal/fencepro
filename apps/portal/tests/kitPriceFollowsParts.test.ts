@@ -49,10 +49,12 @@ describe.each(STYLES)('$name', style => {
     expect(b.priced.price).toBeGreaterThan(a.priced.price * 1.6)
   })
 
+  // The job's first walk gate also brings the once per job gate kits (chain link: collar and
+  // 2-1/2" fork, TAKEOFF_RULES anyAddOn rows; Jonathan, Oct 26, 2026). Styles without them add 0.
   test("a walk gate adds that gate kit's cost", () => {
     const s = set(style.name)
     const without = quote(style, 100), withGate = quote(style, 100, 1)
-    expect(withGate.materialCost - without.materialCost).toBeCloseTo(kitCost(s, 'walkGate'), 1)
+    expect(withGate.materialCost - without.materialCost).toBeCloseTo(kitCost(s, 'walkGate') + kitCost(s, 'anyGate') + kitCost(s, 'anyWalkGate'), 1)
     expect(withGate.priced.price).toBeGreaterThan(without.priced.price)
   })
 

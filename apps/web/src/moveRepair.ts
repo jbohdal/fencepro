@@ -169,6 +169,16 @@ const addTo = (bag: Bag, parts: KitPart[] | undefined, n: number, keep: (p: stri
   if (!(n > 0)) return
   for (const p of parts ?? []) if (keep(p.part)) bag.set(p.part, (bag.get(p.part) ?? 0) + p.qty * n)
 }
+/**
+ * The once per job gate parts (kits anyGate / anyWalkGate / anyDblGate; chain
+ * link: collar, forks, drop rod, TAKEOFF_RULES anyAddOn rows, Oct 26, 2026)
+ * for work on `walk` walk gates and `dbl` double gates.
+ */
+const addGateOnce = (bag: Bag, kit: KitSet, walk: number, dbl: number, keep?: (p: string) => boolean) => {
+  addTo(bag, kit.kits.anyGate, walk + dbl > 0 ? 1 : 0, keep)
+  addTo(bag, kit.kits.anyWalkGate, walk > 0 ? 1 : 0, keep)
+  addTo(bag, kit.kits.anyDblGate, dbl > 0 ? 1 : 0, keep)
+}
 
 export interface CostLine {
   key: string
@@ -512,10 +522,14 @@ export function priceMove(c: WorkCommon, m: MoveInputs, nl: NewLine): WorkResult
     const hwBag: Bag = new Map()
     addTo(hwBag, kit.kits.walkGate, reWalk - repl.walk, isGateHardware)
     addTo(hwBag, kit.kits.dblGate, reDbl - repl.dbl, isGateHardware)
+    // The once per job gate parts go with the new gates when there are any, else with the rehung ones.
+    const newWalk = repl.walk + addWalk, newDbl = repl.dbl + addDbl
+    if (newWalk + newDbl === 0) addGateOnce(hwBag, kit, reWalk - repl.walk, reDbl - repl.dbl, isGateHardware)
     materialLine(acc, kit, 'gateHardware', 'New gate hardware (hinges and latch)', hwBag, `${reWalk - repl.walk + reDbl - repl.dbl} rehung gate${reWalk - repl.walk + reDbl - repl.dbl === 1 ? '' : 's'}`)
     const gateBag: Bag = new Map()
     addTo(gateBag, kit.kits.walkGate, repl.walk + addWalk)
     addTo(gateBag, kit.kits.dblGate, repl.dbl + addDbl)
+    addGateOnce(gateBag, kit, newWalk, newDbl)
     materialLine(acc, kit, 'newGates', 'New gates (whole gate kit)', gateBag, `${repl.walk + repl.dbl} replaced${addWalk + addDbl ? `, ${addWalk + addDbl} added on the new line` : ''}`)
     // g. Extra sections on a longer line: like a new fence.
     if (extra > 0) {
@@ -665,12 +679,12 @@ export function priceRepair(c: WorkCommon, r: RepairInputs): WorkResult {
   }
   const rh = q('rehangGate')
   if (rh) {
-    if (kit) { const b: Bag = new Map(); addTo(b, kit.kits[gateKit], rh, isGateHardware); materialLine(acc, kit, 'rehangGate:parts', `${REPAIR_LABEL.rehangGate}: hinges and latch`, b, `${rh} × the ${gateWord} kit's hinges and latch`) }
+    if (kit) { const b: Bag = new Map(); addTo(b, kit.kits[gateKit], rh, isGateHardware); if (!q('replaceGate')) addGateOnce(b, kit, gateKit === 'walkGate' ? rh : 0, gateKit === 'dblGate' ? rh : 0, isGateHardware); materialLine(acc, kit, 'rehangGate:parts', `${REPAIR_LABEL.rehangGate}: hinges and latch`, b, `${rh} × the ${gateWord} kit's hinges and latch`) }
     laborLine(acc, 'rehangGate:labor', `${REPAIR_LABEL.rehangGate}: labor`, rh, gateRate, mult.rehangGate, `${gateWord}s`, `${gateWord} rate`, gateWord)
   }
   const rg = q('replaceGate')
   if (rg) {
-    if (kit) { const b: Bag = new Map(); addTo(b, kit.kits[gateKit], rg); materialLine(acc, kit, 'replaceGate:parts', `${REPAIR_LABEL.replaceGate}: whole gate kit`, b, `${rg} × the ${gateWord} kit`) }
+    if (kit) { const b: Bag = new Map(); addTo(b, kit.kits[gateKit], rg); addGateOnce(b, kit, gateKit === 'walkGate' ? rg : 0, gateKit === 'dblGate' ? rg : 0); materialLine(acc, kit, 'replaceGate:parts', `${REPAIR_LABEL.replaceGate}: whole gate kit`, b, `${rg} × the ${gateWord} kit`) }
     laborLine(acc, 'replaceGate:labor', `${REPAIR_LABEL.replaceGate}: labor`, rg, gateRate, mult.replaceGate, `${gateWord}s`, `${gateWord} rate`, gateWord)
   }
   const hd = q('haulDebris')
