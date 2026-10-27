@@ -6,14 +6,26 @@ import { useState, useMemo } from 'react'
 import { navigate } from './nav'
 import jsPDF from 'jspdf'
 import { getInvoices, getPayments, type Invoice, type Payment } from './billingStore'
-import { useReceivables, receivablesNow } from './moneyLoad'
+import { useReceivables, useReceived, receivablesNow } from './moneyLoad'
+import { legacyPaymentsCounted } from './moneyTruth'
 import { PaymentsToConfirm } from './Payments'
+import { METHODS, openStaffFile } from './paymentsStore'
+import { toast } from './toast'
 import { businessDate } from './businessDate'
 import { getConfig } from './configStore'
 
 const fmtD = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })
 
 type Tab = 'ar' | 'invoices' | 'overdue' | 'payments'
+
+/** One payment received on the Payments tab: a job's payment schedule (with its receipt), or a hand-made Billing invoice's. */
+interface PaymentRow { key: string; paidOn: string; customerName: string; jobId: string | null; job: string; method: string; amountCents: number; receipt: { id: string; number: number } | null; invoice: Invoice | null; invoiceNumber: string }
+
+/** "Check #1042", "Zelle", "Card": the method as the payment form names it. */
+export function methodText(method: string, checkNumber?: string | null): string {
+  const label = METHODS.find(m => m.id === method)?.label ?? (method ? method.charAt(0).toUpperCase() + method.slice(1).replace(/_/g, ' ') : 'Payment')
+  return method === 'check' && checkNumber ? `${label} #${checkNumber}` : label
+}
 
 type Aging = { agingCurrent: number; aging1to30: number; aging31to60: number; aging61to90: number; aging90plus: number; outstandingCents: number; overdueCents: number }
 const usDay = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : d || '')
@@ -366,6 +378,27 @@ export default function BillingPage() {
   const invoices = useMemo(() => getInvoices().filter(i => !i.adoptedJobId), [])
   const payments = useMemo(() => getPayments(), [])
   const { rows: owed, error: owedError } = useReceivables()
+  // Every payment received, as the P&L counts cash: the payment schedules' (server, not voided) and the
+  // hand-made Billing invoices' not taken into a schedule (an adopted one is on its schedule already).
+  const { rows: received, error: receivedError } = useReceived()
+  const payRows = useMemo<PaymentRow[]>(() => {
+    const all = getInvoices()
+    const byId = new Map(all.map(i => [i.id, i]))
+    return [
+      ...(received ?? []).map(r => ({
+        key: `s-${r.id}`, paidOn: r.paidOn, customerName: r.customerName, jobId: r.jobId as string | null, job: [r.fenceStyle, r.address].filter(Boolean).join(' · '),
+        method: methodText(r.method, r.checkNumber), amountCents: r.amountCents, receipt: r.receipt, invoice: null as Invoice | null, invoiceNumber: '',
+      })),
+      ...legacyPaymentsCounted(all, payments).map((p: Payment) => {
+        const inv = byId.get(p.invoiceId) ?? null
+        return {
+          key: `b-${p.id}`, paidOn: String(p.paymentDate || '').slice(0, 10), customerName: p.customerName, jobId: null, job: inv?.jobName || '',
+          method: methodText(p.paymentMethod, null), amountCents: p.amountCents, receipt: null, invoice: inv, invoiceNumber: p.invoiceNumber,
+        }
+      }),
+    ].sort((a, b) => b.paidOn.localeCompare(a.paidOn) || a.customerName.localeCompare(b.customerName))
+  }, [received, payments])
+  const payTotal = payRows.reduce((t, r) => t + r.amountCents, 0)
   const today = businessDate(new Date())
 
   // Per customer: the schedules' open invoices, and hand-made invoices not taken into a schedule
@@ -612,23 +645,44 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Payments */}
+      {/* Payments: every payment received, newest first (the P&L's cash). */}
       {tab === 'payments' && (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          {payments.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden" data-billing-payments>
+          {receivedError && <p className="px-6 py-3 text-sm text-red-700">{receivedError}</p>}
+          {!received && !receivedError ? (
+            <div className="text-center py-8 text-gray-400 text-sm">Loading payments…</div>
+          ) : payRows.length === 0 ? (
             <div className="text-center py-8 text-gray-400 text-sm">No payments recorded</div>
           ) : (
-            <div className="divide-y divide-gray-50">
-              {payments.map((p: Payment) => (
-                <div key={p.id} className="px-6 py-3 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{p.customerName}</p>
-                    <p className="text-xs text-gray-500">{p.paymentDate} · {p.paymentMethod} · Inv: {p.invoiceNumber}</p>
+            <>
+              <div className="px-4 sm:px-6 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between text-sm">
+                <span className="text-gray-600" data-payments-count={payRows.length}>{payRows.length} payment{payRows.length === 1 ? '' : 's'} received</span>
+                <span className="font-semibold text-gray-900" data-payments-total={payTotal}>{fmtD(payTotal)}</span>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {payRows.map(r => (
+                  <div key={r.key} className="px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2" data-billing-payment={r.key}>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-gray-900">{r.customerName}</p>
+                      {r.jobId ? (
+                        <button type="button" onClick={() => navigate(`/operations?job=${encodeURIComponent(r.jobId!)}`, { from: 'Billing' })} className="text-xs text-violet-700 underline text-left min-h-[32px]" data-payment-job={r.jobId}>{r.job || 'Open the job'}</button>
+                      ) : r.job ? <p className="text-xs text-gray-500">{r.job}</p> : null}
+                      <p className="text-xs text-gray-500">{usDay(r.paidOn)} · {r.method}{r.receipt ? ` · Receipt ${r.receipt.number}` : r.invoiceNumber ? ` · Inv: ${r.invoiceNumber}` : ''}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-semibold text-green-600">{fmtD(r.amountCents)}</span>
+                      {r.receipt && (
+                        <button type="button" className="text-sm font-semibold text-violet-700 min-h-[40px] px-2" data-payment-receipt={r.receipt.id}
+                          onClick={async () => { if (!(await openStaffFile(`/api/payments/receipts/${encodeURIComponent(r.receipt!.id)}/pdf`))) toast.error('Could not open the receipt') }}>Receipt</button>
+                      )}
+                      {r.invoice && (
+                        <button type="button" onClick={() => exportInvoicePdf(r.invoice!)} className="text-sm font-semibold text-violet-700 min-h-[40px] px-2">Invoice</button>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-sm font-semibold text-green-600">{fmtD(p.amountCents)}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
