@@ -39,8 +39,9 @@ const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.SHOTS || ''
-const local = u => /^https?:\/\/(localhost|127\.0\.0\.1):4001(\/|$)/.test(u)
-if (!local(APP) || !local(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+// The dev copy (4001) or a worktree's own server on another local port; devOnly.mjs refuses 4000.
+const local = u => /^https?:\/\/(localhost|127\.0\.0\.1):\d+(\/|$)/.test(u)
+if (!local(APP) || !local(API)) { console.error('Refusing to run: the dev copy only (localhost).'); process.exit(2) }
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 
@@ -66,7 +67,10 @@ const OLD_NAMES = ['Alexander Bohdal', 'Stacy Mcgovern', 'Christopher Lindsey']
 const full = r => `${r.first} ${r.last}`
 const DAY = '2026-12-08'   // a Tuesday
 const WHEN = 'Tuesday, December 8 at 10:00 AM'
-const COMPANY_PHONE = '(352) 789 4314'
+// The company number as Settings has it on this database (the dev copy's is scrubbed
+// between refreshes), formatted the way the texts give it; read in setup().
+let COMPANY_PHONE = '(352) 789 4314'
+const spaced = raw => { let d = String(raw || '').replace(/\D/g, ''); if (d.length === 11 && d[0] === '1') d = d.slice(1); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : String(raw || '') }
 const EDITED = 'Hi {customer_first_name}! {rep_first_name} from {company_name} will see you {date_time}. Questions: {rep_phone}'
 const ids = {}
 let accountId = '', contactId = '', original = { appointmentMessages: undefined }
@@ -106,6 +110,7 @@ async function setup() {
   // The four are on the booking team because they are active logins: nothing goes in Settings.
   // The message templates start at the defaults; as they were is put back at the end.
   const { config: c } = await config()
+  if (c.company?.phone) COMPANY_PHONE = spaced(c.company.phone)
   original = { appointmentMessages: c.appointmentMessages }
   const ok = await patchConfig(cur => ({ ...cur, appointmentMessages: {} }))
   if (!ok) throw new Error('could not reset the message templates')
@@ -233,7 +238,7 @@ async function desktopRun(browser) {
 
   const none = await book(s, full(REPS.nophone), 'booked-no-phone')
   checkDefault(s.tag, 'rep with no phone', none, 'Testnophone', COMPANY_PHONE)
-  check(`${s.tag}: rep with no phone: a warning on the Booked window`, /has no Direct phone saved in Settings > Team, so the text gives the company number, \(352\) 789 4314/.test(none.warning), none.warning)
+  check(`${s.tag}: rep with no phone: a warning on the Booked window`, String(none.warning).includes(`has no Direct phone saved in Settings > Team, so the text gives the company number, ${COMPANY_PHONE}`), none.warning)
 
   // Settings > Messages: edit, live preview, save.
   await s.page.goto(`${APP}/settings?tab=messages`)

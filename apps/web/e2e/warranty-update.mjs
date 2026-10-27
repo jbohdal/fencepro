@@ -32,7 +32,7 @@ const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const OWNER = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.E2E_SHOTS || process.env.SHOTS || ''
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+if (!/localhost:\d+/.test(APP) || !/localhost:\d+/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
 if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 
@@ -126,7 +126,7 @@ try {
   const errors = []
   d.on('pageerror', e => errors.push(String(e).slice(0, 200)))
   await d.goto(`${APP}/?customer=${contactId}`); await d.waitForSelector('[data-global-appointment]', { timeout: 30000 }); await sleep(1200)
-  await d.locator('button.capitalize', { hasText: /^quotes/i }).first().click(); await sleep(500)
+  await d.locator('[data-customer-tab="quotes"]').first().click(); await sleep(500)
   await d.locator('text=$10,656').first().click()
   await d.waitForSelector('[data-proposal-send] [data-wu-start]', { timeout: 15000 })
   await d.locator('[data-wu-start]').click()

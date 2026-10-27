@@ -16,7 +16,7 @@ import fs from 'fs'
 import { execFileSync } from 'child_process'
 import { chromium } from 'playwright'
 
-const APP = 'http://localhost:4001', TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''
+const APP = process.env.APP_URL || 'http://localhost:4001', TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
@@ -87,7 +87,8 @@ try {
   check('dry run: the condition is met', (await p.locator('[data-would-run="true"]').count()) === 1)
   await shot(p, 'dry-run')
   check('dry run made nothing', (await call('/api/automations/tasks?all=1')).json.data.filter(t => t.title.includes(tag)).length === tasksBefore)
-  check('dry run started no run', (await call(`/api/automations/runs?entityId=${cardId}`)).json.data.length === 0)
+  const dryRuns = (await call(`/api/automations/runs?entityId=${cardId}`)).json.data
+  check('dry run started no run', dryRuns.length === 0, JSON.stringify(dryRuns.map(r => ({ rule: r.ruleId, name: r.ruleName || r.rule?.name, status: r.status, trigger: r.trigger || r.triggerType, dry: r.dryRun }))).slice(0, 400))
   await p.locator('[data-test-panel] button[aria-label="Close"]').click(); await sleep(300)
 
   // Save, then switch it on from the list.

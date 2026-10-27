@@ -38,7 +38,7 @@
 //   home      Add to Home Screen: manifest, apple-touch-icon, apple-mobile-web-app
 //             tags, the icons load, the start URL opens; navigator.standalone is false
 //             in a Safari tab. The Share sheet itself cannot be tapped by WebDriver.
-//   reload    signed in as the owner and then as WT Christa (Salesman): Today, Pipeline,
+//   reload    signed in as the owner and then as a Salesman (a login it makes and removes): Today, Pipeline,
 //             a customer, a quote and Schedule each opened by its address (a new address
 //             while signed in), then reloaded RELOADS times (default 5); each time the
 //             screen must show, and stay shown (a tab that crashed is reloaded by Safari
@@ -268,12 +268,25 @@ const T = { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId
 const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 let OWNER = process.env.E2E_ACCESS_TOKEN || ''
 let COOKIE = ''
-const startedAt = new Date().toISOString()
 const call = async (method, p, body, auth = { Authorization: `Bearer ${OWNER}` }) => {
   const isForm = body instanceof FormData
   const r = await fetch(`${API}${p}`, { method, headers: { ...auth, 'X-Staff-Request': '1', ...(isForm || body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : isForm ? body : JSON.stringify(body) })
   return { status: r.status, json: await r.json().catch(() => ({})) }
 }
+/** A Salesman login of its own (the WT test logins are not on a scrubbed copy of live): invited and accepted. */
+async function makeSalesman() {
+  const email = `e2e-iphone-sales-${stamp}@example.invalid`
+  const inv = await call('POST', '/api/crm-auth/invite', { firstName: 'E2E', lastName: `iPhone Salesman ${stamp}`, email, role: 'sales_rep' })
+  const url = inv.json?.data?.inviteUrl
+  if (!url) return null
+  const password = `E2e-${crypto.randomBytes(9).toString('base64url')}`
+  const acc = await call('POST', '/api/crm-auth/accept-invite', { token: new URL(url).searchParams.get('token'), email, password }, {})
+  const token = acc.json?.data?.accessToken
+  const me = token ? await call('GET', '/api/crm-auth/me', undefined, { Authorization: `Bearer ${token}` }) : null
+  T.salesman = { email, password, id: me?.json?.data?.id ?? null }
+  return T.salesman
+}
+
 function devSession(args) {
   const out = path.join(T.tmp, `s-${crypto.randomBytes(4).toString('hex')}`)
   execFileSync(path.join(PORTAL_DIR, 'node_modules/.bin/tsx'), ['scripts/dev-session-token.ts', ...args, '--days', '1', '--out', out], { cwd: PORTAL_DIR, stdio: 'ignore' })
@@ -617,11 +630,12 @@ async function reloads() {
   }
   for (const who of ['owner', 'christa']) {
     if (who === 'christa') {
-      // Signed out of the owner, then WT Christa signs in the way the app does (the HttpOnly cookie from the server).
+      // Signed out of the owner, then the Salesman signs in the way the app does (the HttpOnly cookie from the server).
+      const sales = T.salesman ?? await makeSalesman()
       await D.clearCookies()
       await D.goto(`${APP}/`); await sleep(1500)
-      const st = await D.execAsync(`const done = arguments[arguments.length - 1]; fetch('/api/crm-auth/login', { method: 'POST', credentials: 'include', headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'wt-christa@example.invalid', password: 'WT-walk-2026!', cookie: true }) }).then(r => done(r.status), e => done(String(e)))`)
-      await check('WT Christa signs in (Salesman)', st === 200, String(st))
+      const st = await D.execAsync(`const done = arguments[arguments.length - 1]; fetch('/api/crm-auth/login', { method: 'POST', credentials: 'include', headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ email: arguments[0], password: arguments[1], cookie: true }) }).then(r => done(r.status), e => done(String(e)))`, [sales?.email ?? '', sales?.password ?? ''])
+      await check('the Salesman signs in (a login of its own)', st === 200, `${st}${sales ? '' : ' (the login could not be made)'}`)
       if (st !== 200) continue
     }
     const before = simPageMemory()
@@ -690,9 +704,11 @@ async function cleanup() {
   await step('sign ins', async () => {
     const ids = T.sessions.filter(s => /^[0-9a-f-]{36}$/i.test(s))
     if (ids.length) sql(`DELETE FROM "CrmUserSession" WHERE id IN (${ids.map(lit).join(',')})`)
-    sql(`DELETE FROM "CrmUserSession" WHERE "userAgent" = 'dev-session-token --cookie (browser tests)' AND "createdAt" >= ${lit(startedAt)}`)
-    // WT Christa's sign in from the reload area (this run's iPhone browser).
-    if (AREAS.includes('reload')) sql(`DELETE FROM "CrmUserSession" WHERE "userId" = (SELECT id FROM "CrmUser" WHERE email = 'wt-christa@example.invalid') AND "createdAt" >= ${lit(startedAt)} AND "userAgent" LIKE '%iPhone%'`)
+    // Only its own cookie sign in (lib/staffSession.ts cookieHash: 'ck1:' + sha256): every dev cookie made since
+    // it started took other test runs' sign ins with it (they were signed out half way, Oct 26 2026).
+    if (COOKIE) sql(`DELETE FROM "CrmUserSession" WHERE "tokenHash" = ${lit('ck1:' + crypto.createHash('sha256').update(COOKIE).digest('hex'))}`)
+    // The Salesman login of the reload area, with its sign ins (the owner's Team delete; lib/loginDelete.ts).
+    if (T.salesman?.id && OWNER) await call('DELETE', `/api/crm-auth/users/${T.salesman.id}`)
   })
   fs.rmSync(T.tmp, { recursive: true, force: true })
   const left = Number(sql(`SELECT (SELECT count(*) FROM "CrmContact" WHERE id = ${lit(T.contactId)}) + (SELECT count(*) FROM "SavedQuote" WHERE "crmContactId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "SavedJob" WHERE id = ${jl}) + (SELECT count(*) FROM "Receipt" WHERE "jobId" = ${jl}) + (SELECT count(*) FROM "ContractPayment" WHERE "jobId" = ${jl}) + (SELECT count(*) FROM "MediaItem" WHERE "customerId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "PortalAccount" WHERE "crmCustomerId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "IntakeLead" WHERE name LIKE ${lit('E2E iPhone Quote ' + stamp)})`))
@@ -718,7 +734,7 @@ try {
   await run('portal', portal)
   await run('quote', quote)
   await run('home', home)
-  // Last: it signs the owner out and WT Christa in.
+  // Last: it signs the owner out and its Salesman in.
   await run('reload', reloads)
 } catch (e) {
   if (!results.some(r => !r.ok)) await check('ran', false, String(e?.message || e).split('\n')[0])

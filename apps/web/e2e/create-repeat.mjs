@@ -12,7 +12,7 @@ import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev cop
 import crypto from 'crypto'
 import { startSignal } from './signal.mjs'
 
-const DEV = 'http://localhost:4001', PROXY = 4011
+const DEV = process.env.API_URL || process.env.APP_URL || 'http://localhost:4001', PROXY = 4011
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 const results = []
@@ -21,7 +21,7 @@ const api = async (p, init = {}, base = DEV) => {
   const r = await fetch(base + p, { ...init, headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json', ...(init.headers || {}) } })
   return { status: r.status, json: await r.json().catch(() => null) }
 }
-const signal = await startSignal({ listen: PROXY, target: 4001 })
+const signal = await startSignal({ listen: PROXY, target: Number(new URL(DEV).port) || 4001 })
 const via = `http://127.0.0.1:${PROXY}`
 const id = crypto.randomUUID(), cardId = crypto.randomUUID(), NAME = `Repeat ${id.slice(0, 6)}`
 const body = { id, firstName: 'E2E', lastName: NAME, phone: '3525550198', leadSource: 'Other', lead: { id: cardId, customerId: id, firstName: 'E2E', lastName: NAME, phone: '3525550198', stage: 'First Contact', leadSource: 'Other', createdAt: '2026-10-18', lastMoved: '2026-10-18' }, leadBefore: null }

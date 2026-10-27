@@ -15,6 +15,7 @@
 //      Sent quote and saving asks "Prices changed since this was sent (was $X,
 //      now $Y) ..."; "Keep the sent prices" keeps the price and saves the note.
 // Removes everything it made (hard deletes on ezbiz_dev only).
+import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, chromium } from 'playwright'
 import crypto from 'crypto'
 import fs from 'fs'
@@ -25,7 +26,7 @@ const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.SHOTS || process.env.E2E_SHOTS || ''
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+if (!/localhost:\d+/.test(APP) || !/localhost:\d+/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 
@@ -123,13 +124,11 @@ try {
     await addFeet(page, 10)
     const p1 = await barPrice(page)
     check('computer: 10 ft more prices higher in the builder', p1 > p0, `${p0} -> ${p1}`)
-    await saveFromBuilder(page)
-    const dlg = page.locator('[data-quote-lock-dialog="locked"]')
-    await dlg.waitFor({ timeout: 10000 })
-    check('computer: saving shows "This quote is signed. Make a change order instead."', (await page.locator('[data-quote-lock-message]').innerText()).trim() === 'This quote is signed. Make a change order instead.')
-    check('computer: and "Make a change order"', await page.locator('[data-quote-lock-co]').isVisible())
+    // A signed quote's bar has "Make change order" in place of Update quote: straight to the change order, no lock
+    // message to click through (f6a1635, "no Update quote, status picker or lock message").
+    check('computer: a signed quote offers "Make change order", never Update quote', await page.locator('[data-co-make]').isVisible() && (await page.locator('[data-save-open]').count()) === 0)
     await shot(page, 'dev-quote-locked.png')
-    await page.locator('[data-quote-lock-co]').click()
+    await page.locator('[data-co-make]').click()
     await page.waitForSelector('[data-co-modal]', { timeout: 10000 })
     const firstLine = await page.locator('[data-co-line-description]').first().inputValue()
     const total = cents(await page.locator('[data-co-total]').innerText())
@@ -138,6 +137,8 @@ try {
     check('computer: priced by the quote builder\'s own math (the change\'s price difference, in whole dollars)', total === whole(p1) - whole(p0) && total % 100 === 0, `${total} vs ${whole(p1) - whole(p0)}`)
     await shot(page, 'dev-change-order.png')
     // Approved by the owner without the customer's signature: "Approved verbally", with a reason (Oct 22 2026).
+    // The reason for the change, typed by whoever makes it (41aabb6): Save stays off without it.
+    await page.locator('[data-co-reason]').fill('Customer asked for 10 ft more')
     await page.locator('[data-co-save-approved]').click()
     await page.locator('[data-co-verbal-reason]').fill('Customer agreed on site')
     await page.locator('[data-co-save-verbal]').click()
@@ -166,14 +167,13 @@ try {
     const p0 = await barPrice(page)
     await addFeet(page, 10)
     const p1 = await barPrice(page)
-    await saveFromBuilder(page)
-    await page.locator('[data-quote-lock-dialog="locked"]').waitFor({ timeout: 10000 })
-    check('phone: the lock message and "Make a change order"', (await page.locator('[data-quote-lock-message]').isVisible()) && (await page.locator('[data-quote-lock-co]').isVisible()))
+    check('phone: "Make change order" on the signed quote\'s bar, no Update quote', await page.locator('[data-co-make]').isVisible() && (await page.locator('[data-save-open]').count()) === 0)
     await shot(page, 'dev-quote-locked-phone.png')
-    await page.locator('[data-quote-lock-co]').click()
+    await page.locator('[data-co-make]').click()
     await page.waitForSelector('[data-co-modal]', { timeout: 10000 })
     const total = cents(await page.locator('[data-co-total]').innerText())
     check('phone: filled in at the change\'s price (whole dollars)', total === whole(p1) - whole(p0) && total % 100 === 0, `${total} vs ${whole(p1) - whole(p0)}`)
+    await page.locator('[data-co-reason]').fill('Customer asked for 10 ft more')
     await page.locator('[data-co-save-draft]').click()
     await sleep(2500)
     let job = (await jobOf())
