@@ -135,7 +135,7 @@ export default function QuoteDetailDrawer({
           </div>
           {/* "Saved" stays quiet, like the customer page (round 3 recheck); Saving and Not saved show. */}
           <SaveStatus keys={[`quote:${quote.id}`]} quietWhenSaved />
-          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
+          <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
 
         <div className="px-8 py-6 space-y-6">
@@ -446,7 +446,7 @@ function SendQuoteForm({ quote, shareUrl, onClose, onSent }: { quote: SavedQuote
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto modal-responsive">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="font-bold text-gray-900">Send Quote to Customer</h3>
-          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
+          <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
         <div className="p-6 space-y-4">
           <div>
