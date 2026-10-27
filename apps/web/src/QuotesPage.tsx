@@ -558,7 +558,12 @@ export default function QuotesPage({
     if (selectedQuote?.id === id) setSelectedQuote({ ...selectedQuote, leadTemp })
   }
 
-  const filtered = localQuotes.filter(q => {
+  // A Salesman sees the margin before the commission (Oct 27 2026), and her own quotes (Sales Rep: her name),
+  // in the totals and in the list (review Oct 27 2026: the totals were hers, the list everyone's).
+  const showCommission = seesCommission(signedInRole(), can('costs.view'))
+  const myName = signedInRole() === SALESMAN_ROLE ? `${currentUser()?.firstName ?? ''} ${currentUser()?.lastName ?? ''}`.replace(/\s+/g, ' ').trim() : ''
+  const myQuotes = useMemo(() => (myName ? localQuotes.filter(q => isRepsQuote(q.salesRep, myName)) : localQuotes), [localQuotes, myName])
+  const filtered = myQuotes.filter(q => {
     const s = search.toLowerCase()
     const matchSearch = !s ||
       q.customerName.toLowerCase().includes(s) ||
@@ -570,11 +575,7 @@ export default function QuotesPage({
     return matchSearch && matchStatus && matchCat
   })
   const listed = filtered.slice(0, listLimit)
-  // A Salesman sees the margin before the commission (Oct 27 2026), and her own totals, not the company's.
-  const showCommission = seesCommission(signedInRole(), can('costs.view'))
-  const myName = signedInRole() === SALESMAN_ROLE ? `${currentUser()?.firstName ?? ''} ${currentUser()?.lastName ?? ''}`.replace(/\s+/g, ' ').trim() : ''
-  const statsQuotes = useMemo(() => (myName ? localQuotes.filter(q => isRepsQuote(q.salesRep, myName)) : localQuotes).map(q => withShownMargin(q, showCommission)),
-    [localQuotes, myName, showCommission])
+  const statsQuotes = useMemo(() => myQuotes.map(q => withShownMargin(q, showCommission)), [myQuotes, showCommission])
 
   return (
     <div>
@@ -620,8 +621,8 @@ export default function QuotesPage({
         {filtered.length === 0 ? (
           <div className="text-center py-20">
             <p className="text-4xl mb-3">📋</p>
-            <p className="text-gray-500 font-medium">{localQuotes.length === 0 ? 'No quotes yet' : 'No quotes match your filters'}</p>
-            {localQuotes.length === 0 && (
+            <p className="text-gray-500 font-medium">{myQuotes.length === 0 ? (myName ? 'No quotes with you as Sales Rep yet' : 'No quotes yet') : 'No quotes match your filters'}</p>
+            {myQuotes.length === 0 && (
               <button onClick={onNewQuote} className="mt-4 text-orange-500 text-sm hover:underline">Create the first quote</button>
             )}
           </div>
