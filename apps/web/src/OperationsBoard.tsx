@@ -570,8 +570,8 @@ export default function OperationsBoard() {
         />
       )}
 
-      {/* Mobile FAB */}
-      {isMobile && (
+      {/* Mobile FAB: the office's; the Installer never makes a job (audit Oct 26 2026: an orange "+ New Job" on his phone). */}
+      {isMobile && !isCrewLogin() && (
         <button
           onClick={() => toast.info('New Job', 'Create a quote and mark it as Sold to add it to the operations board.')}
           className="fixed bottom-6 right-6 max-md:bottom-[calc(84px+env(safe-area-inset-bottom))] max-md:right-4 z-30 w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-3xl font-light shadow-2xl flex items-center justify-center"

@@ -23,6 +23,7 @@
  */
 
 import { crewScope } from '../lib/crewScope.js'
+import { OFFICE_NOTICE_ROLE, PERMIT_REMINDER_PREFIX } from '../lib/notificationService.js'
 import { refuseNoPrices } from '../lib/costRedact.js'
 import { Router } from 'express'
 import { z } from 'zod'
@@ -523,7 +524,9 @@ const portalRole = (role: string) => ADMIN_ROLES.has(role) ? 'admin' : 'support_
 async function bellWhere(req: any): Promise<any> {
   const role = String(req.user.role || '')
   const own: any[] = [{ recipientId: req.user.email }, { recipientRole: portalRole(role) }, { recipientRole: role }]
-  if (!['sales_rep', 'field_crew'].includes(role)) return { OR: [...own, { recipientId: null, recipientRole: null }] }
+  // The office's notices about a job (a permit still to apply for, an automation that failed) are the owner's and
+  // the office's, never the Salesman's or the Installer's (audit Oct 26 2026: the installer got "Permit still Needed").
+  if (!['sales_rep', 'field_crew'].includes(role)) return { OR: [...own, { recipientId: null, recipientRole: null }, { recipientRole: OFFICE_NOTICE_ROLE }] }
   let jobIds: string[] = []
   if (role === 'field_crew') {
     const scope = await crewScope(req.user.id).catch(() => null)
@@ -533,7 +536,9 @@ async function bellWhere(req: any): Promise<any> {
     const name = `${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim()
     if (name) jobIds = (await prisma.savedJob.findMany({ where: { accountId: req.user.crmAccountId, deletedAt: null, salesRep: { equals: name, mode: 'insensitive' } }, select: { id: true } })).map(j => j.id)
   }
-  return { OR: [...own, ...(jobIds.length ? [{ recipientId: null, recipientRole: null, jobId: { in: jobIds } }] : [])] }
+  // Notices from before they were marked the office's: the permit reminders and failed automations, by their words.
+  const officeKinds = { NOT: { OR: [{ title: { startsWith: PERMIT_REMINDER_PREFIX } }, { type: 'error' }] } }
+  return { OR: [...own, ...(jobIds.length ? [{ recipientId: null, recipientRole: null, jobId: { in: jobIds }, ...officeKinds }] : [])] }
 }
 
 router.get('/notifications', async (req: any, res) => {
