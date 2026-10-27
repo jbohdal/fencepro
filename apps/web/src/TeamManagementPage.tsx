@@ -6,6 +6,7 @@
 
 import { formatPhone } from './phoneFormat'
 import { useState, useEffect, useCallback } from 'react'
+import { LIVE_REFRESH_EVENT } from './liveRefresh'
 import { authFetch } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { useBackLayer } from './nav'
@@ -75,6 +76,24 @@ export default function TeamManagementPage() {
   }, [])
 
   useEffect(() => { loadUsers() }, [loadUsers])
+
+  // Someone accepts their invite on their own phone: the list shows them active without a reload
+  // (walkthrough recheck, Oct 27 2026). Read again quietly when the app comes back on screen and on the
+  // app's live refresh (liveRefresh.ts), and every 10 seconds while an invite is still pending.
+  const pending = users.some(u => u.status === 'invited')
+  useEffect(() => {
+    const quiet = () => { if (document.visibilityState === 'visible') api('/users').then(setUsers).catch(() => {}) }
+    document.addEventListener('visibilitychange', quiet)
+    window.addEventListener('focus', quiet)
+    window.addEventListener(LIVE_REFRESH_EVENT, quiet)
+    const t = pending ? window.setInterval(quiet, 10_000) : undefined
+    return () => {
+      document.removeEventListener('visibilitychange', quiet)
+      window.removeEventListener('focus', quiet)
+      window.removeEventListener(LIVE_REFRESH_EVENT, quiet)
+      if (t) window.clearInterval(t)
+    }
+  }, [pending])
 
   useEffect(() => {
     if (tab === 'sessions') api('/sessions').then(setSessions).catch(console.error)
