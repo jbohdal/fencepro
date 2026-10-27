@@ -54,5 +54,8 @@ export function pickSpot(spots: Spot[], isFree: (s: Spot) => boolean, vh: number
   return spots.find(isFree) ?? TAB_AT.map(a => edgeTab(vh, a)).find(isFree) ?? edgeTab(vh)
 }
 
-/** What counts as something a person taps: buttons, links, fields, and anything marked as a button. */
-export const TAPPABLE = 'button, a[href], input, select, textarea, label, summary, [role="button"], [role="tab"], [role="link"], [role="option"], [role="switch"], [role="checkbox"], [contenteditable="true"], [onclick]'
+/** What counts as something a person taps: buttons, links, fields, a signature box, and anything marked as a button. */
+export const TAPPABLE = 'button, a[href], input, select, textarea, label, summary, canvas, [role="button"], [role="tab"], [role="link"], [role="option"], [role="switch"], [role="checkbox"], [contenteditable="true"], [onclick]'
+
+/** A screen the customer holds (signing on our phone): no staff button over it at all. */
+export const CUSTOMER_HOLDS = '[data-customer-holds]'

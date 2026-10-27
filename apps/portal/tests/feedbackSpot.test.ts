@@ -4,7 +4,7 @@
  * window's "Customer page" button and the quote builder's camera button.
  */
 import { describe, test, expect } from 'vitest'
-import { spotsFor, pickSpot, probePoints, edgeTab, BUTTON, TAB, type Spot } from '../../web/src/feedbackSpot'
+import { spotsFor, pickSpot, probePoints, edgeTab, BUTTON, TAB, TAPPABLE, CUSTOMER_HOLDS, type Spot } from '../../web/src/feedbackSpot'
 
 const overlaps = (a: Spot, b: { left: number; top: number; width: number; height: number }) =>
   a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height
@@ -42,5 +42,11 @@ describe('the floating Feedback button finds a free spot', () => {
     const t = pickSpot([], freeOf([flush]), 844)
     expect(overlaps(t, flush)).toBe(false)
     expect(t).not.toEqual(edgeTab(844))
+  })
+
+  test('a signature box counts as a control; a screen the customer holds hides the button', () => {
+    // e2e/round4-co: the in-person change order's signature box sat under it and the signature never landed.
+    expect(TAPPABLE.split(',').map(x => x.trim())).toContain('canvas')
+    expect(CUSTOMER_HOLDS).toBe('[data-customer-holds]')
   })
 })

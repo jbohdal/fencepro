@@ -13,7 +13,7 @@ import { MessageSquarePlus, X, Loader2, Pencil, Undo2 } from 'lucide-react'
 import { captureScreen, sendFeedback, whereText } from './feedback'
 import { BackClose, useNav } from './nav'
 import { toast } from './toast'
-import { BUTTON, TAPPABLE, pickSpot, probePoints, spotsFor, type Spot } from './feedbackSpot'
+import { BUTTON, CUSTOMER_HOLDS, TAPPABLE, pickSpot, probePoints, spotsFor, type Spot } from './feedbackSpot'
 
 type Point = [number, number]
 type Stroke = Point[]
@@ -136,8 +136,8 @@ function tappableAt(x: number, y: number): boolean {
  * The floating button's spot: one with nothing tappable under it, looked at again as the window
  * scrolls, resizes or changes (feedbackSpot.ts). The spot it has is kept while it is still free.
  */
-function useFreeSpot(on: boolean): Spot | null {
-  const [spot, setSpot] = useState<Spot | null>(null)
+function useFreeSpot(on: boolean): Spot | null | 'hidden' {
+  const [spot, setSpot] = useState<Spot | null | 'hidden'>(null)
   const cur = useRef<Spot | null>(null)
   useEffect(() => {
     if (!on) return
@@ -145,6 +145,8 @@ function useFreeSpot(on: boolean): Spot | null {
     const free = (s: Spot) => !probePoints(s).some(([x, y]) => tappableAt(x, y))
     const measure = () => {
       frame = 0
+      // The customer holds the phone (signing a change order on it): no staff button over their screen.
+      if (document.querySelector(CUSTOMER_HOLDS)) { cur.current = null; setSpot('hidden'); return }
       const vw = window.innerWidth, vh = window.innerHeight
       const bar = document.querySelector('[data-tabbar]')?.getBoundingClientRect()
       const inset = bar && bar.height > 0 && bar.top < vh ? vh - bar.top : 0
@@ -200,7 +202,9 @@ export default function FeedbackButton({ screen = '', floating = false }: { scre
   }
 
   const busy = stage.kind === 'capturing'
-  const spot = useFreeSpot(floating)
+  const free = useFreeSpot(floating)
+  if (floating && free === 'hidden' && stage.kind === 'idle') return null
+  const spot = free === 'hidden' ? null : free
   const tab = floating && !!spot?.tab
   return (
     <>
