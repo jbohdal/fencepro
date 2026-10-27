@@ -10,7 +10,7 @@ import { installDays as crewDaysFrom, crewDaysOfWeek } from '../../portal/src/se
 import { getJob, type Job } from './jobStore'
 import { getQuoteById } from './quoteStore'
 import { workSummary } from './moveRepair'
-import { soldStyleLabel } from './fenceCatalog'
+import { soldStyleLabel } from './soldStyleLabel'
 import type { ScheduledJob, ScheduleSettings } from './SchedulePage'
 
 /** The id prefix of a month card made from a job's dates (no board entry yet). */

@@ -15,7 +15,7 @@ import { Navigation, Phone, FileText, Play, Square, Camera, CheckCircle2, AlertT
 import { getJobs } from './jobStore'
 import { getQuoteById } from './quoteStore'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
-import { soldStyleLabel } from './fenceCatalog'
+import { soldStyleLabel } from './soldStyleLabel'
 import { fetchCrewInstall, fetchCrewVisits, markInstall, sendInstallPacket, packetUrl, crewInstallCached, putCrewInstall, jobDoneWords, CREW_INSTALL_EVENT, type CrewInstall, type CrewVisit, type InstallTime } from './installPacket'
 import { APPOINTMENTS_UPDATED } from './appointmentsStore'
 import { TYPE_SHORT } from './appointmentLogic'

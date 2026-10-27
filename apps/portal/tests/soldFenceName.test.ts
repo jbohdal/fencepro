@@ -8,7 +8,8 @@
 import { describe, test, expect } from 'vitest'
 import { customerFenceName, isSoldQuote, soldRailsOf } from '../src/server/lib/customerFenceName'
 import { newestWalkthroughPhotos } from '../src/server/routes/installPacket'
-import { soldStyleLabel, styleLabel } from '../../web/src/fenceCatalog'
+import { styleLabel } from '../../web/src/fenceCatalog'
+import { soldStyleLabel } from '../../web/src/soldStyleLabel'
 
 const NAME = 'Tan Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), Dig set'
 const opt = (fenceStyle: string, runRails?: string[]) => ({ label: fenceStyle, fenceStyle, finalPrice: 5000, snapshot: { pullSheet: [], ...(runRails ? { runRails } : {}) } })
