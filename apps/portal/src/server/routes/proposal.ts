@@ -662,7 +662,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
   // Back from a refused signing: why, and the number to call, first (refusalText; the same words Accept answered with).
   const refusedLabel = accepted ? p.options[chosen]?.label : sold !== null && sold >= 0 ? p.options[sold]?.label : view.soldLabel
   const refusedNote = view.refused && (accepted || sold !== null)
-    ? `<section class="refused" data-refused role="alert"><p>${esc(refusalText(accepted ? 'accepted' : 'signed', refusedLabel || '', company.phone || ''))}</p></section>`
+    ? `<section class="refused" data-refused role="alert"><p>${company.phone ? esc(refusalText(accepted ? 'accepted' : 'signed', refusedLabel || '', company.phone)).replace(esc(phoneText(company.phone)), tel(company.phone)) : esc(refusalText(accepted ? 'accepted' : 'signed', refusedLabel || '', ''))}</p></section>`
     : ''
   // Accepted, or nothing to sign here: said near the top, with the signed contract, not under the terms.
   const doneBlock = none
@@ -694,6 +694,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
     <p class="small foot">Questions? Call ${company.phone ? tel(company.phone) : 'us'}.</p>
   </main>`
 
+  // Signed: the page reloads at its top, where Accepted and the signed contract now are (not scrolled down to the terms).
   // The ?refused=1 a refused signing reloaded with is dropped from the address, so a later reload is the plain page.
   const script = trackScript(token) + (view.refused ? `
   try{history.replaceState(null,'',location.pathname+location.hash)}catch(_){}` : '') + (!canSign ? '' : `
@@ -719,7 +720,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
       if(!inked){err.textContent='Please sign in the box.';return}
       go.disabled=true;go.textContent='Sending...';err.textContent='';
       fetch('${esc(token)}/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:+sel.value,name:name,signature:c.toDataURL('image/png'),view:window.__proposalView?window.__proposalView():null})})
-        .then(function(r){return r.json()}).then(function(j){if(j.success){location.reload()}else if(j.reload){location.replace(location.pathname+'?refused=1')}else{err.textContent=j.error||'Something went wrong.';go.disabled=false;go.textContent=goText}})
+        .then(function(r){return r.json()}).then(function(j){if(j.success){try{history.scrollRestoration='manual'}catch(_){}location.reload()}else if(j.reload){location.replace(location.pathname+'?refused=1')}else{err.textContent=j.error||'Something went wrong.';go.disabled=false;go.textContent=goText}})
         .catch(function(){err.textContent='No connection. Please try again.';go.disabled=false;go.textContent=goText});
     });
   })();`)

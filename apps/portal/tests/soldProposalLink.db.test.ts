@@ -117,7 +117,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     expect(await notices(q)).toHaveLength(1)
     // The page it reloads to: why first, over the sold option.
     const back = await page(q.shareToken!, '?refused=1')
-    expect(back).toContain('data-refused role="alert"><p>Your fence was already signed for No dig. To change it, please call us at (352) 844 2677.</p>')
+    expect(back).toMatch(/data-refused role="alert"><p>Your fence was already signed for No dig\. To change it, please call us at <a href="tel:3528442677"[^>]*>\(352\) 844 2677<\/a>\.<\/p>/)
     expect(back.match(/data-option="/g)).toHaveLength(1)
 
     // The customer signs the sold option: accepted, and the conflict is settled (read).

@@ -102,11 +102,11 @@ describe('the proposal link once the customer signed it', () => {
 
   test('back from a refused signing: why and the number to call, first; the plain address again', () => {
     const html = renderProposal(accepted, P as any, 'tok', 'n', [], null, '', { start: 1, hidden: [], refused: true })
-    expect(html).toContain('data-refused role="alert"><p>This proposal was already accepted for No dig. To make a change, please call us at (352) 844 2677.</p>')
+    expect(html).toMatch(/data-refused role="alert"><p>This proposal was already accepted for No dig\. To make a change, please call us at <a href="tel:3528442677"[^>]*>\(352\) 844 2677<\/a>\.<\/p>/)
     expect(html.indexOf('data-refused')).toBeLessThan(html.indexOf('data-accepted'))
     expect(html).toContain("history.replaceState(null,'',location.pathname+location.hash)")
     const sold = renderProposal(q, P as any, 'tok', 'n', [], null, '', { start: 1, hidden: [], sold: 1, refused: true })
-    expect(sold).toContain('Your fence was already signed for No dig. To change it, please call us at (352) 844 2677.')
+    expect(sold).toMatch(/Your fence was already signed for No dig\. To change it, please call us at <a href="tel:3528442677"[^>]*>\(352\) 844 2677<\/a>\./)
     // Refused on a page opened before: the page reloads to show what stands, not an error under the button.
     expect(sold).toContain("else if(j.reload){location.replace(location.pathname+'?refused=1')}")
   })
