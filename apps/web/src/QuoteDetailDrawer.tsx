@@ -33,6 +33,7 @@ import { getConfig, overheadPctOf } from './configStore'
 import { useBackLayer, BackClose } from './nav'
 import { SaveStatus } from './SaveStatus'
 import SignedDocuments from './SignedDocuments'
+import { quoteNumber } from './quoteNumber'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -126,7 +127,7 @@ export default function QuoteDetailDrawer({
         <div className="px-8 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-3">
-              <h2 className="text-xl font-bold text-gray-900">Quote #{quote.id.slice(-6).toUpperCase()}</h2>
+              <h2 className="text-xl font-bold text-gray-900">Quote #{quoteNumber(quote.id)}</h2>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>{status.label}</span>
             </div>
             <p className="text-sm text-gray-500 mt-1">{quote.customerName} · {dayWords(quote.date)}</p>
@@ -400,7 +401,7 @@ function SendQuoteForm({ quote, shareUrl, onClose, onSent }: { quote: SavedQuote
   const mergeData: Record<string, string> = {
     customer_name: quote.customerName,
     customer_first_name: quote.customerName?.split(' ')[0] || '',
-    quote_number: `#${quote.id.slice(-6).toUpperCase()}`,
+    quote_number: `#${quoteNumber(quote.id)}`,
     quote_total: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(quote.finalPrice),
     quote_link: shareUrl,
     fence_style: styleLabel(quote.fenceStyle),
