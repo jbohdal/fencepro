@@ -43,6 +43,15 @@ export function nextCrewDay(day: Ymd, days: number[]): Ymd {
   return d
 }
 
+/**
+ * The start day Schedule install offers first: the next crew day after `today`, and never before the 811 good to
+ * dig date (audit Oct 26 2026: it offered tomorrow with good to dig three days later).
+ */
+export function firstInstallDay(today: Ymd, days: number[], goodDate?: string | null): Ymd {
+  const from = plusDays(today, 1)
+  return nextCrewDay(isYmd(goodDate) && goodDate > from ? goodDate : from, days)
+}
+
 /** `count` crew days after `day` (0: the day itself, moved onto a crew day). */
 export function addCrewDays(day: Ymd, count: number, days: number[]): Ymd {
   let d = nextCrewDay(day, days)
