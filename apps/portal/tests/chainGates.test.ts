@@ -26,7 +26,8 @@ import {
 import { setSavedKitSets, builtInKitSet, kitSetFor, type KitSet } from '../../web/src/materialKits'
 import { planChainDigSet, planChainGateKits, oldChainGateKits } from '../../web/src/chainDigSet'
 import { DEFAULT_FENCE_STYLES } from '../../web/src/configDefaults'
-import { deriveLayout, gateWidthsOf, layoutForShape } from '../../web/src/yardLayout'
+import { deriveLayout, gateWidthsOf, layoutForShape, teePostFor } from '../../web/src/yardLayout'
+import { priceForStyle } from '../../web/src/widgetPricing'
 import { calculateQuote } from '../../web/src/quoteCalc'
 import { priceQuoteJob } from '../../web/src/quoteJob'
 import { estimateConfig } from '../../web/src/estimate'
@@ -206,6 +207,23 @@ describe('gate widths reach the quote', () => {
     // The server (phone quotes, change orders): from the saved drawing when no widths are sent.
     const job = priceQuoteJob(cfg, { ...base, fenceStyle: style.name, yard: yard(), jobType: 'new' } as any, 30)
     expect(get(job.calc.materials.items, leaf('galv', 4, 5))).toBe(3)
+  })
+
+  test('the website quote prices the drawn gate widths, the same price as the quote builder', () => {
+    // e2e/widget-price-match.mjs found the website $18 to $121 under the builder on chain link (Oct 26, 2026):
+    // its request left the gate widths out, so a 10 ft double gate was priced as two 4 ft leaves.
+    const cfg = estimateConfig({ fenceStyles: JSON.parse(JSON.stringify(DEFAULT_FENCE_STYLES)), pricing: { overheadPct: 30 } } as any)
+    const style = cfg.fenceStyles.find(s => s.name === "CL - 4' Galv")!
+    const w = priceForStyle(cfg, 30, yard(), style)
+    expect(w.req.gateWidths).toEqual({ walk: [5], dbl: [10] })
+    const get = (items: Array<{ item: string; qty: number }>, p: string) => items.filter(i => i.item === p).reduce((t, i) => t + i.qty, 0)
+    expect(get(w.job.calc.materials.items, leaf('galv', 4, 5))).toBe(3)
+    // What the builder prices when it opens the saved quote: the same request read from the drawing.
+    const d = deriveLayout(yard(), 120, { teeAs: teePostFor(style) })
+    const builder = priceQuoteJob(cfg, { ...w.req, gateWidths: d.gateWidthsFt, corners: d.corners, ends: d.ends } as any, 30)
+    expect(w.price).toBe(Math.round(builder.totals.price * 100) / 100)
+    const typed = priceQuoteJob(cfg, { ...w.req, gateWidths: null } as any, 30)
+    expect(w.job.totals.price).toBeGreaterThan(typed.totals.price)
   })
 })
 
