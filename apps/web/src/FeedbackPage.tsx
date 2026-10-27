@@ -1,29 +1,26 @@
 /**
  * Feedback (owner and admins): what people sent with "Send feedback", newest
- * first. Each one shows the picture of the screen (tap to see it big), what
- * was written, who, when, the page (tap to open it), the device, and New /
- * Seen / Done.
+ * first. Each one shows the picture of the screen (tap to see it big), the one
+ * line written, who and their role, when, the screen and the record it was on
+ * (tap to open it), the phone or computer, the app version, and New / Looked
+ * at / Fixed / Needs Jonathan. The filters show one status at a time.
  */
 
 import { useEffect, useState } from 'react'
 import { X, ExternalLink, RefreshCw } from 'lucide-react'
-import { loadFeedback, setFeedbackStatus, screenshotUrl, type FeedbackItem, type FeedbackStatus } from './feedback'
+import { loadFeedback, setFeedbackStatus, screenshotUrl, recordText, deviceText, FEEDBACK_STATUS_LABEL, FEEDBACK_ROLE_LABEL, type FeedbackItem, type FeedbackStatus } from './feedback'
 import { navigate, BackClose } from './nav'
 import { toast } from './toast'
 
-const STATUS: { value: FeedbackStatus; label: string; on: string }[] = [
-  { value: 'new', label: 'New', on: 'bg-orange-500 text-white border-orange-500' },
-  { value: 'seen', label: 'Seen', on: 'bg-blue-600 text-white border-blue-600' },
-  { value: 'done', label: 'Done', on: 'bg-green-600 text-white border-green-600' },
-]
-const ROLE: Record<string, string> = { super_admin: 'Owner', admin: 'Admin', manager: 'Manager', sales_rep: 'Sales', office_staff: 'Office', field_crew: 'Crew' }
+export { deviceText }
 
-/** "iPhone, Safari" from the browser's description of itself. */
-export function deviceText(ua: string): string {
-  const dev = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Macintosh|Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : 'Unknown device'
-  const br = /Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'browser'
-  return `${dev}, ${br}`
-}
+const STATUS: { value: FeedbackStatus; label: string; on: string }[] = [
+  { value: 'new', label: FEEDBACK_STATUS_LABEL.new, on: 'bg-orange-500 text-white border-orange-500' },
+  { value: 'seen', label: FEEDBACK_STATUS_LABEL.seen, on: 'bg-blue-600 text-white border-blue-600' },
+  { value: 'done', label: FEEDBACK_STATUS_LABEL.done, on: 'bg-green-600 text-white border-green-600' },
+  { value: 'needs_jonathan', label: FEEDBACK_STATUS_LABEL.needs_jonathan, on: 'bg-purple-600 text-white border-purple-600' },
+]
+const ROLE = FEEDBACK_ROLE_LABEL
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
@@ -42,7 +39,7 @@ function Shot({ id, onOpen }: { id: string; onOpen: (url: string) => void }) {
 export default function FeedbackPage() {
   const [items, setItems] = useState<FeedbackItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'all' | FeedbackStatus>('all')
+  const [filter, setFilter] = useState<'all' | FeedbackStatus>('new')
   const [big, setBig] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
@@ -68,8 +65,9 @@ export default function FeedbackPage() {
     <div className="max-w-4xl mx-auto" data-feedback-page>
       <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
         <div className="flex gap-1.5 flex-wrap" role="tablist">
-          {(['all', 'new', 'seen', 'done'] as const).map(v => (
+          {(['new', 'seen', 'done', 'needs_jonathan', 'all'] as const).map(v => (
             <button key={v} type="button" role="tab" aria-selected={filter === v} onClick={() => setFilter(v)}
+              data-feedback-filter={v}
               className={`px-3 min-h-[40px] rounded-full text-sm font-semibold border ${filter === v ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
               {v === 'all' ? `All ${items?.length ?? ''}` : `${STATUS.find(s => s.value === v)!.label} ${items ? count(v) : ''}`}
             </button>
@@ -89,19 +87,27 @@ export default function FeedbackPage() {
             <div className="min-w-0 flex-1">
               <p className="text-sm text-gray-900 whitespace-pre-wrap break-words" data-feedback-text>{f.text || <span className="text-gray-400">(no text)</span>}</p>
               <p className="text-xs text-gray-600 mt-2"><span className="font-semibold">{f.userName || 'Someone'}</span>{f.role ? ` (${ROLE[f.role] ?? f.role})` : ''} · {when(f.createdAt)}</p>
+              {(f.screenTitle || f.recordType) && (
+                <p className="text-xs text-gray-700 mt-1" data-feedback-where>
+                  {f.screenTitle ? <>Screen: <span className="font-semibold">{f.screenTitle}</span></> : null}
+                  {f.screenTitle && f.recordType ? ' · ' : null}
+                  {f.recordType ? <span data-feedback-record={f.recordType}>{recordText(f.recordType, f.recordName)}</span> : null}
+                </p>
+              )}
               {f.path && (
                 <button type="button" onClick={() => navigate(f.path)} className="text-xs text-orange-600 hover:underline mt-1 flex items-center gap-1 max-w-full" data-feedback-path>
-                  <ExternalLink size={12} aria-hidden="true" className="shrink-0" /><span className="truncate">{f.path}</span>
+                  <ExternalLink size={12} aria-hidden="true" className="shrink-0" /><span className="truncate">Open it: {f.path}</span>
                 </button>
               )}
-              <p className="text-[11px] text-gray-400 mt-1 break-words" title={f.userAgent}>{deviceText(f.userAgent)} · {f.screen}{f.appFile ? ` · ${f.appFile.split('/').pop()}` : ''}</p>
+              <p className="text-[11px] text-gray-400 mt-1 break-words" title={f.userAgent}>{deviceText(f.userAgent)} · {f.screen}{f.appVersion ? ` · app ${f.appVersion}` : f.appFile ? ` · ${f.appFile.split('/').pop()}` : ''}</p>
+              {f.statusBy && f.status !== 'new' && <p className="text-[11px] text-gray-400 mt-0.5">{STATUS.find(s => s.value === f.status)?.label ?? f.status} by {f.statusBy}{f.statusAt ? `, ${when(f.statusAt)}` : ''}</p>}
               {f.errors?.length > 0 && (
                 <details className="mt-1 text-[11px] text-red-700">
                   <summary className="cursor-pointer">{f.errors.length} app error{f.errors.length > 1 ? 's' : ''} before sending</summary>
                   <ul className="mt-1 space-y-0.5">{f.errors.map((e, i) => <li key={i} className="break-words">{when(e.at)}: {e.message}</li>)}</ul>
                 </details>
               )}
-              <div className="flex gap-1.5 mt-2" role="group" aria-label="Status">
+              <div className="flex gap-1.5 mt-2 flex-wrap" role="group" aria-label="Status">
                 {STATUS.map(s => (
                   <button key={s.value} type="button" onClick={() => void mark(f, s.value)} disabled={busy === f.id} aria-pressed={f.status === s.value} data-feedback-status={s.value}
                     className={`px-3 min-h-[36px] rounded-lg text-xs font-semibold border ${f.status === s.value ? s.on : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}>

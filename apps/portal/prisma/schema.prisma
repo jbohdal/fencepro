@@ -2714,7 +2714,17 @@ model Feedback {
   screenshotPath String?
   /// Page errors seen since the app was opened: [{ at, message }]
   errors         Json      @default("[]")
-  /// new | seen | done
+  /// The screen's name as the app shows it ("Customers", "Sales Pipeline")
+  screenTitle    String    @default("")
+  /// The record the screen or its open window was on (lib/feedbackModel.ts):
+  /// customer | card | quote | job | change_order | service_ticket, "" when none
+  recordType     String    @default("")
+  recordId       String    @default("")
+  /// Its name when sent ("Dana Smith", "CO-2 for Dana Smith")
+  recordName     String    @default("")
+  /// The app's version when sent (git commit and build time)
+  appVersion     String    @default("")
+  /// new | seen (Looked at) | done (Fixed) | needs_jonathan
   status         String    @default("new")
   statusAt       DateTime?
   statusBy       String?

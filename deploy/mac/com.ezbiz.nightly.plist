@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The nightly safety net: deploy/mac/nightly-check.sh at 19:15 every day, run
+  from the WORKING FOLDER (never ~/ezbiz). A template: install-launch-agents.sh
+  fills in __WORKDIR__ and __HOME__ when it is run with EZBIZ_NIGHTLY_DIR set
+  (GO_LIVE.md, section 20). If the Mac is asleep at 19:15 it runs when it wakes.
+-->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.ezbiz.nightly</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string>
+    <string>__WORKDIR__/deploy/mac/nightly-check.sh</string>
+  </array>
+  <key>WorkingDirectory</key><string>__WORKDIR__</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/opt/homebrew/opt/postgresql@16/bin:/usr/local/bin:__HOME__/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key><string>__HOME__</string>
+  </dict>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>19</integer><key>Minute</key><integer>15</integer></dict>
+  <key>LowPriorityIO</key><true/>
+  <key>Nice</key><integer>10</integer>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/ezbiz/nightly.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/ezbiz/nightly.log</string>
+</dict></plist>

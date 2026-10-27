@@ -22,7 +22,7 @@ import { startNav, navigate, useNav, pagePath, pageForPath, takeOpenedParam, sav
 const OperationsBoard = lazy(() => import('./OperationsBoard'))
 const AuditLogPage = lazy(() => import('./AuditLogPage'))
 const FeedbackPage = lazy(() => import('./FeedbackPage'))
-import FeedbackButton from './FeedbackButton'
+import FeedbackButton, { FeedbackOverWindow } from './FeedbackButton'
 import { MessageSquarePlus, PhoneCall } from 'lucide-react'
 const SchedulePage = lazy(() => import('./SchedulePage'))
 const ReportsPage = lazy(() => import('./ReportsPage'))
@@ -1139,7 +1139,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             {/* Customers' portal messages are the office's: not on the installer's phone. */}
             {!isCrewLogin() && <MessagesInbox onNavigateToCustomer={(customerId) => openCustomerFromAnywhere(customerId, 'messages')} />}
             <SyncBadge />
-            <FeedbackButton />
+            <FeedbackButton screen={active} />
+            <FeedbackOverWindow screen={active} />
             <NotificationBell />
             {/* Command search */}
             <button
