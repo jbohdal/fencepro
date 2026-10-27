@@ -9,6 +9,8 @@ import { getBusinessField } from './businessStateStore'
 import { getConfig } from './configStore'
 import { marginOf, weightedTarget, hasCost, leftOutWords } from './moneyTruth'
 import { companyTargets, yearActuals } from './moneyLoad'
+import { seesCommission, withShownMargin } from './salesmanCommission'
+import { can, signedInRole } from './permissions'
 
 /* ───────── helpers ───────── */
 
@@ -222,7 +224,10 @@ interface ReportsPageProps {
   quotes: SavedQuote[]
 }
 
-export default function ReportsPage({ quotes }: ReportsPageProps) {
+export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
+  // A Salesman sees each quote's margin before the commission (Oct 27 2026). For the screen only: nothing here saves a quote.
+  const showCommission = seesCommission(signedInRole(), can('costs.view'))
+  const quotes = useMemo(() => savedQuotes.map(q => withShownMargin(q, showCommission)), [savedQuotes, showCommission])
   const currentYear = new Date().getFullYear()
   const years = useMemo(() => {
     const yrs = new Set<number>()

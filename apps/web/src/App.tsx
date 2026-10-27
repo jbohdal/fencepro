@@ -75,6 +75,7 @@ import { startIntakeSync } from './intakeStore'
 import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
 import { setSignedInRole, isFullRole, can, isCrewLogin, signedInRole } from './permissions'
+import { seesCommission, withShownMargin } from './salesmanCommission'
 import { roleName } from './teamRoles'
 import { REFUSED_EVENT } from './outbox'
 import StageBlockedNotice from './StageBlockedNotice'
@@ -934,6 +935,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const ytdGoal            = revenueGoal * (thisMonth + 1) / 12
 
   const seesCostsHere = can('costs.view')
+  // The commission is not shown to a Salesman (Oct 27 2026): her quote margins are before it, her budget line is Labor.
+  const showCommissionHere = seesCommission(signedInRole(), seesCostsHere)
   const kpis = [
     { label: 'Revenue this year', value: fmt(ytdRevenue), sub: `${fmtPct(ytdRevenue / revenueGoal)} of the ${fmt(revenueGoal)} goal`, sub2: `Sold, not installed: ${fmt(openSold.total)} (${openSold.count} ${openSold.count === 1 ? 'job' : 'jobs'})`, tone: 'hero' as const },
     { label: 'Sold this month', value: String(monthSold), sub: `${monthQuotes.length} quoted · ${monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%'} close rate`, tone: 'plain' as const },
@@ -946,7 +949,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const pctOr = (n: number | null) => (n === null ? '—' : fmtPct(n))
   const budgetBuckets = [
     { label: 'Overhead', target: fmtPct(overheadPct), actual: pctOr(actuals.overheadPct), amount: `${fmt(totalOverhead)} a year (budget)`, ok: actuals.overheadPct === null || actuals.overheadPct <= overheadPct + 0.02 },
-    { label: 'Labor & Commission', target: fmtPct(laborPct), actual: pctOr(actuals.laborPct), amount: `on ${actuals.withCosts} sold jobs with costs`, ok: actuals.laborPct === null || actuals.laborPct <= laborPct + 0.02 },
+    { label: showCommissionHere ? 'Labor & Commission' : 'Labor', target: fmtPct(laborPct), actual: pctOr(actuals.laborPct), amount: `on ${actuals.withCosts} sold jobs with costs`, ok: actuals.laborPct === null || actuals.laborPct <= laborPct + 0.02 },
     { label: 'Materials', target: fmtPct(materialsPct), actual: pctOr(actuals.materialsPct), amount: `on ${actuals.withCosts} sold jobs with costs`, ok: actuals.materialsPct === null || actuals.materialsPct <= materialsPct + 0.02 },
     { label: 'Net Profit', target: fmtPct(netProfitPct), actual: pctOr(actuals.netProfitPct), amount: 'estimated: gross margin − overhead', ok: actuals.netProfitPct === null || actuals.netProfitPct >= netProfitPct - 0.02 },
   ]
@@ -1307,7 +1310,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                           <p className="text-sm text-gray-500">{[styleLabel(q.fenceStyle), q.work || q.sections ? sizeText(q.sections, q.work) : '', q.date].filter(Boolean).join(' · ')}</p>
                         </div>
                         <div className="flex items-center gap-3">
-                          {q.totalCOGS > 0 && <span className={`text-sm ${marginColor(q)}`}>{fmtPct(q.gmPct)}</span>}
+                          {q.totalCOGS > 0 && <span className={`text-sm ${marginColor(withShownMargin(q, showCommissionHere))}`}>{fmtPct(withShownMargin(q, showCommissionHere).gmPct)}</span>}
                           <span className="text-sm font-semibold text-gray-900">{fmt(q.finalPrice)}</span>
                           <span className={`chip ${STATUS_COLORS[q.status]}`}>{q.status.charAt(0) + q.status.slice(1).toLowerCase()}</span>
                         </div>
@@ -1347,7 +1350,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                     <h3 className="font-semibold text-gray-900">Budget Targets</h3>
                     <p className="text-xs text-gray-400 mt-0.5">Target Margin (Settings › Pricing): <span className="font-bold text-gray-700" data-dash-target-margin>{targets.words}</span> · Revenue Goal: <span className="font-bold text-gray-700">{fmt(revenueGoal)}</span> · Actual: this year's sold jobs with costs{yearMargin.leftOut.length ? ` (${yearMargin.leftOut.length} without left out)` : ''}</p>
                   </div>
-                  <button onClick={() => setActive('Budget')} className="text-orange-500 text-sm hover:underline">Edit in Budget</button>
+                  {visibleGroups.some(g => g.items.some(i => i.name === 'Budget')) && <button onClick={() => setActive('Budget')} className="text-orange-500 text-sm hover:underline">Edit in Budget</button>}
                 </div>
                 <div className="grid grid-cols-4 gap-4">
                   {budgetBuckets.map(b => (

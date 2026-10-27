@@ -58,3 +58,50 @@ export function salesmanSwitchDefault(q: QuoteLike, role: string | null | undefi
 export function seesCommission(role: string | null | undefined, seesCosts: boolean): boolean {
   return seesCosts && role !== SALESMAN_ROLE
 }
+
+/** What a saved quote carries for its margin: the saved gmPct is after the commission (price − cost − commission). */
+type SavedMargin = {
+  gmPct: number
+  finalPrice: number
+  totalCOGS: number
+  hasSalesman?: boolean
+  pricing?: { commissionPct?: number } | null
+  work?: { priced?: { commissionCents?: number } } | null
+}
+
+const pos = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0
+
+/** Does this saved quote carry a commission (the switch was on, the quote kept its own %, or a repair's commission)? */
+export function carriesCommission(q: SavedMargin): boolean {
+  return !!q.hasSalesman || pos(q.pricing?.commissionPct) || pos(q.work?.priced?.commissionCents)
+}
+
+/**
+ * A saved quote's margin before the commission. The saved gmPct is
+ * (price − cost − commission) ÷ price (pricingEngine.ts, moveRepair.ts), so the
+ * commission is added back from the saved price and cost: (price − cost) ÷ price.
+ * A quote with no commission, no price or no cost keeps its saved margin.
+ * For the screen only: the saved quote is never changed.
+ */
+export function marginBeforeCommission(q: SavedMargin): number {
+  if (!carriesCommission(q) || !(q.finalPrice > 0) || !(q.totalCOGS > 0)) return q.gmPct
+  return (q.finalPrice - q.totalCOGS) / q.finalPrice
+}
+
+/** The margin this login sees on a saved quote: the saved one, or for a Salesman the margin before the commission. */
+export function shownMargin(q: SavedMargin, showCommission: boolean): number {
+  return showCommission ? q.gmPct : marginBeforeCommission(q)
+}
+
+/** A copy of the quote for showing (its margin as this login sees it). Never saved: stores get the original. */
+export function withShownMargin<T extends SavedMargin>(q: T, showCommission: boolean): T {
+  if (showCommission) return q
+  const gmPct = marginBeforeCommission(q)
+  return gmPct === q.gmPct ? q : { ...q, gmPct }
+}
+
+/** Is this quote one of hers (its sales rep is this name, compared without case or extra spaces)? */
+export function isRepsQuote(salesRep: string | null | undefined, name: string | null | undefined): boolean {
+  const n = norm(name)
+  return !!n && norm(salesRep) === n
+}

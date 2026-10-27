@@ -21,6 +21,9 @@ import { averageMargin } from './quoteStats'
 import { quoteMarginTone } from './moneyLoad'
 import { useBackLayer, BackClose, useScreenMemory, useNav, takeOpenedParam } from './nav'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
+import { seesCommission, withShownMargin, isRepsQuote, SALESMAN_ROLE } from './salesmanCommission'
+import { can, signedInRole } from './permissions'
+import { currentUser } from './crmAuth'
 
 export interface SavedQuote {
   id: string
@@ -177,7 +180,7 @@ function MiniBarChart({ opp, closed, labels }: { opp: number[], closed: number[]
   )
 }
 
-function PipelineAnalytics({ quotes }: { quotes: SavedQuote[] }) {
+function PipelineAnalytics({ quotes, rep }: { quotes: SavedQuote[]; rep?: string }) {
   const year = new Date().getFullYear()
 
   const monthlyData = useMemo(() => {
@@ -229,6 +232,7 @@ function PipelineAnalytics({ quotes }: { quotes: SavedQuote[] }) {
 
   return (
     <div className="space-y-4 mb-4">
+      {rep && <p className="text-sm text-gray-600" data-quote-stats-yours>Your quotes only (Sales Rep: {rep})</p>}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { label: 'Total Quoted',   value: String(totalOpp),  sub: 'all time' },
@@ -391,8 +395,8 @@ function QuoteDrawer({
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400 text-sm">Gross Margin</span>
-                <span className={`font-bold text-sm ${({ good: 'text-green-400', near: 'text-yellow-400', bad: 'text-red-400', none: 'text-gray-400' } as const)[quoteMarginTone(quote)]}`}>
-                  {quote.totalCOGS > 0 ? fmtPct(quote.gmPct) : 'No cost'}
+                <span className={`font-bold text-sm ${({ good: 'text-green-400', near: 'text-yellow-400', bad: 'text-red-400', none: 'text-gray-400' } as const)[quoteMarginTone(withShownMargin(quote, seesCommission(signedInRole(), can('costs.view'))))]}`}>
+                  {quote.totalCOGS > 0 ? fmtPct(withShownMargin(quote, seesCommission(signedInRole(), can('costs.view'))).gmPct) : 'No cost'}
                 </span>
               </div>
             </div>
@@ -566,12 +570,17 @@ export default function QuotesPage({
     return matchSearch && matchStatus && matchCat
   })
   const listed = filtered.slice(0, listLimit)
+  // A Salesman sees the margin before the commission (Oct 27 2026), and her own totals, not the company's.
+  const showCommission = seesCommission(signedInRole(), can('costs.view'))
+  const myName = signedInRole() === SALESMAN_ROLE ? `${currentUser()?.firstName ?? ''} ${currentUser()?.lastName ?? ''}`.replace(/\s+/g, ' ').trim() : ''
+  const statsQuotes = useMemo(() => (myName ? localQuotes.filter(q => isRepsQuote(q.salesRep, myName)) : localQuotes).map(q => withShownMargin(q, showCommission)),
+    [localQuotes, myName, showCommission])
 
   return (
     <div>
       {/* Phone: the page's primary action (the header buttons are for the computer). */}
       <button onClick={onNewQuote} className="btn btn-primary w-full md:hidden mb-4">+ New quote</button>
-      <PipelineAnalytics quotes={localQuotes} />
+      <PipelineAnalytics quotes={statsQuotes} rep={myName || undefined} />
 
       <div className="bg-white rounded-2xl border border-gray-200 p-3 lg:p-4 mb-4 flex flex-col lg:flex-row lg:items-center gap-3 lg:flex-wrap">
         <input
@@ -645,7 +654,7 @@ export default function QuotesPage({
                   <td className="px-4 py-3 text-gray-700" data-label="Style">{styleLabel(q.fenceStyle)}</td>
                   <td className="px-4 py-3 text-right text-gray-600" data-label="Sections">{sectionsCell(q.sections, q.work)}</td>
                   <td className="px-4 py-3 text-right font-bold text-gray-900" data-label="Price">{fmt(q.finalPrice)}</td>
-                  <td className={`px-4 py-3 text-right font-bold text-sm ${marginColor(q)}`} data-label="Margin">{q.totalCOGS > 0 ? fmtPct(q.gmPct) : '—'}</td>
+                  <td className={`px-4 py-3 text-right font-bold text-sm ${marginColor(withShownMargin(q, showCommission))}`} data-label="Margin">{q.totalCOGS > 0 ? fmtPct(withShownMargin(q, showCommission).gmPct) : '—'}</td>
                   <td className="px-4 py-3" data-label="Heat" onClick={e => e.stopPropagation()}>
                     <FlameRating value={q.leadTemp ?? 0} onChange={v => handleTempChange(q.id, v)} />
                   </td>

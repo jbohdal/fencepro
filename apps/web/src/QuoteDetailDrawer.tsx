@@ -10,7 +10,7 @@
 import { dayWords } from './businessDate'
 import { formatPhone } from './phoneFormat'
 import { can, canOpenOperations, signedInRole } from './permissions'
-import { seesCommission } from './salesmanCommission'
+import { seesCommission, shownMargin } from './salesmanCommission'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
@@ -77,6 +77,8 @@ export default function QuoteDetailDrawer({
     return () => window.removeEventListener('fencepro:quotes:updated', h)
   }, [])
   const quote = (getQuoteById(opened.id) as SavedQuote | null) ?? opened
+  // A Salesman sees the margin before the commission (Oct 27 2026); the saved quote keeps its own.
+  const shownGm = shownMargin(quote, seesCommission(signedInRole(), can('costs.view')))
   const [sendOpen, setSendOpen] = useState(false)
   // The Send box is showing its own "Show these to the customer" list: the photos section does not repeat it.
   const [sendTicks, setSendTicks] = useState(false)
@@ -188,7 +190,7 @@ export default function QuoteDetailDrawer({
               {workSummary(quote.work)
                 ? <p className="text-gray-700 max-w-[16rem]" data-quote-work-summary>{workSummary(quote.work)}</p>
                 : <><p className="text-gray-500">{totalFootage} ft total</p><p className="text-gray-500">{quote.sections} sections</p>{changeNote?.pullSheetRev ? <p className="text-xs text-amber-800">as signed</p> : null}</>}
-              {internalView && <p className={`mt-1 font-semibold ${quote.gmPct >= lowTarget() ? 'text-green-700' : quote.gmPct >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-600'}`}>{fmtPct(quote.gmPct)} margin</p>}
+              {internalView && <p className={`mt-1 font-semibold ${shownGm >= lowTarget() ? 'text-green-700' : shownGm >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-600'}`}>{fmtPct(shownGm)} margin</p>}
             </div>
           </div>
 
@@ -279,7 +281,7 @@ export default function QuoteDetailDrawer({
                 <div className="flex justify-between"><span className="text-gray-600">Tear out</span><span>{fmt(quote.tearOutCost)}</span></div>
                 <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total cost</span><span>{fmt(quote.totalCOGS)}</span></div>
                 <div className="flex justify-between font-bold text-orange-700 border-t border-gray-200 pt-1 mt-1"><span>Quote Price</span><span>{fmt(quote.finalPrice)}</span></div>
-                <div className="flex justify-between pt-1 text-xs text-gray-500"><span>Gross Margin</span><span>{fmtPct(quote.gmPct)}</span></div>
+                <div className="flex justify-between pt-1 text-xs text-gray-500"><span>Gross Margin</span><span>{fmtPct(shownGm)}</span></div>
               </div>
             </section>
           )}

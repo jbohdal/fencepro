@@ -59,7 +59,8 @@ import { newId } from './recordSync'
 import { sendJson } from './syncHttp'
 import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
-import { can, canOpenOperations } from './permissions'
+import { can, canOpenOperations, signedInRole } from './permissions'
+import { seesCommission, shownMargin } from './salesmanCommission'
 import PopMenu, { PopItem } from './PopMenu'
 import ConfirmByTyping from './ConfirmByTyping'
 import PossibleMatch from './PossibleMatch'
@@ -793,7 +794,7 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
     const estCOGS = q.totalCOGS || 0
     const actCOGS = actLabor + entry.actualMaterialCost + (entry.actualOtherCosts || 0)
     const variance = actCOGS - estCOGS
-    const estGM = q.gmPct || 0
+    const estGM = shownMargin(q, seesCommission(signedInRole(), can('costs.view'))) || 0
     const actGM = q.finalPrice > 0 ? (q.finalPrice - actCOGS) / q.finalPrice : 0
     return { quote: q, entry, estCOGS, actCOGS, variance, estGM, actGM }
   }).filter(Boolean) as any[]
@@ -1678,7 +1679,7 @@ export default function CustomersPage({ onNewQuote }: {
       // A repair: its work, never "0" (round 2 review, Oct 26 2026).
       sections: sectionsCell(q.sections, q.work),
       price: q.finalPrice || 0,
-      margin: q.gmPct || 0,
+      margin: shownMargin(q, seesCommission(signedInRole(), can('costs.view'))) || 0,
       status: q.status || 'DRAFT',
       date: q.date || '',
     })) as Quote[]

@@ -5,7 +5,7 @@
  * builder's "Salesman on this job?" switch.)
  */
 import { describe, test, expect } from 'vitest'
-import { salesmanSwitchDefault, seesCommission, isSalesmanName, isFreshQuote } from '../../web/src/salesmanCommission'
+import { salesmanSwitchDefault, seesCommission, isSalesmanName, isFreshQuote, marginBeforeCommission, shownMargin, withShownMargin, isRepsQuote } from '../../web/src/salesmanCommission'
 import { calculatePrice, type PriceInputs, type PricingSettings, type StylePricing } from '../../web/src/pricingEngine'
 import { seesCosts } from '../../web/src/moveRepair'
 
@@ -90,5 +90,37 @@ describe('9% commission comes out of the price: the customer price never changes
     const typed = { ...job, overrides: { finalPrice: 7000 } }
     expect(calculatePrice({ ...typed, hasSalesman: true }).price).toBe(7000)
     expect(calculatePrice(typed).price).toBe(7000)
+  })
+  test('saved, she sees the margin the quote builder showed her (before the commission); the office sees the saved one', () => {
+    const on = calculatePrice({ ...job, hasSalesman: true })
+    const saved = { gmPct: on.gmPct, finalPrice: on.price, totalCOGS: on.totalCOGS, hasSalesman: true }
+    // QuoteBuilder.tsx viewGmPct: (gross margin + commission) ÷ price.
+    expect(shownMargin(saved, false)).toBeCloseTo((on.grossMargin + on.commissionAmt) / on.price, 4)
+    expect(shownMargin(saved, false)).toBeCloseTo(calculatePrice(job).gmPct, 4)
+    expect(shownMargin(saved, true)).toBe(on.gmPct)
+  })
+})
+
+describe('a saved quote\'s margin for a Salesman login (review, Oct 27 2026)', () => {
+  test('a quote with no commission, no cost or no price keeps its saved margin', () => {
+    expect(marginBeforeCommission({ gmPct: 0.4, finalPrice: 5000, totalCOGS: 3000 })).toBe(0.4)
+    expect(marginBeforeCommission({ gmPct: 0.3, finalPrice: 5000, totalCOGS: 0, hasSalesman: true })).toBe(0.3)
+    expect(marginBeforeCommission({ gmPct: 0, finalPrice: 0, totalCOGS: 100, hasSalesman: true })).toBe(0)
+  })
+  test('a quote that kept its own % and a repair with a commission count too', () => {
+    expect(marginBeforeCommission({ gmPct: 0.3, finalPrice: 1000, totalCOGS: 600, pricing: { commissionPct: 0.1 } })).toBeCloseTo(0.4, 6)
+    expect(marginBeforeCommission({ gmPct: 0.3, finalPrice: 1000, totalCOGS: 600, work: { priced: { commissionCents: 10000 } } })).toBeCloseTo(0.4, 6)
+  })
+  test('the copy for the screen never changes the saved quote', () => {
+    const q = { id: 'q1', gmPct: 0.35, finalPrice: 1000, totalCOGS: 560, hasSalesman: true }
+    const v = withShownMargin(q, false)
+    expect(v.gmPct).toBeCloseTo(0.44, 6)
+    expect(q.gmPct).toBe(0.35)
+    expect(withShownMargin(q, true)).toBe(q)
+  })
+  test('her quotes: the sales rep is her name', () => {
+    expect(isRepsQuote('christa  feagin', 'Christa Feagin')).toBe(true)
+    expect(isRepsQuote('Jonathan Bohdal', 'Christa Feagin')).toBe(false)
+    expect(isRepsQuote('', '')).toBe(false)
   })
 })
