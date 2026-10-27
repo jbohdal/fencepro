@@ -124,7 +124,7 @@ try {
   const never = ['Settings', 'Team', 'Automations', 'Inventory', 'Billing', 'Integrations', 'Audit Log', 'P&L Statement']
   check('menu: Today, Pipeline, Customers, Quotes, Appointments, Schedule', want.every(w => navItems.includes(w)), navItems.join(', '))
   check('menu: no Settings, Team, Automations, Inventory, Billing', never.every(n => !navItems.includes(n)))
-  check('menu: no role switcher, the role is shown', (await sp.locator('.sidebar-desktop select').count()) === 0 && (await sp.locator('.sidebar-desktop [data-role-label]').innerText()).trim() === 'Sales')
+  check('menu: no role switcher, the role is shown', (await sp.locator('.sidebar-desktop select').count()) === 0 && (await sp.locator('.sidebar-desktop [data-role-label]').innerText()).trim() === 'Salesman')
   await shot(sp, 'desktop-nav')
 
   // ── 3. Add a lead, move it, start a quote ──
