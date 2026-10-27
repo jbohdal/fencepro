@@ -45,6 +45,7 @@ import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { customerNotesForJob, installTimes, recordInstallTime, crewFinishedJob } from '../lib/crewInstall.js'
 import { forCrew } from '../lib/costRedact.js'
 import { partWithPair } from '../lib/partNames.js'
+import { isWorkLine } from '../lib/workWords.js'
 import { jobQuoteMediaOr } from '../lib/quoteMedia.js'
 const todayFl = () => floridaDay(new Date())
 /** The crew's name (Schedule > Settings), never its id ("crew1"). */
@@ -118,8 +119,8 @@ export async function withSignedWork<S extends Record<string, any>>(accountId: s
   return { ...packetWithChange(s, co), changeOrder: co.number }
 }
 
-/** A pull sheet line that is work, not a part (tear out, haul away, removal, labor). */
-export const isWorkLine = (item: string) => /\b(tear ?out|haul[- ]?away|remov(e|al)|labor|disposal)\b/i.test(item || '')
+/** A pull sheet line that is work, not a part (lib/workWords.ts). */
+export { isWorkLine }
 /** "Tear out and haul away the old fence (13 sections)" */
 export function workStepText(item: string, qty: number | string): string {
   const n = Number(qty)

@@ -25,6 +25,7 @@ import { requireUser, requireAccount, signedNow } from './saved-quotes.js'
 import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAccepted.js'
 import { scheduleAfterSigning } from '../lib/contractBilling.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
+import { syncSalesOrderSafe } from '../lib/salesOrders.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireCan } from '../lib/permissions.js'
 import rateLimit from 'express-rate-limit'
@@ -382,6 +383,8 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   await onProposalAccepted(q, opt, body.name).catch(err => console.error('[proposal] after accept:', err))
   // Sold online: the job goes to Operations, as when a card is moved to Signed Contract.
   await ensureJobForAcceptedQuote(updated as any).catch(err => console.error('[proposal] job after accept:', err))
+  // Its materials to order (Inventory > Sales Orders), the option the customer chose (lib/salesOrders.ts).
+  await syncSalesOrderSafe(q.accountId, q.id)
   // Its payment schedule from the contract: deposit due now, final on completion (lib/contractBilling.ts).
   await scheduleAfterSigning(q.accountId, q.id, 'accepted', { userId: null, name: `${body.name} (customer, proposal link)` })
   // The signed contract, stored with the signature, name, IP and time on its last page (after the job, so it is linked to it).

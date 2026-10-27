@@ -5,6 +5,9 @@
  * say the same thing.
  */
 
+/** A pull sheet line that is work, not a part to pull or order (tear out, haul away, removal, labor). */
+export const isWorkLine = (item: string) => /\b(tear ?out|haul[- ]?away|remov(e|al)|labor|disposal)\b/i.test(item || '')
+
 export type RepairItemKey = 'resetPost' | 'replacePost' | 'repairSection' | 'replaceSection' | 'rehangGate' | 'replaceGate' | 'haulDebris'
 export const REPAIR_ITEMS: RepairItemKey[] = ['resetPost', 'replacePost', 'repairSection', 'replaceSection', 'rehangGate', 'replaceGate', 'haulDebris']
 

@@ -81,7 +81,7 @@ import { isUpdateReady, reloadIfSafe, UPDATE_READY_EVENT } from './appUpdate'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import { syncQuote } from './portalSync'
-import { createPendingOrderFromQuote, checkStockForOrder } from './pendingOrderStore'
+import { stockWarningsForSheet } from './pendingOrderStore'
 import { fireQuoteSold } from './automationTrigger'
 import { installedRevenueForYear, soldNotInstalled, averageMargin } from './quoteStats'
 import { initAppointments, isAppointmentsHydrated } from './appointmentsStore'
@@ -669,14 +669,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           assignedRep: q.salesRep, quotePrice: q.finalPrice,
           contractValue: q.finalPrice,
         })
-        const order = createPendingOrderFromQuote(q)
-        if (order) {
-          const warnings = checkStockForOrder(order)
-          if (warnings.length > 0) {
-            toast.warning('Low stock on some materials',
-              warnings.slice(0, 3).map(w => `${w.itemName}: need ${w.required}, have ${w.available}`).join('\n')
-            )
-          }
+        // Its order (Inventory > Sales Orders) is made on the server with the job, from the job's pull sheet.
+        const warnings = stockWarningsForSheet(q.pullSheet)
+        if (warnings.length > 0) {
+          toast.warning('Low stock on some materials',
+            warnings.slice(0, 3).map(w => `${w.itemName}: need ${w.required}, have ${w.available}`).join('\n')
+          )
         }
       }
 

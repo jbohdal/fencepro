@@ -361,6 +361,9 @@ export async function applyToJob(accountId: string, quoteId: string, tx: any = p
   // Final is paid, an increase is its own invoice (lib/contractBilling.ts billChangeOrderIn).
   const { finalFollowsChangeOrders } = await import('./contractBilling.js')
   await finalFollowsChangeOrders(tx, accountId, job.id, { userId: null, name: changed?.by || 'Change order' }, changed?.id ?? null)
+  // The job's materials to order follow the work now (Inventory > Sales Orders, lib/salesOrders.ts), saved with it.
+  const { syncSalesOrder } = await import('./salesOrders.js')
+  await syncSalesOrder(accountId, quoteId, tx)
   return job.id
 }
 

@@ -5,7 +5,7 @@
  * this module does the full cascade:
  *   1. Quote.status = SOLD
  *   2. Create a Job record (via jobStore.createJobFromQuote)
- *   3. Create a PendingOrder from the pull sheet
+ *   3. (the server makes its Sales Order from the job's pull sheet)
  *   4. Log activity on the customer
  *   5. Fire quote_sold + job_created + sales_stage_change automations
  *   6. Broadcast fencepro:quotes:updated and fencepro:jobs:updated so
@@ -20,7 +20,6 @@ import { sendJson } from './syncHttp'
 import type { SavedQuote } from './QuotesPage'
 import { getCustomerById, logCustomerActivity, upsertCustomer, type Customer } from './customerStore'
 import { createJobFromQuote, getJobByQuoteId, type Job } from './jobStore'
-import { createPendingOrderFromQuote } from './pendingOrderStore'
 import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStore'
 import { fireQuoteSold, fireSalesStageChange } from './automationTrigger'
 import { getQuotes, getQuoteById, updateQuote } from './quoteStore'
@@ -64,7 +63,7 @@ export function markQuoteSold(quoteId: string, opts?: { actor?: string }): Signe
     job = createJobFromQuote(updatedQuote)
   }
 
-  try { createPendingOrderFromQuote(updatedQuote) } catch {}
+  // Its order (Inventory > Sales Orders) is made on the server when the job is, from the job's pull sheet (portal lib/salesOrders.ts).
 
   // Auto-generate pull sheet for customer profile if the quote has one and
   // it isn't already linked.

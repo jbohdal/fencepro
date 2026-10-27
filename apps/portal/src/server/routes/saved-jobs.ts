@@ -37,6 +37,7 @@ import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage, isDonePhase, 
 import { floridaDay } from '../lib/automations/context.js'
 import { jobTotalsFor } from '../lib/changeOrders.js'
 import { afterJobSaved } from '../lib/contractBilling.js'
+import { syncSalesOrderSafe } from '../lib/salesOrders.js'
 import { saveLocate, jobMilestones, milestoneSummary, setHandTick, cardFollowsJob, closeOutIfDone } from '../lib/jobTruth.js'
 
 const router = Router()
@@ -260,6 +261,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     await afterJobSaved(req.user.crmAccountId, created.id, { userId: req.user.id ?? null, name: req.user.email ?? '' })
     // The sales card follows the job (Job Prep, Pending Start, ... by Settings > Pipeline Stages; lib/jobTruth.ts).
     await cardFollowsJob(req.user.crmAccountId, created.id)
+    // Its materials to order (Inventory > Sales Orders) from its pull sheet as signed (lib/salesOrders.ts).
+    await syncSalesOrderSafe(req.user.crmAccountId, created.quoteId)
     res.status(201).json({ success: true, data: created })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -503,6 +506,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
           },
         })
         created++
+        await syncSalesOrderSafe(req.user.crmAccountId, safeQuoteId)
       } catch {
         skipped++
       }

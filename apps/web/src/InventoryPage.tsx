@@ -4,7 +4,8 @@
  * Operations sub-tab showing pending/in-progress/ordered jobs.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { refreshBusinessState } from './businessStateStore'
 import AdminPage from './AdminPage'
 import VendorInvoicesTab from './VendorInvoicesTab'
 import PendingOrdersPage from './PendingOrdersPage'
@@ -62,12 +63,19 @@ export default function InventoryPage() {
 }
 
 function OperationsView() {
+  const [tick, setTick] = useState(0)
   const orders = useMemo(() => {
     const all = getPendingOrders()
     return all.filter(o => o.status === 'pending' || o.status === 'ordered' || o.status === 'in_progress' as any)
-  }, [])
+  }, [tick])
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [, setTick] = useState(0)
+  // The server makes and updates the orders: read them again on open, and show each save as it lands.
+  useEffect(() => {
+    const on = () => setTick(x => x + 1)
+    window.addEventListener('fencepro:business-state:updated', on)
+    void refreshBusinessState()
+    return () => window.removeEventListener('fencepro:business-state:updated', on)
+  }, [])
 
   const grouped: Record<string, typeof orders> = { pending: [], ordered: [] }
   for (const o of orders) {

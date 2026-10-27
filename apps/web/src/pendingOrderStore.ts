@@ -2,7 +2,9 @@
  * Pending Orders — materials reserved for a SOLD job but not yet
  * physically ordered from the supplier.
  *
- * Flow: job marked SOLD → pending order created from pull sheet (status: pending)
+ * Flow: job made for a sold quote → the server makes its order from the job's
+ *   pull sheet and keeps it following approved change orders (portal
+ *   lib/salesOrders.ts; status: pending)
  *   → user confirms materials ordered (status: ordered)
  *   → materials arrive (status: received) → inventory deducted
  *
@@ -10,10 +12,7 @@
  */
 
 import type { LineItem } from './materialCalculator'
-import type { SavedQuote } from './QuotesPage'
 import { getBusinessField, setBusinessField } from './businessStateStore'
-
-const uid = () => Math.random().toString(36).slice(2, 10)
 
 export type PendingOrderStatus = 'pending' | 'ordered' | 'received' | 'cancelled'
 
@@ -42,6 +41,8 @@ export interface PendingOrder {
   totalCostCents: number
   items: PendingOrderItem[]
   notes: string
+  /** Where the lines come from, in words (set by the server). */
+  source?: string
   createdAt: string
   updatedAt: string
   orderedAt?: string
@@ -66,50 +67,21 @@ export function getPendingOrderById(id: string): PendingOrder | null {
   return getPendingOrders().find(o => o.id === id) || null
 }
 
-/** Create a pending order from a quote's pull sheet. Idempotent per-quote. */
-export function createPendingOrderFromQuote(quote: SavedQuote): PendingOrder | null {
-  if (!quote.pullSheet || quote.pullSheet.length === 0) return null
-  const existing = getPendingOrdersForQuote(quote.id)
-  if (existing.length > 0) return existing[0]
-
+/**
+ * Low stock on a sold quote's parts (the toast when it is marked Sold): each
+ * part to order its pull sheet needs more of than is on hand. The order itself
+ * is made on the server from the job's pull sheet (lib/salesOrders.ts).
+ */
+export function stockWarningsForSheet(sheet: LineItem[] | undefined): InsufficientStockWarning[] {
   const inv = getInventory()
-  // A job lot piece price line (section, post, gate) is money, not a part to order; its parts are on the sheet.
-  const items: PendingOrderItem[] = quote.pullSheet.filter((li: LineItem) => !li.jobLotPiece && !li.moneyOnly).map((li: LineItem) => {
-    const match = inv.find(i => i.name?.toLowerCase() === li.item?.toLowerCase())
-    const onHand = match?.quantity ?? 0
-    return {
-      id: uid(),
-      itemName: li.item,
-      requiredQuantity: li.qty,
-      unitCostCents: Math.round(li.unitCost * 100),
-      totalCostCents: Math.round(li.total * 100),
-      quantityReceived: 0,
-      quantityOnHandAtTimeOfOrder: onHand,
-      isSufficientStock: onHand >= li.qty,
-    }
-  })
-  const totalCostCents = items.reduce((s, i) => s + i.totalCostCents, 0)
-
-  const order: PendingOrder = {
-    id: uid(),
-    quoteId: quote.id,
-    quoteName: `${quote.fenceStyle} — ${quote.customerName}`,
-    jobId: undefined,
-    customerId: quote.customerId,
-    customerName: quote.customerName,
-    status: 'pending',
-    totalCostCents,
-    items,
-    notes: '',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+  const out: InsufficientStockWarning[] = []
+  for (const li of sheet ?? []) {
+    if (li.jobLotPiece || li.moneyOnly || !(li.qty > 0)) continue
+    const m = inv.find(i => i.name?.toLowerCase() === li.item?.toLowerCase())
+    const available = m?.quantity ?? 0
+    if (available < li.qty) out.push({ itemName: li.item, required: li.qty, available, short: li.qty - available })
   }
-  const all = getPendingOrders()
-  all.unshift(order)
-  save(all)
-  // Reserve inventory — flag as committed, not decremented
-  try { reserveInventoryForOrder(order) } catch { /* noop */ }
-  return order
+  return out
 }
 
 export function updatePendingOrderStatus(id: string, status: PendingOrderStatus): PendingOrder | null {
@@ -166,16 +138,6 @@ function getInventory(): InventoryItem[] {
 }
 function saveInventory(items: InventoryItem[]) {
   storeSaveInventory(items as any)
-}
-
-function reserveInventoryForOrder(order: PendingOrder) {
-  const inv = getInventory()
-  if (inv.length === 0) return
-  for (const oi of order.items) {
-    const m = inv.find(i => i.name?.toLowerCase() === oi.itemName?.toLowerCase())
-    if (m) m.reservedQty = (m.reservedQty || 0) + oi.requiredQuantity
-  }
-  saveInventory(inv)
 }
 
 function releaseInventoryForOrder(order: PendingOrder) {

@@ -2,7 +2,8 @@
  * Pending Orders page — materials reserved from pull sheets on SOLD jobs.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { refreshBusinessState } from './businessStateStore'
 import {
   getPendingOrders, updatePendingOrderStatus, deletePendingOrder,
   updatePendingOrderItem, checkStockForOrder,
@@ -37,6 +38,15 @@ export default function PendingOrdersPage() {
 
   function reload() { setBump(b => b + 1) }
 
+  // The server makes and updates the orders (a job signed on the customer's link, an approved change order):
+  // read them again when the page opens, and show each save as it lands.
+  useEffect(() => {
+    const on = () => reload()
+    window.addEventListener('fencepro:business-state:updated', on)
+    void refreshBusinessState()
+    return () => window.removeEventListener('fencepro:business-state:updated', on)
+  }, [])
+
   function advance(order: PendingOrder, to: PendingOrderStatus) {
     try {
       updatePendingOrderStatus(order.id, to)
@@ -58,8 +68,8 @@ export default function PendingOrdersPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Pending Orders</h1>
-          <p className="text-sm text-gray-500 mt-1">Materials reserved from pull sheets on sold jobs, awaiting ordering and receipt.</p>
+          <h1 className="text-2xl font-bold text-gray-900">Sales Orders</h1>
+          <p className="text-sm text-gray-500 mt-1">The materials each sold job needs, from its pull sheet as signed and its approved change orders, waiting to be ordered and received.</p>
         </div>
         <div className="flex flex-wrap gap-1 bg-gray-100 rounded-xl p-1">
           {(['all', 'pending', 'ordered', 'received', 'cancelled'] as const).map(s => (
@@ -78,7 +88,7 @@ export default function PendingOrdersPage() {
             Orders ({orders.length})
           </div>
           {orders.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 text-sm">No pending orders. They're created automatically when a quote is marked SOLD.</div>
+            <div className="text-center py-12 text-gray-400 text-sm">No orders. Each sold job gets one by itself, from its pull sheet.</div>
           ) : (
             <div className="divide-y divide-gray-50 max-h-[600px] overflow-y-auto">
               {orders.map(o => (
@@ -88,6 +98,7 @@ export default function PendingOrdersPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-gray-900 truncate">{o.customerName || '—'}</p>
                       <p className="text-xs text-gray-500 truncate">{o.quoteName}</p>
+                      {o.source && <p className="text-[10px] text-gray-400 truncate" data-order-source>From: {o.source}</p>}
                       <p className="text-[10px] text-gray-400 mt-0.5">{new Date(o.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="text-right">

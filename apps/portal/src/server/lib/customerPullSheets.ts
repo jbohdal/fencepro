@@ -121,7 +121,36 @@ export function linesFromSheet(sheet: unknown): PullSheetLine[] {
     })
 }
 
-const sumCost = (lines: Array<{ totalCostCents?: number }>) => lines.reduce((s, l) => s + (l.totalCostCents ?? 0), 0)
+/** The parts of a quote the signed pull sheet is read from. */
+export interface SignedSheetQuote { pullSheet: unknown; proposal: unknown; chosenOption: number | null; acceptedAt: Date | null }
+
+/**
+ * A job's pull sheet as signed (rev 1): the quoted cost frozen at signing
+ * (lib/jobCosting.ts), else the option the customer chose on the proposal
+ * link, else the signed quote's own. The customer page's Pullsheets tab and
+ * the Sales Orders (lib/salesOrders.ts) both read it here.
+ */
+export function signedLinesOf(
+  q: SignedSheetQuote | null,
+  quoted: { signedAt: string; lines: Array<{ key: string; part: string; qty: number; unitCostCents: number; totalCostCents: number }> } | null,
+): { lines: PullSheetLine[]; source: string } {
+  const sheet = linesFromSheet(q?.pullSheet)
+  if (quoted && quoted.lines.length) {
+    // The quoted cost's key is the line's place on the quote's pull sheet (q0, q1, ...).
+    const sheetLine = (key: string) => sheet[Number(key.replace(/^q/, ''))]
+    return {
+      lines: quoted.lines.map(l => ({ item: l.part, qty: l.qty, ...(sheetLine(l.key)?.moneyOnly ? { moneyOnly: true } : {}), unitCostCents: l.unitCostCents, totalCostCents: l.totalCostCents })),
+      source: `Frozen at signing (${words(quoted.signedAt)})`,
+    }
+  }
+  const p = q?.proposal as any
+  const opt = q?.acceptedAt && p && Array.isArray(p.options) && typeof q.chosenOption === 'number' ? p.options[q.chosenOption] : null
+  const fromOption = Array.isArray(opt?.snapshot?.pullSheet) ? linesFromSheet(opt.snapshot.pullSheet) : null
+  if (fromOption && fromOption.length) return { lines: fromOption, source: 'As signed: the option the customer chose' }
+  return { lines: sheet, source: q ? 'As signed on the quote' : 'No quote on this job' }
+}
+
+const sumCost =(lines: Array<{ totalCostCents?: number }>) => lines.reduce((s, l) => s + (l.totalCostCents ?? 0), 0)
 
 function statusOfQuote(q: { status: string; acceptedAt: Date | null; soldAt: Date | null }): PullSheetStatus {
   if (q.status === 'SOLD') return q.acceptedAt ? 'Signed' : 'Sold'
@@ -216,21 +245,7 @@ export async function customerPullSheets(accountId: string, contactId: string): 
   for (const j of jobs) {
     const q = j.quoteId ? quoteById.get(j.quoteId) ?? null : null
     const quoted = j.quoteId ? await quotedCostFor(accountId, j.quoteId) : null
-    let lines: PullSheetLine[]
-    let source: string
-    const sheet = linesFromSheet(q?.pullSheet)
-    if (quoted && quoted.lines.length) {
-      // The quoted cost's key is the line's place on the quote's pull sheet (q0, q1, ...).
-      const sheetLine = (key: string) => sheet[Number(key.replace(/^q/, ''))]
-      lines = quoted.lines.map(l => ({ item: l.part, qty: l.qty, ...(sheetLine(l.key)?.moneyOnly ? { moneyOnly: true } : {}), unitCostCents: l.unitCostCents, totalCostCents: l.totalCostCents }))
-      source = `Frozen at signing (${words(quoted.signedAt)})`
-    } else {
-      const p = q?.proposal as any
-      const opt = q?.acceptedAt && p && Array.isArray(p.options) && typeof q.chosenOption === 'number' ? p.options[q.chosenOption] : null
-      const fromOption = Array.isArray(opt?.snapshot?.pullSheet) ? linesFromSheet(opt.snapshot.pullSheet) : null
-      if (fromOption && fromOption.length) { lines = fromOption; source = 'As signed: the option the customer chose' }
-      else { lines = sheet; source = q ? 'As signed on the quote' : 'No quote on this job' }
-    }
+    let { lines, source } = signedLinesOf(q, quoted)
     // Revisions: rev 1 as signed, then each approved change order that changed the work (from the yard
     // drawing), its pull sheet as priced on the server, with what changed marked. The old ones are kept.
     const changed = j.quoteId ? approvedInOrder(cos.filter(c => c.quoteId === j.quoteId)).filter(c => c.work && typeof c.work === 'object') : []
