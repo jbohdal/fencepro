@@ -168,6 +168,22 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     expect((await prisma.savedQuote.findUnique({ where: { id: q.id } }))!.acceptedBy).toBe('Pat Accepted')
   })
 
+  test('a repair accepted on the link: the page names the fence repaired, as the signed contract does', async () => {
+    const { acceptedOptionText, repairedFenceName } = await import('../src/server/lib/contractPdf.js')
+    const repair = { ...opt('Repair', "TV-ND 6'x8' Privacy", 1336), sections: 2 }
+    const q = await makeQuote('E2E Sold Repair', {
+      status: 'SOLD', soldAt: new Date(), acceptedAt: new Date('2026-10-26T15:00:00Z'), acceptedBy: 'Pat Repair', chosenOption: 0,
+      fenceStyle: "TV-ND 6'x8' Privacy", finalPrice: 1336,
+      proposal: { version: 1, kind: 'repair', company: { name: 'Getter Done Fence', phone: '3528442677' }, customer: { name: 'E2E Sold Repair' }, depositPct: 50, recommended: 0, terms: [], options: [repair] },
+    })
+    const html = await page(q.shareToken!)
+    const done = html.slice(html.indexOf('data-accepted'), html.indexOf('data-contract-pdf'))
+    // review Oct 27 2026: the page read "Repair at $1,336", the PDF "Repair: Tan Vinyl Privacy, 6 ft tall".
+    expect(done).toContain('Repair: Tan Vinyl Privacy, 6 ft tall at $1,336')
+    const fresh = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
+    expect(acceptedOptionText(fresh as any, await repairedFenceName(fresh.fenceStyle))).toBe('Repair: Tan Vinyl Privacy, 6 ft tall at $1,336.00')
+  })
+
   test('not sold: the link signs as before (any option)', async () => {
     const q = await makeQuote('E2E Sold Open', { status: 'SENT' })
     const html = await page(q.shareToken!)

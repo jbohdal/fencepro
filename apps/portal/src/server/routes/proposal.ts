@@ -30,7 +30,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { requireCan } from '../lib/permissions.js'
 import rateLimit from 'express-rate-limit'
 import { startView, beatView, markSigned, ignoredRequest, proposalOpenedPush } from '../lib/proposalViews.js'
-import { contractForQuote, warrantyLines } from '../lib/contractPdf.js'
+import { contractForQuote, contractFenceName, repairedFenceName, warrantyLines } from '../lib/contractPdf.js'
 import { installDateOf } from '../lib/warranties.js'
 import { pricingModule, plainStyleName } from '../lib/estimates.js'
 import { styleRecords } from '../lib/ownTier.js'
@@ -213,6 +213,12 @@ export async function proposalPage(q: { accountId: string; acceptedAt: Date | nu
   const named = standsAt >= 0 ? standingOptionOf(p.options, q, standsAt) : standsAt
   // Named with the panels its runs used (lib/customerFenceName.ts): the twin card does not carry the best price picks.
   if (standsAt >= 0 && named !== standsAt) shown.options = shown.options.map((o, i) => (i === standsAt ? { ...o, label: customerFenceName(p.options[named].label, railsOf(p.options[named], (q as any).runRails)) } : o))
+  // A repair signed (accepted, or sold in the app): named as the signed contract names it, with the fence repaired
+  // ("Repair: Tan Vinyl Privacy, 6 ft tall"; review Oct 27 2026: the page said "Repair at $1,336", the PDF the fence).
+  if (standsAt >= 0 && p.kind === 'repair') {
+    const repaired = await repairedFenceName(p.options[standsAt]?.fenceStyle || q.fenceStyle).catch(() => '')
+    if (repaired) shown.options = shown.options.map((o, i) => (i === standsAt ? { ...o, label: contractFenceName({ ...q, proposal: p, runRails: (q as any).runRails }, standsAt, repaired) } : o))
+  }
   const soldLabel = sold === -1 ? await plainStyleName(q.fenceStyle).catch(() => q.fenceStyle) : undefined
   return { p: shown, view: { start, hidden, ...(order ? { order } : {}), ...(sold === undefined ? {} : { sold }), ...(soldLabel ? { soldLabel } : {}) } }
 }
