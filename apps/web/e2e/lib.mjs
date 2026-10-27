@@ -96,7 +96,15 @@ export async function signInByCookie(ctx, { cookie = STAFF_COOKIE, email = EMAIL
     const r = await ctx.request.post(`${api}/api/crm-auth/move-over`, { headers: { ...headers, Authorization: `Bearer ${token}` }, data: {} })
     if (!r.ok()) throw new Error(`moving the test token over to a cookie failed: ${r.status()} ${await r.text()}`)
   } else throw new Error('signInByCookie: no cookie, password or token')
-  const me = await ctx.request.get(`${api}/api/crm-auth/me`)
+  // The API's request limit counts per signed in person (index.ts apiLimiter), and every suite signs in as the
+  // same dev owner: a suite that just made 170 notes and photos, or another run on the same server, can have used
+  // up this minute. Signing in is not what is being tested, so a 429 here waits for the limit's reset and asks again.
+  let me = await ctx.request.get(`${api}/api/crm-auth/me`)
+  for (let i = 0; me.status() === 429 && i < 3; i++) {
+    const reset = Number(me.headers()['ratelimit-reset'] || me.headers()['retry-after'] || 0)
+    await sleep(Math.min(65, Math.max(5, reset + 1)) * 1000)
+    me = await ctx.request.get(`${api}/api/crm-auth/me`)
+  }
   if (!me.ok()) throw new Error(`signed in by cookie, but /me answered ${me.status()}`)
   return (await me.json()).data
 }
