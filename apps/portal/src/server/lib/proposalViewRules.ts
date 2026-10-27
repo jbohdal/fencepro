@@ -11,7 +11,9 @@
  *     the customer "looked at longest". Every number is capped by the time
  *     since the open began and by two hours.
  *   - Staff: a staff sign in on the request, the app's own short-lived preview
- *     link, or the same device (address and browser) a staff login used.
+ *     link, or the staff mark of a signed in browser (lib/staffSession.ts).
+ *     Never the same address and browser as a staff login: a customer on the
+ *     same Wi-Fi with the same phone is a customer.
  *   - Push to the card's owner: on the first customer open, and on an open two
  *     or more days after the last one. One key per open that earns it, so it is
  *     sent once however often it is asked for.
@@ -90,16 +92,16 @@ export function openTrigger(quoteId: string, prev: { id: string | null; at: Date
   return null
 }
 
+/** 'device' is on opens recorded before Oct 27, 2026 only (an address and browser match, no longer used). */
 export type StaffHow = 'bearer' | 'preview' | 'device' | 'session'
 
 /** Staff or customer, from what the request carried. The first that says staff wins. */
 export function staffDecision(input: {
   bearer?: { userId: string } | null
   preview?: { userId: string } | null
-  device?: { userId: string } | null
   session?: { userId: string } | null
 }): { staff: boolean; userId: string | null; how: StaffHow | null } {
-  for (const how of ['bearer', 'preview', 'device', 'session'] as const) {
+  for (const how of ['bearer', 'preview', 'session'] as const) {
     const hit = input[how]
     if (hit?.userId) return { staff: true, userId: hit.userId, how }
   }

@@ -181,6 +181,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('staff sign in by cookie (dev dat
     expect(row.tokenHash).not.toContain(value)
     // 90 days at most.
     expect(Math.round((row.expiresAt.getTime() - Date.now()) / 86_400_000)).toBe(90)
+    // The staff mark for the customer pages (/p): HttpOnly, Strict, on /p only, naming this session (never its value).
+    const mark = r.cookies.find(c => c.startsWith('ezbiz_staff_p='))!
+    expect(mark).toMatch(/HttpOnly/i)
+    expect(mark).toMatch(/SameSite=Strict/i)
+    expect(mark).toMatch(/Path=\/p(;|$)/)
+    expect(mark).not.toContain(encodeURIComponent(value))
+    expect(await ss.staffOnCustomerPage({ headers: { cookie: mark.split(';')[0] } })).toMatchObject({ userId: row.userId })
     const me = await call('GET', '/api/crm-auth/me', { cookie: value, app: false })
     expect(me.status).toBe(200)
     expect(me.json.data.email).toBe(emailOf('owner'))
@@ -232,6 +239,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('staff sign in by cookie (dev dat
     const out = await call('POST', '/api/crm-auth/logout', { cookie: a, body: {} })
     expect(out.status).toBe(200)
     expect(out.cookies.some(c => /^ezbiz_staff=;/.test(c))).toBe(true)
+    expect(out.cookies.some(c => /^ezbiz_staff_p=;/.test(c))).toBe(true)
     expect((await call('GET', '/api/kv', { cookie: a })).status).toBe(401)
     expect((await call('GET', '/api/kv', { cookie: b })).status).toBe(200)
   })
