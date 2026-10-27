@@ -197,11 +197,11 @@ export function QuickAddModal({
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1.5" data-possible-match>
               <p className="text-xs text-amber-800">Already on file with this phone or email. Add Lead makes a new customer unless you pick one.</p>
               {matches.slice(0, 3).map(c => (
-                <div key={c.id} className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-gray-800 min-w-0 truncate">{`${c.firstName} ${c.lastName}`.trim()}{c.phone ? ` · ${formatPhone(c.phone)}` : ''}</span>
+                <div key={c.id} className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm text-gray-800 min-w-0 [overflow-wrap:anywhere]">{`${c.firstName} ${c.lastName}`.trim()}{c.phone ? ` · ${formatPhone(c.phone)}` : ''}</span>
                   <button type="button" onClick={() => setPicked(c)} data-use-customer={c.id}
-                    className="shrink-0 min-h-[40px] px-3 rounded-lg border border-amber-300 text-xs font-semibold text-amber-900 hover:bg-amber-100">
-                    Use {c.firstName || 'this customer'}
+                    className="shrink-0 max-w-[55%] min-h-[40px] px-3 rounded-lg border border-amber-300 text-xs font-semibold text-amber-900 hover:bg-amber-100 text-left [overflow-wrap:anywhere]">
+                    Use {`${c.firstName} ${c.lastName}`.trim() || 'this customer'}
                   </button>
                 </div>
               ))}
