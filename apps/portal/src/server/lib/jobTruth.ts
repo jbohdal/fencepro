@@ -24,6 +24,7 @@ import { loadOpsStages } from './opsStages.js'
 import { completeStage, fieldsForStage, firstStageFor, isDonePhase, stageOfJob, stageById, permitIsOk } from './opsStageModel.js'
 import { floridaDay } from './automations/context.js'
 import { permitStatusesOf } from './permitStatus.js'
+import { installWord, repairWording } from './workWords.js'
 import { cleanLocate, locateFields, locateOf, type LocateInput } from './locates.js'
 import { milestones, milestoneOfLabel, labelKey, progressOf, billingStatusOf, invoiceDue, type InvoiceDueState, type Milestone, type ReadinessFacts, type StoredTick } from './jobReadiness.js'
 export { billingStatusOf } from './jobReadiness.js'
@@ -589,6 +590,11 @@ export async function closeOutIfDone(accountId: string, jobId: string, why: stri
     if (!job) return { moved: false, why: 'no job' }
     if (job.status === 'paid') return { moved: false, why: 'already done' }
     if (job.status === 'on_hold') return { moved: false, why: 'on hold' }
+    // A repair's history says repair: "the crew finished the repair" (round 6 review, Oct 27 2026).
+    const work = job.quoteId ? (await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: { work: true } }))?.work : null
+    const repair = installWord(work as { type?: unknown } | null) === 'Repair'
+    if (repair) why = repairWording(why)
+    const finished = repair ? 'repair' : 'install'
     const { stages } = await loadOpsStages(accountId)
     const paidStage = firstStageFor(stages, 'paid')
     const status = billingStatusOf(await billingViewFor(accountId, jobId))
@@ -605,7 +611,7 @@ export async function closeOutIfDone(accountId: string, jobId: string, why: stri
       if (!(await installHappened(accountId, job))) return { moved: false, why: 'not installed' }
       const done = completeStage(stages)
       if (!done) return { moved: false, why: 'no Complete stage' }
-      const completed = await moveJobToStage(accountId, job, stages, done.id, ['staging', 'scheduled', 'in_progress'], { completedBy: 'Automatic: install finished, walkthrough signed and paid in full' }, `Closed out by itself: ${why}`)
+      const completed = await moveJobToStage(accountId, job, stages, done.id, ['staging', 'scheduled', 'in_progress'], { completedBy: `Automatic: ${finished} finished, walkthrough signed and paid in full` }, `Closed out by itself: ${why}`)
       if (!completed) return { moved: false, why: 'already done' }
       row = completed
       // The Final's due date is the install date (lib/contractBilling.ts afterJobSaved).

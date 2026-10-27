@@ -27,6 +27,8 @@ interface JobWarrantyView {
   changeOrder?: { number: number; day: string } | null
   updated: { day: string; by: string; how: string; previousName: string | null } | null
   signed: boolean; start: string | null; end: string | null; endText: string; contract: boolean
+  /** A repair: it starts on the repair date (server lib/warranties.ts). */
+  repair?: boolean
   serviceCalls: ServiceCall[]
 }
 
@@ -90,13 +92,13 @@ export default function JobWarranty({ job }: { job: Job }) {
           <>
             <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-800 border border-purple-200" data-job-warranty-name>{wr.name}</span>
             <div className="mt-2 space-y-1 text-sm">
-              <Row label="Starts" value={w.start ? dayText(w.start) : 'On the install date (not installed yet)'} attr="start" />
+              <Row label="Starts" value={w.start ? dayText(w.start) : w.repair ? 'On the repair date (not repaired yet)' : 'On the install date (not installed yet)'} attr="start" />
               <Row label="Ends" value={w.endText} attr="end" />
             </div>
             {w.from === 'update' && w.updated
               ? <p className="text-xs text-green-800 mt-1" data-job-warranty-updated>Warranty updated on {dayText(w.updated.day)}: {w.updated.how === 'accepted' ? 'signed on the warranty update link' : 'acknowledged'} by {w.updated.by}.{w.updated.previousName && w.updated.previousName !== wr.name ? ` Was ${w.updated.previousName}.` : ''} The price and the signed contract are unchanged.</p>
               : w.from === 'change_order' && w.changeOrder
-                ? <p className="text-xs text-amber-900 mt-1" data-job-warranty-change-order>Changed by change order CO-{w.changeOrder.number} on {dayText(w.changeOrder.day)}: the install changed, so the warranty on the contract changed with it.</p>
+                ? <p className="text-xs text-amber-900 mt-1" data-job-warranty-change-order>Changed by change order CO-{w.changeOrder.number} on {dayText(w.changeOrder.day)}: the {w.repair ? 'repair' : 'install'} changed, so the warranty on the contract changed with it.</p>
                 : <p className="text-xs text-gray-500 mt-1">{w.from && w.from !== 'change_order' ? FROM[w.from] : ''}</p>}
             <button type="button" className="text-sm text-purple-700 underline min-h-[48px]" onClick={() => setShowText(s => !s)} data-job-warranty-toggle>{showText ? 'Hide the words' : 'Show the words'}</button>
             {showText && <p className="text-sm text-gray-700 whitespace-pre-line border-l-2 border-purple-200 pl-3" data-job-warranty-text>{wr.text}</p>}

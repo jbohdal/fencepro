@@ -330,7 +330,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
 
       {/* Footer actions */}
       {isJobSource && !crew && !isDonePhase(job.rawJob?.status) && !inSideLane && (
-        <p className="px-6 pt-2 text-[11px] text-gray-500 border-t border-gray-200" data-job-closeout-hint>It moves to {getCompleteOpsStage()?.name ?? 'Complete'} by itself once all three are done, in any order: the crew finished the install (Finish on the last install day, or its last install day has passed), the final walkthrough is signed, and it is paid in full.</p>
+        <p className="px-6 pt-2 text-[11px] text-gray-500 border-t border-gray-200" data-job-closeout-hint>It moves to {getCompleteOpsStage()?.name ?? 'Complete'} by itself once all three are done, in any order: the crew finished the {W.toLowerCase()} (Finish on the last {W.toLowerCase()} day, or its last {W.toLowerCase()} day has passed), the final walkthrough is signed, and it is paid in full.</p>
       )}
       {/* Stage moves and hold are the office's; the Installer has his own Start / Finish on My installs. */}
       {isJobSource && !crew && (
