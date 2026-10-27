@@ -31,6 +31,7 @@ import { defaultMemberOf, formerNamesOf, matchesPerson, memberKey, type TeamMemb
 import { currentUser } from './crmAuth'
 import { signedInRole } from './permissions'
 import PersonFilter from './PersonFilter'
+import { getCustomerById } from './customerStore'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
 const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
@@ -79,6 +80,7 @@ export default function TodayScreen() {
   const person = picked ?? myDayKey(team, currentUser()?.id ?? null, signedInRole())
   const former = useMemo(() => formerNamesOf(team, list), [team, list])
   const [closing, setClosing] = useState<Appointment | null>(null)
+  const [viewing, setViewing] = useState<Appointment | null>(null)
   const today = floridaDate(new Date())
   const todays = useMemo(() => list
     .filter(a => a.startAt && floridaDate(a.startAt) === today && a.status !== 'cancelled' && matchesPerson(team, a, person))
@@ -114,7 +116,7 @@ export default function TodayScreen() {
           <ul className="divide-y divide-gray-100">
             {comingUp.map(a => (
               <li key={a.id}>
-                <button type="button" onClick={() => openBooking({ appointmentId: a.id })} className="w-full text-left px-4 py-3 min-h-[48px]" data-today-upcoming={a.id}>
+                <button type="button" onClick={() => setViewing(a)} className="w-full text-left px-4 py-3 min-h-[48px]" data-today-upcoming={a.id}>
                   <span className="block text-sm font-semibold text-gray-900">{new Date(a.startAt!).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' })}{a.allDay ? '' : ` · ${fmtTime(a.startAt!)}`} · {a.customerName}</span>
                   <span className="block text-xs text-gray-600">{TYPE_SHORT[a.type]} · {a.address || 'No address'}</span>
                 </button>
@@ -143,7 +145,7 @@ export default function TodayScreen() {
                     <a href={directionsUrl(a)} target="_blank" rel="noreferrer" aria-label={`Navigate to ${a.customerName}`} className="btn btn-secondary btn-icon"><Navigation size={18} aria-hidden="true" /></a>
                   </span>
                 </div>
-                <button onClick={() => (isOpen(a) ? setClosing(a) : openBooking({ appointmentId: a.id }))} className="block w-full text-left mt-1">
+                <button onClick={() => setViewing(a)} className="block w-full text-left mt-1" data-today-visit={a.id}>
                   <span className="block text-[15px] font-semibold text-gray-900">{a.customerName}</span>
                   <span className="block text-sm text-gray-600">{a.address || 'No address'}</span>
                 </button>
@@ -166,6 +168,7 @@ export default function TodayScreen() {
         </div>
       )}
 
+      {viewing && <VisitWindow a={list.find(x => x.id === viewing.id) ?? viewing} onClose={() => setViewing(null)} onOutcome={() => setClosing(viewing)} />}
       {closing && <OutcomeForm a={closing} onClose={() => setClosing(null)} />}
     </div>
   )
@@ -201,6 +204,7 @@ function NextCard({ a, onComplete }: { a: Appointment; onComplete: () => void })
         <p className="text-2xl font-bold text-gray-900 leading-tight" data-next-name>{a.customerName}</p>
         <p className="text-sm text-gray-600 mt-1">{a.address || 'No address'}</p>
         {quote && <p className="text-sm text-emerald-700 font-semibold mt-1">Quote {money(quote.finalPrice || 0)} ({quote.status.toLowerCase()})</p>}
+        {visitCustomerNotes(a) && <p className="text-sm text-gray-900 mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2 whitespace-pre-wrap" data-next-customer-notes>{visitCustomerNotes(a)}</p>}
         {a.notes && <p className="text-sm text-gray-700 mt-2 bg-gray-50 rounded-lg p-2 whitespace-pre-wrap">{a.notes}</p>}
         <p className="text-xs text-gray-400 mt-1">{STATUS_LABELS[a.status]}{a.startedAt ? ` · started ${fmtTime(a.startedAt)}` : ''}{a.assignedTo ? ` · ${a.assignedTo}` : ''}</p>
       </div>
@@ -222,6 +226,65 @@ function NextCard({ a, onComplete }: { a: Appointment; onComplete: () => void })
 }
 
 const OUTCOME_CHOICES: AppointmentOutcome[] = ['ready_to_quote', 'needs_follow_up', 'not_interested', 'no_show']
+
+/** The customer's notes for a visit: the record's (typed in Add lead), from the server or this phone's customer list. */
+export function visitCustomerNotes(a: Pick<Appointment, 'customerNotes' | 'crmContactId'>): string {
+  return (a.customerNotes ?? getCustomerById(a.crmContactId)?.notes ?? '').trim()
+}
+
+/**
+ * One visit, opened from Today (audit Oct 26 2026: it opened only "Change appointment"): when and where, the
+ * customer's notes and the booking's, Call, Navigate, Open quote or New quote, How did it go (an open visit
+ * today or before), and Change appointment.
+ */
+export function VisitWindow({ a, onClose, onOutcome }: { a: Appointment; onClose: () => void; onOutcome: () => void }) {
+  useBackLayer(onClose, { key: 'visit-window' })
+  const quote = getQuotesForCustomer(a.crmContactId).filter(q => q.status !== 'LOST').sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0]
+  const fromRecord = visitCustomerNotes(a)
+  const due = isOpen(a) && !!a.startAt && floridaDate(a.startAt) <= floridaDate(new Date())
+  const when = a.startAt
+    ? `${new Date(a.startAt).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'short', day: 'numeric' })}${a.allDay ? '' : ` · ${fmtTime(a.startAt)}`}`
+    : 'No time yet'
+  const close = (then: () => void) => () => { onClose(); then() }
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-3 max-h-[92vh] overflow-y-auto" data-visit-window={a.id}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: TYPE_COLORS[a.type] }}>{TYPE_SHORT[a.type]}</span>
+            <h2 className="mt-1 text-xl font-bold text-gray-900 leading-tight" data-visit-name>{a.customerName}</h2>
+            <p className="text-sm text-gray-700">{when}{a.assignedTo ? ` · ${a.assignedTo}` : ''}</p>
+            <p className="text-sm text-gray-600">{a.address || 'No address'}</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 text-xl px-2">✕</button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <a href={a.customerPhone ? `tel:${a.customerPhone.replace(/[^\d+]/g, '')}` : undefined} className={`btn min-h-[48px] ${a.customerPhone ? 'btn-secondary' : 'btn-secondary pointer-events-none opacity-50'}`} data-visit-call>
+            <Phone size={18} aria-hidden="true" /> {a.customerPhone ? 'Call' : 'No phone'}
+          </a>
+          <a href={directionsUrl(a)} target="_blank" rel="noreferrer" className="btn btn-secondary min-h-[48px]" data-visit-navigate><Navigation size={18} aria-hidden="true" /> Navigate</a>
+        </div>
+        {(fromRecord || a.notes) ? (
+          <div className="space-y-2" data-visit-notes>
+            {fromRecord && <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2"><p className="text-xs font-semibold text-amber-900">Customer notes</p><p className="text-sm text-gray-900 whitespace-pre-wrap" data-visit-customer-notes>{fromRecord}</p></div>}
+            {a.notes && <div className="rounded-lg bg-gray-50 px-3 py-2"><p className="text-xs font-semibold text-gray-700">Booking notes</p><p className="text-sm text-gray-900 whitespace-pre-wrap" data-visit-booking-notes>{a.notes}</p></div>}
+          </div>
+        ) : <p className="text-sm text-gray-500">No notes on the customer or the booking.</p>}
+        {quote && <p className="text-sm text-emerald-700 font-semibold">Quote {money(quote.finalPrice || 0)} ({quote.status.toLowerCase()})</p>}
+        <div className="grid grid-cols-2 gap-2">
+          {quote
+            ? <button type="button" className="btn btn-primary min-h-[48px]" onClick={close(() => window.dispatchEvent(new CustomEvent('ezbiz:open-quote', { detail: { id: quote.id } })))} data-visit-open-quote>Open quote</button>
+            : <button type="button" className="btn btn-primary min-h-[48px]" onClick={close(() => startQuote(a))} data-visit-new-quote>New quote</button>}
+          {quote
+            ? <button type="button" className="btn btn-secondary min-h-[48px]" onClick={close(() => window.dispatchEvent(new CustomEvent('ezbiz:new-quote', { detail: { customerId: a.crmContactId, address: a.address, fromVisit: true } })))} data-visit-new-quote>New quote</button>
+            : <span />}
+        </div>
+        {due && <button type="button" className="btn btn-primary w-full min-h-[48px]" onClick={close(onOutcome)} data-visit-outcome>✓ How did it go?</button>}
+        <button type="button" className="btn btn-quiet w-full min-h-[48px]" onClick={close(() => openBooking({ appointmentId: a.id }))} data-visit-edit>Change appointment</button>
+      </div>
+    </div>
+  )
+}
 
 /** What happened. Closes the appointment and moves the pipeline card when it should. */
 export function OutcomeForm({ a, onClose }: { a: Appointment; onClose: () => void }) {
