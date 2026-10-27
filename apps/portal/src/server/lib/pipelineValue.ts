@@ -77,8 +77,15 @@ function soldValue(q: QuoteForValue, jobs: JobForValue[]): number {
   return Math.round(((q.finalPrice || 0) + co) * 100) / 100
 }
 
-const latest = <T extends { date: string }>(list: T[]): T | undefined =>
-  list.reduce<T | undefined>((best, q) => (!best || (q.date || '') > (best.date || '') ? q : best), undefined)
+// The newest by date. Two on the same day: the same one whatever order the list came in (by id), so the
+// server's column total and the app's cards agree (they read the quotes in different orders: e2e/pipeline-paging
+// found Signed Contract $9,993 on the server and $7,981 on the board, Oct 26 2026).
+const latest = <T extends { date: string; id?: string }>(list: T[]): T | undefined =>
+  list.reduce<T | undefined>((best, q) => {
+    if (!best) return q
+    const a = q.date || '', b = best.date || ''
+    return a > b || (a === b && String(q.id ?? '') > String(best.id ?? '')) ? q : best
+  }, undefined)
 
 /** The quote a card's value comes from, or undefined when the customer has none that fits. */
 export function relevantQuote(lead: LeadForValue, quotes: QuoteForValue[], jobs: JobForValue[], stages: PipelineStageDef[]): QuoteForValue | undefined {
