@@ -86,6 +86,10 @@ interface EstimateModule {
   startingOption(options: unknown[] | null | undefined, quote: { fenceStyle?: string | null; finalPrice?: number | null }, recommended: number): number
   /** A best price quote's own option and the tier it is shown as (web/src/proposalOptions.ts ownTierFold). */
   ownTierFold(options: unknown[] | null | undefined, quote: { fenceStyle?: string | null }, styleOf?: (name: string) => { material?: string; choices?: Record<string, string>; madeFrom?: string } | null | undefined, tierSpecs?: Array<{ key: string; width?: string }> | null): { own: number; tier: number } | null
+  /** The fold a proposal shows: frozen on it, else only while not yet sent (sent proposals never reprice). */
+  proposalFold(p: unknown, quote: { fenceStyle?: string | null; status?: string | null; acceptedAt?: unknown; soldAt?: unknown; firstViewedAt?: unknown; viewCount?: number | null }, styleOf?: (name: string) => { material?: string; choices?: Record<string, string>; madeFrom?: string } | null | undefined): { own: number; tier: number } | null
+  /** The fold a save freezes on the proposal (lib/ownTier.ts). */
+  ownTierToStamp(p: unknown, quote: { fenceStyle?: string | null }, before: unknown, sent: boolean, styleOf?: (name: string) => { material?: string; choices?: Record<string, string>; madeFrom?: string } | null | undefined): { own: number; tier: number } | null
 }
 
 /**

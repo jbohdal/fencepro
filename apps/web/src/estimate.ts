@@ -39,7 +39,7 @@ export { kitSetFor } from './materialKits'
 // The contract terms frozen on a proposal and the company's address (server routes/proposal.ts, lib/contractPdf.ts).
 export { stampTerms, proposalTerms, frozenTerms, companyAddressOf } from './contractTerms'
 // Which proposal options are shown and which starts selected (server routes/proposal.ts).
-export { sameFenceAs, shownOptions, startingOption, ownTierFold } from './proposalOptions'
+export { sameFenceAs, shownOptions, startingOption, ownTierFold, proposalFold, ownTierToStamp } from './proposalOptions'
 // Warranties per option (server lib/warranties.ts).
 export {
   defaultWarrantySettings, warrantySettingsOf, warrantyForStyle, installKeyOf, signedOptionWarranty, warrantyFromText,

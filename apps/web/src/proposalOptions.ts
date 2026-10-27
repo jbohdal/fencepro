@@ -157,3 +157,39 @@ export function ownTierFold(options: OptionLike[] | null | undefined, quote: { f
   })
   return tier >= 0 ? { own, tier } : null
 }
+
+// ── Sent proposals never change ──────────────────────────────────────────────
+
+/** Whether a quote's proposal has gone to the customer: no longer a draft, opened by the customer, signed or sold. */
+export function proposalSent(q: { status?: string | null; acceptedAt?: unknown; soldAt?: unknown; firstViewedAt?: unknown; viewCount?: number | null } | null | undefined): boolean {
+  if (!q) return false
+  return (q.status != null && q.status !== 'DRAFT') || !!q.acceptedAt || !!q.soldAt || !!q.firstViewedAt || (Number(q.viewCount) || 0) > 0
+}
+
+type Fold = { own: number; tier: number }
+interface FoldProposal { options?: OptionLike[] | null; tierSet?: { tiers?: Array<{ key: string; width?: string }> } | null; ownTier?: Fold | null }
+
+/**
+ * The fold the customer sees ("Sent proposals must never reprice", Jonathan, Oct 27 2026): the one frozen on
+ * the proposal when it was saved (ownTier: the fold, or null for none), else, only for a proposal not yet
+ * sent, the one worked out now. A proposal sent before folding existed keeps exactly the cards and prices it
+ * went out with.
+ */
+export function proposalFold(p: FoldProposal | null | undefined, quote: Parameters<typeof proposalSent>[0] & { fenceStyle?: string | null }, styleOf: StyleRecordOf = () => null): Fold | null {
+  if (!p || !quote) return null
+  const now = ownTierFold(p.options, quote, styleOf, p.tierSet?.tiers)
+  if (p.ownTier !== undefined) return p.ownTier && now && now.own === p.ownTier.own && now.tier === p.ownTier.tier ? now : null
+  return proposalSent(quote) ? null : now
+}
+
+/**
+ * What a save freezes on the proposal (the server's create and update): not yet sent, the fold worked out now;
+ * sent, only the fold it already showed (none for one sent before folding existed), so a save never changes
+ * the cards or prices of a sent proposal.
+ */
+export function ownTierToStamp(p: FoldProposal, quote: { fenceStyle?: string | null }, before: FoldProposal | null | undefined, sent: boolean, styleOf: StyleRecordOf = () => null): Fold | null {
+  const now = ownTierFold(p.options, quote, styleOf, p.tierSet?.tiers)
+  if (!sent) return now
+  const was = before?.ownTier
+  return was && now && was.own === now.own && was.tier === now.tier ? now : null
+}

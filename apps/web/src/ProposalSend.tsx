@@ -10,7 +10,7 @@ import { ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import type { SavedQuote } from './QuotesPage'
 import { issueShareToken, turnOffShare } from './savedQuotesApi'
 import { proposalUrl } from './proposal'
-import { shownOptions, ownTierFold } from './proposalOptions'
+import { shownOptions, proposalFold } from './proposalOptions'
 import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { toast } from './toast'
@@ -109,8 +109,8 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
 
   const chosen = quote.acceptedAt != null && quote.chosenOption != null ? p.options[quote.chosenOption] : null
   // The options the customer sees: the same fence at the same price shows once, and a best price quote's own
-  // option shows as the tier it is the fence of (proposalOptions.ts), as on the customer's page.
-  const fold = ownTierFold(p.options as any, quote, n => cfg.fenceStyles?.find(s => s.name === n), (p as any).tierSet?.tiers)
+  // option shows as the tier it is the fence of (proposalOptions.ts), as on the customer's page (never changed once sent).
+  const fold = proposalFold(p as any, quote as any, n => cfg.fenceStyles?.find(s => s.name === n))
   const offered = shownOptions(p.options as any, fold).length
   const day = (d: string) => { const t = new Date(typeof d === 'string' ? d : NaN); return Number.isNaN(t.getTime()) ? 'its end date' : t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
   const expired = !offAt && !!expiresAt && new Date(expiresAt).getTime() < Date.now()

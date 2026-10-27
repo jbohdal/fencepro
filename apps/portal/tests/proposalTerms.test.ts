@@ -12,7 +12,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
 import { proposalTerms, stampTerms, frozenTerms, plainTermText, companyAddressOf, contractSectionsOf, DEFAULT_CONTRACT_SECTIONS } from '../../web/src/contractTerms'
-import { sameFenceAs, shownOptions, startingOption, ownTierFold } from '../../web/src/proposalOptions'
+import { sameFenceAs, shownOptions, startingOption, ownTierFold, proposalFold, proposalSent, ownTierToStamp } from '../../web/src/proposalOptions'
 import { priceOption } from '../../web/src/proposal'
 import { renderProposal } from '../src/server/routes/proposal.js'
 import { contractPdf, type ContractInput } from '../src/server/lib/contractPdf.js'
@@ -117,6 +117,30 @@ describe('proposal options', () => {
     const same = [...opts.slice(0, 3), { ...o('WV-Auto ND Privacy', 7363), snapshot: opts[1].snapshot }]
     expect(ownTierFold(same, { fenceStyle: 'WV-Auto ND Privacy' }, () => null, specs)).toBeNull()
     expect(shownOptions(same)).toEqual([0, 1, 2])
+  })
+
+  test('sent proposals never reprice: folded only while not yet sent, or as frozen when saved', () => {
+    const o = (fenceStyle: string, finalPrice: number, key?: string) => ({ fenceStyle, finalPrice, ...(key ? { tier: { key } } : {}), snapshot: { pullSheet: [{ item: fenceStyle, qty: 1 }] } })
+    const tierSet = { tiers: [{ key: 'good', width: 'cheapest' }, { key: 'better', width: 'cheapest' }, { key: 'best', width: '6' }] }
+    const p = { tierSet, options: [o("WV-DS 6'x8' Privacy", 6093, 'good'), o("WV-ND 6'x8' Privacy", 7363, 'better'), o("WV-ND 6'x6' Privacy", 7924, 'best'), o('WV-Auto ND Privacy', 7179)] }
+    const q = (extra: Record<string, unknown> = {}) => ({ fenceStyle: 'WV-Auto ND Privacy', status: 'DRAFT', ...extra })
+    const fold = { own: 3, tier: 1 }
+    // Not sent: folded.
+    expect(proposalSent(q())).toBe(false)
+    expect(proposalFold(p, q())).toEqual(fold)
+    // Sent, opened by the customer, signed or sold, with nothing frozen: exactly the cards it went out with.
+    for (const sent of [q({ status: 'SENT' }), q({ status: 'LOST' }), q({ firstViewedAt: '2026-10-20' }), q({ viewCount: 2 }), q({ acceptedAt: '2026-10-20' }), q({ soldAt: '2026-10-20' })]) {
+      expect(proposalSent(sent)).toBe(true)
+      expect(proposalFold(p, sent)).toBeNull()
+    }
+    // Frozen when saved: as frozen, sent or not.
+    expect(proposalFold({ ...p, ownTier: fold }, q({ status: 'SENT' }))).toEqual(fold)
+    expect(proposalFold({ ...p, ownTier: null }, q())).toBeNull()
+    // What a save freezes: the fold while not sent; once sent, only the fold it already showed.
+    expect(ownTierToStamp(p, q(), null, false)).toEqual(fold)
+    expect(ownTierToStamp(p, q(), p, true)).toBeNull()
+    expect(ownTierToStamp(p, q(), { ...p, ownTier: null }, true)).toBeNull()
+    expect(ownTierToStamp(p, q(), { ...p, ownTier: fold }, true)).toEqual(fold)
   })
 
   test('selected at first: the option the quote was made with, else the recommended one', () => {

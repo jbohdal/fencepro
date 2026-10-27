@@ -179,17 +179,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     expect(await notices(q)).toHaveLength(0)
   })
 
-  test('a best price quote: its own option shows as Better, in Better\'s place, at the quoted price, selected; three cards; signs at that price', async () => {
-    const tier = (o: ReturnType<typeof opt>, key: string, label: string, badge?: string) => ({ ...o, tier: { key, label, blurb: `${label} words` }, ...(badge ? { badge } : {}) })
-    const own = { ...opt('White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig', 'WV-Auto ND Privacy', 7179), snapshot: { pullSheet: [{ item: 'mix', qty: 1 }], runRails: ['6ft', '8ft'] } }
-    const q = await makeQuote('E2E Sold Best Price', {
-      status: 'SENT', fenceStyle: 'WV-Auto ND Privacy', finalPrice: 7179,
-      proposal: {
-        version: 1, company: { name: 'Getter Done Fence', phone: '3528442677' }, customer: { name: 'E2E Sold Best Price' }, depositPct: 50, recommended: 1, terms: [],
-        tierSet: { category: 'Vinyl', popular: 'better', tiers: [{ key: 'good', width: 'cheapest' }, { key: 'better', width: 'cheapest' }, { key: 'best', width: '6' }] },
-        options: [tier(options[0], 'good', 'Good'), tier(options[1], 'better', 'Better', 'Most popular'), tier(opt('6 ft panels, No dig', "WV-ND 6'x6' Privacy", 7924), 'best', 'Best'), own],
-      },
-    })
+  const tier = (o: ReturnType<typeof opt>, key: string, label: string, badge?: string) => ({ ...o, tier: { key, label, blurb: `${label} words` }, ...(badge ? { badge } : {}) })
+  const bestPriceProposal = (name: string, extra: Record<string, unknown> = {}) => ({
+    version: 1, company: { name: 'Getter Done Fence', phone: '3528442677' }, customer: { name }, depositPct: 50, recommended: 1, terms: [],
+    tierSet: { category: 'Vinyl', popular: 'better', tiers: [{ key: 'good', width: 'cheapest' }, { key: 'better', width: 'cheapest' }, { key: 'best', width: '6' }] },
+    options: [tier(options[0], 'good', 'Good'), tier(options[1], 'better', 'Better', 'Most popular'), tier(opt('6 ft panels, No dig', "WV-ND 6'x6' Privacy", 7924), 'best', 'Best'),
+      { ...opt('White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig', 'WV-Auto ND Privacy', 7179), snapshot: { pullSheet: [{ item: 'mix', qty: 1 }], runRails: ['6ft', '8ft'] } }],
+    ...extra,
+  })
+
+  test('a best price quote not yet sent: its own option shows as Better, in Better\'s place, at the quoted price, selected; three cards; signs at that price', async () => {
+    const q = await makeQuote('E2E Sold Best Price', { status: 'DRAFT', fenceStyle: 'WV-Auto ND Privacy', finalPrice: 7179, proposal: bestPriceProposal('E2E Sold Best Price') })
     const html = await page(q.shareToken!)
     expect(html.match(/data-option="/g)).toHaveLength(3)
     expect([...html.matchAll(/data-option="(\d)"/g)].map(m => m[1])).toEqual(['0', '3', '2'])
@@ -205,6 +205,26 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     const r = await accept(q.shareToken!, 3, 'Pat Best')
     expect(r.status).toBe(200)
     expect((await prisma.savedQuote.findUnique({ where: { id: q.id } }))!).toMatchObject({ chosenOption: 3, fenceStyle: 'WV-Auto ND Privacy', finalPrice: 7179 })
+  })
+
+  test('a best price quote already sent (or opened): exactly the four cards and prices it went out with; frozen ones stay frozen', async () => {
+    const cards = (h: string) => [...h.matchAll(/data-option="(\d)"/g)].map(m => m[1])
+    for (const extra of [{ status: 'SENT' }, { status: 'DRAFT', firstViewedAt: new Date(), viewCount: 1 }]) {
+      const name = `E2E Sold Best Sent ${extra.status}`
+      const q = await makeQuote(name, { ...extra, fenceStyle: 'WV-Auto ND Privacy', finalPrice: 7179, proposal: bestPriceProposal(name) })
+      const html = await page(q.shareToken!)
+      expect(cards(html)).toEqual(['0', '1', '2', '3'])
+      expect(html).toContain('$7,363')
+      expect(html).toContain('$7,179')
+    }
+    // Frozen when it was saved as a draft, then sent: still folded as it was shown.
+    const frozen = await makeQuote('E2E Sold Best Frozen', { status: 'SENT', fenceStyle: 'WV-Auto ND Privacy', finalPrice: 7179, proposal: bestPriceProposal('E2E Sold Best Frozen', { ownTier: { own: 3, tier: 1 } }) })
+    expect(cards(await page(frozen.shareToken!))).toEqual(['0', '3', '2'])
+    // What a save freezes (routes/saved-quotes.ts): the fold for a proposal not yet sent; once sent, none that it did not already show.
+    const { stampOwnTier } = await import('../src/server/lib/ownTier.js')
+    expect((await stampOwnTier(bestPriceProposal('x'), 'WV-Auto ND Privacy', null, false) as any).ownTier).toEqual({ own: 3, tier: 1 })
+    expect((await stampOwnTier(bestPriceProposal('x'), 'WV-Auto ND Privacy', bestPriceProposal('x'), true) as any).ownTier).toBeNull()
+    expect((await stampOwnTier(bestPriceProposal('x'), 'WV-Auto ND Privacy', bestPriceProposal('x', { ownTier: { own: 3, tier: 1 } }), true) as any).ownTier).toEqual({ own: 3, tier: 1 })
   })
 
   test('Billing > Payments\' source: every payment not voided, with its customer, job and receipt', async () => {

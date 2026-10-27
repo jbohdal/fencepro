@@ -32,7 +32,8 @@ import rateLimit from 'express-rate-limit'
 import { startView, beatView, markSigned, ignoredRequest, proposalOpenedPush } from '../lib/proposalViews.js'
 import { contractForQuote, warrantyLines } from '../lib/contractPdf.js'
 import { installDateOf } from '../lib/warranties.js'
-import { pricingModule, plainStyleName, estimateStyleList } from '../lib/estimates.js'
+import { pricingModule, plainStyleName } from '../lib/estimates.js'
+import { styleRecords } from '../lib/ownTier.js'
 import { overlayAcceptedUpdate } from '../lib/warrantyUpdates.js'
 import { depositOf } from '../lib/paymentMath.js'
 import { clientIpOf } from '../lib/staffDevices.js'
@@ -130,6 +131,8 @@ export interface Proposal {
   terms?: Term[]
   /** The tier set as it was when the proposal was made (web/src/proposal.ts): how each tier picks its width. */
   tierSet?: { tiers?: Array<{ key: string; width?: string }> }
+  /** A best price quote's own option shown as a tier, frozen when saved (lib/ownTier.ts); null: none. */
+  ownTier?: { own: number; tier: number } | null
 }
 
 /** What the page shows beyond the saved proposal: worked out by proposalPage (never saved). */
@@ -168,7 +171,7 @@ export function signedOptionOf(options: Array<Pick<ProposalOption, 'fenceStyle' 
  * signed before), the company's address, the option the quote was made with
  * selected, and any option that is the same fence twice hidden.
  */
-export async function proposalPage(q: { accountId: string; acceptedAt: Date | null; fenceStyle: string; finalPrice: number }, p: Proposal, signed = false): Promise<{ p: Proposal; view: ProposalPageView }> {
+export async function proposalPage(q: { accountId: string; acceptedAt: Date | null; fenceStyle: string; finalPrice: number; status?: string | null; soldAt?: Date | null; firstViewedAt?: Date | null; viewCount?: number | null }, p: Proposal, signed = false): Promise<{ p: Proposal; view: ProposalPageView }> {
   const m = await pricingModule()
   const frozen = await termsOn(p)
   const terms = frozen ?? (q.acceptedAt ? [] : await currentTerms(q.accountId))
@@ -178,8 +181,8 @@ export async function proposalPage(q: { accountId: string; acceptedAt: Date | nu
   const hidden = dup.map((d, i) => (d >= 0 ? i : -1)).filter(i => i >= 0)
   // A best price quote's own option is the fence of one tier (6 or 8 ft panels per run, where the tier takes one width for
   // the whole yard): shown once, as that tier at the quote's price, in its place (web/src/proposalOptions.ts ownTierFold).
-  const styles = new Map((await estimateStyleList().catch(() => [])).map(s => [s.name, s]))
-  const fold = m.ownTierFold(p.options, q, (n: string) => styles.get(n), p.tierSet?.tiers)
+  // Only as frozen on the proposal when saved, or while not yet sent: a sent proposal never reprices (lib/ownTier.ts).
+  const fold = m.proposalFold(p, q, await styleRecords())
   let order: number[] | undefined
   if (fold) {
     const t = p.options[fold.tier]
