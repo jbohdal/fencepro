@@ -11,7 +11,9 @@ import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { getQuotes } from './quoteStore'
 import { workScope, type SavedWork } from './moveRepair'
 import { isRepairJob, jobInstallWord } from './jobWork'
-import { InstallPacketPanel } from './installPacket'
+import { InstallPacketPanel, fetchCrewInstall, crewInstallCached, CREW_INSTALL_EVENT, type CrewInstall } from './installPacket'
+import { finishedStageWords } from './crewWords'
+import { dayText } from './warranties'
 import PermitPanel from './PermitPanel'
 import AutomationRunLog from './AutomationRunLog'
 import FinalWalkthroughPanel from './FinalWalkthrough'
@@ -158,6 +160,17 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   const isJobSource = job.source === 'job'
   const seesPrices = can('prices.view')
   const crew = isCrewLogin()
+  // The installer: his Finish under the stage ("Finished October 27, 2026, waiting on the final walkthrough"), from the
+  // same crew facts as his home (installPacket.tsx), kept current when he taps Start or Finish.
+  const [crewInfo, setCrewInfo] = useState<CrewInstall | null>(() => (crew ? crewInstallCached(job.id) : null))
+  useEffect(() => {
+    if (!crew || job.source !== 'job') return
+    void fetchCrewInstall(job.id).then(r => { if (r) setCrewInfo(r) })
+    const on = (e: Event) => { if ((e as CustomEvent).detail?.jobId === job.id) setCrewInfo(crewInstallCached(job.id)) }
+    window.addEventListener(CREW_INSTALL_EVENT, on)
+    return () => window.removeEventListener(CREW_INSTALL_EVENT, on)
+  }, [crew, job.id, job.source])
+  const finishedNote = crew ? finishedStageWords(crewInfo, dayText) : ''
   // A repair or move job: its items from the quote (moveRepair.ts workScope).
   const scope = workScope(job.rawJob?.quoteId ? (getQuotes().find(q => q.id === job.rawJob!.quoteId) as { work?: SavedWork | null } | undefined)?.work : null)
 
@@ -232,7 +245,10 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {/* Operations Status */}
         <Section title="Operations Stage">
           {/* The Installer sees the stage; moving it is the office's. */}
-          {crew ? <p className="text-sm text-gray-800" data-ops-stage-readonly>{stage?.name ?? job.opsStageLabel}</p> : (
+          {crew ? <>
+            <p className="text-sm text-gray-800" data-ops-stage-readonly>{stage?.name ?? job.opsStageLabel}</p>
+            {finishedNote && <p className="text-sm text-green-800 mt-1" data-ops-stage-finished>{finishedNote}</p>}
+          </> : (
           <div className="flex flex-wrap gap-1">
             {choices.map(s => (
               <button key={s.id} onClick={() => onMoveStage(s.id)} disabled={!isJobSource || job.opsStage === s.id} data-ops-stage-choice={s.id}

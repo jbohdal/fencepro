@@ -439,29 +439,33 @@ packetPublic.get('/:token', async (req, res) => {
 
   const job_ = job!
   const loc = locateOf(job_)
+  // A service visit (covered warranty work on a job already installed, or opened from the visit): the work order's
+  // items and notes only, never the original fence's pull sheet and steps (review Oct 27 2026: 416 pickets).
+  const service = await serviceVisit(job_, work, req.query.visit !== undefined)
   // Work (tear out and haul away) is a step for the crew, not a material to pull.
-  const parts = (s.pullSheet ?? []).filter(i => !isWorkLine(i.item))
-  const workLines = (s.pullSheet ?? []).filter(i => isWorkLine(i.item))
+  const parts = service ? [] : (s.pullSheet ?? []).filter(i => !isWorkLine(i.item))
+  const workLines = service ? [] : (s.pullSheet ?? []).filter(i => isWorkLine(i.item))
   const map = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job_.customerAddress)}`
   // The crew never sees a price: a dollar amount typed in a note is left out (lib/costRedact.ts).
   const crewNotes = (s.crewNotes ?? []).filter(Boolean).map(forCrew)
   // What the customer told us ("have 2 dogs"), read now so a note added after the packet was sent shows (lib/crewInstall.ts).
   const fromCustomer = await customerNotesForJob(p.accountId, job_.crmContactId).catch(() => [] as string[])
   // A repair's packet says Repair ("Repair packet", "Repair: 1 crew day"); recheck Oct 27 2026 (lib/workWords.ts installWord).
-  const W = installWord(s.work)
+  const W = service ? 'Service visit' : installWord(s.work)
   const body = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.companyName || 'Getter Done Fence')}</p><p class="small">${W} packet${s.companyPhone ? ` · Office <a href="tel:${esc(s.companyPhone.replace(/[^\d+]/g, ''))}">${esc(phone(s.companyPhone))}</a>` : ''}</p></div>
     <button type="button" id="print" class="printbtn noprint">Print / PDF</button></header>
   <main class="wrap">
     <h1>${esc(job_.customerName)}</h1>
     <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
     <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">${W}: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(await crewNameFor(job_.accountId, job_.crewAssigned))}` : ''}</p>
-    ${coChange ? `<section class="notes" data-packet-change-order><h2>${esc(packetChangeHeading(coChange))}</h2>${coChange.all.map(a => `<p data-packet-co-item="${a.number}">${coChange.all.length > 1 ? `CO-${a.number}: ` : ''}<b>${esc(a.what)}</b> (approved ${esc(a.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${a.rev ? `, contract rev ${a.rev}` : ''}).</p>`).join('')}<p>The fence, runs and pull sheet below are the new ones, with ${coChange.all.length > 1 ? 'every change above' : 'this change'}.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(partWithPair(l.item))}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
+    ${coChange && !service ? `<section class="notes" data-packet-change-order><h2>${esc(packetChangeHeading(coChange))}</h2>${coChange.all.map(a => `<p data-packet-co-item="${a.number}">${coChange.all.length > 1 ? `CO-${a.number}: ` : ''}<b>${esc(a.what)}</b> (approved ${esc(a.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${a.rev ? `, contract rev ${a.rev}` : ''}).</p>`).join('')}<p>The fence, runs and pull sheet below are the new ones, with ${coChange.all.length > 1 ? 'every change above' : 'this change'}.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(partWithPair(l.item))}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
     ${s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(forCrew(onceEach(s.notes))).replace(/\n/g, '<br>')}</p></section>` : ''}
     ${fromCustomer.length ? `<section class="notes" data-packet-customer-notes><h2>Customer notes</h2><ul>${fromCustomer.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${await workOrders(work)}
-    ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(forCrew(x))}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
-    <section data-packet-locate-section><h2>811 locate</h2>${s.work?.needs811 ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
+    ${service ? '<p class="small" data-packet-service-only>This visit is the work order above. The original fence\'s pull sheet and install steps are left out.</p>' : ''}
+    ${s.work && !service ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(forCrew(x))}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
+    <section data-packet-locate-section><h2>811 locate</h2>${s.work?.needs811 && !service ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
       <p class="facts" id="locStatus" data-packet-locate-status="${esc(locateStatus(loc, todayFl()))}">${esc(locateWords(loc, todayFl()).text)}</p>
       ${(() => { const w = locateStartWarning(loc, todayFl(), s.work ? s.work.needs811 : true); return `<p id="locWarn" data-packet-locate-warn style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:10px;padding:10px 12px;font-weight:700"${w ? '' : ' hidden'}>${w ? `⚠ ${esc(w)}` : ''}</p>` })()}
       <div id="locOnFile">${locateOnFile(loc, job_.locateUpdatedBy, job_.locateUpdatedAt)}</div>
@@ -473,11 +477,11 @@ packetPublic.get('/:token', async (req, res) => {
       <button type="button" id="saveLocate" class="btn noprint">Save locate</button></div>
       <p id="locMsg" class="small" aria-live="polite">${hasLocate(loc) ? 'This is the same locate the office sees on the job.' : 'The office sees it on the job right away.'}</p>
     </section>
-    <section data-packet-fence><h2>${s.work?.type === 'repair' ? 'The existing fence' : 'The fence'}</h2>
+    <section data-packet-fence><h2>${s.work?.type === 'repair' || service ? 'The existing fence' : 'The fence'}</h2>
       <p class="facts">${esc(styleText)}${s.footageFt ? ` · ${Math.round(s.footageFt)} ft` : ''}${s.sections ? ` · ${s.sections} sections` : ''}</p>
       ${postsLine(s.posts, s.work?.type)}
       ${safeSvg(s.planSvg) ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Open dots: line posts. Dark arrows: where photos were taken.${s.work?.type === 'move' ? ' Brown dashed: the old fence line.' : s.work?.type === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p>` : ''}
-      ${s.runs?.length ? `<table><thead><tr><th>Run</th><th>Length</th><th>Sections</th><th>Posts apart</th></tr></thead><tbody>${s.runs.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.length)}</td><td>${r.sections}</td><td>${esc(r.spacing)}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${s.runs?.length && !service ? `<table><thead><tr><th>Run</th><th>Length</th><th>Sections</th><th>Posts apart</th></tr></thead><tbody>${s.runs.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.length)}</td><td>${r.sections}</td><td>${esc(r.spacing)}</td></tr>`).join('')}</tbody></table>` : ''}
       ${s.gates?.length ? `<h3>Gates</h3><ul>${s.gates.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
       ${s.skips?.length ? `<h3>Skips (not included)</h3><ul>${s.skips.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
     </section>
@@ -553,6 +557,17 @@ packetPublic.get('/:token', async (req, res) => {
   })();`
   res.type('html').send(page(`${W} packet: ${job_.customerName}`, body, nonce, script))
 })
+
+/**
+ * Is this packet opened for a service visit? Covered warranty work is open on the job, and the install is
+ * done (closed, a completed date, or the crew finished the whole job) or the link came from the visit
+ * (?visit, My installs). The install packet of a job not yet installed is unchanged.
+ */
+export async function serviceVisit(job: { id: string; accountId: string; status: string; completedDate: string | null; scheduledDate: string; scheduledEndDate: string | null }, work: unknown[], fromVisit: boolean): Promise<boolean> {
+  if (!work.length) return false
+  if (fromVisit || isDonePhase(job.status) || !!job.completedDate) return true
+  return crewFinishedJob(await installTimes(job.id), await lastCrewDay(job.accountId, job))
+}
 
 /**
  * Covered warranty work: a $0 work order per ticket (the issue, the office's

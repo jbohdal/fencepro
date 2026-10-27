@@ -939,7 +939,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // The commission is not shown to a Salesman (Oct 27 2026): her quote margins are before it, her budget line is Labor.
   const showCommissionHere = seesCommission(signedInRole(), seesCostsHere)
   const kpis = [
-    { label: 'Revenue this year', value: fmt(ytdRevenue), sub: `${fmtPct(ytdRevenue / revenueGoal)} of the ${fmt(revenueGoal)} goal`, sub2: `Sold, not installed: ${fmt(openSold.total)} (${openSold.count} ${openSold.count === 1 ? 'job' : 'jobs'})`, tone: 'hero' as const },
+    { label: 'Revenue this year', value: fmt(ytdRevenue), sub: role === 'salesman' ? 'installed this year' : `${fmtPct(ytdRevenue / revenueGoal)} of the ${fmt(revenueGoal)} goal`, sub2: `Sold, not installed: ${fmt(openSold.total)} (${openSold.count} ${openSold.count === 1 ? 'job' : 'jobs'})`, tone: 'hero' as const },
     { label: 'Sold this month', value: String(monthSold), sub: `${monthQuotes.length} quoted · ${monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%'} close rate`, tone: 'plain' as const },
     { label: 'Open quotes', value: String(openQuotes), sub: fmt(quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)), tone: 'plain' as const },
     { label: 'Active pipeline', value: String(activePipeline), sub: 'leads in progress', tone: 'plain' as const },
@@ -1272,8 +1272,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
               </div>
               <DashboardAppointments />
 
-              {/* Revenue goal progress */}
-              <div className="bg-white rounded-2xl border border-gray-200 p-5">
+              {/* Revenue goal progress: the company's goal, not a Salesman's (review Oct 27 2026: "YTD completion $0" beside it meant nothing to her). */}
+              {role !== 'salesman' && <div className="bg-white rounded-2xl border border-gray-200 p-5">
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="font-semibold text-gray-900">Revenue goal</h3>
@@ -1292,7 +1292,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                   <span className="text-xs text-gray-400">YTD target: {fmt(ytdGoal)}</span>
                   <span className="text-xs text-gray-400">{fmt(revenueGoal)}</span>
                 </div>
-              </div>
+              </div>}
 
               <div className="grid grid-cols-2 gap-6">
                 {/* Recent quotes */}

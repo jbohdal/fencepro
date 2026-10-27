@@ -24,6 +24,22 @@ export function finishWords(t: InstallTime, info: Pick<CrewInstall, 'lastDay' | 
   return n >= 0 && days.length > 1 ? `Finished day ${n + 1} of ${days.length}` : 'Finished for the day'
 }
 
+/**
+ * The installer's job page under Operations Stage once he finished the whole job (review Oct 27 2026: it
+ * still read only "In Progress" until the job was paid): "Finished October 27, 2026, waiting on the final
+ * walkthrough and the final payment." '' while not finished, or once closed (the stage says it then).
+ * The stage itself is unchanged: it moves by its own rules.
+ */
+export function finishedStageWords(info: Pick<CrewInstall, 'times' | 'lastDay' | 'jobDone' | 'closeOut'> | null | undefined, dayText: (ymd: string) => string): string {
+  if (!info?.jobDone || info.closeOut?.closed) return ''
+  const last = info.lastDay ?? null
+  const t = info.times.find(x => x.kind === 'finish' && (x.jobDone || !last || x.day >= last))
+  const c = info.closeOut
+  const waiting = !c ? '' : !c.walkthroughSigned && !c.paidInFull ? ', waiting on the final walkthrough and the final payment'
+    : !c.walkthroughSigned ? ', waiting on the final walkthrough' : !c.paidInFull ? ', waiting on the final payment' : ''
+  return `Finished${t ? ` ${dayText(t.day)}` : ''}${waiting}.`
+}
+
 /** What the installer's card says once the job is finished: from the real close out, never a step already done. */
 export function jobDoneWords(c: CrewInstall['closeOut'] | null | undefined): string {
   if (!c) return 'Job finished.'

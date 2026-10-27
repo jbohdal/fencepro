@@ -161,6 +161,12 @@ export interface JobWarranty {
   endText: string
   /** The job's quote is a repair: the page says "the repair date", not "the install date". */
   repair: boolean
+  /**
+   * The day the crew tapped Finish on the whole job (lib/crewInstall.ts), while the warranty's start is not
+   * set yet (it is set at the final walkthrough or the close out, installDateOf): the page says the install
+   * was finished, not "not installed yet" (review Oct 27 2026). Null otherwise.
+   */
+  finished: string | null
   /** The signed contract PDF can be opened (the quote was accepted or sold). */
   contract: boolean
   serviceCalls: ServiceCall[]
@@ -170,7 +176,7 @@ export const SERVICE_TYPES = ['service', 'warranty'] as const
 
 /** Everything the job page shows about the warranty. */
 export async function jobWarranty(accountId: string, jobId: string): Promise<JobWarranty | null> {
-  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId }, select: { id: true, quoteId: true, fenceStyle: true, completedDate: true } })
+  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId }, select: { id: true, quoteId: true, fenceStyle: true, completedDate: true, scheduledDate: true, scheduledEndDate: true } })
   if (!job) return null
   const q = job.quoteId ? await prisma.savedQuote.findFirst({
     where: { id: job.quoteId, accountId },
@@ -180,6 +186,12 @@ export async function jobWarranty(accountId: string, jobId: string): Promise<Job
   const { warranty, from, update, changeOrder } = await effectiveQuoteWarranty(q, job.fenceStyle, await configOf(accountId))
   const start = await installDateOf(job)
   const period = m.warrantyPeriod(warranty, start)
+  // Finished by the crew, the start not set yet: the finish day, for the page's words (the start rule is unchanged).
+  let finished: string | null = null
+  if (!period.start) {
+    const [{ installTimes, jobFinishedDay }, { lastCrewDay }] = await Promise.all([import('./crewInstall.js'), import('./jobTruth.js')])
+    finished = jobFinishedDay(await installTimes(job.id), await lastCrewDay(accountId, job))
+  }
   // A repair's warranty starts on the repair date: "1 year from the repair date", not the install date (round 6 review, Oct 27 2026).
   const repair = installWord(q?.work as { type?: unknown } | null) === 'Repair'
   const words = (t: string) => (repair ? repairWording(t) : t)
@@ -199,7 +211,7 @@ export async function jobWarranty(accountId: string, jobId: string): Promise<Job
     jobId: job.id, quoteId: q?.id ?? null, warranty, from, changeOrder: changeOrder ? { number: changeOrder.number, day: nyDay(changeOrder.at) } : null,
     updated: update ? { day: nyDay(update.at), by: update.by, how: update.how, previousName: update.previous?.name ?? null } : null,
     signed: !!q && (q.status === 'SOLD' || !!q.acceptedAt || !!q.soldAt),
-    start: period.start, end: period.end, endText: words(period.endText), repair,
+    start: period.start, end: period.end, endText: words(period.endText), repair, finished,
     contract: !!q && (!!q.acceptedAt || q.status === 'SOLD' || !!q.soldAt) && isObj(q.proposal) && Array.isArray((q.proposal as any).options),
     serviceCalls,
   }

@@ -29,6 +29,8 @@ interface JobWarrantyView {
   signed: boolean; start: string | null; end: string | null; endText: string; contract: boolean
   /** A repair: it starts on the repair date (server lib/warranties.ts). */
   repair?: boolean
+  /** The crew finished the whole job on this day; the start is not set yet (server lib/warranties.ts). */
+  finished?: string | null
   serviceCalls: ServiceCall[]
 }
 
@@ -42,6 +44,16 @@ async function load(jobId: string): Promise<JobWarrantyView | null> {
   const r = await fetchWithAuth(`${API_ORIGIN}/api/warranties/job/${encodeURIComponent(jobId)}`).catch(() => null)
   if (!r?.ok) return null
   return (await r.json())?.data ?? null
+}
+
+/**
+ * When the warranty starts, as the job page says it: the day, once set; finished by the crew but not yet set
+ * (it is set at the final walkthrough), the finish day (review Oct 27 2026: a finished job read "not installed yet").
+ */
+export function startWords(w: Pick<JobWarrantyView, 'start' | 'repair' | 'finished'>): string {
+  if (w.start) return dayText(w.start)
+  if (w.finished) return `${w.repair ? 'Repair' : 'Install'} finished ${dayText(w.finished)}. The start date is set when the final walkthrough is signed.`
+  return w.repair ? 'On the repair date (not repaired yet)' : 'On the install date (not installed yet)'
 }
 
 export default function JobWarranty({ job }: { job: Job }) {
@@ -92,7 +104,7 @@ export default function JobWarranty({ job }: { job: Job }) {
           <>
             <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-800 border border-purple-200" data-job-warranty-name>{wr.name}</span>
             <div className="mt-2 space-y-1 text-sm">
-              <Row label="Starts" value={w.start ? dayText(w.start) : w.repair ? 'On the repair date (not repaired yet)' : 'On the install date (not installed yet)'} attr="start" />
+              <Row label="Starts" value={startWords(w)} attr="start" />
               <Row label="Ends" value={w.endText} attr="end" />
             </div>
             {w.from === 'update' && w.updated

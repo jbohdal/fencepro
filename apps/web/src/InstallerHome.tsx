@@ -144,7 +144,7 @@ function VisitCard({ v }: { v: CrewVisit }) {
       )}
       {v.notes && <p className="text-sm text-gray-800 bg-gray-50 rounded-xl px-3 py-2 whitespace-pre-wrap" data-visit-notes>{v.notes}</p>}
       {v.packetToken
-        ? <a className="btn btn-primary w-full min-h-[48px]" href={packetUrl(v.packetToken)} target="_blank" rel="noreferrer" data-visit-packet><FileText size={18} aria-hidden="true" /> Open the work order (crew packet)</a>
+        ? <a className="btn btn-primary w-full min-h-[48px]" href={`${packetUrl(v.packetToken)}?visit=1`} target="_blank" rel="noreferrer" data-visit-packet><FileText size={18} aria-hidden="true" /> Open the work order (crew packet)</a>
         : v.ticket?.covered && <p className="text-xs text-gray-600">Take Completed photos when it is fixed and tell the office your hours and the materials used.</p>}
     </article>
   )

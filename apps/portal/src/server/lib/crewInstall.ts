@@ -85,6 +85,11 @@ export function crewFinishedJob(times: InstallTime[], lastCrewDay: string | null
   return times.some(t => t.kind === 'finish' && (t.jobDone || !lastCrewDay || t.day >= lastCrewDay))
 }
 
+/** The day the crew finished the whole job (the first Finish that did, crewFinishedJob); null while not finished. */
+export function jobFinishedDay(times: InstallTime[], lastCrewDay: string | null): string | null {
+  return times.find(t => t.kind === 'finish' && (t.jobDone || !lastCrewDay || t.day >= lastCrewDay))?.day ?? null
+}
+
 /** Where a job is today, from its taps: not started, working (started, not finished), or finished today. */
 export function todayState(times: InstallTime[], today: string): 'not-started' | 'working' | 'finished' {
   const t = times.filter(x => x.day === today)

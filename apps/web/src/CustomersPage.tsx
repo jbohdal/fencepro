@@ -811,7 +811,8 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
     return (
       <div className="text-center py-12 text-gray-400">
         <p className="font-medium">No job costing data</p>
-        <p className="text-sm mt-1">Complete jobs and enter actual costs in Budget → Job Costing to see data here.</p>
+        {/* Budget is the owner's: no pointer to a screen the login cannot open (review Oct 27 2026: a Salesman was sent there). */}
+        <p className="text-sm mt-1">{signedInRole() === 'super_admin' ? 'Complete jobs and enter actual costs in Budget → Job Costing to see data here.' : 'Shows here once a completed job has its actual costs entered.'}</p>
       </div>
     )
   }
