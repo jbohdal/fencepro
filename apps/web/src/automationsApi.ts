@@ -17,7 +17,7 @@ export interface Step { type: string; [k: string]: any }
 export interface Rule { id: string; name: string; board: Board; enabled: boolean; trigger: Trigger; conditions: Condition[]; steps: Step[]; starter?: string | null; runs30d?: Record<string, number>; updatedAt?: string }
 export interface StageRule { id: string; board: Board; stage: string; requirements: Array<{ type: string }>; enabled: boolean }
 export interface LogEntry { at: string; step: number | null; result: string; detail: string; link?: string; until?: string }
-export interface Run { id: string; ruleId: string; ruleName: string; board: Board | null; entityKind: string; entityId: string; status: string; stepIndex: number; nextRunAt: string; attempts: number; lastError: string | null; log: LogEntry[]; createdAt: string; updatedAt: string }
+export interface Run { id: string; ruleId: string; ruleName: string; board: Board | null; entityKind: string; entityId: string; status: string; stepIndex: number; nextRunAt: string; attempts: number; lastError: string | null; log: LogEntry[]; createdAt: string; updatedAt: string; /** A job's run log: this run was on its pipeline card. */ onCard?: boolean }
 export interface Meta {
   salesStages: Array<{ key: string; label: string }>; opsStages: Array<{ key: string; label: string }>; people: Array<{ id: string; name: string; email: string; role: string }>
   templateFields: string[]; events: string[]; requirements: Array<{ type: string; label: string }>
@@ -26,7 +26,7 @@ export interface Meta {
 }
 export interface DryRun { entity: { board: Board; id: string; name: string; stage: string }; trigger: string; conditions: Array<{ field: string; ok: boolean; actual: string }>; wouldRun: boolean; steps: Array<{ index: number; type: string; would: string; warning?: string }> }
 export interface Permit { id: string; jobId: string; status: string; permitNumber: string; county: string; parcelId: string; appliedAt: string; approvedAt: string; inspectionAt: string; passedAt: string; notes: string; updatedAt: string }
-export interface Task { id: string; title: string; description: string | null; assignedTo: string | null; jobId: string | null; jobName: string | null; status: string; dueDate: string | null; createdBy: string | null }
+export interface Task { id: string; title: string; description: string | null; assignedTo: string | null; jobId: string | null; jobName: string | null; status: string; dueDate: string | null; completedAt?: string | null; createdBy: string | null }
 
 /** Call the API; resolves the data or throws a plain sentence. */
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
