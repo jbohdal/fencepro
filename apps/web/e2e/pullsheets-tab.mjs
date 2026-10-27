@@ -163,7 +163,22 @@ try {
     check(`${size} owner: opened, the pull sheet as signed with Unit cost and Total, the change note, the Final takeoff`, /Unit cost/.test(vt) && vt.includes('$13.57') && (await view.locator('[data-pull-sheet-total]').innerText()).trim() === '$472.57' && (await view.locator('[data-pull-sheet-change]').count()) === 1 && (await view.locator('[data-pull-sheet-takeoff]').count()) === 1, vt.replace(/\s+/g, ' ').slice(0, 220))
     if (SHOTS) await x.page.screenshot({ path: path.join(SHOTS, phone ? 'dev-pullsheets-phone.png' : 'dev-pullsheets-owner.png'), fullPage: !phone })
     // Print / PDF: a download of the server's PDF.
-    const [dl] = await Promise.all([x.page.waitForEvent('download', { timeout: 20000 }), tap(x, view.locator('[data-pull-sheet-pdf]'))])
+    // On a phone the open sheet runs below the customer's action bar and the tabs: brought to the middle of the
+    // screen the way a finger scrolls it (a tap where it first shows lands on the fixed bar; the page has room under it).
+    await view.locator('[data-pull-sheet-pdf]').evaluate(b => b.scrollIntoView({ block: 'center' })); await sleep(300)
+    const pdfAnswers = []
+    x.page.on('response', r => { if (/\.pdf(\?|$)/.test(r.url())) pdfAnswers.push(`${r.status()} ${r.headers()['content-type'] || ''}`) })
+    x.page.on('requestfailed', r => { if (/\.pdf(\?|$)/.test(r.url())) pdfAnswers.push(`failed ${r.failure()?.errorText}`) })
+    x.page.on('console', m => { if (m.type() === 'error') pdfAnswers.push(`console: ${m.text().slice(0, 120)}`) })
+    const [dl] = await Promise.all([
+      x.page.waitForEvent('download', { timeout: 20000 }).catch(async e => {
+        const said = await x.page.locator('[data-toast]').allInnerTexts().catch(() => [])
+        said.push(`button: ${await view.locator('[data-pull-sheet-pdf]').innerText().catch(() => '?')}`)
+        said.push(`under its middle: ${await view.locator('[data-pull-sheet-pdf]').evaluate(b => { const r = b.getBoundingClientRect(); const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return `${Math.round(r.left)},${Math.round(r.top)} ${h === b || b.contains(h) ? 'the button' : (h?.outerHTML || 'nothing').slice(0, 160)} (vh ${innerHeight})` }).catch(e => String(e).slice(0, 80))}`)
+        throw new Error(`${size}: no download after Print / PDF (the PDF answered: ${pdfAnswers.join(', ') || 'nothing'}; on screen: ${said.join(' | ') || 'no message'}; page ${x.page.url()}) ${String(e.message).split('\n')[0]}`)
+      }),
+      tap(x, view.locator('[data-pull-sheet-pdf]')),
+    ])
     const file = path.join(os.tmpdir(), `ps-${stamp}-${size}.pdf`)
     await dl.saveAs(file)
     const pdf = fs.readFileSync(file)
@@ -186,6 +201,9 @@ try {
     const called = await x.page.evaluate(() => window.__tel)
     check(`${size}: Contact details phone is (352) 555 0188, a tel: link; tapping it calls`, shown === '(352) 555 0188' && href === `tel:${W.phone}` && called.includes(href), `${shown} ${href} ${called} ${!!pending}`) // "How'd it go?" only for open sales cards (Oct 25); this customer is sold
     await owner('DELETE', '/api/follow-ups/pending')
+    // Back at the top of the page: scrolled down, the pinned header is one line without the contact line (9ag).
+    await x.page.evaluate(() => { const sc = document.querySelector('[data-page-scroll]'); if (sc) sc.scrollTop = 0 })
+    await x.page.waitForSelector('[data-customer-header][data-compact="no"]', { timeout: 5000 }).catch(() => {})
     const header = await x.page.locator('[data-customer-header-phone]').innerText().catch(() => '')
     check(`${size}: the phone at the top of the customer page is formatted too`, header.trim() === '(352) 555 0188', header)
     check(`${size} owner: no page errors`, x.errors.length === 0, x.errors.slice(0, 2).join(' | '))

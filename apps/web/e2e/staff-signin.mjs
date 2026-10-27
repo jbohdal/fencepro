@@ -160,7 +160,9 @@ async function signOutOnPage(dev, accept, page = dev.page) {
   const msgs = []
   const onDialog = d => { msgs.push(d.message()); (accept ? d.accept() : d.dismiss()).catch(() => {}) }
   page.on('dialog', onDialog)
-  if (dev.phone) {
+  // The menu stays open after "No" to signing out (the tab bar stays tappable since Oct 26): open it only when shut,
+  // since the tab bar's More would close it.
+  if (dev.phone && !(await page.locator('[data-popup="nav-drawer"].open').count())) {
     await page.locator('[data-tabbar] [data-popup-trigger="nav-drawer"]').click()
     await sleep(600)
   }
