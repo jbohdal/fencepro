@@ -22,7 +22,8 @@ import { depositOf, pricedWholeDollar } from './paymentMath.js'
 import { termsOn, companyAddress, type Term } from './contractTerms.js'
 import { plainIp } from './signedDocuments.js'
 import { workKindOf } from './installDays.js'
-import { customerFenceName } from './customerFenceName.js'
+import { customerFenceName, customerIncluded, railsOf } from './customerFenceName.js'
+import { plainStyleName } from './estimates.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const TZ = 'America/New_York'
@@ -134,7 +135,8 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
     doc.moveDown(0.8)
     const facts: Array<[string, string]> = [
       ['Customer', c.customerName], ['Property', c.address || 'Not given'],
-      ['Fence', `${c.tierLabel ? `${c.tierLabel}: ` : ''}${c.optionLabel}`],
+      // The plain fence name, never the tier word: the same whether it was sold first or signed on the link (review Oct 27 2026).
+      ['Fence', c.optionLabel],
       ...(c.footageFt > 0 ? [['Footage', `${Math.round(c.footageFt)} ft${c.gatesText ? `, ${c.gatesText}` : ''}`] as [string, string]] : []),
       ['Price', money(c.price)],
       ...(c.depositPct > 0 ? [['Deposit', `${c.depositPct}% to schedule: ${money(c.wholeDollar ? depositOf(Math.round(c.price * 100), c.depositPct, true) / 100 : c.price * c.depositPct / 100)}${c.depositNote ? ` (${c.depositNote})` : ''}`] as [string, string]] : []),
@@ -186,22 +188,43 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
 }
 
 type Q = {
-  id: string; accountId: string; proposal: unknown; chosenOption: number | null; fenceStyle: string; status: string; finalPrice: number
+  id: string; accountId: string; proposal: unknown; chosenOption: number | null; fenceStyle: string; status: string; finalPrice: number; runRails?: unknown
   acceptedAt: Date | null; acceptedBy: string | null; acceptedSignature: string | null; acceptedIp?: string | null; soldAt: Date | null; work: unknown
   customerName: string; customerAddress: string
 }
 
-/** The option the customer accepted and its price, as the contract prints them ("Better: White vinyl privacy at $10,000.00"). */
-export function acceptedOptionText(q: Pick<Q, 'proposal' | 'chosenOption' | 'fenceStyle' | 'finalPrice' | 'acceptedAt'>): string {
+/**
+ * The fence as the contract names it: the standing option's customer name (lib/customerFenceName.ts, with the
+ * panels its runs used), never the tier word. A repair names the fence repaired when the quote knows its style
+ * ("Repair: White Vinyl Privacy, 6 ft tall"; review Oct 27 2026: "Fence: Repair" said which fence).
+ */
+export function contractFenceName(q: Pick<Q, 'proposal' | 'fenceStyle' | 'finalPrice' | 'runRails'>, idx: number, repairedStyle = ''): string {
+  const p = q.proposal as any
+  const opts = Array.isArray(p?.options) ? p.options : []
+  const opt = opts[idx] ?? opts[0] ?? {}
+  const standing = opts[standingOptionOf(opts, q, idx)] ?? opt
+  const label = customerFenceName(String(standing?.label || opt.label || q.fenceStyle), railsOf(standing, q.runRails))
+  if (p?.kind === 'repair' && repairedStyle && /repair/i.test(label) && !label.includes(':')) return `${label}: ${repairedStyle}`
+  return label
+}
+
+/** A repaired fence's plain name, its material and height ("White Vinyl Privacy, 6 ft tall"); '' when the style is not known. */
+export async function repairedFenceName(fenceStyle: string | null | undefined): Promise<string> {
+  if (!fenceStyle) return ''
+  const plain = await plainStyleName(fenceStyle).catch(() => '')
+  if (!plain || plain === fenceStyle) return ''
+  return customerFenceName(plain).split(', ').slice(0, 2).join(', ')
+}
+
+/** The option the customer accepted and its price, as the contract prints them ("White vinyl privacy at $10,000.00"). */
+export function acceptedOptionText(q: Pick<Q, 'proposal' | 'chosenOption' | 'fenceStyle' | 'finalPrice' | 'acceptedAt' | 'runRails'>, repairedStyle = ''): string {
   const p = q.proposal as any
   const opts = Array.isArray(p?.options) ? p.options : []
   const idx = typeof q.chosenOption === 'number' && opts[q.chosenOption] ? q.chosenOption : Math.max(0, opts.findIndex((o: any) => o?.fenceStyle === q.fenceStyle))
   const opt = opts[idx] ?? opts[0] ?? {}
   const price = q.acceptedAt ? Number(opt.finalPrice) || q.finalPrice : q.finalPrice
-  const tier = String(opt.tier?.label || '')
   // A best price fence signed through its twin tier card: named as the fence that stands (routes/proposal.ts standingOptionOf).
-  const label = customerFenceName(String(opts[standingOptionOf(opts, q, idx)]?.label || opt.label || q.fenceStyle))
-  return `${tier && tier !== label ? `${tier}: ` : ''}${label} at ${money(price)}`
+  return `${contractFenceName(q, idx, repairedStyle)} at ${money(price)}`
 }
 
 /**
@@ -226,16 +249,18 @@ export async function contractForQuote(q: Q, signed?: SignedRecord | null): Prom
   // Accepted on the link: the price the customer accepted; signed in person: the quote's price.
   const price = q.acceptedAt ? Number(opt.finalPrice) || q.finalPrice : q.finalPrice
   // Signed on the link: the signed record (time, IP, what was accepted) on every copy, not only the stored one.
-  const record = signed ?? (q.acceptedAt ? { at: q.acceptedAt, ip: plainIp(q.acceptedIp ?? null), accepted: acceptedOptionText(q) } : null)
+  const repaired = p.kind === 'repair' ? await repairedFenceName(opt?.fenceStyle || q.fenceStyle) : ''
+  const record = signed ?? (q.acceptedAt ? { at: q.acceptedAt, ip: plainIp(q.acceptedIp ?? null), accepted: acceptedOptionText(q, repaired) } : null)
   return contractPdf({
     company: {
       name: String(p.company?.name || co.name || 'Getter Done Fence'), phone: String(p.company?.phone || co.phone || ''), email: String(p.company?.email || co.email || ''),
       address: String(p.company?.address || await companyAddress(q.accountId) || ''),
     },
     customerName: String(p.customer?.name || q.customerName || ''), address: String(p.customer?.address || q.customerAddress || ''),
-    optionLabel: customerFenceName(String(p.options[standingOptionOf(p.options, q, idx)]?.label || opt.label || q.fenceStyle)), tierLabel: String(opt.tier?.label || ''), price,
+    optionLabel: contractFenceName(q, idx, repaired), tierLabel: String(opt.tier?.label || ''), price,
     footageFt: Number(p.footageFt) || 0, gatesText: p.kind ? '' : String(p.gatesText || ''),
-    included: Array.isArray(p.included) ? p.included.map(String) : [], includedNote: String(p.includedNote || ''),
+    // No zero counts; a repair's description is said once, under The work (lib/customerFenceName.ts customerIncluded).
+    included: customerIncluded(p), includedNote: String(p.includedNote || ''),
     depositPct: Number(p.depositPct) || 0, depositNote: String(p.depositNote || ''), wholeDollar: pricedWholeDollar(q), description: p.kind ? String(p.description || '') : '',
     warranty, installDate: day ? m.dayText(day) : null,
     acceptedBy: String(q.acceptedBy || ''), acceptedAt: q.acceptedAt ?? q.soldAt ?? null, signedHow: q.acceptedAt ? 'link' : 'in_person',
@@ -250,4 +275,5 @@ export async function contractForQuote(q: Q, signed?: SignedRecord | null): Prom
 export const CONTRACT_SELECT = {
   id: true, accountId: true, proposal: true, chosenOption: true, fenceStyle: true, status: true, finalPrice: true,
   acceptedAt: true, acceptedBy: true, acceptedSignature: true, acceptedIp: true, soldAt: true, work: true, customerName: true, customerAddress: true,
+  runRails: true,
 } as const

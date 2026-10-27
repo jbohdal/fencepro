@@ -42,7 +42,7 @@ import { proposalPhotos, quoteCustomer, belongsToQuote } from '../lib/quoteMedia
 import { svgWithNamespace } from '../lib/planSvg.js'
 import { currentTerms, companyAddress, termsOn, type Term } from '../lib/contractTerms.js'
 import { OFFICE_NOTICE_ROLE } from '../lib/notificationService.js'
-import { customerFenceName } from '../lib/customerFenceName.js'
+import { customerFenceName, customerIncluded, railsOf } from '../lib/customerFenceName.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -211,7 +211,8 @@ export async function proposalPage(q: { accountId: string; acceptedAt: Date | nu
   // signed page "6 or 8 ft panels").
   const standsAt = q.acceptedAt ? (typeof q.chosenOption === 'number' ? q.chosenOption : -1) : sold ?? -1
   const named = standsAt >= 0 ? standingOptionOf(p.options, q, standsAt) : standsAt
-  if (standsAt >= 0 && named !== standsAt) shown.options = shown.options.map((o, i) => (i === standsAt ? { ...o, label: p.options[named].label } : o))
+  // Named with the panels its runs used (lib/customerFenceName.ts): the twin card does not carry the best price picks.
+  if (standsAt >= 0 && named !== standsAt) shown.options = shown.options.map((o, i) => (i === standsAt ? { ...o, label: customerFenceName(p.options[named].label, railsOf(p.options[named], (q as any).runRails)) } : o))
   const soldLabel = sold === -1 ? await plainStyleName(q.fenceStyle).catch(() => q.fenceStyle) : undefined
   return { p: shown, view: { start, hidden, ...(order ? { order } : {}), ...(sold === undefined ? {} : { sold }), ...(soldLabel ? { soldLabel } : {}) } }
 }
@@ -312,7 +313,7 @@ export async function renderQuoteView(q: any, nonce: string): Promise<string> {
   const co = ((b?.config as any)?.company ?? {}) as { name?: string; phone?: string; email?: string }
   const footage = (Array.isArray(q.runs) ? q.runs : []).reduce((t: number, n: unknown) => t + (Number(n) > 0 ? Number(n) : 0), 0)
   const gates = [q.walkGates ? `${q.walkGates} walk gate${q.walkGates === 1 ? '' : 's'}` : '', q.dblGates ? `${q.dblGates} double gate${q.dblGates === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')
-  const label = await plainStyleName(q.fenceStyle)
+  const label = customerFenceName(await plainStyleName(q.fenceStyle), q.runRails)
   const status = q.acceptedAt || q.status === 'SOLD' ? '<section class="done"><h2>Accepted</h2><p>Thank you. We will call you to schedule.</p></section>'
     : `<section><h2>Ready to go ahead?</h2><p>Call us${co.phone ? ` at ${tel(co.phone)}` : ''} to accept this quote or to ask for any changes.</p></section>`
   const body = `<header class="top"><img src="logo.png" alt="" class="logo"><div><p class="co">${esc(co.name || 'Getter Done Fence')}</p><p class="small">${[co.phone ? tel(co.phone) : '', co.email ? esc(co.email) : ''].filter(Boolean).join(' · ')}</p></div></header>
@@ -500,7 +501,7 @@ async function refused(q: any, why: 'signed' | 'accepted'): Promise<{ status: nu
   const standing = why === 'accepted'
     ? opts[q.chosenOption ?? -1]
     : opts.find(o => o.fenceStyle === q.fenceStyle && Math.round(Number(o.finalPrice) * 100) === Math.round(Number(q.finalPrice) * 100))
-  const label = customerFenceName(standing?.label || await plainStyleName(q.fenceStyle).catch(() => q.fenceStyle))
+  const label = customerFenceName(standing?.label || await plainStyleName(q.fenceStyle).catch(() => q.fenceStyle), railsOf(standing, q.runRails))
   return { status: 409, json: { success: false, error: refusalText(why, label, await companyPhone(q.accountId, p)), reload: true } }
 }
 
@@ -630,8 +631,9 @@ function page(title: string, body: string, nonce: string, script = ''): string {
 // `photos`: ids only. No caption: captions are staff words ("Ready to quote visit"), never shown to the customer (round 2 review, Oct 26 2026).
 export function renderProposal(q: any, saved: Proposal, token: string, nonce: string, photos: Array<{ id: string }> = [], installDay: string | null = null, notice = '', shownView: ProposalPageView = {}): string {
   // Each fence by the name the customer reads: "6 ft or 8 ft panels", never the office's "(best price)" tag (lib/customerFenceName.ts).
-  const p: Proposal = { ...saved, options: saved.options.map(o => ({ ...o, label: customerFenceName(o.label) })) }
-  const view: ProposalPageView = shownView.soldLabel ? { ...shownView, soldLabel: customerFenceName(shownView.soldLabel) } : shownView
+  // A best price fence says the panels its runs used ("8 ft panels"), from the option's priced picks, else the quote's.
+  const p: Proposal = { ...saved, options: saved.options.map(o => ({ ...o, label: customerFenceName(o.label, railsOf(o, o.fenceStyle === q.fenceStyle ? q.runRails : null)) })) }
+  const view: ProposalPageView = shownView.soldLabel ? { ...shownView, soldLabel: customerFenceName(shownView.soldLabel, q.runRails) } : shownView
   const company = p.company ?? {}
   const rec = Math.min(Math.max(0, p.recommended ?? 0), p.options.length - 1)
   const accepted = !!q.acceptedAt
@@ -671,7 +673,7 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
       <input type="radio" name="option" value="${i}"${i === chosen ? ' checked' : ''}${accepted || !canSign ? ' disabled' : ''}>
       ${photo}
       <span class="optbody">
-        ${accepted ? '' : sold !== null ? '<span class="badge" data-sold-option>Your fence</span>' : o.badge ? `<span class="badge">${esc(o.badge)}</span>` : i === rec && shownCount > 1 ? '<span class="badge">Recommended</span>' : ''}
+        ${accepted ? '' : sold !== null ? (p.kind ? '<span class="badge" data-sold-option>Your fence</span>' : '') : o.badge ? `<span class="badge">${esc(o.badge)}</span>` : i === rec && shownCount > 1 ? '<span class="badge">Recommended</span>' : ''}
         ${o.tier?.label ? `<span class="tier">${esc(o.tier.label)}</span>` : ''}
         <span class="optlabel">${esc(o.label)}</span>
         ${o.tier?.blurb ? `<span class="blurb">${esc(o.tier.blurb)}</span>` : ''}
@@ -686,8 +688,10 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
   const deposit = (p.depositPct ?? 0) > 0 && !none
     ? `<section><h2>Deposit</h2><p id="deposit" data-pct="${Number(p.depositPct)}"${whole ? ' data-whole="1"' : ''}>${esc(p.depositPct)}% to schedule: <b>${money(depositDollars(p, p.options[chosen].finalPrice))}</b></p>${p.depositNote ? `<p class="small">${esc(p.depositNote)}</p>` : ''}</section>`
     : ''
-  const included = (p.included?.length || p.includedNote)
-    ? `<section><h2>What's included</h2><ul>${(p.included ?? []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>${p.includedNote ? `<p>${esc(p.includedNote).replace(/\n/g, '<br>')}</p>` : ''}</section>`
+  // No zero counts, "end posts" with no gates, and a repair's description said once (lib/customerFenceName.ts customerIncluded).
+  const includedLines = customerIncluded(p)
+  const included = (includedLines.length || p.includedNote)
+    ? `<section><h2>What's included</h2>${includedLines.length ? `<ul>${includedLines.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}${p.includedNote ? `<p>${esc(p.includedNote).replace(/\n/g, '<br>')}</p>` : ''}</section>`
     : ''
   // Each option's own warranty (frozen when the proposal was saved); the chosen option's words show, and
   // change as the customer picks. An older proposal has one warranty for every option.

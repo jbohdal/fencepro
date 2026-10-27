@@ -38,8 +38,9 @@ describe('the proposal link of a quote already sold in the app', () => {
     expect(html).not.toContain('Tan no dig')
     expect(html).not.toContain('$6,093')
     expect(html).not.toContain('$7,924')
+    // "Your fence" once: the heading over the single card, no badge saying it again (review Oct 27 2026).
     expect(html).toContain('<h2>Your fence</h2>')
-    expect(html).toContain('data-sold-option>Your fence')
+    expect(html.match(/Your fence<\/(?:h2|span)>/g)).toHaveLength(1)
     expect(html).toContain('data-sold-note>Your fence was agreed with us for <b>No dig</b> at <b>$7,363</b>.')
     expect(html).toContain('To change to a different option, please call us at')
     expect(html).toContain('(352) 844 2677')

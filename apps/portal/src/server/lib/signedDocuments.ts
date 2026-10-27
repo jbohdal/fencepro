@@ -34,7 +34,7 @@ import fs from 'fs'
 import path from 'path'
 import prisma from './prisma.js'
 import { isUniqueViolation } from './once.js'
-import { contractForQuote, acceptedOptionText, CONTRACT_SELECT } from './contractPdf.js'
+import { contractForQuote, acceptedOptionText, repairedFenceName, CONTRACT_SELECT } from './contractPdf.js'
 import { changeOrderPdf, changeOrderAcceptedText } from './changeOrderPdf.js'
 import { linesOf, contractAround } from './changeOrders.js'
 import { bookingTeam } from './appointmentRep.js'
@@ -152,7 +152,8 @@ export async function fileSignedContract(quoteId: string, madeBy: MadeBy = 'sign
   const fileName = `Signed contract - ${safeName(q.customerName)}.pdf`
   const have = await prisma.signedDocument.findUnique({ where: { sourceKey: contractKey(q.id) } })
   if (have) return { doc: await complete(have, q.crmContactId, label, fileName), made: false }
-  const pdf = await contractForQuote(q, { at: q.acceptedAt, ip: plainIp(q.acceptedIp), accepted: acceptedOptionText(q) })
+  const repaired = (q.proposal as any)?.kind === 'repair' ? await repairedFenceName(q.fenceStyle) : ''
+  const pdf = await contractForQuote(q, { at: q.acceptedAt, ip: plainIp(q.acceptedIp), accepted: acceptedOptionText(q, repaired) })
   if (!pdf) return null
   const out = await store({
     accountId: q.accountId, sourceKey: contractKey(q.id), kind: 'contract', quoteId: q.id, changeOrderId: null, jobId: await jobOfQuote(q.accountId, q.id),
@@ -246,7 +247,7 @@ export interface SignedDocumentView {
  */
 async function views(all: Doc[]): Promise<SignedDocumentView[]> {
   if (!all.length) return []
-  const quotes = await prisma.savedQuote.findMany({ where: { id: { in: [...new Set(all.map(r => r.quoteId))] }, deletedAt: null }, select: { id: true, proposal: true, chosenOption: true, fenceStyle: true, finalPrice: true, acceptedAt: true } })
+  const quotes = await prisma.savedQuote.findMany({ where: { id: { in: [...new Set(all.map(r => r.quoteId))] }, deletedAt: null }, select: { id: true, proposal: true, chosenOption: true, fenceStyle: true, finalPrice: true, acceptedAt: true, runRails: true } })
   const rows = all.filter(r => quotes.some(q => q.id === r.quoteId))
   // all rows: by the ids of these documents; a change order voided or deleted later still shows its number on what was signed.
   const cos = await prisma.changeOrder.findMany({ where: { id: { in: rows.map(r => r.changeOrderId).filter((x): x is string => !!x) } }, select: { id: true, number: true, totalCents: true } })

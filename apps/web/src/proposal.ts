@@ -182,10 +182,21 @@ export function gatesText(walk: number, dbl: number): string {
   return parts.join(', ') || 'no gates'
 }
 
+/**
+ * The posts line of "What's included": no zero counts, and "end posts" when
+ * there are no gates ("2 end posts"; review Oct 27 2026: a no gate fence read
+ * "0 corner posts and 2 end and gate posts"). '' when there are none.
+ */
+export function postsFact(corners: number, ends: number, gates: boolean): string {
+  const n = (k: number, what: string) => (k > 0 ? `${k} ${what}${k === 1 ? '' : 's'}` : '')
+  return [n(corners, 'corner post'), n(ends, gates ? 'end and gate post' : 'end post')].filter(Boolean).join(' and ')
+}
+
 /** Plain facts from the quote, for "What's included". */
 export function includedFacts(f: { footageFt: number; corners: number; ends: number; walkGates: number; dblGates: number; tearOutSections: number; tearOutGates: number }): string[] {
   const out = [`${Math.round(f.footageFt)} ft of new fence, all materials and installation`]
-  out.push(`${f.corners} corner post${f.corners === 1 ? '' : 's'} and ${f.ends} end and gate post${f.ends === 1 ? '' : 's'}`)
+  const posts = postsFact(f.corners, f.ends, f.walkGates + f.dblGates > 0)
+  if (posts) out.push(posts)
   if (f.walkGates || f.dblGates) out.push(gatesText(f.walkGates, f.dblGates).replace(/^./, c => c.toUpperCase()))
   if (f.tearOutSections || f.tearOutGates) out.push(`Tear out and haul away of the old fence (${f.tearOutSections} section${f.tearOutSections === 1 ? '' : 's'}${f.tearOutGates ? `, ${f.tearOutGates} gate${f.tearOutGates === 1 ? '' : 's'}` : ''})`)
   return out

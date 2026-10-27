@@ -109,6 +109,6 @@ describe('a best price fence by its plain name', () => {
     const page = renderProposal(signed, relabeled as any, 'tok', 'n', [], null, '', { start: 0, hidden: [] })
     expect(page).toContain('Pat Test on October 27, 2026: White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft panels, No dig at $7,363.')
     // The contract's signed record names it the same (signed through the 8 ft twin card).
-    expect(acceptedOptionText({ proposal: P, chosenOption: 0, fenceStyle: 'WVAUTO', finalPrice: 7363, acceptedAt: signed.acceptedAt } as any)).toBe('Better: White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft panels, No dig at $7,363.00')
+    expect(acceptedOptionText({ proposal: P, chosenOption: 0, fenceStyle: 'WVAUTO', finalPrice: 7363, acceptedAt: signed.acceptedAt } as any)).toBe('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft panels, No dig at $7,363.00')
   })
 })
