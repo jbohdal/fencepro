@@ -307,6 +307,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
     expect(words).toContain('Check #1042')
     expect(words).toContain('$2,000.00')
     expect(words).toContain('Balance remaining')
+    // The fence in plain words, never the style code (audit Oct 26, 2026: "Fence WV-ND 6'x8' Privacy").
+    expect(words).toContain('White Vinyl Privacy')
+    expect(words).not.toContain('WV-ND')
     // Email: the dev copy has no email settings, so it says so and sends nothing.
     const em = await call(owner, 'POST', `/api/payments/${a.id}/email`, { to: 'e2e-pay@example.invalid', link: `http://localhost:4001/p/r/${rec.token}` })
     expect(em.json.data.status).toBe('not_configured')

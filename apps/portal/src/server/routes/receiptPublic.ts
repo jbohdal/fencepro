@@ -11,7 +11,7 @@ import prisma from '../lib/prisma.js'
 import { CSS, esc } from './proposal.js'
 import { receiptPdfOf, dayWords, TOKEN_RE } from '../lib/contractBilling.js'
 import { moneyText } from '../lib/paymentMath.js'
-import { receiptName, LIEN_RELEASE_DRAFT_NOTE, type ReceiptSnapshot } from '../lib/receiptPdf.js'
+import { receiptName, LIEN_RELEASE_DRAFT_NOTE, phoneText, type ReceiptSnapshot } from '../lib/receiptPdf.js'
 
 export const receiptPublic = Router()
 
@@ -54,7 +54,9 @@ receiptPublic.get('/:token', async (req, res) => {
     return
   }
   const s = r.snapshot as unknown as ReceiptSnapshot
-  const top = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.company.name)}</p><p class="small">Payment receipt</p></div></header>`
+  // The company's phone to call, as the PDF has it.
+  const phone = phoneText(String(s.company?.phone || ''))
+  const top = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.company.name)}</p><p class="small">Payment receipt${phone ? ` · <a href="tel:${esc(String(s.company.phone).replace(/[^\d+]/g, ''))}" data-receipt-phone>${esc(phone)}</a>` : ''}</p></div></header>`
   const rows: Array<[string, number, boolean?]> = [
     ['Contract as signed', s.signedCents],
     ...(s.changeOrderCents ? [['Change orders', s.changeOrderCents] as [string, number]] : []),

@@ -180,7 +180,7 @@ export default function LeadChatWidget() {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 16 }}>GD Fence Pro</div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>Getter Done Fence</div>
               <div style={{ fontSize: 12, opacity: 0.85, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
                 Online — Get instant pricing

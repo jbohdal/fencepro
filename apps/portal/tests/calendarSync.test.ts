@@ -272,6 +272,10 @@ describe('which calendar', () => {
     expect(calendarName(`${HOME}/Downloads/project/apps/portal`, HOME, 'Getter Done Fence')).toBe('Getter Done Fence (TEST)')
     expect(calendarName(`${HOME}/Downloads/project/apps/portal`, HOME, 'Getter Done Fence (TEST)')).toBe('Getter Done Fence (TEST)')
     expect(calendarName(`${HOME}/ezbiz-copy/apps/portal`, HOME, null)).toBe('Getter Done Fence (TEST)')
+    // The old name in a settings file is the company name now (audit Oct 26, 2026: Settings > Google Calendar said "GD Fence Pro (TEST)").
+    expect(calendarName(`${HOME}/Downloads/project/apps/portal`, HOME, 'GD Fence Pro (TEST)')).toBe('Getter Done Fence (TEST)')
+    expect(calendarName(`${HOME}/Downloads/project/apps/portal`, HOME, 'GD Fence Pro')).toBe('Getter Done Fence (TEST)')
+    expect(calendarName(`${HOME}/ezbiz/apps/portal`, HOME, 'GD Fence Pro')).toBe('Getter Done Fence')
   })
 })
 

@@ -97,6 +97,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the website quote drawn on the p
     expect(await mine()).toEqual(before)
   })
 
+  test('the website quote names the company as Settings > Company has it, never the account\'s sign up name', async () => {
+    const r = await fetch(base + '/config')
+    const j = await r.json() as any
+    const accountId = await (await import('../src/server/lib/intake.js')).resolveIntakeAccountId()
+    const b = await prisma.businessState.findUnique({ where: { accountId: accountId! }, select: { config: true } })
+    expect(j.company).toBe(String((b?.config as any)?.company?.name || '').trim() || 'Getter Done Fence')
+    expect(j.company).not.toBe('GD Fence Pro')
+  })
+
   test('only prices reach the page: no cost, margin or parts', async () => {
     const r = await call('/submit', { method: 'POST', body: JSON.stringify({ draftId: 'testtesttesttesttest02', name: NAME, phone: PHONE, address: drawing.address, drawing, pick, test: true }) })
     const text = JSON.stringify({ ...r.body, preview: undefined })

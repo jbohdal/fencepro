@@ -103,7 +103,9 @@ api.get('/config', readLimiter, async (req, res) => {
     const materials = catalog.materials.map((mt: any) => ({ ...mt, photoUrl: styles.filter(s => s.material === mt.material).map(s => photoOf.get(s.name)).find(Boolean) ?? null }))
     // Styles not available for quoting (commercial and industrial, on hold): one choice that says to call.
     const onHold = hold.styles.length ? { label: 'Commercial / Industrial', message: NOT_QUOTABLE_MESSAGE, phone: hold.phone } : null
-    res.json({ success: true, company: account?.name || 'Getter Done Fence', materials, onHold, settings: widgetSettingsOf((data as any).config) })
+    // The company's name from Settings → Company (the account's sign up name only when Settings has none).
+    const company = String((data as any).config?.company?.name || '').trim() || account?.name || 'Getter Done Fence'
+    res.json({ success: true, company, materials, onHold, settings: widgetSettingsOf((data as any).config) })
   } catch (err) {
     console.error('[widget] config error:', err)
     res.status(500).json({ success: false, error: 'Could not load the fence styles' })

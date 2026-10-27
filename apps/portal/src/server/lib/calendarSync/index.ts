@@ -28,7 +28,9 @@ const OLD_DEFAULT_NAME = 'GD Fence Pro'
 
 /** Only the live install (~/ezbiz) may write to the real calendar. Every other copy gets "(TEST)". */
 export function calendarName(cwd: string = process.cwd(), home: string = os.homedir(), configured: string | null | undefined = process.env.GOOGLE_CALENDAR_NAME): string {
-  const base = (configured || DEFAULT_CALENDAR_NAME).trim()
+  // The old name in a settings file ("GD Fence Pro", or "GD Fence Pro (TEST)" on a dev copy) is the company name now.
+  const typed = (configured || DEFAULT_CALENDAR_NAME).trim()
+  const base = typed.replace(/\s*\(TEST\)\s*$/i, '').trim() === OLD_DEFAULT_NAME ? typed.replace(OLD_DEFAULT_NAME, DEFAULT_CALENDAR_NAME) : typed
   const liveRoot = path.join(home, 'ezbiz')
   const here = path.resolve(cwd)
   const isLive = here === liveRoot || here.startsWith(liveRoot + path.sep)
