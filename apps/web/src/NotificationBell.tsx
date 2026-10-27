@@ -110,19 +110,24 @@ export default function NotificationBell() {
               <div className="py-10 text-center text-gray-400 text-sm">No notifications yet.</div>
             ) : (
               <div className="divide-y divide-gray-50">
-                {notifs.map(n => (
-                  <button key={n.id} onClick={() => { markRead(n.id); openLink(n.link) }}
-                    className={`block w-full text-left px-4 py-3 transition-colors ${n.read ? 'bg-white hover:bg-gray-50' : 'bg-orange-50 hover:bg-orange-100'}`}>
+                {notifs.map(n => {
+                  // Something to act on (a proposal conflict, ...): amber with a warning sign, its body in full.
+                  const warn = n.type === 'warning'
+                  return (
+                  <button key={n.id} onClick={() => { markRead(n.id); openLink(n.link) }} data-notification-kind={n.type}
+                    className={`block w-full text-left px-4 py-3 transition-colors ${warn ? `border-l-4 border-amber-400 ${n.read ? 'bg-white hover:bg-amber-50' : 'bg-amber-50 hover:bg-amber-100'}` : n.read ? 'bg-white hover:bg-gray-50' : 'bg-orange-50 hover:bg-orange-100'}`}>
                     <div className="flex items-start gap-2">
-                      {!n.read && <span className="w-2 h-2 bg-orange-500 rounded-full mt-1.5 shrink-0" />}
+                      {warn ? <span className="text-amber-600 text-sm leading-5 shrink-0" aria-label="Warning">⚠</span>
+                        : !n.read && <span className="w-2 h-2 bg-orange-500 rounded-full mt-1.5 shrink-0" />}
                       <div className="flex-1 min-w-0">
-                        <p className={`text-sm ${n.read ? 'text-gray-600' : 'text-gray-900 font-medium'}`}>{n.title}</p>
-                        {n.body && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.body}</p>}
+                        <p className={`text-sm ${warn ? (n.read ? 'text-amber-900' : 'text-amber-900 font-semibold') : n.read ? 'text-gray-600' : 'text-gray-900 font-medium'}`}>{n.title}</p>
+                        {n.body && <p className={`text-xs text-gray-500 mt-0.5${warn ? '' : ' line-clamp-2'}`}>{n.body}</p>}
                         <p className="text-[10px] text-gray-400 mt-1">{new Date(n.createdAt).toLocaleString()}</p>
                       </div>
                     </div>
                   </button>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
