@@ -6,12 +6,15 @@
 // Settings → Proposals (deposit, financing, a style photo), Compare options
 // on a quote, save, then the customer's page on a phone: pick another
 // option, sign, accept, and the quote becomes that option as priced. The
-// test quote and photo are removed and the settings put back at the end.
+// test quote and photo are removed and the settings put back at the end. It quotes a customer
+// of its own, with a pipeline card (made through the API and removed at the end), never a real one.
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import fs from 'fs'
+import { execFileSync } from 'child_process'
 import path from 'path'
+import crypto from 'crypto'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -42,6 +45,9 @@ async function open(browser, phone) {
 
 const browser = await chromium.launch()
 let quoteId = null, photoId = null
+// Its own customer (it used to quote a real customer of the dev copy, Shawn Collins); the signer is Shawn Collins.
+const CUST_LAST = `Collins E2E${Date.now().toString(36)}`, CUST = `Shawn ${CUST_LAST}`
+const contactId = crypto.randomUUID(), cardId = crypto.randomUUID()
 const TAN = "TV-ND 6'x8' Privacy", SIX = "WV-ND 6'x6' Privacy", OWN = "WV-ND 6'x8' Privacy"
 async function setProposalSettings(page, dep, months, apr) {
   await page.goto(APP); await page.waitForSelector('[data-global-appointment]', { timeout: 30000 }); await sleep(800)
@@ -50,9 +56,15 @@ async function setProposalSettings(page, dep, months, apr) {
   await page.locator('[data-deposit-pct]').fill(dep)
   await page.locator('[data-fin-months]').fill(months)
   await page.locator('[data-fin-apr]').fill(apr)
-  await page.locator('button:has-text("Save Changes")').click(); await sleep(1200)
+  // Settings redesign (docs/FEATURES.md 9aa, Oct 23): each page has its own "Save changes" bar, shown only after a change.
+  const save = page.locator('[data-settings-save]')
+  if (await save.isVisible().catch(() => false)) { await save.click(); await page.waitForFunction(() => !document.querySelector('[data-settings-save]'), null, { timeout: 15000 }).catch(() => {}) }
+  await sleep(1200)
 }
 try {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  await api('/api/crm-contacts', { method: 'POST', body: JSON.stringify({ id: contactId, firstName: 'Shawn', lastName: CUST_LAST, phone: '3525550168', email: 'e2e-proposal@example.invalid', serviceAddress: '110 SE Watula Ave, Ocala, FL 34471', leadSource: 'Other',
+    lead: { id: cardId, customerId: contactId, firstName: 'Shawn', lastName: CUST_LAST, phone: '3525550168', stage: 'Pending Signature', leadSource: 'Other', createdAt: today, lastMoved: today }, leadBefore: null }) })
   // ── Settings: deposit, financing and a photo for the tan style ──
   const d = await open(browser, false)
   await setProposalSettings(d.page, '50', '60', '9.99')
@@ -105,14 +117,14 @@ try {
   await b.locator(`[data-compare-row="${SIX}"] input`).check()
   if (SHOTS) { await b.locator('[data-compare]').scrollIntoViewIfNeeded(); await p.screenshot({ path: `${SHOTS}/2-phone-compare-options.png` }) }
   await p.locator('[data-quote-bar] [data-save-open]').click()
-  await p.locator('input[placeholder="Name, phone, or email..."]').fill('Shawn Collins'); await sleep(400)
-  await p.locator('text=Shawn Collins').last().click()
+  await p.locator('input[placeholder="Name, phone, or email..."]').fill(CUST); await sleep(600)
+  await p.locator(`text=${CUST}`).last().click()
   await p.locator('button:has-text("Save quote")').last().click(); await sleep(2500)
   check('phone: no page errors while quoting', s.errors.length === 0, s.errors.join(' | '))
   await s.ctx.close()
 
   const list = await api('/api/saved-quotes')
-  const q = (Array.isArray(list) ? list : []).filter(x => x.customerName === 'Shawn Collins' && x.proposal?.options?.length >= 3 && !x.acceptedAt).sort((a, z) => String(z.createdAt).localeCompare(String(a.createdAt)))[0]
+  const q = (Array.isArray(list) ? list : []).filter(x => x.crmContactId === contactId && x.proposal?.options?.length >= 3 && !x.acceptedAt).sort((a, z) => String(z.createdAt).localeCompare(String(a.createdAt)))[0]
   quoteId = q?.id
   const offered = q ? q.proposal.options.map(o => o.fenceStyle) : []
   check('saved: Good, Better, Best first, then the extra option ticked', q.proposal.options.slice(0, 3).map(o => o.tier?.label).join(',') === 'Good,Better,Best' && offered.includes(OWN) && offered.includes(TAN) && offered.includes(SIX), offered.join(' | '))
@@ -168,16 +180,16 @@ try {
 
   const pipe = await api('/api/pipeline')
   const card = pipe.leads.find(l => l.customerId === sold.crmContactId && l.stage === 'Signed Contract')
-  check('the pipeline card moved to Signed Contract with the price', !!card && card.jobValue === sixOpt.finalPrice, card ? `${card.stage} ${card.jobValue}` : 'no card')
+  check('the pipeline card moved to Signed Contract with the price', !!card && card.jobValue === sixOpt.finalPrice, card ? `${card.stage} ${card.jobValue}` : `no card; the customer's cards: ${JSON.stringify(pipe.leads.filter(l => l.customerId === sold.crmContactId || l.id === cardId).map(l => [l.id, l.stage, l.customerId]))}`)
   const notes = await api('/api/automations/notifications')
-  const note = (notes.notifications || []).find(n => n.title === 'Proposal accepted: Shawn Collins')
+  const note = (notes.notifications || []).find(n => n.title === `Proposal accepted: ${CUST}`)
   check('an in app notification says who accepted what', !!note && note.body.includes(sixOpt.label), note?.body || 'none')
 
   // ── Back in the app: the quote shows the customer's choice ──
   await d.page.goto(`${APP}/?customer=${sold.crmContactId}`); await d.page.waitForSelector('[data-global-appointment]'); await sleep(1200)
-  await d.page.locator('button.capitalize', { hasText: /^quotes/i }).first().click(); await sleep(500)
+  await d.page.locator('[data-customer-tab="quotes"]').first().click(); await sleep(500)
   // The quote row's price, not the job's "Change order ($…)" button that shows the same amount.
-  await d.page.locator(`text=$${Math.round(sold.finalPrice).toLocaleString('en-US')}`).filter({ hasNotText: /Change order/i }).first().click(); await sleep(800)
+  await d.page.locator(`[data-customer-quote="${quoteId}"]`).first().click(); await sleep(800)
   const chosenText = (await d.page.locator('[data-proposal-chosen]').textContent().catch(() => '')) || ''
   check('the saved quote shows who accepted which option', chosenText.includes('Accepted by Shawn Collins') && chosenText.includes(sixOpt.label), chosenText)
   check('and Text it / Email it / Open buttons, with the link date', await d.page.locator('[data-proposal-text]').count() === 1 && await d.page.locator('[data-proposal-open]').count() === 1 && /Link works until/.test(await d.page.locator('[data-link-state]').textContent()))
@@ -197,6 +209,22 @@ try {
   if (quoteId) for (const j of (await api('/api/saved-jobs')).filter(j => j.quoteId === quoteId)) await api(`/api/saved-jobs/${j.id}`, { method: 'DELETE' })
   if (quoteId) await api(`/api/saved-quotes/${quoteId}`, { method: 'DELETE' })
   if (photoId) await api(`/api/style-photos/${photoId}`, { method: 'DELETE' })
+  // Its customer and card.
+  const pl = await api('/api/pipeline')
+  const cards = (pl?.leads ?? []).filter(l => l.customerId === contactId || l.id === cardId).map(l => l.id)
+  if (cards.length) await api('/api/pipeline', { method: 'PATCH', body: JSON.stringify({ upsert: [], remove: cards, baseVersion: pl.version }) })
+  await api(`/api/crm-contacts/${contactId}`, { method: 'DELETE' })
+  // What the app keeps once sold (the job, its payment schedule, the signed quote): removed from the dev copy by id.
+  const psql = q => { try { execFileSync('psql', ['-d', 'ezbiz_dev', '-q', '-c', q], { stdio: 'ignore' }) } catch { /* nothing to remove */ } }
+  const jobs = `select id from "SavedJob" where "crmContactId" = '${contactId}'`
+  for (const t of ['PaymentSchedule', 'ContractPayment', 'ContractInvoice', 'BillingLog', 'JobChecklistItem', 'Notification', 'InstallPacket']) psql(`delete from "${t}" where "jobId" in (${jobs})`)
+  psql(`delete from "AutomationEvent" where "entityId" in (${jobs}) or "entityId" = '${cardId}'`)
+  psql(`delete from "SavedJob" where "crmContactId" = '${contactId}'`)
+  psql(`delete from "SignedDocument" where "quoteId" in (select id from "SavedQuote" where "crmContactId" = '${contactId}')`)
+  psql(`delete from "JobQuotedCost" where "quoteId" in (select id from "SavedQuote" where "crmContactId" = '${contactId}')`)
+  psql(`delete from "SavedQuote" where "crmContactId" = '${contactId}'`)
+  psql(`delete from "Notification" where title = 'Proposal accepted: ${CUST}'`)
+  psql(`delete from "CrmContactNote" where "crmContactId" = '${contactId}'; delete from "CrmContact" where id = '${contactId}'`)
   await browser.close()
 }
 const passed = results.filter(Boolean).length

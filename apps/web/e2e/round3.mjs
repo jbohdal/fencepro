@@ -1,23 +1,41 @@
 // Round 3 walkthrough fixes (Oct 26 2026), on the dev copy, as the office at computer size.
 //
-//   APP_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev token> CUSTOMER_ID=<a customer with a job> [SHOTS=<folder>] node e2e/round3.mjs
+//   APP_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev token> [CUSTOMER_ID=<a customer with a job>] [SHOTS=<folder>] node e2e/round3.mjs
 //
 // The customer page: no "Saved" chip in the header; the Jobs tab reads its
-// Scheduled day in words and its row opens the job in Operations. Read only:
-// nothing is saved.
+// Scheduled day in words and its row opens the job in Operations. With no
+// CUSTOMER_ID it makes its own customer (@example.invalid) with a scheduled job
+// and removes both at the end; the page itself saves nothing.
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
+import crypto from 'crypto'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
-const CUSTOMER = process.env.CUSTOMER_ID || ''
+let CUSTOMER = process.env.CUSTOMER_ID || ''
 const SHOTS = process.env.SHOTS || ''
 if (!/^http:\/\/localhost:\d+\/?$/.test(APP) || /:4000\b/.test(APP)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
-if (!TOKEN || !CUSTOMER) { console.error('Set E2E_ACCESS_TOKEN and CUSTOMER_ID.'); process.exit(2) }
+if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  -- ' + detail : ''}`) }
+
+const call = async (p, init = {}) => {
+  const r = await fetch(APP.replace(/\/$/, '') + p, { ...init, headers: { Authorization: `Bearer ${TOKEN}`, 'X-Staff-Request': '1', ...(init.body ? { 'Content-Type': 'application/json' } : {}) } })
+  return { status: r.status, json: await r.json().catch(() => null) }
+}
+// Its own customer with a job scheduled on a crew day, unless one was named.
+let madeCustomer = '', madeJob = ''
+if (!CUSTOMER) {
+  const tag = crypto.randomUUID().slice(0, 6)
+  madeCustomer = crypto.randomUUID()
+  const c = await call('/api/crm-contacts', { method: 'POST', body: JSON.stringify({ id: madeCustomer, firstName: 'Round3', lastName: `E2E ${tag}`, phone: '3525550163', email: `round3.${tag}@example.invalid`, serviceAddress: '100 Pecan Dr, Ocala, FL 34472', leadSource: 'Other' }) })
+  const j = await call('/api/saved-jobs', { method: 'POST', body: JSON.stringify({ customerName: `Round3 E2E ${tag}`, customerAddress: '100 Pecan Dr, Ocala, FL 34472', customerPhone: '3525550163', crmContactId: madeCustomer, fenceStyle: "WV-ND 6'x6' Privacy", sections: 10, contractValue: 4000, status: 'scheduled', scheduledDate: '2026-12-08' }) })
+  madeJob = j.json?.data?.id || ''
+  if (!(c.status === 200 || c.status === 201) || !madeJob) { console.error(`Could not make the test customer and job: ${c.status} ${j.status}`); process.exit(1) }
+  CUSTOMER = madeCustomer
+}
 
 const browser = await chromium.launch()
 try {
@@ -43,6 +61,8 @@ try {
   check('no page errors', errors.length === 0, errors.join(' | '))
 } finally {
   await browser.close()
+  if (madeJob) await call(`/api/saved-jobs/${madeJob}`, { method: 'DELETE' })
+  if (madeCustomer) await call(`/api/crm-contacts/${madeCustomer}`, { method: 'DELETE' })
 }
 console.log(`\n${results.filter(Boolean).length} of ${results.length} checks passed`)
 process.exit(results.every(Boolean) ? 0 : 1)

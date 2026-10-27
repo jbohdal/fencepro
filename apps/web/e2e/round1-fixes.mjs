@@ -14,7 +14,7 @@
 //   5. Inventory > Invoices: a picture picked as a PDF says so; a PDF uploads and says so;
 //      an upload the server turns down says why and can be removed.
 //   6. Smart Schedule says "sections", never "sec".
-//   7. WT Linda Park (repair): the job page lists the repair items (not 0 ft, 0 sections);
+//   7. A repair of its own ("Broken or sagging gate", 2 posts): the job page lists the repair items (not 0 ft, 0 sections);
 //      the repair quote says "Broken or sagging gate" added the rehang.
 //
 //   cd apps/web && pnpm -s build
@@ -29,12 +29,13 @@
 // uploaded; a photo renamed .pdf says why; a repair job's Fence Type says Repair.
 //
 // Dev only (devOnly.mjs refuses port 4000 and anything not on this Mac). The test lead, its
-// card, quote, visit, photo and notification are removed at the end; WT records are only read.
+// card, quote, visit, photo and notification, its repair customer, quote and job, and its Salesman login are
+// removed at the end. (It used to read the WT test records; a scrubbed copy of live has none, Oct 26 2026.)
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import './sharedLock.mjs' // writes a customer, a pipeline card and an appointment on the shared dev copy
 import { webkit, chromium, devices } from 'playwright'
-import { signInByCookie } from './lib.mjs'
+import { signInByCookie, makeTestLogin, removeTestLogin } from './lib.mjs'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
@@ -79,7 +80,12 @@ const drawing = { v: 1, address: '110 SE Watula Ave, Ocala, FL 34471', at, runs:
 ] }
 const pick = { material: 'vinyl', color: 'white', height: '6', kind: 'privacy' }
 const NAME = `E2E Round1 Lead ${Date.now().toString(36)}`
-const made = { draft: '', contact: '', card: '', quote: '', appt: '', photos: [] }
+const made = { draft: '', contact: '', card: '', quote: '', appt: '', photos: [], repairContact: '', repairQuote: '', repairJob: '' }
+// The Salesman: a login of its own, made in setup() (the WT test logins are not on a scrubbed copy of live).
+let SALESMAN = null
+const salesmanSignIn = ctx => ctx.request.post(`${API}/api/crm-auth/login`, { headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, data: { email: SALESMAN?.email, password: SALESMAN?.password, cookie: true } })
+const REPAIR_ADDR = '2715 SE 3rd St, Ocala, FL 34471'
+const REPAIR_NAME = `E2E Round1 Repair ${Date.now().toString(36)}`
 // When this run started (database time), for the vendor invoice it uploads.
 const STARTED = psql(`select to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS.MS')`)
 
@@ -111,6 +117,17 @@ async function setup() {
   const account = psql(`select "accountId" from "CrmContact" where id='${q(made.contact)}'`)
   made.appt = `e2e-round1-${Date.now().toString(36)}`
   psql(`insert into "CrmAppointment" (id, "accountId", "crmContactId", type, status, "startAt", "endAt", address, "assignedTo", "assignedToUserId", history, source, "updatedAt") values ('${made.appt}', '${q(account)}', '${q(made.contact)}', 'estimate', 'scheduled', now() at time zone 'utc' + interval '5 minutes', now() at time zone 'utc' + interval '65 minutes', '${q(drawing.address)}', '${q(owner)}', ${user.id ? `'${q(user.id)}'` : 'null'}, '[]', 'manual', now())`)
+  // A Salesman login of its own (made with the owner's token; removed at the end).
+  if (TOKEN) SALESMAN = await makeTestLogin({ role: 'sales_rep', firstName: 'Christa', ownerToken: TOKEN, api: API }).catch(e => { console.log('salesman login not made:', String(e).slice(0, 200)); return null })
+  // A repair of its own, sold, with its job (item 7): "Broken or sagging gate" added the rehang; 2 posts typed.
+  const rc = await api('/api/crm-contacts', { method: 'POST', body: JSON.stringify({ firstName: 'E2E', lastName: REPAIR_NAME.replace(/^E2E /, ''), phone: '3525550164', email: 'e2e.round1.repair@example.invalid', serviceAddress: REPAIR_ADDR, leadSource: 'Other' }) })
+  made.repairContact = rc.data?.id || ''
+  const work = { version: 1, type: 'repair', repair: { what: 'gate', items: { replacePost: 2, rehangGate: 1 }, gateKind: 'walk', postType: 'nd', newPostCaps: false }, crew: ['Replace a post: 2. Pull the old post and set a new one.', 'Rehang a gate with new hardware: 1 (walk gate). New hinges and latch.', 'Old posts come out with their pipe and donuts; haul them away.'], description: 'Replace 2 posts, rehang the walk gate with new hinges and latch, haul away the old posts.', needs811: true, warnings: [], priced: {} }
+  const rq = await api('/api/saved-quotes', { method: 'POST', body: JSON.stringify({ crmContactId: made.repairContact, customerName: REPAIR_NAME, customerPhone: '3525550164', customerAddress: REPAIR_ADDR, fenceStyle: "WV-ND 6'x8' Privacy", runs: [], corners: 0, ends: 0, sections: 0, finalPrice: 650, status: 'SOLD', work }) })
+  made.repairQuote = rq.data?.id || rq.id || ''
+  const rj = await api('/api/saved-jobs', { method: 'POST', body: JSON.stringify({ customerName: REPAIR_NAME, crmContactId: made.repairContact, quoteId: made.repairQuote, customerAddress: REPAIR_ADDR, fenceStyle: "WV-ND 6'x8' Privacy", sections: 0, totalFeet: 0, quotePrice: 650, contractValue: 650, status: 'staging' }) })
+  made.repairJob = rj.data?.id || ''
+  check('setup: a Salesman login and a sold repair with its job, of its own', !!SALESMAN && !!made.repairContact && !!made.repairQuote && !!made.repairJob, `${!!SALESMAN} ${made.repairContact} ${made.repairQuote} ${made.repairJob}`)
 }
 
 async function phone(browser) {
@@ -166,7 +183,7 @@ async function tiersMatch(browser, who, phoneSize) {
   const ctx = await browser.newContext(phoneSize ? { ...devices['iPhone 13'] } : { viewport: { width: 1440, height: 900 } })
   if (who === 'owner') await signIn(ctx)
   else {
-    const r = await ctx.request.post(`${API}/api/crm-auth/login`, { headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, data: { email: 'wt-christa@example.invalid', password: 'WT-walk-2026!', cookie: true } })
+    const r = await salesmanSignIn(ctx)
     if (!r.ok()) { check(`${who}: signed in`, false, String(r.status())); await ctx.close(); return }
   }
   const page = await ctx.newPage()
@@ -211,10 +228,10 @@ async function websiteVisitBox(browser) {
 }
 
 async function salesmanDates(browser) {
-  // WT Christa (Salesman): her Today's tasks and the visit photo's date, on the Safari engine.
+  // The Salesman: her Today's tasks and the visit photo's date, on the Safari engine.
   const ctx = await browser.newContext({ ...devices['iPhone 13'] })
-  const r = await ctx.request.post(`${API}/api/crm-auth/login`, { headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, data: { email: 'wt-christa@example.invalid', password: 'WT-walk-2026!', cookie: true } })
-  if (!r.ok()) { check('salesman: signed in as WT Christa', false, `${r.status()}`); await ctx.close(); return }
+  const r = await salesmanSignIn(ctx)
+  if (!r.ok()) { check('salesman: signed in as the test Salesman', false, `${r.status()}`); await ctx.close(); return }
   const page = await ctx.newPage()
   const errors = watch(page)
   await page.goto(`${APP}/today`)
@@ -332,8 +349,8 @@ async function computer(browser) {
   await shot(page, 'computer-5-smart-schedule')
   await page.keyboard.press('Escape').catch(() => {})
 
-  // 7. A repair job and its quote (WT Linda Park; read only).
-  const linda = psql(`select id || '|' || "quoteId" from "SavedJob" where "customerName" like 'WT Linda Park%' and "deletedAt" is null limit 1`).split('|')
+  // 7. A repair job and its quote (its own, made in setup()).
+  const linda = [made.repairJob, made.repairQuote]
   if (linda[0]) {
     await page.goto(`${APP}/operations?job=${encodeURIComponent(linda[0])}`)
     await page.waitForSelector('[data-job-work-items]', { timeout: 20000 }).catch(() => {})
@@ -350,7 +367,7 @@ async function computer(browser) {
     check('computer: "Broken or sagging gate" says it added the rehang', /"Broken or sagging gate" added 1 × Rehang a gate with new hardware/.test(note), note)
     check('computer: the rehang row is marked as added by it', await page.locator('[data-repair-item="rehangGate"][data-repair-item-starter="yes"]').count() === 1)
     await shot(page, 'computer-7-repair-note')
-  } else check('computer: WT Linda Park is on the dev copy', false)
+  } else check('computer: the test repair job was made', false)
 
   // The address lookup: a street the county list lacks is not matched to the other end of Florida.
   const sug = await api(`/api/appointments/geo/suggest?q=${encodeURIComponent('2715 SE 3rd St')}`)
@@ -359,8 +376,8 @@ async function computer(browser) {
   check('computer: "2715 SE 3rd St" (no city typed) is offered in Ocala first', sug.data?.[0]?.line1 === '2715 SE 3rd St' && sug.data?.[0]?.city === 'Ocala', JSON.stringify(sug.data?.[0]))
   const sug2 = await api(`/api/appointments/geo/suggest?q=${encodeURIComponent('3300 SE 24th St')}`)
   check('computer: "3300 SE 24th St" is offered in Ocala first, not Webster', sug2.data?.[0]?.city === 'Ocala' && sug2.data?.[0]?.line1 === '3300 SE 24th St', JSON.stringify((sug2.data ?? []).map(s => s.formatted)))
-  for (const who of ['WT Linda Park', 'WT Robert Hayes']) {
-    const addr = psql(`select "customerAddress" from "SavedJob" where "customerName" = '${who}' and "deletedAt" is null limit 1`)
+  // Two Ocala addresses the county list has (the repair job's, and the website lead's).
+  for (const [who, addr] of [[REPAIR_NAME, REPAIR_ADDR], ['the website lead', drawing.address]]) {
     const p = addr ? (await api(`/api/appointments/geo/lookup?address=${encodeURIComponent(addr)}`)).data : null
     check(`computer: ${who}'s address (${addr}) is placed on the map near Ocala`, !!p && Math.abs(p.lat - 29.18) < 0.1 && Math.abs(p.lng + 82.13) < 0.15, JSON.stringify(p))
   }
@@ -370,7 +387,7 @@ async function computer(browser) {
   await page.waitForSelector('[data-smart-job]', { timeout: 30000 }).catch(() => {})
   await sleep(3000)
   const unplaced = await page.evaluate(() => document.body.innerText.match(/couldn.t be located[\s\S]{0,400}/)?.[0] ?? '')
-  check('computer: Smart Schedule places WT Linda Park and WT Robert Hayes', !/WT Linda Park|WT Robert Hayes/.test(unplaced), unplaced.slice(0, 160))
+  check('computer: Smart Schedule places the test repair job', !unplaced.includes(REPAIR_NAME), unplaced.slice(0, 160))
   await page.keyboard.press('Escape').catch(() => {})
   check('computer: no page errors', errors.length === 0, errors.join(' | '))
   await ctx.close()
@@ -396,6 +413,12 @@ async function cleanup(name = NAME) {
     for (const f of psql(`select path from "VendorInvoiceFile" where "invoiceId" in (${mine})`).split('\n').filter(Boolean)) if (fs.existsSync(f) && f.includes(`${path.sep}uploads${path.sep}invoices${path.sep}`)) fs.unlinkSync(f)
     psql(`delete from "VendorInvoice" where status = 'refused' and id in (${mine}); delete from "VendorInvoice" where id in (${mine})`)
     if (made.draft) psql(`delete from "WidgetDraft" where id='${q(made.draft)}'`)
+    // Its repair: soft deleted through the app, then the rows removed (anything a row still points at stays soft deleted).
+    try {
+      if (made.repairJob) { await api(`/api/saved-jobs/${made.repairJob}`, { method: 'DELETE' }); psql(`delete from "AutomationEvent" where "entityId"='${q(made.repairJob)}'; delete from "Notification" where "jobId"='${q(made.repairJob)}'; delete from "SavedJob" where id='${q(made.repairJob)}'`) }
+      if (made.repairQuote) psql(`delete from "SavedQuote" where id='${q(made.repairQuote)}'`)
+      if (made.repairContact) { await api(`/api/crm-contacts/${made.repairContact}`, { method: 'DELETE' }); psql(`delete from "CrmContactNote" where "crmContactId"='${q(made.repairContact)}'; delete from "CrmContact" where id='${q(made.repairContact)}'`) }
+    } catch (e) { console.log('repair cleanup:', String(e?.message || e).slice(0, 160)) }
     // The yard photo's file, if it never reached a customer row.
     const m = /\/intake\/([0-9a-f-]{36}\.(jpg|png|webp|heic))$/.exec(made.photo || '')
     if (m) fs.rmSync(path.resolve(HERE, '../../portal/uploads/intake', m[1]), { force: true })
@@ -424,6 +447,7 @@ try {
   check('test run finished', false, String(e?.message || e).split('\n').slice(0, 3).join(' '))
 } finally {
   await cleanup()
+  await removeTestLogin(SALESMAN, { ownerToken: TOKEN, api: API })
   await wk.close(); await ch.close()
 }
 const failed = results.filter(r => !r).length

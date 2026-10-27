@@ -1,6 +1,8 @@
 // Change order re-check, round 4 (Oct 26 2026), on the dev copy, on a phone (WebKit 390 x 844).
 //
-//   APP_URL=http://localhost:4054 E2E_ACCESS_TOKEN=<dev owner token> E2E_SALES_TOKEN=<dev salesman token> node e2e/round4-co.mjs
+//   APP_URL=http://localhost:4054 E2E_ACCESS_TOKEN=<dev owner token> [E2E_SALES_TOKEN=<dev salesman token>] node e2e/round4-co.mjs
+//
+// With no E2E_SALES_TOKEN it makes its own Salesman login (lib.mjs makeTestLogin) and removes it at the end.
 //
 // Set up (API, as the owner): a customer, a Sold quote copied from a priced no dig quote with a yard drawing,
 // its job and the crew's packet; CO-1 (one side 10 ft longer) and CO-2 (a walk gate in another side, drawn on
@@ -18,17 +20,17 @@
 // Removes everything it made.
 import './devOnly.mjs'
 import { webkit } from 'playwright'
-import { signInByCookie } from './lib.mjs'
+import { signInByCookie, makeTestLogin, removeTestLogin } from './lib.mjs'
 import crypto from 'crypto'
 import { execFileSync } from 'child_process'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
 const OWNER = process.env.E2E_ACCESS_TOKEN || ''
-const SALES = process.env.E2E_SALES_TOKEN || ''
+let SALES = process.env.E2E_SALES_TOKEN || ''
 const SHOTS = process.env.E2E_SHOTS || ''
 if (!/^http:\/\/localhost:\d+$/.test(APP) || /:4000$/.test(APP) || /:4000$/.test(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
-if (!OWNER || !SALES) { console.error('Set E2E_ACCESS_TOKEN (owner) and E2E_SALES_TOKEN (salesman) for the dev server.'); process.exit(2) }
+if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (owner) for the dev server.'); process.exit(2) }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
@@ -39,6 +41,11 @@ const call = async (method, p, body, token = OWNER) => {
   return { status: r.status, json, text }
 }
 async function until(fn, ms = 20000, every = 500) { const end = Date.now() + ms; for (;;) { const v = await fn().catch(() => null); if (v || Date.now() > end) return v; await sleep(every) } }
+// The Salesman: the one named, or a login of its own (the old WT logins are not on the scrubbed dev copy).
+const salesLogin = SALES ? null : await makeTestLogin({ role: 'sales_rep', ownerToken: OWNER, api: API })
+if (salesLogin) SALES = salesLogin.token
+const salesMe = (await call('GET', '/api/crm-auth/me', undefined, SALES)).json?.data
+const SALES_NAME = salesMe ? `${salesMe.firstName} ${salesMe.lastName}` : ''
 const sql = q => execFileSync('psql', ['-d', 'ezbiz_dev', '-At', '-c', q]).toString().trim()
 const theSide = n => `the ${/(^|\s)(side|return|run)$/i.test(n) ? n : `${n} side`}`
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/r4-${name}.png`, fullPage: false }).catch(() => {}) }
@@ -61,7 +68,7 @@ try {
   if (!tpl) throw new Error('no priced no dig quote with two plain sides on dev')
   const priced = ['fenceStyle', 'runs', 'runRails', 'corners', 'ends', 'walkGates', 'dblGates', 'tearOutSections', 'tearOutGates', 'adjLaborHrs', 'hasSalesman', 'priceAdjust', 'sections', 'materialCost', 'laborCost', 'tearOutCost', 'totalCOGS', 'finalPrice', 'gmPct', 'pullSheet', 'pricing']
   const c = await call('POST', '/api/crm-contacts', { id: X.contactId, firstName: 'E2E', lastName: WHO, phone: '3525550193', serviceAddress: '9 Round Four Ln, Ocala, FL 34470', leadSource: 'Other', lead: { id: X.cardId, customerId: X.contactId, firstName: 'E2E', lastName: WHO, phone: '3525550193', stage: 'Signed Contract', leadSource: 'Other', quoteId: X.quoteId, createdAt: today, lastMoved: today }, leadBefore: null })
-  const q = await call('POST', '/api/saved-quotes', { id: X.quoteId, ...Object.fromEntries(priced.map(k => [k, tpl[k]])), layout: tpl.layout, crmContactId: X.contactId, customerName: `E2E ${WHO}`, customerPhone: '3525550193', customerAddress: '9 Round Four Ln, Ocala, FL 34470', leadSource: 'Other', salesRep: 'WT Christa', date: today, status: 'SOLD' })
+  const q = await call('POST', '/api/saved-quotes', { id: X.quoteId, ...Object.fromEntries(priced.map(k => [k, tpl[k]])), layout: tpl.layout, crmContactId: X.contactId, customerName: `E2E ${WHO}`, customerPhone: '3525550193', customerAddress: '9 Round Four Ln, Ocala, FL 34470', leadSource: 'Other', salesRep: SALES_NAME, date: today, status: 'SOLD' })
   const j = await call('POST', '/api/saved-jobs', { id: X.jobId, quoteId: X.quoteId, crmContactId: X.contactId, customerName: `E2E ${WHO}`, customerAddress: '9 Round Four Ln, Ocala, FL 34470', fenceStyle: tpl.fenceStyle, sections: tpl.sections, totalFeet: Math.round(tpl.runs.reduce((s, f) => s + f, 0)), walkGates: tpl.walkGates, dblGates: tpl.dblGates, quotePrice: tpl.finalPrice, contractValue: tpl.finalPrice, status: 'scheduled', scheduledDate: '2026-11-09', scheduledEndDate: '2026-11-10', estimatedDays: 2, crewAssigned: `E2E crew ${stamp}` })
   const pk = await call('POST', '/api/install-packets', { jobId: X.jobId, snapshot: { style: tpl.fenceStyle, pullSheet: tpl.pullSheet.filter(l => !l.moneyOnly).map(l => ({ item: l.item, qty: l.qty })) } })
   check('set up: Sold quote with a yard drawing, its job, the crew\'s packet', c.status < 300 && q.status < 300 && j.status < 300 && pk.status === 200, `${c.status} ${q.status} ${j.status} ${pk.status} (${tpl.customerName})`)
@@ -108,11 +115,14 @@ try {
   check('signing sheet: no cost on it', !/cost|margin|labor/i.test(sheetText))
   await shot(page, '2-sign-sheet')
   await page.locator('[data-co-sign-name]').fill('Pat Customer')
+  // The sheet is taller than the phone now (Why, the drawing and its note above the box): scroll the box into view first.
+  await page.locator('[data-co-sign-sheet] canvas').scrollIntoViewIfNeeded(); await sleep(300)
   const box = await page.locator('[data-co-sign-sheet] canvas').boundingBox()
   await page.mouse.move(box.x + 20, box.y + 40); await page.mouse.down(); for (let i = 1; i <= 10; i++) await page.mouse.move(box.x + 20 + i * 20, box.y + 40 + (i % 2 ? 20 : -10)); await page.mouse.up()
   await page.locator('[data-co-sign-submit]').click()
   const both = await until(async () => (await page.locator('[data-signed-doc-kind="change_order"]').count()) === 2, 10000)
-  check('signed in person: both signed PDFs are in Documents at once', both)
+  check('signed in person: both signed PDFs are in Documents at once', both, both ? '' : `${await page.locator('[data-signed-doc-kind="change_order"]').count()} shown; ${(await page.locator('[data-co-sign-sheet]').innerText().catch(() => 'sheet closed')).split('\n').filter(l => /sign|error|refused|could not|try/i.test(l)).slice(-3).join(' / ')}`)
+  if (!both) await shot(page, '2b-after-sign')
   const notice2 = await until(async () => { const t = await page.locator('[data-packet-outdated]').innerText(); return /CO-2/.test(t) ? t : null }, 10000)
   check('signed in person: the packet notice names CO-2 and the gate\'s side', !!notice2 && notice2.includes(`walk gate in ${theSide(s2.name)}`), notice2 ?? '')
 
@@ -197,6 +207,7 @@ try {
     for (const id of ids) { await call('DELETE', `/api/crm-contacts/${id}`); sql(`DELETE FROM "CrmContact" WHERE id = '${id}'`) }
     check('cleaned up (change orders, documents, packet, job, quote, customers, cards)', sql(`SELECT count(*) FROM "ChangeOrder" WHERE "quoteId" = '${X.quoteId}'`) === '0' && sql(`SELECT count(*) FROM "CrmContact" WHERE id IN (${ids.map(i => `'${i}'`).join(', ')})`) === '0')
   } catch (e) { console.log('cleanup:', String(e).slice(0, 300)) }
+  await removeTestLogin(salesLogin, { ownerToken: OWNER, api: API })
   const failed = results.filter(r => !r).length
   console.log(`\n${results.length - failed}/${results.length} passed`)
   process.exit(failed ? 1 : 0)

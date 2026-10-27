@@ -1,7 +1,7 @@
 // Visit photos reach the quote, the proposal and the job (walkthrough round 2, item 8, and the round 2 review;
 // Oct 26, 2026), on the dev copy, the way they are used:
 //
-// Phone (iPhone size, WebKit = the Safari engine), WT Christa (Salesman):
+// Phone (iPhone size, WebKit = the Safari engine), a Salesman (a login of its own, made and removed by the test):
 //   1. Today > her visit > Complete > Ready to quote, notes and 3 photos (one a supplier invoice) > "Save and start
 //      the quote": the new quote's camera counts the 3 visit photos; the photos are saved Internal.
 //   2. She makes it a repair (Style: Repair, a leaning fence, 2 posts and a gate rehang): the Site visit box still
@@ -24,11 +24,11 @@
 //   [SHOTS=<folder>] node e2e/visit-photos.mjs
 //
 // Dev only (devOnly.mjs refuses port 4000 and anything not on this Mac). The test customer, visit, quotes, job,
-// packet, notes and photos (rows and files) are removed at the end; WT records are only read.
+// packet, notes, photos (rows and files) and its Salesman login are removed at the end.
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, chromium, devices } from 'playwright'
-import { signInByCookie } from './lib.mjs'
+import { signInByCookie, makeTestLogin, removeTestLogin } from './lib.mjs'
 import { execFileSync } from 'child_process'
 import crypto from 'crypto'
 import fs from 'fs'
@@ -56,7 +56,8 @@ const staffHeaders = COOKIE ? { Cookie: `ezbiz_staff=${COOKIE}`, 'X-Staff-Reques
 const api = async (p, init = {}) => (await (await fetch(API + p, { ...init, headers: { ...staffHeaders, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } })).json())
 const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `visit-photos-${name}.png`) }) } }
 const watch = page => { const errors = []; page.on('pageerror', e => errors.push(String(e).slice(0, 200))); return errors }
-const CHRISTA = { email: 'wt-christa@example.invalid', password: 'WT-walk-2026!' }
+// The Salesman: a login of its own (the WT test logins are not on a scrubbed copy of live, Oct 26 2026).
+let CHRISTA = null
 
 const NAME_LAST = `Visit Photos ${Date.now().toString(36)}`
 const NAME = `E2E ${NAME_LAST}`
@@ -67,15 +68,17 @@ const shots3 = ['front-gate.jpg', 'broken-post.jpg', 'supplier-invoice.jpg'].map
 const media = () => psql(`select id || '|' || visibility || '|' || coalesce("quoteKey",'') || '|' || coalesce("jobId",'') || '|' || category || '|' || caption from "MediaItem" where "customerId"='${q(made.contact)}' and "deletedAt" is null order by "takenAt", "createdAt"`).split('\n').filter(Boolean).map(r => { const [id, visibility, quoteKey, jobId, category, caption] = r.split('|'); return { id, visibility, quoteKey, jobId, category, caption } })
 
 async function setup() {
-  const christa = psql(`select id || '|' || "firstName" || ' ' || "lastName" || '|' || "crmAccountId" from "CrmUser" where email='${CHRISTA.email}'`).split('|')
-  if (!christa[0]) throw new Error('WT Christa is not on the dev copy')
+  if (!TOKEN) throw new Error('Set E2E_ACCESS_TOKEN (the owner): the test makes its own Salesman login with it')
+  CHRISTA = await makeTestLogin({ role: 'sales_rep', firstName: 'Christa', ownerToken: TOKEN, api: API })
+  const christa = psql(`select id || '|' || "firstName" || ' ' || "lastName" || '|' || "crmAccountId" from "CrmUser" where email='${q(CHRISTA.email)}'`).split('|')
+  if (!christa[0]) throw new Error('the test Salesman login was not made')
   made.account = christa[2]
   made.contact = psql(`insert into "CrmContact" (id, "accountId", "firstName", "lastName", phone, email, "serviceAddress", "updatedAt") values (gen_random_uuid(), '${q(made.account)}', 'E2E', '${q(NAME_LAST)}', '3525550177', 'e2e-visit-photos@example.invalid', '110 SE Watula Ave, Ocala, FL 34471', now()) returning id`).split('\n')[0]
   made.appt = `e2e-visit-photos-${Date.now().toString(36)}`
   psql(`insert into "CrmAppointment" (id, "accountId", "crmContactId", type, status, "startAt", "endAt", address, "assignedTo", "assignedToUserId", history, source, "updatedAt") values ('${made.appt}', '${q(made.account)}', '${q(made.contact)}', 'estimate', 'scheduled', now() at time zone 'utc' + interval '5 minutes', now() at time zone 'utc' + interval '65 minutes', '110 SE Watula Ave, Ocala, FL 34471', '${q(christa[1])}', '${q(christa[0])}', '[]', 'manual', now())`)
   // An older website lead's note, written before "(measured)" was dropped.
   psql(`insert into "CrmContactNote" (id, "crmContactId", "accountId", body, "isPinned", "createdBy", "createdAt", "updatedAt") values (gen_random_uuid(), '${q(made.contact)}', '${q(made.account)}', E'Website quote\\nRun 1 side 1: 281 ft (measured)\\nAsked for an on site estimate: no', false, 'Website quote (drawn by customer)', now(), now())`)
-  check('setup: a test customer with a visit today for WT Christa', !!made.contact)
+  check('setup: a test customer with a visit today for the Salesman', !!made.contact)
 }
 
 /** A copy of a saved quote for the test customer (never sent). */
@@ -94,8 +97,8 @@ async function copyQuote(src, extra = {}) {
 
 async function phone(browser) {
   const ctx = await browser.newContext({ ...devices['iPhone 13'] })
-  const r = await ctx.request.post(`${API}/api/crm-auth/login`, { headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, data: { ...CHRISTA, cookie: true } })
-  if (!r.ok()) { check('phone: signed in as WT Christa', false, String(r.status())); await ctx.close(); return }
+  const r = await ctx.request.post(`${API}/api/crm-auth/login`, { headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, data: { email: CHRISTA.email, password: CHRISTA.password, cookie: true } })
+  if (!r.ok()) { check('phone: signed in as the Salesman', false, String(r.status())); await ctx.close(); return }
   const page = await ctx.newPage()
   const errors = watch(page)
   page.on('dialog', d => d.accept().catch(() => {}))
@@ -305,6 +308,7 @@ try {
   check('test run finished', false, String(e?.message || e).split('\n').slice(0, 3).join(' '))
 } finally {
   await cleanup()
+  await removeTestLogin(CHRISTA, { ownerToken: TOKEN, api: API })
   await wk.close(); await ch.close()
 }
 const failed = results.filter(r => !r).length
