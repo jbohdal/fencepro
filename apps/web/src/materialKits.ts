@@ -292,13 +292,54 @@ export function clearBuiltInKits() { builtInCache = new Map(); rawCache.clear() 
 
 // ── Job parts from kits ───────────────────────────────────────────────────────
 
+/** Styles whose section is bought whole as "Misc, 6' Section" (TAKEOFF_RULES; lib/costReview.ts flags them). */
+export const BELL_STYLES = ["WV-ND Bell 4'x6'"] as const
+export const BELL_SECTION_PART = "Misc, 6' Section"
+/** The takeoff sheet's cost for "Misc, 6' Section" (TAKEOFF_RULES "workbook cost $154.34"): a placeholder, not a supplier's price. */
+export const BELL_SECTION_PLACEHOLDER = 154.34
+
+/** The cost "Misc, 6' Section" counts at now: the Catalog's, else the kit's. */
+const bellSectionCost = (p: KitPart) => inventoryCost(p.part) ?? p.fallbackCost
+
+/** True when the real supplier cost of the Bell's section is entered: above $0 and not the sheet's $154.34 placeholder. */
+export function bellSectionCostEntered(cost: number): boolean {
+  return cost > 0 && Math.round(cost * 100) !== Math.round(BELL_SECTION_PLACEHOLDER * 100)
+}
+
+/**
+ * The Bell's section and gate leaves are priced like a 6'x6' white vinyl
+ * privacy section (pickets, 6 ft rails, U trim, truss) until the real supplier
+ * cost is entered (Jonathan, Oct 21 2026, docs/DECISIONS.md). The section is
+ * "Misc, 6' Section" in the Bell's kits (Inventory > Material Kits), its cost
+ * in the Catalog (lib/costReview.ts); the Catalog still has the takeoff
+ * sheet's $154.34, the placeholder the ruling set aside. Before (audit Oct 26
+ * 2026) a kit with both counted both, about double the price. Now one or the
+ * other, never both, per kit:
+ *
+ *   real cost entered (above $0, not $154.34)  the section counts; the
+ *                                              privacy stand in parts do not.
+ *   not yet                                    the privacy stand in parts
+ *                                              count; the section line does not.
+ *
+ * Returns the kit's parts to count.
+ */
+export function withoutBellStandIns(set: Pick<KitSet, 'styleName'>, parts: KitPart[]): KitPart[] {
+  if (!set.styleName || !(BELL_STYLES as readonly string[]).includes(set.styleName)) return parts
+  const section = parts.find(p => p.part === BELL_SECTION_PART)
+  if (!section) return parts
+  if (!bellSectionCostEntered(bellSectionCost(section))) return parts.filter(p => p !== section)
+  // The stand in: what the built in Bell section kit is (the 6'x6' privacy section's parts).
+  const standIn = new Set((builtInKitSet(set.styleName)?.kits.section ?? []).map(p => p.part).filter(p => p !== BELL_SECTION_PART))
+  return parts.filter(p => !standIn.has(p.part))
+}
+
 /** Each kit times how many the job has, added up per part; rounded up once per job where the set says so. */
 export function linesFromKitSet(set: KitSet, counts: KitCounts): KitLine[] {
   const totals = new Map<string, { qty: number; cost: number }>()
   for (const kind of KIT_KINDS) {
     const n = counts[kind]
     if (!n) continue
-    for (const p of kitParts(set, kind)) {
+    for (const p of withoutBellStandIns(set, kitParts(set, kind))) {
       const was = totals.get(p.part)
       totals.set(p.part, { qty: (was?.qty ?? 0) + p.qty * n, cost: was?.cost || p.fallbackCost })
     }

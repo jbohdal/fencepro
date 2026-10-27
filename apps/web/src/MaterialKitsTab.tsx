@@ -12,7 +12,7 @@ import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import { getConfig, getRailOptimizerConfig, type AppConfig } from './configStore'
 import { getInventory, getInventoryUnitCost, getKitSets, saveKitSets, INVENTORY_UPDATED_EVENT } from './inventoryStore'
-import { allKitSets, kitSetFor, withKitSets, KIT_KINDS, KIT_LABEL, isAutoKitStyle, type KitSet, type KitKind, type KitPart } from './materialKits'
+import { allKitSets, kitSetFor, withKitSets, withoutBellStandIns, KIT_KINDS, KIT_LABEL, isAutoKitStyle, type KitSet, type KitKind, type KitPart } from './materialKits'
 import { calculateQuote } from './quoteCalc'
 import { layoutGateWidths } from './yardLayout'
 import { getQuotes } from './quoteStore'
@@ -211,7 +211,7 @@ export default function MaterialKitsTab() {
               <div key={kind} className="border border-gray-200 rounded-xl" data-kit={kind}>
                 <div className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-t-xl border-b border-gray-200">
                   <p className="text-sm font-semibold text-gray-900">{KIT_LABEL[kind]}</p>
-                  <p className="text-sm font-semibold tabular-nums text-gray-900" data-kit-cost>{money(kitCost(current.kits[kind]))}</p>
+                  <p className="text-sm font-semibold tabular-nums text-gray-900" data-kit-cost>{money(kitCost(withoutBellStandIns(current, current.kits[kind] ?? [])))}</p>
                 </div>
                 <div className="divide-y divide-gray-100">
                   {(current.kits[kind] ?? []).map(p => (
@@ -222,6 +222,7 @@ export default function MaterialKitsTab() {
                         {p.part.replace(/^\*+/, '')}
                         {perFootWords(p.qty) && kind === 'perFoot' && <span className="text-gray-500"> · {perFootWords(p.qty)}</span>}
                         {p.qty < 0 && <span className="text-amber-700"> · takes away</span>}
+                        {!withoutBellStandIns(current, current.kits[kind] ?? []).includes(p) && <span className="text-amber-700" data-kit-not-counted> · not counted ({p.part === "Misc, 6' Section" ? 'no supplier cost yet: priced as a 6x6 privacy section until one is entered' : 'the 6 ft section is counted instead'})</span>}
                       </span>
                       <span className="tabular-nums text-gray-500 w-16 text-right">{money(unitCost(p))}</span>
                       {(kind === 'perFoot' || !Number.isInteger(p.qty) || current.roundUp.includes(p.part)) && (

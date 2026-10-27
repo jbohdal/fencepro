@@ -3,6 +3,12 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-26: Bell 4'x6' section counted once (applies the Oct 21 ruling; question open)
+
+- **Found (audit Oct 26):** the Bell's saved kits (saved Oct 23 in Inventory > Material Kits) carry the 6'x6' privacy stand in parts (11 pickets, two 6 ft rails, U trim, truss) and also "Misc, 6' Section", whose Catalog cost is still the takeoff sheet's $154.34 (no supplier invoice). Both were counted: 120 ft with a walk gate was $87.57/ft, without a gate $79.91/ft (6'x6' privacy: $38.73/ft).
+- **Applied (not a new rule):** Oct 21, "priced like a 6'x6' white vinyl privacy section until the real supplier cost is entered". Per Bell kit, one or the other: while "Misc, 6' Section" costs $0 or the sheet's $154.34, the stand in parts count and the section line does not ($39.33/ft and $33.98/ft on the same yards); once another cost is entered for it, the section counts and the stand in parts do not. Material Kits marks the part not counted. In apps/web/src/materialKits.ts (withoutBellStandIns), pinned in apps/portal/tests/materialKits.test.ts. Saved quotes keep their prices.
+- **Asked of Jonathan:** is $154.34 the supplier's real price for the Bell section? If so, the rule needs his word to count it (it is the sheet's figure, which the Oct 21 ruling set aside).
+
 ## 2026-10-26 (later): 06-251706 no dig pipe; green chain link from 06-251707
 
 - **06-251706:** "GALV 2-1/2" x 8' x .116HD" (222 pieces in 6 bundles) is the no dig vinyl post pipe, Inventory "Pipe, PT40, Galv, 2-1/2" x 8'"; a piece is one each. Ordered like the others (estimated tax, fuel on the bill only).

@@ -278,6 +278,44 @@ describe('material kits reproduce the old parts lists', () => {
     expect(delta("WV-ND 6'x6' Privacy", 1, 0)['Misc, Gate Kit, No Hardware']).toBeUndefined()
   })
 
+  // Audit Oct 26 2026: the Bell's saved kits (Oct 23) carry the privacy stand in parts AND
+  // "Misc, 6' Section" ($154.34, the sheet's placeholder), so both were counted: 120 ft and a walk
+  // gate came to $87.57/ft against $38.73 for 6'x6' privacy. DECISIONS Oct 21: priced like a 6'x6'
+  // white privacy section until the real supplier cost is entered. One or the other, never both.
+  test("Bell 4'x6': the privacy stand in until the section's supplier cost is entered, then the section, never both", () => {
+    const BELL = "WV-ND Bell 4'x6'"
+    const own: KitSet = JSON.parse(JSON.stringify(builtInKitSet(BELL)!))
+    own.id = `kit-own:${BELL}`; own.builtIn = false
+    for (const k of ['section', 'walkGate'] as const) own.kits[k] = [...own.kits[k]!, { part: "Misc, 6' Section", qty: 1, fallbackCost: 0 }]
+    const job = { fenceStyle: BELL, runs: [120], corners: 0, ends: 2, walkGates: 1, dblGates: 0, tearOutSections: 0, tearOutGates: 0 }
+    const costsWith = (sectionCost: number) => ({ "Misc, 6' Section": sectionCost, '*Vinyl, White, Picket, 62-1/4"': 2.79, "*Vinyl, White, Rail, 6'": 6.65 })
+    const priced = (sectionCost: number) => {
+      setMaterialPriceSource(priceSourceFromMap(costsWith(sectionCost)))
+      try { return byPart(withKitSets([own], () => calculateMaterialsDetailed(job)).items) } finally { setMaterialPriceSource(costs ? priceSourceFromMap(costs) : null) }
+    }
+    const stock = byPart(withKitSets([], () => calculateMaterialsDetailed(job)).items)
+    // The sheet's $154.34 (no supplier cost yet): the privacy stand in, no section line; the same parts as the built in kit.
+    const placeholder = priced(154.34)
+    expect(placeholder.get("Misc, 6' Section")).toBeUndefined()
+    expect(placeholder.get('*Vinyl, White, Picket, 62-1/4"')?.qty).toBe(231)
+    expect([...placeholder].map(([p, v]) => [p, v.qty])).toEqual([...stock].map(([p, v]) => [p, v.qty]))
+    // $0 the same.
+    expect(priced(0).get("Misc, 6' Section")).toBeUndefined()
+    // A supplier cost entered ($120): 21 sections (20 + the gate leaf), and no pickets, 6 ft rails, U trim or truss.
+    const real = priced(120)
+    expect(real.get("Misc, 6' Section")?.qty).toBe(21)
+    for (const p of ['*Vinyl, White, Picket, 62-1/4"', "*Vinyl, White, Rail, 6'", '*Vinyl, White, U-Trim, 59-1/4"', '*Vinyl, Truss, 8 x 3/4" (U-Trim)']) expect(real.get(p), p).toBeUndefined()
+    // Posts and the gate's hardware stay.
+    expect(real.get('*Vinyl, White, Post, Line, 5" x 5" x 78"')?.qty).toBe(19)
+    expect(real.get('Misc, Gate Kit, No Hardware')?.qty).toBe(1)
+    // Other styles' kits are never touched.
+    const priv: KitSet = JSON.parse(JSON.stringify(builtInKitSet("WV-ND 6'x6' Privacy")!))
+    priv.kits.section = [...priv.kits.section!, { part: "Misc, 6' Section", qty: 1, fallbackCost: 120 }]
+    const p6 = byPart(withKitSets([priv], () => calculateMaterialsDetailed({ ...job, fenceStyle: "WV-ND 6'x6' Privacy" })).items)
+    expect(p6.get("Misc, 6' Section")?.qty).toBe(20)
+    expect(p6.get('*Vinyl, White, Picket, 62-1/4"')?.qty).toBe(231)
+  })
+
   test('chain link per foot parts are rounded up once per job', () => {
     const set = builtInKitSet("CL - 4' Galv")!
     const foot = new Map(set.kits.perFoot!.map(p => [p.part, p.qty]))
