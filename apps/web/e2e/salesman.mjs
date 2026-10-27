@@ -80,7 +80,7 @@ try {
   await inputs.nth(1).fill(`Salesman ${stamp}`)
   await form.locator('input[type="email"]').fill(EMAIL)
   await form.locator('input[type="radio"][value="sales_rep"]').check()
-  check('invite: Salesman is a role to pick, with what it may do', (await form.innerText()).includes('No settings, prices, team or deleting'))
+  check('invite: Salesman is a role to pick, with what it may do', (await form.innerText()).includes('Sees costs and margins. No settings, price list changes, team or deleting'))
   await shot(op, 'desktop-invite')
   await form.locator('button[type="submit"]').click()
   const link = await op.locator('[data-invite-url]').inputValue({ timeout: 15000 })
