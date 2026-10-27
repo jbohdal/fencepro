@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { formatPhone } from './phoneFormat'
+import { splitOnLastSpace } from './personName'
 import { Camera, ChevronLeft } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
@@ -144,10 +145,11 @@ function SaveModal({
   // Opened from a customer (their page, their card): the quote is theirs; no Existing / New choice unless
   // "Change customer" is tapped (review, Oct 25, 2026).
   const [knownCustomer, setKnownCustomer] = useState(() => !!initialCustomerId && !!getCustomerById(initialCustomerId))
-  const [firstName, setFirstName] = useState('')
+  // The name typed in the quote builder fills New Customer's First and Last Name (split on the last space).
+  const [firstName, setFirstName] = useState(() => splitOnLastSpace(initialCustomerName).firstName)
   // The new customer's id, chosen when this opens: tapped twice, it is one customer.
   const [newCustomerId] = useState(() => newId())
-  const [lastName, setLastName]   = useState('')
+  const [lastName, setLastName]   = useState(() => splitOnLastSpace(initialCustomerName).lastName)
   const [phone, setPhone]         = useState('')
   const [email, setEmail]         = useState('')
   const [address, setAddress]     = useState('')
