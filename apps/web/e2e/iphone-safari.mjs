@@ -71,8 +71,9 @@ const PORTAL_DIR = path.resolve(HERE, '../../portal')
 const SHOTS = process.env.SHOTS || path.join(os.homedir(), 'Downloads/ezbiz-screens-2026-10-17')
 const AREAS = (process.env.AREAS || 'fit,quote,media,payments,portal,home,reload').split(',').map(s => s.trim())
 const RELOADS = Math.max(1, Number(process.env.RELOADS || 5))
-const PHOTO = process.env.MEDIA_PHOTO || ''
-const VIDEO = process.env.MEDIA_VIDEO || ''
+// The made up test photo and video in fixtures/ (no real job) unless others are named, as run-heavy.sh does.
+const PHOTO = process.env.MEDIA_PHOTO || path.join(HERE, 'fixtures', 'test-photo.jpg')
+const VIDEO = process.env.MEDIA_VIDEO || path.join(HERE, 'fixtures', 'test-video.mp4')
 const TAG = DRIVER === 'safari' ? 'iphone' : `iphone-pw-${DRIVER}`
 fs.mkdirSync(SHOTS, { recursive: true })
 
@@ -155,10 +156,30 @@ async function safariDriver() {
     await touch(x + sx, y + sy)
   }
   const fingerOn = async css => {
-    const r = await wd('POST', '/execute/sync', { script: `const e = document.querySelector(arguments[0]); e.scrollIntoView({ block: 'center', inline: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }`, args: [css] })
-    await sleep(250)
+    await wd('POST', '/execute/sync', { script: `document.querySelector(arguments[0]).scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' })`, args: [css] })
+    // Measured once it has stopped moving (a smooth scroll, a header settling, lazy rows drawn above it): a point
+    // measured mid-move sent the finger to where the element had been.
+    let r = null
+    for (let i = 0; i < 12; i++) {
+      await sleep(i ? 150 : 250)
+      const now = await wd('POST', '/execute/sync', { script: `const r = document.querySelector(arguments[0]).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }`, args: [css] })
+      if (r && Math.abs(now.x - r.x) < 1 && Math.abs(now.y - r.y) < 1) break
+      r = now
+    }
     const [sx, sy, w, h] = await where()
-    if (r.x + sx < w - 1 && r.y + sy < h - 1) return touch(r.x + sx, r.y + sy)
+    if (r.x + sx < w - 1 && r.y + sy < h - 1) {
+      // Where the finger landed is checked: in the Simulator a touch on a page with its own scrolling area
+      // (the customer page) can land well below the point sent (seen Oct 27 2026: sent at y 265, arrived at
+      // clientY 391, on empty space, so the photo never opened). A touch that missed the element is followed
+      // by its click(), and listed like the taps below the first screen.
+      await wd('POST', '/execute/sync', { script: `const el = document.querySelector(arguments[0]); window.__e2eHit = null; document.addEventListener('touchstart', ev => { const t = ev.changedTouches[0]; window.__e2eHit = el.contains(ev.target) || ev.target.tagName.toLowerCase() + ' at ' + Math.round(t.clientX) + ',' + Math.round(t.clientY) }, { capture: true, once: true })`, args: [css] })
+      await touch(r.x + sx, r.y + sy)
+      const hit = await wd('POST', '/execute/sync', { script: 'return window.__e2eHit', args: [] }).catch(() => true)
+      if (hit === true || hit === null) return
+      clickedNotTouched.add(`${css} (sent at ${Math.round(r.x)},${Math.round(r.y)}, landed on ${hit})`)
+      await wd('POST', '/execute/sync', { script: 'document.querySelector(arguments[0]).focus?.(); document.querySelector(arguments[0]).click()', args: [css] })
+      return
+    }
     clickedNotTouched.add(css)
     await wd('POST', '/execute/sync', { script: 'document.querySelector(arguments[0]).focus?.(); document.querySelector(arguments[0]).click()', args: [css] })
   }
@@ -457,7 +478,8 @@ async function media() {
   if (idx >= 0) {
     await D.tap('[data-e2e-photo]')
     const big = await until(() => D.exec(`const i = document.querySelector('[data-media-viewer] [data-viewer-image]'); return !!i && i.complete && i.naturalWidth > 0`), 20000)
-    await check('tapping it opens the photo full size', !!big)
+    const seen = big ? '' : await D.exec(`const v = document.querySelector('[data-media-viewer]'); const i = v && v.querySelector('[data-viewer-image]'); return JSON.stringify({ viewer: !!v, image: !!i, video: !!(v && v.querySelector('[data-viewer-video]')), src: i ? i.getAttribute('src').slice(0, 120) : null, complete: i ? i.complete : null, width: i ? i.naturalWidth : null })`).catch(e => String(e.message).slice(0, 120))
+    await check('tapping it opens the photo full size', !!big, seen)
     await D.exec(`[...document.querySelectorAll('[data-media-viewer] button')].find(b => b.innerText.trim() === 'Close')?.click()`)
   } else await check('a photo tile to open', false)
   const ready = await until(async () => ((await call('GET', `/api/media?customerId=${T.contactId}`)).json.data ?? []).every(m => m.status === 'ready'), 60000, 1500)
@@ -637,6 +659,17 @@ async function reloads() {
       const st = await D.execAsync(`const done = arguments[arguments.length - 1]; fetch('/api/crm-auth/login', { method: 'POST', credentials: 'include', headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ email: arguments[0], password: arguments[1], cookie: true }) }).then(r => done(r.status), e => done(String(e)))`, [sales?.email ?? '', sales?.password ?? ''])
       await check('the Salesman signs in (a login of its own)', st === 200, `${st}${sales ? '' : ' (the login could not be made)'}`)
       if (st !== 200) continue
+    } else {
+      // The owner signs in again first: the portal and home areas before this one end signed out (they clear the
+      // cookies to show the sign in pages), so the owner's reloads all showed Sign In (Oct 27 2026 night run).
+      await D.clearCookies()
+      await D.goto(`${APP}/`); await sleep(1500)
+      await D.addStaffCookie(COOKIE).catch(async () => {
+        await D.execAsync(`const done = arguments[arguments.length - 1]; fetch('/api/crm-auth/move-over', { method: 'POST', credentials: 'include', headers: { Authorization: 'Bearer ' + arguments[0], 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, body: '{}' }).then(r => done(r.status), e => done(String(e)))`, [OWNER])
+      })
+      const me = await D.execAsync(`const done = arguments[arguments.length - 1]; fetch('/api/crm-auth/me', { credentials: 'include' }).then(r => done(r.status), e => done(String(e)))`)
+      await check('the owner is signed in again for the reloads', me === 200, String(me))
+      if (me !== 200) continue
     }
     const before = simPageMemory()
     const crashesBefore = D.crashes()
@@ -747,7 +780,7 @@ try {
   for (const r of results) { byArea[r.area] ??= [0, 0]; byArea[r.area][r.ok ? 0 : 1]++ }
   console.log('\n' + Object.entries(byArea).map(([a, [p, f]]) => `${a}: ${p} passed, ${f} failed`).join('\n'))
   const failed = results.filter(r => !r.ok).length
-  if (clickedNotTouched.size) console.log(`\nnote: below the first screen of a scrolling page, safaridriver cannot touch; clicked instead: ${[...clickedNotTouched].join(', ')}`)
+  if (clickedNotTouched.size) console.log(`\nnote: below the first screen of a scrolling page, or where the touch landed off the element, safaridriver could not touch; clicked instead: ${[...clickedNotTouched].join(', ')}`)
   if (typedBySetter.size) console.log(`\nnote: safaridriver's keys inserted no text in the Simulator; set as typed: ${[...typedBySetter].join(', ')}`)
   console.log(`\n${results.length - failed} of ${results.length} checks passed (${DRIVER})`)
   process.exit(failed ? 1 : 0)
