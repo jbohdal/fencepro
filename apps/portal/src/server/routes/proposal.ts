@@ -600,7 +600,7 @@ export function trackScript(token: string): string {
     var base=${JSON.stringify(token)}+'/view',id=null,o={},act=0,sig=false,started=false,last=Date.now(),seen={};
     var sp=null;try{var m=/[?&]sp=([^&#]+)/.exec(location.search);if(m){sp=decodeURIComponent(m[1]);history.replaceState(null,'',location.pathname+location.hash)}}catch(_){}
     window.__proposalView=function(){return id};
-    var cards=[].slice.call(document.querySelectorAll('.opt[data-option]'));
+    var cards=[].slice.call(document.querySelectorAll('.opt[data-option]')),byOpt={};cards.forEach(function(c){byOpt[c.getAttribute('data-option')]=c});
     if('IntersectionObserver' in window){
       var th=[];for(var i=0;i<=20;i++)th.push(i/20);
       var io=new IntersectionObserver(function(es){es.forEach(function(e){seen[e.target.getAttribute('data-option')]=e.isIntersecting?e.intersectionRect.height:0})},{threshold:th});
@@ -610,7 +610,7 @@ export function trackScript(token: string): string {
     }
     var pad=document.getElementById('sig');if(pad)pad.addEventListener('pointerdown',function(){sig=true},{passive:true});
     function step(){var now=Date.now(),d=now-last;last=now;if(!started||document.visibilityState!=='visible'||d<=0||d>5000)return;act+=d;var best=pick();if(best!==null)o[best]=(o[best]||0)+d}
-    function pick(){var mid=(window.innerHeight||0)/2,best=null,bh=0;for(var k in seen){if(!(seen[k]>0))continue;var c=cards[+k];if(!c)continue;var r=c.getBoundingClientRect();if(r.top<=mid&&r.bottom>=mid)return k;if(seen[k]>bh){bh=seen[k];best=k}}return best}
+    function pick(){var mid=(window.innerHeight||0)/2,best=null,bh=0;for(var k in seen){if(!(seen[k]>0))continue;var c=byOpt[k];if(!c)continue;var r=c.getBoundingClientRect();if(r.top<=mid&&r.bottom>=mid)return k;if(seen[k]>bh){bh=seen[k];best=k}}return best}
     function body(){return JSON.stringify({o:o,a:act,sig:sig})}
     function beat(){if(!id)return;try{fetch(base+'/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:body(),keepalive:true}).catch(function(){})}catch(_){}}
     function bye(){step();if(!id)return;try{if(navigator.sendBeacon&&navigator.sendBeacon(base+'/'+id,new Blob([body()],{type:'text/plain'})))return}catch(_){}beat()}
