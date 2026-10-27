@@ -16,6 +16,9 @@ import { layoutPanelFt } from './gateSlide'
 import type { QuoteCalcInput, QuoteStyle } from './quoteCalc'
 import { isQuotable } from './styleAvailability'
 import { styleLabel, colorNamesOf } from './fenceCatalog'
+import { styleParts, type StyleParts } from './proposalOptions'
+
+export { styleParts, type StyleParts }
 
 export type TierKey = string
 export type TierInstall = 'same' | 'no-dig' | 'dig-set'
@@ -67,49 +70,7 @@ export const tierPhotoName = (category: string, key: TierKey) => `tier:${categor
 
 // ── Reading a style name ─────────────────────────────────────────────────────
 
-export interface StyleParts {
-  family: 'vinyl' | 'chain' | 'alum'
-  color: string | null
-  install: 'no-dig' | 'dig-set' | null
-  /** Height in feet, as written in the name. */
-  height: string
-  /** Section width in feet; 'auto' for the auto mix styles; null where the family has one width. */
-  width: number | 'auto' | null
-  /** Aluminum model (Emily - 48, Ind Abigail). */
-  model?: string
-}
-
-const VINYL = /^(WV|TV)-(ND|DS) (\d+)'x(\d+)' Privacy$/
-const VINYL_AUTO = /^(WV|TV)-Auto (ND|DS) Privacy$/
-const CHAIN = /^CL - (\d+)' (Galv|Black)$/
-const ALUM = /^Alum - (ND|DS) - (.+)$/
-
-/** What a style is, from its old code; a combination made in Settings (a color added later) from its choices. */
-export function styleParts(name: string, style?: { material?: string; choices?: Record<string, string>; madeFrom?: string } | null): StyleParts | null {
-  const fromCode = partsFromCode(name)
-  if (fromCode || !style?.madeFrom || !style.material || !style.choices) return fromCode
-  const c = style.choices
-  const install = c.install === 'nd' ? 'no-dig' : c.install === 'ds' ? 'dig-set' : null
-  if (style.material === 'vinyl') {
-    return { family: 'vinyl', color: c.color ?? null, install, height: c.height ?? '', width: c.width === 'auto' ? 'auto' : Number(c.width), ...(c.style && c.style !== 'privacy' ? { model: c.style } : {}) }
-  }
-  if (style.material === 'chain') return c.grade === 'res' ? { family: 'chain', color: c.finish ?? null, install: c.install === 'ds' ? 'dig-set' : 'no-dig', height: c.height ?? '', width: null } : null
-  if (style.material === 'alum') return { family: 'alum', color: null, install, height: c.height ?? '', width: null, model: c.panel }
-  return null
-}
-
-function partsFromCode(name: string): StyleParts | null {
-  let m = name.match(VINYL)
-  if (m) return { family: 'vinyl', color: m[1] === 'WV' ? 'white' : 'tan', install: m[2] === 'ND' ? 'no-dig' : 'dig-set', height: m[3], width: Number(m[4]) }
-  m = name.match(VINYL_AUTO)
-  if (m) return { family: 'vinyl', color: m[1] === 'WV' ? 'white' : 'tan', install: m[2] === 'ND' ? 'no-dig' : 'dig-set', height: '6', width: 'auto' }
-  m = name.match(CHAIN)
-  // Every chain link style priced before Oct 2026 is the no dig one.
-  if (m) return { family: 'chain', color: m[2] === 'Galv' ? 'galv' : 'black', install: 'no-dig', height: m[1], width: null }
-  m = name.match(ALUM)
-  if (m) return { family: 'alum', color: null, install: m[1] === 'ND' ? 'no-dig' : 'dig-set', height: '', width: null, model: m[2] }
-  return null
-}
+// styleParts lives with the proposal's option rules (proposalOptions.ts), which the server's proposal page uses too.
 
 /** "tan, no dig, 6 ft tall, 6 ft wide vinyl privacy" */
 function describe(p: { family: StyleParts['family']; color: string | null; install: string | null; height: string; width: number | 'auto' | null | 'any'; model?: string }): string {

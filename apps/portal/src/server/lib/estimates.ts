@@ -84,6 +84,8 @@ interface EstimateModule {
   sameFenceAs(options: unknown[] | null | undefined): number[]
   shownOptions(options: unknown[] | null | undefined): number[]
   startingOption(options: unknown[] | null | undefined, quote: { fenceStyle?: string | null; finalPrice?: number | null }, recommended: number): number
+  /** A best price quote's own option and the tier it is shown as (web/src/proposalOptions.ts ownTierFold). */
+  ownTierFold(options: unknown[] | null | undefined, quote: { fenceStyle?: string | null }, styleOf?: (name: string) => { material?: string; choices?: Record<string, string>; madeFrom?: string } | null | undefined, tierSpecs?: Array<{ key: string; width?: string }> | null): { own: number; tier: number } | null
 }
 
 /**

@@ -179,6 +179,34 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     expect(await notices(q)).toHaveLength(0)
   })
 
+  test('a best price quote: its own option shows as Better, in Better\'s place, at the quoted price, selected; three cards; signs at that price', async () => {
+    const tier = (o: ReturnType<typeof opt>, key: string, label: string, badge?: string) => ({ ...o, tier: { key, label, blurb: `${label} words` }, ...(badge ? { badge } : {}) })
+    const own = { ...opt('White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig', 'WV-Auto ND Privacy', 7179), snapshot: { pullSheet: [{ item: 'mix', qty: 1 }], runRails: ['6ft', '8ft'] } }
+    const q = await makeQuote('E2E Sold Best Price', {
+      status: 'SENT', fenceStyle: 'WV-Auto ND Privacy', finalPrice: 7179,
+      proposal: {
+        version: 1, company: { name: 'Getter Done Fence', phone: '3528442677' }, customer: { name: 'E2E Sold Best Price' }, depositPct: 50, recommended: 1, terms: [],
+        tierSet: { category: 'Vinyl', popular: 'better', tiers: [{ key: 'good', width: 'cheapest' }, { key: 'better', width: 'cheapest' }, { key: 'best', width: '6' }] },
+        options: [tier(options[0], 'good', 'Good'), tier(options[1], 'better', 'Better', 'Most popular'), tier(opt('6 ft panels, No dig', "WV-ND 6'x6' Privacy", 7924), 'best', 'Best'), own],
+      },
+    })
+    const html = await page(q.shareToken!)
+    expect(html.match(/data-option="/g)).toHaveLength(3)
+    expect([...html.matchAll(/data-option="(\d)"/g)].map(m => m[1])).toEqual(['0', '3', '2'])
+    expect(html).toMatch(/data-option="3">\s*<input type="radio" name="option" value="3" checked>/)
+    const card = html.slice(html.indexOf('data-option="3"'), html.indexOf('data-option="2"'))
+    expect(card).toContain('Most popular')
+    expect(card).toContain('<span class="tier">Better</span>')
+    expect(card).toContain('6 or 8 ft panels (best price)')
+    expect(card).toContain('$7,179')
+    expect(html).not.toContain('$7,363')
+    expect(html).toContain('Save $1,086')
+    expect(html).toContain('$745 more')
+    const r = await accept(q.shareToken!, 3, 'Pat Best')
+    expect(r.status).toBe(200)
+    expect((await prisma.savedQuote.findUnique({ where: { id: q.id } }))!).toMatchObject({ chosenOption: 3, fenceStyle: 'WV-Auto ND Privacy', finalPrice: 7179 })
+  })
+
   test('Billing > Payments\' source: every payment not voided, with its customer, job and receipt', async () => {
     const q = await makeQuote('E2E Sold Paid', { status: 'SOLD', soldAt: new Date() })
     const job = await prisma.savedJob.create({ data: { accountId, quoteId: q.id, crmContactId: contactId, customerName: 'E2E Sold Paid', customerAddress: '9 Sold Test Way, Ocala, FL', fenceStyle: "WV-ND 6'x8' Privacy", quotePrice: 7363, contractValue: 7363, status: 'staging' } as any })

@@ -12,7 +12,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
 import { proposalTerms, stampTerms, frozenTerms, plainTermText, companyAddressOf, contractSectionsOf, DEFAULT_CONTRACT_SECTIONS } from '../../web/src/contractTerms'
-import { sameFenceAs, shownOptions, startingOption } from '../../web/src/proposalOptions'
+import { sameFenceAs, shownOptions, startingOption, ownTierFold } from '../../web/src/proposalOptions'
 import { priceOption } from '../../web/src/proposal'
 import { renderProposal } from '../src/server/routes/proposal.js'
 import { contractPdf, type ContractInput } from '../src/server/lib/contractPdf.js'
@@ -94,6 +94,29 @@ describe('proposal options', () => {
     // A different warranty or a different price is a different option.
     expect(sameFenceAs([better, { ...ownOpt, warranty: { name: 'Other' } }])).toEqual([-1, -1])
     expect(sameFenceAs([better, { ...ownOpt, finalPrice: ownOpt.finalPrice + 1 }])).toEqual([-1, -1])
+  })
+
+  test('a best price option cheaper than its tier is shown as that tier, in its place, at the quoted price (review Oct 27 2026)', () => {
+    const o = (fenceStyle: string, finalPrice: number, key?: string) => ({ fenceStyle, finalPrice, ...(key ? { tier: { key } } : {}), snapshot: { pullSheet: [{ item: fenceStyle, qty: 1 }] } })
+    const specs = [{ key: 'good', width: 'cheapest' }, { key: 'better', width: 'cheapest' }, { key: 'best', width: '6' }]
+    // White no dig best price at $7,179 (6 and 8 ft panels per run) and Better, all 8 ft panels for the yard, at $7,363.
+    const opts = [o("WV-DS 6'x8' Privacy", 6093, 'good'), o("WV-ND 6'x8' Privacy", 7363, 'better'), o("WV-ND 6'x6' Privacy", 7924, 'best'), o('WV-Auto ND Privacy', 7179)]
+    const fold = ownTierFold(opts, { fenceStyle: 'WV-Auto ND Privacy' }, () => null, specs)
+    expect(fold).toEqual({ own: 3, tier: 1 })
+    // Three cards: Good, the quote's own in Better's place, Best. No price changes; the quote's own starts selected.
+    expect(shownOptions(opts, fold)).toEqual([0, 3, 2])
+    expect(startingOption(opts, { fenceStyle: 'WV-Auto ND Privacy', finalPrice: 7179 }, 1)).toBe(3)
+    // A dig set best price is Good's fence.
+    const ds = [...opts.slice(0, 3), o('WV-Auto DS Privacy', 5900)]
+    expect(ownTierFold(ds, { fenceStyle: 'WV-Auto DS Privacy' }, () => null, specs)).toEqual({ own: 3, tier: 0 })
+    // Not folded: a tier that takes one set width (Best, all 6 ft), another color, or a quote that is not a best price mix.
+    expect(ownTierFold([o("WV-ND 6'x6' Privacy", 7924, 'best'), o('WV-Auto ND Privacy', 7179)], { fenceStyle: 'WV-Auto ND Privacy' }, () => null, specs)).toBeNull()
+    expect(ownTierFold([o("TV-ND 6'x8' Privacy", 7900, 'better'), o('WV-Auto ND Privacy', 7179)], { fenceStyle: 'WV-Auto ND Privacy' }, () => null, specs)).toBeNull()
+    expect(ownTierFold(opts, { fenceStyle: "WV-ND 6'x8' Privacy" }, () => null, specs)).toBeNull()
+    // The same fence at the same price as Better (all 8 ft panels came out): hidden as before, nothing to fold.
+    const same = [...opts.slice(0, 3), { ...o('WV-Auto ND Privacy', 7363), snapshot: opts[1].snapshot }]
+    expect(ownTierFold(same, { fenceStyle: 'WV-Auto ND Privacy' }, () => null, specs)).toBeNull()
+    expect(shownOptions(same)).toEqual([0, 1, 2])
   })
 
   test('selected at first: the option the quote was made with, else the recommended one', () => {

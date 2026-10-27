@@ -32,7 +32,7 @@ import rateLimit from 'express-rate-limit'
 import { startView, beatView, markSigned, ignoredRequest, proposalOpenedPush } from '../lib/proposalViews.js'
 import { contractForQuote, warrantyLines } from '../lib/contractPdf.js'
 import { installDateOf } from '../lib/warranties.js'
-import { pricingModule, plainStyleName } from '../lib/estimates.js'
+import { pricingModule, plainStyleName, estimateStyleList } from '../lib/estimates.js'
 import { overlayAcceptedUpdate } from '../lib/warrantyUpdates.js'
 import { depositOf } from '../lib/paymentMath.js'
 import { clientIpOf } from '../lib/staffDevices.js'
@@ -103,7 +103,7 @@ export function monthlyPayment(price: number, aprPct: number, months: number): n
   return r > 0 ? (price * r) / (1 - Math.pow(1 + r, -months)) : price / months
 }
 
-export interface ProposalOption { label: string; fenceStyle: string; finalPrice: number; perFoot: number; sections: number; photoId?: string | null; adjustmentCents?: number; tier?: { label?: string; blurb?: string }; badge?: string; snapshot?: any; warranty?: { id?: string | null; name?: string; text?: string } }
+export interface ProposalOption { label: string; fenceStyle: string; finalPrice: number; perFoot: number; sections: number; photoId?: string | null; adjustmentCents?: number; tier?: { key?: string; label?: string; blurb?: string }; badge?: string; snapshot?: any; warranty?: { id?: string | null; name?: string; text?: string } }
 export interface Proposal {
   version: number
   company?: { name?: string; phone?: string; email?: string; address?: string }
@@ -128,6 +128,8 @@ export interface Proposal {
   showDiscount?: boolean
   /** Settings → Contract Templates as the customer reads and signs them (lib/contractTerms.ts), frozen on the proposal. */
   terms?: Term[]
+  /** The tier set as it was when the proposal was made (web/src/proposal.ts): how each tier picks its width. */
+  tierSet?: { tiers?: Array<{ key: string; width?: string }> }
 }
 
 /** What the page shows beyond the saved proposal: worked out by proposalPage (never saved). */
@@ -144,6 +146,8 @@ export interface ProposalPageView {
   sold?: number
   /** Sold for a fence not on this proposal (sold -1): that fence in plain words, as the page names it. */
   soldLabel?: string
+  /** The order the options show in, by place (a quote's own best price option in its tier's place); every place when not given. */
+  order?: number[]
   /** The page reloaded after a signing was refused (?refused=1): it says why, first (refusalText). */
   refused?: boolean
 }
@@ -172,11 +176,23 @@ export async function proposalPage(q: { accountId: string; acceptedAt: Date | nu
   const shown: Proposal = { ...p, terms, company: { ...(p.company ?? {}), ...(address ? { address } : {}) } }
   const dup = m.sameFenceAs(p.options)
   const hidden = dup.map((d, i) => (d >= 0 ? i : -1)).filter(i => i >= 0)
+  // A best price quote's own option is the fence of one tier (6 or 8 ft panels per run, where the tier takes one width for
+  // the whole yard): shown once, as that tier at the quote's price, in its place (web/src/proposalOptions.ts ownTierFold).
+  const styles = new Map((await estimateStyleList().catch(() => [])).map(s => [s.name, s]))
+  const fold = m.ownTierFold(p.options, q, (n: string) => styles.get(n), p.tierSet?.tiers)
+  let order: number[] | undefined
+  if (fold) {
+    const t = p.options[fold.tier]
+    shown.options = p.options.map((o, i) => i === fold.own ? { ...o, tier: t.tier, badge: t.badge, photoId: t.photoId || o.photoId } : o)
+    if (p.recommended === fold.tier) shown.recommended = fold.own
+    hidden.push(fold.tier)
+    order = p.options.map((_o, i) => i).filter(i => i !== fold.own).map(i => (i === fold.tier ? fold.own : i))
+  }
   const start = m.startingOption(p.options, q, p.recommended ?? 0)
   // Sold in the app before the customer signed the link: only the option it was sold for can be signed.
   const sold = signed && !q.acceptedAt ? signedOptionOf(p.options, q, dup) : undefined
   const soldLabel = sold === -1 ? await plainStyleName(q.fenceStyle).catch(() => q.fenceStyle) : undefined
-  return { p: shown, view: { start, hidden, ...(sold === undefined ? {} : { sold }), ...(soldLabel ? { soldLabel } : {}) } }
+  return { p: shown, view: { start, hidden, ...(order ? { order } : {}), ...(sold === undefined ? {} : { sold }), ...(soldLabel ? { soldLabel } : {}) } }
 }
 
 /** An option's price block: the final price; with "Show as discount" and a reduction, the list price and a Discount line above it. */
@@ -615,7 +631,10 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
   const perFootText = (n: number) => whole ? `About ${money(n)}` : money2(n)
   const monthlyText = (n: number) => whole ? money(Math.ceil(n)) : money2(n)
 
-  const options = p.options.map((o, i) => {
+  const order = view.order ?? p.options.map((_o, i) => i)
+  const options = order.map(i => {
+    const o = p.options[i]
+    if (!o) return ''
     // The same fence at the same price as an option shown before it: not shown again (the chosen one always is).
     if (hidden.has(i) && i !== chosen) return ''
     // Accepted or sold: the fence that stands only.
