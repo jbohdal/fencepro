@@ -267,6 +267,8 @@ export async function waitingCount(owner?: string | null): Promise<number> {
 // ── Upload ────────────────────────────────────────────────────────────────────
 
 let current: Promise<void> | null = null
+/** Asked again while a run was going: one more run right after it, for what was added since. */
+let again = false
 const progress = new Map<string, number>()
 export const uploadProgress = (clientId: string) => progress.get(clientId) ?? 0
 /** Why the server turned a capture down (it stays on the phone until it is removed); kept for this visit. */
@@ -284,12 +286,15 @@ async function json<T>(r: Response | null): Promise<T | null> {
 
 /**
  * Sends everything waiting, oldest first, resuming each where it stopped.
- * Called while it is already running, it returns that run (call again after
- * it to send something added since). A capture the server turns down is
- * skipped (its reason in uploadRefusedWhy) so the ones after it still go.
+ * Called while it is already running, it returns that run and runs once more
+ * right after it, so a capture saved while a run was going goes up too
+ * (review Oct 27 2026: two photos picked at once, the first one's run had
+ * already read the list before the second was saved, and the second waited
+ * for "Upload now" or the 30 second retry). A capture the server turns down
+ * is skipped (its reason in uploadRefusedWhy) so the ones after it still go.
  */
 export function uploadAll(): Promise<void> {
-  if (current) return current
+  if (current) { again = true; return current }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve()
   current = (async () => {
     // Only while someone is signed in, and only that person's captures (and older ones with no owner).
@@ -300,7 +305,11 @@ export function uploadAll(): Promise<void> {
       const r = await uploadOne(m)
       if (r === 'retry') break
     }
-  })().finally(() => { current = null; notify() })
+  })().finally(() => {
+    current = null
+    notify()
+    if (again) { again = false; uploadAll().catch(() => {}) }
+  })
   return current
 }
 
