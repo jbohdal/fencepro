@@ -127,7 +127,11 @@ export async function setupList(accountId: string): Promise<SetupItem[]> {
   // The Bell's own item (the one-time step flagged it); any other fence flagged with a note gets a line of its own.
   const BELL = "WV-ND Bell 4'x6'"
   const reviewStyles = styles.filter((s: any) => (s?.needsCostReview === true || flaggedOnce.includes(s?.name)) && !(s?.costReviewNote && s?.name !== BELL))
-  const toReview = reviewStyles.filter((s: any) => s.needsCostReview === true)
+  // Saving the kits clears the flag even with no price, so the Catalog's cost for the section decides too:
+  // above $0 and not the takeoff sheet's $154.34 placeholder (apps/web/src/materialKits.ts bellSectionCostEntered).
+  const bellCents = Math.round(Number(items.find(i => i?.name === "Misc, 6' Section")?.unitCost) * 100) || 0
+  const bellCostEntered = bellCents > 0 && bellCents !== 15434
+  const toReview = reviewStyles.filter((s: any) => s.needsCostReview === true || (s?.name === BELL && !bellCostEntered))
   const noted = styles.filter((s: any) => s?.needsCostReview === true && typeof s?.costReviewNote === 'string' && s.costReviewNote && s.name !== BELL)
   // Plain names ("Chai Gray Vinyl Privacy, 6 ft tall, 8 ft panels, No dig"), from the app's own pricing code.
   const plainName = new Map<string, string>(noted.length ? (await pricingWithData().then(({ m, data }) => (m.estimateConfig(data.config).fenceStyles as any[]).map(f => [f.name, f.label || f.name] as [string, string])).catch(() => [])) : [])

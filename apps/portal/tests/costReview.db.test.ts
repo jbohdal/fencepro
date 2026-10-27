@@ -119,6 +119,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Bell needs cost review (dev data
     expect((await saveInventory([{ id: 'k-priv', name: 'Privacy', styleName: "WV-ND 6'x6' Privacy", kits: {}, roundUp: [] }, bellKit])).status).toBe(200)
     expect((await bellStyle()).needsCostReview).toBeUndefined()
     expect((await prisma.businessState.findUnique({ where: { accountId } })).version).toBe(before + 1)
+    // Kits saved but no real cost in the Catalog (none, or the sheet's $154.34): not ticked off (Oct 27 2026).
+    expect(await setupItem()).toMatchObject({ done: false })
+    const kitsNow = [{ id: 'k-priv', name: 'Privacy', styleName: "WV-ND 6'x6' Privacy", kits: {}, roundUp: [] }, bellKit]
+    expect((await saveInventory(kitsNow, [{ id: 'i1', name: "Misc, 6' Section", unitCost: 154.34 }])).status).toBe(200)
+    expect(await setupItem()).toMatchObject({ done: false })
+    expect((await saveInventory(kitsNow, [{ id: 'i1', name: "Misc, 6' Section", unitCost: 138.5 }])).status).toBe(200)
     expect(await setupItem()).toMatchObject({ done: true, detail: 'Entered.' })
 
     // The one-time step again: not flagged back.
