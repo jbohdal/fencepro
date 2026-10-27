@@ -69,7 +69,8 @@ import { initVendors, isVendorsHydrated } from './vendorStore'
 import { initBusinessState, isBusinessStateHydrated } from './businessStateStore'
 import { initCloudStorage, isCloudStorageHydrated } from './cloudStorage'
 import { initOpsStages, isOpsStagesLoaded } from './opsStagesStore'
-import { initPipelineStages, isPipelineStagesLoaded, isFinished } from './pipelineStagesStore'
+import { initPipelineStages, isPipelineStagesLoaded, isFinished, stageName } from './pipelineStagesStore'
+import { applyQuoteSaved } from './appointmentPipeline'
 import { startIntakeSync } from './intakeStore'
 import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
@@ -704,9 +705,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       // (round 2 review, Oct 26 2026).
       const toSend = sendAfterSave.current && q.status !== 'SOLD' && !!q.id
       sendAfterSave.current = false
+      // The card moves on to the Ready to quote stage (Settings > Pipeline Stages; Estimating to start) when it is
+      // still before it, as a visit closed "Ready to quote" does (audit Oct 26 2026: it stayed in Appointment).
+      const movedTo = toSend && q.customerId ? applyQuoteSaved(q.customerId) : null
       if (toSend) navigate(`${pagePath('Quotes')}?qv=${encodeURIComponent(q.id)}`)
       // Not "saved" until the server has it: the quote shows Saved then, and the badge at the top until then.
-      if (toSend) toast.info('Quote stored', 'Send the proposal from here: Text it, Email it or Copy link. The quote shows Saved once it has gone through.')
+      if (toSend) toast.info('Quote stored', `${movedTo ? `Card moved to ${stageName(movedTo)}. ` : ''}Send the proposal from here: Text it, Email it or Copy link. The quote shows Saved once it has gone through.`)
       // "Sold, job created" only on the save that sold it; saving an already signed quote again is just stored.
       else toast.info(q.status === 'SOLD' && !wasSold ? 'Quote sold, job created' : 'Quote stored', 'Sending it now. The quote shows Saved once it has gone through; with no signal it waits on this phone and goes by itself.')
 
@@ -1215,7 +1219,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             else { setEditingQuote(null); setShowQuote(true) }
           }} />}
           {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={handleOpenQuote} onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
-          {active === 'Sales Pipeline' && <SalesPipelineBoard onNewQuote={c => openQuoteFor(c, { reuseDraft: true })} onOpenQuote={q => handleOpenQuote(q)} />}
+          {active === 'Sales Pipeline' && <SalesPipelineBoard onNewQuote={c => { openQuoteFor(c, { reuseDraft: true }); sendAfterSave.current = true }} onOpenQuote={q => handleOpenQuote(q)} />}
           {active === 'Operations'     && <OperationsBoard />}
           {active === 'Jobs'           && <OperationsBoard />}
           {active === 'Staging'        && <OperationsBoard />}

@@ -3,6 +3,7 @@
  *
  *   - Booking an Estimate moves a card that is still before the Appointment stage to it.
  *   - "Ready to quote" moves it to the Ready to quote stage; "Not interested" offers the Lost stage.
+ *   - A quote saved from the visit moves it to the Ready to quote stage too.
  *   (The stages by role, from Settings > Pipeline Stages.)
  *
  * The rules are in appointmentLogic (stageAfterBooking, stageAfterOutcome);
@@ -53,5 +54,18 @@ export function applyOutcome(a: Pick<Appointment, 'crmContactId' | 'customerName
   const r = stageAfterOutcome(card?.stage, outcome, getPipelineStages())
   if (r.move && moveCard(a.crmContactId, r.move)) { toast.info('Pipeline updated', `Card moved to ${stageName(r.move)}.`); return r.move }
   if (r.offer && window.confirm(`Move ${a.customerName || 'this customer'} to ${stageName(r.offer)} in the pipeline?`) && moveCard(a.crmContactId, r.offer)) return r.offer
+  return null
+}
+
+/**
+ * A quote saved from the visit (Today's "Save and start the quote", or New quote on the card at the
+ * appointment): the card moves on as "Ready to quote" does, to the Ready to quote stage (Settings >
+ * Pipeline Stages, by role; Estimating to start) when it is still before it. Audit Oct 26 2026: it
+ * stayed in Appointment. Returns the stage it moved to.
+ */
+export function applyQuoteSaved(customerId: string): string | null {
+  const card = cardFor(customerId)
+  const r = stageAfterOutcome(card?.stage, 'ready_to_quote', getPipelineStages())
+  if (r.move && moveCard(customerId, r.move)) return r.move
   return null
 }
