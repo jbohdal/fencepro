@@ -1,12 +1,12 @@
 /**
  * My tasks and reminders (from automations, or made by hand elsewhere), on
  * the Today screen. A prepared text opens the phone's messages with the words
- * filled in; a link opens; Done marks it done on the server. Overdue and
+ * filled in; a link opens; "Mark done" marks it done on the server (Undo on the row for a few seconds). Overdue and
  * today's come first; "Show more" pages on. The Done view lists the ones closed
  * in the last 14 days and why ("Closed by itself on …", or marked done).
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, openPdf, type Task } from './automationsApi'
 import { toast } from './toast'
 
@@ -30,6 +30,8 @@ function Description({ text }: { text: string }) {
 const AUTO_CLOSED = /Closed by itself on [^\n]+/
 
 const PAGE = 50
+/** How long a task just marked done stays on the list with Undo. */
+const UNDO_MS = 8000
 const dayOf = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 const wordsDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })
 
@@ -48,9 +50,21 @@ export default function TasksList() {
     } catch (err) { setError((err as Error).message) }
   }, [view, shown])
   useEffect(() => { void load(); const t = setInterval(load, 60_000); return () => clearInterval(t) }, [load])
+  // Marked done: the row stays a few seconds with Undo (review Oct 27 2026: "Done" read like the Done tab, and a
+  // real task was closed by mistake). Undo puts it back as it was (its status before).
+  const [closed, setClosed] = useState<Record<string, string>>({})
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  useEffect(() => () => { Object.values(timers.current).forEach(clearTimeout) }, [])
+  const forget = (id: string) => { clearTimeout(timers.current[id]); delete timers.current[id]; setClosed(c => { const n = { ...c }; delete n[id]; return n }) }
   async function done(t: Task) {
-    setTasks(list => list?.filter(x => x.id !== t.id) ?? null)
-    try { await api('PATCH', `/tasks/${t.id}`, { status: 'completed' }) } catch (err) { toast.error('Could not mark it done', (err as Error).message); void load() }
+    setClosed(c => ({ ...c, [t.id]: t.status }))
+    timers.current[t.id] = setTimeout(() => { forget(t.id); setTasks(list => list?.filter(x => x.id !== t.id) ?? null) }, UNDO_MS)
+    try { await api('PATCH', `/tasks/${t.id}`, { status: 'completed' }) } catch (err) { forget(t.id); toast.error('Could not mark it done', (err as Error).message); void load() }
+  }
+  async function undo(t: Task) {
+    const was = closed[t.id] && closed[t.id] !== 'completed' ? closed[t.id] : 'pending'
+    forget(t.id)
+    try { await api('PATCH', `/tasks/${t.id}`, { status: was }); toast.success('Back on your list', t.title) } catch (err) { toast.error('Could not undo it', (err as Error).message); void load() }
   }
   function switchTo(v: 'open' | 'done') { if (v === view) return; setView(v); setShown(PAGE); setTasks(null); setMore(false) }
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -83,6 +97,12 @@ export default function TasksList() {
             )
           }
           const due = t.dueDate ? dayOf(t.dueDate) : ''
+          if (closed[t.id] !== undefined) return (
+            <li key={t.id} className="px-4 py-3 flex gap-3 items-center bg-green-50" data-task={t.id} data-task-just-done>
+              <p className="flex-1 min-w-0 text-sm text-green-900"><b>Marked done:</b> {t.title}</p>
+              <button type="button" className="btn btn-secondary btn-sm shrink-0 min-h-[44px]" onClick={() => undo(t)} data-task-undo>Undo</button>
+            </li>
+          )
           return (
             <li key={t.id} className="px-4 py-3 flex gap-3" data-task={t.id}>
               <div className="flex-1 min-w-0 space-y-1">
@@ -90,7 +110,7 @@ export default function TasksList() {
                 <p className="text-xs text-gray-500">{[t.jobName, due ? (due < today ? `overdue (${due})` : due === today ? 'due today' : `due ${due}`) : '', t.assignedTo ? `for ${t.assignedTo}` : ''].filter(Boolean).join(' · ')}</p>
                 {t.description && <Description text={t.description} />}
               </div>
-              <button type="button" className="btn btn-secondary btn-sm shrink-0" onClick={() => done(t)} data-task-done>Done</button>
+              <button type="button" className="btn btn-secondary btn-sm shrink-0" onClick={() => done(t)} data-task-done>Mark done</button>
             </li>
           )
         })}
