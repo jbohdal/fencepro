@@ -498,6 +498,36 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
     }
   })
 
+  // Recheck Oct 27 2026: a test driving the worker with a pretend clock days ahead made a real card's run fail
+  // 23 minutes into its wait with "No job was made for it in 3 days". The wait is measured on the real clock.
+  test('waiting for the job: a pretend clock days ahead does not end the wait; after 3 real days it fails saying how long', async () => {
+    const c3 = await prisma.crmContact.create({ data: { accountId, firstName: 'Testy', lastName: `${tag} longwait`, email: 'testy@example.com', phone: '352-555-0100', serviceAddress: '100 Pecan Dr, Ocala, FL 34472', city: 'Ocala', tags: ['Residential'] } as any })
+    try {
+      const rule = await makeRule({ name: 'long wait', board: 'sales', trigger: { type: 'card_entered', stage: 'Estimating', settleMinutes: 2, onlyWhileInStage: false }, steps: [{ type: 'permit_packet', assignTo: '' }] })
+      const card = await addCard('First Contact', { customerId: c3.id })
+      await move(card, 'Estimating')
+      await Q.tick(new Date(), { scan: false })
+      let [run] = (await runsOf(rule.id)).filter(r => r.entityId === card)
+      await Q.executeRun(run.id, later(3 * MIN))
+      ;[run] = (await runsOf(rule.id)).filter(r => r.entityId === card)
+      expect(run.status).toBe('waiting')
+      // Twenty days ahead on a pretend clock, minutes on the real one: still waiting, not failed.
+      await Q.executeRun(run.id, later(20 * 86_400_000))
+      ;[run] = (await runsOf(rule.id)).filter(r => r.entityId === card)
+      expect(run.status).toBe('waiting')
+      expect((run.log as any[]).map(l => l.result)).not.toContain('failed')
+      // Its wait began 4 real days ago (as the log has it): it fails, and says 4 days.
+      const log = (run.log as any[]).map(l => (l.result === 'waiting for job' ? { ...l, at: new Date(Date.now() - 4 * 86_400_000).toISOString() } : l))
+      await prisma.automationRun.update({ where: { id: run.id }, data: { log, nextRunAt: new Date(Date.now() - 1000) } })
+      await Q.executeRun(run.id, new Date())
+      ;[run] = (await runsOf(rule.id)).filter(r => r.entityId === card)
+      expect(run.status).toBe('failed')
+      expect(run.lastError).toMatch(/No job was made for it in 4 days of waiting\.$/)
+    } finally {
+      await prisma.crmContact.deleteMany({ where: { id: c3.id } })
+    }
+  })
+
   test('waiting for the job: looks again after 1, 5 and 15 minutes, then every hour', () => {
     expect(Q.jobWaitAfter(0)).toBe(1 * MIN)
     expect(Q.jobWaitAfter(1 * MIN)).toBe(5 * MIN)

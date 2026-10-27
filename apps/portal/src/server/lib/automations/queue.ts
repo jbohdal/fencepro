@@ -33,6 +33,7 @@ import { sendPush } from './push.js'
 import { isQuietImportCard } from '../importCards.js'
 import { followUpMorningPush } from '../followUps.js'
 import { proposalOpenedSweep } from '../proposalViews.js'
+import { closeFinishedTasks } from '../taskAutoClose.js'
 import { PERMIT_STATUS_LABEL, portalFor, type PermitStatus } from './permits.js'
 import { OFFICE_NOTICE_ROLE, PERMIT_REMINDER_PREFIX } from '../notificationService.js'
 import type { AutomationEvent, AutomationRule, AutomationRun } from '@prisma/client'
@@ -201,6 +202,20 @@ export function jobWaitAfter(waitedMs: number): number {
   return waitedMs < a ? a : waitedMs < a + b ? b : waitedMs < a + b + c ? c : d
 }
 
+/** How long step `i` has waited for its job, by the real clock (the log's times), never past `now`. */
+function waitedForJob(log: LogEntry[], i: number, now: Date): number {
+  const first = log.find(l => l.step === i && l.result === 'waiting for job')
+  const clock = Math.min(now.getTime(), Date.now())
+  return first ? Math.max(0, clock - new Date(first.at).getTime()) : 0
+}
+
+/** The failure's words after waiting for the job: how long it really waited. */
+export function jobWaitGaveUp(waitedMs: number): string {
+  const days = Math.floor(waitedMs / 86_400_000), hours = Math.floor(waitedMs / 3600_000), mins = Math.round(waitedMs / 60_000)
+  const span = days >= 1 ? `${days} day${days === 1 ? '' : 's'}` : hours >= 1 ? `${hours} hour${hours === 1 ? '' : 's'}` : `${mins} minute${mins === 1 ? '' : 's'}`
+  return `No job was made for it in ${span} of waiting.`
+}
+
 /** Run a queued run as far as it can go now. Returns its status after. */
 export async function executeRun(runId: string, now = new Date()): Promise<string> {
   // Take it: only one worker, and only when it is due.
@@ -258,8 +273,10 @@ export async function executeRun(runId: string, now = new Date()): Promise<strin
       // to Run again (WaitForJobError in types.ts). Woken when a job is made; up to JOB_WAIT_MAX_MS.
       if ((err as any)?.waitForJob) {
         const waits = log.filter(l => l.step === i && l.result === 'waiting for job')
-        const since = waits.length ? new Date(waits[0].at).getTime() : now.getTime()
-        const waited = now.getTime() - since
+        // The log's times are the real clock: measure the wait on it too, never past it. A test driving the
+        // worker with a pretend clock days ahead made a real card's run, 23 minutes into its wait, fail
+        // with "No job was made for it in 3 days" (recheck Oct 27 2026).
+        const waited = waitedForJob(log, i, now)
         if (waited < JOB_WAIT_MAX_MS) {
           const until = new Date(now.getTime() + jobWaitAfter(waited))
           const note = waits.length ? [] : [entry(i, 'waiting for job', `${reason} This step runs by itself as soon as the job is made.`)]
@@ -269,7 +286,7 @@ export async function executeRun(runId: string, now = new Date()): Promise<strin
       }
       const attempts = run.attempts + 1
       if ((err as any)?.permanent || (err as any)?.waitForJob || attempts >= MAX_ATTEMPTS) {
-        const why = (err as any)?.waitForJob ? `${reason} No job was made for it in ${JOB_WAIT_MAX_MS / 86_400_000} days.` : reason
+        const why = (err as any)?.waitForJob ? `${reason} ${jobWaitGaveUp(waitedForJob(log, i, now))}` : reason
         await save(run, { status: 'failed', attempts, lastError: why }, [entry(i, 'failed', why)])
         await tellFailure(rule, run, ctx, i, step, why)
         return 'failed'
@@ -570,6 +587,8 @@ export async function tick(now = new Date(), opts: { scan?: boolean; sweeps?: bo
         try { await followUpMorningPush(now) } catch (err) { console.error('[automations] follow up morning push:', err) }
         // Proposal opened pushes a restart kept from going out (each once, lib/proposalViews.ts).
         try { await proposalOpenedSweep(now) } catch (err) { console.error('[automations] proposal opened push:', err) }
+        // Automation tasks whose job says they are done (permit Approved, scheduled, materials ordered, job Paid) close by themselves.
+        try { await closeFinishedTasks() } catch (err) { console.error('[automations] closing finished tasks:', err) }
       }
     }
     for (let guard = 0; guard < 20; guard++) {
