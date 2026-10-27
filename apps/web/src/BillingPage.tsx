@@ -2,11 +2,11 @@
  * Accounts Receivable / Billing Dashboard
  */
 
-import { useState, useMemo, useEffect } from 'react'
-import { sendJson } from './syncHttp'
+import { useState, useMemo } from 'react'
 import { navigate } from './nav'
 import jsPDF from 'jspdf'
-import { getInvoices, getPayments, getARSummary, type Invoice, type Payment } from './billingStore'
+import { getInvoices, getPayments, type Invoice, type Payment } from './billingStore'
+import { useReceivables, receivablesNow } from './moneyLoad'
 import { PaymentsToConfirm } from './Payments'
 import { businessDate } from './businessDate'
 import { getConfig } from './configStore'
@@ -15,26 +15,9 @@ const fmtD = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFra
 
 type Tab = 'ar' | 'invoices' | 'overdue' | 'payments'
 
-/** An open invoice on a job's payment schedule (portal lib/jobTruth.ts receivables). */
-interface Receivable {
-  invoiceId: string; jobId: string; customerId: string | null; customerName: string; address: string; fenceStyle: string
-  label: string; kind: string; amountCents: number; balanceCents: number; state: 'not_due' | 'due' | 'overdue' | 'paid'; dueDate: string | null; daysOver: number
-}
 type Aging = { agingCurrent: number; aging1to30: number; aging31to60: number; aging61to90: number; aging90plus: number; outstandingCents: number; overdueCents: number }
 const usDay = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : d || '')
 const emptyAging = (): Aging => ({ agingCurrent: 0, aging1to30: 0, aging31to60: 0, aging61to90: 0, aging90plus: 0, outstandingCents: 0, overdueCents: 0 })
-
-/** What is owed on the payment schedules, from the server (one source with the job's Financial and Payments). */
-function useReceivables(): { rows: Receivable[] | null; error: string } {
-  const [rows, setRows] = useState<Receivable[] | null>(null)
-  const [error, setError] = useState('')
-  useEffect(() => {
-    let live = true
-    sendJson('GET', '/api/payments/receivables').then(r => { if (!live) return; if (r.result.ok && Array.isArray(r.json?.data)) setRows(r.json.data); else setError(r.json?.error || 'What is owed needs signal to load.') })
-    return () => { live = false }
-  }, [])
-  return { rows, error }
-}
 
 const statusColors: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700',
@@ -382,33 +365,32 @@ export default function BillingPage() {
   // The old hand-typed invoices, except those taken into a job's payment schedule (they are counted there).
   const invoices = useMemo(() => getInvoices().filter(i => !i.adoptedJobId), [])
   const payments = useMemo(() => getPayments(), [])
-  const legacyAr = useMemo(() => getARSummary(), [])
   const { rows: owed, error: owedError } = useReceivables()
   const today = businessDate(new Date())
 
-  // Accounts receivable: the payment schedules (what every job owes, due and overdue by the same rule as the
-  // job's Financial), plus hand-typed invoices still open. By customer, aged by days past due.
+  // Per customer: the schedules' open invoices, and hand-made invoices not taken into a schedule
+  // (the same invoices moneyTruth.receivablesTotal adds up for the Outstanding and the Balance Sheet).
   const arData = useMemo(() => {
     const by = new Map<string, { customerId: string; customerName: string; summary: Aging }>()
     const row = (id: string, name: string) => by.get(id) ?? by.set(id, { customerId: id, customerName: name, summary: emptyAging() }).get(id)!
-    for (const r of owed ?? []) {
-      const a = row(r.customerId || r.jobId, r.customerName).summary
-      const cents = r.balanceCents
+    const add = (a: Aging, cents: number, overdue: boolean, daysOver: number) => {
       a.outstandingCents += cents
-      if (r.state !== 'overdue') a.agingCurrent += cents
-      else { a.overdueCents += cents; if (r.daysOver <= 30) a.aging1to30 += cents; else if (r.daysOver <= 60) a.aging31to60 += cents; else if (r.daysOver <= 90) a.aging61to90 += cents; else a.aging90plus += cents }
+      if (!overdue) a.agingCurrent += cents
+      else { a.overdueCents += cents; if (daysOver <= 30) a.aging1to30 += cents; else if (daysOver <= 60) a.aging31to60 += cents; else if (daysOver <= 90) a.aging61to90 += cents; else a.aging90plus += cents }
     }
-    const adoptedCustomers = new Set(getInvoices().filter(i => i.adoptedJobId).map(i => i.customerId))
-    for (const l of legacyAr) {
-      if (adoptedCustomers.has(l.customerId)) continue
-      const a = row(l.customerId, l.customerName).summary
-      for (const k of ['agingCurrent', 'aging1to30', 'aging31to60', 'aging61to90', 'aging90plus', 'outstandingCents', 'overdueCents'] as const) a[k] += l.summary[k]
+    for (const r of owed ?? []) if (r.balanceCents > 0) add(row(r.customerId || r.jobId, r.customerName).summary, r.balanceCents, r.state === 'overdue', r.daysOver)
+    for (const i of getInvoices()) {
+      if (i.adoptedJobId || i.status === 'void' || !(i.balanceDueCents > 0)) continue
+      const due = (i.dueDate || '').slice(0, 10)
+      const daysOver = due && due < today ? Math.round((Date.parse(`${today}T12:00:00Z`) - Date.parse(`${due}T12:00:00Z`)) / 86_400_000) : 0
+      add(row(i.customerId, i.customerName).summary, i.balanceDueCents, daysOver > 0, daysOver)
     }
     return [...by.values()].filter(r => r.summary.outstandingCents > 0).sort((a, b) => b.summary.overdueCents - a.summary.overdueCents || b.summary.outstandingCents - a.summary.outstandingCents)
-  }, [owed, legacyAr])
+  }, [owed, today])
 
-  const totalOutstanding = arData.reduce((s, r) => s + r.summary.outstandingCents, 0)
-  const totalOverdue = arData.reduce((s, r) => s + r.summary.overdueCents, 0)
+  const totals = receivablesNow(owed ?? [], today)
+  const totalOutstanding = totals.outstandingCents
+  const totalOverdue = totals.overdueCents
   const weekEnd = (() => { const t = new Date(`${today}T12:00:00Z`); t.setUTCDate(t.getUTCDate() + 7); return t.toISOString().slice(0, 10) })()
   const dueThisWeek = (owed ?? []).filter(r => r.state !== 'overdue' && r.dueDate && r.dueDate >= today && r.dueDate <= weekEnd).reduce((s, r) => s + r.balanceCents, 0)
     + invoices.filter(i => i.balanceDueCents > 0 && i.dueDate >= today && i.dueDate <= weekEnd).reduce((s, i) => s + i.balanceDueCents, 0)
@@ -459,7 +441,7 @@ export default function BillingPage() {
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Outstanding</p><p className="text-2xl font-bold text-gray-900" data-ar-outstanding={totalOutstanding}>{owed ? fmtD(totalOutstanding) : '…'}</p></div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Overdue</p><p className="text-2xl font-bold text-red-600" data-ar-overdue={totalOverdue}>{owed ? fmtD(totalOverdue) : '…'}</p></div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Due This Week</p><p className="text-2xl font-bold text-orange-600">{fmtD(dueThisWeek)}</p></div>
-        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Open invoices</p><p className="text-2xl font-bold text-gray-900">{(owed?.length ?? 0) + invoices.filter(i => i.balanceDueCents > 0 && i.status !== 'void').length}</p></div>
+        <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Open invoices</p><p className="text-2xl font-bold text-gray-900">{totals.openCount}</p></div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Customers w/ Balance</p><p className="text-2xl font-bold text-gray-900">{arData.length}</p></div>
       </div>
 
