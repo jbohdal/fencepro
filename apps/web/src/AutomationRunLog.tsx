@@ -26,7 +26,7 @@ export function RunCard({ run, onChanged, open: startOpen = false }: { run: Run;
       <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-start gap-2 text-left min-h-[44px]">
         <span className={`chip ${STATUS_STYLE[run.status] ?? 'bg-gray-100 text-gray-700'}`}>{STATUS_WORD[run.status] ?? run.status}</span>
         <span className="flex-1 min-w-0">
-          <span className="block text-sm font-semibold text-gray-900">{run.ruleName}</span>
+          <span className="block text-sm font-semibold text-gray-900">{run.ruleName}{run.onCard ? <span className="font-normal text-gray-500" data-run-on-card> · on the pipeline card</span> : null}</span>
           <span className="block text-xs text-gray-600">{when(run.createdAt)}{run.status === 'waiting' || run.status === 'queued' ? ` · next ${when(run.nextRunAt)}` : ''}</span>
           {run.status === 'failed' && run.lastError && <span className="block text-xs text-red-700 mt-0.5">{run.lastError}</span>}
         </span>
@@ -53,13 +53,14 @@ export function RunCard({ run, onChanged, open: startOpen = false }: { run: Run;
   )
 }
 
-export default function AutomationRunLog({ entityId, title = 'Automations' }: { entityId: string; title?: string }) {
+/** `job`: entityId is a job, so its pipeline card's runs show too (the Signed Contract rule runs on the card). */
+export default function AutomationRunLog({ entityId, title = 'Automations', job = false }: { entityId: string; title?: string; job?: boolean }) {
   const [runs, setRuns] = useState<Run[] | null>(null)
   const [error, setError] = useState('')
   const load = useCallback(async () => {
-    try { setRuns(await api<Run[]>('GET', `/runs?entityId=${encodeURIComponent(entityId)}&limit=30`)); setError('') }
+    try { setRuns(await api<Run[]>('GET', `/runs?${job ? 'jobId' : 'entityId'}=${encodeURIComponent(entityId)}&limit=30`)); setError('') }
     catch (err) { setError((err as Error).message) }
-  }, [entityId])
+  }, [entityId, job])
   useEffect(() => { void load(); const t = setInterval(load, 20_000); return () => clearInterval(t) }, [load])
   return (
     <section className="bg-white rounded-2xl border border-gray-200 px-4 py-3" data-run-log={entityId}>

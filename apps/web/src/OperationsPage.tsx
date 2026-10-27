@@ -277,7 +277,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {/* The 811 locate: one record, the crew packet edits the same (JobTruth.tsx, portal lib/locates.ts). */}
         {isJobSource && job.rawJob && <Section title="811 locate"><LocatePanel job={job.rawJob} /></Section>}
         {isJobSource && !crew && <Section title="Permit"><PermitPanel jobId={job.id} /></Section>}
-        {isJobSource && <AutomationRunLog entityId={job.id} />}
+        {isJobSource && <AutomationRunLog entityId={job.id} job />}
 
         {/* The milestones, from the job's records: the locate, the permit, materials, the schedule, the walkthrough, photos, the payment schedule (portal lib/jobReadiness.ts). */}
         <Section title="Milestone Checklist">
