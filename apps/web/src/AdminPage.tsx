@@ -315,7 +315,7 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Item Catalog</h2>
-          <p className="text-sm text-gray-400 mt-0.5">{items.length} items · grouped by category, A to Z · click name to edit · changes apply to future quotes</p>
+          <p className="text-sm text-gray-400 mt-0.5">{items.length} items · grouped by category, A to Z{canPrice ? ' · click name to edit · changes apply to future quotes' : ''}</p>
         </div>
         {canPrice ? <div className="flex flex-wrap gap-2">
           <button onClick={handleReset} className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50">Reset defaults</button>
